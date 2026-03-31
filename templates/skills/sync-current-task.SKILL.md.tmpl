@@ -1,0 +1,147 @@
+---
+name: sync-current-task
+preamble-tier: 2
+version: 0.2.0
+description: |
+  Update CURRENT_TASK.md so execution progress, validation status, and remaining risks are accurately recorded.
+purpose: |
+  回写 CURRENT_TASK.md 的执行状态、验证结果和剩余问题。
+stage: 阶段 7：状态同步
+trigger: |
+  每轮实现与验证完成后。
+inputs:
+  - current_task
+  - actual_results
+  - verification_results
+reads:
+  - CURRENT_TASK.md
+  - 验证结果
+  - 实际修改结果
+writes:
+  - CURRENT_TASK.md
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+must_check:
+  - 完成步骤是否打勾
+  - 实际结果与预期差异是否写清
+  - 剩余问题是否可见
+stop_conditions:
+  - 当前步骤实际未完成却试图标记为完成
+  - 验证结果不足以支撑完成声明
+output:
+  - 更新后的 CURRENT_TASK.md
+handoff:
+  success: sync-status
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动更新已完成步骤和验证结果格式。
+  taste: 不要美化结果或省略失败信息。
+  user_challenge: 不得把未完成工作写成已完成。
+verification:
+  - CURRENT_TASK.md 执行记录与本轮事实一致
+  - 失败与偏差都已保留
+  - 后续步骤状态清晰
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /run-regression
+notes:
+  - CURRENT_TASK.md 是任务真实执行记录，不是对外汇报稿。
+sync_rules:
+  - 每轮结束都要同步
+  - 任务偏差和未解决风险必须保留
+---
+
+# Skill: sync-current-task
+
+## Purpose
+
+回写 CURRENT_TASK.md 的执行状态、验证结果和剩余问题。
+
+## Trigger
+
+每轮实现与验证完成后。
+
+## Inputs
+
+- current_task
+- actual_results
+- verification_results
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 完成步骤是否打勾
+- 实际结果与预期差异是否写清
+- 剩余问题是否可见
+
+## Stop Conditions
+
+- 当前步骤实际未完成却试图标记为完成
+- 验证结果不足以支撑完成声明
+
+## Decision Policy
+
+- `mechanical`: 可以自动更新已完成步骤和验证结果格式。
+- `taste`: 不要美化结果或省略失败信息。
+- `user_challenge`: 不得把未完成工作写成已完成。
+
+## Verification
+
+- CURRENT_TASK.md 执行记录与本轮事实一致
+- 失败与偏差都已保留
+- 后续步骤状态清晰
+
+## Extension Fields
+
+### sync_rules
+- 每轮结束都要同步
+- 任务偏差和未解决风险必须保留
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- CURRENT_TASK.md 是任务真实执行记录，不是对外汇报稿。
+- This is a draft skill template generated from the workflow schema in `vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

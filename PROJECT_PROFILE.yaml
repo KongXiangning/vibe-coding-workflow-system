@@ -1,0 +1,102 @@
+schema_version: 1
+
+project:
+  name: gstack
+  slug: gstack
+  type: ai-engineering-workflow
+  summary: >
+    AI engineering workflow framework built around Markdown skills, a persistent
+    Chromium daemon, and Bun/TypeScript tooling for host-specific skill generation.
+  primary_hosts:
+    - claude
+    - codex
+    - factory
+
+runtime:
+  languages:
+    - TypeScript
+    - Markdown
+    - Shell
+  package_manager: bun
+  module_system: esm
+  build_commands:
+    - bun run build
+  test_commands:
+    - bun test
+    - bun run skill:check
+    - bun run test:audit
+  dev_commands:
+    - bun run dev
+    - bun run server
+    - bun run dev:skill
+
+paths:
+  source_directories:
+    - scripts
+    - browse/src
+    - design/src
+    - test
+    - browse/test
+  documentation_files:
+    - README.md
+    - ARCHITECTURE.md
+    - vibe-coding-workflow.md
+    - vibe-coding-methodology.md
+  workflow_template_directories:
+    - templates/skills
+  existing_skill_template_patterns:
+    - "*/SKILL.md.tmpl"
+    - "SKILL.md.tmpl"
+  generated_artifacts:
+    - browse/dist/**
+    - design/dist/**
+    - "**/SKILL.md"
+
+boundaries:
+  forbidden_paths:
+    - .git/**
+    - node_modules/**
+  generated_only_paths:
+    - browse/dist/**
+    - design/dist/**
+    - "**/SKILL.md"
+  workflow_owned_paths:
+    - PROJECT_PROFILE.yaml
+    - templates/skills/**
+  human_review_required:
+    - README.md
+    - ARCHITECTURE.md
+    - vibe-coding-workflow.md
+    - vibe-coding-methodology.md
+
+architecture_rules:
+  - Keep repository-wide automation and generators in scripts/.
+  - Treat templates/skills/ as workflow skill template sources, not runtime outputs.
+  - Do not hand-edit generated outputs in dist/ or generated SKILL.md files.
+  - Preserve the subsystem split between browse/, design/, scripts/, and docs.
+  - Prefer Bun/TypeScript for new generation and validation tooling.
+
+decision_types:
+  - mechanical
+  - taste
+  - user_challenge
+
+governance:
+  current_documents:
+    - vibe-coding-workflow.md
+    - vibe-coding-methodology.md
+    - templates/skills/*.SKILL.md.tmpl
+  planned_documents:
+    - PROJECT_PROFILE.yaml
+    - SKILL_REGISTRY.md
+    - WORKFLOW_PROTOCOL.md
+    - FILE_SCHEMAS.md
+
+validation:
+  preferred_checks:
+    - bun test
+    - bun run skill:check
+  required_for_generator_work:
+    - handoff graph closes
+    - reads/writes boundaries are non-conflicting
+    - all workflow stages are covered

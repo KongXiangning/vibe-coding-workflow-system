@@ -1,0 +1,180 @@
+---
+name: lock-scope
+preamble-tier: 2
+version: 0.2.0
+description: |
+  Lock the allowed and forbidden modification scope before any implementation begins.
+purpose: |
+  锁定本轮允许修改与禁止修改的边界。
+stage: 阶段 2：范围锁定
+trigger: |
+  在任何实现动作开始前。
+inputs:
+  - current_task
+  - contracts
+  - confirmed_decisions
+reads:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+writes:
+  - CURRENT_TASK.md
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - db/**
+must_check:
+  - 允许修改范围是否足够小
+  - 禁止修改范围是否清楚
+  - 锁定契约是否已识别
+  - 决策越界是否可见
+stop_conditions:
+  - 需要改范围外文件
+  - 需要触碰 CONTRACTS.md 中的锁定边界
+  - 需要覆盖 DECISIONS.md 中已确认的决策
+output:
+  - 范围锁定结论
+  - CURRENT_TASK.md 中补充的边界说明
+handoff:
+  success: classify-decisions
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动整理和合并边界清单。
+  taste: 不要用主观偏好扩大或缩小修改范围。
+  user_challenge: 发现必须越界时必须停下，不能静默继续。
+verification:
+  - 允许修改范围和禁止修改范围都已显式记录
+  - 涉及的锁定契约已列出
+  - 没有把范围外工作混入当前任务
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /review-current-task
+notes:
+  - 范围锁定结果应该回写到 CURRENT_TASK.md，而不是只留在回复中。
+contract_layers:
+  - 接口契约
+  - 架构契约
+scope_sources:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+diff_filters:
+  - 仅允许后续审查当前授权目录
+  - 发现范围外文件即视为越界
+violation_levels:
+  - "minor: 可解释的边缘越界"
+  - "major: 非授权代码改动"
+  - "critical: 破坏锁定契约或已确认决策"
+---
+
+# Skill: lock-scope
+
+## Purpose
+
+锁定本轮允许修改与禁止修改的边界。
+
+## Trigger
+
+在任何实现动作开始前。
+
+## Inputs
+
+- current_task
+- contracts
+- confirmed_decisions
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 允许修改范围是否足够小
+- 禁止修改范围是否清楚
+- 锁定契约是否已识别
+- 决策越界是否可见
+
+## Stop Conditions
+
+- 需要改范围外文件
+- 需要触碰 CONTRACTS.md 中的锁定边界
+- 需要覆盖 DECISIONS.md 中已确认的决策
+
+## Decision Policy
+
+- `mechanical`: 可以自动整理和合并边界清单。
+- `taste`: 不要用主观偏好扩大或缩小修改范围。
+- `user_challenge`: 发现必须越界时必须停下，不能静默继续。
+
+## Verification
+
+- 允许修改范围和禁止修改范围都已显式记录
+- 涉及的锁定契约已列出
+- 没有把范围外工作混入当前任务
+
+## Extension Fields
+
+### contract_layers
+- 接口契约
+- 架构契约
+
+### scope_sources
+- CURRENT_TASK.md
+- CONTRACTS.md
+- DECISIONS.md
+
+### diff_filters
+- 仅允许后续审查当前授权目录
+- 发现范围外文件即视为越界
+
+### violation_levels
+- minor: 可解释的边缘越界
+- major: 非授权代码改动
+- critical: 破坏锁定契约或已确认决策
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 范围锁定结果应该回写到 CURRENT_TASK.md，而不是只留在回复中。
+- This is a draft skill template generated from the workflow schema in `vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

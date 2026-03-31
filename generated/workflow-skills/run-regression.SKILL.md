@@ -1,0 +1,188 @@
+---
+name: run-regression
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Run existing tests and minimum smoke checks to ensure the change did not break
+  stable behavior.
+purpose: |
+  运行已有测试或最小 smoke check，确认旧功能未被破坏。
+stage: 阶段 6：回归验证
+trigger: |
+  通过范围复核后。
+inputs:
+  - current_task
+  - project_profile
+  - test_commands
+  - smoke_check_list
+reads:
+  - CURRENT_TASK.md
+  - PROJECT_PROFILE.yaml
+  - 测试命令
+  - 验证清单
+writes: []
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+  - CURRENT_TASK.md
+  - STATUS.md
+must_check:
+  - 先跑与当前改动直接相关的测试
+  - 核心稳定功能是否仍正常
+  - 最小 smoke check 是否完成
+stop_conditions:
+  - 关键测试失败
+  - 验证结果与任务目标冲突
+  - 现有测试缺失但无法完成人工检查
+output:
+  - 测试结果
+  - smoke check 结论
+  - 是否通过的判断
+handoff:
+  success: sync-current-task
+  failure: investigate-root-cause
+decision_policy:
+  mechanical: 可以自动运行已有测试和整理结果。
+  taste: 不要为了看起来更好而删减失败信息。
+  user_challenge: 关键验证失败时不得自称通过。
+verification:
+  - 已运行相关测试或完成最小 smoke check
+  - 已明确给出 pass / fail 判断
+  - 失败时已转入 investigate-root-cause
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /verify-contracts
+notes:
+  - 优先复用现有测试，不额外引入新测试体系。
+test_sources:
+  - PROJECT_PROFILE.yaml 中的测试命令
+  - CURRENT_TASK.md 中的回归检查项
+smoke_checks:
+  - 关键页面可打开
+  - 核心流程可走通
+  - 原有按钮 / 表单 / 接口正常
+pass_criteria:
+  - 相关测试通过
+  - 关键 smoke check 无阻断问题
+failure_policy:
+  - 测试失败时进入 investigate-root-cause，而不是直接大改代码
+---
+
+# Skill: run-regression
+
+## Purpose
+
+运行已有测试或最小 smoke check，确认旧功能未被破坏。
+
+## Trigger
+
+通过范围复核后。
+
+## Inputs
+
+- current_task
+- project_profile
+- test_commands
+- smoke_check_list
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 先跑与当前改动直接相关的测试
+- 核心稳定功能是否仍正常
+- 最小 smoke check 是否完成
+
+## Stop Conditions
+
+- 关键测试失败
+- 验证结果与任务目标冲突
+- 现有测试缺失但无法完成人工检查
+
+## Decision Policy
+
+- `mechanical`: 可以自动运行已有测试和整理结果。
+- `taste`: 不要为了看起来更好而删减失败信息。
+- `user_challenge`: 关键验证失败时不得自称通过。
+
+## Verification
+
+- 已运行相关测试或完成最小 smoke check
+- 已明确给出 pass / fail 判断
+- 失败时已转入 investigate-root-cause
+
+## Extension Fields
+
+### test_sources
+- PROJECT_PROFILE.yaml 中的测试命令
+- CURRENT_TASK.md 中的回归检查项
+
+### smoke_checks
+- 关键页面可打开
+- 核心流程可走通
+- 原有按钮 / 表单 / 接口正常
+
+### pass_criteria
+- 相关测试通过
+- 关键 smoke check 无阻断问题
+
+### failure_policy
+- 测试失败时进入 investigate-root-cause，而不是直接大改代码
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 优先复用现有测试，不额外引入新测试体系。
+- This is a draft skill template generated from the workflow schema in `vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

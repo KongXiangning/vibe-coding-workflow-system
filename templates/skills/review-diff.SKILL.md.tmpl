@@ -1,0 +1,203 @@
+---
+name: review-diff
+preamble-tier: 2
+version: 0.2.0
+description: |
+  Review the current diff for scope drift, decision drift, and obvious regression risk.
+purpose: |
+  审查当前 diff 是否越界、是否偏离任务意图。
+stage: 阶段 5：范围复核
+trigger: |
+  每完成一个实现步骤后。
+inputs:
+  - current_diff
+  - current_task
+  - contracts
+  - decisions
+reads:
+  - git diff
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+writes: []
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+must_check:
+  - 是否超出允许修改范围
+  - 是否顺手做了无关改动
+  - 是否覆盖既有决策
+stop_conditions:
+  - 发现高风险越界
+  - 发现明显决策漂移
+  - 当前 diff 无法映射到任务目标
+output:
+  - 边界审查结论
+  - 越界与回归风险列表
+handoff:
+  success: verify-contracts
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动做范围和文件级差异检查。
+  taste: 不要把个人偏好包装成审查问题。
+  user_challenge: 发现意图偏移时必须明确上浮。
+verification:
+  - 已对照任务范围和决策执行审查
+  - 已输出 clean 或问题列表
+  - 没有直接修改代码
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /implement-current-step
+notes:
+  - 这是只读审查 skill。
+contract_layers:
+  - 接口契约
+  - 架构契约
+scope_sources:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+diff_filters:
+  - 当前 step 相关文件
+  - 授权范围外文件
+  - 无关格式化噪音
+violation_levels:
+  - "minor: 边缘杂质"
+  - "major: 非授权改动"
+  - "critical: 决策或边界漂移"
+test_sources:
+  - CURRENT_TASK.md 的回归检查项
+smoke_checks:
+  - 必要时补充建议验证点
+pass_criteria:
+  - 要么 clean，要么给出明确问题清单
+failure_policy:
+  - 发现严重问题时停止继续推进并交给 ask-user
+---
+
+# Skill: review-diff
+
+## Purpose
+
+审查当前 diff 是否越界、是否偏离任务意图。
+
+## Trigger
+
+每完成一个实现步骤后。
+
+## Inputs
+
+- current_diff
+- current_task
+- contracts
+- decisions
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 是否超出允许修改范围
+- 是否顺手做了无关改动
+- 是否覆盖既有决策
+
+## Stop Conditions
+
+- 发现高风险越界
+- 发现明显决策漂移
+- 当前 diff 无法映射到任务目标
+
+## Decision Policy
+
+- `mechanical`: 可以自动做范围和文件级差异检查。
+- `taste`: 不要把个人偏好包装成审查问题。
+- `user_challenge`: 发现意图偏移时必须明确上浮。
+
+## Verification
+
+- 已对照任务范围和决策执行审查
+- 已输出 clean 或问题列表
+- 没有直接修改代码
+
+## Extension Fields
+
+### contract_layers
+- 接口契约
+- 架构契约
+
+### scope_sources
+- CURRENT_TASK.md
+- CONTRACTS.md
+- DECISIONS.md
+
+### diff_filters
+- 当前 step 相关文件
+- 授权范围外文件
+- 无关格式化噪音
+
+### violation_levels
+- minor: 边缘杂质
+- major: 非授权改动
+- critical: 决策或边界漂移
+
+### test_sources
+- CURRENT_TASK.md 的回归检查项
+
+### smoke_checks
+- 必要时补充建议验证点
+
+### pass_criteria
+- 要么 clean，要么给出明确问题清单
+
+### failure_policy
+- 发现严重问题时停止继续推进并交给 ask-user
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是只读审查 skill。
+- This is a draft skill template generated from the workflow schema in `vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

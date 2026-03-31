@@ -1,0 +1,199 @@
+---
+name: create-current-task
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Generate the first draft of CURRENT_TASK.md from the user request and current
+  project state.
+purpose: |
+  根据用户需求生成可执行的 CURRENT_TASK.md 初稿。
+stage: 阶段 1：需求进入
+trigger: |
+  当用户提出新需求，且当前没有可直接执行的任务包时。
+inputs:
+  - user_request
+  - project_profile
+  - current_status
+  - confirmed_decisions
+reads:
+  - PROJECT_PROFILE.yaml
+  - STATUS.md
+  - DECISIONS.md
+writes:
+  - CURRENT_TASK.md
+forbidden_writes:
+  - CONTRACTS.md
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+must_check:
+  - 任务目标是否明确
+  - 验收标准是否可验证
+  - 允许与禁止修改范围是否明确
+  - 回滚点是否存在
+stop_conditions:
+  - 需求本身模糊
+  - 任务边界无法确定
+  - 涉及已确认决策但未说明
+output:
+  - CURRENT_TASK.md 初稿
+handoff:
+  success: review-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动补全文档结构和字段顺序。
+  taste: 不要自动假设体验类验收标准，需显式暴露。
+  user_challenge: 不得擅自改写任务目标或缩小用户原始需求。
+verification:
+  - CURRENT_TASK.md 包含所有必填章节
+  - 修改范围与禁止范围明确
+  - 至少包含一个可执行的当前步骤
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /init-governance
+notes:
+  - 这是任务包创建 skill，不进入实现。
+required_sections:
+  - 任务信息
+  - 验收标准
+  - 允许修改范围
+  - 禁止修改范围
+  - 受影响的契约
+  - 回归检查项
+  - 回滚点
+  - 决策分类
+  - 执行记录
+task_scope_rules:
+  - 范围要小到可单步执行
+  - 禁止范围必须显式列出
+  - 如果范围不清楚，应暂停而非猜测
+acceptance_rules:
+  - 必须可验证
+  - 必须避免空泛措辞
+  - 必须说明旧功能不能坏什么
+---
+
+# Skill: create-current-task
+
+## Purpose
+
+根据用户需求生成可执行的 CURRENT_TASK.md 初稿。
+
+## Trigger
+
+当用户提出新需求，且当前没有可直接执行的任务包时。
+
+## Inputs
+
+- user_request
+- project_profile
+- current_status
+- confirmed_decisions
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 任务目标是否明确
+- 验收标准是否可验证
+- 允许与禁止修改范围是否明确
+- 回滚点是否存在
+
+## Stop Conditions
+
+- 需求本身模糊
+- 任务边界无法确定
+- 涉及已确认决策但未说明
+
+## Decision Policy
+
+- `mechanical`: 可以自动补全文档结构和字段顺序。
+- `taste`: 不要自动假设体验类验收标准，需显式暴露。
+- `user_challenge`: 不得擅自改写任务目标或缩小用户原始需求。
+
+## Verification
+
+- CURRENT_TASK.md 包含所有必填章节
+- 修改范围与禁止范围明确
+- 至少包含一个可执行的当前步骤
+
+## Extension Fields
+
+### required_sections
+- 任务信息
+- 验收标准
+- 允许修改范围
+- 禁止修改范围
+- 受影响的契约
+- 回归检查项
+- 回滚点
+- 决策分类
+- 执行记录
+
+### task_scope_rules
+- 范围要小到可单步执行
+- 禁止范围必须显式列出
+- 如果范围不清楚，应暂停而非猜测
+
+### acceptance_rules
+- 必须可验证
+- 必须避免空泛措辞
+- 必须说明旧功能不能坏什么
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是任务包创建 skill，不进入实现。
+- This is a draft skill template generated from the workflow schema in `vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

@@ -1,0 +1,172 @@
+---
+name: capture-lessons
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Capture reusable lessons about pitfalls, stable prompting patterns, and
+  governance failures into LESSONS.md.
+purpose: |
+  把本轮踩坑经验和稳定协作方式沉淀到 LESSONS.md。
+stage: 阶段 7：状态同步
+trigger: |
+  任务收尾、踩坑后复盘，或发现新的高价值协作经验时。
+inputs:
+  - lessons_doc
+  - current_task
+  - problems_and_fixes
+  - verification_results
+reads:
+  - LESSONS.md
+  - CURRENT_TASK.md
+  - 验证结果
+  - 本轮问题与修复过程
+writes:
+  - LESSONS.md
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+must_check:
+  - 经验是否可复用
+  - 是否能直接帮助下一轮避免同类错误
+  - 是否足够具体
+stop_conditions:
+  - 经验仍然只是猜测
+  - 没有足够事实支撑
+output:
+  - 新增或更新后的 lessons 条目
+handoff:
+  success: prepare-delivery-summary
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动整理 lessons 结构和分类。
+  taste: 不要写空泛口号。
+  user_challenge: 没有事实支撑的推断不能当作长期经验写入。
+verification:
+  - 新增经验具体可复用
+  - 无重复或空泛条目
+  - 至少覆盖问题、原因、后续建议三部分
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /sync-decisions
+notes:
+  - LESSONS.md 要能被下一轮直接消费。
+sync_rules:
+  - 收尾或踩坑后同步
+  - 优先记录可复用经验
+lesson_capture_rules:
+  - 边界误改
+  - 稳定提示模式
+  - 常见失败原因
+  - 高价值回归检查项
+---
+
+# Skill: capture-lessons
+
+## Purpose
+
+把本轮踩坑经验和稳定协作方式沉淀到 LESSONS.md。
+
+## Trigger
+
+任务收尾、踩坑后复盘，或发现新的高价值协作经验时。
+
+## Inputs
+
+- lessons_doc
+- current_task
+- problems_and_fixes
+- verification_results
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 经验是否可复用
+- 是否能直接帮助下一轮避免同类错误
+- 是否足够具体
+
+## Stop Conditions
+
+- 经验仍然只是猜测
+- 没有足够事实支撑
+
+## Decision Policy
+
+- `mechanical`: 可以自动整理 lessons 结构和分类。
+- `taste`: 不要写空泛口号。
+- `user_challenge`: 没有事实支撑的推断不能当作长期经验写入。
+
+## Verification
+
+- 新增经验具体可复用
+- 无重复或空泛条目
+- 至少覆盖问题、原因、后续建议三部分
+
+## Extension Fields
+
+### sync_rules
+- 收尾或踩坑后同步
+- 优先记录可复用经验
+
+### lesson_capture_rules
+- 边界误改
+- 稳定提示模式
+- 常见失败原因
+- 高价值回归检查项
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- LESSONS.md 要能被下一轮直接消费。
+- This is a draft skill template generated from the workflow schema in `vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

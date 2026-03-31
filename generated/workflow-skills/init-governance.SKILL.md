@@ -1,0 +1,176 @@
+---
+name: init-governance
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Initialize governance scaffolding by inspecting the repository and
+  recommending the minimum document set needed for this project.
+purpose: |
+  识别项目当前治理成熟度，给出建议的治理骨架与缺失文件清单。
+stage: 初始化
+trigger: |
+  当项目第一次接入这套方法论，或治理文件尚未建立时。
+inputs:
+  - repository_structure
+  - existing_project_docs
+  - package_manifest
+  - build_and_test_scripts
+reads:
+  - 项目根目录
+  - README.md
+  - ARCHITECTURE.md
+  - package.json
+  - bun.lock
+  - pyproject.toml
+  - go.mod
+writes: []
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+  - infra/**
+  - db/**
+must_check:
+  - 识别项目类型和技术栈
+  - 识别测试与构建命令
+  - 识别核心目录结构
+  - 识别禁改区域和稳定边界
+stop_conditions:
+  - 项目目标不明确
+  - 仓库结构过于混乱无法判断核心目录
+  - 用户尚未确认是否启用治理体系
+output:
+  - 治理骨架建议
+  - 缺失文件清单
+  - 初始化顺序建议
+handoff:
+  success: create-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动识别仓库结构、技术栈和缺失文档。
+  taste: 不要替用户决定治理强度，只能给出分级建议。
+  user_challenge: 不得擅自为项目建立完整治理体系而跳过用户确认。
+verification:
+  - 已识别当前已有治理文档
+  - 建议结果区分最小集合 / 中级集合 / 完整集合
+  - 没有直接修改业务代码
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from: []
+notes:
+  - 这是初始化 skill，不直接创建全套文档。
+  - 优先给出最小可落地集合。
+summary_fields:
+  - current_state
+  - missing_files
+  - recommended_next_step
+---
+
+# Skill: init-governance
+
+## Purpose
+
+识别项目当前治理成熟度，给出建议的治理骨架与缺失文件清单。
+
+## Trigger
+
+当项目第一次接入这套方法论，或治理文件尚未建立时。
+
+## Inputs
+
+- repository_structure
+- existing_project_docs
+- package_manifest
+- build_and_test_scripts
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 识别项目类型和技术栈
+- 识别测试与构建命令
+- 识别核心目录结构
+- 识别禁改区域和稳定边界
+
+## Stop Conditions
+
+- 项目目标不明确
+- 仓库结构过于混乱无法判断核心目录
+- 用户尚未确认是否启用治理体系
+
+## Decision Policy
+
+- `mechanical`: 可以自动识别仓库结构、技术栈和缺失文档。
+- `taste`: 不要替用户决定治理强度，只能给出分级建议。
+- `user_challenge`: 不得擅自为项目建立完整治理体系而跳过用户确认。
+
+## Verification
+
+- 已识别当前已有治理文档
+- 建议结果区分最小集合 / 中级集合 / 完整集合
+- 没有直接修改业务代码
+
+## Extension Fields
+
+### summary_fields
+- current_state
+- missing_files
+- recommended_next_step
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是初始化 skill，不直接创建全套文档。
+- 优先给出最小可落地集合。
+- This is a draft skill template generated from the workflow schema in `vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.
