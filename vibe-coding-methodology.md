@@ -259,6 +259,12 @@ CURRENT_TASK.md
 5. `CURRENT_TASK.md`
 6. `LESSONS.md`
 
+此外，还有三个**支撑文件**用于标准化和自动化这六个治理文件的管理：
+
+- **`FILE_SCHEMAS.md`** — 定义每个治理文件的最小字段、更新时机和校验规则
+- **`SKILL_REGISTRY.md`** — 所有工作流 skill 的人类可读索引（名称、阶段、触发条件、读写工件、交接去向）
+- **`WORKFLOW_PROTOCOL.md`** — 生成器执行规则（变量来源、输出位置、校验逻辑）
+
 ---
 
 ### 3.1 `CLAUDE.md`
@@ -1871,6 +1877,41 @@ CLAUDE.md + CONTRACTS.md（接口层） + STATUS.md
 | `architecture diagrams` | `CONTRACTS.md` 的架构契约层 |
 | `document-release` | 每轮结束同步 STATUS / CONTRACTS / DECISIONS |
 | `retro / learn` | `LESSONS.md` + `TASKS/` 归档复盘 |
+
+---
+
+## 十〇、生成管线与自动化工具
+
+本方法论的治理文件和工作流 skill 均可通过模板 + 生成器自动化产出：
+
+### 模板来源
+
+| 类型 | 模板目录 | 数量 |
+|------|----------|------|
+| 工作流 Skill | `templates/skills/*.SKILL.md.tmpl` | 18 |
+| 治理文档 | `templates/docs/*.md.tmpl` | 7 |
+
+### 生成器
+
+| 命令 | 作用 |
+|------|------|
+| `bun run gen:workflow-skills` | 从 skill 模板 + `PROJECT_PROFILE.yaml` 生成项目专属 skill |
+| `bun run gen:workflow-docs` | 从 docs 模板 + `PROJECT_PROFILE.yaml` 生成治理文档骨架 |
+| `bun run gen:all` | 一键执行以上两个生成器 |
+
+### 校验
+
+| 命令 | 作用 |
+|------|------|
+| `bun run test:workflow-skills` | 校验 skill 生成结果（schema 字段、handoff 链路、读写冲突） |
+| `bun run test:workflow-docs` | 校验 docs 生成结果（标题结构、占位符解析） |
+| `bun run test:workflow-all` | 一键执行以上两项校验 |
+
+### 关键配置文件
+
+- **`PROJECT_PROFILE.yaml`** — 生成器的唯一输入源，定义项目名、技术栈、目录、测试命令等
+- **`FILE_SCHEMAS.md`** — 每个治理文档的最小字段 schema 与更新时机
+- **`SKILL_REGISTRY.md`** — 所有 18 个工作流 skill 的索引
 
 ---
 

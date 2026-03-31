@@ -349,3 +349,72 @@ This protocol is considered implemented when:
 - the rendered set passes handoff and boundary validation
 - the output is isolated from the existing gstack generation pipeline
 - the workflow remains auditable from input profile to rendered skill output
+
+---
+
+## 12. Docs generator expansion
+
+The next workflow-system phase extends generation beyond skills into governance docs.
+
+### 12.1 Additional authoritative inputs
+
+The docs generator must also treat the following files as authoritative:
+
+1. `templates/docs/*.md.tmpl`
+2. `FILE_SCHEMAS.md`
+
+It must not invent document sections that are not supported by `FILE_SCHEMAS.md`.
+
+### 12.2 Docs output model
+
+The workflow docs generator should emit rendered docs into:
+
+```text
+generated/workflow-docs/
+```
+
+Each generated file should keep its runtime filename:
+
+```text
+CURRENT_TASK.md
+STATUS.md
+DECISIONS.md
+CONTRACTS.md
+LESSONS.md
+TASK_SUMMARY.md
+TASK_ARCHIVE.md
+```
+
+### 12.3 Docs substitution rules
+
+The docs generator must expand project-level placeholders such as:
+
+- `{{PROJECT_NAME}}`
+- `{{PROJECT_TYPE}}`
+- `{{TECH_STACK}}`
+- `{{TEST_COMMANDS}}`
+- `{{CODE_DIRECTORIES}}`
+- `{{FORBIDDEN_PATHS}}`
+- `{{ARCHITECTURE_RULES}}`
+- `{{VERSION}}`
+
+The docs generator must preserve runtime placeholders in v1:
+
+- `{{TASK_ID}}`
+- `{{TASK_TITLE}}`
+- `{{TASK_SLUG}}`
+- `{{DATE}}`
+- `{{AUTHOR}}`
+
+### 12.4 Docs validation rules
+
+The docs generator must fail loudly if:
+
+- a required docs template is missing
+- a rendered doc is missing required headings defined by `FILE_SCHEMAS.md`
+- a non-runtime placeholder remains unresolved
+- output is only partially written after validation failure
+
+### 12.5 Scope note
+
+The docs generator may emit generated skeletons, but it should not yet overwrite live governance files in the repo root automatically.

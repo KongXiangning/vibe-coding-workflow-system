@@ -44,6 +44,7 @@ paths:
     - vibe-coding-methodology.md
   workflow_template_directories:
     - templates/skills
+    - templates/docs
   existing_skill_template_patterns:
     - "*/SKILL.md.tmpl"
     - "SKILL.md.tmpl"
@@ -51,6 +52,7 @@ paths:
     - browse/dist/**
     - design/dist/**
     - "**/SKILL.md"
+    - generated/workflow-docs/**
 
 boundaries:
   forbidden_paths:
@@ -62,6 +64,9 @@ boundaries:
     - "**/SKILL.md"
   workflow_owned_paths:
     - PROJECT_PROFILE.yaml
+    - FILE_SCHEMAS.md
+    - SKILL_REGISTRY.md
+    - templates/docs/**
     - templates/skills/**
   human_review_required:
     - README.md
@@ -83,14 +88,15 @@ decision_types:
 
 governance:
   current_documents:
-    - vibe-coding-workflow.md
-    - vibe-coding-methodology.md
-    - templates/skills/*.SKILL.md.tmpl
-  planned_documents:
     - PROJECT_PROFILE.yaml
-    - SKILL_REGISTRY.md
     - WORKFLOW_PROTOCOL.md
     - FILE_SCHEMAS.md
+    - SKILL_REGISTRY.md
+    - vibe-coding-workflow.md
+    - vibe-coding-methodology.md
+    - templates/docs/*.md.tmpl
+    - templates/skills/*.SKILL.md.tmpl
+  planned_documents: []
 
 validation:
   preferred_checks:
