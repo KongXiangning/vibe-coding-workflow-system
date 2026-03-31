@@ -1897,7 +1897,8 @@ CLAUDE.md + CONTRACTS.md（接口层） + STATUS.md
 |------|------|
 | `bun run gen:workflow-skills` | 从 skill 模板 + `PROJECT_PROFILE.yaml` 生成项目专属 skill |
 | `bun run gen:workflow-docs` | 从 docs 模板 + `PROJECT_PROFILE.yaml` 生成治理文档骨架 |
-| `bun run gen:all` | 一键执行以上两个生成器 |
+| `bun run gen:registry` | 从 `templates/skills/*.SKILL.md.tmpl` frontmatter 自动生成 `SKILL_REGISTRY.md` |
+| `bun run gen:all` | 一键执行以上三个生成器 |
 
 ### 校验
 
@@ -1905,13 +1906,14 @@ CLAUDE.md + CONTRACTS.md（接口层） + STATUS.md
 |------|------|
 | `bun run test:workflow-skills` | 校验 skill 生成结果（schema 字段、handoff 链路、读写冲突） |
 | `bun run test:workflow-docs` | 校验 docs 生成结果（标题结构、占位符解析） |
-| `bun run test:workflow-all` | 一键执行以上两项校验 |
+| `bun run test:registry` | 校验 registry 全覆盖、列结构、handoff 合法性与占位符解析 |
+| `bun run test:workflow-all` | 一键执行以上三项校验 |
 
 ### 关键配置文件
 
 - **`PROJECT_PROFILE.yaml`** — 生成器的唯一输入源，定义项目名、技术栈、目录、测试命令等
 - **`FILE_SCHEMAS.md`** — 每个治理文档的最小字段 schema 与更新时机
-- **`SKILL_REGISTRY.md`** — 所有 18 个工作流 skill 的索引
+- **`SKILL_REGISTRY.md`** — 所有 18 个工作流 skill 的索引，由 `bun run gen:registry` 自动生成
 
 ---
 

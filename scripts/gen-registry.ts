@@ -1,0 +1,471 @@
+#!/usr/bin/env bun
+
+import * as fs from 'fs';
+import * as path from 'path';
+import { parse } from 'yaml';
+
+type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
+type JsonObject = { [key: string]: JsonValue };
+
+type SkillTemplate = {
+  name: string;
+  filePath: string;
+  frontmatter: JsonObject;
+};
+
+type RegistrySkill = {
+  name: string;
+  purpose: string;
+  stage: string;
+  trigger: string;
+  reads: string[];
+  writes: string[];
+  handoffSuccess: string;
+  handoffFailure: string;
+};
+
+type StageSection = {
+  stage: string;
+  sectionTitle: string;
+  summaryLabel: string;
+};
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
+const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
+const OUTPUT_PATH = path.join(ROOT, 'SKILL_REGISTRY.md');
+const DRY_RUN = process.argv.includes('--dry-run');
+
+const REQUIRED_FIELDS = ['name', 'purpose', 'stage', 'trigger', 'reads', 'writes', 'handoff'] as const;
+const REQUIRED_STAGES = new Set([
+  '初始化',
+  '阶段 1：需求进入',
+  '阶段 2：范围锁定',
+  '阶段 3：方案拆解',
+  '阶段 4：小步实现',
+  '阶段 4/6：实现或验证异常',
+  '阶段 5：范围复核',
+  '阶段 6：回归验证',
+  '阶段 7：状态同步',
+  '阶段 8：交付沉淀',
+]);
+const RESERVED_FAILURE_TARGETS = new Set(['ask-user']);
+const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
+const HIGH_RISK_SKILLS = [
+  'implement-current-step',
+  'review-diff',
+  'verify-contracts',
+  'run-regression',
+  'sync-contracts',
+  'sync-decisions',
+  'archive-task',
+];
+const WORKFLOW_ORDER = [
+  'init-governance',
+  'create-current-task',
+  'review-current-task',
+  'lock-scope',
+  'classify-decisions',
+  'decompose-task',
+  'implement-current-step',
+  'investigate-root-cause',
+  'review-diff',
+  'verify-contracts',
+  'run-regression',
+  'sync-current-task',
+  'sync-status',
+  'sync-contracts',
+  'sync-decisions',
+  'capture-lessons',
+  'prepare-delivery-summary',
+  'archive-task',
+] as const;
+const STAGE_SECTIONS: StageSection[] = [
+  { stage: '初始化', sectionTitle: '### 3.1 初始化', summaryLabel: '初始化' },
+  { stage: '阶段 1：需求进入', sectionTitle: '### 3.2 阶段 1：需求进入', summaryLabel: '阶段 1：需求进入' },
+  { stage: '阶段 2：范围锁定', sectionTitle: '### 3.3 阶段 2：范围锁定', summaryLabel: '阶段 2：范围锁定' },
+  { stage: '阶段 3：方案拆解', sectionTitle: '### 3.4 阶段 3：方案拆解', summaryLabel: '阶段 3：方案拆解' },
+  { stage: '阶段 4：小步实现', sectionTitle: '### 3.5 阶段 4：小步实现', summaryLabel: '阶段 4：小步实现' },
+  {
+    stage: '阶段 4/6：实现或验证异常',
+    sectionTitle: '### 3.6 阶段 4/6：异常处理',
+    summaryLabel: '阶段 4/6：异常处理',
+  },
+  { stage: '阶段 5：范围复核', sectionTitle: '### 3.7 阶段 5：范围复核', summaryLabel: '阶段 5：范围复核' },
+  { stage: '阶段 6：回归验证', sectionTitle: '### 3.8 阶段 6：回归验证', summaryLabel: '阶段 6：回归验证' },
+  { stage: '阶段 7：状态同步', sectionTitle: '### 3.9 阶段 7：状态同步', summaryLabel: '阶段 7：状态同步' },
+  { stage: '阶段 8：交付沉淀', sectionTitle: '### 3.10 阶段 8：交付沉淀', summaryLabel: '阶段 8：交付沉淀' },
+];
+
+const WORKFLOW_ORDER_INDEX = new Map(WORKFLOW_ORDER.map((name, index) => [name, index]));
+
+function readText(filePath: string): string {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Required file not found: ${filePath}`);
+  }
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function parseFrontmatter(content: string, filePath: string): JsonObject {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?[\s\S]*$/);
+  if (!match) {
+    throw new Error(`Invalid frontmatter block in ${filePath}`);
+  }
+
+  const frontmatter = parse(match[1]) as JsonObject;
+  if (!frontmatter || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
+    throw new Error(`Frontmatter is not a mapping in ${filePath}`);
+  }
+
+  return frontmatter;
+}
+
+function getRequiredPath(obj: JsonObject, dottedPath: string): JsonValue {
+  const parts = dottedPath.split('.');
+  let current: JsonValue = obj;
+
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || Array.isArray(current) || !(part in current)) {
+      throw new Error(`Missing required profile field: ${dottedPath}`);
+    }
+    current = current[part];
+  }
+
+  return current;
+}
+
+function normalizeList(value: JsonValue): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value.map(item => String(item));
+  return [String(value)];
+}
+
+function placeholderMap(profile: JsonObject): Record<string, JsonValue> {
+  return {
+    '{{PROJECT_NAME}}': getRequiredPath(profile, 'project.name'),
+    '{{PROJECT_TYPE}}': getRequiredPath(profile, 'project.type'),
+    '{{TECH_STACK}}': getRequiredPath(profile, 'runtime.languages'),
+    '{{TEST_COMMANDS}}': getRequiredPath(profile, 'runtime.test_commands'),
+    '{{DECISION_TYPES}}': getRequiredPath(profile, 'decision_types'),
+    '{{CODE_DIRECTORIES}}': getRequiredPath(profile, 'paths.source_directories'),
+    '{{FORBIDDEN_PATHS}}': getRequiredPath(profile, 'boundaries.forbidden_paths'),
+    '{{ARCHITECTURE_RULES}}': getRequiredPath(profile, 'architecture_rules'),
+  };
+}
+
+function stringifyInline(value: JsonValue): string {
+  if (Array.isArray(value)) {
+    return value.map(item => stringifyInline(item)).join(', ');
+  }
+  if (value && typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function renderValue(value: JsonValue, replacements: Record<string, JsonValue>): JsonValue {
+  if (Array.isArray(value)) {
+    const rendered: JsonValue[] = [];
+    for (const item of value) {
+      const next = renderValue(item, replacements);
+      if (Array.isArray(next)) {
+        rendered.push(...next);
+      } else {
+        rendered.push(next);
+      }
+    }
+    return rendered;
+  }
+
+  if (value && typeof value === 'object') {
+    const result: JsonObject = {};
+    for (const [key, child] of Object.entries(value)) {
+      result[key] = renderValue(child, replacements);
+    }
+    return result;
+  }
+
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  if (value in replacements) {
+    return replacements[value];
+  }
+
+  let rendered = value;
+  for (const [placeholder, replacement] of Object.entries(replacements)) {
+    rendered = rendered.split(placeholder).join(stringifyInline(replacement));
+  }
+  return rendered;
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function escapeTableText(value: string): string {
+  return compactText(value).replace(/\|/g, ' / ');
+}
+
+function formatList(items: string[]): string {
+  if (items.length === 0) {
+    return '`[]`';
+  }
+
+  return items.map(item => `\`${escapeTableText(item)}\``).join('、');
+}
+
+function formatSkillRefs(names: string[]): string {
+  return names.map(name => `\`${name}\``).join(' → ');
+}
+
+function validateRequiredFields(frontmatter: JsonObject, filePath: string): void {
+  for (const field of REQUIRED_FIELDS) {
+    if (!(field in frontmatter)) {
+      throw new Error(`Missing required field "${field}" in ${filePath}`);
+    }
+  }
+}
+
+function validateHandoff(skill: RegistrySkill, knownNames: Set<string>, filePath: string): void {
+  if (!knownNames.has(skill.handoffSuccess)) {
+    throw new Error(`Invalid handoff.success "${skill.handoffSuccess}" in ${filePath}`);
+  }
+
+  if (!knownNames.has(skill.handoffFailure) && !RESERVED_FAILURE_TARGETS.has(skill.handoffFailure)) {
+    throw new Error(`Invalid handoff.failure "${skill.handoffFailure}" in ${filePath}`);
+  }
+}
+
+function validateStages(skills: RegistrySkill[]): void {
+  const stages = new Set(skills.map(skill => skill.stage));
+  for (const stage of REQUIRED_STAGES) {
+    if (!stages.has(stage)) {
+      throw new Error(`Missing required stage coverage: ${stage}`);
+    }
+  }
+}
+
+function validateWorkflowOrder(skills: RegistrySkill[]): void {
+  const names = new Set(skills.map(skill => skill.name));
+  for (const requiredName of WORKFLOW_ORDER) {
+    if (!names.has(requiredName)) {
+      throw new Error(`Missing required workflow skill: ${requiredName}`);
+    }
+  }
+
+  if (names.size !== WORKFLOW_ORDER.length) {
+    const extra = [...names].filter(name => !WORKFLOW_ORDER_INDEX.has(name)).sort();
+    throw new Error(`Unexpected workflow skills missing explicit order: ${extra.join(', ')}`);
+  }
+}
+
+function validateUnresolvedPlaceholders(content: string): void {
+  const matches = content.match(/{{[^}]+}}/g) ?? [];
+  const invalid = matches.filter(token => !ALLOWED_UNRESOLVED.has(token));
+  if (invalid.length > 0) {
+    throw new Error(`Unresolved placeholders in registry: ${invalid.join(', ')}`);
+  }
+}
+
+function loadTemplates(): SkillTemplate[] {
+  const files = fs
+    .readdirSync(TEMPLATE_DIR)
+    .filter(file => file.endsWith('.SKILL.md.tmpl'))
+    .sort();
+
+  if (files.length === 0) {
+    throw new Error(`No skill templates found in ${TEMPLATE_DIR}`);
+  }
+
+  return files.map(file => {
+    const filePath = path.join(TEMPLATE_DIR, file);
+    const frontmatter = parseFrontmatter(readText(filePath), filePath);
+    const name = String(frontmatter.name ?? '').trim();
+    if (!name) {
+      throw new Error(`Missing name in ${filePath}`);
+    }
+    return { name, filePath, frontmatter };
+  });
+}
+
+function toRegistrySkill(frontmatter: JsonObject, filePath: string): RegistrySkill {
+  const handoff = frontmatter.handoff;
+  if (!handoff || typeof handoff !== 'object' || Array.isArray(handoff)) {
+    throw new Error(`Invalid handoff structure in ${filePath}`);
+  }
+
+  const handoffSuccess = String((handoff as JsonObject).success ?? '').trim();
+  const handoffFailure = String((handoff as JsonObject).failure ?? '').trim();
+  if (!handoffSuccess || !handoffFailure) {
+    throw new Error(`Incomplete handoff structure in ${filePath}`);
+  }
+
+  return {
+    name: String(frontmatter.name ?? '').trim(),
+    purpose: escapeTableText(String(frontmatter.purpose ?? '')),
+    stage: String(frontmatter.stage ?? '').trim(),
+    trigger: escapeTableText(String(frontmatter.trigger ?? '')),
+    reads: normalizeList(frontmatter.reads).map(escapeTableText),
+    writes: normalizeList(frontmatter.writes).map(escapeTableText),
+    handoffSuccess,
+    handoffFailure,
+  };
+}
+
+function sortSkills(skills: RegistrySkill[]): RegistrySkill[] {
+  return [...skills].sort((left, right) => {
+    const leftIndex = WORKFLOW_ORDER_INDEX.get(left.name);
+    const rightIndex = WORKFLOW_ORDER_INDEX.get(right.name);
+    if (leftIndex == null || rightIndex == null) {
+      throw new Error(`Missing workflow order mapping for ${left.name} or ${right.name}`);
+    }
+    return leftIndex - rightIndex;
+  });
+}
+
+function renderStageSection(section: StageSection, skills: RegistrySkill[]): string {
+  const rows = skills.map(
+    skill =>
+      `| \`${skill.name}\` | ${skill.purpose} | ${skill.trigger} | ${formatList(skill.reads)} | ${formatList(skill.writes)} | \`${skill.handoffSuccess}\` | \`${skill.handoffFailure}\` |`,
+  );
+
+  if (rows.length === 0) {
+    throw new Error(`No skills found for stage ${section.stage}`);
+  }
+
+  return [
+    section.sectionTitle,
+    '',
+    '| Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |',
+    '|---|---|---|---|---|---|---|',
+    ...rows,
+  ].join('\n');
+}
+
+function renderRegistry(skills: RegistrySkill[]): string {
+  const sortedSkills = sortSkills(skills);
+  const grouped = new Map<string, RegistrySkill[]>();
+
+  for (const section of STAGE_SECTIONS) {
+    grouped.set(section.stage, []);
+  }
+
+  for (const skill of sortedSkills) {
+    const bucket = grouped.get(skill.stage);
+    if (!bucket) {
+      throw new Error(`No registry section configured for stage "${skill.stage}"`);
+    }
+    bucket.push(skill);
+  }
+
+  const summaryRows = STAGE_SECTIONS.map(section => {
+    const stageSkills = grouped.get(section.stage) ?? [];
+    return `| ${section.summaryLabel} | ${formatSkillRefs(stageSkills.map(skill => skill.name))} |`;
+  });
+
+  const stageSections = STAGE_SECTIONS.map(section =>
+    renderStageSection(section, grouped.get(section.stage) ?? []),
+  );
+
+  return `# SKILL_REGISTRY.md
+
+本文件记录 workflow-skill 系统中各 skill 的职责、触发条件、输入输出工件与 handoff 关系。
+
+它的作用不是替代 skill 文件本身，而是提供一个便于人类审计和维护的目录层视图。
+
+---
+
+## 1. 注册表使用规则
+
+- 本文件面向人类阅读与审查
+- 本文件由 \`bun run gen:registry\` 自动生成，请勿手工编辑
+- 元数据来源为 \`templates/skills/*.SKILL.md.tmpl\` frontmatter，并按 \`PROJECT_PROFILE.yaml\` 解析项目级占位符
+- 真实执行协议以 \`generated/workflow-skills/*.SKILL.md\` 为准
+
+---
+
+## 2. 工作流总览
+
+| 阶段 | Skill |
+|---|---|
+${summaryRows.join('\n')}
+
+失败分支：
+
+- \`run-regression\` 失败时进入 \`investigate-root-cause\`
+- 大多数其他 skill 在失败时 handoff 到 \`ask-user\`
+
+---
+
+## 3. Skill 清单
+
+${stageSections.join('\n\n')}
+
+---
+
+## 4. 高风险 / 重点审计 skill
+
+以下 skill 应优先关注，因为它们最容易造成越界或状态失真：
+
+${HIGH_RISK_SKILLS.map(name => `- \`${name}\``).join('\n')}
+
+重点检查点：
+
+- 是否读了规定的治理文档
+- 是否只写允许写入的工件
+- 是否遵守 handoff 图
+- 是否把失败显式交给 \`ask-user\` 或根因调查路径
+
+---
+
+## 5. 建议的后续演进
+
+下一步可以把本文件继续升级为：
+
+1. 增加每个 skill 的 \`must_check\`、\`stop_conditions\` 摘要
+2. 增加和 \`FILE_SCHEMAS.md\`、\`PROJECT_PROFILE.yaml\` 的交叉引用
+3. 增加按风险级别或 stage 的细分视图
+`;
+}
+
+function main(): void {
+  const profile = parse(readText(PROFILE_PATH)) as JsonObject;
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+    throw new Error('PROJECT_PROFILE.yaml must parse to a mapping');
+  }
+
+  const replacements = placeholderMap(profile);
+  const templates = loadTemplates();
+  const renderedSkills: RegistrySkill[] = [];
+  const knownNames = new Set(templates.map(template => template.name));
+
+  for (const template of templates) {
+    const renderedFrontmatter = renderValue(template.frontmatter, replacements) as JsonObject;
+    validateRequiredFields(renderedFrontmatter, template.filePath);
+    const skill = toRegistrySkill(renderedFrontmatter, template.filePath);
+    validateHandoff(skill, knownNames, template.filePath);
+    renderedSkills.push(skill);
+  }
+
+  validateStages(renderedSkills);
+  validateWorkflowOrder(renderedSkills);
+
+  const content = renderRegistry(renderedSkills);
+  validateUnresolvedPlaceholders(content);
+
+  if (!DRY_RUN) {
+    fs.writeFileSync(OUTPUT_PATH, content, 'utf8');
+  }
+
+  console.log(`Generated workflow skill registry to ${OUTPUT_PATH}${DRY_RUN ? ' (dry-run)' : ''}`);
+}
+
+try {
+  main();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Workflow registry generation failed: ${message}`);
+  process.exit(1);
+}

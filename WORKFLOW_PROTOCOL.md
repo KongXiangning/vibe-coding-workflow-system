@@ -418,3 +418,57 @@ The docs generator must fail loudly if:
 ### 12.5 Scope note
 
 The docs generator may emit generated skeletons, but it should not yet overwrite live governance files in the repo root automatically.
+
+---
+
+## 13. Skill registry generation
+
+The workflow-system phase after docs generation adds a registry generator for human-readable skill indexing.
+
+### 13.1 Registry inputs
+
+The registry generator must treat the following files as authoritative:
+
+1. `templates/skills/*.SKILL.md.tmpl`
+2. `PROJECT_PROFILE.yaml`
+
+It must extract metadata from skill frontmatter instead of relying on manually curated summaries.
+
+### 13.2 Registry output model
+
+The registry generator should emit:
+
+```text
+SKILL_REGISTRY.md
+```
+
+This file is a generated-but-committed artifact:
+
+- humans should read it directly from the repo root
+- generators should own its content
+- hand edits should be overwritten by regeneration
+
+### 13.3 Registry rendering rules
+
+The registry generator must:
+
+- resolve project-level placeholders using the same mapping as the workflow skill generator
+- preserve task-level placeholders such as `{{TASK_ID}}` and `{{TASK_SLUG}}`
+- render a workflow overview grouped by stage
+- render a detailed skill table grouped by stage
+- include handoff success/failure targets for every skill
+
+### 13.4 Registry validation rules
+
+The registry generator must fail loudly if:
+
+- a skill template is missing required metadata fields needed by the registry
+- a handoff target points to an unknown skill
+- a required workflow stage is not represented
+- the registry would be only partially written after a validation failure
+
+### 13.5 Freshness enforcement
+
+Changes to `templates/skills/*.SKILL.md.tmpl` should be validated in CI by regenerating `SKILL_REGISTRY.md` and checking that the repo stays clean.
+
+That freshness check should be separate from runtime host skill-doc validation so the workflow-system layer remains auditable on its own.

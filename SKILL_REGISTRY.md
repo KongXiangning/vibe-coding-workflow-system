@@ -9,9 +9,9 @@
 ## 1. 注册表使用规则
 
 - 本文件面向人类阅读与审查
+- 本文件由 `bun run gen:registry` 自动生成，请勿手工编辑
+- 元数据来源为 `templates/skills/*.SKILL.md.tmpl` frontmatter，并按 `PROJECT_PROFILE.yaml` 解析项目级占位符
 - 真实执行协议以 `generated/workflow-skills/*.SKILL.md` 为准
-- 当 skill 模板、handoff 图或读写边界发生变化时，应同步更新本文件
-- 如果后续引入自动生成，本文件应变成生成产物或生成源之一，而不是长期手工维护
 
 ---
 
@@ -43,69 +43,69 @@
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `init-governance` | 建立治理文档与 workflow 运行前提 | 项目第一次接入方法论或治理文件缺失 | 项目根目录、`README.md`、`ARCHITECTURE.md`、`package.json` 等 | `[]` | `create-current-task` | `ask-user` |
+| `init-governance` | 识别项目当前治理成熟度，给出建议的治理骨架与缺失文件清单。 | 当项目第一次接入这套方法论，或治理文件尚未建立时。 | `项目根目录`、`README.md`、`ARCHITECTURE.md`、`package.json`、`bun.lock`、`pyproject.toml`、`go.mod` | `[]` | `create-current-task` | `ask-user` |
 
 ### 3.2 阶段 1：需求进入
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `create-current-task` | 生成任务包初稿 | 出现新需求且尚无可执行任务包 | `PROJECT_PROFILE.yaml`、`STATUS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `review-current-task` | `ask-user` |
-| `review-current-task` | 审核任务包边界与可执行性 | `CURRENT_TASK.md` 初稿已存在 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | `CURRENT_TASK.md` | `lock-scope` | `ask-user` |
+| `create-current-task` | 根据用户需求生成可执行的 CURRENT_TASK.md 初稿。 | 当用户提出新需求，且当前没有可直接执行的任务包时。 | `PROJECT_PROFILE.yaml`、`STATUS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `review-current-task` | `ask-user` |
+| `review-current-task` | 审查 CURRENT_TASK.md 初稿并收敛成可执行任务包。 | 当 CURRENT_TASK.md 初稿已经生成，进入实现前。 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | `CURRENT_TASK.md` | `lock-scope` | `ask-user` |
 
 ### 3.3 阶段 2：范围锁定
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `lock-scope` | 锁定允许 / 禁止修改边界 | 实现动作开始前 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `classify-decisions` | `ask-user` |
+| `lock-scope` | 锁定本轮允许修改与禁止修改的边界。 | 在任何实现动作开始前。 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `classify-decisions` | `ask-user` |
 
 ### 3.4 阶段 3：方案拆解
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `classify-decisions` | 识别本轮涉及的决策类型 | 开始拆步骤前 | `CURRENT_TASK.md`、`DECISIONS.md` | `CURRENT_TASK.md`、`DECISIONS.md` | `decompose-task` | `ask-user` |
-| `decompose-task` | 把任务拆成可单步执行步骤 | 完成决策分级后 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`DECISIONS.md` | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
+| `classify-decisions` | 把任务中的决策分为 Mechanical、Taste、User challenge。 | 开始拆步骤前。 | `CURRENT_TASK.md`、`DECISIONS.md` | `CURRENT_TASK.md`、`DECISIONS.md` | `decompose-task` | `ask-user` |
+| `decompose-task` | 把任务拆成独立、可验证、低污染的小步骤。 | 完成决策分级后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`DECISIONS.md` | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
 
 ### 3.5 阶段 4：小步实现
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `implement-current-step` | 在当前任务边界内执行实现 | 进入具体编码实现时 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码目录 + `CURRENT_TASK.md` | `review-diff` | `ask-user` |
+| `implement-current-step` | 只实现 CURRENT_TASK.md 中当前步骤，禁止顺手扩散。 | 进入具体编码实现时。 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | `scripts`、`browse/src`、`design/src`、`test`、`browse/test`、`CURRENT_TASK.md` | `review-diff` | `ask-user` |
 
 ### 3.6 阶段 4/6：异常处理
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `investigate-root-cause` | 对失败和异常做根因调查 | 测试失败、验证失败或实现异常 | `CURRENT_TASK.md`、错误信息、当前 diff、日志 / 测试结果 | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
+| `investigate-root-cause` | 先做根因定位，再提出最小修复建议。 | 测试失败、验证失败或实现过程中出现异常时。 | `CURRENT_TASK.md`、`报错信息`、`当前 diff`、`相关日志或测试结果` | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
 
 ### 3.7 阶段 5：范围复核
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `review-diff` | 检查越界修改与不必要改动 | 每完成一个实现步骤后 | `git diff`、`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | `[]` | `verify-contracts` | `ask-user` |
-| `verify-contracts` | 检查稳定边界是否被破坏 | diff 较大或涉及稳定边界时 | `git diff`、`CONTRACTS.md`、`CURRENT_TASK.md` | `[]` | `run-regression` | `ask-user` |
+| `review-diff` | 审查当前 diff 是否越界、是否偏离任务意图。 | 每完成一个实现步骤后。 | `git diff`、`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | `[]` | `verify-contracts` | `ask-user` |
+| `verify-contracts` | 专门核查接口契约和架构契约是否被破坏。 | diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时。 | `git diff`、`CONTRACTS.md`、`CURRENT_TASK.md` | `[]` | `run-regression` | `ask-user` |
 
 ### 3.8 阶段 6：回归验证
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `run-regression` | 运行测试与验证清单 | 范围复核通过后 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、测试命令、验证清单 | `[]` | `sync-current-task` | `investigate-root-cause` |
+| `run-regression` | 运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`测试命令`、`验证清单` | `[]` | `sync-current-task` | `investigate-root-cause` |
 
 ### 3.9 阶段 7：状态同步
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `sync-current-task` | 回写任务包执行结果 | 每轮实现与验证完成后 | `CURRENT_TASK.md`、验证结果、实际修改结果 | `CURRENT_TASK.md` | `sync-status` | `ask-user` |
-| `sync-status` | 同步项目当前状态 | 任务阶段完成或状态变化时 | `STATUS.md`、`CURRENT_TASK.md`、验证结果 | `STATUS.md` | `sync-contracts` | `ask-user` |
-| `sync-contracts` | 同步新稳定边界 | 本轮新增稳定接口、结构或规则时 | `CONTRACTS.md`、`CURRENT_TASK.md`、实际改动、验证结果 | `CONTRACTS.md` | `sync-decisions` | `ask-user` |
-| `sync-decisions` | 记录新决策、暂缓项或否决项 | 本轮形成新决策时 | `DECISIONS.md`、`CURRENT_TASK.md`、实际结果、用户确认信息 | `DECISIONS.md` | `capture-lessons` | `ask-user` |
-| `capture-lessons` | 沉淀可复用经验 | 收尾复盘或发现高价值经验时 | `LESSONS.md`、`CURRENT_TASK.md`、验证结果、问题修复过程 | `LESSONS.md` | `prepare-delivery-summary` | `ask-user` |
+| `sync-current-task` | 回写 CURRENT_TASK.md 的执行状态、验证结果和剩余问题。 | 每轮实现与验证完成后。 | `CURRENT_TASK.md`、`验证结果`、`实际修改结果` | `CURRENT_TASK.md` | `sync-status` | `ask-user` |
+| `sync-status` | 更新 STATUS.md，反映当前项目整体进度和稳定状态。 | 任务阶段完成或状态发生变化时。 | `STATUS.md`、`CURRENT_TASK.md`、`验证结果` | `STATUS.md` | `sync-contracts` | `ask-user` |
+| `sync-contracts` | 将新形成的稳定接口或架构边界写入 CONTRACTS.md。 | 本轮任务新增了稳定接口、稳定结构或稳定架构规则时。 | `CONTRACTS.md`、`CURRENT_TASK.md`、`实际改动`、`验证结果` | `CONTRACTS.md` | `sync-decisions` | `ask-user` |
+| `sync-decisions` | 把本轮已确认的决策写入 DECISIONS.md。 | 本轮实现明确形成了新的架构决策、口味决策、暂缓项或否决项时。 | `DECISIONS.md`、`CURRENT_TASK.md`、`实际结果`、`用户确认信息` | `DECISIONS.md` | `capture-lessons` | `ask-user` |
+| `capture-lessons` | 把本轮踩坑经验和稳定协作方式沉淀到 LESSONS.md。 | 任务收尾、踩坑后复盘，或发现新的高价值协作经验时。 | `LESSONS.md`、`CURRENT_TASK.md`、`验证结果`、`本轮问题与修复过程` | `LESSONS.md` | `prepare-delivery-summary` | `ask-user` |
 
 ### 3.10 阶段 8：交付沉淀
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `prepare-delivery-summary` | 准备交付总结 | 一轮任务完成、准备交付时 | `CURRENT_TASK.md`、验证结果、`git diff --stat`、状态同步结果 | `[]` | `archive-task` | `ask-user` |
-| `archive-task` | 归档任务和摘要 | 任务正式完成并确认可以归档时 | `CURRENT_TASK.md`、任务摘要、`STATUS.md` | `TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`、`CURRENT_TASK.md` | `create-current-task` | `ask-user` |
+| `prepare-delivery-summary` | 整理本轮任务摘要，形成可交付、可复核的结果记录。 | 一轮任务完成后，准备收尾或交付时。 | `CURRENT_TASK.md`、`验证结果`、`git diff --stat`、`状态同步结果` | `[]` | `archive-task` | `ask-user` |
+| `archive-task` | 将本轮任务归档到 TASKS/，并为下一轮留下清晰入口。 | 任务正式完成并确认可以归档时。 | `CURRENT_TASK.md`、`任务摘要`、`STATUS.md` | `TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`、`CURRENT_TASK.md` | `create-current-task` | `ask-user` |
 
 ---
 
@@ -134,6 +134,6 @@
 
 下一步可以把本文件继续升级为：
 
-1. 自动从 `generated/workflow-skills/*.SKILL.md` 生成
-2. 增加每个 skill 的 `must_check`、`stop_conditions` 摘要
-3. 增加和 `FILE_SCHEMAS.md`、`PROJECT_PROFILE.yaml` 的交叉引用
+1. 增加每个 skill 的 `must_check`、`stop_conditions` 摘要
+2. 增加和 `FILE_SCHEMAS.md`、`PROJECT_PROFILE.yaml` 的交叉引用
+3. 增加按风险级别或 stage 的细分视图

@@ -52,6 +52,7 @@ paths:
     - browse/dist/**
     - design/dist/**
     - "**/SKILL.md"
+    - SKILL_REGISTRY.md
     - generated/workflow-docs/**
 
 boundaries:
@@ -62,6 +63,7 @@ boundaries:
     - browse/dist/**
     - design/dist/**
     - "**/SKILL.md"
+    - SKILL_REGISTRY.md
   workflow_owned_paths:
     - PROJECT_PROFILE.yaml
     - FILE_SCHEMAS.md
