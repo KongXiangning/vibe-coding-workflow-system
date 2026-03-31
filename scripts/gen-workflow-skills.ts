@@ -297,11 +297,9 @@ function main(): void {
   const templates = loadTemplates();
   const knownNames = new Set(templates.map(template => template.name));
   const renderedSkills: SkillFile[] = [];
+  const pendingWrites: Array<{ outputPath: string; content: string }> = [];
 
-  if (!DRY_RUN) {
-    prepareOutputDir();
-  }
-
+  // Phase 1: Render and validate all templates in memory
   for (const template of templates) {
     const renderedFrontmatter = renderValue(template.frontmatter, replacements) as JsonObject;
     const renderedBody = renderBody(template.body, replacements, projectType);
@@ -320,14 +318,19 @@ function main(): void {
     const content = formatSkill(renderedFrontmatter, renderedBody);
     validateUnresolvedPlaceholders(outputPath, content);
 
-    if (!DRY_RUN) {
-      fs.writeFileSync(outputPath, content, 'utf8');
-    }
-
     renderedSkills.push(renderedFile);
+    pendingWrites.push({ outputPath, content });
   }
 
   validateStages(renderedSkills);
+
+  // Phase 2: Write all files only after all validations pass
+  if (!DRY_RUN) {
+    prepareOutputDir();
+    for (const { outputPath, content } of pendingWrites) {
+      fs.writeFileSync(outputPath, content, 'utf8');
+    }
+  }
 
   const summary = `Generated ${renderedSkills.length} workflow skills to ${OUTPUT_DIR}${DRY_RUN ? ' (dry-run)' : ''}`;
   console.log(summary);

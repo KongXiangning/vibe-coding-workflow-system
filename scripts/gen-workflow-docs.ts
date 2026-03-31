@@ -121,6 +121,9 @@ function stringifyInline(value: JsonValue): string {
 
 function placeholderMap(profile: JsonObject): Record<string, JsonValue> {
   const version = readText(VERSION_PATH).trim();
+  if (!version) {
+    throw new Error(`VERSION file is empty or contains only whitespace: ${VERSION_PATH}`);
+  }
   return {
     '{{PROJECT_NAME}}': getRequiredPath(profile, 'project.name'),
     '{{PROJECT_TYPE}}': getRequiredPath(profile, 'project.type'),
