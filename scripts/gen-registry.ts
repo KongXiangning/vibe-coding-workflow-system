@@ -2,10 +2,20 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { parse } from 'yaml';
-
-type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
-type JsonObject = { [key: string]: JsonValue };
+import {
+  type JsonValue,
+  type JsonObject,
+  RESERVED_FAILURE_TARGETS,
+  readText,
+  loadProfile,
+  normalizeList,
+  projectPlaceholders,
+  parseFrontmatter,
+  stringifyInline,
+  renderValue,
+  validateUnresolvedPlaceholders,
+  validateStages,
+} from './workflow-core';
 
 type SkillTemplate = {
   name: string;
@@ -37,19 +47,6 @@ const OUTPUT_PATH = path.join(ROOT, 'SKILL_REGISTRY.md');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const REQUIRED_FIELDS = ['name', 'purpose', 'stage', 'trigger', 'reads', 'writes', 'handoff'] as const;
-const REQUIRED_STAGES = new Set([
-  '初始化',
-  '阶段 1：需求进入',
-  '阶段 2：范围锁定',
-  '阶段 3：方案拆解',
-  '阶段 4：小步实现',
-  '阶段 4/6：实现或验证异常',
-  '阶段 5：范围复核',
-  '阶段 6：回归验证',
-  '阶段 7：状态同步',
-  '阶段 8：交付沉淀',
-]);
-const RESERVED_FAILURE_TARGETS = new Set(['ask-user']);
 const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
 const HIGH_RISK_SKILLS = [
   'implement-current-step',
@@ -99,107 +96,6 @@ const STAGE_SECTIONS: StageSection[] = [
 
 const WORKFLOW_ORDER_INDEX = new Map(WORKFLOW_ORDER.map((name, index) => [name, index]));
 
-function readText(filePath: string): string {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`Required file not found: ${filePath}`);
-  }
-  return fs.readFileSync(filePath, 'utf8');
-}
-
-function parseFrontmatter(content: string, filePath: string): JsonObject {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?[\s\S]*$/);
-  if (!match) {
-    throw new Error(`Invalid frontmatter block in ${filePath}`);
-  }
-
-  const frontmatter = parse(match[1]) as JsonObject;
-  if (!frontmatter || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
-    throw new Error(`Frontmatter is not a mapping in ${filePath}`);
-  }
-
-  return frontmatter;
-}
-
-function getRequiredPath(obj: JsonObject, dottedPath: string): JsonValue {
-  const parts = dottedPath.split('.');
-  let current: JsonValue = obj;
-
-  for (const part of parts) {
-    if (!current || typeof current !== 'object' || Array.isArray(current) || !(part in current)) {
-      throw new Error(`Missing required profile field: ${dottedPath}`);
-    }
-    current = current[part];
-  }
-
-  return current;
-}
-
-function normalizeList(value: JsonValue): string[] {
-  if (value == null) return [];
-  if (Array.isArray(value)) return value.map(item => String(item));
-  return [String(value)];
-}
-
-function placeholderMap(profile: JsonObject): Record<string, JsonValue> {
-  return {
-    '{{PROJECT_NAME}}': getRequiredPath(profile, 'project.name'),
-    '{{PROJECT_TYPE}}': getRequiredPath(profile, 'project.type'),
-    '{{TECH_STACK}}': getRequiredPath(profile, 'runtime.languages'),
-    '{{TEST_COMMANDS}}': getRequiredPath(profile, 'runtime.test_commands'),
-    '{{DECISION_TYPES}}': getRequiredPath(profile, 'decision_types'),
-    '{{CODE_DIRECTORIES}}': getRequiredPath(profile, 'paths.source_directories'),
-    '{{FORBIDDEN_PATHS}}': getRequiredPath(profile, 'boundaries.forbidden_paths'),
-    '{{ARCHITECTURE_RULES}}': getRequiredPath(profile, 'architecture_rules'),
-  };
-}
-
-function stringifyInline(value: JsonValue): string {
-  if (Array.isArray(value)) {
-    return value.map(item => stringifyInline(item)).join(', ');
-  }
-  if (value && typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
-function renderValue(value: JsonValue, replacements: Record<string, JsonValue>): JsonValue {
-  if (Array.isArray(value)) {
-    const rendered: JsonValue[] = [];
-    for (const item of value) {
-      const next = renderValue(item, replacements);
-      if (Array.isArray(next)) {
-        rendered.push(...next);
-      } else {
-        rendered.push(next);
-      }
-    }
-    return rendered;
-  }
-
-  if (value && typeof value === 'object') {
-    const result: JsonObject = {};
-    for (const [key, child] of Object.entries(value)) {
-      result[key] = renderValue(child, replacements);
-    }
-    return result;
-  }
-
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  if (value in replacements) {
-    return replacements[value];
-  }
-
-  let rendered = value;
-  for (const [placeholder, replacement] of Object.entries(replacements)) {
-    rendered = rendered.split(placeholder).join(stringifyInline(replacement));
-  }
-  return rendered;
-}
-
 function compactText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
@@ -238,15 +134,6 @@ function validateHandoff(skill: RegistrySkill, knownNames: Set<string>, filePath
   }
 }
 
-function validateStages(skills: RegistrySkill[]): void {
-  const stages = new Set(skills.map(skill => skill.stage));
-  for (const stage of REQUIRED_STAGES) {
-    if (!stages.has(stage)) {
-      throw new Error(`Missing required stage coverage: ${stage}`);
-    }
-  }
-}
-
 function validateWorkflowOrder(skills: RegistrySkill[]): void {
   const names = new Set(skills.map(skill => skill.name));
   for (const requiredName of WORKFLOW_ORDER) {
@@ -258,14 +145,6 @@ function validateWorkflowOrder(skills: RegistrySkill[]): void {
   if (names.size !== WORKFLOW_ORDER.length) {
     const extra = [...names].filter(name => !WORKFLOW_ORDER_INDEX.has(name)).sort();
     throw new Error(`Unexpected workflow skills missing explicit order: ${extra.join(', ')}`);
-  }
-}
-
-function validateUnresolvedPlaceholders(content: string): void {
-  const matches = content.match(/{{[^}]+}}/g) ?? [];
-  const invalid = matches.filter(token => !ALLOWED_UNRESOLVED.has(token));
-  if (invalid.length > 0) {
-    throw new Error(`Unresolved placeholders in registry: ${invalid.join(', ')}`);
   }
 }
 
@@ -281,7 +160,7 @@ function loadTemplates(): SkillTemplate[] {
 
   return files.map(file => {
     const filePath = path.join(TEMPLATE_DIR, file);
-    const frontmatter = parseFrontmatter(readText(filePath), filePath);
+    const { frontmatter } = parseFrontmatter(readText(filePath), filePath);
     const name = String(frontmatter.name ?? '').trim();
     if (!name) {
       throw new Error(`Missing name in ${filePath}`);
@@ -431,12 +310,9 @@ ${HIGH_RISK_SKILLS.map(name => `- \`${name}\``).join('\n')}
 }
 
 function main(): void {
-  const profile = parse(readText(PROFILE_PATH)) as JsonObject;
-  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
-    throw new Error('PROJECT_PROFILE.yaml must parse to a mapping');
-  }
+  const profile = loadProfile(PROFILE_PATH);
 
-  const replacements = placeholderMap(profile);
+  const replacements = projectPlaceholders(profile);
   const templates = loadTemplates();
   const renderedSkills: RegistrySkill[] = [];
   const knownNames = new Set(templates.map(template => template.name));
@@ -449,11 +325,11 @@ function main(): void {
     renderedSkills.push(skill);
   }
 
-  validateStages(renderedSkills);
+  validateStages(renderedSkills.map(skill => skill.stage));
   validateWorkflowOrder(renderedSkills);
 
   const content = renderRegistry(renderedSkills);
-  validateUnresolvedPlaceholders(content);
+  validateUnresolvedPlaceholders('registry', content, ALLOWED_UNRESOLVED);
 
   if (!DRY_RUN) {
     fs.writeFileSync(OUTPUT_PATH, content, 'utf8');

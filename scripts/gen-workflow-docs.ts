@@ -2,10 +2,16 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { parse } from 'yaml';
-
-type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
-type JsonObject = { [key: string]: JsonValue };
+import {
+  type JsonValue,
+  type JsonObject,
+  readText,
+  loadProfile,
+  getRequiredPath,
+  projectPlaceholders,
+  stringifyInline,
+  validateUnresolvedPlaceholders,
+} from './workflow-core';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
@@ -88,54 +94,6 @@ const ALLOWED_UNRESOLVED = new Set([
   '{{AUTHOR}}',
 ]);
 
-function readText(filePath: string): string {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`Required file not found: ${filePath}`);
-  }
-  return fs.readFileSync(filePath, 'utf8');
-}
-
-function getRequiredPath(obj: JsonObject, dottedPath: string): JsonValue {
-  const parts = dottedPath.split('.');
-  let current: JsonValue = obj;
-
-  for (const part of parts) {
-    if (!current || typeof current !== 'object' || Array.isArray(current) || !(part in current)) {
-      throw new Error(`Missing required profile field: ${dottedPath}`);
-    }
-    current = current[part];
-  }
-
-  return current;
-}
-
-function stringifyInline(value: JsonValue): string {
-  if (Array.isArray(value)) {
-    return value.map(item => stringifyInline(item)).join(', ');
-  }
-  if (value && typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
-function placeholderMap(profile: JsonObject): Record<string, JsonValue> {
-  const version = readText(VERSION_PATH).trim();
-  if (!version) {
-    throw new Error(`VERSION file is empty or contains only whitespace: ${VERSION_PATH}`);
-  }
-  return {
-    '{{PROJECT_NAME}}': getRequiredPath(profile, 'project.name'),
-    '{{PROJECT_TYPE}}': getRequiredPath(profile, 'project.type'),
-    '{{TECH_STACK}}': getRequiredPath(profile, 'runtime.languages'),
-    '{{TEST_COMMANDS}}': getRequiredPath(profile, 'runtime.test_commands'),
-    '{{CODE_DIRECTORIES}}': getRequiredPath(profile, 'paths.source_directories'),
-    '{{FORBIDDEN_PATHS}}': getRequiredPath(profile, 'boundaries.forbidden_paths'),
-    '{{ARCHITECTURE_RULES}}': getRequiredPath(profile, 'architecture_rules'),
-    '{{VERSION}}': version,
-  };
-}
-
 function renderTemplate(content: string, replacements: Record<string, JsonValue>): string {
   let rendered = content;
   for (const [placeholder, replacement] of Object.entries(replacements)) {
@@ -157,14 +115,6 @@ function validateRequiredHeadings(fileName: string, content: string): void {
   }
 }
 
-function validateUnresolvedPlaceholders(fileName: string, content: string): void {
-  const matches = content.match(/{{[^}]+}}/g) ?? [];
-  const invalid = matches.filter(token => !ALLOWED_UNRESOLVED.has(token));
-  if (invalid.length > 0) {
-    throw new Error(`Unresolved placeholders in ${fileName}: ${invalid.join(', ')}`);
-  }
-}
-
 function prepareOutputDir(): void {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   for (const entry of fs.readdirSync(OUTPUT_DIR)) {
@@ -175,12 +125,13 @@ function prepareOutputDir(): void {
 }
 
 function main(): void {
-  const profile = parse(readText(PROFILE_PATH)) as JsonObject;
-  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
-    throw new Error('PROJECT_PROFILE.yaml must parse to a mapping');
-  }
+  const profile = loadProfile(PROFILE_PATH);
 
-  const replacements = placeholderMap(profile);
+  const version = readText(VERSION_PATH).trim();
+  if (!version) {
+    throw new Error(`VERSION file is empty or contains only whitespace: ${VERSION_PATH}`);
+  }
+  const replacements = { ...projectPlaceholders(profile), '{{VERSION}}': version };
   const templateFiles = fs.readdirSync(TEMPLATE_DIR).filter(file => file.endsWith('.md.tmpl')).sort();
 
   if (templateFiles.length === 0) {
@@ -196,7 +147,7 @@ function main(): void {
     const content = renderTemplate(readText(inputPath), replacements);
 
     validateRequiredHeadings(outputName, content);
-    validateUnresolvedPlaceholders(outputName, content);
+    validateUnresolvedPlaceholders(outputName, content, ALLOWED_UNRESOLVED);
 
     rendered.push({ outputName, content });
   }
