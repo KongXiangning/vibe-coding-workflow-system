@@ -1,11 +1,27 @@
 # Workflow Protocol
 
-This file defines the execution rules for the draft workflow skill system.
+```yaml
+Protocol-Version: 0.1.0
+Status: Draft
+Last-Updated: 2026-04-01
+```
+
+This file defines the execution rules for the workflow skill system.
 
 Its purpose is narrower than `vibe-coding-workflow.md`:
 
 - `vibe-coding-workflow.md` explains the full methodology
 - `WORKFLOW_PROTOCOL.md` defines the concrete rules the generator must follow
+
+### Versioning scheme
+
+This protocol uses semantic versioning:
+
+- **Major** — breaking change to generator contract (field removed, enum value renamed, validation rule changed in a way that rejects previously-valid input)
+- **Minor** — new optional feature or section that does not break existing generators
+- **Patch** — clarification, typo fix, or example addition with no behavioral impact
+
+Generators should declare which protocol version they target. A generator targeting `0.x` must accept that the protocol is still stabilizing and breaking changes may occur without a major bump until `1.0.0`.
 
 ---
 
@@ -20,6 +36,20 @@ The generator must treat the following inputs as authoritative:
 The generator must not infer project facts from chat context alone.
 
 If a required value is missing from `PROJECT_PROFILE.yaml`, generation must fail loudly instead of silently defaulting.
+
+### 1.1 Input precedence
+
+When multiple sources define the same value, the following precedence applies (highest first):
+
+1. **`WORKFLOW_PROTOCOL.md`** — protocol rules are always authoritative. A generator must not override protocol-defined constraints with project-level or template-level values.
+2. **`PROJECT_PROFILE.yaml`** — project configuration takes precedence over template defaults.
+3. **Template defaults** — values embedded in `.tmpl` files are the lowest-priority source.
+
+Conflict resolution rules:
+
+- If `PROJECT_PROFILE.yaml` defines a value that contradicts a protocol rule, the protocol rule wins and the conflict must be logged as a warning.
+- If a template embeds a default that `PROJECT_PROFILE.yaml` also defines, the profile value wins silently.
+- Chat context, LLM inference, and runtime conversation history are never authoritative for protocol or project values. They may inform task-level placeholders only.
 
 ---
 
@@ -56,6 +86,50 @@ That separation avoids colliding with the existing gstack build pipeline while t
 ## 3. Variable substitution rules
 
 The generator must expand template variables from `PROJECT_PROFILE.yaml` using deterministic mapping.
+
+### 3.0 Placeholder grammar
+
+Placeholder syntax:
+
+```
+{{UPPER_SNAKE_CASE}}
+```
+
+Rules:
+
+- Delimiters are exactly `{{` and `}}` with no whitespace inside the braces.
+- Names must be `[A-Z][A-Z0-9_]*` (uppercase ASCII letters, digits, underscores; must start with a letter).
+- Nesting is not supported. `{{OUTER_{{INNER}}}}` is invalid.
+- Conditional logic is not supported. Placeholders are simple string substitution only.
+- Escaping: literal `{{` in output is not a supported use case in v0. If a template needs literal double braces, the generator must not interpret them as placeholders — but no escaping mechanism is defined. Templates must avoid ambiguous sequences.
+
+Placeholder categories:
+
+| Category | Behavior | Error on unresolved? | Examples |
+|----------|----------|---------------------|----------|
+| Project-level | Must be expanded from `PROJECT_PROFILE.yaml` | Yes — hard fail | `{{PROJECT_NAME}}`, `{{TECH_STACK}}` |
+| Runtime (task-level) | Must be preserved as literal placeholder text | No — intentionally unresolved | `{{TASK_ID}}`, `{{TASK_SLUG}}` |
+| Docs-specific runtime | Must be preserved as literal placeholder text | No — intentionally unresolved | `{{TASK_TITLE}}`, `{{DATE}}`, `{{AUTHOR}}` |
+| Docs-specific project | Must be expanded | Yes — hard fail | `{{VERSION}}` |
+
+Complete placeholder table:
+
+| Placeholder | Category | Source | Used by |
+|-------------|----------|--------|---------|
+| `{{PROJECT_NAME}}` | Project | `project.name` | skills, docs, registry |
+| `{{PROJECT_TYPE}}` | Project | `project.type` | skills, docs, registry |
+| `{{TECH_STACK}}` | Project | `runtime.languages` | skills, docs, registry |
+| `{{TEST_COMMANDS}}` | Project | `runtime.test_commands` | skills, docs, registry |
+| `{{DECISION_TYPES}}` | Project | `decision_types` | skills, registry |
+| `{{CODE_DIRECTORIES}}` | Project | `paths.source_directories` | skills, docs, registry |
+| `{{FORBIDDEN_PATHS}}` | Project | `boundaries.forbidden_paths` | skills, docs, registry |
+| `{{ARCHITECTURE_RULES}}` | Project | `architecture_rules` | skills, docs, registry |
+| `{{VERSION}}` | Docs-project | `VERSION` file | docs |
+| `{{TASK_ID}}` | Runtime | Task context (bootstrap/runtime) | skills, docs |
+| `{{TASK_SLUG}}` | Runtime | Task context (bootstrap/runtime) | skills, docs |
+| `{{TASK_TITLE}}` | Docs-runtime | Task context (bootstrap/runtime) | docs |
+| `{{DATE}}` | Docs-runtime | Task context (bootstrap/runtime) | docs |
+| `{{AUTHOR}}` | Docs-runtime | Task context (bootstrap/runtime) | docs |
 
 ### 3.1 Core project variables
 
@@ -146,7 +220,41 @@ which behaves most like a tooling / workflow system.
 
 ---
 
-## 5. Fields that must remain templated vs. fields that must be expanded
+## 4a. Canonical stage enum
+
+The workflow system defines exactly 10 stage groups. Generators must validate that all stages are represented.
+
+| Canonical ID | Display name (Chinese) | Purpose | Phase |
+|-------------|----------------------|---------|-------|
+| `init` | 初始化 | Project governance initialization | Setup |
+| `phase-1-intake` | 阶段 1：需求进入 | Task creation and intake | Planning |
+| `phase-2-scope-lock` | 阶段 2：范围锁定 | Scope review and lock | Planning |
+| `phase-3-decomposition` | 阶段 3：方案拆解 | Decision classification and task decomposition | Planning |
+| `phase-4-implementation` | 阶段 4：小步实现 | Step-by-step implementation | Execution |
+| `phase-4-6-exception` | 阶段 4/6：实现或验证异常 | Exception handling during implementation or regression | Execution |
+| `phase-5-scope-review` | 阶段 5：范围复核 | Review diff and verify contracts | Review |
+| `phase-6-regression` | 阶段 6：回归验证 | Regression verification | Review |
+| `phase-7-sync` | 阶段 7：状态同步 | Sync task, status, contracts, decisions | Sync |
+| `phase-8-delivery` | 阶段 8：交付沉淀 | Capture lessons, prepare summary, archive | Delivery |
+
+### 4a.1 Validation rules
+
+- Generators must accept both the canonical ID and the Chinese display name when reading the `stage` field from templates.
+- Generators must validate that the rendered skill set covers **all 10 stage groups** (not 8 — the `phase-4-6-exception` stage is distinct).
+- The canonical ID is the protocol-level identifier. The display name is an alias for human readability.
+- A stage value that matches neither the canonical ID nor the display name is invalid and must cause generation to fail.
+- Multiple skills may belong to the same stage. The minimum required coverage is at least one skill per stage group.
+
+### 4a.2 Stage count clarification
+
+This protocol defines **10 stage groups**, not 8. The original §8 reference to "all 8 workflow stages" was an undercount that omitted:
+
+- `init` (setup, not a numbered phase)
+- `phase-4-6-exception` (cross-phase exception handling)
+
+All references in this protocol to stage coverage must use the count of 10.
+
+---
 
 ### 5.1 Must be expanded by the generator
 
@@ -164,25 +272,31 @@ which behaves most like a tooling / workflow system.
 - `{{TASK_ID}}`
 - `{{TASK_SLUG}}`
 
-### 5.3 Must remain template-level metadata
+### 5.3 Skill metadata schema
 
-These fields are part of the skill protocol and should not be deleted or re-invented by the generator:
+These fields are part of the skill protocol and must appear in every skill template frontmatter. The generator may expand values inside these fields but must not change the field structure.
 
-- `purpose`
-- `stage`
-- `trigger`
-- `inputs`
-- `reads`
-- `writes`
-- `forbidden_writes`
-- `must_check`
-- `stop_conditions`
-- `output`
-- `handoff`
-- `decision_policy`
-- `verification`
+| Field | Type | Required | Validation rule |
+|-------|------|----------|----------------|
+| `purpose` | `string` | Yes | Non-empty. Describes the skill's role in the workflow. |
+| `stage` | `string` | Yes | Must match a canonical ID or display name from §4a. |
+| `trigger` | `string` | Yes | Non-empty. Describes when this skill activates. |
+| `inputs` | `string[]` | Yes | Non-empty array. Each entry is a path or description of required input. |
+| `reads` | `string[]` | Yes | May be empty. Each entry is a path (per §7a path grammar) the skill reads. |
+| `writes` | `string[]` | Yes | May be empty (for read-only skills). Each entry is a path the skill writes. |
+| `forbidden_writes` | `string[]` | Yes | May be empty. Paths the skill must never write. Must not overlap with `writes`. |
+| `must_check` | `string[]` | Yes | Non-empty array. Conditions the skill must verify before completing. |
+| `stop_conditions` | `string[]` | Yes | Non-empty array. Conditions that must halt the skill. |
+| `output` | `string` | Yes | Non-empty. Describes the skill's output artifact or action. |
+| `handoff` | `object` | Yes | Must have exactly two keys: `success` (string) and `failure` (string). See §6 for validation rules. |
+| `decision_policy` | `string` | Yes | Non-empty. Describes the skill's decision-making authority. |
+| `verification` | `string` | Yes | Non-empty. Describes how to verify the skill completed correctly. |
 
-The generator may expand values inside these fields, but it must not change the field structure.
+Notes:
+
+- All `string[]` fields are YAML sequences. A single-element list must still use sequence syntax.
+- The `handoff` object must not contain additional keys beyond `success` and `failure`.
+- Fields not listed above may appear in templates but are not validated by the protocol. Generators must not silently drop unknown fields.
 
 ---
 
@@ -283,7 +397,45 @@ The following skills must remain non-code-writing:
 
 ---
 
-## 8. Validation rules
+## 7a. Path grammar
+
+Paths appearing in `reads`, `writes`, and `forbidden_writes` must follow these rules.
+
+### 7a.1 Path format
+
+- Paths are relative to the project root directory.
+- Forward slash (`/`) is the separator, regardless of the host OS.
+- Paths must not begin with `/` (no absolute paths).
+- Paths must not contain `..` (no parent directory traversal).
+- Trailing slashes are permitted and denote directories.
+
+### 7a.2 Special path tokens
+
+The following tokens expand to project-specific path sets at generation time:
+
+| Token | Source | Expands to |
+|-------|--------|-----------|
+| Values from `{{CODE_DIRECTORIES}}` | `paths.source_directories` in `PROJECT_PROFILE.yaml` | One or more directory paths |
+| Values from `{{FORBIDDEN_PATHS}}` | `boundaries.forbidden_paths` in `PROJECT_PROFILE.yaml` | One or more path patterns |
+
+These tokens are expanded during variable substitution (§3). After expansion, the resulting paths must conform to the format rules above.
+
+### 7a.3 Glob patterns
+
+Glob patterns (e.g., `*.ts`, `**/*.md`) are **not supported** in `reads`, `writes`, or `forbidden_writes` in v0. Each entry must be an explicit path or directory.
+
+### 7a.4 Path validation
+
+A path entry is invalid if it:
+
+- contains `..`
+- starts with `/`
+- contains null bytes or control characters
+- is an empty string
+
+Invalid paths must cause generation to fail.
+
+---
 
 The generator must run structural validation after rendering.
 
@@ -292,7 +444,7 @@ Minimum validation checks:
 1. required schema fields exist on every generated skill
 2. every handoff target is valid
 3. no `writes` / `forbidden_writes` conflict exists
-4. all 8 workflow stages are represented
+4. all 10 workflow stage groups are represented (see §4a)
 5. all placeholders intended for project expansion are resolved
 6. task placeholders intentionally preserved in v1 remain untouched
 
@@ -322,7 +474,101 @@ The generator must not:
 
 ---
 
-## 10. Initial implementation scope
+## 9a. Atomic write rules
+
+All generators must follow a two-phase write protocol.
+
+### 9a.1 Phase 1: Render and validate
+
+- Read all inputs (profile, templates, schemas).
+- Render all output artifacts in memory.
+- Run all validation checks against the in-memory artifacts.
+- If any validation check fails, stop. Do not proceed to phase 2.
+
+### 9a.2 Phase 2: Write
+
+- Only reached if all validations pass.
+- Prepare the output location (create directory, clean stale files).
+- Write all artifacts to disk.
+
+### 9a.3 Failure guarantees
+
+- If phase 1 fails, **zero files** must be written or modified.
+- If the output directory was cleaned during phase 2 preparation and a write then fails, the generator is in an error state. This is an implementation bug, not a protocol-level recovery scenario.
+- Generators must not leave partial output that could be mistaken for a successful generation.
+
+### 9a.4 Idempotence
+
+- Running a generator twice with identical inputs must produce identical output.
+- Generators must not embed timestamps, random values, or process-specific data in output.
+
+### 9a.5 Dry-run mode
+
+- All generators must support a `--dry-run` flag.
+- In dry-run mode, phase 1 (render + validate) executes fully.
+- Phase 2 (write) is skipped.
+- The generator must report what it would have written (file count, output path) and exit 0 if validation passed.
+
+---
+
+## 9b. Error output format
+
+Generators must emit structured error output to stderr.
+
+### 9b.1 Error object schema
+
+Each error is a JSON object on a single line of stderr:
+
+```json
+{
+  "generator": "gen:workflow-skills",
+  "severity": "error",
+  "code": "HANDOFF_001",
+  "message": "Invalid handoff.success target",
+  "file": "templates/skills/review-diff.SKILL.md.tmpl",
+  "field": "handoff.success",
+  "details": "Target 'nonexistent-skill' is not in the generated skill set"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `generator` | `string` | Yes | Generator identifier: `gen:workflow-skills`, `gen:workflow-docs`, or `gen:registry` |
+| `severity` | `string` | Yes | `"error"` (blocks generation) or `"warning"` (logged, does not block) |
+| `code` | `string` | Yes | Namespaced error code (see §9b.2) |
+| `message` | `string` | Yes | Human-readable one-line summary |
+| `file` | `string` | No | Path to the source file that caused the error |
+| `field` | `string` | No | Specific field within the file |
+| `details` | `string` | No | Additional context for debugging |
+
+### 9b.2 Error code namespaces
+
+| Prefix | Category | Examples |
+|--------|----------|---------|
+| `SCHEMA_` | Missing or invalid metadata fields | `SCHEMA_001` missing required field, `SCHEMA_002` invalid field type |
+| `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid target, `HANDOFF_002` broken chain |
+| `PLACEHOLDER_` | Placeholder resolution errors | `PLACEHOLDER_001` unresolved project placeholder, `PLACEHOLDER_002` invalid syntax |
+| `STAGE_` | Stage coverage errors | `STAGE_001` missing stage, `STAGE_002` unknown stage value |
+| `PATH_` | Path grammar violations | `PATH_001` absolute path, `PATH_002` parent traversal |
+| `WRITE_` | Write boundary violations | `WRITE_001` writes/forbidden_writes conflict, `WRITE_002` unauthorized write |
+| `HEADING_` | Doc heading validation | `HEADING_001` missing required heading |
+| `IO_` | File system errors | `IO_001` missing input file, `IO_002` write failure |
+
+### 9b.3 Human-readable summary
+
+After all JSON error lines, the generator must print a single human-readable summary line:
+
+```
+gen:workflow-skills: generation failed — 2 errors, 1 warning
+```
+
+### 9b.4 Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success — all output generated and validated |
+| `1` | Generation error — input/output/file-system failure |
+| `2` | Validation error — rendered output failed protocol checks |
 
 The first generator version should do only the following:
 
@@ -343,12 +589,46 @@ The first version should **not** yet:
 
 ## 11. Success criteria
 
-This protocol is considered implemented when:
+This protocol is considered implemented when all of the following machine-checkable conditions pass.
 
-- a generator can produce a complete rendered skill set from the current templates
-- the rendered set passes handoff and boundary validation
-- the output is isolated from the existing gstack generation pipeline
-- the workflow remains auditable from input profile to rendered skill output
+### 11.1 Workflow skill generator (`gen:workflow-skills`)
+
+| # | Condition | Verified by |
+|---|-----------|-------------|
+| 1 | Generated skill count equals template count | `bun run test:workflow-skills` — assertion: count match |
+| 2 | Every generated skill has all 13 required schema fields (§5.3) | `bun run test:workflow-skills` — schema field check |
+| 3 | Every `handoff.success` and `handoff.failure` target is valid (§6) | `bun run test:workflow-skills` — handoff validation |
+| 4 | No skill has `writes` / `forbidden_writes` overlap (§7.3) | `bun run test:workflow-skills` — boundary check |
+| 5 | All 10 stage groups are covered (§4a) | `bun run test:workflow-skills` — stage coverage |
+| 6 | All project-level placeholders are resolved; only runtime placeholders remain | `bun run test:workflow-skills` — placeholder check |
+| 7 | Output is isolated from native gstack `*/SKILL.md` artifacts | Output path is `generated/workflow-skills/` — structural guarantee |
+
+### 11.2 Registry generator (`gen:registry`)
+
+| # | Condition | Verified by |
+|---|-----------|-------------|
+| 1 | Registry covers every workflow skill template | `bun run test:registry` — row count match |
+| 2 | Every registry row has required metadata columns | `bun run test:registry` — column check |
+| 3 | All 10 stage groups are represented | `bun run test:registry` — stage coverage |
+| 4 | Every handoff target in the registry is valid | `bun run test:registry` — handoff validation |
+| 5 | All project-level placeholders are resolved | `bun run test:registry` — placeholder check |
+
+### 11.3 Docs generator (`gen:workflow-docs`)
+
+| # | Condition | Verified by |
+|---|-----------|-------------|
+| 1 | Every required governance doc is generated | `bun run test:workflow-docs` — doc count match |
+| 2 | Every doc satisfies `FILE_SCHEMAS.md` required headings | `bun run test:workflow-docs` — heading validation |
+| 3 | All project-level placeholders are resolved | `bun run test:workflow-docs` — placeholder check |
+| 4 | Only runtime placeholders remain unresolved | `bun run test:workflow-docs` — allowed unresolved check |
+
+### 11.4 Cross-generator
+
+| # | Condition | Verified by |
+|---|-----------|-------------|
+| 1 | All generators use the same stage enum and placeholder mapping | Shared `scripts/workflow-core.ts` — structural guarantee |
+| 2 | All generators follow two-phase atomic write (§9a) | Existing test coverage for partial-write prevention |
+| 3 | The workflow remains auditable from input profile to rendered output | Manual: trace any generated artifact back to its template and profile values |
 
 ---
 
