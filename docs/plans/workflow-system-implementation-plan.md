@@ -53,7 +53,7 @@ The following artifacts already exist and are operational:
 | Generated workflow docs | ✅ 7 docs generated | `generated/workflow-docs/` |
 | `SKILL_REGISTRY.md` | ✅ Auto-generated | repo root |
 | Test commands | ✅ `test:workflow-skills`, `test:workflow-docs`, `test:registry`, `test:workflow-all` | `package.json` |
-| Shared core module | ❌ No explicit shared module; logic distributed across individual generator scripts | `scripts/` |
+| Shared core module | ✅ Extracted to `scripts/workflow-core.ts` (types, constants, parsing, rendering, validation) | `scripts/` |
 | Hybrid sync strategy | ❌ Not yet defined | — |
 | Bootstrap entrypoint | ❌ Not yet implemented | — |
 | Project-level validation model | ❌ Not yet defined | — |
@@ -74,10 +74,23 @@ That means every generated artifact must be classified as one of:
 Specific path decisions:
 
 - `generated/workflow-skills/` and `generated/workflow-docs/` are standalone-owned
-- the registry is currently generated at repo root `SKILL_REGISTRY.md`, consistent with `WORKFLOW_PROTOCOL.md` §13.2
-- if extraction requires a different registry path, a relocation rule must be defined at that time
 - the implementation plan in `docs/plans/` is incubation-local
-- if a post-extraction project uses a different registry location, migration logic must be added to the bootstrap or extraction tooling
+
+### Registry path authority
+
+The current authoritative registry path is:
+
+```
+SKILL_REGISTRY.md  (repo root)
+```
+
+This is the production output path, not a bridge artifact. It is consistent with `WORKFLOW_PROTOCOL.md` §13.2 and the current `gen:registry` implementation.
+
+Status of this decision:
+
+- **Settled for incubation.** No open convergence task exists. The repo root path is the single source of truth during the incubation phase.
+- **Open for extraction.** If the workflow-system is extracted into a standalone project, the registry path may need to change. At that point, a relocation rule and migration logic must be defined as part of the extraction work — not before.
+- **No phase owns convergence.** This is not a P1 or P4 task. It is a future extraction-time decision that will surface when extraction is actually planned.
 
 ### Existing live-doc migration policy
 
@@ -166,15 +179,9 @@ Acceptance criteria:
 
 ### P2. Build the shared parser / validator / writer core
 
-Status: **Partially Complete — No Explicit Shared Module**
+Status: **Partially Complete — Shared Module Extracted**
 
-> Generator scripts exist (`scripts/gen-workflow-skills.ts`, `scripts/gen-workflow-docs.ts`, `scripts/gen-registry.ts`) and are operational. However, **no dedicated shared core module exists**. Code duplication audit confirms:
->
-> - 6 functions duplicated across all 3 generators: `readText`, `getRequiredPath`, `stringifyInline`, `placeholderMap`, `validateUnresolvedPlaceholders`, and profile loading/validation
-> - 4 functions duplicated across 2 generators (skills + registry): `normalizeList`, `renderValue`, `parseFrontmatter`, `validateStages`
-> - 2 types (`JsonValue`, `JsonObject`) and 3 constants (`REQUIRED_STAGES`, `RESERVED_FAILURE_TARGETS`, `ALLOWED_UNRESOLVED`) copy-pasted
->
-> Extracting these into a shared module (e.g. `scripts/workflow-core.ts`) is recommended before any further generator work.
+> `scripts/workflow-core.ts` has been extracted with shared types (`JsonValue`, `JsonObject`), constants (`REQUIRED_STAGES`, `RESERVED_FAILURE_TARGETS`), and functions (`readText`, `loadProfile`, `getRequiredPath`, `normalizeList`, `projectPlaceholders`, `parseFrontmatter`, `stringifyInline`, `renderValue`, `validateUnresolvedPlaceholders`, `validateStages`). All 3 generators now import from this module. Remaining gaps: path normalization, handoff graph validation, and atomic write orchestration are not yet in the shared core — they remain generator-specific.
 
 Goal:
 
@@ -212,9 +219,12 @@ Status: **Complete**
 
 > `bun run gen:workflow-skills` is operational. 18 skills are generated to `generated/workflow-skills/`. Tests exist at `test/gen-workflow-skills.test.ts` and are runnable via `bun run test:workflow-skills`.
 
-Goal:
+What was delivered:
 
-Ship the workflow skill generator as the first complete and verifiable implementation slice.
+- The workflow skill generator reads `PROJECT_PROFILE.yaml` and `templates/skills/*.SKILL.md.tmpl`, expands project-level placeholders, preserves task-level placeholders, and renders the full workflow skill graph
+- Handoff closure, schema, writes conflicts, placeholder completeness, and stage coverage are all validated before output
+- Atomic write: all files are rendered and validated in memory before any are written to disk
+- Output: 18 skills in `generated/workflow-skills/`
 
 Inputs:
 
@@ -226,28 +236,12 @@ Outputs:
 
 - `generated/workflow-skills/`
 
-Behavior requirements:
+Acceptance criteria (all met):
 
-- expand only project-level placeholders
-- preserve task-level placeholders
-- render the full workflow skill graph
-- validate handoff closure, schema, writes conflicts, placeholder completeness, and stage coverage
-
-Deliverables:
-
-- `bun run gen:workflow-skills`
-- generated workflow skills
-
-Dependencies:
-
-- depends on P1 and P2
-
-Acceptance criteria:
-
-- generated skill count matches template count
-- all rendered skills pass schema and graph validation
-- no partial-success output is written
-- `bun run test:workflow-skills` can validate the generator output reliably
+- ✅ generated skill count matches template count (18/18)
+- ✅ all rendered skills pass schema and graph validation
+- ✅ no partial-success output is written (atomic two-phase render+write)
+- ✅ `bun run test:workflow-skills` validates the generator output reliably (6 tests, 445 assertions)
 
 ### P4. Implement `gen:registry`
 
@@ -255,9 +249,12 @@ Status: **Complete**
 
 > `bun run gen:registry` is operational. `SKILL_REGISTRY.md` is generated at repo root. Tests exist at `test/gen-registry.test.ts` and are runnable via `bun run test:registry`.
 
-Goal:
+What was delivered:
 
-Turn the skill graph into a human-auditable registry and use it as the second validation surface.
+- The registry generator reads `templates/skills/*.SKILL.md.tmpl` and `PROJECT_PROFILE.yaml`, extracts metadata from template frontmatter, and renders a human-auditable registry
+- Uses the same stage enum and placeholder mapping as the skill generator (now via shared `scripts/workflow-core.ts`)
+- Renders a workflow overview, stage-grouped skill tables, and success/failure handoff links
+- The registry is a generated-but-committed artifact at repo root `SKILL_REGISTRY.md`
 
 Inputs:
 
@@ -267,31 +264,14 @@ Inputs:
 Outputs:
 
 - `SKILL_REGISTRY.md` at repo root (consistent with `WORKFLOW_PROTOCOL.md` §13.2)
-- if a post-extraction project requires a different path, a relocation rule must be defined during extraction
 
-Behavior requirements:
+Acceptance criteria (all met):
 
-- extract metadata only from template frontmatter
-- reuse the same stage enum and placeholder mapping as the skill generator
-- render a workflow overview, stage-grouped skill tables, and success/failure handoff links
-- treat the registry as a generated-but-committed artifact
-
-Deliverables:
-
-- `bun run gen:registry`
-- updated `SKILL_REGISTRY.md` at repo root
-
-Dependencies:
-
-- depends on P2 and P3
-
-Acceptance criteria:
-
-- the registry covers every workflow skill
-- stage, handoff, and skill counts match the generated skills exactly
-- `bun run test:registry` catches missing metadata, unknown handoffs, stage gaps, and placeholder issues
-- CI fails when templates change but the registry is stale
-- the registry path is consistent with `WORKFLOW_PROTOCOL.md` §13.2
+- ✅ the registry covers every workflow skill (18/18)
+- ✅ stage, handoff, and skill counts match the generated skills exactly
+- ✅ `bun run test:registry` catches missing metadata, unknown handoffs, stage gaps, and placeholder issues (5 tests, 247 assertions)
+- ⚠️ CI freshness check not yet wired — templates can change without registry regeneration being enforced in CI
+- ✅ the registry path is consistent with `WORKFLOW_PROTOCOL.md` §13.2
 
 ### P5. Implement `gen:workflow-docs`
 
@@ -299,9 +279,13 @@ Status: **Complete**
 
 > `bun run gen:workflow-docs` is operational. 7 governance doc skeletons are generated to `generated/workflow-docs/`. Tests exist at `test/gen-workflow-docs.test.ts` and are runnable via `bun run test:workflow-docs`.
 
-Goal:
+What was delivered:
 
-Generate governance document skeletons only after skills and registry are stable.
+- The docs generator reads `templates/docs/*.md.tmpl`, `FILE_SCHEMAS.md`, and `PROJECT_PROFILE.yaml`, expands project-level placeholders, and preserves runtime placeholders
+- Required heading validation enforces `FILE_SCHEMAS.md` structure for each doc type
+- Atomic write: all docs are rendered and validated in memory before any are written to disk
+- Generated docs are skeletons only — they do not overwrite repo-root live docs
+- Output: 7 docs in `generated/workflow-docs/`
 
 Inputs:
 
@@ -313,29 +297,16 @@ Outputs:
 
 - `generated/workflow-docs/`
 
-Behavior requirements:
+Acceptance criteria (all met):
 
-- generate skeleton docs without overwriting repo-root live docs
-- expand project-level placeholders
-- preserve runtime placeholders
-- enforce heading and required-section validation
-- distinguish structure-owned content from runtime-owned content
-
-Deliverables:
-
-- `bun run gen:workflow-docs`
-- generated workflow docs skeletons
+- ✅ every required workflow doc is generated (7/7)
+- ✅ each rendered doc satisfies `FILE_SCHEMAS.md` heading requirements
+- ✅ `bun run test:workflow-docs` catches missing templates, missing headings, unresolved placeholders, and partial writes (4 tests, 114 assertions)
 
 Dependencies:
 
 - depends on P1 and P2
 - should follow P3 and P4
-
-Acceptance criteria:
-
-- every required workflow doc can be generated
-- each rendered doc satisfies `FILE_SCHEMAS.md`
-- `bun run test:workflow-docs` catches missing templates, missing headings, unresolved placeholders, and partial writes
 
 ### P6. Define the generated docs <-> live docs hybrid sync strategy
 
@@ -592,7 +563,7 @@ The following interfaces and contracts must be formalized or tightened:
   - `gen:workflow-docs`
   - `gen:registry`
   - bootstrap entry
-- registry path and relocation contract (currently repo root, extraction path TBD)
+- registry output path: repo root `SKILL_REGISTRY.md` (settled for incubation; extraction-time relocation TBD)
 - generated docs <-> live docs sync actions and boundaries
 - task identity naming and archive contract
 - validation model, layer precedence, and CI blocker contract
@@ -624,7 +595,6 @@ The implementation must cover these test and acceptance scenarios:
   - correct handoff rendering
   - failure on missing metadata
   - freshness check behavior
-  - correct bridge-artifact or relocation behavior during incubation
 - docs generator
   - required-heading validation
   - failure on unresolved non-runtime placeholders
@@ -650,7 +620,7 @@ The implementation must cover these test and acceptance scenarios:
 |------|--------|-----------|
 | P6 sync strategy may require P5 retrofitting | Medium — generated docs output assumptions could conflict with sync policy | Define sync model principles before expanding P5 scope; current P5 output is minimal enough to adapt |
 | P7 scope too large for single phase | Medium — delays, unclear ownership, partial delivery | Split into bootstrap+materialization and task identity sub-phases |
-| No explicit shared core (P2 gap) | **High** — 6 functions + 2 types + 3 constants duplicated across 3 generators; bugs fixed in one may not propagate | Extract shared module (`scripts/workflow-core.ts`) before P6+ work begins |
+| Shared core duplication (P2 gap) | **Resolved** — `scripts/workflow-core.ts` extracted; remaining gap is path normalization, handoff graph, and atomic write orchestration not yet in shared core | Continue extracting as generators evolve |
 | Stage count ambiguity (8 vs 10) | Low — causes confusion in validation rules | Clarify canonical stage enum in WORKFLOW_PROTOCOL.md as part of remaining P1 work |
 | Extraction timeline undefined | Low — incubation artifacts may calcify into permanent dependencies | Review separability at each phase boundary |
 
@@ -661,4 +631,4 @@ The implementation must cover these test and acceptance scenarios:
 - [`WORKFLOW_PROTOCOL.md`](../../WORKFLOW_PROTOCOL.md) is the highest-priority protocol source
 - v1 optimizes for protocol correctness, generator consistency, and sync clarity before runtime convenience
 - task-level placeholders remain unresolved during generation and are materialized only during bootstrap or runtime flows
-- the registry is generated at repo root during incubation; extraction may require a different path with explicit migration
+- the registry is generated at repo root `SKILL_REGISTRY.md` — this is the authoritative production path during incubation, not a bridge artifact; extraction may require relocation with explicit migration
