@@ -123,7 +123,7 @@ The following artifacts already exist and are operational:
 | Test commands | ✅ `test:workflow-skills`, `test:workflow-docs`, `test:registry`, `test:workflow-all` | `package.json` |
 | Shared core module | ✅ Fully extracted to `scripts/workflow-core.ts` — 5 types, 4 constants, 19 functions; all 3 generators consume shared parsing, validation, handoff, atomic write, and error emission (P2 complete) | `scripts/` |
 | Shared core tests | ✅ 46 unit tests (89 assertions) in `test/workflow-core.test.ts` | `test/` |
-| Hybrid sync strategy | ❌ Not yet defined | — |
+| Hybrid sync strategy | ✅ Defined in `WORKFLOW_PROTOCOL.md` §14; protocol-only in P6, implementation deferred to bootstrap/runtime sync tooling | repo root |
 | Bootstrap entrypoint | ❌ Not yet implemented | — |
 | Project-level validation model | ❌ Not yet defined | — |
 | Runtime integration | ❌ Not yet implemented | — |
@@ -375,45 +375,53 @@ Dependencies:
 
 ### P6. Define the generated docs <-> live docs hybrid sync strategy
 
-Status: **Not Started**
+Status: **Complete (Protocol-only)**
 
-> ⚠️ **Dependency ordering concern**: This phase depends on P5, but the sync model is a design decision that should have informed P5's implementation. If P5's output assumptions conflict with the sync strategy defined here, retrofitting may be needed.
+> `WORKFLOW_PROTOCOL.md` now defines the hybrid sync model in §14. The protocol locks the ownership split between generated docs and live docs, defines lifecycle states and sync actions, requires diff-first confirmation for any existing live doc, preserves live-owned content during structural refresh, and adds a CI sync contract. No sync engine or `sync:check` command was implemented in P6 by design; implementation is deferred to later phases.
 
-Goal:
+What was delivered:
 
-Lock the structure/content boundary between generated docs and live docs so the system never drifts into dual truth.
-
-The sync model must define:
-
-- generated docs own structure, headings, placeholders, and update constraints
-- live docs own project truth and runtime content
+- structure/content ownership split:
+  - generated docs own filenames, required headings, heading order, reserved placeholder slots, and structure-level constraints
+  - live docs own project truth and runtime content inside those sections
+- lifecycle model for live docs:
+  - `absent`
+  - `materialized`
+  - `drifted`
+  - `orphaned`
 - allowed sync actions:
-  - materialize
-  - refresh-structure
-  - merge-safe update
-  - propose-diff only
-- which files or actions require explicit human confirmation
-- first-adoption behavior for projects that already contain live governance docs
+  - `materialize`
+  - `refresh-structure`
+  - `merge-safe update`
+  - `propose-diff only`
 - classification rules for existing live docs:
-  - structure-compatible
-  - structure-drifted but mergeable
-  - incompatible and diff-only until confirmed
+  - `structure-compatible`
+  - `structure-drifted but mergeable`
+  - `incompatible and diff-only until confirmed`
+- confirmation policy:
+  - `materialize` is automatic only for absent files
+  - any existing live doc must start with diff-only review
+  - structural writes require explicit per-file confirmation
+- first-adoption rules for projects with pre-existing live governance docs
+- placeholder preservation rules for project placeholders vs runtime placeholders
+- CI sync contract:
+  - future sync checks must block merge on structural drift or incompatibility
+  - sync checks remain separate from generated-artifact freshness checks
 
 Deliverables:
 
-- a formal sync section in [`WORKFLOW_PROTOCOL.md`](../../WORKFLOW_PROTOCOL.md)
-- additional sync-policy documentation if needed
+- formal hybrid sync section in [`WORKFLOW_PROTOCOL.md`](../../WORKFLOW_PROTOCOL.md) §14
 
 Dependencies:
 
 - depends on P1 and P5
 
-Acceptance criteria:
+Acceptance criteria (all met):
 
-- every governance doc has a clear structure owner and content owner
-- no undefined overlap remains between generated docs and live docs
-- bootstrap and runtime sync behavior can only operate through this policy
-- existing live docs can be onboarded without blind overwrite behavior
+- ✅ every governance doc has a clear structure owner and content owner
+- ✅ no undefined overlap remains between generated docs and live docs
+- ✅ bootstrap and runtime sync behavior now have a protocol-level policy to implement against
+- ✅ existing live docs can be onboarded without blind overwrite behavior
 
 ### P7. Implement `bootstrap-project-governance` and task identity
 

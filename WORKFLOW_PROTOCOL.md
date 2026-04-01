@@ -697,7 +697,9 @@ The docs generator must fail loudly if:
 
 ### 12.5 Scope note
 
-The docs generator may emit generated skeletons, but it should not yet overwrite live governance files in the repo root automatically.
+The docs generator may emit generated skeletons, but it must not write, overwrite, or reconcile live governance files in the repo root directly.
+
+Any live-doc materialization or refresh must flow through the hybrid sync policy defined in §14.
 
 ---
 
@@ -752,3 +754,167 @@ The registry generator must fail loudly if:
 Changes to `templates/skills/*.SKILL.md.tmpl` should be validated in CI by regenerating `SKILL_REGISTRY.md` and checking that the repo stays clean.
 
 That freshness check should be separate from runtime host skill-doc validation so the workflow-system layer remains auditable on its own.
+
+---
+
+## 14. Hybrid sync model for generated docs and live docs
+
+This section defines the contract between generated governance docs in `generated/workflow-docs/` and live governance docs in the repo root.
+
+The purpose of this model is to prevent dual truth:
+
+- generated docs remain the authoritative structure reference
+- live docs remain the authoritative project-truth content record
+- sync behavior must be explicit, classifiable, and reviewable
+
+### 14.1 Ownership model
+
+Generated docs own the following structural contract:
+
+- filename
+- required headings
+- heading order
+- reserved placeholder slots
+- structure-level update constraints
+
+Live docs own the following runtime or project-specific content:
+
+- all text written under a valid heading
+- filled placeholder values
+- project-specific tables, checklists, decisions, and notes
+- additions that stay inside an existing generated-owned section
+
+Authority split:
+
+- generated docs are the canonical source of truth for structure
+- live docs are the canonical source of truth for project truth and runtime content
+
+For the purpose of sync:
+
+- "structure" means headings, heading nesting, required section order, and placeholder slots that must exist
+- "content" means the text, lists, tables, and checkboxes stored inside those sections
+
+### 14.2 Document lifecycle
+
+Each live governance doc must be in exactly one lifecycle state:
+
+- `absent`: no live doc exists at the expected repo-root path
+- `materialized`: a live doc exists and is aligned with the generated structure contract
+- `drifted`: a live doc exists, but its structure has diverged from the generated contract
+- `orphaned`: a live doc exists, but there is no corresponding generated doc contract for that filename
+
+Lifecycle notes:
+
+- `absent` is valid before bootstrap or for docs that have not yet been materialized
+- `materialized` does not require byte-for-byte equality; it requires structural alignment
+- `drifted` means the file still belongs to the sync system, but human review is required before structural reconciliation
+- `orphaned` is advisory only; automation must not delete it automatically
+
+### 14.3 Allowed sync actions
+
+The sync layer may expose exactly four actions:
+
+1. `materialize`
+2. `refresh-structure`
+3. `merge-safe update`
+4. `propose-diff only`
+
+Action semantics:
+
+- `materialize`: create a new live doc from the generated skeleton when the live file is `absent`
+- `refresh-structure`: apply generated-owned structural changes to an existing live doc while preserving live-owned content under matched headings
+- `merge-safe update`: apply a reviewed structural reconciliation to a `drifted` doc when heading mapping is still unambiguous
+- `propose-diff only`: emit a diff and classification result without writing any live file
+
+Default policy:
+
+- if the live doc is `absent`, the default action is `materialize`
+- if the live doc already exists, the default action is `propose-diff only`
+- no existing live doc may be rewritten silently
+
+### 14.4 Classification rules for existing live docs
+
+An existing live doc must be classified before any write is allowed.
+
+Classification outcomes:
+
+- `structure-compatible`
+- `structure-drifted but mergeable`
+- `incompatible and diff-only until confirmed`
+
+Classification rules:
+
+- `structure-compatible`: all required generated headings exist at the required heading levels and in the canonical order; only content differs
+- `structure-drifted but mergeable`: the required headings can still be mapped unambiguously, but order, spacing, or generated-owned structure has drifted; a merge may be safe after review
+- `incompatible and diff-only until confirmed`: one or more required headings are missing, renamed, duplicated ambiguously, or reorganized so structure-preserving sync is no longer trustworthy
+
+Minimum classification inputs:
+
+- the generated doc for that filename
+- the live doc for that filename
+- the required heading contract implied by `FILE_SCHEMAS.md`
+
+Automation must not downgrade an `incompatible` doc to a mergeable state by guesswork.
+
+### 14.5 Human confirmation rules
+
+Human confirmation policy is mandatory:
+
+- `materialize` on an `absent` file does not require confirmation
+- any action on an existing live doc requires a diff preview first
+- `refresh-structure` requires explicit confirmation per file
+- `merge-safe update` requires explicit confirmation per file
+- `incompatible and diff-only until confirmed` files must never be auto-merged
+- `orphaned` files must only produce a warning; they must not be deleted automatically
+
+Confirmation must be file-scoped. A sync tool may batch prompts, but it must still expose exactly which files will be written.
+
+### 14.6 First-adoption behavior
+
+First adoption of the workflow system must be non-destructive.
+
+Required order:
+
+1. generate the authoritative skeleton docs
+2. inspect the repo root for existing live governance docs
+3. classify each existing live doc before any write
+4. apply only the actions allowed by this section
+
+First-adoption rules:
+
+- if a required live doc is `absent`, it may be `materialize`d automatically
+- if a live doc is `structure-compatible`, the tool must still start with `propose-diff only`; `refresh-structure` is allowed only after confirmation
+- if a live doc is `structure-drifted but mergeable`, the tool must present a proposed merge diff and require confirmation before `merge-safe update`
+- if a live doc is `incompatible and diff-only until confirmed`, the tool must emit the diff and stop without writing
+- first adoption must never overwrite, truncate, or delete an existing live doc without explicit human confirmation
+
+### 14.7 Placeholder preservation rules
+
+Placeholder handling during sync must preserve the ownership split.
+
+Rules:
+
+- project-level placeholders are expanded during generated-doc rendering and are not re-expanded by the sync layer
+- runtime placeholders such as `{{TASK_ID}}`, `{{TASK_TITLE}}`, `{{TASK_SLUG}}`, `{{DATE}}`, and `{{AUTHOR}}` may remain in generated skeletons and may be carried into newly materialized live docs
+- once a live doc replaces a placeholder with concrete content, that concrete content becomes live-owned and must not be overwritten by a later structural refresh
+- a new placeholder introduced by a protocol or template change may be inserted only through a reviewed structural sync action
+
+The sync layer must treat placeholder replacement history as content, not as missing generated output.
+
+### 14.8 CI sync contract
+
+Sync validation in CI is separate from generator freshness checks.
+
+CI behavior:
+
+- a future sync-check command must classify repo-root live docs against `generated/workflow-docs/`
+- CI passes when each evaluated doc is either `absent` or `structure-compatible`
+- CI blocks merge when any evaluated doc is `structure-drifted but mergeable` or `incompatible and diff-only until confirmed`
+- `orphaned` files should emit warnings unless a stricter host policy overrides that default
+
+Structured sync failures must use the §9b error shape with the `SYNC_` code namespace.
+
+This check is complementary to generator freshness checks:
+
+- freshness checks prove generated artifacts match templates
+- sync checks prove live docs still match the generated structure contract
