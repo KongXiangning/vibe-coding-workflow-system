@@ -11,10 +11,15 @@ import {
   normalizeList,
   projectPlaceholders,
   parseFrontmatter,
-  stringifyInline,
   renderValue,
   validateUnresolvedPlaceholders,
   validateStages,
+  validateRequiredFields,
+  extractHandoff,
+  validateHandoff,
+  resolveRoot,
+  executeWrites,
+  runGenerator,
 } from './workflow-core';
 
 type SkillTemplate = {
@@ -40,7 +45,7 @@ type StageSection = {
   summaryLabel: string;
 };
 
-const ROOT = path.resolve(import.meta.dir, '..');
+const ROOT = resolveRoot();
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
 const OUTPUT_PATH = path.join(ROOT, 'SKILL_REGISTRY.md');
@@ -116,24 +121,6 @@ function formatSkillRefs(names: string[]): string {
   return names.map(name => `\`${name}\``).join(' → ');
 }
 
-function validateRequiredFields(frontmatter: JsonObject, filePath: string): void {
-  for (const field of REQUIRED_FIELDS) {
-    if (!(field in frontmatter)) {
-      throw new Error(`Missing required field "${field}" in ${filePath}`);
-    }
-  }
-}
-
-function validateHandoff(skill: RegistrySkill, knownNames: Set<string>, filePath: string): void {
-  if (!knownNames.has(skill.handoffSuccess)) {
-    throw new Error(`Invalid handoff.success "${skill.handoffSuccess}" in ${filePath}`);
-  }
-
-  if (!knownNames.has(skill.handoffFailure) && !RESERVED_FAILURE_TARGETS.has(skill.handoffFailure)) {
-    throw new Error(`Invalid handoff.failure "${skill.handoffFailure}" in ${filePath}`);
-  }
-}
-
 function validateWorkflowOrder(skills: RegistrySkill[]): void {
   const names = new Set(skills.map(skill => skill.name));
   for (const requiredName of WORKFLOW_ORDER) {
@@ -170,16 +157,7 @@ function loadTemplates(): SkillTemplate[] {
 }
 
 function toRegistrySkill(frontmatter: JsonObject, filePath: string): RegistrySkill {
-  const handoff = frontmatter.handoff;
-  if (!handoff || typeof handoff !== 'object' || Array.isArray(handoff)) {
-    throw new Error(`Invalid handoff structure in ${filePath}`);
-  }
-
-  const handoffSuccess = String((handoff as JsonObject).success ?? '').trim();
-  const handoffFailure = String((handoff as JsonObject).failure ?? '').trim();
-  if (!handoffSuccess || !handoffFailure) {
-    throw new Error(`Incomplete handoff structure in ${filePath}`);
-  }
+  const handoff = extractHandoff(frontmatter, filePath);
 
   return {
     name: String(frontmatter.name ?? '').trim(),
@@ -188,8 +166,8 @@ function toRegistrySkill(frontmatter: JsonObject, filePath: string): RegistrySki
     trigger: escapeTableText(String(frontmatter.trigger ?? '')),
     reads: normalizeList(frontmatter.reads).map(escapeTableText),
     writes: normalizeList(frontmatter.writes).map(escapeTableText),
-    handoffSuccess,
-    handoffFailure,
+    handoffSuccess: handoff.success,
+    handoffFailure: handoff.failure,
   };
 }
 
@@ -319,9 +297,13 @@ function main(): void {
 
   for (const template of templates) {
     const renderedFrontmatter = renderValue(template.frontmatter, replacements) as JsonObject;
-    validateRequiredFields(renderedFrontmatter, template.filePath);
+    validateRequiredFields(renderedFrontmatter, REQUIRED_FIELDS, template.filePath);
     const skill = toRegistrySkill(renderedFrontmatter, template.filePath);
-    validateHandoff(skill, knownNames, template.filePath);
+    validateHandoff(
+      { success: skill.handoffSuccess, failure: skill.handoffFailure },
+      knownNames,
+      template.filePath,
+    );
     renderedSkills.push(skill);
   }
 
@@ -331,17 +313,11 @@ function main(): void {
   const content = renderRegistry(renderedSkills);
   validateUnresolvedPlaceholders('registry', content, ALLOWED_UNRESOLVED);
 
-  if (!DRY_RUN) {
-    fs.writeFileSync(OUTPUT_PATH, content, 'utf8');
-  }
-
-  console.log(`Generated workflow skill registry to ${OUTPUT_PATH}${DRY_RUN ? ' (dry-run)' : ''}`);
+  executeWrites(
+    [{ path: OUTPUT_PATH, content }],
+    DRY_RUN,
+    `Generated workflow skill registry to ${OUTPUT_PATH}`,
+  );
 }
 
-try {
-  main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Workflow registry generation failed: ${message}`);
-  process.exit(1);
-}
+runGenerator('Workflow registry', main);

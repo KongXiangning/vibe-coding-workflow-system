@@ -6,7 +6,7 @@ import { stringify } from 'yaml';
 import {
   type JsonValue,
   type JsonObject,
-  RESERVED_FAILURE_TARGETS,
+  type WriteOperation,
   readText,
   loadProfile,
   getRequiredPath,
@@ -17,6 +17,13 @@ import {
   renderValue,
   validateUnresolvedPlaceholders,
   validateStages,
+  validateRequiredFields,
+  extractHandoff,
+  validateHandoff,
+  resolveRoot,
+  ensureCleanOutputDir,
+  executeWrites,
+  runGenerator,
 } from './workflow-core';
 
 type SkillFile = {
@@ -26,7 +33,7 @@ type SkillFile = {
   body: string;
 };
 
-const ROOT = path.resolve(import.meta.dir, '..');
+const ROOT = resolveRoot();
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
 const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-skills');
@@ -93,35 +100,6 @@ function renderBody(body: string, replacements: Record<string, JsonValue>, proje
   return `${rendered.trimEnd()}\n\n## Project-Type Emphasis\n\n${emphasis.map(item => `- ${item}`).join('\n')}\n`;
 }
 
-function validateRequiredFields(skill: SkillFile): void {
-  for (const field of REQUIRED_FIELDS) {
-    if (!(field in skill.frontmatter)) {
-      throw new Error(`Missing required field "${field}" in ${skill.filePath}`);
-    }
-  }
-}
-
-function validateHandoff(skill: SkillFile, knownNames: Set<string>): void {
-  const handoff = skill.frontmatter.handoff;
-  if (!handoff || typeof handoff !== 'object' || Array.isArray(handoff)) {
-    throw new Error(`Invalid handoff structure in ${skill.filePath}`);
-  }
-
-  const success = (handoff as JsonObject).success;
-  const failure = (handoff as JsonObject).failure;
-
-  if (typeof success !== 'string' || !knownNames.has(success)) {
-    throw new Error(`Invalid handoff.success "${String(success)}" in ${skill.filePath}`);
-  }
-
-  if (
-    typeof failure !== 'string' ||
-    (!knownNames.has(failure) && !RESERVED_FAILURE_TARGETS.has(failure))
-  ) {
-    throw new Error(`Invalid handoff.failure "${String(failure)}" in ${skill.filePath}`);
-  }
-}
-
 function validateWrites(skill: SkillFile): void {
   const writes = new Set(normalizeList(skill.frontmatter.writes));
   const forbidden = new Set(normalizeList(skill.frontmatter.forbidden_writes));
@@ -157,15 +135,6 @@ function loadTemplates(): SkillFile[] {
   });
 }
 
-function prepareOutputDir(): void {
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  for (const entry of fs.readdirSync(OUTPUT_DIR)) {
-    if (entry.endsWith('.SKILL.md')) {
-      fs.rmSync(path.join(OUTPUT_DIR, entry), { force: true });
-    }
-  }
-}
-
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
 
@@ -174,7 +143,7 @@ function main(): void {
   const templates = loadTemplates();
   const knownNames = new Set(templates.map(template => template.name));
   const renderedSkills: SkillFile[] = [];
-  const pendingWrites: Array<{ outputPath: string; content: string }> = [];
+  const pendingWrites: WriteOperation[] = [];
 
   // Phase 1: Render and validate all templates in memory
   for (const template of templates) {
@@ -187,36 +156,28 @@ function main(): void {
       body: renderedBody,
     };
 
-    validateRequiredFields(renderedFile);
+    validateRequiredFields(renderedFrontmatter, REQUIRED_FIELDS, template.filePath);
     validateWrites(renderedFile);
-    validateHandoff(renderedFile, knownNames);
+    const handoff = extractHandoff(renderedFrontmatter, template.filePath);
+    validateHandoff(handoff, knownNames, template.filePath);
 
     const outputPath = path.join(OUTPUT_DIR, `${template.name}.SKILL.md`);
     const content = formatSkill(renderedFrontmatter, renderedBody);
     validateUnresolvedPlaceholders(outputPath, content, ALLOWED_UNRESOLVED);
 
     renderedSkills.push(renderedFile);
-    pendingWrites.push({ outputPath, content });
+    pendingWrites.push({ path: outputPath, content });
   }
 
   validateStages(renderedSkills.map(skill => String(skill.frontmatter.stage)));
 
   // Phase 2: Write all files only after all validations pass
-  if (!DRY_RUN) {
-    prepareOutputDir();
-    for (const { outputPath, content } of pendingWrites) {
-      fs.writeFileSync(outputPath, content, 'utf8');
-    }
-  }
-
-  const summary = `Generated ${renderedSkills.length} workflow skills to ${OUTPUT_DIR}${DRY_RUN ? ' (dry-run)' : ''}`;
-  console.log(summary);
+  executeWrites(
+    pendingWrites,
+    DRY_RUN,
+    `Generated ${renderedSkills.length} workflow skills to ${OUTPUT_DIR}`,
+    () => ensureCleanOutputDir(OUTPUT_DIR, '.SKILL.md'),
+  );
 }
 
-try {
-  main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Workflow skill generation failed: ${message}`);
-  process.exit(1);
-}
+runGenerator('Workflow skill', main);

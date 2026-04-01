@@ -6,15 +6,50 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import { parse } from 'yaml';
 
 // --- Types ---
 
 export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
+export type HandoffRef = { success: string; failure: string };
+export type WriteOperation = { path: string; content: string };
+export type ErrorReport = {
+  generator: string;
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+  file?: string;
+  field?: string;
+  details?: string;
+};
 
 // --- Constants ---
 
+/** Canonical stage enum: English ID → Chinese display name. See WORKFLOW_PROTOCOL.md §4a. */
+export const STAGE_MAP = new Map<string, string>([
+  ['init', '初始化'],
+  ['phase-1-intake', '阶段 1：需求进入'],
+  ['phase-2-scope-lock', '阶段 2：范围锁定'],
+  ['phase-3-decomposition', '阶段 3：方案拆解'],
+  ['phase-4-implementation', '阶段 4：小步实现'],
+  ['phase-4-6-exception', '阶段 4/6：实现或验证异常'],
+  ['phase-5-scope-review', '阶段 5：范围复核'],
+  ['phase-6-regression', '阶段 6：回归验证'],
+  ['phase-7-sync', '阶段 7：状态同步'],
+  ['phase-8-delivery', '阶段 8：交付沉淀'],
+]);
+
+/** Reverse lookup: Chinese display name → English canonical ID. */
+export const STAGE_ALIASES = new Map<string, string>(
+  [...STAGE_MAP.entries()].map(([canonical, display]) => [display, canonical]),
+);
+
+/**
+ * All accepted stage values (both canonical IDs and display names).
+ * Kept for backward compatibility — prefer STAGE_MAP for new code.
+ */
 export const REQUIRED_STAGES = new Set([
   '初始化',
   '阶段 1：需求进入',
@@ -37,6 +72,19 @@ export function readText(filePath: string): string {
     throw new Error(`Required file not found: ${filePath}`);
   }
   return fs.readFileSync(filePath, 'utf8');
+}
+
+export function resolveRoot(): string {
+  return path.resolve(import.meta.dir, '..');
+}
+
+export function ensureCleanOutputDir(outputDir: string, filePattern: string): void {
+  fs.mkdirSync(outputDir, { recursive: true });
+  for (const entry of fs.readdirSync(outputDir)) {
+    if (entry.endsWith(filePattern)) {
+      fs.rmSync(path.join(outputDir, entry), { force: true });
+    }
+  }
 }
 
 // --- Profile ---
@@ -155,6 +203,46 @@ export function renderValue(
 
 // --- Validation ---
 
+export function validateRequiredFields(
+  obj: JsonObject,
+  fields: readonly string[],
+  context: string,
+): void {
+  for (const field of fields) {
+    if (!(field in obj)) {
+      throw new Error(`Missing required field "${field}" in ${context}`);
+    }
+  }
+}
+
+export function extractHandoff(frontmatter: JsonObject, filePath: string): HandoffRef {
+  const handoff = frontmatter.handoff;
+  if (!handoff || typeof handoff !== 'object' || Array.isArray(handoff)) {
+    throw new Error(`Invalid handoff structure in ${filePath}`);
+  }
+
+  const success = String((handoff as JsonObject).success ?? '').trim();
+  const failure = String((handoff as JsonObject).failure ?? '').trim();
+  if (!success || !failure) {
+    throw new Error(`Incomplete handoff structure in ${filePath}`);
+  }
+
+  return { success, failure };
+}
+
+export function validateHandoff(
+  handoff: HandoffRef,
+  knownNames: Set<string>,
+  context: string,
+): void {
+  if (!knownNames.has(handoff.success)) {
+    throw new Error(`Invalid handoff.success "${handoff.success}" in ${context}`);
+  }
+  if (!knownNames.has(handoff.failure) && !RESERVED_FAILURE_TARGETS.has(handoff.failure)) {
+    throw new Error(`Invalid handoff.failure "${handoff.failure}" in ${context}`);
+  }
+}
+
 export function validateUnresolvedPlaceholders(
   label: string,
   content: string,
@@ -168,10 +256,60 @@ export function validateUnresolvedPlaceholders(
 }
 
 export function validateStages(stages: Iterable<string>): void {
-  const seen = new Set(stages);
-  for (const stage of REQUIRED_STAGES) {
-    if (!seen.has(stage)) {
-      throw new Error(`Missing required stage coverage: ${stage}`);
+  const seen = new Set<string>();
+  for (const stage of stages) {
+    const canonical = STAGE_ALIASES.get(stage);
+    if (canonical) {
+      seen.add(canonical);
+    } else if (STAGE_MAP.has(stage)) {
+      seen.add(stage);
     }
+  }
+  for (const [canonical, display] of STAGE_MAP) {
+    if (!seen.has(canonical)) {
+      throw new Error(`Missing required stage coverage: ${display}`);
+    }
+  }
+}
+
+// --- Error emission ---
+
+export function emitError(report: ErrorReport): void {
+  console.error(JSON.stringify(report));
+}
+
+export function emitWarning(
+  generator: string,
+  code: string,
+  message: string,
+  opts?: { file?: string; field?: string; details?: string },
+): void {
+  emitError({ generator, severity: 'warning', code, message, ...opts });
+}
+
+// --- Execution ---
+
+export function executeWrites(
+  operations: WriteOperation[],
+  dryRun: boolean,
+  summary: string,
+  prepare?: () => void,
+): void {
+  if (!dryRun) {
+    prepare?.();
+    for (const op of operations) {
+      fs.writeFileSync(op.path, op.content, 'utf8');
+    }
+  }
+  console.log(`${summary}${dryRun ? ' (dry-run)' : ''}`);
+}
+
+export function runGenerator(name: string, main: () => void): void {
+  try {
+    main();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${name} generation failed: ${message}`);
+    process.exit(1);
   }
 }

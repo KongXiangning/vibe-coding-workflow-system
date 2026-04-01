@@ -4,16 +4,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   type JsonValue,
-  type JsonObject,
+  type WriteOperation,
   readText,
   loadProfile,
-  getRequiredPath,
   projectPlaceholders,
   stringifyInline,
   validateUnresolvedPlaceholders,
+  resolveRoot,
+  ensureCleanOutputDir,
+  executeWrites,
+  runGenerator,
 } from './workflow-core';
 
-const ROOT = path.resolve(import.meta.dir, '..');
+const ROOT = resolveRoot();
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
 const VERSION_PATH = path.join(ROOT, 'VERSION');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'docs');
@@ -115,15 +118,6 @@ function validateRequiredHeadings(fileName: string, content: string): void {
   }
 }
 
-function prepareOutputDir(): void {
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  for (const entry of fs.readdirSync(OUTPUT_DIR)) {
-    if (entry.endsWith('.md')) {
-      fs.rmSync(path.join(OUTPUT_DIR, entry), { force: true });
-    }
-  }
-}
-
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
 
@@ -139,7 +133,7 @@ function main(): void {
   }
 
   // Phase 1: render all templates and validate in memory
-  const rendered: { outputName: string; content: string }[] = [];
+  const pendingWrites: WriteOperation[] = [];
 
   for (const file of templateFiles) {
     const inputPath = path.join(TEMPLATE_DIR, file);
@@ -149,10 +143,10 @@ function main(): void {
     validateRequiredHeadings(outputName, content);
     validateUnresolvedPlaceholders(outputName, content, ALLOWED_UNRESOLVED);
 
-    rendered.push({ outputName, content });
+    pendingWrites.push({ path: path.join(OUTPUT_DIR, outputName), content });
   }
 
-  const renderedNames = new Set(rendered.map(r => r.outputName));
+  const renderedNames = new Set(pendingWrites.map(w => path.basename(w.path)));
   for (const requiredDoc of REQUIRED_DOCS) {
     if (!renderedNames.has(requiredDoc)) {
       throw new Error(`Missing required generated doc: ${requiredDoc}`);
@@ -160,22 +154,12 @@ function main(): void {
   }
 
   // Phase 2: write only after all validations pass
-  if (!DRY_RUN) {
-    prepareOutputDir();
-    for (const { outputName, content } of rendered) {
-      fs.writeFileSync(path.join(OUTPUT_DIR, outputName), content, 'utf8');
-    }
-  }
-
-  console.log(
-    `Generated ${rendered.length} workflow docs to ${OUTPUT_DIR}${DRY_RUN ? ' (dry-run)' : ''}`,
+  executeWrites(
+    pendingWrites,
+    DRY_RUN,
+    `Generated ${pendingWrites.length} workflow docs to ${OUTPUT_DIR}`,
+    () => ensureCleanOutputDir(OUTPUT_DIR, '.md'),
   );
 }
 
-try {
-  main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Workflow docs generation failed: ${message}`);
-  process.exit(1);
-}
+runGenerator('Workflow docs', main);
