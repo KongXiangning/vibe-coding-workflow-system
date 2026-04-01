@@ -39,13 +39,81 @@ Additional boundary decisions are also locked:
 - workflow-system generated artifacts should prefer their own namespace and migration-friendly layout over reuse of `gstack` root artifacts
 - protocol-level validation and project-level validation are separate layers and must not be merged into one catch-all gate
 
+## Execution Model
+
+This plan has two different execution contexts and they must not be confused:
+
+1. **Incubation context, current repository**
+2. **Consumption context, target project**
+
+The workflow-system is being **designed and implemented in the current repository**.
+
+The workflow-system is intended to be **generated and used in a target project** based on that target project's actual profile, structure, boundaries, and validation requirements.
+
+This means:
+
+- work on the protocol, generators, registry logic, sync model, bootstrap logic, and runtime entrypoints happens in the current repository
+- generation output for real use is driven by the target project's `PROJECT_PROFILE.yaml`
+- the current repository is the incubation and validation environment
+- the target project is the eventual consumer environment
+
+### Step-to-context mapping
+
+The canonical execution context for each phase is:
+
+| Phase | Primary execution context | Notes |
+|------|----------------------------|-------|
+| P1 | Current repository | Harden the protocol in the incubation repo. |
+| P2 | Current repository | Build shared core code in the incubation repo. |
+| P3 | Current repository | Implement and validate the workflow-skills generator in the incubation repo. |
+| P4 | Current repository | Implement and validate the registry generator in the incubation repo. |
+| P5 | Current repository | Implement and validate the docs generator in the incubation repo. |
+| P6 | Current repository | Define sync policy in the incubation repo, but the policy governs future target-project adoption. |
+| P7 | Cross-context | Implement bootstrap in the current repo; execute bootstrap against a target project. |
+| P8 | Current repository | Define the validation model in the incubation repo. |
+| P9 | Cross-context | Wire protocol-level checks in the current repo; apply project-level validation rules when used in a target project. |
+| P10 | Cross-context | Implement runtime entrypoints in the current repo; consume them from target projects. |
+| P11 | Target project / extracted workflow-system | Long-term governance is primarily owned by the extracted workflow-system and the projects that adopt it. |
+
+### What happens where
+
+#### Current repository responsibilities
+
+- define and harden protocol rules
+- build and test generator code
+- build and test registry generation
+- build and test docs generation
+- define sync policy
+- implement bootstrap and runtime entrypoints
+- validate that the workflow-system is internally coherent
+
+#### Target project responsibilities
+
+- provide the real `PROJECT_PROFILE.yaml`
+- consume generated workflow artifacts
+- materialize and maintain live governance docs
+- run project-specific validation gates
+- use bootstrap, sync, and runtime integration in the context of the target project's own boundaries and constraints
+
+### Non-goal clarification
+
+This plan does **not** mean:
+
+- permanently turning the current `gstack` repository into the final home of the workflow-system
+- making the current repo root layout the permanent output contract for all future projects
+- treating `gstack` itself as the required consumer of the resulting workflow-system
+
+The current repository is the place where the system is being incubated.
+
+The final workflow-system is meant to be portable and ultimately usable outside this repository.
+
 ## Current Implementation Status
 
 The following artifacts already exist and are operational:
 
 | Artifact | Status | Location |
 |----------|--------|----------|
-| `WORKFLOW_PROTOCOL.md` | Draft spec with 13 sections; gaps remain in protocol versioning, error format, and atomic write formalization | repo root |
+| `WORKFLOW_PROTOCOL.md` | ✅ Hardened spec with 22+ sections; protocol versioning, stage enum, metadata schema, placeholder/path grammar, atomic write, error format, and success criteria all formalized (P1 complete) | repo root |
 | `gen:workflow-skills` | ✅ Operational | `scripts/gen-workflow-skills.ts` |
 | `gen:workflow-docs` | ✅ Operational | `scripts/gen-workflow-docs.ts` |
 | `gen:registry` | ✅ Operational | `scripts/gen-registry.ts` |
@@ -53,7 +121,8 @@ The following artifacts already exist and are operational:
 | Generated workflow docs | ✅ 7 docs generated | `generated/workflow-docs/` |
 | `SKILL_REGISTRY.md` | ✅ Auto-generated | repo root |
 | Test commands | ✅ `test:workflow-skills`, `test:workflow-docs`, `test:registry`, `test:workflow-all` | `package.json` |
-| Shared core module | ✅ Extracted to `scripts/workflow-core.ts` (types, constants, parsing, rendering, validation) | `scripts/` |
+| Shared core module | ✅ Fully extracted to `scripts/workflow-core.ts` — 5 types, 4 constants, 19 functions; all 3 generators consume shared parsing, validation, handoff, atomic write, and error emission (P2 complete) | `scripts/` |
+| Shared core tests | ✅ 46 unit tests (89 assertions) in `test/workflow-core.test.ts` | `test/` |
 | Hybrid sync strategy | ❌ Not yet defined | — |
 | Bootstrap entrypoint | ❌ Not yet implemented | — |
 | Project-level validation model | ❌ Not yet defined | — |
@@ -142,46 +211,42 @@ Precedence rules:
 
 ### P1. Harden the protocol core
 
-Status: **Partially Complete**
+Status: **Complete**
 
-> `WORKFLOW_PROTOCOL.md` already contains 13 formal sections covering inputs, outputs, variable substitution, handoff graph, read/write boundaries, and validation rules. Remaining gaps: protocol versioning, authoritative input precedence formalization, standard error output format, and executable success criteria.
+> `WORKFLOW_PROTOCOL.md` has been hardened from a 475-line draft into a ~717-line formal spec. Added 9 specification sections: protocol versioning (v0.1.0 + SemVer), canonical stage enum (10 groups with English IDs + Chinese aliases), formal skill metadata schema (13 fields with types/cardinality), placeholder grammar (syntax, categories, 14-placeholder table), path grammar (format rules, special tokens, validation), input precedence (Protocol > Profile > Template), atomic write rules (two-phase, idempotence, dry-run), structured error format (JSON schema, code namespaces, exit codes), and machine-checkable success criteria (per-generator tables).
 
-Goal:
+What was delivered:
 
-Turn [`WORKFLOW_PROTOCOL.md`](../../WORKFLOW_PROTOCOL.md) from a draft into a formal spec so later implementation does not depend on interpretation.
+- Protocol version header with SemVer scheme
+- Canonical stage enum §4a — 10 groups with English canonical IDs and Chinese display aliases
+- Formal skill metadata schema §5.3 — 13 fields with types, cardinality, and validation rules
+- Placeholder grammar §3.0 — syntax, categories, exhaustive table of 14 placeholders
+- Path grammar §7a — format rules, special tokens, validation rules
+- Input precedence §1.1 — Protocol > Profile > Template
+- Atomic write rules §9a — two-phase commit, idempotence, dry-run contract
+- Structured error format §9b — JSON schema, error code namespaces, exit codes
+- Machine-checkable success criteria §11 — per-generator pass/fail tables
 
-This phase must define:
+Acceptance criteria (all met):
 
-- protocol versioning
-- authoritative input precedence
-- formal skill metadata schema
-- strict stage enum
-- path grammar
-- placeholder grammar
-- atomic write rules
-- standard error output format
-- executable success criteria
-
-Deliverables:
-
-- upgraded `WORKFLOW_PROTOCOL.md`
-- protocol sections with explicit rule precedence
-
-Dependencies:
-
-- none
-
-Acceptance criteria:
-
-- no high-impact semantic gaps remain
-- every generator-critical behavior has a single source of truth in the protocol
-- implementers do not need to invent rules for schema, path matching, placeholder handling, atomic write, or error shape
+- ✅ no high-impact semantic gaps remain
+- ✅ every generator-critical behavior has a single source of truth in the protocol
+- ✅ implementers do not need to invent rules for schema, path matching, placeholder handling, atomic write, or error shape
 
 ### P2. Build the shared parser / validator / writer core
 
-Status: **Partially Complete — Shared Module Extracted**
+Status: **Complete**
 
-> `scripts/workflow-core.ts` has been extracted with shared types (`JsonValue`, `JsonObject`), constants (`REQUIRED_STAGES`, `RESERVED_FAILURE_TARGETS`), and functions (`readText`, `loadProfile`, `getRequiredPath`, `normalizeList`, `projectPlaceholders`, `parseFrontmatter`, `stringifyInline`, `renderValue`, `validateUnresolvedPlaceholders`, `validateStages`). All 3 generators now import from this module. Remaining gaps: path normalization, handoff graph validation, and atomic write orchestration are not yet in the shared core — they remain generator-specific.
+> `scripts/workflow-core.ts` is the fully extracted shared core (315 lines). Contains 5 types (`JsonValue`, `JsonObject`, `HandoffRef`, `WriteOperation`, `ErrorReport`), 4 constants (`STAGE_MAP`, `STAGE_ALIASES`, `REQUIRED_STAGES`, `RESERVED_FAILURE_TARGETS`), and 19 functions covering loading, parsing, rendering, validation, handoff, atomic writes, error emission, and generator orchestration. All 3 generators import from this module with zero duplicated protocol logic. Unit tests: 46 tests, 89 assertions in `test/workflow-core.test.ts`.
+
+What was delivered:
+
+- Types: `HandoffRef`, `WriteOperation`, `ErrorReport` for cross-generator contracts
+- Constants: `STAGE_MAP` (English→Chinese), `STAGE_ALIASES` (Chinese→English) for dual-form stage validation
+- Functions: `resolveRoot`, `ensureCleanOutputDir`, `validateRequiredFields`, `extractHandoff`, `validateHandoff`, `validateStages` (English+Chinese), `emitError`, `emitWarning`, `executeWrites`, `runGenerator`
+- All 3 generators refactored: skills (222→183 lines), docs (181→165), registry (347→323)
+- 46 unit tests covering all shared functions with error cases
+- Full suite: 61 tests, 895 assertions, zero-diff generated output
 
 Goal:
 
