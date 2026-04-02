@@ -3,7 +3,7 @@
 ```yaml
 Protocol-Version: 0.1.0
 Status: Formal Spec
-Last-Updated: 2026-04-01
+Last-Updated: 2026-04-02
 ```
 
 This file defines the execution rules for the workflow skill system.
@@ -25,17 +25,32 @@ Generators must declare which protocol version they target. A generator targetin
 
 ---
 
+## Freeze status
+
+This protocol is currently under **partial freeze evaluation**, not full freeze.
+
+Interpret this file using the following boundary:
+
+- the `P1-P6` implemented surface is the current stable baseline
+- `P7a-P11` remain open for future extension and must not be read as already implemented unless execution code and tests exist
+- updates should extend or clarify the protocol without silently rewriting already-aligned `P1-P6` semantics
+
+For the authoritative freeze boundary and update rules, see [`docs/plans/workflow-protocol-freeze-boundary.md`](./docs/plans/workflow-protocol-freeze-boundary.md).
+
+---
+
 ## 1. Inputs to the generator
 
-The generator must treat the following inputs as authoritative:
+The workflow skill generator must treat the following inputs as authoritative:
 
 1. `PROJECT_PROFILE.yaml`
 2. `templates/skills/*.SKILL.md.tmpl`
-3. `vibe-coding-workflow.md` sections 3.5-3.10
 
 The generator must not infer project facts from chat context alone.
 
 If a required value is missing from `PROJECT_PROFILE.yaml`, generation must fail loudly instead of silently defaulting.
+
+Methodology references such as `vibe-coding-workflow.md` may inform template authoring and review, but they are not direct machine inputs in the current implemented generators.
 
 ### 1.1 Input precedence
 
@@ -218,6 +233,18 @@ ai-engineering-workflow
 
 which behaves most like a tooling / workflow system.
 
+Current implementation:
+
+- the workflow skill generator appends a `## Project-Type Emphasis` section to each rendered skill body
+- that section is derived from `project.type` in `PROJECT_PROFILE.yaml`
+- Protocol-Version `0.1.0` currently defines emphasis text only for:
+  - `frontend-app`
+  - `backend-service`
+  - `fullstack-app`
+  - `ai-engineering-workflow`
+  - `tooling-cli`
+- an unknown `project.type` still fails earlier through required profile validation, but no additional emphasis block is generated unless the type is explicitly mapped by the generator
+
 ---
 
 ## 4a. Canonical stage enum
@@ -386,16 +413,24 @@ are invalid.
 Generation must fail if:
 
 - a path appears in both `writes` and `forbidden_writes`
-- a skill writes outside its own workflow role
-- a review-only skill writes code paths
+
+Current implementation:
+
+- Protocol-Version `0.1.0` validates explicit overlap conflicts between `writes` and `forbidden_writes`
+- Protocol-Version `0.1.0` does **not yet** perform semantic path authorization such as "outside its workflow role" or "writes code paths" classification
 
 ### 7.4 Contract-sensitive skills
 
-The following skills must remain non-code-writing:
+The following skills are designated non-code-writing in the current templates and generated outputs:
 
 - `review-diff`
 - `verify-contracts`
 - `run-regression`
+
+Current implementation:
+
+- this requirement is currently realized by template convention and generated output review (`writes: []`)
+- the generator does not yet infer which paths are "code paths" and does not apply additional semantic enforcement beyond the explicit `writes` declarations
 
 ---
 
@@ -549,14 +584,19 @@ Each error is a JSON object on a single line of stderr:
 
 | Prefix | Category | Examples |
 |--------|----------|---------|
-| `SCHEMA_` | Missing or invalid metadata fields | `SCHEMA_001` missing required field, `SCHEMA_002` invalid field type |
-| `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid target, `HANDOFF_002` broken chain |
-| `PLACEHOLDER_` | Placeholder resolution errors | `PLACEHOLDER_001` unresolved project placeholder, `PLACEHOLDER_002` invalid syntax |
-| `STAGE_` | Stage coverage errors | `STAGE_001` missing stage, `STAGE_002` unknown stage value |
-| `PATH_` | Path grammar violations | `PATH_001` absolute path, `PATH_002` parent traversal |
-| `WRITE_` | Write boundary violations | `WRITE_001` writes/forbidden_writes conflict, `WRITE_002` unauthorized write |
+| `SCHEMA_` | Missing or invalid metadata structure | `SCHEMA_001` missing required field, `SCHEMA_002` invalid metadata structure |
+| `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid target or structure |
+| `PLACEHOLDER_` | Placeholder resolution errors | `PLACEHOLDER_001` unresolved placeholder |
+| `STAGE_` | Stage coverage errors | `STAGE_001` missing required stage coverage |
+| `PATH_` | Path grammar violations | Reserved for path-validation-specific structured errors in a future implementation pass |
+| `WRITE_` | Write boundary violations | `WRITE_001` writes/forbidden_writes conflict |
 | `HEADING_` | Doc heading validation | `HEADING_001` missing required heading |
-| `IO_` | File system errors | `IO_001` missing input file, `IO_002` write failure |
+| `IO_` | Input/output and generator execution errors | `IO_001` input file error, `IO_002` generator execution failed |
+
+Current implementation:
+
+- `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `PLACEHOLDER_001`, `STAGE_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
+- `PATH_`, `SYNC_`, and additional suffixes such as `HANDOFF_002`, `PLACEHOLDER_002`, `STAGE_002`, or `WRITE_002` remain namespace reservations at the protocol layer unless and until execution code emits them
 
 ### 9b.3 Human-readable summary
 
@@ -646,10 +686,17 @@ The next workflow-system phase extends generation beyond skills into governance 
 
 The docs generator must also treat the following files as authoritative:
 
-1. `templates/docs/*.md.tmpl`
-2. `FILE_SCHEMAS.md`
+1. `PROJECT_PROFILE.yaml`
+2. `VERSION`
+3. `templates/docs/*.md.tmpl`
 
-It must not invent document sections that are not supported by `FILE_SCHEMAS.md`.
+`FILE_SCHEMAS.md` is the normative authoring reference for required headings and document structure.
+
+Current implementation:
+
+- the docs generator does not yet parse `FILE_SCHEMAS.md` directly
+- instead, the required heading contract is mirrored into generator code and must stay aligned with `FILE_SCHEMAS.md`
+- the generator must not invent document sections that are not supported by the `FILE_SCHEMAS.md` contract
 
 ### 12.2 Docs output model
 
@@ -697,7 +744,7 @@ The docs generator must preserve runtime placeholders in Protocol-Version `0.1.0
 The docs generator must fail loudly if:
 
 - a required docs template is missing
-- a rendered doc is missing required headings defined by `FILE_SCHEMAS.md`
+- a rendered doc is missing required headings from the `FILE_SCHEMAS.md` contract
 - a non-runtime placeholder remains unresolved
 - output is only partially written after validation failure
 
@@ -930,3 +977,24 @@ This check is complementary to generator freshness checks:
 
 - freshness checks prove generated artifacts match templates and that the workflow system is internally consistent
 - sync checks prove repo-root live docs still match the generated structure contract
+
+---
+
+## 15. Future-contract boundary
+
+This protocol revision is reviewed and corrected against the currently implemented `P1-P6` surface only.
+
+The following contracts are intentionally **not** finalized here and remain owned by later plan phases:
+
+- `P7a`: bootstrap planning CLI, dry-run output contract, and classification/report shape
+- `P7b`: task identity contract, including `TASK_ID`, `TASK_SLUG`, naming, and archive materialization behavior
+- `P8`: project-level validation matrix, blocker levels, and precedence beyond the current protocol-level generator checks
+- `P9`: CI/reporting wiring beyond the current `test:workflow-*` and freshness enforcement already implemented
+- `P10`: runtime host install/sync entrypoints and target-project import/install contract
+- `P11`: long-term versioned governance, release/compatibility/security/deploy baselines
+
+Interpretation rule:
+
+- later phases may extend this protocol
+- later phases must not be read as already implemented unless an execution-layer capability and its tests exist
+- when a future contract is only mentioned as a boundary here, that mention is descriptive, not a claim of implementation

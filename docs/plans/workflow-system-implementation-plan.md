@@ -1,6 +1,7 @@
 # Workflow System Implementation Plan
 
-Status: In Progress
+Status: Frozen Baseline
+Execution-Status: In Progress
 Owner: kongx
 Last-Updated: 2026-04-02
 
@@ -84,7 +85,7 @@ The workflow-system must be implemented as a portable system before it is treate
 
 This is a mandatory rule set, not descriptive guidance.
 
-In the current repository, the following workflow-system capabilities are implemented:
+In the current repository, the workflow-system is implemented through the following capability areas:
 
 - protocol
 - generators
@@ -423,8 +424,8 @@ Status: **Partially Complete — Skeleton Generation Done, Final Closure Owned b
 
 What was delivered:
 
-- The docs generator reads `templates/docs/*.md.tmpl`, `FILE_SCHEMAS.md`, and `PROJECT_PROFILE.yaml`, expands project-level placeholders, and preserves runtime placeholders
-- Required heading validation enforces `FILE_SCHEMAS.md` structure for each doc type
+- The docs generator reads `templates/docs/*.md.tmpl`, `PROJECT_PROFILE.yaml`, and `VERSION`, expands project-level placeholders, and preserves runtime placeholders
+- `FILE_SCHEMAS.md` remains the normative structure reference; required heading validation is currently mirrored into generator code and enforced against that contract for each doc type
 - Atomic write: all docs are rendered and validated in memory before any are written to disk
 - Generated docs are skeletons only — they do not overwrite repo-root live docs
 - Output: 7 docs in `generated/workflow-docs/`
@@ -438,8 +439,9 @@ What remains open:
 Inputs:
 
 - `templates/docs/*.md.tmpl`
-- [`FILE_SCHEMAS.md`](../../FILE_SCHEMAS.md)
 - `PROJECT_PROFILE.yaml`
+- `VERSION`
+- [`FILE_SCHEMAS.md`](../../FILE_SCHEMAS.md)
 
 Outputs:
 
