@@ -7,6 +7,7 @@
  */
 
 import { spawnSync } from 'child_process';
+import { repoPatternMatchesPath } from '../../scripts/repo-path-patterns';
 
 // --- Glob matching ---
 
@@ -17,12 +18,7 @@ import { spawnSync } from 'child_process';
  *   *  — match within a single segment (no /)
  */
 export function matchGlob(file: string, pattern: string): boolean {
-  const regexStr = pattern
-    .replace(/\./g, '\\.')
-    .replace(/\*\*/g, '{{GLOBSTAR}}')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\{\{GLOBSTAR\}\}/g, '.*');
-  return new RegExp(`^${regexStr}$`).test(file);
+  return repoPatternMatchesPath(file, pattern);
 }
 
 // --- Touchfile maps ---

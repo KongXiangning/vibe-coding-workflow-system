@@ -14,6 +14,7 @@ import {
   parseFrontmatter,
   stringifyInline,
   renderValue,
+  validateProfilePathSemantics,
   validatePathEntries,
   validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
@@ -133,6 +134,7 @@ function loadTemplates(): SkillFile[] {
 
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
+  validateProfilePathSemantics(profile);
 
   const replacements = projectPlaceholders(profile);
   const projectType = String(getRequiredPath(profile, 'project.type'));

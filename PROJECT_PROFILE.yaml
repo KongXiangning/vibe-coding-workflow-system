@@ -37,17 +37,21 @@ paths:
     - design/src
     - test
     - browse/test
+  # Repo-level pattern grammar: documentation inventory uses explicit paths and limited glob support.
   documentation_files:
     - README.md
     - ARCHITECTURE.md
+    - docs/repo-path-grammar.md
     - vibe-coding-workflow.md
     - vibe-coding-methodology.md
   workflow_template_directories:
     - templates/skills
     - templates/docs
+  # Repo-level pattern grammar: explicit paths plus limited glob support (`*`, `**`).
   existing_skill_template_patterns:
     - "*/SKILL.md.tmpl"
     - "SKILL.md.tmpl"
+  # Repo-level pattern grammar: used for generated artifact discovery, not workflow writes.
   generated_artifacts:
     - browse/dist/**
     - design/dist/**
@@ -56,9 +60,11 @@ paths:
     - generated/workflow-docs/**
 
 boundaries:
+  # Workflow restricted grammar: these values feed `{{FORBIDDEN_PATHS}}` in workflow templates.
   forbidden_paths:
     - .git/**
     - node_modules/**
+  # Repo-level pattern grammar: generated file ownership/discovery rules.
   generated_only_paths:
     - browse/dist/**
     - design/dist/**
@@ -94,6 +100,7 @@ governance:
     - WORKFLOW_PROTOCOL.md
     - FILE_SCHEMAS.md
     - SKILL_REGISTRY.md
+    - docs/repo-path-grammar.md
     - vibe-coding-workflow.md
     - vibe-coding-methodology.md
     - templates/docs/*.md.tmpl

@@ -440,6 +440,11 @@ Current implementation:
 
 Paths appearing in `reads`, `writes`, and `forbidden_writes` must follow these rules.
 
+Boundary note:
+
+- this grammar applies only to workflow contract fields: `reads`, `writes`, and `forbidden_writes`
+- other repo-level path and pattern fields in `PROJECT_PROFILE.yaml` may use a separate repo-pattern grammar and are outside this protocol section
+
 ### 7a.1 Path format
 
 - Paths are relative to the project root directory.

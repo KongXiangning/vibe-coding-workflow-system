@@ -17,6 +17,11 @@ import {
   normalizePathEntry,
   validatePathEntry,
   validatePathEntries,
+  normalizeRepoPattern,
+  validateRepoPatternEntry,
+  validateRepoPatternEntries,
+  repoPatternMatchesPath,
+  validateProfilePathSemantics,
   pathEntriesOverlap,
   validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
@@ -178,6 +183,125 @@ describe('workflow-core', () => {
         forbidden_writes: ['scripts/foo.ts'],
       };
       expect(() => validateWriteBoundaryConflicts(obj, 'test.md')).toThrow(/writes\/forbidden_writes conflict/);
+    });
+  });
+
+  describe('repo pattern grammar', () => {
+    test('normalizes repo patterns with host separators', () => {
+      expect(normalizeRepoPattern('  templates\\\\skills\\\\*.SKILL.md.tmpl  ')).toBe(
+        'templates/skills/*.SKILL.md.tmpl',
+      );
+    });
+
+    test('accepts explicit paths and repo-wide glob patterns', () => {
+      expect(() =>
+        validateRepoPatternEntry('SKILL_REGISTRY.md', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+      ).not.toThrow();
+      expect(() =>
+        validateRepoPatternEntry('**/SKILL.md', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+      ).not.toThrow();
+      expect(() =>
+        validateRepoPatternEntry('templates/docs/*.md.tmpl', 'governance.current_documents', 'PROJECT_PROFILE.yaml'),
+      ).not.toThrow();
+    });
+
+    test('rejects absolute, parent traversal, and unsupported glob syntax', () => {
+      expect(() =>
+        validateRepoPatternEntry('/tmp/file', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+      ).toThrow(/absolute path/);
+      expect(() =>
+        validateRepoPatternEntry('../escape', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+      ).toThrow(/parent traversal/);
+      expect(() =>
+        validateRepoPatternEntry('{foo,bar}', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+      ).toThrow(/unsupported glob syntax/);
+    });
+
+    test('matches repo patterns using shared glob semantics', () => {
+      expect(repoPatternMatchesPath('browse/src/commands.ts', 'browse/src/**')).toBe(true);
+      expect(repoPatternMatchesPath('test/fixtures/review-eval-enum.rb', 'test/fixtures/review-eval-enum*.rb')).toBe(true);
+      expect(repoPatternMatchesPath('templates/skills/review.SKill.md.tmpl', 'templates/skills/*.SKILL.md.tmpl')).toBe(false);
+      expect(repoPatternMatchesPath('qa/SKILL.md', 'qa/**')).toBe(true);
+      expect(repoPatternMatchesPath('qa/SKILL.md', 'review/**')).toBe(false);
+    });
+
+    test('validates grouped repo pattern fields', () => {
+      const obj: JsonObject = {
+        paths: {
+          documentation_files: ['README.md', 'docs/*.md'],
+          existing_skill_template_patterns: ['*/SKILL.md.tmpl'],
+          generated_artifacts: ['**/SKILL.md'],
+        },
+        boundaries: {
+          generated_only_paths: ['browse/dist/**'],
+          workflow_owned_paths: ['templates/docs/**'],
+        },
+        governance: {
+          current_documents: ['templates/docs/*.md.tmpl'],
+        },
+      };
+      expect(() =>
+        validateRepoPatternEntries(
+          obj,
+          [
+            'paths.documentation_files',
+            'paths.existing_skill_template_patterns',
+            'paths.generated_artifacts',
+            'boundaries.generated_only_paths',
+            'boundaries.workflow_owned_paths',
+            'governance.current_documents',
+          ],
+          'PROJECT_PROFILE.yaml',
+        ),
+      ).not.toThrow();
+    });
+  });
+
+  describe('profile path semantics', () => {
+    test('accepts the split workflow/profile path grammars', () => {
+      const profile: JsonObject = {
+        paths: {
+          documentation_files: ['README.md', 'docs/*.md'],
+          existing_skill_template_patterns: ['*/SKILL.md.tmpl', 'SKILL.md.tmpl'],
+          generated_artifacts: ['**/SKILL.md', 'generated/workflow-docs/**'],
+        },
+        boundaries: {
+          forbidden_paths: ['.git/**', 'node_modules/**'],
+          generated_only_paths: ['**/SKILL.md'],
+          workflow_owned_paths: ['templates/docs/**', 'templates/skills/**'],
+        },
+        governance: {
+          current_documents: ['templates/docs/*.md.tmpl', 'templates/skills/*.SKILL.md.tmpl'],
+        },
+      };
+      expect(() => validateProfilePathSemantics(profile)).not.toThrow();
+    });
+
+    test('does not require optional repo-level path fields to exist', () => {
+      const profile: JsonObject = {
+        boundaries: {
+          forbidden_paths: ['.git/**'],
+        },
+      };
+      expect(() => validateProfilePathSemantics(profile)).not.toThrow();
+    });
+
+    test('rejects wide globs inside workflow-facing forbidden_paths', () => {
+      const profile: JsonObject = {
+        paths: {
+          existing_skill_template_patterns: ['*/SKILL.md.tmpl'],
+          generated_artifacts: ['**/SKILL.md'],
+        },
+        boundaries: {
+          forbidden_paths: ['**/SKILL.md'],
+          generated_only_paths: ['**/SKILL.md'],
+          workflow_owned_paths: ['templates/docs/**'],
+        },
+        governance: {
+          current_documents: ['templates/docs/*.md.tmpl'],
+        },
+      };
+      expect(() => validateProfilePathSemantics(profile)).toThrow(/unsupported wildcard pattern/);
     });
   });
 

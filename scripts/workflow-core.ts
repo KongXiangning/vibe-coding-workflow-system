@@ -8,6 +8,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
+import {
+  type RepoPatternField,
+  normalizeRepoPattern,
+  validateRepoPatternEntry,
+  repoPatternMatchesPath,
+  hasDottedPath,
+} from './repo-path-patterns';
+export type { RepoPatternField } from './repo-path-patterns';
 
 // --- Types ---
 
@@ -262,6 +270,8 @@ export function validatePathEntry(entry: string, field: PathField, context: stri
   return normalized;
 }
 
+export { normalizeRepoPattern, validateRepoPatternEntry, repoPatternMatchesPath };
+
 function canonicalizePathBoundary(entry: string): string {
   return entry.replace(/\/+$/, '').replace(/\/\*\*$/, '');
 }
@@ -293,6 +303,21 @@ export function validatePathEntries(
   }
 }
 
+export function validateRepoPatternEntries(
+  obj: JsonObject,
+  fields: readonly RepoPatternField[],
+  context: string,
+): void {
+  for (const field of fields) {
+    if (!hasDottedPath(obj, field)) {
+      continue;
+    }
+    for (const entry of normalizeList(getRequiredPath(obj, field))) {
+      validateRepoPatternEntry(entry, field, context);
+    }
+  }
+}
+
 export function validateWriteBoundaryConflicts(obj: JsonObject, context: string): void {
   const writes = normalizeList(obj.writes);
   const forbidden = normalizeList(obj.forbidden_writes);
@@ -306,6 +331,31 @@ export function validateWriteBoundaryConflicts(obj: JsonObject, context: string)
       }
     }
   }
+}
+
+export function validateProfilePathSemantics(profile: JsonObject, context = 'PROJECT_PROFILE.yaml'): void {
+  validatePathEntries(
+    {
+      reads: [],
+      writes: [],
+      forbidden_writes: getRequiredPath(profile, 'boundaries.forbidden_paths'),
+    },
+    ['forbidden_writes'],
+    context,
+  );
+
+  validateRepoPatternEntries(
+    profile,
+    [
+      'paths.documentation_files',
+      'paths.existing_skill_template_patterns',
+      'paths.generated_artifacts',
+      'boundaries.generated_only_paths',
+      'boundaries.workflow_owned_paths',
+      'governance.current_documents',
+    ],
+    context,
+  );
 }
 
 export function extractHandoff(frontmatter: JsonObject, filePath: string): HandoffRef {
@@ -471,6 +521,19 @@ function classifyGeneratorError(generator: string, message: string): { report: E
   }
 
   if (message.startsWith('Invalid path entry in ')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'PATH_001',
+        message: 'Invalid path entry',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.startsWith('Invalid repo pattern in ')) {
     return {
       report: {
         generator,

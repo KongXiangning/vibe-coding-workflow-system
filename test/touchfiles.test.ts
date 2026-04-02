@@ -56,6 +56,12 @@ describe('matchGlob', () => {
     expect(matchGlob('qa/SKILL.md.tmpl', 'qa/**')).toBe(true);
     expect(matchGlob('qa/templates/report.md', 'qa/**')).toBe(true);
   });
+
+  test('repo-level glob patterns match across directories', () => {
+    expect(matchGlob('qa/SKILL.md', '**/SKILL.md')).toBe(true);
+    expect(matchGlob('review/SKILL.md', '**/SKILL.md')).toBe(true);
+    expect(matchGlob('review/SKILL.md.tmpl', '**/SKILL.md')).toBe(false);
+  });
 });
 
 // --- selectTests ---

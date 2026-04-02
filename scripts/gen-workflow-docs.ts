@@ -9,6 +9,7 @@ import {
   loadProfile,
   projectPlaceholders,
   stringifyInline,
+  validateProfilePathSemantics,
   validateUnresolvedPlaceholders,
   resolveRoot,
   ensureCleanOutputDir,
@@ -120,6 +121,7 @@ function validateRequiredHeadings(fileName: string, content: string): void {
 
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
+  validateProfilePathSemantics(profile);
 
   const version = readText(VERSION_PATH).trim();
   if (!version) {

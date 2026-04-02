@@ -70,6 +70,10 @@ After this point, updates to `WORKFLOW_PROTOCOL.md` must follow these rules:
   - explicit relative paths are allowed
   - terminal `/**` is allowed
   - other wildcard forms remain invalid
+- 2026-04-02: repo-wide path semantics are explicitly split into two layers:
+  - workflow protocol fields (`reads`, `writes`, `forbidden_writes`) remain on the restricted baseline above
+  - repo-level governance/discovery fields in `PROJECT_PROFILE.yaml` may use a separate repo-pattern grammar
+- this layered clarification does not widen the frozen `P1-P6` workflow contract; it only prevents repo-level glob use from being misread as a protocol change
 
 ## Operational use
 

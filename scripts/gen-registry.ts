@@ -12,6 +12,7 @@ import {
   projectPlaceholders,
   parseFrontmatter,
   renderValue,
+  validateProfilePathSemantics,
   validatePathEntries,
   validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
@@ -291,6 +292,7 @@ ${HIGH_RISK_SKILLS.map(name => `- \`${name}\``).join('\n')}
 
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
+  validateProfilePathSemantics(profile);
 
   const replacements = projectPlaceholders(profile);
   const templates = loadTemplates();

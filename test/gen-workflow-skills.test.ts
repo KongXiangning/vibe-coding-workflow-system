@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
-import { pathEntriesOverlap, validatePathEntry } from '../scripts/workflow-core';
+import { loadProfile, pathEntriesOverlap, validatePathEntry, validateProfilePathSemantics } from '../scripts/workflow-core';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-skills');
@@ -131,6 +131,16 @@ describe('gen-workflow-skills', () => {
           expect(() => validatePathEntry(entry, field, file)).not.toThrow();
         }
       }
+    }
+  });
+
+  test('profile forbidden paths remain restricted while repo-level patterns stay valid', () => {
+    const profile = loadProfile(path.join(ROOT, 'PROJECT_PROFILE.yaml'));
+    expect(() => validateProfilePathSemantics(profile)).not.toThrow();
+
+    const forbidden = normalizeList((profile.boundaries as Record<string, unknown>).forbidden_paths);
+    for (const entry of forbidden) {
+      expect(() => validatePathEntry(entry, 'forbidden_writes', 'PROJECT_PROFILE.yaml')).not.toThrow();
     }
   });
 
