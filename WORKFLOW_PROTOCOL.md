@@ -869,6 +869,12 @@ Live docs own the following runtime or project-specific content:
 - project-specific tables, checklists, decisions, and notes
 - additions that stay inside an existing generated-owned section
 
+Boundary rule:
+
+- live docs may add content inside an existing generated-owned section, but that flexibility does not grant structural ownership over new independent headings or sections
+- heading-level and section-level structure remains part of the generated contract surface, even when the live doc adds project-specific content nearby
+- any extra heading, including a new sub-heading inserted inside an existing generated-owned section, counts as extra heading-level structure rather than ordinary live-owned content
+
 Authority split:
 
 - generated docs are the canonical source of truth for structure
@@ -929,9 +935,9 @@ Classification outcomes:
 
 Classification rules:
 
-- `structure-compatible`: all required generated headings exist at the required heading levels and in the canonical order; only content differs
-- `structure-drifted but mergeable`: the required headings can still be mapped unambiguously, but order, spacing, or generated-owned structure has drifted; a merge may be safe after review
-- `incompatible and diff-only until confirmed`: one or more required headings are missing, renamed, duplicated ambiguously, or reorganized so structure-preserving sync is no longer trustworthy
+- `structure-compatible`: all required generated headings exist at the required heading levels and in the canonical order; only content differs, and there are no extra heading-level structural additions outside the generated contract
+- `structure-drifted but mergeable`: the required headings can still be mapped unambiguously, but order, spacing, or generated-owned structure has drifted; a merge may be safe after review. This state does not include live-only independent headings or sections outside the generated contract
+- `incompatible and diff-only until confirmed`: one or more required headings are missing, renamed, duplicated ambiguously, reorganized so structure-preserving sync is no longer trustworthy, or expanded with extra heading-level structure outside the generated contract, including any live-only heading or sub-heading that is not part of the generated heading tree
 
 Minimum classification inputs:
 
@@ -950,6 +956,9 @@ Human confirmation policy is mandatory:
 - `refresh-structure` requires explicit confirmation per file
 - `merge-safe update` requires explicit confirmation per file
 - `incompatible and diff-only until confirmed` files must never be auto-merged
+- in Protocol-Version `0.1.0`, `incompatible and diff-only until confirmed` means the sync layer may present the diff and classification result, but it must stop without writing
+- any confirmed follow-up for an `incompatible` file is outside the automatic sync actions defined by P6 and must be handled by a separate manual decision or a later-phase contract
+- if a file is `incompatible` because of extra live-only headings or sections, the sync layer must not automatically preserve, move, fold, or reorder that extra structure
 - `orphaned` files must only produce a warning; they must not be deleted automatically
 
 Confirmation must be file-scoped. A sync tool may batch prompts, but it must still expose exactly which files will be written.
@@ -971,6 +980,7 @@ First-adoption rules:
 - if a live doc is `structure-compatible`, the tool must still start with `propose-diff only`; `refresh-structure` is allowed only after confirmation
 - if a live doc is `structure-drifted but mergeable`, the tool must present a proposed merge diff and require confirmation before `merge-safe update`
 - if a live doc is `incompatible and diff-only until confirmed`, the tool must emit the diff and stop without writing
+- if a live doc includes extra independent headings, sections, or sub-headings outside the generated contract, first adoption must classify it as `incompatible and diff-only until confirmed`
 - first adoption must never overwrite, truncate, or delete an existing live doc without explicit human confirmation
 
 ### 14.7 Placeholder preservation rules

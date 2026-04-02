@@ -522,6 +522,13 @@ Acceptance criteria (all met at the protocol layer):
 - ✅ existing live docs can be onboarded without blind overwrite behavior at the policy-definition level
 - ✅ P6 now serves as the formal closure step for P5 ownership assumptions
 
+Review note:
+
+- 2026-04-03: P6 boundary clarified after review for extra heading / section classification ambiguity
+- this clarification does not reopen the phase; P6 remains `Complete (Protocol-only)`
+- live-only independent headings or sections outside the generated contract are now explicitly treated as `incompatible and diff-only until confirmed`
+- this is a protocol-scope semantic clarification inside P6, not a transfer of ownership into `P7a-P11`
+
 Not claimed by P6:
 
 - bootstrap planning/dry-run capability implementation

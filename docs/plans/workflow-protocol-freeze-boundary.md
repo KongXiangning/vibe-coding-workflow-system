@@ -74,6 +74,9 @@ After this point, updates to `WORKFLOW_PROTOCOL.md` must follow these rules:
   - workflow protocol fields (`reads`, `writes`, `forbidden_writes`) remain on the restricted baseline above
   - repo-level governance/discovery fields in `PROJECT_PROFILE.yaml` may use a separate repo-pattern grammar
 - this layered clarification does not widen the frozen `P1-P6` workflow contract; it only prevents repo-level glob use from being misread as a protocol change
+- 2026-04-03: the P6 sync model is clarified to treat extra live-only headings or sections outside the generated contract as `incompatible and diff-only until confirmed`
+- this is a baseline clarification inside the existing P6 protocol surface, not a new execution-layer capability
+- this clarification does not change `P7a-P11` ownership and does not imply that sync tooling already implements the classification
 
 ## Operational use
 
