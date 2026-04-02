@@ -256,6 +256,8 @@ All references in this protocol to stage coverage must use the count of 10.
 
 ---
 
+## 5. Skill template contract
+
 ### 5.1 Must be expanded by the generator
 
 - `{{PROJECT_NAME}}`
@@ -437,6 +439,8 @@ Invalid paths must cause generation to fail.
 
 ---
 
+## 8. Structural validation
+
 The generator must run structural validation after rendering.
 
 Minimum validation checks:
@@ -569,6 +573,8 @@ gen:workflow-skills: generation failed — 2 errors, 1 warning
 | `0` | Success — all output generated and validated |
 | `1` | Generation error — input/output/file-system failure |
 | `2` | Validation error — rendered output failed protocol checks |
+
+## 10. Protocol scope for Version `0.1.0`
 
 Protocol-Version `0.1.0` constrains the workflow skill generator to the following scope:
 
@@ -746,20 +752,24 @@ The registry generator must fail loudly if:
 
 - a skill template is missing required metadata fields needed by the registry
 - a handoff target points to an unknown skill
-- a required workflow stage is not represented
+- a required workflow stage is not represented in the registry input coverage
 - the registry would be only partially written after a validation failure
 
 ### 13.5 Freshness enforcement
 
 Changes to `templates/skills/*.SKILL.md.tmpl` must be validated in CI by regenerating `SKILL_REGISTRY.md` and checking that the repo stays clean.
 
-That freshness check must be separate from runtime host skill-doc validation so the workflow-system layer remains auditable on its own.
+That freshness check is a workflow-system integrity check. It verifies that the generator and committed generated artifact still agree.
+
+That freshness check must be separate from runtime host skill-doc validation and from repo-level sync/compliance checks so the workflow-system layer remains auditable on its own.
 
 ---
 
 ## 14. Hybrid sync model for generated docs and live docs
 
 This section defines the contract between generated governance docs in `generated/workflow-docs/` and live governance docs in the repo root.
+
+This section governs repository compliance, not generator correctness. A sync failure means the current repo state has drifted from the generated structure contract; it does not by itself mean the workflow generators are incorrect.
 
 The purpose of this model is to prevent dual truth:
 
@@ -905,6 +915,8 @@ The sync layer must treat placeholder replacement history as content, not as mis
 
 Sync validation in CI is separate from generator freshness checks.
 
+It is a repository-compliance gate, not a workflow-system-integrity gate.
+
 CI behavior:
 
 - a future sync-check command must classify repo-root live docs against `generated/workflow-docs/`
@@ -916,5 +928,5 @@ Structured sync failures must use the §9b error shape with the `SYNC_` code nam
 
 This check is complementary to generator freshness checks:
 
-- freshness checks prove generated artifacts match templates
-- sync checks prove live docs still match the generated structure contract
+- freshness checks prove generated artifacts match templates and that the workflow system is internally consistent
+- sync checks prove repo-root live docs still match the generated structure contract

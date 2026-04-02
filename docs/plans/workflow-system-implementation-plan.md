@@ -2,9 +2,11 @@
 
 Status: In Progress
 Owner: kongx
-Last-Updated: 2026-04-01
+Last-Updated: 2026-04-02
 
 ## Current Execution Order
+
+### Stage A. Incubation / System Build in the current repository
 
 P1. Harden `WORKFLOW_PROTOCOL.md` into a formal spec.
 P2. Build the shared parser / validator / atomic-writer core.
@@ -12,10 +14,22 @@ P3. Implement `gen:workflow-skills`.
 P4. Implement `gen:registry`.
 P5. Implement `gen:workflow-docs`.
 P6. Define the generated docs <-> live docs hybrid sync strategy.
-P7. Implement `bootstrap-project-governance` and task identity.
-P8. Define the project-level validation model and CI blockers.
-P9. Wire the validation model into workflow skills, generator tests, and CI.
-P10. Integrate Claude / Codex runtime entrypoints.
+P7a. Implement `bootstrap-project-governance` as the adoption planning capability.
+P7b. Define and implement task identity as part of adoption.
+P8. Define the project-level validation model and CI blocker contract.
+P9. Wire protocol-level checks, generator tests, and workflow-system CI.
+P10. Integrate Claude / Codex runtime entrypoints for the workflow-system.
+
+### Stage B. Adoption / Project Materialization in a target project
+
+A1. Import the necessary workflow-system artifacts into a real target project.
+A2. Execute `bootstrap-project-governance` against the target project.
+A3. Materialize or diff-review live governance docs under the hybrid sync policy.
+A4. Apply the target project's project-level validation model.
+A5. Add target-project-specific governance docs and skills only after adoption succeeds.
+
+### Stage C. Extraction / Long-term standalone governance
+
 P11. Add versioned governance for long-term evolution.
 
 ## Summary
@@ -25,6 +39,13 @@ This plan does not aim to extend `gstack` itself.
 Its goal is to use the ideas, workflow skeleton, and constraint model extracted from `gstack` to build a dedicated workflow-system that can later be separated cleanly from this repository.
 
 The resulting system should remain logically independent from native `gstack` capabilities even if some incubation work happens inside the current repo first.
+
+This plan is intentionally split into two distinct activities:
+
+1. build the workflow-system itself in the current repository
+2. adopt and instantiate that workflow-system inside a real target project
+
+Those activities must not be collapsed into one execution context. The current repository owns system development. The target project owns project-specific adoption, materialization, and extension.
 
 One key decision is already locked:
 
@@ -57,6 +78,46 @@ This means:
 - the current repository is the incubation and validation environment
 - the target project is the eventual consumer environment
 
+### Development-before-adoption rule
+
+The workflow-system must be implemented as a portable system before it is treated as a project-specific solution.
+
+This is a mandatory rule set, not descriptive guidance.
+
+In the current repository, the following workflow-system capabilities are implemented:
+
+- protocol
+- generators
+- bootstrap
+- validation model
+- runtime entrypoints
+
+All of the above must:
+
+- not depend on any target project's private documents
+- not depend on any target project's skills
+- not depend on any target project's validation scripts
+
+The required adoption order is:
+
+1. complete the workflow-system in `P1-P10`
+2. import the workflow-system into the target project in `A1`
+3. execute bootstrap in `A2`
+4. materialize allowed live docs and related writes in `A3`
+5. execute target-project validation in `A4`
+6. only after that, add project-specific docs and project-specific skills
+
+The following are explicitly forbidden:
+
+- introducing target-project-specific logic during any `P` phase
+- executing project-specific behavior inside bootstrap
+- treating project-specific docs or project-specific skills as prerequisites for completing the workflow-system itself
+
+Normal implication:
+
+- documents and skills implemented in the current repository must not depend on a target project's private docs, existing live docs, or project-specific skills
+- target-project-specific docs and skills are adoption-time or post-adoption work, not prerequisites for building the workflow-system itself
+
 ### Step-to-context mapping
 
 The canonical execution context for each phase is:
@@ -69,11 +130,13 @@ The canonical execution context for each phase is:
 | P4 | Current repository | Implement and validate the registry generator in the incubation repo. |
 | P5 | Current repository | Implement and validate the docs generator in the incubation repo. |
 | P6 | Current repository | Define sync policy in the incubation repo, but the policy governs future target-project adoption. |
-| P7 | Cross-context | Implement bootstrap in the current repo; execute bootstrap against a target project. |
+| P7a | Current repository | Implement the bootstrap planning/dry-run capability in the incubation repo. |
+| P7b | Current repository | Define task identity rules in the incubation repo so bootstrap/adoption has a stable contract. |
 | P8 | Current repository | Define the validation model in the incubation repo. |
-| P9 | Cross-context | Wire protocol-level checks in the current repo; apply project-level validation rules when used in a target project. |
-| P10 | Cross-context | Implement runtime entrypoints in the current repo; consume them from target projects. |
-| P11 | Target project / extracted workflow-system | Long-term governance is primarily owned by the extracted workflow-system and the projects that adopt it. |
+| P9 | Current repository | Wire protocol-level checks, generator tests, and workflow-system CI in the incubation repo. |
+| P10 | Current repository | Implement runtime entrypoints in the incubation repo; target projects consume them later. |
+| A1-A5 | Target project | Import, bootstrap, materialize, validate, and extend inside a real target project. |
+| P11 | Extracted workflow-system / adopting projects | Long-term governance is primarily owned after extraction and adoption. |
 
 ### What happens where
 
@@ -84,16 +147,21 @@ The canonical execution context for each phase is:
 - build and test registry generation
 - build and test docs generation
 - define sync policy
-- implement bootstrap and runtime entrypoints
+- implement bootstrap and runtime entrypoints as portable system capabilities
+- define task identity and validation contracts
+- define host-specific install/sync logic as part of the portable runtime integration contract
 - validate that the workflow-system is internally coherent
 
 #### Target project responsibilities
 
 - provide the real `PROJECT_PROFILE.yaml`
-- consume generated workflow artifacts
+- import and consume the workflow-system artifacts
+- execute bootstrap against the target project's own repository state
 - materialize and maintain live governance docs
 - run project-specific validation gates
-- use bootstrap, sync, and runtime integration in the context of the target project's own boundaries and constraints
+- add project-specific governance docs, policies, and skills after baseline adoption
+- use bootstrap, sync, and runtime integration through the contracts defined by the workflow-system
+- not redefine host-specific install/sync logic locally
 
 ### Non-goal clarification
 
@@ -102,6 +170,8 @@ This plan does **not** mean:
 - permanently turning the current `gstack` repository into the final home of the workflow-system
 - making the current repo root layout the permanent output contract for all future projects
 - treating `gstack` itself as the required consumer of the resulting workflow-system
+- requiring the current repository's implementation to depend on a target project's private docs, live governance state, or project-specific skills
+- treating target-project-specific docs or skills as prerequisites for completing the workflow-system itself
 
 The current repository is the place where the system is being incubated.
 
@@ -451,25 +521,57 @@ Not claimed by P6:
 - runtime sync tooling implementation
 - automated enforcement of the sync policy in execution code
 
-### P7. Implement `bootstrap-project-governance` and task identity
+### P7a. Implement `bootstrap-project-governance` as the adoption planning capability
 
 Status: **Not Started**
 
-> ⚠️ **Scope concern**: This phase combines bootstrap entrypoint, live doc classification, materialization, first-run checklist, AND task identity definition. Consider splitting into: (a) bootstrap + materialization, (b) task identity system.
+> This phase implements the portable bootstrap planning/dry-run capability in the current repository. It does not assume that a target project already has workflow-system-specific docs, skills, or validation rules beyond what bootstrap can classify or materialize.
 
 Goal:
 
-Create the real first-run entrypoint for adopting the workflow-system, instead of relying on `init-governance` alone.
+Create the real first-run planning and classification capability for adopting the workflow-system, instead of relying on `init-governance` alone.
 
 Bootstrap responsibilities:
 
 - validate `PROJECT_PROFILE.yaml`
 - run the skills/docs/registry generators
 - classify existing live docs before any materialization
-- materialize the minimum live docs using the hybrid sync policy
+- compute the allowed sync action for each governed file using the hybrid sync policy
+- emit a bootstrap plan that distinguishes `materialize`, `propose-diff only`, and any blocked file states
 - output a first-run checklist
-- output first-run validation commands
-- define and materialize task identity rules
+- output validation entrypoint placeholders / slots for later target-project binding
+- output only workflow-system minimal checks that are already defined at the protocol/generator layer
+- explicitly defer project-level validation command binding and execution to Adoption A4
+
+Deliverables:
+
+- a bootstrap planning capability
+- a bootstrap CLI contract
+- a dry-run / diff-plan output contract
+- first-run checklist
+
+Dependencies:
+
+- depends on P3, P4, P5, and P6
+
+Acceptance criteria:
+
+- a project without governance can be analyzed and planned for first adoption through bootstrap
+- a project with pre-existing governance docs can be classified for a non-destructive first adoption flow
+- bootstrap does not require target-project-specific docs or skills beyond the generated workflow-system baseline
+- existing live docs are classified before any write, and existing files default to diff-only behavior unless explicitly confirmed
+- bootstrap output is sufficient for a later adoption step to execute writes without redefining protocol semantics
+- bootstrap does not execute validation
+- bootstrap does not assume that target-project-specific validation commands already exist
+- bootstrap only emits validation slots or minimal workflow-system checks; project-level validation commands are resolved and executed only in Adoption A4
+
+### P7b. Define and implement task identity as part of adoption
+
+Status: **Not Started**
+
+Goal:
+
+Define the task identity contract as a portable workflow-system rule, then apply it during adoption in target projects.
 
 Task identity must define:
 
@@ -480,22 +582,19 @@ Task identity must define:
 
 Deliverables:
 
-- a bootstrap entrypoint
-- minimum live governance docs
-- first-run checklist
 - task identity rules
+- task identity materialization behavior during Adoption `A3`
 
 Dependencies:
 
-- depends on P3, P4, P5, and P6
+- depends on P6 and P7a
 
 Acceptance criteria:
 
-- a project without governance can complete first adoption
-- a project with pre-existing governance docs can complete a non-destructive first adoption flow
-- repo-root minimum governance docs become usable after bootstrap
 - task identity no longer remains an unresolved placeholder concept
 - `archive-task` can consume the defined naming scheme without special casing
+- the contract is portable and does not assume target-project-specific task naming beyond declared configuration
+- the plan explicitly anchors task identity materialization to Adoption `A3`, not to bootstrap planning in `A2`
 
 ### P8. Define the project-level validation model and CI blockers
 
@@ -544,32 +643,32 @@ Acceptance criteria:
 - protocol-level failures and project-level failures cannot be conflated by implementation
 - docs freshness and registry freshness remain protocol-level gates, not project-quality layers
 
-### P9. Wire the validation model into workflow skills, generator tests, and CI
+### P9. Wire protocol-level checks, generator tests, and workflow-system CI
 
 Status: **Not Started**
 
 Goal:
 
-Turn the validation model into real quality gates instead of leaving it as documentation.
+Turn the workflow-system's protocol-level validation model into real protocol-level quality gates inside the current repository before target projects consume it.
 
 Implementation requirements:
 
-- keep `run-regression` focused on task-level validation entry
-- drive project-level quality gates from the validation model, not from one skill
-- run protocol-level validation before any project-level validation gate is considered authoritative
+- keep `run-regression` focused on task-level validation entry only
+- wire only protocol-level workflow-system checks in the current repository
+- define the boundary that project-level quality gates are configured by the validation model but executed only during Adoption `A4`
 - map generator tests to protocol success criteria
 - run in CI at minimum:
   - protocol-level workflow-system validation
   - workflow skills validation
   - workflow docs validation
   - registry freshness / validation
-  - required unit/integration checks
 
 Deliverables:
 
 - updated workflow skill behavior contracts
 - `test:workflow-*` coverage aligned to the protocol
 - CI checks for the workflow-system
+- a clean separation between workflow-system CI in the current repository and project-level validation executed later in target projects
 
 Dependencies:
 
@@ -581,6 +680,7 @@ Acceptance criteria:
 - protocol-breaking changes are surfaced by tests or CI
 - "task finished" and "project passed gates" are treated as separate states
 - protocol-level generator correctness and project-level quality gates remain distinct in reports and exit behavior
+- P9 does not execute or own target-project unit, integration, smoke, E2E, or other project-level validation gates
 
 ### P10. Integrate Claude / Codex runtime entrypoints
 
@@ -588,7 +688,9 @@ Status: **Not Started**
 
 Goal:
 
-Add runtime entrypoints only after protocol, generators, sync policy, and validation are stable.
+Add runtime entrypoints only after protocol, generators, sync policy, and validation are stable. These entrypoints are implemented in the current repository as portable system capabilities and consumed later by target projects.
+
+P10 also owns the import/install contract used by Adoption `A1`. A target project must not need ad hoc repo-specific knowledge to import the workflow-system artifacts.
 
 Runtime integration should have only two layers:
 
@@ -600,11 +702,14 @@ Constraints:
 - runtime integration must not rewrite protocol semantics
 - runtime integration must stay isolated from native `gstack` runtime outputs
 - existing repo-native `SKILL.md` artifacts must not be overwritten
+- host-specific install/sync logic must be defined by the workflow-system in the current repository, not redefined by target projects
 
 Deliverables:
 
 - repo-local runtime entrypoints
 - Claude / Codex host-specific install or sync entrypoints
+- a packaging/export contract for the workflow-system artifacts that must be imported into a target project
+- a target-project import/install contract for Adoption `A1`
 - host compatibility notes
 
 Dependencies:
@@ -616,6 +721,41 @@ Acceptance criteria:
 - Claude / Codex can consume workflow-system outputs without polluting the native `gstack` pipeline
 - host-specific differences remain confined to install/sync logic
 - runtime integration failures do not corrupt generated outputs or live docs
+- target projects consume the runtime entrypoints; they do not redefine protocol semantics locally
+- target projects consume host-specific install/sync logic through the contract defined in `P10`; they do not reimplement that layer locally
+- a target project can import the required workflow-system artifacts through the contract defined in P10 without relying on undocumented current-repository knowledge
+
+### Adoption Stage A1-A5. Import, bootstrap, materialize, validate, and extend in a target project
+
+Status: **Not Started**
+
+Goal:
+
+Use the completed workflow-system in a real target project without collapsing system development and project-specific adoption into one step.
+
+Adoption order:
+
+1. import the necessary workflow-system artifacts into the target project using the import/install contract defined in `P10`
+2. supply the target project's real `PROJECT_PROFILE.yaml`
+3. execute `bootstrap-project-governance`
+4. materialize allowed live docs and task identity writes, or enter diff-review paths for existing governed files, according to the hybrid sync policy
+5. execute the target project's project-level validation entrypoints using the validation model defined by the workflow-system and configured by the target project
+6. only after baseline adoption succeeds, add target-project-specific docs, live content, and project-specific skills
+
+Adoption execution contract:
+
+- the workflow-system must define how a target project declares its validation entrypoints and blocker levels
+- adoption must expose the concrete commands or runners that implement unit, integration, smoke/E2E, and other required project-level gates
+- applying the validation model in a target project is an execution step owned by the target project, not by the incubation repository
+- the incubation repository may define the contract and expected shape, but it must not depend on a specific target project's private validation scripts
+
+Acceptance criteria:
+
+- a target project can adopt the workflow-system without requiring this incubation repository to know the target project's private docs or project-specific skills
+- baseline governance is materialized before project-specific extensions are added
+- project-specific docs and skills are clearly treated as post-adoption work, not as blockers for workflow-system completion
+- a target project can determine exactly which validation commands must run during adoption and which blocker level each command carries
+- task identity is materialized during `A3` together with other allowed writes, not during bootstrap planning in `A2`
 
 ### P11. Add versioned governance for long-term evolution
 
@@ -640,7 +780,7 @@ Deliverables:
 
 Dependencies:
 
-- depends on P1 through P10
+- depends on successful adoption in at least one target-project context or on extraction planning that defines the standalone ownership model
 
 Acceptance criteria:
 
@@ -673,56 +813,64 @@ The following interfaces and contracts must be formalized or tightened:
 
 The implementation must cover these test and acceptance scenarios:
 
-- protocol-level
-  - invalid stage
-  - unknown placeholder
-  - illegal path
-  - conflicting writes / forbidden_writes
-  - broken handoff
-  - invalid atomic-write behavior
-- shared core
-  - profile parsing
-  - template parsing
-  - schema validation
-  - error formatting
-  - partial write prevention
-- skills generator
-  - successful full render
-  - failure on missing metadata
-  - failure on broken handoff graph
-  - correct preservation of runtime placeholders
-- registry generator
-  - correct stage grouping
-  - correct handoff rendering
-  - failure on missing metadata
-  - freshness check behavior
-- docs generator
-  - required-heading validation
-  - failure on unresolved non-runtime placeholders
-  - atomic output write behavior
-- sync model
-  - structure refresh does not overwrite live runtime content
-  - human-confirmation-required updates only enter propose-diff paths
-  - existing live docs are classified before materialization
-- bootstrap
-  - first adoption succeeds on a project without governance docs
-  - first adoption succeeds on a project with pre-existing governance docs without blind overwrite
-  - task identity is generated and consumed by `archive-task`
-- validation / CI
-  - protocol-level failures stop the workflow-system before project-level gates are treated as authoritative
-  - blocker vs warning behavior is correct
-  - local and CI outcomes match
-- runtime integration
-  - Claude / Codex integration succeeds without polluting native `gstack` outputs
+protocol-level
+invalid stage
+unknown placeholder
+illegal path
+conflicting writes / forbidden_writes
+broken handoff
+invalid atomic-write behavior
+shared core
+profile parsing
+template parsing
+schema validation
+error formatting
+partial write prevention
+skills generator
+successful full render
+failure on missing metadata
+failure on broken handoff graph
+correct preservation of runtime placeholders
+registry generator
+correct stage grouping
+correct handoff rendering
+failure on missing metadata
+freshness check behavior
+docs generator
+required-heading validation
+failure on unresolved non-runtime placeholders
+atomic output write behavior
+sync model
+structure refresh does not overwrite live runtime content
+human-confirmation-required updates only enter propose-diff paths
+existing live docs are classified before materialization
+bootstrap capability tests (P7a)
+bootstrap emits a complete dry-run plan for a project without governance docs
+bootstrap classifies a project with pre-existing governance docs without performing writes
+bootstrap computes the correct per-file sync action set under the hybrid sync policy
+bootstrap distinguishes materialize, propose-diff only, and blocked states correctly
+bootstrap dry-run output contains the required checklist, classification, and action contract
+bootstrap performs no live doc writes, task identity writes, or validation execution
+adoption execution tests (A1–A5)
+first adoption materializes allowed live docs only in the target project execution stage
+first adoption on a project with pre-existing governance docs does not bypass diff-review or confirmation rules
+task identity is materialized and then consumed by archive-task only during adoption/execution
+target-project validation is executed only during adoption/execution and only through declared validation entrypoints
+validation / CI
+protocol-level failures stop the workflow-system before project-level gates are treated as authoritative
+blocker vs warning behavior is correct
+local and CI outcomes match
+runtime integration
+Claude / Codex integration succeeds without polluting native gstack outputs
 
 ## Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
 | P6 sync strategy may require P5 retrofitting | Medium — generated docs output assumptions could conflict with sync policy | Define sync model principles before expanding P5 scope; current P5 output is minimal enough to adapt |
-| P7 scope too large for single phase | Medium — delays, unclear ownership, partial delivery | Split into bootstrap+materialization and task identity sub-phases |
+| Bootstrap capability and adoption execution may blur together again | Medium — the implementation may silently recreate cross-context coupling | Keep bootstrap deliverables capability-focused in `P7a`, and keep materialization/validation execution in Adoption A1-A5 |
 | Shared core duplication (P2 gap) | **Resolved** — `scripts/workflow-core.ts` extracted; remaining gap is path normalization, handoff graph, and atomic write orchestration not yet in shared core | Continue extracting as generators evolve |
-| Stage count ambiguity (8 vs 10) | Low — causes confusion in validation rules | Clarify canonical stage enum in WORKFLOW_PROTOCOL.md as part of remaining P1 work |
+| Validation model may be defined but not executable in target projects | Medium — adoption could stall at A4 with no concrete runner contract | Require the validation model to declare executable entrypoints and blocker levels before adoption is considered complete |
 | Extraction timeline undefined | Low — incubation artifacts may calcify into permanent dependencies | Review separability at each phase boundary |
 
 ## Assumptions And Defaults
