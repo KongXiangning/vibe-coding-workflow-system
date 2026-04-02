@@ -61,6 +61,11 @@ Additional boundary decisions are also locked:
 - workflow-system generated artifacts should prefer their own namespace and migration-friendly layout over reuse of `gstack` root artifacts
 - protocol-level validation and project-level validation are separate layers and must not be merged into one catch-all gate
 
+Implementation tracking rule:
+
+- when any phase in this plan advances materially, the same change must also update [workflow-system-artifact-inventory.md](/e:/coding/github/gstack/docs/plans/workflow-system-artifact-inventory.md)
+- a phase step is not fully closed until the artifact inventory has been updated to reflect the new implementation state
+
 ## Execution Model
 
 This plan has two different execution contexts and they must not be confused:
