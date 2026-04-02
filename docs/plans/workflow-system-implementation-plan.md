@@ -15,7 +15,7 @@ P4. Implement `gen:registry`.
 P5. Implement `gen:workflow-docs`.
 P6. Define the generated docs <-> live docs hybrid sync strategy.
 P7a. Implement `bootstrap-project-governance` as the adoption planning capability.
-P7b. Define and implement task identity as part of adoption.
+P7b. Define task identity capability for later adoption execution.
 P8. Define the project-level validation model and CI blocker contract.
 P9. Wire protocol-level checks, generator tests, and workflow-system CI.
 P10. Integrate Claude / Codex runtime entrypoints for the workflow-system.
@@ -23,7 +23,7 @@ P10. Integrate Claude / Codex runtime entrypoints for the workflow-system.
 ### Stage B. Adoption / Project Materialization in a target project
 
 A1. Import the necessary workflow-system artifacts into a real target project.
-A2. Execute `bootstrap-project-governance` against the target project.
+A2. Execute bootstrap planning/dry-run (no writes) against the target project.
 A3. Materialize or diff-review live governance docs under the hybrid sync policy.
 A4. Apply the target project's project-level validation model.
 A5. Add target-project-specific governance docs and skills only after adoption succeeds.
@@ -560,18 +560,18 @@ Acceptance criteria:
 - a project with pre-existing governance docs can be classified for a non-destructive first adoption flow
 - bootstrap does not require target-project-specific docs or skills beyond the generated workflow-system baseline
 - existing live docs are classified before any write, and existing files default to diff-only behavior unless explicitly confirmed
-- bootstrap output is sufficient for a later adoption step to execute writes without redefining protocol semantics
+- bootstrap output is sufficient to be consumed by the adoption execution stage (A1-A5), without redefining any protocol or sync semantics
 - bootstrap does not execute validation
 - bootstrap does not assume that target-project-specific validation commands already exist
 - bootstrap only emits validation slots or minimal workflow-system checks; project-level validation commands are resolved and executed only in Adoption A4
 
-### P7b. Define and implement task identity as part of adoption
+### P7b. Define task identity capability for later adoption execution
 
 Status: **Not Started**
 
 Goal:
 
-Define the task identity contract as a portable workflow-system rule, then apply it during adoption in target projects.
+Define a portable task identity contract to be applied during adoption (A3), without executing any target-project writes during this phase.
 
 Task identity must define:
 
@@ -638,7 +638,7 @@ Dependencies:
 Acceptance criteria:
 
 - each validation layer has an explicit trigger, executor, and blocker level
-- current projects can express a minimum validation matrix without ad hoc rules
+- the workflow-system defines how a target project can declare a minimum validation matrix without ad hoc rules
 - docs, generators, and CI interpret the validation model consistently
 - protocol-level failures and project-level failures cannot be conflated by implementation
 - docs freshness and registry freshness remain protocol-level gates, not project-quality layers
@@ -737,7 +737,7 @@ Adoption order:
 
 1. import the necessary workflow-system artifacts into the target project using the import/install contract defined in `P10`
 2. supply the target project's real `PROJECT_PROFILE.yaml`
-3. execute `bootstrap-project-governance`
+3. execute bootstrap planning/dry-run (no writes)
 4. materialize allowed live docs and task identity writes, or enter diff-review paths for existing governed files, according to the hybrid sync policy
 5. execute the target project's project-level validation entrypoints using the validation model defined by the workflow-system and configured by the target project
 6. only after baseline adoption succeeds, add target-project-specific docs, live content, and project-specific skills
@@ -745,6 +745,7 @@ Adoption order:
 Adoption execution contract:
 
 - the workflow-system must define how a target project declares its validation entrypoints and blocker levels
+- The binding from validation entrypoint slots to concrete executable commands is owned by the target project and resolved only during Adoption A4.
 - adoption must expose the concrete commands or runners that implement unit, integration, smoke/E2E, and other required project-level gates
 - applying the validation model in a target project is an execution step owned by the target project, not by the incubation repository
 - the incubation repository may define the contract and expected shape, but it must not depend on a specific target project's private validation scripts
@@ -803,7 +804,7 @@ The following interfaces and contracts must be formalized or tightened:
   - `gen:workflow-skills`
   - `gen:workflow-docs`
   - `gen:registry`
-  - bootstrap entry
+  - bootstrap planning/dry-run entrypoint (non-executing)
 - registry output path: repo root `SKILL_REGISTRY.md` (settled for incubation; extraction-time relocation TBD)
 - generated docs <-> live docs sync actions and boundaries
 - task identity naming and archive contract
@@ -813,55 +814,55 @@ The following interfaces and contracts must be formalized or tightened:
 
 The implementation must cover these test and acceptance scenarios:
 
-protocol-level
-invalid stage
-unknown placeholder
-illegal path
-conflicting writes / forbidden_writes
-broken handoff
-invalid atomic-write behavior
-shared core
-profile parsing
-template parsing
-schema validation
-error formatting
-partial write prevention
-skills generator
-successful full render
-failure on missing metadata
-failure on broken handoff graph
-correct preservation of runtime placeholders
-registry generator
-correct stage grouping
-correct handoff rendering
-failure on missing metadata
-freshness check behavior
-docs generator
-required-heading validation
-failure on unresolved non-runtime placeholders
-atomic output write behavior
-sync model
-structure refresh does not overwrite live runtime content
-human-confirmation-required updates only enter propose-diff paths
-existing live docs are classified before materialization
-bootstrap capability tests (P7a)
-bootstrap emits a complete dry-run plan for a project without governance docs
-bootstrap classifies a project with pre-existing governance docs without performing writes
-bootstrap computes the correct per-file sync action set under the hybrid sync policy
-bootstrap distinguishes materialize, propose-diff only, and blocked states correctly
-bootstrap dry-run output contains the required checklist, classification, and action contract
-bootstrap performs no live doc writes, task identity writes, or validation execution
-adoption execution tests (A1–A5)
-first adoption materializes allowed live docs only in the target project execution stage
-first adoption on a project with pre-existing governance docs does not bypass diff-review or confirmation rules
-task identity is materialized and then consumed by archive-task only during adoption/execution
-target-project validation is executed only during adoption/execution and only through declared validation entrypoints
-validation / CI
-protocol-level failures stop the workflow-system before project-level gates are treated as authoritative
-blocker vs warning behavior is correct
-local and CI outcomes match
-runtime integration
-Claude / Codex integration succeeds without polluting native gstack outputs
+- protocol-level
+  - invalid stage
+  - unknown placeholder
+  - illegal path
+  - conflicting writes / forbidden_writes
+  - broken handoff
+  - invalid atomic-write behavior
+- shared core
+  - profile parsing
+  - template parsing
+  - schema validation
+  - error formatting
+  - partial write prevention
+- skills generator
+  - successful full render
+  - failure on missing metadata
+  - failure on broken handoff graph
+  - correct preservation of runtime placeholders
+- registry generator
+  - correct stage grouping
+  - correct handoff rendering
+  - failure on missing metadata
+  - freshness check behavior
+- docs generator
+  - required-heading validation
+  - failure on unresolved non-runtime placeholders
+  - atomic output write behavior
+- sync model
+  - structure refresh does not overwrite live runtime content
+  - human-confirmation-required updates only enter propose-diff paths
+  - existing live docs are classified before materialization
+- bootstrap capability tests (P7a)
+  - bootstrap emits a complete dry-run plan for a project without governance docs
+  - bootstrap classifies a project with pre-existing governance docs without performing writes
+  - bootstrap computes the correct per-file sync action set under the hybrid sync policy
+  - bootstrap distinguishes materialize, propose-diff only, and blocked states correctly
+  - bootstrap dry-run output contains the required checklist, classification, and action contract
+  - bootstrap performs no live doc writes, task identity writes, or validation execution
+- adoption execution tests (A1–A5)
+  - first adoption materializes allowed live docs only in the target project execution stage
+  - first adoption on a project with pre-existing governance docs does not bypass diff-review or confirmation rules
+  - task identity is materialized and then consumed by archive-task only during adoption/execution
+  - target-project validation is executed only during adoption/execution and only through declared validation entrypoints
+- validation / CI
+  - protocol-level failures stop the workflow-system before project-level gates are treated as authoritative
+  - blocker vs warning behavior is correct
+  - local and CI outcomes match
+- runtime integration
+  - Claude / Codex integration succeeds without polluting native gstack outputs
 
 ## Risks
 
@@ -879,5 +880,5 @@ Claude / Codex integration succeeds without polluting native gstack outputs
 - `generated/workflow-docs/*` uses the hybrid model, structure from generated docs and truth-bearing content from live docs
 - [`WORKFLOW_PROTOCOL.md`](../../WORKFLOW_PROTOCOL.md) is the highest-priority protocol source
 - v1 optimizes for protocol correctness, generator consistency, and sync clarity before runtime convenience
-- task-level placeholders remain unresolved during generation and are materialized only during bootstrap or runtime flows
+- task-level placeholders remain unresolved during generation and are materialized only during adoption execution (A3) or approved runtime execution flows
 - the registry is generated at repo root `SKILL_REGISTRY.md` — this is the authoritative production path during incubation, not a bridge artifact; extraction may require relocation with explicit migration
