@@ -1,4 +1,7 @@
 import { describe, test, expect } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   type JsonObject,
   STAGE_MAP,
@@ -11,11 +14,17 @@ import {
   stringifyInline,
   renderValue,
   projectPlaceholders,
+  normalizePathEntry,
+  validatePathEntry,
+  validatePathEntries,
+  pathEntriesOverlap,
+  validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
   validateStages,
   validateRequiredFields,
   extractHandoff,
   validateHandoff,
+  executeWrites,
   runGenerator,
 } from '../scripts/workflow-core';
 
@@ -86,9 +95,9 @@ describe('workflow-core', () => {
       expect(() => validateStages(incomplete)).toThrow(/Missing required stage coverage/);
     });
 
-    test('does not throw on extra unknown stages', () => {
+    test('throws on extra unknown stages', () => {
       const withExtra = [...allChineseStages, 'unknown-stage'];
-      expect(() => validateStages(withExtra)).not.toThrow();
+      expect(() => validateStages(withExtra)).toThrow(/Invalid stage value/);
     });
   });
 
@@ -112,6 +121,63 @@ describe('workflow-core', () => {
     test('passes with extra fields present', () => {
       const obj: JsonObject = { name: 'test', purpose: 'testing', stage: 'init', extra: 'ok' };
       expect(() => validateRequiredFields(obj, fields, 'test.md')).not.toThrow();
+    });
+  });
+
+  // --- path validation ---
+
+  describe('path validation', () => {
+    test('normalizes host separators and whitespace', () => {
+      expect(normalizePathEntry('  scripts\\\\foo.ts  ')).toBe('scripts/foo.ts');
+    });
+
+    test('accepts explicit paths and restricted directory patterns', () => {
+      expect(() => validatePathEntry('scripts/foo.ts', 'reads', 'test.md')).not.toThrow();
+      expect(() => validatePathEntry('scripts/', 'writes', 'test.md')).not.toThrow();
+      expect(() => validatePathEntry('scripts/**', 'forbidden_writes', 'test.md')).not.toThrow();
+    });
+
+    test('rejects unsupported wildcard patterns', () => {
+      expect(() => validatePathEntry('**/*.md', 'reads', 'test.md')).toThrow(/unsupported wildcard pattern/);
+      expect(() => validatePathEntry('*.ts', 'reads', 'test.md')).toThrow(/unsupported wildcard pattern/);
+      expect(() => validatePathEntry('foo/**/bar', 'reads', 'test.md')).toThrow(/unsupported wildcard pattern/);
+    });
+
+    test('rejects absolute and parent traversal paths', () => {
+      expect(() => validatePathEntry('/tmp/file', 'reads', 'test.md')).toThrow(/absolute path/);
+      expect(() => validatePathEntry('C:/tmp/file', 'reads', 'test.md')).toThrow(/absolute path/);
+      expect(() => validatePathEntry('../escape', 'reads', 'test.md')).toThrow(/parent traversal/);
+    });
+
+    test('validates all configured path fields', () => {
+      const obj: JsonObject = {
+        reads: ['README.md', 'scripts/**'],
+        writes: ['scripts'],
+        forbidden_writes: ['.git/**'],
+      };
+      expect(() => validatePathEntries(obj, ['reads', 'writes', 'forbidden_writes'], 'test.md')).not.toThrow();
+    });
+  });
+
+  describe('path overlap', () => {
+    test('detects directory and descendant overlap', () => {
+      expect(pathEntriesOverlap('scripts', 'scripts/foo.ts')).toBe(true);
+      expect(pathEntriesOverlap('scripts/**', 'scripts/foo.ts')).toBe(true);
+      expect(pathEntriesOverlap('scripts/foo.ts', 'scripts/**')).toBe(true);
+      expect(pathEntriesOverlap('scripts/**', 'scripts/**')).toBe(true);
+    });
+
+    test('does not report overlap for separate paths', () => {
+      expect(pathEntriesOverlap('scripts', 'test')).toBe(false);
+      expect(pathEntriesOverlap('scripts/**', 'browse/src')).toBe(false);
+    });
+
+    test('rejects overlapping writes and forbidden_writes entries', () => {
+      const obj: JsonObject = {
+        writes: ['scripts/**'],
+        forbidden_writes: ['scripts/foo.ts'],
+      };
+      expect(() => validateWriteBoundaryConflicts(obj, 'test.md')).toThrow(/writes\/forbidden_writes conflict/);
     });
   });
 
@@ -226,6 +292,114 @@ describe('workflow-core', () => {
       } finally {
         console.error = originalError;
         process.exit = originalExit;
+      }
+    });
+
+    test('classifies invalid stage values as STAGE_002', () => {
+      const originalError = console.error;
+      const originalExit = process.exit;
+      const errors: string[] = [];
+      let exitCode: number | undefined;
+
+      console.error = (message?: unknown) => {
+        errors.push(String(message));
+      };
+      process.exit = ((code?: number) => {
+        exitCode = Number(code ?? 0);
+        throw new Error(`EXIT_${exitCode}`);
+      }) as typeof process.exit;
+
+      try {
+        expect(() =>
+          runGenerator('gen:workflow-skills', () => {
+            throw new Error('Invalid stage value: typo-stage');
+          }),
+        ).toThrow(/EXIT_2/);
+
+        const payload = JSON.parse(errors[0] as string);
+        expect(payload.code).toBe('STAGE_002');
+        expect(payload.message).toBe('Invalid stage value');
+        expect(exitCode).toBe(2);
+      } finally {
+        console.error = originalError;
+        process.exit = originalExit;
+      }
+    });
+
+    test('classifies invalid path entries as PATH_001', () => {
+      const originalError = console.error;
+      const originalExit = process.exit;
+      const errors: string[] = [];
+      let exitCode: number | undefined;
+
+      console.error = (message?: unknown) => {
+        errors.push(String(message));
+      };
+      process.exit = ((code?: number) => {
+        exitCode = Number(code ?? 0);
+        throw new Error(`EXIT_${exitCode}`);
+      }) as typeof process.exit;
+
+      try {
+        expect(() =>
+          runGenerator('gen:workflow-skills', () => {
+            throw new Error('Invalid path entry in test.md.writes: "*.ts" (unsupported wildcard pattern)');
+          }),
+        ).toThrow(/EXIT_2/);
+
+        const payload = JSON.parse(errors[0] as string);
+        expect(payload.code).toBe('PATH_001');
+        expect(payload.message).toBe('Invalid path entry');
+        expect(exitCode).toBe(2);
+      } finally {
+        console.error = originalError;
+        process.exit = originalExit;
+      }
+    });
+  });
+
+  // --- executeWrites ---
+
+  describe('executeWrites', () => {
+    test('rolls back committed files when a later rename fails', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-core-'));
+      const firstPath = path.join(tempDir, 'first.md');
+      const secondPath = path.join(tempDir, 'second.md');
+      fs.writeFileSync(firstPath, 'old-first', 'utf8');
+      fs.writeFileSync(secondPath, 'old-second', 'utf8');
+
+      let tempRenameCount = 0;
+      const fileSystem = {
+        ...fs,
+        renameSync(from: fs.PathLike, to: fs.PathLike) {
+          if (String(from).endsWith('.tmp')) {
+            tempRenameCount += 1;
+            if (tempRenameCount === 2) {
+              throw new Error('simulated rename failure');
+            }
+          }
+          return fs.renameSync(from, to);
+        },
+      };
+
+      try {
+        expect(() =>
+          executeWrites(
+            [
+              { path: firstPath, content: 'new-first' },
+              { path: secondPath, content: 'new-second' },
+            ],
+            false,
+            'test write',
+            undefined,
+            fileSystem,
+          ),
+        ).toThrow(/simulated rename failure/);
+
+        expect(fs.readFileSync(firstPath, 'utf8')).toBe('old-first');
+        expect(fs.readFileSync(secondPath, 'utf8')).toBe('old-second');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
   });

@@ -15,6 +15,11 @@ export type JsonValue = string | number | boolean | null | JsonObject | JsonValu
 export type JsonObject = { [key: string]: JsonValue };
 export type HandoffRef = { success: string; failure: string };
 export type WriteOperation = { path: string; content: string };
+export type PathField = 'reads' | 'writes' | 'forbidden_writes';
+type WriteFs = Pick<
+  typeof fs,
+  'existsSync' | 'mkdirSync' | 'rmSync' | 'renameSync' | 'writeFileSync'
+>;
 export type ErrorReport = {
   generator: string;
   severity: 'error' | 'warning';
@@ -78,11 +83,17 @@ export function resolveRoot(): string {
   return path.resolve(import.meta.dir, '..');
 }
 
-export function ensureCleanOutputDir(outputDir: string, filePattern: string): void {
+export function ensureCleanOutputDir(
+  outputDir: string,
+  filePattern: string,
+  keepPaths: Iterable<string> = [],
+): void {
   fs.mkdirSync(outputDir, { recursive: true });
+  const keep = new Set([...keepPaths].map(entry => path.resolve(entry)));
   for (const entry of fs.readdirSync(outputDir)) {
-    if (entry.endsWith(filePattern)) {
-      fs.rmSync(path.join(outputDir, entry), { force: true });
+    const fullPath = path.join(outputDir, entry);
+    if (entry.endsWith(filePattern) && !keep.has(path.resolve(fullPath))) {
+      fs.rmSync(fullPath, { force: true });
     }
   }
 }
@@ -215,6 +226,88 @@ export function validateRequiredFields(
   }
 }
 
+export function normalizePathEntry(entry: string): string {
+  return entry.trim().replace(/\\/g, '/').replace(/\/+/g, '/');
+}
+
+export function validatePathEntry(entry: string, field: PathField, context: string): string {
+  const normalized = normalizePathEntry(entry);
+
+  if (normalized.length === 0) {
+    throw new Error(`Invalid path entry in ${context}.${field}: "${entry}" (empty string)`);
+  }
+  if (/[\0-\x1F\x7F]/.test(normalized)) {
+    throw new Error(`Invalid path entry in ${context}.${field}: "${entry}" (control character)`);
+  }
+  if (normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
+    throw new Error(`Invalid path entry in ${context}.${field}: "${entry}" (absolute path)`);
+  }
+  if (normalized.includes('..')) {
+    throw new Error(`Invalid path entry in ${context}.${field}: "${entry}" (parent traversal)`);
+  }
+
+  const starCount = (normalized.match(/\*/g) ?? []).length;
+  if (starCount > 0) {
+    const prefix = normalized.slice(0, -3);
+    const isRestrictedDirectoryPattern =
+      normalized.endsWith('/**') && starCount === 2 && prefix.length > 0 && !prefix.includes('*');
+
+    if (!isRestrictedDirectoryPattern) {
+      throw new Error(
+        `Invalid path entry in ${context}.${field}: "${entry}" (unsupported wildcard pattern)`,
+      );
+    }
+  }
+
+  return normalized;
+}
+
+function canonicalizePathBoundary(entry: string): string {
+  return entry.replace(/\/+$/, '').replace(/\/\*\*$/, '');
+}
+
+export function pathEntriesOverlap(left: string, right: string): boolean {
+  const normalizedLeft = canonicalizePathBoundary(normalizePathEntry(left));
+  const normalizedRight = canonicalizePathBoundary(normalizePathEntry(right));
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.startsWith(`${normalizedRight}/`) ||
+    normalizedRight.startsWith(`${normalizedLeft}/`)
+  );
+}
+
+export function validatePathEntries(
+  obj: JsonObject,
+  fields: readonly PathField[],
+  context: string,
+): void {
+  for (const field of fields) {
+    for (const entry of normalizeList(obj[field])) {
+      validatePathEntry(entry, field, context);
+    }
+  }
+}
+
+export function validateWriteBoundaryConflicts(obj: JsonObject, context: string): void {
+  const writes = normalizeList(obj.writes);
+  const forbidden = normalizeList(obj.forbidden_writes);
+
+  for (const entry of writes) {
+    for (const forbiddenEntry of forbidden) {
+      if (pathEntriesOverlap(entry, forbiddenEntry)) {
+        throw new Error(
+          `writes/forbidden_writes conflict "${entry}" <-> "${forbiddenEntry}" in ${context}`,
+        );
+      }
+    }
+  }
+}
+
 export function extractHandoff(frontmatter: JsonObject, filePath: string): HandoffRef {
   const handoff = frontmatter.handoff;
   if (!handoff || typeof handoff !== 'object' || Array.isArray(handoff)) {
@@ -263,6 +356,8 @@ export function validateStages(stages: Iterable<string>): void {
       seen.add(canonical);
     } else if (STAGE_MAP.has(stage)) {
       seen.add(stage);
+    } else {
+      throw new Error(`Invalid stage value: ${stage}`);
     }
   }
   for (const [canonical, display] of STAGE_MAP) {
@@ -362,6 +457,32 @@ function classifyGeneratorError(generator: string, message: string): { report: E
     };
   }
 
+  if (message.startsWith('Invalid stage value: ')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'STAGE_002',
+        message: 'Invalid stage value',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.startsWith('Invalid path entry in ')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'PATH_001',
+        message: 'Invalid path entry',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
   if (message.includes('writes') && message.includes('forbidden_writes')) {
     return {
       report: {
@@ -418,11 +539,59 @@ export function executeWrites(
   dryRun: boolean,
   summary: string,
   prepare?: () => void,
+  fileSystem: WriteFs = fs,
 ): void {
   if (!dryRun) {
-    prepare?.();
-    for (const op of operations) {
-      fs.writeFileSync(op.path, op.content, 'utf8');
+    const stagedWrites: Array<{ tempPath: string; targetPath: string }> = [];
+    const rollbackEntries: Array<{ targetPath: string; backupPath?: string }> = [];
+    let counter = 0;
+
+    try {
+      prepare?.();
+
+      for (const op of operations) {
+        fileSystem.mkdirSync(path.dirname(op.path), { recursive: true });
+        const tempPath = path.join(
+          path.dirname(op.path),
+          `.${path.basename(op.path)}.${process.pid}.${Date.now()}.${counter++}.tmp`,
+        );
+        fileSystem.writeFileSync(tempPath, op.content, 'utf8');
+        stagedWrites.push({ tempPath, targetPath: op.path });
+      }
+
+      for (const staged of stagedWrites) {
+        let backupPath: string | undefined;
+        if (fileSystem.existsSync(staged.targetPath)) {
+          backupPath = `${staged.targetPath}.bak.${process.pid}.${Date.now()}.${counter++}`;
+          fileSystem.renameSync(staged.targetPath, backupPath);
+        }
+
+        rollbackEntries.push({ targetPath: staged.targetPath, backupPath });
+        fileSystem.renameSync(staged.tempPath, staged.targetPath);
+      }
+
+      for (const entry of rollbackEntries) {
+        if (entry.backupPath && fileSystem.existsSync(entry.backupPath)) {
+          fileSystem.rmSync(entry.backupPath, { force: true });
+        }
+      }
+    } catch (error) {
+      for (const staged of stagedWrites) {
+        if (fileSystem.existsSync(staged.tempPath)) {
+          fileSystem.rmSync(staged.tempPath, { force: true });
+        }
+      }
+
+      for (const entry of [...rollbackEntries].reverse()) {
+        if (fileSystem.existsSync(entry.targetPath)) {
+          fileSystem.rmSync(entry.targetPath, { force: true });
+        }
+        if (entry.backupPath && fileSystem.existsSync(entry.backupPath)) {
+          fileSystem.renameSync(entry.backupPath, entry.targetPath);
+        }
+      }
+
+      throw error;
     }
   }
   console.log(`${summary}${dryRun ? ' (dry-run)' : ''}`);

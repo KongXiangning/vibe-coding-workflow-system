@@ -12,6 +12,8 @@ import {
   projectPlaceholders,
   parseFrontmatter,
   renderValue,
+  validatePathEntries,
+  validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
   validateStages,
   validateRequiredFields,
@@ -298,6 +300,8 @@ function main(): void {
   for (const template of templates) {
     const renderedFrontmatter = renderValue(template.frontmatter, replacements) as JsonObject;
     validateRequiredFields(renderedFrontmatter, REQUIRED_FIELDS, template.filePath);
+    validatePathEntries(renderedFrontmatter, ['reads', 'writes', 'forbidden_writes'], template.filePath);
+    validateWriteBoundaryConflicts(renderedFrontmatter, template.filePath);
     const skill = toRegistrySkill(renderedFrontmatter, template.filePath);
     validateHandoff(
       { success: skill.handoffSuccess, failure: skill.handoffFailure },

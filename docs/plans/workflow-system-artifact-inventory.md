@@ -68,5 +68,6 @@ If a change does not update this file when required, that change must be treated
 
 ## Notes
 
+- Path grammar for workflow generators is aligned to allow only restricted terminal directory patterns of the form `dir/**`; broader glob syntax remains invalid.
 - P5 is intentionally marked `Partially Complete` because skeleton generation is done, but final closure depends on sync-policy alignment from P6.
 - P6 is intentionally marked `Complete (Protocol-only)` because the policy is defined, but enforcement tooling is not yet implemented.

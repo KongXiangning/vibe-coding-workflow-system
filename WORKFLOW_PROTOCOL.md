@@ -413,10 +413,12 @@ are invalid.
 Generation must fail if:
 
 - a path appears in both `writes` and `forbidden_writes`
+- an explicit path is inside a forbidden directory pattern such as `scripts/**`
+- a forbidden explicit path is inside an allowed write directory such as `scripts`
 
 Current implementation:
 
-- Protocol-Version `0.1.0` validates explicit overlap conflicts between `writes` and `forbidden_writes`
+- Protocol-Version `0.1.0` validates overlap conflicts between explicit paths and restricted directory patterns
 - Protocol-Version `0.1.0` does **not yet** perform semantic path authorization such as "outside its workflow role" or "writes code paths" classification
 
 ### 7.4 Contract-sensitive skills
@@ -453,13 +455,33 @@ The following tokens expand to project-specific path sets at generation time:
 | Token | Source | Expands to |
 |-------|--------|-----------|
 | Values from `{{CODE_DIRECTORIES}}` | `paths.source_directories` in `PROJECT_PROFILE.yaml` | One or more directory paths |
-| Values from `{{FORBIDDEN_PATHS}}` | `boundaries.forbidden_paths` in `PROJECT_PROFILE.yaml` | One or more path patterns |
+| Values from `{{FORBIDDEN_PATHS}}` | `boundaries.forbidden_paths` in `PROJECT_PROFILE.yaml` | One or more explicit paths or restricted directory patterns |
 
 These tokens are expanded during variable substitution (§3). After expansion, the resulting paths must conform to the format rules above.
 
 ### 7a.3 Glob patterns
 
-Glob patterns (e.g., `*.ts`, `**/*.md`) are **not supported** in `reads`, `writes`, or `forbidden_writes` in v0. Each entry must be an explicit path or directory.
+General glob patterns are **not supported** in `reads`, `writes`, or `forbidden_writes` in v0.
+
+The only supported wildcard form is a restricted directory-recursive suffix:
+
+- `dir/**`
+
+This form means "the directory `dir` and all descendant paths under it".
+
+Allowed examples:
+
+- `scripts/**`
+- `.git/**`
+- `generated/workflow-docs/**`
+
+Invalid examples:
+
+- `*.ts`
+- `**/*.md`
+- `foo/*`
+- `foo/**/bar`
+- `**`
 
 ### 7a.4 Path validation
 
@@ -469,6 +491,7 @@ A path entry is invalid if it:
 - starts with `/`
 - contains null bytes or control characters
 - is an empty string
+- contains any wildcard form other than a terminal `/**`
 
 Invalid paths must cause generation to fail.
 
@@ -587,16 +610,16 @@ Each error is a JSON object on a single line of stderr:
 | `SCHEMA_` | Missing or invalid metadata structure | `SCHEMA_001` missing required field, `SCHEMA_002` invalid metadata structure |
 | `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid target or structure |
 | `PLACEHOLDER_` | Placeholder resolution errors | `PLACEHOLDER_001` unresolved placeholder |
-| `STAGE_` | Stage coverage errors | `STAGE_001` missing required stage coverage |
-| `PATH_` | Path grammar violations | Reserved for path-validation-specific structured errors in a future implementation pass |
+| `STAGE_` | Stage coverage errors | `STAGE_001` missing required stage coverage, `STAGE_002` invalid stage value |
+| `PATH_` | Path grammar violations | `PATH_001` invalid path entry |
 | `WRITE_` | Write boundary violations | `WRITE_001` writes/forbidden_writes conflict |
 | `HEADING_` | Doc heading validation | `HEADING_001` missing required heading |
 | `IO_` | Input/output and generator execution errors | `IO_001` input file error, `IO_002` generator execution failed |
 
 Current implementation:
 
-- `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `PLACEHOLDER_001`, `STAGE_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
-- `PATH_`, `SYNC_`, and additional suffixes such as `HANDOFF_002`, `PLACEHOLDER_002`, `STAGE_002`, or `WRITE_002` remain namespace reservations at the protocol layer unless and until execution code emits them
+- `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `PLACEHOLDER_001`, `STAGE_001`, `STAGE_002`, `PATH_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
+- `SYNC_` and additional suffixes such as `HANDOFF_002`, `PLACEHOLDER_002`, or `WRITE_002` remain namespace reservations at the protocol layer unless and until execution code emits them
 
 ### 9b.3 Human-readable summary
 

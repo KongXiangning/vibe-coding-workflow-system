@@ -10,11 +10,12 @@ import {
   readText,
   loadProfile,
   getRequiredPath,
-  normalizeList,
   projectPlaceholders,
   parseFrontmatter,
   stringifyInline,
   renderValue,
+  validatePathEntries,
+  validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
   validateStages,
   validateRequiredFields,
@@ -101,13 +102,8 @@ function renderBody(body: string, replacements: Record<string, JsonValue>, proje
 }
 
 function validateWrites(skill: SkillFile): void {
-  const writes = new Set(normalizeList(skill.frontmatter.writes));
-  const forbidden = new Set(normalizeList(skill.frontmatter.forbidden_writes));
-  for (const entry of writes) {
-    if (forbidden.has(entry)) {
-      throw new Error(`writes/forbidden_writes conflict "${entry}" in ${skill.filePath}`);
-    }
-  }
+  validatePathEntries(skill.frontmatter, ['reads', 'writes', 'forbidden_writes'], skill.filePath);
+  validateWriteBoundaryConflicts(skill.frontmatter, skill.filePath);
 }
 
 function formatSkill(frontmatter: JsonObject, body: string): string {
@@ -176,8 +172,15 @@ function main(): void {
     pendingWrites,
     DRY_RUN,
     `Generated ${renderedSkills.length} workflow skills to ${OUTPUT_DIR}`,
-    () => ensureCleanOutputDir(OUTPUT_DIR, '.SKILL.md'),
   );
+
+  if (!DRY_RUN) {
+    ensureCleanOutputDir(
+      OUTPUT_DIR,
+      '.SKILL.md',
+      pendingWrites.map(operation => operation.path),
+    );
+  }
 }
 
 runGenerator('gen:workflow-skills', main);

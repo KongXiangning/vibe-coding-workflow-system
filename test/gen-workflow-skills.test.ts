@@ -2,9 +2,11 @@ import { describe, test, expect, beforeAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
+import { pathEntriesOverlap, validatePathEntry } from '../scripts/workflow-core';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-skills');
+const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
 
 const REQUIRED_FIELDS = [
   'name',
@@ -65,9 +67,15 @@ describe('gen-workflow-skills', () => {
     }
   });
 
-  test('generates 18 workflow skills', () => {
-    const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.SKILL.md'));
-    expect(files.length).toBe(18);
+  test('generates one workflow skill per template', () => {
+    const generatedFiles = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.SKILL.md')).sort();
+    const templateFiles = fs
+      .readdirSync(TEMPLATE_DIR)
+      .filter(file => file.endsWith('.SKILL.md.tmpl'))
+      .map(file => file.replace(/\.tmpl$/, ''))
+      .sort();
+
+    expect(generatedFiles).toEqual(templateFiles);
   });
 
   test('every generated workflow skill has required schema fields', () => {
@@ -104,10 +112,24 @@ describe('gen-workflow-skills', () => {
     const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.SKILL.md'));
     for (const file of files) {
       const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, file));
-      const writes = new Set(normalizeList(frontmatter.writes));
-      const forbidden = new Set(normalizeList(frontmatter.forbidden_writes));
+      const writes = normalizeList(frontmatter.writes);
+      const forbidden = normalizeList(frontmatter.forbidden_writes);
       for (const entry of writes) {
-        expect(forbidden.has(entry)).toBe(false);
+        for (const forbiddenEntry of forbidden) {
+          expect(pathEntriesOverlap(entry, forbiddenEntry)).toBe(false);
+        }
+      }
+    }
+  });
+
+  test('all rendered path fields use the restricted pattern grammar', () => {
+    const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.SKILL.md'));
+    for (const file of files) {
+      const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, file));
+      for (const field of ['reads', 'writes', 'forbidden_writes'] as const) {
+        for (const entry of normalizeList(frontmatter[field])) {
+          expect(() => validatePathEntry(entry, field, file)).not.toThrow();
+        }
       }
     }
   });

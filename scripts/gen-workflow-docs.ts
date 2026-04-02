@@ -158,8 +158,15 @@ function main(): void {
     pendingWrites,
     DRY_RUN,
     `Generated ${pendingWrites.length} workflow docs to ${OUTPUT_DIR}`,
-    () => ensureCleanOutputDir(OUTPUT_DIR, '.md'),
   );
+
+  if (!DRY_RUN) {
+    ensureCleanOutputDir(
+      OUTPUT_DIR,
+      '.md',
+      pendingWrites.map(operation => operation.path),
+    );
+  }
 }
 
 runGenerator('gen:workflow-docs', main);

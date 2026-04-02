@@ -62,6 +62,15 @@ After this point, updates to `WORKFLOW_PROTOCOL.md` must follow these rules:
   - the current implementation plan's phase ownership
 - future-phase additions should be appended as explicit extensions or boundary sections, rather than back-editing stable baseline meaning
 
+## Post-review boundary decisions
+
+- 2026-04-02: path grammar inside the `P1-P6` stable baseline is clarified to allow only restricted terminal directory-recursive patterns of the form `dir/**`
+- this is a semantic correction within the existing path grammar and generator validation surface, not a future-phase extension
+- the implementation and `test:workflow-*` coverage must stay aligned to this exact boundary:
+  - explicit relative paths are allowed
+  - terminal `/**` is allowed
+  - other wildcard forms remain invalid
+
 ## Operational use
 
 Use this document when:

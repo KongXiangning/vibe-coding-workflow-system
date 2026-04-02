@@ -94,7 +94,7 @@ describe('gen-registry', () => {
     const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
     const rows = parseRegistryRows(content);
 
-    expect(rows.length).toBe(18);
+    expect(rows.length).toBe(expectedSkillNames().length);
     for (const row of rows) {
       expect(row.columns.length).toBe(7);
     }
