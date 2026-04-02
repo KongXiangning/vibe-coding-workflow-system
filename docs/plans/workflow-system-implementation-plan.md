@@ -24,8 +24,8 @@ P10. Integrate Claude / Codex runtime entrypoints for the workflow-system.
 
 A1. Import the necessary workflow-system artifacts into a real target project.
 A2. Execute bootstrap planning/dry-run (no writes) against the target project.
-A3. Materialize or diff-review live governance docs under the hybrid sync policy.
-A4. Apply the target project's project-level validation model.
+A3. Materialize governed artifacts (live docs and task identity writes) under the hybrid sync policy.
+A4. Execute the target project's project-level validation entrypoints.
 A5. Add target-project-specific governance docs and skills only after adoption succeeds.
 
 ### Stage C. Extraction / Long-term standalone governance
@@ -88,7 +88,7 @@ In the current repository, the following workflow-system capabilities are implem
 
 - protocol
 - generators
-- bootstrap
+- bootstrap planning/dry-run capability
 - validation model
 - runtime entrypoints
 
@@ -102,9 +102,9 @@ The required adoption order is:
 
 1. complete the workflow-system in `P1-P10`
 2. import the workflow-system into the target project in `A1`
-3. execute bootstrap in `A2`
-4. materialize allowed live docs and related writes in `A3`
-5. execute target-project validation in `A4`
+3. execute bootstrap planning/dry-run (no writes) in `A2`
+4. materialize governed artifacts (live docs and task identity writes) in `A3`
+5. execute the target project's project-level validation entrypoints in `A4`
 6. only after that, add project-specific docs and project-specific skills
 
 The following are explicitly forbidden:
@@ -131,11 +131,11 @@ The canonical execution context for each phase is:
 | P5 | Current repository | Implement and validate the docs generator in the incubation repo. |
 | P6 | Current repository | Define sync policy in the incubation repo, but the policy governs future target-project adoption. |
 | P7a | Current repository | Implement the bootstrap planning/dry-run capability in the incubation repo. |
-| P7b | Current repository | Define task identity rules in the incubation repo so bootstrap/adoption has a stable contract. |
+| P7b | Current repository | Define a stable and portable task identity contract in the incubation repo for Adoption `A3`. |
 | P8 | Current repository | Define the validation model in the incubation repo. |
 | P9 | Current repository | Wire protocol-level checks, generator tests, and workflow-system CI in the incubation repo. |
 | P10 | Current repository | Implement runtime entrypoints in the incubation repo; target projects consume them later. |
-| A1-A5 | Target project | Import, bootstrap, materialize, validate, and extend inside a real target project. |
+| A1-A5 | Target project | Import, execute bootstrap planning/dry-run, materialize governed artifacts, execute project-level validation entrypoints, and extend inside a real target project. |
 | P11 | Extracted workflow-system / adopting projects | Long-term governance is primarily owned after extraction and adoption. |
 
 ### What happens where
@@ -156,8 +156,8 @@ The canonical execution context for each phase is:
 
 - provide the real `PROJECT_PROFILE.yaml`
 - import and consume the workflow-system artifacts
-- execute bootstrap against the target project's own repository state
-- materialize and maintain live governance docs
+- execute bootstrap planning/dry-run (no writes) against the target project's own repository state
+- materialize and maintain governed artifacts, including live governance docs and task identity writes
 - run project-specific validation gates
 - add project-specific governance docs, policies, and skills after baseline adoption
 - use bootstrap, sync, and runtime integration through the contracts defined by the workflow-system
@@ -517,7 +517,7 @@ Acceptance criteria (all met at the protocol layer):
 
 Not claimed by P6:
 
-- bootstrap entrypoint implementation
+- bootstrap planning/dry-run capability implementation
 - runtime sync tooling implementation
 - automated enforcement of the sync policy in execution code
 
@@ -525,11 +525,11 @@ Not claimed by P6:
 
 Status: **Not Started**
 
-> This phase implements the portable bootstrap planning/dry-run capability in the current repository. It does not assume that a target project already has workflow-system-specific docs, skills, or validation rules beyond what bootstrap can classify or materialize.
+> This phase implements the portable bootstrap planning/dry-run capability in the current repository. It does not assume that a target project already has workflow-system-specific docs, skills, or validation rules beyond what bootstrap can classify or plan as allowed sync actions.
 
 Goal:
 
-Create the real first-run planning and classification capability for adopting the workflow-system, instead of relying on `init-governance` alone.
+Create the real first-run planning and classification capability for the workflow-system, instead of relying on `init-governance` alone.
 
 Bootstrap responsibilities:
 
@@ -853,7 +853,7 @@ The implementation must cover these test and acceptance scenarios:
   - bootstrap dry-run output contains the required checklist, classification, and action contract
   - bootstrap performs no live doc writes, task identity writes, or validation execution
 - adoption execution tests (A1–A5)
-  - first adoption materializes allowed live docs only in the target project execution stage
+  - first adoption materializes governed artifacts only in the target project execution stage
   - first adoption on a project with pre-existing governance docs does not bypass diff-review or confirmation rules
   - task identity is materialized and then consumed by archive-task only during adoption/execution
   - target-project validation is executed only during adoption/execution and only through declared validation entrypoints
