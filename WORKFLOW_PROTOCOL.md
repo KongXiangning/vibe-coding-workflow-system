@@ -2,7 +2,7 @@
 
 ```yaml
 Protocol-Version: 0.1.0
-Status: Draft
+Status: Formal Spec
 Last-Updated: 2026-04-01
 ```
 
@@ -21,7 +21,7 @@ This protocol uses semantic versioning:
 - **Minor** — new optional feature or section that does not break existing generators
 - **Patch** — clarification, typo fix, or example addition with no behavioral impact
 
-Generators should declare which protocol version they target. A generator targeting `0.x` must accept that the protocol is still stabilizing and breaking changes may occur without a major bump until `1.0.0`.
+Generators must declare which protocol version they target. A generator targeting `0.x` must accept that the protocol is still stabilizing and breaking changes may occur without a major bump until `1.0.0`.
 
 ---
 
@@ -55,7 +55,7 @@ Conflict resolution rules:
 
 ## 2. Output model
 
-The draft workflow skill generator should emit generated skills into a dedicated output root:
+The workflow skill generator must emit generated skills into a dedicated output root:
 
 ```text
 generated/workflow-skills/
@@ -169,7 +169,7 @@ For the initial generator version:
 
 The generator must specialize skills by project type.
 
-Supported project types in the initial version:
+Supported project types in Protocol-Version `0.1.0`:
 
 - `frontend-app`
 - `backend-service`
@@ -267,7 +267,7 @@ All references in this protocol to stage coverage must use the count of 10.
 - `{{ARCHITECTURE_RULES}}`
 - `{{DECISION_TYPES}}`
 
-### 5.2 Must remain as placeholders in v1
+### 5.2 Must remain as placeholders in Protocol-Version `0.1.0`
 
 - `{{TASK_ID}}`
 - `{{TASK_SLUG}}`
@@ -446,7 +446,7 @@ Minimum validation checks:
 3. no `writes` / `forbidden_writes` conflict exists
 4. all 10 workflow stage groups are represented (see §4a)
 5. all placeholders intended for project expansion are resolved
-6. task placeholders intentionally preserved in v1 remain untouched
+6. task placeholders intentionally preserved in Protocol-Version `0.1.0` remain untouched
 
 If any check fails, the generator must:
 
@@ -570,7 +570,7 @@ gen:workflow-skills: generation failed — 2 errors, 1 warning
 | `1` | Generation error — input/output/file-system failure |
 | `2` | Validation error — rendered output failed protocol checks |
 
-The first generator version should do only the following:
+Protocol-Version `0.1.0` constrains the workflow skill generator to the following scope:
 
 1. read `PROJECT_PROFILE.yaml`
 2. read `templates/skills/*.SKILL.md.tmpl`
@@ -578,7 +578,7 @@ The first generator version should do only the following:
 4. render output to `generated/workflow-skills/`
 5. validate the rendered set
 
-The first version should **not** yet:
+Protocol-Version `0.1.0` excludes the following:
 
 - generate docs templates
 - install generated skills into runtime host directories
@@ -647,7 +647,7 @@ It must not invent document sections that are not supported by `FILE_SCHEMAS.md`
 
 ### 12.2 Docs output model
 
-The workflow docs generator should emit rendered docs into:
+The workflow docs generator must emit rendered docs into:
 
 ```text
 generated/workflow-docs/
@@ -678,7 +678,7 @@ The docs generator must expand project-level placeholders such as:
 - `{{ARCHITECTURE_RULES}}`
 - `{{VERSION}}`
 
-The docs generator must preserve runtime placeholders in v1:
+The docs generator must preserve runtime placeholders in Protocol-Version `0.1.0`:
 
 - `{{TASK_ID}}`
 - `{{TASK_TITLE}}`
@@ -718,7 +718,7 @@ It must extract metadata from skill frontmatter instead of relying on manually c
 
 ### 13.2 Registry output model
 
-The registry generator should emit:
+The registry generator must emit:
 
 ```text
 SKILL_REGISTRY.md
@@ -726,9 +726,9 @@ SKILL_REGISTRY.md
 
 This file is a generated-but-committed artifact:
 
-- humans should read it directly from the repo root
-- generators should own its content
-- hand edits should be overwritten by regeneration
+- humans must read it directly from the repo root
+- generators must own its content
+- hand edits must be overwritten by regeneration
 
 ### 13.3 Registry rendering rules
 
@@ -751,9 +751,9 @@ The registry generator must fail loudly if:
 
 ### 13.5 Freshness enforcement
 
-Changes to `templates/skills/*.SKILL.md.tmpl` should be validated in CI by regenerating `SKILL_REGISTRY.md` and checking that the repo stays clean.
+Changes to `templates/skills/*.SKILL.md.tmpl` must be validated in CI by regenerating `SKILL_REGISTRY.md` and checking that the repo stays clean.
 
-That freshness check should be separate from runtime host skill-doc validation so the workflow-system layer remains auditable on its own.
+That freshness check must be separate from runtime host skill-doc validation so the workflow-system layer remains auditable on its own.
 
 ---
 
@@ -910,7 +910,7 @@ CI behavior:
 - a future sync-check command must classify repo-root live docs against `generated/workflow-docs/`
 - CI passes when each evaluated doc is either `absent` or `structure-compatible`
 - CI blocks merge when any evaluated doc is `structure-drifted but mergeable` or `incompatible and diff-only until confirmed`
-- `orphaned` files should emit warnings unless a stricter host policy overrides that default
+- `orphaned` files must emit warnings unless a stricter host policy overrides that default
 
 Structured sync failures must use the §9b error shape with the `SYNC_` code namespace.
 

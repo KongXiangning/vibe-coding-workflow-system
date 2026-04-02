@@ -237,7 +237,7 @@ Acceptance criteria (all met):
 
 Status: **Complete**
 
-> `scripts/workflow-core.ts` is the fully extracted shared core (315 lines). Contains 5 types (`JsonValue`, `JsonObject`, `HandoffRef`, `WriteOperation`, `ErrorReport`), 4 constants (`STAGE_MAP`, `STAGE_ALIASES`, `REQUIRED_STAGES`, `RESERVED_FAILURE_TARGETS`), and 19 functions covering loading, parsing, rendering, validation, handoff, atomic writes, error emission, and generator orchestration. All 3 generators import from this module with zero duplicated protocol logic. Unit tests: 46 tests, 89 assertions in `test/workflow-core.test.ts`.
+> `scripts/workflow-core.ts` is the fully extracted shared core (315 lines). Contains 5 types (`JsonValue`, `JsonObject`, `HandoffRef`, `WriteOperation`, `ErrorReport`), 4 constants (`STAGE_MAP`, `STAGE_ALIASES`, `REQUIRED_STAGES`, `RESERVED_FAILURE_TARGETS`), and 19 functions covering loading, parsing, rendering, validation, handoff, atomic writes, error emission, and generator orchestration. All 3 generators now import and reuse the core protocol paths from this module, with no material duplication in the currently-implemented shared protocol logic. Unit tests: 46 tests, 89 assertions in `test/workflow-core.test.ts`.
 
 What was delivered:
 
@@ -247,6 +247,9 @@ What was delivered:
 - All 3 generators refactored: skills (222→183 lines), docs (181→165), registry (347→323)
 - 46 unit tests covering all shared functions with error cases
 - Full suite: 61 tests, 895 assertions, zero-diff generated output
+- Design note:
+  - structured error output is now centralized in the shared core
+  - some generator-specific logic still exists by design where the generators differ in output shape and validation details
 
 Goal:
 
@@ -330,19 +333,23 @@ Outputs:
 
 - `SKILL_REGISTRY.md` at repo root (consistent with `WORKFLOW_PROTOCOL.md` §13.2)
 
-Acceptance criteria (all met):
+Acceptance criteria completed in P4:
 
 - ✅ the registry covers every workflow skill (18/18)
 - ✅ stage, handoff, and skill counts match the generated skills exactly
 - ✅ `bun run test:registry` catches missing metadata, unknown handoffs, stage gaps, and placeholder issues (5 tests, 247 assertions)
-- ⚠️ CI freshness check not yet wired — templates can change without registry regeneration being enforced in CI
 - ✅ the registry path is consistent with `WORKFLOW_PROTOCOL.md` §13.2
+
+Deferred follow-up outside P4 closure:
+
+- ⚠️ CI freshness check not yet wired — templates can change without registry regeneration being enforced in CI
+- This follow-up belongs to later CI integration work, not to the completed core generator behavior of P4
 
 ### P5. Implement `gen:workflow-docs`
 
-Status: **Complete**
+Status: **Partially Complete — Skeleton Generation Done, Final Closure Owned by P6**
 
-> `bun run gen:workflow-docs` is operational. 7 governance doc skeletons are generated to `generated/workflow-docs/`. Tests exist at `test/gen-workflow-docs.test.ts` and are runnable via `bun run test:workflow-docs`.
+> `bun run gen:workflow-docs` is operational. 7 governance doc skeletons are generated to `generated/workflow-docs/`. Tests exist at `test/gen-workflow-docs.test.ts` and are runnable via `bun run test:workflow-docs`. P5 is complete only for skeleton generation and structural validation. Final closure of P5 is explicitly owned by P6, which determines whether the docs generator's output assumptions align with the hybrid sync policy.
 
 What was delivered:
 
@@ -351,6 +358,12 @@ What was delivered:
 - Atomic write: all docs are rendered and validated in memory before any are written to disk
 - Generated docs are skeletons only — they do not overwrite repo-root live docs
 - Output: 7 docs in `generated/workflow-docs/`
+
+What remains open:
+
+- confirmation that generated skeleton structure matches the final hybrid sync ownership model
+- confirmation that structure-owned vs live-owned boundaries are correct
+- any retrofit required if P6 tightens or clarifies sync-policy assumptions
 
 Inputs:
 
@@ -362,11 +375,16 @@ Outputs:
 
 - `generated/workflow-docs/`
 
-Acceptance criteria (all met):
+Acceptance criteria completed in P5:
 
 - ✅ every required workflow doc is generated (7/7)
 - ✅ each rendered doc satisfies `FILE_SCHEMAS.md` heading requirements
 - ✅ `bun run test:workflow-docs` catches missing templates, missing headings, unresolved placeholders, and partial writes (4 tests, 114 assertions)
+
+Acceptance criteria deferred to P6 for final closure:
+
+- P6 confirms that P5 output assumptions are valid under the hybrid sync model
+- if P6 changes ownership boundaries, required retrofit is recorded and applied before P5 is considered fully closed
 
 Dependencies:
 
@@ -375,9 +393,9 @@ Dependencies:
 
 ### P6. Define the generated docs <-> live docs hybrid sync strategy
 
-Status: **Complete (Protocol-only)**
+Status: **Complete (Protocol-only, and Closes P5 Ownership Assumptions at the Protocol Layer)**
 
-> `WORKFLOW_PROTOCOL.md` now defines the hybrid sync model in §14. The protocol locks the ownership split between generated docs and live docs, defines lifecycle states and sync actions, requires diff-first confirmation for any existing live doc, preserves live-owned content during structural refresh, and adds a CI sync contract. No sync engine or `sync:check` command was implemented in P6 by design; implementation is deferred to later phases.
+> `WORKFLOW_PROTOCOL.md` now defines the hybrid sync model in §14. The protocol locks the ownership split between generated docs and live docs, defines lifecycle states and sync actions, requires diff-first confirmation for any existing live doc, preserves live-owned content during structural refresh, and adds a CI sync contract. P6 also serves as the formal closure step for P5 ownership assumptions. No sync engine, `sync:check` command, bootstrap enforcement, or runtime sync tooling was implemented in P6 by design; execution-layer enforcement is deferred to later phases.
 
 What was delivered:
 
@@ -407,6 +425,9 @@ What was delivered:
 - CI sync contract:
   - future sync checks must block merge on structural drift or incompatibility
   - sync checks remain separate from generated-artifact freshness checks
+- P5 closure rule:
+  - P5 is not fully closed until P6 validates the ownership model behind generated docs
+  - if P6 reveals a mismatch, P5 must be reopened for retrofit rather than silently treated as finished
 
 Deliverables:
 
@@ -416,12 +437,19 @@ Dependencies:
 
 - depends on P1 and P5
 
-Acceptance criteria (all met):
+Acceptance criteria (all met at the protocol layer):
 
 - ✅ every governance doc has a clear structure owner and content owner
-- ✅ no undefined overlap remains between generated docs and live docs
-- ✅ bootstrap and runtime sync behavior now have a protocol-level policy to implement against
-- ✅ existing live docs can be onboarded without blind overwrite behavior
+- ✅ no undefined overlap remains between generated docs and live docs at the policy level
+- ✅ bootstrap and runtime sync now have a protocol-level policy to implement against
+- ✅ existing live docs can be onboarded without blind overwrite behavior at the policy-definition level
+- ✅ P6 now serves as the formal closure step for P5 ownership assumptions
+
+Not claimed by P6:
+
+- bootstrap entrypoint implementation
+- runtime sync tooling implementation
+- automated enforcement of the sync policy in execution code
 
 ### P7. Implement `bootstrap-project-governance` and task identity
 

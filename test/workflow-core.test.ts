@@ -16,6 +16,7 @@ import {
   validateRequiredFields,
   extractHandoff,
   validateHandoff,
+  runGenerator,
 } from '../scripts/workflow-core';
 
 describe('workflow-core', () => {
@@ -187,6 +188,45 @@ describe('workflow-core', () => {
       expect(() =>
         validateHandoff({ success: 'skill-a', failure: 'unknown' }, knownNames, 'test.md'),
       ).toThrow(/Invalid handoff\.failure/);
+    });
+  });
+
+  // --- runGenerator ---
+
+  describe('runGenerator', () => {
+    test('emits structured JSON error and summary line on failure', () => {
+      const originalError = console.error;
+      const originalExit = process.exit;
+      const errors: string[] = [];
+      let exitCode: number | undefined;
+
+      console.error = (message?: unknown) => {
+        errors.push(String(message));
+      };
+      process.exit = ((code?: number) => {
+        exitCode = Number(code ?? 0);
+        throw new Error(`EXIT_${exitCode}`);
+      }) as typeof process.exit;
+
+      try {
+        expect(() =>
+          runGenerator('gen:workflow-skills', () => {
+            throw new Error('Invalid handoff.success "missing" in test.md');
+          }),
+        ).toThrow(/EXIT_2/);
+
+        expect(errors.length).toBe(2);
+        expect(() => JSON.parse(errors[0] as string)).not.toThrow();
+        const payload = JSON.parse(errors[0] as string);
+        expect(payload.generator).toBe('gen:workflow-skills');
+        expect(payload.severity).toBe('error');
+        expect(payload.code).toBe('HANDOFF_001');
+        expect(errors[1]).toBe('gen:workflow-skills: generation failed - 1 errors, 0 warnings');
+        expect(exitCode).toBe(2);
+      } finally {
+        console.error = originalError;
+        process.exit = originalExit;
+      }
     });
   });
 

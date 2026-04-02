@@ -289,6 +289,130 @@ export function emitWarning(
 
 // --- Execution ---
 
+function classifyGeneratorError(generator: string, message: string): { report: ErrorReport; exitCode: number } {
+  if (message.startsWith('Missing required field "')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'SCHEMA_001',
+        message: 'Missing required metadata field',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (
+    message.startsWith('Invalid frontmatter block') ||
+    message.startsWith('Frontmatter is not a mapping') ||
+    message.startsWith('Invalid handoff structure') ||
+    message.startsWith('Incomplete handoff structure')
+  ) {
+    const isHandoff = message.includes('handoff');
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: isHandoff ? 'HANDOFF_001' : 'SCHEMA_002',
+        message: isHandoff ? 'Invalid handoff structure' : 'Invalid metadata structure',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.startsWith('Invalid handoff.success') || message.startsWith('Invalid handoff.failure')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'HANDOFF_001',
+        message: 'Invalid handoff target',
+        field: message.includes('handoff.success') ? 'handoff.success' : 'handoff.failure',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.startsWith('Unresolved placeholders in ')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'PLACEHOLDER_001',
+        message: 'Unresolved placeholder(s)',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.startsWith('Missing required stage coverage')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'STAGE_001',
+        message: 'Missing required stage coverage',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.includes('writes') && message.includes('forbidden_writes')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'WRITE_001',
+        message: 'Write boundary conflict',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.startsWith('Required file not found:') || message.startsWith('PROJECT_PROFILE.yaml must parse')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'IO_001',
+        message: 'Input file error',
+        details: message,
+      },
+      exitCode: 1,
+    };
+  }
+
+  if (message.includes('heading')) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'HEADING_001',
+        message: 'Missing required heading',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  return {
+    report: {
+      generator,
+      severity: 'error',
+      code: 'IO_002',
+      message: 'Generator execution failed',
+      details: message,
+    },
+    exitCode: 1,
+  };
+}
+
 export function executeWrites(
   operations: WriteOperation[],
   dryRun: boolean,
@@ -309,7 +433,9 @@ export function runGenerator(name: string, main: () => void): void {
     main();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`${name} generation failed: ${message}`);
-    process.exit(1);
+    const { report, exitCode } = classifyGeneratorError(name, message);
+    emitError(report);
+    console.error(`${name}: generation failed - 1 errors, 0 warnings`);
+    process.exit(exitCode);
   }
 }

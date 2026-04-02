@@ -162,4 +162,4 @@ function main(): void {
   );
 }
 
-runGenerator('Workflow docs', main);
+runGenerator('gen:workflow-docs', main);

@@ -320,4 +320,4 @@ function main(): void {
   );
 }
 
-runGenerator('Workflow registry', main);
+runGenerator('gen:registry', main);

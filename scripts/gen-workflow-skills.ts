@@ -180,4 +180,4 @@ function main(): void {
   );
 }
 
-runGenerator('Workflow skill', main);
+runGenerator('gen:workflow-skills', main);
