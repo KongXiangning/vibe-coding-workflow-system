@@ -15,6 +15,7 @@
     "gen:workflow-skills": "bun run scripts/gen-workflow-skills.ts",
     "gen:registry": "bun run scripts/gen-registry.ts",
     "gen:all": "bun run gen:workflow-skills && bun run gen:workflow-docs && bun run gen:registry",
+    "bootstrap:project-governance": "bun run scripts/bootstrap-project-governance.ts --dry-run",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
     "test": "bun test browse/test/ test/ --ignore 'test/skill-e2e-*.test.ts' --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts --ignore test/codex-e2e.test.ts --ignore test/gemini-e2e.test.ts",
@@ -41,6 +42,8 @@
     "test:workflow-docs": "bun run gen:workflow-docs --dry-run && bun test test/gen-workflow-docs.test.ts",
     "test:workflow-skills": "bun run gen:workflow-skills --dry-run && bun test test/gen-workflow-skills.test.ts",
     "test:registry": "bun run gen:registry --dry-run && bun test test/gen-registry.test.ts",
+    "test:bootstrap-governance": "bun test test/bootstrap-project-governance.test.ts",
+    "test:task-identity": "bun test test/task-identity.test.ts",
     "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry"
   },
   "dependencies": {

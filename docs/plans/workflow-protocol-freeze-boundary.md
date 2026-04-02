@@ -40,7 +40,9 @@ The current partial-freeze scope covers:
 
 ## Out-of-scope freeze surface
 
-The following remain open and are outside the current freeze scope:
+The following remain outside the current `P1-P6` freeze scope.
+
+Some are now implemented extensions, but they have not yet been folded into a new partial-freeze baseline:
 
 - `P7a` bootstrap planning and dry-run contract
 - `P7b` task identity contract

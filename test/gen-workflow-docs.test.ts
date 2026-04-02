@@ -1,117 +1,52 @@
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
+import {
+  WORKFLOW_DOC_NAMES,
+  WORKFLOW_DOC_REQUIRED_HEADINGS,
+  WORKFLOW_DOC_RUNTIME_PLACEHOLDERS,
+} from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-docs');
 
-const EXPECTED_DOCS = [
-  'CONTRACTS.md',
-  'CURRENT_TASK.md',
-  'DECISIONS.md',
-  'LESSONS.md',
-  'STATUS.md',
-  'TASK_ARCHIVE.md',
-  'TASK_SUMMARY.md',
-] as const;
+function generatedDocsFiles(): string[] {
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    throw new Error(
+      `Missing generated workflow docs directory: ${OUTPUT_DIR}. ` +
+        'test:workflow-docs expects committed generated docs and must not generate them during the test run.',
+    );
+  }
 
-const REQUIRED_HEADINGS: Record<(typeof EXPECTED_DOCS)[number], string[]> = {
-  'CONTRACTS.md': ['## 使用规则', '## 一、接口契约', '## 二、架构契约', '## 三、变更规则'],
-  'CURRENT_TASK.md': [
-    '## 任务信息',
-    '## 背景与上下文',
-    '## 验收标准',
-    '## 允许修改范围',
-    '## 禁止修改范围',
-    '## 受影响的契约',
-    '## 已确认决策',
-    '## 待确认问题',
-    '## 实施步骤',
-    '## 回归检查项',
-    '## 回滚点',
-    '## 执行记录',
-  ],
-  'DECISIONS.md': ['## 使用规则', '## 🏗️ 架构决策', '## 🎨 口味决策', '## ⏸️ 暂缓决策', '## ❌ 已否决'],
-  'LESSONS.md': [
-    '## 使用规则',
-    '## 通用',
-    '## 数据与存储',
-    '## 前端与交互',
-    '## 后端与服务',
-    '## 测试与回归',
-    '## 部署与运行时',
-  ],
-  'STATUS.md': [
-    '## 项目概览',
-    '## ✅ 已完成且稳定',
-    '## 🔨 正在开发',
-    '## 📋 待开发',
-    '## ⚠️ 已知风险 / 观察点',
-    '## ❌ 已移除 / 推迟',
-    '## 🔜 下一检查点',
-    '## 最近更新记录',
-  ],
-  'TASK_ARCHIVE.md': [
-    '## 任务元数据',
-    '## 原始任务包快照',
-    '## 实际改动摘要',
-    '## 契约与决策记录',
-    '## 验证与交付证据',
-    '## Lessons 回写',
-    '## 后续关联',
-  ],
-  'TASK_SUMMARY.md': [
-    '## 任务信息',
-    '## 目标与结果',
-    '## 改动范围',
-    '## 契约与决策变化',
-    '## 验证结果',
-    '## 风险与后续',
-    '## 交付清单',
-  ],
-};
+  const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.md')).sort();
+  if (files.length === 0) {
+    throw new Error(
+      `No generated workflow docs found in ${OUTPUT_DIR}. ` +
+        'test:workflow-docs expects committed generated docs and must not generate them during the test run.',
+    );
+  }
 
-const ALLOWED_UNRESOLVED = new Set([
-  '{{TASK_ID}}',
-  '{{TASK_TITLE}}',
-  '{{TASK_SLUG}}',
-  '{{DATE}}',
-  '{{AUTHOR}}',
-]);
+  return files;
+}
 
 describe('gen-workflow-docs', () => {
-  beforeAll(() => {
-    const result = Bun.spawnSync({
-      cmd: ['bun', 'run', 'gen:workflow-docs'],
-      cwd: ROOT,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `gen:workflow-docs failed:\n${result.stdout.toString()}\n${result.stderr.toString()}`,
-      );
-    }
-  });
-
   test('generates the full workflow docs set', () => {
-    const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.md')).sort();
-    expect(files).toEqual([...EXPECTED_DOCS].sort());
+    const files = generatedDocsFiles();
+    expect(files).toEqual([...WORKFLOW_DOC_NAMES].sort());
   });
 
   test('every generated workflow doc has required headings', () => {
-    for (const file of EXPECTED_DOCS) {
+    for (const file of WORKFLOW_DOC_NAMES) {
       const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
-      for (const heading of REQUIRED_HEADINGS[file]) {
+      for (const heading of WORKFLOW_DOC_REQUIRED_HEADINGS[file]) {
         expect(content.includes(heading)).toBe(true);
       }
     }
   });
 
   test('project placeholders are fully resolved', () => {
-    for (const file of EXPECTED_DOCS) {
+    for (const file of WORKFLOW_DOC_NAMES) {
       const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
       expect(content.includes('{{PROJECT_NAME}}')).toBe(false);
       expect(content.includes('{{PROJECT_TYPE}}')).toBe(false);
@@ -125,12 +60,24 @@ describe('gen-workflow-docs', () => {
   });
 
   test('only task and runtime placeholders remain unresolved', () => {
-    for (const file of EXPECTED_DOCS) {
+    for (const file of WORKFLOW_DOC_NAMES) {
       const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
       const matches = content.match(/{{[^}]+}}/g) ?? [];
-      const unresolved = matches.filter(token => !ALLOWED_UNRESOLVED.has(token));
+      const unresolved = matches.filter(token => !WORKFLOW_DOC_RUNTIME_PLACEHOLDERS.has(token));
       expect(unresolved).toEqual([]);
     }
+  });
+
+  test('current task and archive docs preserve task identity fields', () => {
+    const currentTask = fs.readFileSync(path.join(OUTPUT_DIR, 'CURRENT_TASK.md'), 'utf8');
+    expect(currentTask).toContain('- 任务 ID：{{TASK_ID}}');
+    expect(currentTask).toContain('- 任务标题：{{TASK_TITLE}}');
+    expect(currentTask).toContain('- 任务 slug：{{TASK_SLUG}}');
+
+    const taskArchive = fs.readFileSync(path.join(OUTPUT_DIR, 'TASK_ARCHIVE.md'), 'utf8');
+    expect(taskArchive).toContain('- 任务 ID：{{TASK_ID}}');
+    expect(taskArchive).toContain('- 任务标题：{{TASK_TITLE}}');
+    expect(taskArchive).toContain('- 任务 slug：{{TASK_SLUG}}');
   });
 
   test('docs generation accepts repo-level profile patterns via shared validation', () => {

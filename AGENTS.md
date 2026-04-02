@@ -47,3 +47,32 @@ bun run skill:check      # health dashboard for all skills
 - Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
 - The browse binary provides headless browser access. Use `$B <command>` in skills.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.
+
+## File Mutation Guard (Mandatory)
+
+Before performing any file modification (create/update/delete), the agent MUST:
+
+1. Check whether the target file is marked as "frozen".
+2. Determine if modification is allowed under current rules.
+
+### Frozen File Definition
+
+A file is considered "frozen" if any of the following conditions are met:
+
+- Explicitly listed in a freeze registry (e.g. `FREEZE_REGISTRY.md`)
+- Contains a freeze marker in its header (e.g. `@frozen`, `DO NOT MODIFY`)
+- Covered by higher-level governance rules that prohibit mutation
+
+### Enforcement Rules
+
+- If the file is frozen → modification is strictly prohibited
+- The agent MUST:
+  - Abort the operation
+  - Report the reason
+  - Suggest an alternative (if applicable)
+
+- If the file is not frozen → proceed normally
+
+### Violation Policy
+
+Any modification to a frozen file is considered a critical violation of project governance.

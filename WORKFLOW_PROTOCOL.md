@@ -178,6 +178,44 @@ For the initial generator version:
 - expand project-level variables
 - preserve task-level variables as placeholders
 
+### 3.4 Task identity contract
+
+The workflow-system task identity contract is defined at the runtime layer, not at generator render time.
+
+Canonical rules:
+
+- `TASK_ID` must be a project-local, immutable decimal identifier once materialized
+- the canonical format is a zero-padded decimal string with at least 3 digits
+- `TASK_SLUG` must be a project-local, immutable lowercase ASCII kebab-case slug once materialized
+- `TASK_TITLE` must be concrete non-placeholder text before task identity is treated as materialized
+
+Examples:
+
+- valid `TASK_ID`: `001`, `042`, `1203`
+- valid `TASK_SLUG`: `bootstrap-governance`, `fix-registry-drift`
+
+Live-doc contract:
+
+- `CURRENT_TASK.md` is the canonical live source of task identity during an active task cycle
+- inside `## 任务信息`, the live task package must carry:
+  - `任务 ID`
+  - `任务标题`
+  - `任务 slug`
+- `TASK_ARCHIVE.md` and `archive-task` consume those same values later
+
+Archive naming contract:
+
+- archive path pattern: `TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`
+- the concrete archive filename must be derived from materialized live values, not from guessed or regenerated values
+
+Materialization boundary:
+
+- bootstrap planning (`P7a`, Adoption `A2`) must preserve task identity placeholders
+- task identity becomes concrete only during Adoption `A3` or an equivalent approved runtime execution flow
+- `archive-task` must read concrete `TASK_ID`, `TASK_TITLE`, and `TASK_SLUG` from live `CURRENT_TASK.md`
+- `archive-task` must fail closed if any of those fields are missing or still placeholder text
+- runtime helpers may derive a slug from task title only as an explicit surfaced step; generators must not silently auto-discover task identity
+
 ---
 
 ## 4. Project-type specialization rules
@@ -1025,7 +1063,6 @@ This protocol revision is reviewed and corrected against the currently implement
 The following contracts are intentionally **not** finalized here and remain owned by later plan phases:
 
 - `P7a`: bootstrap planning CLI, dry-run output contract, and classification/report shape
-- `P7b`: task identity contract, including `TASK_ID`, `TASK_SLUG`, naming, and archive materialization behavior
 - `P8`: project-level validation matrix, blocker levels, and precedence beyond the current protocol-level generator checks
 - `P9`: CI/reporting wiring beyond the current `test:workflow-*` and freshness enforcement already implemented
 - `P10`: runtime host install/sync entrypoints and target-project import/install contract

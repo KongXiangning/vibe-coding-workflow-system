@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
@@ -7,18 +7,19 @@ import { loadProfile, validateProfilePathSemantics } from '../scripts/workflow-c
 const ROOT = path.resolve(import.meta.dir, '..');
 const REGISTRY_PATH = path.join(ROOT, 'SKILL_REGISTRY.md');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
+const GENERATED_SKILLS_DIR = path.join(ROOT, 'generated', 'workflow-skills');
 
-const EXPECTED_SECTION_HEADINGS = [
-  '### 3.1 初始化',
-  '### 3.2 阶段 1：需求进入',
-  '### 3.3 阶段 2：范围锁定',
-  '### 3.4 阶段 3：方案拆解',
-  '### 3.5 阶段 4：小步实现',
-  '### 3.6 阶段 4/6：异常处理',
-  '### 3.7 阶段 5：范围复核',
-  '### 3.8 阶段 6：回归验证',
-  '### 3.9 阶段 7：状态同步',
-  '### 3.10 阶段 8：交付沉淀',
+const EXPECTED_SECTIONS = [
+  { heading: '### 3.1 初始化', stage: '初始化' },
+  { heading: '### 3.2 阶段 1：需求进入', stage: '阶段 1：需求进入' },
+  { heading: '### 3.3 阶段 2：范围锁定', stage: '阶段 2：范围锁定' },
+  { heading: '### 3.4 阶段 3：方案拆解', stage: '阶段 3：方案拆解' },
+  { heading: '### 3.5 阶段 4：小步实现', stage: '阶段 4：小步实现' },
+  { heading: '### 3.6 阶段 4/6：异常处理', stage: '阶段 4/6：实现或验证异常' },
+  { heading: '### 3.7 阶段 5：范围复核', stage: '阶段 5：范围复核' },
+  { heading: '### 3.8 阶段 6：回归验证', stage: '阶段 6：回归验证' },
+  { heading: '### 3.9 阶段 7：状态同步', stage: '阶段 7：状态同步' },
+  { heading: '### 3.10 阶段 8：交付沉淀', stage: '阶段 8：交付沉淀' },
 ] as const;
 
 const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
@@ -26,6 +27,7 @@ const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
 type RegistryRow = {
   columns: string[];
   name: string;
+  stage: string;
   handoffSuccess: string;
   handoffFailure: string;
 };
@@ -38,26 +40,40 @@ function parseFrontmatter(filePath: string): Record<string, unknown> {
 }
 
 function parseRegistryRows(content: string): RegistryRow[] {
-  return content
-    .split(/\r?\n/)
-    .filter(line => /^\| `[^`]+` \|/.test(line))
-    .map(line => {
-      const columns = line.split('|').slice(1, -1).map(cell => cell.trim());
-      const nameMatch = columns[0]?.match(/^`([^`]+)`$/);
-      const successMatch = columns[5]?.match(/^`([^`]+)`$/);
-      const failureMatch = columns[6]?.match(/^`([^`]+)`$/);
+  const rows: RegistryRow[] = [];
+  let currentStage = '';
 
-      expect(nameMatch).not.toBeNull();
-      expect(successMatch).not.toBeNull();
-      expect(failureMatch).not.toBeNull();
+  for (const line of content.split(/\r?\n/)) {
+    const section = EXPECTED_SECTIONS.find(entry => line === entry.heading);
+    if (section) {
+      currentStage = section.stage;
+      continue;
+    }
 
-      return {
-        columns,
-        name: nameMatch![1],
-        handoffSuccess: successMatch![1],
-        handoffFailure: failureMatch![1],
-      };
+    if (!/^\| `[^`]+` \|/.test(line)) {
+      continue;
+    }
+
+    const columns = line.split('|').slice(1, -1).map(cell => cell.trim());
+    const nameMatch = columns[0]?.match(/^`([^`]+)`$/);
+    const successMatch = columns[5]?.match(/^`([^`]+)`$/);
+    const failureMatch = columns[6]?.match(/^`([^`]+)`$/);
+
+    expect(currentStage).not.toBe('');
+    expect(nameMatch).not.toBeNull();
+    expect(successMatch).not.toBeNull();
+    expect(failureMatch).not.toBeNull();
+
+    rows.push({
+      columns,
+      name: nameMatch![1],
+      stage: currentStage,
+      handoffSuccess: successMatch![1],
+      handoffFailure: failureMatch![1],
     });
+  }
+
+  return rows;
 }
 
 function expectedSkillNames(): string[] {
@@ -71,20 +87,40 @@ function expectedSkillNames(): string[] {
     .sort();
 }
 
+function generatedSkillMetadata(): Map<string, { stage: string; handoffSuccess: string; handoffFailure: string }> {
+  if (!fs.existsSync(GENERATED_SKILLS_DIR)) {
+    throw new Error(
+      `Missing generated workflow skills directory: ${GENERATED_SKILLS_DIR}. ` +
+        'test:registry expects committed generated skills and must not generate them during the test run.',
+    );
+  }
+
+  const files = fs.readdirSync(GENERATED_SKILLS_DIR).filter(file => file.endsWith('.SKILL.md'));
+  if (files.length === 0) {
+    throw new Error(
+      `No generated workflow skills found in ${GENERATED_SKILLS_DIR}. ` +
+        'test:registry expects committed generated skills and must not generate them during the test run.',
+    );
+  }
+
+  return new Map(
+    files
+      .map(file => {
+        const frontmatter = parseFrontmatter(path.join(GENERATED_SKILLS_DIR, file));
+        const handoff = frontmatter.handoff as Record<string, unknown>;
+        return [
+          String(frontmatter.name),
+          {
+            stage: String(frontmatter.stage),
+            handoffSuccess: String(handoff.success),
+            handoffFailure: String(handoff.failure),
+          },
+        ] as const;
+      }),
+  );
+}
+
 describe('gen-registry', () => {
-  beforeAll(() => {
-    const result = Bun.spawnSync({
-      cmd: ['bun', 'run', 'gen:registry'],
-      cwd: ROOT,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    if (result.exitCode !== 0) {
-      throw new Error(`gen:registry failed:\n${result.stdout.toString()}\n${result.stderr.toString()}`);
-    }
-  });
-
   test('generates one registry row for every workflow skill template', () => {
     const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
     const rows = parseRegistryRows(content);
@@ -103,8 +139,8 @@ describe('gen-registry', () => {
 
   test('all workflow stages are represented in the registry sections', () => {
     const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
-    for (const heading of EXPECTED_SECTION_HEADINGS) {
-      expect(content.includes(heading)).toBe(true);
+    for (const section of EXPECTED_SECTIONS) {
+      expect(content.includes(section.heading)).toBe(true);
     }
   });
 
@@ -116,6 +152,21 @@ describe('gen-registry', () => {
     for (const row of rows) {
       expect(names.has(row.handoffSuccess)).toBe(true);
       expect(row.handoffFailure === 'ask-user' || names.has(row.handoffFailure)).toBe(true);
+    }
+  });
+
+  test('registry stage and handoff metadata matches generated workflow skills exactly', () => {
+    const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
+    const rows = parseRegistryRows(content);
+    const generated = generatedSkillMetadata();
+
+    expect(rows.length).toBe(generated.size);
+    for (const row of rows) {
+      const skill = generated.get(row.name);
+      expect(skill).toBeDefined();
+      expect(row.stage).toBe(skill!.stage);
+      expect(row.handoffSuccess).toBe(skill!.handoffSuccess);
+      expect(row.handoffFailure).toBe(skill!.handoffFailure);
     }
   });
 

@@ -16,6 +16,12 @@ import {
   executeWrites,
   runGenerator,
 } from './workflow-core';
+import {
+  WORKFLOW_DOC_NAMES,
+  WORKFLOW_DOC_REQUIRED_HEADINGS,
+  WORKFLOW_DOC_RUNTIME_PLACEHOLDERS,
+  isWorkflowDocName,
+} from './workflow-doc-contracts';
 
 const ROOT = resolveRoot();
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
@@ -24,79 +30,7 @@ const TEMPLATE_DIR = path.join(ROOT, 'templates', 'docs');
 const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-docs');
 const DRY_RUN = process.argv.includes('--dry-run');
 
-const REQUIRED_DOCS = new Set([
-  'CONTRACTS.md',
-  'CURRENT_TASK.md',
-  'DECISIONS.md',
-  'LESSONS.md',
-  'STATUS.md',
-  'TASK_ARCHIVE.md',
-  'TASK_SUMMARY.md',
-]);
-
-const REQUIRED_HEADINGS: Record<string, string[]> = {
-  'CONTRACTS.md': ['## 使用规则', '## 一、接口契约', '## 二、架构契约', '## 三、变更规则'],
-  'CURRENT_TASK.md': [
-    '## 任务信息',
-    '## 背景与上下文',
-    '## 验收标准',
-    '## 允许修改范围',
-    '## 禁止修改范围',
-    '## 受影响的契约',
-    '## 已确认决策',
-    '## 待确认问题',
-    '## 实施步骤',
-    '## 回归检查项',
-    '## 回滚点',
-    '## 执行记录',
-  ],
-  'DECISIONS.md': ['## 使用规则', '## 🏗️ 架构决策', '## 🎨 口味决策', '## ⏸️ 暂缓决策', '## ❌ 已否决'],
-  'LESSONS.md': [
-    '## 使用规则',
-    '## 通用',
-    '## 数据与存储',
-    '## 前端与交互',
-    '## 后端与服务',
-    '## 测试与回归',
-    '## 部署与运行时',
-  ],
-  'STATUS.md': [
-    '## 项目概览',
-    '## ✅ 已完成且稳定',
-    '## 🔨 正在开发',
-    '## 📋 待开发',
-    '## ⚠️ 已知风险 / 观察点',
-    '## ❌ 已移除 / 推迟',
-    '## 🔜 下一检查点',
-    '## 最近更新记录',
-  ],
-  'TASK_ARCHIVE.md': [
-    '## 任务元数据',
-    '## 原始任务包快照',
-    '## 实际改动摘要',
-    '## 契约与决策记录',
-    '## 验证与交付证据',
-    '## Lessons 回写',
-    '## 后续关联',
-  ],
-  'TASK_SUMMARY.md': [
-    '## 任务信息',
-    '## 目标与结果',
-    '## 改动范围',
-    '## 契约与决策变化',
-    '## 验证结果',
-    '## 风险与后续',
-    '## 交付清单',
-  ],
-};
-
-const ALLOWED_UNRESOLVED = new Set([
-  '{{TASK_ID}}',
-  '{{TASK_TITLE}}',
-  '{{TASK_SLUG}}',
-  '{{DATE}}',
-  '{{AUTHOR}}',
-]);
+const REQUIRED_DOCS = new Set(WORKFLOW_DOC_NAMES);
 
 function renderTemplate(content: string, replacements: Record<string, JsonValue>): string {
   let rendered = content;
@@ -107,12 +41,11 @@ function renderTemplate(content: string, replacements: Record<string, JsonValue>
 }
 
 function validateRequiredHeadings(fileName: string, content: string): void {
-  const headings = REQUIRED_HEADINGS[fileName];
-  if (!headings) {
+  if (!isWorkflowDocName(fileName)) {
     throw new Error(`No required heading spec found for ${fileName}`);
   }
 
-  for (const heading of headings) {
+  for (const heading of WORKFLOW_DOC_REQUIRED_HEADINGS[fileName]) {
     if (!content.includes(heading)) {
       throw new Error(`Missing required heading "${heading}" in ${fileName}`);
     }
@@ -143,7 +76,7 @@ function main(): void {
     const content = renderTemplate(readText(inputPath), replacements);
 
     validateRequiredHeadings(outputName, content);
-    validateUnresolvedPlaceholders(outputName, content, ALLOWED_UNRESOLVED);
+    validateUnresolvedPlaceholders(outputName, content, WORKFLOW_DOC_RUNTIME_PLACEHOLDERS);
 
     pendingWrites.push({ path: path.join(OUTPUT_DIR, outputName), content });
   }

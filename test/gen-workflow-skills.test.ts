@@ -166,4 +166,17 @@ describe('gen-workflow-skills', () => {
       expect(unresolved).toEqual([]);
     }
   });
+
+  test('archive-task preserves the task archive naming contract', () => {
+    const archiveTaskPath = path.join(OUTPUT_DIR, 'archive-task.SKILL.md');
+    const frontmatter = parseFrontmatter(archiveTaskPath);
+    expect(normalizeList(frontmatter.writes)).toContain('TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md');
+    expect(normalizeList(frontmatter.stop_conditions)).toContain(
+      'CURRENT_TASK.md 中的任务 ID 或任务 slug 仍为占位符或缺失',
+    );
+
+    const content = fs.readFileSync(archiveTaskPath, 'utf8');
+    expect(content).toContain('TASK-{{TASK_ID}}-{{TASK_SLUG}}.md');
+    expect(content).toContain('任务标识必须从 CURRENT_TASK.md 的任务信息读取');
+  });
 });

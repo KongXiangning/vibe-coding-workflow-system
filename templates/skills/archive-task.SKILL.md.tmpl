@@ -26,10 +26,12 @@ forbidden_writes:
   - DECISIONS.md
 must_check:
   - 归档命名是否规范
+  - CURRENT_TASK.md 中的任务 ID / 任务 slug 是否已实体化
   - 归档内容是否包含任务定义与结果
   - 是否需要创建下一轮任务包
 stop_conditions:
   - 当前任务仍未满足验收标准
+  - CURRENT_TASK.md 中的任务 ID 或任务 slug 仍为占位符或缺失
   - 下一步任务依赖尚不明确
 output:
   - 归档文件
@@ -44,6 +46,7 @@ decision_policy:
 verification:
   - 归档文件包含定义、执行、验证、后续建议
   - 归档命名符合规范
+  - 归档命名与 CURRENT_TASK.md 中的任务 ID / 任务 slug 一致
   - CURRENT_TASK.md 已为下一轮做好准备或明确保留
 allowed-tools:
   - Read
@@ -55,6 +58,7 @@ benefits-from:
   - /prepare-delivery-summary
 notes:
   - 归档是为了后续接力，不是简单移动文件。
+  - 任务标识必须从 CURRENT_TASK.md 的任务信息读取，不得在归档阶段临时发明。
 archive_naming:
   - "TASK-{{TASK_ID}}-{{TASK_SLUG}}.md"
 archive_conditions:
