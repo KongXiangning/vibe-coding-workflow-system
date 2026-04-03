@@ -1264,20 +1264,26 @@ Each artifact in the manifest declares:
 
 The manifest also declares:
 
+- `package_json_contract` — the machine-readable minimum `package.json` surface a target project must merge, including required scripts, runtime dependencies, and engine constraints
 - `requirements` — runtime dependencies (e.g., `bun >= 1.0`)
-- `post_install` — commands to run after importing artifacts
-- `verification` — commands to verify correct installation
+- `post_install` — commands to run after importing artifacts and merging the package script contract
+- `verification` — commands to verify correct installation through the imported package script contract
+
+`package.json` is part of the required import surface for `A1`.
+The manifest must explicitly describe the minimum `workflow:*`, `gen:*`, and `validate:*` script contract plus the runtime dependencies needed by the imported workflow-system artifacts in a machine-readable `package_json_contract` field.
+A target project must not be expected to discover those script entries from undocumented source-repository knowledge.
 
 ### §17.3 Import contract
 
 The import contract defines the steps a target project follows during Adoption `A1` to import the workflow-system:
 
 1. Copy workflow-system scripts to the target project
-2. Copy protocol spec and templates
-3. Create a project-specific `PROJECT_PROFILE.yaml`
-4. Run generators to produce initial workflow outputs
-5. Run health check to verify correct installation
-6. Sync generated artifacts to the target project's AI host
+2. Copy protocol spec, templates, and the documented `package.json` contract surface
+3. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
+4. Create a project-specific `PROJECT_PROFILE.yaml`
+5. Run generators to produce initial workflow outputs
+6. Run health check to verify correct installation
+7. Sync generated artifacts to the target project's AI host
 
 The import contract is self-documenting — a target project must not need undocumented repository knowledge to complete the import.
 
@@ -1303,6 +1309,9 @@ Constraints on host sync:
 - host sync must not rewrite protocol semantics
 - host sync failures must not corrupt generated outputs or live docs
 - target projects consume the sync logic defined here; they do not reimplement it locally
+- `workflow:sync --write` must converge the host namespace to the current generated workflow skill set by pruning orphaned `workflow-system-*` directories within the selected host runtime root
+- orphan pruning must be limited to the isolated `workflow-system-*` namespace and must never touch native `gstack-*` or other non-workflow host artifacts
+- sync reporting must distinguish planned prune targets from successfully applied prune targets so dry-run and applied results are not conflated
 
 ### §17.5 Host detection
 

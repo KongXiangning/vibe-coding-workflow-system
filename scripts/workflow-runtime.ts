@@ -64,6 +64,14 @@ export type ExportManifest = {
   contract_version: 1;
   workflow_system_version: string;
   artifacts: ExportArtifact[];
+  package_json_contract: {
+    type: 'module';
+    engines: {
+      bun: string;
+    };
+    scripts: Record<string, string>;
+    dependencies: Record<string, string>;
+  };
   requirements: string[];
   post_install: string[];
   verification: string[];
@@ -91,11 +99,14 @@ export type HostSyncPlan = {
   mode: SyncMode;
   isolated: boolean;
   entries: HostSyncEntry[];
+  planned_prune_targets: string[];
 };
 
 export type HostSyncResult = HostSyncPlan & {
   write: boolean;
   synced: number;
+  pruned: number;
+  applied_prune_targets: string[];
 };
 
 export type BuildWorkflowHealthOptions = {
@@ -152,6 +163,7 @@ const EXPORT_ARTIFACTS: readonly ExportArtifact[] = [
   { path: 'scripts/workflow-runtime.ts', category: 'script', required: true, description: 'P10 runtime health, manifest, and host sync entrypoints.' },
   { path: 'WORKFLOW_PROTOCOL.md', category: 'protocol', required: true, description: 'Authoritative workflow-system protocol, including §17 runtime contract.' },
   { path: 'FILE_SCHEMAS.md', category: 'protocol', required: true, description: 'Schema contract for workflow docs and related artifacts.' },
+  { path: 'package.json', category: 'config', required: true, description: 'Runtime dependency manifest and required workflow:* / gen:* / validate:* script contract.' },
   { path: 'PROJECT_PROFILE.yaml', category: 'config', required: true, description: 'Project profile declaring hosts, paths, and validation matrix.' },
   { path: 'templates/skills/**', category: 'template', required: true, description: 'Workflow skill templates to be rendered in the target project.' },
   { path: 'templates/docs/**', category: 'template', required: true, description: 'Workflow governance-doc templates to be rendered in the target project.' },
@@ -174,8 +186,65 @@ const POST_INSTALL_COMMANDS = [
 const VERIFICATION_COMMANDS = [
   'bun run validate:protocol',
   'bun run workflow:manifest --json',
+  'bun run workflow:health',
   'bun run workflow:sync --host <claude|codex|factory>',
 ];
+
+const REQUIRED_PACKAGE_SCRIPTS = [
+  'gen:workflow-docs',
+  'gen:workflow-skills',
+  'gen:registry',
+  'gen:all',
+  'bootstrap:project-governance',
+  'validate:protocol',
+  'validate:all',
+  'validate:freshness',
+  'workflow:health',
+  'workflow:manifest',
+  'workflow:sync',
+] as const;
+
+function buildPackageJsonContract(packageJson: {
+  type?: string;
+  engines?: Record<string, unknown>;
+  scripts?: Record<string, unknown>;
+  dependencies?: Record<string, unknown>;
+}): ExportManifest['package_json_contract'] {
+  if (packageJson.type !== 'module') {
+    throw new Error('package.json is missing required workflow module contract: "type": "module"');
+  }
+
+  const scripts = Object.fromEntries(
+    REQUIRED_PACKAGE_SCRIPTS.map(name => {
+      const command = packageJson.scripts?.[name];
+      if (typeof command !== 'string' || command.length === 0) {
+        throw new Error(`package.json is missing required workflow script contract entry: ${name}`);
+      }
+      return [name, command];
+    }),
+  );
+
+  const yamlDependency = packageJson.dependencies?.yaml;
+  if (typeof yamlDependency !== 'string' || yamlDependency.length === 0) {
+    throw new Error('package.json is missing required workflow runtime dependency: yaml');
+  }
+
+  const bunEngine = packageJson.engines?.bun;
+  if (typeof bunEngine !== 'string' || bunEngine.length === 0) {
+    throw new Error('package.json is missing required workflow engine contract: engines.bun');
+  }
+
+  return {
+    type: packageJson.type,
+    engines: {
+      bun: bunEngine,
+    },
+    scripts,
+    dependencies: {
+      yaml: yamlDependency,
+    },
+  };
+}
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -335,12 +404,18 @@ export function getExportManifest(root?: string): ExportManifest {
   const resolvedRoot = path.resolve(root ?? resolveRoot());
   const packageJson = JSON.parse(readText(path.join(resolvedRoot, 'package.json'))) as {
     version?: string;
+    type?: string;
+    engines?: Record<string, unknown>;
+    scripts?: Record<string, unknown>;
+    dependencies?: Record<string, unknown>;
   };
+  const packageJsonContract = buildPackageJsonContract(packageJson);
 
   return {
     contract_version: 1,
     workflow_system_version: packageJson.version ?? '0.0.0',
     artifacts: [...EXPORT_ARTIFACTS],
+    package_json_contract: packageJsonContract,
     requirements: [
       'bun >= 1.0.0',
       'package.json with `"type": "module"`',
@@ -356,18 +431,22 @@ export function getExportManifest(root?: string): ExportManifest {
           description: 'Import the required workflow-system scripts, templates, protocol docs, and profile scaffold.',
         },
         {
+          name: 'package-json-integration',
+          description: 'Merge the minimum package.json contract required for workflow:* / gen:* / validate:* scripts and runtime dependencies.',
+        },
+        {
           name: 'install-dependencies',
-          description: 'Install runtime dependencies required by the imported workflow scripts.',
+          description: 'Install runtime dependencies declared by the imported workflow-system package.json contract.',
           command: 'bun install',
         },
         {
           name: 'generate-outputs',
-          description: 'Render the workflow skills, docs, and registry inside the target project.',
+          description: 'Render the workflow skills, docs, and registry through the imported package.json script contract inside the target project.',
           command: 'bun run gen:all',
         },
         {
           name: 'verify-health',
-          description: 'Run repo-local health checks before enabling host sync.',
+          description: 'Run repo-local health checks through the imported package.json script contract before enabling host sync.',
           command: 'bun run workflow:health',
         },
         {
@@ -407,6 +486,28 @@ function getSkillName(filePath: string): string {
   return fileName.slice(0, -'.SKILL.md'.length);
 }
 
+function listOrphanRuntimeTargets(runtimeRoot: string, expectedTargets: Set<string>): string[] {
+  if (!fs.existsSync(runtimeRoot)) {
+    return [];
+  }
+
+  return fs.readdirSync(runtimeRoot)
+    .map(entry => path.join(runtimeRoot, entry))
+    .filter(fullPath => {
+      if (!fs.statSync(fullPath).isDirectory()) {
+        return false;
+      }
+
+      const name = path.basename(fullPath);
+      if (!name.startsWith(WORKFLOW_RUNTIME_PREFIX)) {
+        return false;
+      }
+
+      return !expectedTargets.has(path.join(fullPath, 'SKILL.md'));
+    })
+    .sort();
+}
+
 export function buildHostSyncPlan(root: string, host: RuntimeHost): HostSyncPlan {
   const runtimeRoot = getRuntimeSkillRoot(root, host);
   const entries = collectGeneratedSkillFiles(root).map(source => {
@@ -425,6 +526,11 @@ export function buildHostSyncPlan(root: string, host: RuntimeHost): HostSyncPlan
     throw new Error('Host sync plan is not isolated from native runtime outputs.');
   }
 
+  const plannedPruneTargets = listOrphanRuntimeTargets(
+    runtimeRoot,
+    new Set(entries.map(entry => entry.target)),
+  );
+
   return {
     host,
     runtime_root: runtimeRoot,
@@ -432,6 +538,7 @@ export function buildHostSyncPlan(root: string, host: RuntimeHost): HostSyncPlan
     mode: 'copy',
     isolated,
     entries,
+    planned_prune_targets: plannedPruneTargets,
   };
 }
 
@@ -449,10 +556,20 @@ export function syncWorkflowHost(options: SyncWorkflowHostOptions): HostSyncResu
     `workflow-runtime: ${options.write ? 'synced' : 'planned'} ${operations.length} skills for ${options.host}`,
   );
 
+  const appliedPruneTargets: string[] = [];
+  if (options.write) {
+    for (const pruneTarget of plan.planned_prune_targets) {
+      fs.rmSync(pruneTarget, { recursive: true, force: true });
+      appliedPruneTargets.push(pruneTarget);
+    }
+  }
+
   return {
     ...plan,
     write: Boolean(options.write),
     synced: operations.length,
+    pruned: appliedPruneTargets.length,
+    applied_prune_targets: appliedPruneTargets,
   };
 }
 
@@ -627,10 +744,20 @@ export function formatHostSyncResult(result: HostSyncResult): string {
     `host: ${result.host}`,
     `runtime_root: ${result.runtime_root}`,
     `skills: ${result.synced}`,
+    `planned prune dirs: ${result.planned_prune_targets.length}`,
+    `pruned: ${result.pruned}`,
   ];
 
   for (const entry of result.entries) {
     lines.push(`- ${entry.skill_name} -> ${entry.target}`);
+  }
+
+  for (const pruneTarget of result.planned_prune_targets) {
+    lines.push(`- planned prune ${pruneTarget}`);
+  }
+
+  for (const pruneTarget of result.applied_prune_targets) {
+    lines.push(`- applied prune ${pruneTarget}`);
   }
 
   return lines.join('\n');
