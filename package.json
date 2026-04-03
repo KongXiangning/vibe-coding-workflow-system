@@ -46,10 +46,14 @@
     "test:task-identity": "bun test test/task-identity.test.ts",
     "test:validation-model": "bun test test/validation-model.test.ts",
     "test:run-validation": "bun test test/run-validation.test.ts",
-    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry && bun run test:bootstrap-governance && bun run test:task-identity && bun run test:validation-model && bun run test:run-validation",
+    "test:workflow-runtime": "bun test test/workflow-runtime.test.ts",
+    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry && bun run test:bootstrap-governance && bun run test:task-identity && bun run test:validation-model && bun run test:run-validation && bun run test:workflow-runtime",
     "validate:protocol": "bun run scripts/run-validation.ts --layer=protocol",
     "validate:all": "bun run scripts/run-validation.ts",
-    "validate:freshness": "bun run scripts/check-freshness.ts"
+    "validate:freshness": "bun run scripts/check-freshness.ts",
+    "workflow:health": "bun run scripts/workflow-runtime.ts health",
+    "workflow:manifest": "bun run scripts/workflow-runtime.ts manifest",
+    "workflow:sync": "bun run scripts/workflow-runtime.ts sync"
   },
   "dependencies": {
     "diff": "^7.0.0",
