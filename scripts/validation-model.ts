@@ -262,9 +262,9 @@ function validateBlockerRules(entry: ValidationEntrypoint, index: number): void 
   }
 
   if (entry.layer === 'protocol' && entry.owner === 'workflow-system') {
-    if (entry.blocker_level === 'warning-only') {
+    if (blockerLevelExceeds('blocks-merge', entry.blocker_level)) {
       throw new Error(
-        `Validation matrix entry [${index}] "${entry.name}": protocol-level workflow-system entrypoints cannot be demoted to warning-only.`,
+        `Validation matrix entry [${index}] "${entry.name}": protocol-level workflow-system entrypoints cannot be demoted below blocks-merge.`,
       );
     }
   }

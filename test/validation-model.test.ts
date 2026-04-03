@@ -208,7 +208,7 @@ describe('validation-model', () => {
     expect(() => parseValidationMatrix([dup, dup])).toThrow('Duplicate');
   });
 
-  test('parseValidationMatrix rejects protocol workflow-system demotion to warning-only', () => {
+  test('parseValidationMatrix rejects protocol workflow-system demotion below blocks-merge', () => {
     expect(() =>
       parseValidationMatrix([
         {
@@ -221,7 +221,21 @@ describe('validation-model', () => {
           owner: 'workflow-system',
         },
       ]),
-    ).toThrow('cannot be demoted to warning-only');
+    ).toThrow('cannot be demoted below blocks-merge');
+
+    expect(() =>
+      parseValidationMatrix([
+        {
+          name: 'bad-ship-demotion',
+          layer: 'protocol',
+          command: 'bun test',
+          blocker_level: 'blocks-ship',
+          description: 'x',
+          phase: 'P9',
+          owner: 'workflow-system',
+        },
+      ]),
+    ).toThrow('cannot be demoted below blocks-merge');
   });
 
   test('parseValidationMatrix rejects project-layer blocks-generator entrypoints', () => {
