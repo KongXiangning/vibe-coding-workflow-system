@@ -179,4 +179,18 @@ describe('gen-workflow-skills', () => {
     expect(content).toContain('TASK-{{TASK_ID}}-{{TASK_SLUG}}.md');
     expect(content).toContain('任务标识必须从 CURRENT_TASK.md 的任务信息读取');
   });
+
+  test('create-current-task aligns its required sections with the CURRENT_TASK schema contract', () => {
+    const currentTaskPath = path.join(OUTPUT_DIR, 'create-current-task.SKILL.md');
+    const frontmatter = parseFrontmatter(currentTaskPath);
+    const requiredSections = normalizeList(frontmatter.required_sections);
+    const content = fs.readFileSync(currentTaskPath, 'utf8');
+
+    expect(requiredSections).toContain('已确认决策');
+    expect(requiredSections).toContain('待确认问题');
+    expect(requiredSections).not.toContain('决策分类');
+    expect(content).toContain('- 已确认决策');
+    expect(content).toContain('- 待确认问题');
+    expect(content).not.toContain('- 决策分类');
+  });
 });

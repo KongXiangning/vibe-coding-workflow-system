@@ -12,6 +12,7 @@ import { WORKFLOW_DOC_NAMES } from '../scripts/workflow-doc-contracts';
 const ROOT = path.resolve(import.meta.dir, '..');
 const GENERATED_DOCS_DIR = path.join(ROOT, 'generated', 'workflow-docs');
 const tempRoots: string[] = [];
+const ROOT_PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
 
 function createTempTargetRoot(): string {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-bootstrap-'));
@@ -23,6 +24,14 @@ function readGeneratedDoc(file: (typeof WORKFLOW_DOC_NAMES)[number]): string {
   return fs.readFileSync(path.join(GENERATED_DOCS_DIR, file), 'utf8');
 }
 
+function writeTargetProfile(targetRoot: string, overrides: Record<string, string> = {}): void {
+  let content = fs.readFileSync(ROOT_PROFILE_PATH, 'utf8');
+  for (const [from, to] of Object.entries(overrides)) {
+    content = content.replace(from, to);
+  }
+  fs.writeFileSync(path.join(targetRoot, 'PROJECT_PROFILE.yaml'), content, 'utf8');
+}
+
 afterEach(() => {
   while (tempRoots.length > 0) {
     fs.rmSync(tempRoots.pop()!, { recursive: true, force: true });
@@ -32,6 +41,7 @@ afterEach(() => {
 describe('bootstrap-project-governance', () => {
   test('emits a complete dry-run plan for a project without governance docs', () => {
     const targetRoot = createTempTargetRoot();
+    writeTargetProfile(targetRoot);
     const plan = buildBootstrapPlan({
       systemRoot: ROOT,
       targetRoot,
@@ -47,6 +57,12 @@ describe('bootstrap-project-governance', () => {
     expect(plan.summary.propose_diff_only).toBe(0);
     expect(plan.summary.blocked).toBe(0);
     expect(plan.validation_entrypoint_slots.length).toBeGreaterThanOrEqual(4);
+    expect(plan.validation_entrypoint_slots.slice(0, 4).map(slot => slot.blocker_level)).toEqual([
+      'blocks-merge',
+      'blocks-merge',
+      'blocks-merge',
+      'blocks-merge',
+    ]);
     expect(plan.first_run_checklist.length).toBeGreaterThanOrEqual(5);
     for (const docPlan of plan.governed_docs) {
       expect(docPlan.lifecycle).toBe('absent');
@@ -104,6 +120,7 @@ describe('bootstrap-project-governance', () => {
 
   test('builds per-file sync actions and blocked states without writing live docs', () => {
     const targetRoot = createTempTargetRoot();
+    writeTargetProfile(targetRoot);
     fs.writeFileSync(
       path.join(targetRoot, 'CONTRACTS.md'),
       `${readGeneratedDoc('CONTRACTS.md')}\n\n### 额外小节\n\n- manual drift\n`,
@@ -133,6 +150,7 @@ describe('bootstrap-project-governance', () => {
 
   test('reports materialized task identity from CURRENT_TASK.md without writing archive files', () => {
     const targetRoot = createTempTargetRoot();
+    writeTargetProfile(targetRoot);
     fs.writeFileSync(
       path.join(targetRoot, 'CURRENT_TASK.md'),
       [
@@ -167,6 +185,43 @@ describe('bootstrap-project-governance', () => {
     expect(fs.existsSync(path.join(targetRoot, 'TASKS', 'TASK-007-implement-task-identity.md'))).toBe(false);
   });
 
+  test('reports placeholder-preserved task identity without materializing archive naming', () => {
+    const targetRoot = createTempTargetRoot();
+    writeTargetProfile(targetRoot);
+    fs.writeFileSync(
+      path.join(targetRoot, 'CURRENT_TASK.md'),
+      [
+        '# CURRENT_TASK.md',
+        '',
+        '## 任务信息',
+        '',
+        '- 项目：gstack',
+        '- 项目类型：ai-engineering-workflow',
+        '- 任务 ID：{{TASK_ID}}',
+        '- 任务标题：{{TASK_TITLE}}',
+        '- 任务 slug：{{TASK_SLUG}}',
+        '- 当前状态：draft',
+        '',
+        '## 背景与上下文',
+        '',
+        '- context',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const plan = buildBootstrapPlan({
+      systemRoot: ROOT,
+      targetRoot,
+      runGeneratorChecks: false,
+    });
+
+    expect(plan.task_identity.status).toBe('placeholder-preserved');
+    expect(plan.task_identity.current_identity?.archive_path).toBeUndefined();
+    expect(plan.task_identity.reasons).toContain(
+      'Task identity placeholders are preserved and must be materialized only during Adoption A3 or approved runtime execution.',
+    );
+  });
+
   test('runs protocol-level generator checks successfully', () => {
     const checks = runProtocolGeneratorChecks(ROOT);
     expect(checks.map(check => check.name)).toEqual([
@@ -175,5 +230,22 @@ describe('bootstrap-project-governance', () => {
       'gen:registry',
     ]);
     expect(checks.every(check => check.status === 'passed')).toBe(true);
+  });
+
+  test('reads the target project profile instead of the system profile', () => {
+    const targetRoot = createTempTargetRoot();
+    writeTargetProfile(targetRoot, {
+      'name: gstack': 'name: target-sandbox',
+      'slug: gstack': 'slug: target-sandbox',
+    });
+
+    const plan = buildBootstrapPlan({
+      systemRoot: ROOT,
+      targetRoot,
+      runGeneratorChecks: false,
+    });
+
+    expect(plan.profile.name).toBe('target-sandbox');
+    expect(plan.profile.slug).toBe('target-sandbox');
   });
 });

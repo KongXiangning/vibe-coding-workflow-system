@@ -47,7 +47,7 @@ export type ValidationEntrypointSlot = {
   phase: 'A4';
   owner: 'target-project';
   binding_status: 'unbound';
-  blocker_level: 'target-project-defined';
+  blocker_level: 'blocks-merge' | 'target-project-defined';
   description: string;
 };
 
@@ -149,7 +149,7 @@ const VALIDATION_ENTRYPOINT_SLOTS: ValidationEntrypointSlot[] = [
     phase: 'A4',
     owner: 'target-project',
     binding_status: 'unbound',
-    blocker_level: 'target-project-defined',
+    blocker_level: 'blocks-merge',
     description: 'Bind the target project unit-test command or runner during Adoption A4.',
   },
   {
@@ -157,7 +157,7 @@ const VALIDATION_ENTRYPOINT_SLOTS: ValidationEntrypointSlot[] = [
     phase: 'A4',
     owner: 'target-project',
     binding_status: 'unbound',
-    blocker_level: 'target-project-defined',
+    blocker_level: 'blocks-merge',
     description: 'Bind the target project integration-test command or runner during Adoption A4.',
   },
   {
@@ -165,7 +165,7 @@ const VALIDATION_ENTRYPOINT_SLOTS: ValidationEntrypointSlot[] = [
     phase: 'A4',
     owner: 'target-project',
     binding_status: 'unbound',
-    blocker_level: 'target-project-defined',
+    blocker_level: 'blocks-merge',
     description: 'Bind the target project smoke or end-to-end validation command during Adoption A4.',
   },
   {
@@ -173,7 +173,7 @@ const VALIDATION_ENTRYPOINT_SLOTS: ValidationEntrypointSlot[] = [
     phase: 'A4',
     owner: 'target-project',
     binding_status: 'unbound',
-    blocker_level: 'target-project-defined',
+    blocker_level: 'blocks-merge',
     description: 'Bind target-project contract compatibility checks during Adoption A4.',
   },
   {
@@ -652,7 +652,7 @@ function buildTaskIdentityPlan(targetRoot: string): BootstrapTaskIdentityPlan {
 export function buildBootstrapPlan(options: BuildBootstrapPlanOptions = {}): BootstrapPlan {
   const systemRoot = path.resolve(options.systemRoot ?? resolveRoot());
   const targetRoot = path.resolve(options.targetRoot ?? systemRoot);
-  const profilePath = path.join(systemRoot, 'PROJECT_PROFILE.yaml');
+  const profilePath = path.join(targetRoot, 'PROJECT_PROFILE.yaml');
   const profile = loadProfile(profilePath);
   validateProfilePathSemantics(profile);
 

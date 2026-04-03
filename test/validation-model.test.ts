@@ -95,11 +95,12 @@ describe('validation-model', () => {
     expect(names).toContain('task-identity-tests');
   });
 
-  test('default project slots are all unbound', () => {
+  test('default project slots are all unbound and seed blocks-merge defaults', () => {
     expect(DEFAULT_PROJECT_SLOTS.length).toBe(4);
     for (const slot of DEFAULT_PROJECT_SLOTS) {
       expect(slot.layer).toBe('project');
       expect(slot.owner).toBe('target-project');
+      expect(slot.blocker_level).toBe('blocks-merge');
       expect(isEntrypointBound(slot)).toBe(false);
     }
   });
@@ -223,6 +224,22 @@ describe('validation-model', () => {
     ).toThrow('cannot be demoted to warning-only');
   });
 
+  test('parseValidationMatrix rejects project-layer blocks-generator entrypoints', () => {
+    expect(() =>
+      parseValidationMatrix([
+        {
+          name: 'bad-project-generator-blocker',
+          layer: 'project',
+          command: 'bun test',
+          blocker_level: 'blocks-generator',
+          description: 'x',
+          phase: 'A4',
+          owner: 'target-project',
+        },
+      ]),
+    ).toThrow('project-layer entrypoints cannot use blocker_level "blocks-generator"');
+  });
+
   test('partitionByLayer separates protocol and project entrypoints', () => {
     const combined = [...PROTOCOL_ENTRYPOINTS, ...DEFAULT_PROJECT_SLOTS] as ValidationEntrypoint[];
     const partitioned = partitionByLayer(combined);
@@ -314,6 +331,7 @@ describe('validation-model', () => {
 
     for (const entry of partitioned.project) {
       expect(entry.owner).toBe('target-project');
+      expect(entry.blocker_level).toBe('blocks-merge');
       expect(isEntrypointBound(entry)).toBe(false);
     }
   });

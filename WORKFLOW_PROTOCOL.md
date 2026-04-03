@@ -1107,9 +1107,11 @@ The blocker levels are, in order of severity:
 Assignment rules:
 
 - protocol-level validation entrypoints default to `blocks-generator` unless overridden by the protocol
-- project-level validation entrypoints are declared by the target project; the workflow-system does not assign default blocker levels for project-level gates
+- the workflow-system seeds the minimum unbound project-level slots at `blocks-merge` so the base matrix has explicit blocker levels before a target project binds real commands
+- a target project may adjust the blocker level of its own project-level slots when binding them in its configuration
 - a target project may promote a `warning-only` entrypoint to a higher blocker level in its own configuration
-- a target project may not demote a `blocks-generator` entrypoint below `blocks-merge`
+- project-level entrypoints may not use `blocks-generator`; that blocker level is reserved for protocol-level gates
+- a target project may not demote a workflow-system-defined `blocks-generator` entrypoint below `blocks-merge`
 
 ### §16.3 Layer precedence
 
@@ -1156,6 +1158,7 @@ Contract rules:
 - `blocker_level` must be one of the four levels defined in §16.2
 - protocol-layer entrypoints with `owner: workflow-system` are defined by the workflow-system and must not be redefined by a target project
 - project-layer entrypoints with `owner: target-project` are declared by the target project and bound during Adoption `A4`
+- project-layer entrypoints may not declare `blocker_level: blocks-generator`
 - an entrypoint with `command` set to an empty string or a placeholder is treated as `unbound`
 - unbound entrypoints are not executed; they serve as documented slots for future binding
 
@@ -1178,10 +1181,10 @@ Target projects are expected to declare at least the following project-level slo
 
 | Name | Layer | Blocker level | Phase | Owner |
 |---|---|---|---|---|
-| `unit` | `project` | target-project-defined | `A4` | `target-project` |
-| `integration` | `project` | target-project-defined | `A4` | `target-project` |
-| `e2e-smoke` | `project` | target-project-defined | `A4` | `target-project` |
-| `contract-compatibility` | `project` | target-project-defined | `A4` | `target-project` |
+| `unit` | `project` | `blocks-merge` (default slot) | `A4` | `target-project` |
+| `integration` | `project` | `blocks-merge` (default slot) | `A4` | `target-project` |
+| `e2e-smoke` | `project` | `blocks-merge` (default slot) | `A4` | `target-project` |
+| `contract-compatibility` | `project` | `blocks-merge` (default slot) | `A4` | `target-project` |
 
 Non-functional entrypoint slots that a target project may optionally declare:
 

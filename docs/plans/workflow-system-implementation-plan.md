@@ -1,9 +1,9 @@
 # Workflow System Implementation Plan
 
-Status: Frozen Baseline
+//Status: Frozen Baseline
 Execution-Status: In Progress
 Owner: kongx
-Last-Updated: 2026-04-02
+Last-Updated: 2026-04-03
 
 ## Current Execution Order
 
@@ -65,6 +65,12 @@ Implementation tracking rule:
 
 - when any phase in this plan advances materially, the same change must also update [workflow-system-artifact-inventory.md](/e:/coding/github/gstack/docs/plans/workflow-system-artifact-inventory.md)
 - a phase step is not fully closed until the artifact inventory has been updated to reflect the new implementation state
+
+Authority note:
+
+- this plan is the baseline for intent, sequencing, scope, and acceptance logic
+- dynamic implementation status inside this document is no longer authoritative once it diverges from execution reality
+- the authoritative source for current phase status, implementation artifacts, review follow-ups, and test coverage is [workflow-system-artifact-inventory.md](/e:/coding/github/gstack/docs/plans/workflow-system-artifact-inventory.md)
 
 ## Execution Model
 
@@ -183,27 +189,6 @@ The current repository is the place where the system is being incubated.
 
 The final workflow-system is meant to be portable and ultimately usable outside this repository.
 
-## Current Implementation Status
-
-The following artifacts already exist and are operational:
-
-| Artifact | Status | Location |
-|----------|--------|----------|
-| `WORKFLOW_PROTOCOL.md` | ✅ Hardened spec with 22+ sections; protocol versioning, stage enum, metadata schema, placeholder/path grammar, atomic write, error format, and success criteria all formalized (P1 complete) | repo root |
-| `gen:workflow-skills` | ✅ Operational | `scripts/gen-workflow-skills.ts` |
-| `gen:workflow-docs` | ✅ Operational | `scripts/gen-workflow-docs.ts` |
-| `gen:registry` | ✅ Operational | `scripts/gen-registry.ts` |
-| Generated workflow skills | ✅ 18 skills generated | `generated/workflow-skills/` |
-| Generated workflow docs | ✅ 7 docs generated | `generated/workflow-docs/` |
-| `SKILL_REGISTRY.md` | ✅ Auto-generated | repo root |
-| Test commands | ✅ `test:workflow-skills`, `test:workflow-docs`, `test:registry`, `test:workflow-all` | `package.json` |
-| Shared core module | ✅ Fully extracted to `scripts/workflow-core.ts` — 5 types, 4 constants, 19 functions; all 3 generators consume shared parsing, validation, handoff, atomic write, and error emission (P2 complete) | `scripts/` |
-| Shared core tests | ✅ 46 unit tests (89 assertions) in `test/workflow-core.test.ts` | `test/` |
-| Hybrid sync strategy | ✅ Defined in `WORKFLOW_PROTOCOL.md` §14; protocol-only in P6, implementation deferred to bootstrap/runtime sync tooling | repo root |
-| Bootstrap entrypoint | ❌ Not yet implemented | — |
-| Project-level validation model | ❌ Not yet defined | — |
-| Runtime integration | ❌ Not yet implemented | — |
-
 ## Boundary Decisions
 
 ### Incubation vs extraction paths
@@ -285,9 +270,13 @@ Precedence rules:
 
 ## Phase Plan
 
-### P1. Harden the protocol core
+Execution-status note:
 
-Status: **Complete**
+- this section defines the baseline intent, scope, deliverables, dependencies, and acceptance criteria for each phase
+- per-phase execution status is intentionally not tracked here
+- for the authoritative current status of each phase, use [workflow-system-artifact-inventory.md](/e:/coding/github/gstack/docs/plans/workflow-system-artifact-inventory.md)
+
+### P1. Harden the protocol core
 
 > `WORKFLOW_PROTOCOL.md` has been hardened from a 475-line draft into a ~717-line formal spec. Added 9 specification sections: protocol versioning (v0.1.0 + SemVer), canonical stage enum (10 groups with English IDs + Chinese aliases), formal skill metadata schema (13 fields with types/cardinality), placeholder grammar (syntax, categories, 14-placeholder table), path grammar (format rules, special tokens, validation), input precedence (Protocol > Profile > Template), atomic write rules (two-phase, idempotence, dry-run), structured error format (JSON schema, code namespaces, exit codes), and machine-checkable success criteria (per-generator tables).
 
@@ -310,8 +299,6 @@ Acceptance criteria (all met):
 - ✅ implementers do not need to invent rules for schema, path matching, placeholder handling, atomic write, or error shape
 
 ### P2. Build the shared parser / validator / writer core
-
-Status: **Complete**
 
 > `scripts/workflow-core.ts` is the fully extracted shared core (315 lines). Contains 5 types (`JsonValue`, `JsonObject`, `HandoffRef`, `WriteOperation`, `ErrorReport`), 4 constants (`STAGE_MAP`, `STAGE_ALIASES`, `REQUIRED_STAGES`, `RESERVED_FAILURE_TARGETS`), and 19 functions covering loading, parsing, rendering, validation, handoff, atomic writes, error emission, and generator orchestration. All 3 generators now import and reuse the core protocol paths from this module, with no material duplication in the currently-implemented shared protocol logic. Unit tests: 46 tests, 89 assertions in `test/workflow-core.test.ts`.
 
@@ -359,8 +346,6 @@ Acceptance criteria:
 
 ### P3. Implement `gen:workflow-skills`
 
-Status: **Complete**
-
 > `bun run gen:workflow-skills` is operational. 18 skills are generated to `generated/workflow-skills/`. Tests exist at `test/gen-workflow-skills.test.ts` and are runnable via `bun run test:workflow-skills`.
 
 What was delivered:
@@ -388,8 +373,6 @@ Acceptance criteria (all met):
 - ✅ `bun run test:workflow-skills` validates the generator output reliably (6 tests, 445 assertions)
 
 ### P4. Implement `gen:registry`
-
-Status: **Complete**
 
 > `bun run gen:registry` is operational. `SKILL_REGISTRY.md` is generated at repo root. Tests exist at `test/gen-registry.test.ts` and are runnable via `bun run test:registry`.
 
@@ -422,8 +405,6 @@ Deferred follow-up outside P4 closure:
 - This follow-up belongs to later CI integration work, not to the completed core generator behavior of P4
 
 ### P5. Implement `gen:workflow-docs`
-
-Status: **Partially Complete — Skeleton Generation Done, Final Closure Owned by P6**
 
 > `bun run gen:workflow-docs` is operational. 7 governance doc skeletons are generated to `generated/workflow-docs/`. Tests exist at `test/gen-workflow-docs.test.ts` and are runnable via `bun run test:workflow-docs`. P5 is complete only for skeleton generation and structural validation. Final closure of P5 is explicitly owned by P6, which determines whether the docs generator's output assumptions align with the hybrid sync policy.
 
@@ -469,8 +450,6 @@ Dependencies:
 - should follow P3 and P4
 
 ### P6. Define the generated docs <-> live docs hybrid sync strategy
-
-Status: **Complete (Protocol-only, and Closes P5 Ownership Assumptions at the Protocol Layer)**
 
 > `WORKFLOW_PROTOCOL.md` now defines the hybrid sync model in §14. The protocol locks the ownership split between generated docs and live docs, defines lifecycle states and sync actions, requires diff-first confirmation for any existing live doc, preserves live-owned content during structural refresh, and adds a CI sync contract. P6 also serves as the formal closure step for P5 ownership assumptions. No sync engine, `sync:check` command, bootstrap enforcement, or runtime sync tooling was implemented in P6 by design; execution-layer enforcement is deferred to later phases.
 
@@ -537,8 +516,6 @@ Not claimed by P6:
 
 ### P7a. Implement `bootstrap-project-governance` as the adoption planning capability
 
-Status: **Not Started**
-
 > This phase implements the portable bootstrap planning/dry-run capability in the current repository. It does not assume that a target project already has workflow-system-specific docs, skills, or validation rules beyond what bootstrap can classify or plan as allowed sync actions.
 
 Goal:
@@ -581,8 +558,6 @@ Acceptance criteria:
 
 ### P7b. Define task identity capability for later adoption execution
 
-Status: **Not Started**
-
 Goal:
 
 Define a portable task identity contract to be applied during adoption (A3), without executing any target-project writes during this phase.
@@ -611,8 +586,6 @@ Acceptance criteria:
 - the plan explicitly anchors task identity materialization to Adoption `A3`, not to bootstrap planning in `A2`
 
 ### P8. Define the project-level validation model and CI blockers
-
-Status: **Not Started**
 
 Goal:
 
@@ -659,8 +632,6 @@ Acceptance criteria:
 
 ### P9. Wire protocol-level checks, generator tests, and workflow-system CI
 
-Status: **Not Started**
-
 Goal:
 
 Turn the workflow-system's protocol-level validation model into real protocol-level quality gates inside the current repository before target projects consume it.
@@ -697,8 +668,6 @@ Acceptance criteria:
 - P9 does not execute or own target-project unit, integration, smoke, E2E, or other project-level validation gates
 
 ### P10. Integrate Claude / Codex runtime entrypoints
-
-Status: **Not Started**
 
 Goal:
 
@@ -741,8 +710,6 @@ Acceptance criteria:
 
 ### Adoption Stage A1-A5. Import, bootstrap, materialize, validate, and extend in a target project
 
-Status: **Not Started**
-
 Goal:
 
 Use the completed workflow-system in a real target project without collapsing system development and project-specific adoption into one step.
@@ -773,8 +740,6 @@ Acceptance criteria:
 - task identity is materialized during `A3` together with other allowed writes, not during bootstrap planning in `A2`
 
 ### P11. Add versioned governance for long-term evolution
-
-Status: **Not Started**
 
 Goal:
 

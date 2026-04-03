@@ -254,7 +254,13 @@ function validateEntrypointFields(entry: Record<string, unknown>, index: number)
   }
 }
 
-function validateDemotionRule(entry: ValidationEntrypoint, index: number): void {
+function validateBlockerRules(entry: ValidationEntrypoint, index: number): void {
+  if (entry.layer === 'project' && entry.blocker_level === 'blocks-generator') {
+    throw new Error(
+      `Validation matrix entry [${index}] "${entry.name}": project-layer entrypoints cannot use blocker_level "blocks-generator".`,
+    );
+  }
+
   if (entry.layer === 'protocol' && entry.owner === 'workflow-system') {
     if (entry.blocker_level === 'warning-only') {
       throw new Error(
@@ -295,7 +301,7 @@ export function parseValidationMatrix(
       owner: String(entry.owner) as EntrypointOwner,
     };
 
-    validateDemotionRule(parsed, index);
+    validateBlockerRules(parsed, index);
     entrypoints.push(parsed);
   }
 
