@@ -110,6 +110,46 @@ describe('run-validation', () => {
     expect(skippedBelowThreshold.length).toBe(5); // 5 blocks-merge entries skipped
   });
 
+  test('blocker-level filter also skips synthesized governance-home failures below threshold', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-threshold-governance-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: deploy',
+          '      layer: project',
+          '      command: bun run test:deploy',
+          '      blocker_level: blocks-ship',
+          '      description: target deploy gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
+
+      const report = runValidation({
+        root: tempRoot,
+        layer: 'project',
+        maxBlockerLevel: 'blocks-generator',
+        dryRun: true,
+      });
+
+      expect(report.project_results).toHaveLength(1);
+      expect(report.project_results[0]?.entrypoint).toBe('deploy');
+      expect(report.project_results[0]?.status).toBe('skipped');
+      expect(report.project_results[0]?.output).toContain('below threshold');
+      expect(report.blocked_gates).toEqual([]);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test('report separates protocol and project results', () => {
     const report = runValidation({ root: ROOT, dryRun: true });
     for (const r of report.protocol_results) {
@@ -117,6 +157,341 @@ describe('run-validation', () => {
     }
     for (const r of report.project_results) {
       expect(r.layer).toBe('project');
+    }
+  });
+
+  test('project validation accepts generated lifecycle governance homes when project entrypoints are bound', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-governance-ok-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: unit',
+          '      layer: project',
+          '      command: bun run test:unit',
+          '      blocker_level: blocks-merge',
+          '      description: target unit gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
+      expect(report.project_results).toHaveLength(1);
+      expect(report.project_results[0]?.entrypoint).toBe('unit');
+      expect(report.project_results[0]?.status).toBe('skipped');
+      expect(report.project_results[0]?.output).toBe('dry-run mode');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('project validation requires ROADMAP.md governance home when project entrypoints are bound', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-roadmap-missing-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: unit',
+          '      layer: project',
+          '      command: bun run test:unit',
+          '      blocker_level: blocks-merge',
+          '      description: target unit gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'ROADMAP.md'), { force: true });
+
+      const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
+      expect(report.project_results[0]?.entrypoint).toBe('roadmap-governance-home');
+      expect(report.project_results[0]?.status).toBe('failed');
+      expect(report.project_results[0]?.error).toContain('Missing ROADMAP.md governance home');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('project validation checks live DECISIONS.md against the governance contract', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-decisions-live-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: unit',
+          '      layer: project',
+          '      command: bun run test:unit',
+          '      blocker_level: blocks-merge',
+          '      description: target unit gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      fs.writeFileSync(
+        path.join(tempRoot, 'DECISIONS.md'),
+        [
+          '# DECISIONS.md',
+          '',
+          '## 使用规则',
+          '',
+          '- live decisions',
+          '',
+          '## 🏗️ 架构决策',
+          '',
+          '### AD-001: live',
+          '',
+          '- 状态：accepted',
+          '',
+          '## 🎨 口味决策',
+          '',
+          '### TD-001: live',
+          '',
+          '- 状态：accepted',
+          '',
+          '## ⏸️ 暂缓决策',
+          '',
+          '### DEFER-001: live',
+          '',
+          '- 状态：deferred',
+          '',
+          '## ❌ 已否决',
+          '',
+          '### REJECTED-001: live',
+          '',
+          '- 状态：rejected',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
+      const failure = report.project_results.find(result => result.entrypoint === 'decisions-governance-home');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('## 🔁 已演进 / 已替代');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protocol-only validation ignores project baseline-home enforcement', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-baseline-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+          '    - name: security',
+          '      layer: project',
+          '      command: bun run test:security',
+          '      blocker_level: blocks-ship',
+          '      description: target security gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const baselinesPath = path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md');
+      const baselines = fs.readFileSync(baselinesPath, 'utf8').replace('### SEC-001:', '### NOTE-001:');
+      fs.writeFileSync(baselinesPath, baselines, 'utf8');
+
+      expect(() => loadMatrixFromProfile(tempRoot)).not.toThrow();
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_results.length).toBe(1);
+      expect(report.project_results).toHaveLength(0);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('project validation prefers live BASELINES.md over generated skeleton', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-baseline-ok-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+          '    - name: deploy',
+          '      layer: project',
+          '      command: bun run test:deploy',
+          '      blocker_level: blocks-ship',
+          '      description: target deploy gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const generatedBaselinesPath = path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md');
+      const generatedBaselines = fs
+        .readFileSync(generatedBaselinesPath, 'utf8')
+        .replace('### DEP-001:', '### NOTE-001:');
+      fs.writeFileSync(generatedBaselinesPath, generatedBaselines, 'utf8');
+
+      fs.writeFileSync(
+        path.join(tempRoot, 'BASELINES.md'),
+        [
+          '# BASELINES.md',
+          '',
+          '## 使用规则',
+          '',
+          '- live baseline',
+          '',
+          '## 版本治理概览',
+          '',
+          '- 当前版本：1.0.0',
+          '',
+          '## 发布基线',
+          '',
+          '### REL-001: live',
+          '',
+          '- 状态：active',
+          '',
+          '## 兼容性基线',
+          '',
+          '### COMP-001: live',
+          '',
+          '- 状态：active',
+          '',
+          '## 安全基线',
+          '',
+          '### SEC-001: live',
+          '',
+          '- 状态：active',
+          '',
+          '## 部署基线',
+          '',
+          '### DEP-001: live',
+          '',
+          '- 状态：active',
+          '',
+          '## 性能与可靠性基线',
+          '',
+          '### NFR-001: live',
+          '',
+          '- 状态：active',
+          '',
+          '## 基线变更记录',
+          '',
+          '- seeded',
+        ].join('\n'),
+        'utf8',
+      );
+
+      expect(() => runValidation({ root: tempRoot, layer: 'project', dryRun: true })).not.toThrow();
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('project validation requires a valid baseline home when optional slots are bound', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-baseline-missing-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: deploy',
+          '      layer: project',
+          '      command: bun run test:deploy',
+          '      blocker_level: blocks-ship',
+          '      description: target deploy gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
+
+      const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
+      expect(report.protocol_results).toHaveLength(0);
+      const failure = report.project_results.find(result => result.entrypoint === 'baseline-governance-home');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('Missing BASELINES.md governance home');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('full validation preserves protocol results before reporting baseline-home failure', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-full-run-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+          '    - name: deploy',
+          '      layer: project',
+          '      command: bun run test:deploy',
+          '      blocker_level: blocks-ship',
+          '      description: target deploy gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
+
+      const report = runValidation({ root: tempRoot, dryRun: true });
+      expect(report.protocol_results).toHaveLength(1);
+      expect(report.protocol_results[0]?.entrypoint).toBe('workflow-docs-validation');
+      expect(report.protocol_passed).toBe(true);
+      const failure = report.project_results.find(result => result.entrypoint === 'baseline-governance-home');
+      expect(failure?.status).toBe('failed');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 });

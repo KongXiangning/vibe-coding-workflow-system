@@ -18,9 +18,9 @@ import {
 } from './workflow-core';
 import {
   WORKFLOW_DOC_NAMES,
-  WORKFLOW_DOC_REQUIRED_HEADINGS,
   WORKFLOW_DOC_RUNTIME_PLACEHOLDERS,
   isWorkflowDocName,
+  validateWorkflowDocContract,
 } from './workflow-doc-contracts';
 
 const ROOT = resolveRoot();
@@ -45,11 +45,7 @@ function validateRequiredHeadings(fileName: string, content: string): void {
     throw new Error(`No required heading spec found for ${fileName}`);
   }
 
-  for (const heading of WORKFLOW_DOC_REQUIRED_HEADINGS[fileName]) {
-    if (!content.includes(heading)) {
-      throw new Error(`Missing required heading "${heading}" in ${fileName}`);
-    }
-  }
+  validateWorkflowDocContract(fileName, content);
 }
 
 function main(): void {

@@ -353,6 +353,28 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 
 Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.
 
+## Workflow-system extraction ownership model
+
+The workflow-system is incubated inside `gstack`, but its ownership model is intentionally separable from the host repo.
+
+### Artifact ownership split
+
+- **Standalone-owned after extraction:** the workflow-system protocol and schema (`WORKFLOW_PROTOCOL.md`, `FILE_SCHEMAS.md`), generators and runtime contracts under `scripts/workflow-*.ts`, workflow templates under `templates/docs/**` and `templates/skills/**`, generated reference artifacts under `generated/workflow-docs/**` and `generated/workflow-skills/**`, and the tests that prove those contracts.
+- **Incubation-local to gstack:** `docs/plans/**`, gstack-specific browse/review/QA skills, repo-specific CI or release wiring that is not part of the workflow-system import contract, and any host-only operational conventions.
+- **Target-project-owned after adoption:** repo-root live governance docs, project validation bindings, deploy/release automation, secrets, environment procedures, and any project-specific docs or skills introduced after Adoption `A5`.
+
+### Extraction handoff rules
+
+- The extracted workflow-system becomes the source of truth for protocol changes, generator behavior, workflow runtime contracts, and lifecycle governance of the system itself.
+- Target projects consume the extracted artifact set via the import/export manifest and bootstrap/runtime contracts; they may extend project-local governance, but they do not become the source of truth for workflow-system protocol or generator semantics.
+- Once extraction happens, `gstack` relates to the workflow-system as an adopter or vendor, not as the permanent ownership home.
+
+### Lifecycle governance after extraction
+
+- The extracted workflow-system owns its own `ROADMAP.md`, `BASELINES.md`, and `DECISIONS.md` as the formal homes for release planning, compatibility baselines, and decision evolution.
+- Compatibility and release commitments apply to the exported artifact set, the import contract, and the validation/runtime entrypoints that adopters rely on.
+- Feature requests, bug fixes, and migration policy for the workflow-system route back to the extracted system's governance surface rather than being patched independently in each adopting project.
+
 ## What's intentionally not here
 
 - **No WebSocket streaming.** HTTP request/response is simpler, debuggable with curl, and fast enough. Streaming would add complexity for marginal benefit.

@@ -4,8 +4,8 @@ import * as path from 'path';
 import { loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
 import {
   WORKFLOW_DOC_NAMES,
-  WORKFLOW_DOC_REQUIRED_HEADINGS,
   WORKFLOW_DOC_RUNTIME_PLACEHOLDERS,
+  validateWorkflowDocContract,
 } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -39,9 +39,7 @@ describe('gen-workflow-docs', () => {
   test('every generated workflow doc has required headings', () => {
     for (const file of WORKFLOW_DOC_NAMES) {
       const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
-      for (const heading of WORKFLOW_DOC_REQUIRED_HEADINGS[file]) {
-        expect(content.includes(heading)).toBe(true);
-      }
+      expect(() => validateWorkflowDocContract(file, content)).not.toThrow();
     }
   });
 
@@ -78,6 +76,48 @@ describe('gen-workflow-docs', () => {
     expect(taskArchive).toContain('- 任务 ID：{{TASK_ID}}');
     expect(taskArchive).toContain('- 任务标题：{{TASK_TITLE}}');
     expect(taskArchive).toContain('- 任务 slug：{{TASK_SLUG}}');
+  });
+
+  test('lifecycle governance docs provide roadmap and baseline homes', () => {
+    const roadmap = fs.readFileSync(path.join(OUTPUT_DIR, 'ROADMAP.md'), 'utf8');
+    expect(roadmap).toContain('## 版本里程碑');
+    expect(roadmap).toContain('## 当前窗口');
+
+    const baselines = fs.readFileSync(path.join(OUTPUT_DIR, 'BASELINES.md'), 'utf8');
+    expect(baselines).toContain('## 发布基线');
+    expect(baselines).toContain('## 兼容性基线');
+    expect(baselines).toContain('## 安全基线');
+    expect(baselines).toContain('## 部署基线');
+    expect(baselines).toContain('## 性能与可靠性基线');
+  });
+
+  test('decisions doc includes superseded-decision handling', () => {
+    const decisions = fs.readFileSync(path.join(OUTPUT_DIR, 'DECISIONS.md'), 'utf8');
+    expect(decisions).toContain('## 🔁 已演进 / 已替代');
+    expect(decisions).toContain('- 原决策编号：');
+    expect(decisions).toContain('- 后继决策编号 / 基线：');
+  });
+
+  test('lifecycle governance docs preserve minimum field skeletons', () => {
+    const roadmap = fs.readFileSync(path.join(OUTPUT_DIR, 'ROADMAP.md'), 'utf8');
+    expect(roadmap).toContain('- 目标版本 / 时间窗：');
+    expect(roadmap).toContain('- 进入条件：');
+    expect(roadmap).toContain('- 完成定义：');
+    expect(roadmap).toContain('- 明确不做：');
+
+    const baselines = fs.readFileSync(path.join(OUTPUT_DIR, 'BASELINES.md'), 'utf8');
+    expect(baselines).toContain('### REL-001:');
+    expect(baselines).toContain('### COMP-001:');
+    expect(baselines).toContain('### SEC-001:');
+    expect(baselines).toContain('### DEP-001:');
+    expect(baselines).toContain('### NFR-001:');
+    expect(baselines).toContain('- 证据 / 验证入口：');
+    expect(baselines).toContain('- 例外处理：');
+
+    const decisions = fs.readFileSync(path.join(OUTPUT_DIR, 'DECISIONS.md'), 'utf8');
+    expect(decisions).toContain('### SUPERSEDED-001:');
+    expect(decisions).toContain('- 生效版本 / 里程碑：');
+    expect(decisions).toContain('- 兼容 / 迁移要求：');
   });
 
   test('docs generation accepts repo-level profile patterns via shared validation', () => {

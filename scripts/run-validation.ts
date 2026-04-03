@@ -15,6 +15,11 @@ import { spawnSync } from 'child_process';
 import { parse } from 'yaml';
 import { readText, resolveRoot } from './workflow-core';
 import {
+  validateBaselineCoverageForBoundSlots,
+  validateLifecycleGovernanceDoc,
+  type LifecycleGovernanceDoc,
+} from './workflow-doc-contracts';
+import {
   type BlockerLevel,
   type ValidationEntrypoint,
   type ValidationLayer,
@@ -22,6 +27,7 @@ import {
   type ValidationResult,
   buildValidationReport,
   getBoundEntrypoints,
+  isEntrypointBound,
   isValidBlockerLevel,
   isValidLayer,
   parseValidationMatrix,
@@ -43,6 +49,12 @@ type RunValidationCliArgs = {
   maxBlockerLevel?: BlockerLevel;
   json: boolean;
   dryRun: boolean;
+};
+
+type GovernanceHomeCheck = {
+  file: LifecycleGovernanceDoc;
+  entrypoint: 'baseline-governance-home' | 'decisions-governance-home' | 'roadmap-governance-home';
+  validateContent: (content: string, entrypoints: readonly ValidationEntrypoint[]) => void;
 };
 
 // --- CLI ---
@@ -101,6 +113,34 @@ const BLOCKER_SEVERITY: Record<BlockerLevel, number> = {
   'blocks-ship': 1,
   'warning-only': 0,
 };
+
+const GOVERNANCE_HOME_CHECKS: readonly GovernanceHomeCheck[] = [
+  {
+    file: 'ROADMAP.md',
+    entrypoint: 'roadmap-governance-home',
+    validateContent: content => {
+      validateLifecycleGovernanceDoc('ROADMAP.md', content);
+    },
+  },
+  {
+    file: 'DECISIONS.md',
+    entrypoint: 'decisions-governance-home',
+    validateContent: content => {
+      validateLifecycleGovernanceDoc('DECISIONS.md', content);
+    },
+  },
+  {
+    file: 'BASELINES.md',
+    entrypoint: 'baseline-governance-home',
+    validateContent: (content, entrypoints) => {
+      validateLifecycleGovernanceDoc('BASELINES.md', content);
+      const boundOptionalSlots = getBoundOptionalProjectSlots(entrypoints).map(entry => entry.name);
+      if (boundOptionalSlots.length > 0) {
+        validateBaselineCoverageForBoundSlots(content, boundOptionalSlots);
+      }
+    },
+  },
+] as const;
 
 function shouldRun(entrypoint: ValidationEntrypoint, maxBlockerLevel?: BlockerLevel): boolean {
   if (!maxBlockerLevel) return true;
@@ -171,6 +211,79 @@ export function loadMatrixFromProfile(root: string): ValidationEntrypoint[] {
   return parseValidationMatrix(validation.matrix).entrypoints;
 }
 
+function getBoundProjectEntrypoints(entrypoints: readonly ValidationEntrypoint[]): ValidationEntrypoint[] {
+  return entrypoints.filter(entry => entry.layer === 'project' && isEntrypointBound(entry));
+}
+
+function resolveGovernanceDocPath(root: string, file: LifecycleGovernanceDoc): string {
+  const livePath = path.join(root, file);
+  try {
+    readText(livePath);
+    return livePath;
+  } catch {}
+
+  const generatedPath = path.join(root, 'generated', 'workflow-docs', file);
+  try {
+    readText(generatedPath);
+    return generatedPath;
+  } catch {}
+
+  throw new Error(
+    `Missing ${file} governance home. Expected live doc at ${livePath} or generated skeleton at ${generatedPath}.`,
+  );
+}
+
+function getBoundOptionalProjectSlots(entrypoints: readonly ValidationEntrypoint[]): ValidationEntrypoint[] {
+  return getBoundProjectEntrypoints(entrypoints).filter(entry =>
+    ['performance', 'reliability', 'compatibility', 'security', 'deploy'].includes(entry.name),
+  );
+}
+
+function buildProjectGovernanceHomeFailure(
+  entrypoints: ValidationEntrypoint[],
+  entrypoint: GovernanceHomeCheck['entrypoint'],
+  error: Error,
+): ValidationResult {
+  const relevant = getBoundProjectEntrypoints(entrypoints);
+  const blockerLevel = relevant.reduce<BlockerLevel>(
+    (current, entry) =>
+      BLOCKER_SEVERITY[entry.blocker_level] > BLOCKER_SEVERITY[current] ? entry.blocker_level : current,
+    'warning-only',
+  );
+
+  return {
+    entrypoint,
+    layer: 'project',
+    blocker_level: blockerLevel,
+    status: 'failed',
+    error: error.message,
+  };
+}
+
+function validateProjectGovernanceHomes(root: string, entrypoints: ValidationEntrypoint[]): ValidationResult[] {
+  if (getBoundProjectEntrypoints(entrypoints).length === 0) {
+    return [];
+  }
+
+  const failures: ValidationResult[] = [];
+  for (const check of GOVERNANCE_HOME_CHECKS) {
+    try {
+      const docPath = resolveGovernanceDocPath(root, check.file);
+      check.validateContent(readText(docPath), entrypoints);
+    } catch (error) {
+      failures.push(
+        buildProjectGovernanceHomeFailure(
+          entrypoints,
+          check.entrypoint,
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
+    }
+  }
+
+  return failures;
+}
+
 export function runValidation(options: RunValidationOptions = {}): ValidationReport {
   const root = path.resolve(options.root ?? resolveRoot());
   const allEntrypoints = loadMatrixFromProfile(root);
@@ -183,6 +296,7 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
   const { protocol, project } = partitionByLayer(filtered);
   const boundProtocol = getBoundEntrypoints(protocol);
   const boundProject = getBoundEntrypoints(project);
+  const thresholdProject = boundProject.filter(entry => shouldRun(entry, options.maxBlockerLevel));
 
   // Protocol-first: run protocol entrypoints
   const protocolResults: ValidationResult[] = [];
@@ -204,6 +318,13 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
   );
 
   const projectResults: ValidationResult[] = [];
+  const governanceHomeFailures =
+    options.layer === 'protocol' ? [] : validateProjectGovernanceHomes(root, thresholdProject);
+
+  if (protocolPassed && governanceHomeFailures.length > 0) {
+    projectResults.push(...governanceHomeFailures);
+  }
+
   for (const entry of boundProject) {
     if (!shouldRun(entry, options.maxBlockerLevel)) {
       projectResults.push(skipResult(entry, `Blocker level ${entry.blocker_level} below threshold ${options.maxBlockerLevel}`));
@@ -211,6 +332,10 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
     }
     if (!protocolPassed) {
       projectResults.push(skipResult(entry, 'Protocol-level validation failed; project results are non-authoritative.'));
+      continue;
+    }
+    if (governanceHomeFailures.length > 0) {
+      projectResults.push(skipResult(entry, 'Project lifecycle governance home validation failed.'));
       continue;
     }
     if (options.dryRun) {

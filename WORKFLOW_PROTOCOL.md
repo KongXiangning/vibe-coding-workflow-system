@@ -1,9 +1,9 @@
 # Workflow Protocol
 
 ```yaml
-Protocol-Version: 0.1.0
+Protocol-Version: 0.2.0
 Status: Formal Spec
-Last-Updated: 2026-04-02
+Last-Updated: 2026-04-03
 ```
 
 This file defines the execution rules for the workflow skill system.
@@ -222,7 +222,7 @@ Materialization boundary:
 
 The generator must specialize skills by project type.
 
-Supported project types in Protocol-Version `0.1.0`:
+Supported project types in Protocol-Version `0.2.0`:
 
 - `frontend-app`
 - `backend-service`
@@ -275,7 +275,7 @@ Current implementation:
 
 - the workflow skill generator appends a `## Project-Type Emphasis` section to each rendered skill body
 - that section is derived from `project.type` in `PROJECT_PROFILE.yaml`
-- Protocol-Version `0.1.0` currently defines emphasis text only for:
+- Protocol-Version `0.2.0` currently defines emphasis text only for:
   - `frontend-app`
   - `backend-service`
   - `fullstack-app`
@@ -334,7 +334,7 @@ All references in this protocol to stage coverage must use the count of 10.
 - `{{ARCHITECTURE_RULES}}`
 - `{{DECISION_TYPES}}`
 
-### 5.2 Must remain as placeholders in Protocol-Version `0.1.0`
+### 5.2 Must remain as placeholders in Protocol-Version `0.2.0`
 
 - `{{TASK_ID}}`
 - `{{TASK_SLUG}}`
@@ -456,8 +456,8 @@ Generation must fail if:
 
 Current implementation:
 
-- Protocol-Version `0.1.0` validates overlap conflicts between explicit paths and restricted directory patterns
-- Protocol-Version `0.1.0` does **not yet** perform semantic path authorization such as "outside its workflow role" or "writes code paths" classification
+- Protocol-Version `0.2.0` validates overlap conflicts between explicit paths and restricted directory patterns
+- Protocol-Version `0.2.0` does **not yet** perform semantic path authorization such as "outside its workflow role" or "writes code paths" classification
 
 ### 7.4 Contract-sensitive skills
 
@@ -551,7 +551,7 @@ Minimum validation checks:
 3. no `writes` / `forbidden_writes` conflict exists
 4. all 10 workflow stage groups are represented (see §4a)
 5. all placeholders intended for project expansion are resolved
-6. task placeholders intentionally preserved in Protocol-Version `0.1.0` remain untouched
+6. task placeholders intentionally preserved in Protocol-Version `0.2.0` remain untouched
 
 If any check fails, the generator must:
 
@@ -680,9 +680,9 @@ gen:workflow-skills: generation failed — 2 errors, 1 warning
 | `1` | Generation error — input/output/file-system failure |
 | `2` | Validation error — rendered output failed protocol checks |
 
-## 10. Protocol scope for Version `0.1.0`
+## 10. Protocol scope for Version `0.2.0`
 
-Protocol-Version `0.1.0` constrains the workflow skill generator to the following scope:
+Protocol-Version `0.2.0` constrains the workflow skill generator to the following scope:
 
 1. read `PROJECT_PROFILE.yaml`
 2. read `templates/skills/*.SKILL.md.tmpl`
@@ -690,7 +690,7 @@ Protocol-Version `0.1.0` constrains the workflow skill generator to the followin
 4. render output to `generated/workflow-skills/`
 5. validate the rendered set
 
-Protocol-Version `0.1.0` excludes the following:
+Protocol-Version `0.2.0` excludes the following:
 
 - generate docs templates
 - install generated skills into runtime host directories
@@ -782,7 +782,14 @@ CONTRACTS.md
 LESSONS.md
 TASK_SUMMARY.md
 TASK_ARCHIVE.md
+ROADMAP.md
+BASELINES.md
 ```
+
+Protocol-Version `0.2.0` extends the required generated doc set with lifecycle-governance docs:
+
+- `ROADMAP.md` for milestone / roadmap / version-window planning
+- `BASELINES.md` for release, compatibility, security, deploy, and non-functional baselines
 
 ### 12.3 Docs substitution rules
 
@@ -797,7 +804,7 @@ The docs generator must expand project-level placeholders such as:
 - `{{ARCHITECTURE_RULES}}`
 - `{{VERSION}}`
 
-The docs generator must preserve runtime placeholders in Protocol-Version `0.1.0`:
+The docs generator must preserve runtime placeholders in Protocol-Version `0.2.0`:
 
 - `{{TASK_ID}}`
 - `{{TASK_TITLE}}`
@@ -994,7 +1001,7 @@ Human confirmation policy is mandatory:
 - `refresh-structure` requires explicit confirmation per file
 - `merge-safe update` requires explicit confirmation per file
 - `incompatible and diff-only until confirmed` files must never be auto-merged
-- in Protocol-Version `0.1.0`, `incompatible and diff-only until confirmed` means the sync layer may present the diff and classification result, but it must stop without writing
+- in Protocol-Version `0.2.0`, `incompatible and diff-only until confirmed` means the sync layer may present the diff and classification result, but it must stop without writing
 - any confirmed follow-up for an `incompatible` file is outside the automatic sync actions defined by P6 and must be handled by a separate manual decision or a later-phase contract
 - if a file is `incompatible` because of extra live-only headings or sections, the sync layer must not automatically preserve, move, fold, or reorder that extra structure
 - `orphaned` files must only produce a warning; they must not be deleted automatically
@@ -1194,6 +1201,8 @@ Non-functional entrypoint slots that a target project may optionally declare:
 - `security`
 - `deploy`
 
+When a target project binds any of those non-functional slots, the corresponding expectation must have a formal documented home in `BASELINES.md`.
+
 ### §16.5 Freshness as protocol-level gates
 
 Docs freshness and registry freshness are protocol-level validation gates.
@@ -1334,16 +1343,84 @@ Runtime integration must satisfy the following isolation guarantees:
 - runtime integration failures do not cascade to generators or protocol validation
 - a target project that imports the workflow-system does not acquire native gstack skills or dependencies
 
-## 18. Future-contract boundary
+## 18. Long-term versioned governance
 
-This protocol revision is reviewed and corrected against the currently implemented `P1-P10` surface.
+This section extends the workflow-system from task / change governance into lifecycle governance.
 
-The following contracts are intentionally **not** finalized here and remain owned by later plan phases:
+### §18.1 Formal document homes
 
-- `P11`: long-term versioned governance, release/compatibility/security/deploy baselines
+The lifecycle-governance surface uses the following formal document homes:
+
+- `ROADMAP.md` — milestone planning, version windows, active scope windows, candidate backlog, and cross-milestone risks
+- `BASELINES.md` — release, compatibility, security, deploy, performance, and reliability baselines
+- `DECISIONS.md` — immutable decision records plus explicit superseded-decision handling
+
+These docs are part of the generated workflow-doc contract, not ad-hoc optional notes. Their live content still follows the generated/live ownership split from §14.
+
+### §18.2 Decision evolution rules
+
+Decision records are append-only.
+
+- do not silently rewrite or delete an accepted, deferred, or rejected decision entry
+- when a decision is replaced, record the new decision in its normal decision section and add a superseded record under `## 🔁 已演进 / 已替代`
+- each superseded record must include:
+  - original decision ID
+  - successor decision ID or the baseline / roadmap milestone that now owns the constraint
+  - effective version or milestone
+  - reason for the change
+  - compatibility or migration handling
+- a decision is not considered superseded unless the successor or replacement home is explicit and auditable
+
+### §18.3 Roadmap governance rules
+
+`ROADMAP.md` is the formal home for:
+
+- lifecycle phase planning
+- milestone and version-window planning
+- active window scope
+- candidate backlog items
+- cross-window risks and dependencies
+
+The generated `ROADMAP.md` structure must remain aligned with `FILE_SCHEMAS.md`, and live projects may add content only inside those generated-owned sections per §14.
+
+### §18.4 Baseline governance rules
+
+`BASELINES.md` is the formal home for:
+
+- release gates and version windows
+- compatibility guarantees and migration notes
+- security requirements and review expectations
+- deploy, rollback, and release constraints
+- performance and reliability baselines
+
+Baseline records are versioned and append-only:
+
+- each baseline entry must declare status and effective version or window
+- baseline changes must be recorded in `## 基线变更记录`
+- optional validation entrypoints such as `performance`, `reliability`, `compatibility`, `security`, and `deploy` should map to the corresponding baseline sections when a target project binds them
+
+### §18.5 Ownership boundary
+
+P11 formalizes long-term governance homes and documentation rules.
+
+It does not centralize:
+
+- target-project private release automation
+- environment-specific deploy commands
+- credentials, secrets, or operational procedures that belong to a concrete production environment
+
+## 19. Future-contract boundary
+
+This protocol revision is reviewed and corrected against the currently implemented `P1-P11` incubation surface.
+
+The following contracts remain outside the currently implemented workflow-system baseline:
+
+- target-project-specific command bindings for optional project-level validation slots
+- production-environment credentials, secret rotation procedures, and deploy implementations
+- extraction-time release governance beyond the documented roadmap and baseline contracts
 
 Interpretation rule:
 
-- later phases may extend this protocol
-- later phases must not be read as already implemented unless an execution-layer capability and its tests exist
+- later extraction or adoption work may extend this protocol
+- later work must not be read as already implemented unless an execution-layer capability and its tests exist
 - when a future contract is only mentioned as a boundary here, that mention is descriptive, not a claim of implementation
