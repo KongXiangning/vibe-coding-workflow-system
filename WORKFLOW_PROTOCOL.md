@@ -1222,11 +1222,10 @@ The following separation rules are mandatory:
 
 ## 15. Future-contract boundary
 
-This protocol revision is reviewed and corrected against the currently implemented `P1-P8` surface.
+This protocol revision is reviewed and corrected against the currently implemented `P1-P9` surface.
 
 The following contracts are intentionally **not** finalized here and remain owned by later plan phases:
 
-- `P9`: CI/reporting wiring beyond the current `test:workflow-*` and freshness enforcement already implemented
 - `P10`: runtime host install/sync entrypoints and target-project import/install contract
 - `P11`: long-term versioned governance, release/compatibility/security/deploy baselines
 
