@@ -115,3 +115,94 @@ validation:
     - handoff graph closes
     - reads/writes boundaries are non-conflicting
     - all workflow stages are covered
+  # Validation matrix per WORKFLOW_PROTOCOL.md §16.4.
+  # Protocol-level entrypoints are defined by the workflow-system.
+  # Project-level entrypoints are declared as slots and bound by the target project during Adoption A4.
+  matrix:
+    # --- Protocol-level: blocks-generator ---
+    - name: workflow-skills-validation
+      layer: protocol
+      command: bun run gen:workflow-skills --dry-run
+      blocker_level: blocks-generator
+      description: Validate workflow skill templates, metadata, path boundaries, and handoff closure.
+      phase: P9
+      owner: workflow-system
+    - name: workflow-docs-validation
+      layer: protocol
+      command: bun run gen:workflow-docs --dry-run
+      blocker_level: blocks-generator
+      description: Validate generated governance doc structure, required headings, and placeholder handling.
+      phase: P9
+      owner: workflow-system
+    - name: registry-validation
+      layer: protocol
+      command: bun run gen:registry --dry-run
+      blocker_level: blocks-generator
+      description: Validate registry generation against the shared workflow metadata baseline.
+      phase: P9
+      owner: workflow-system
+    # --- Protocol-level: blocks-merge ---
+    - name: workflow-skills-tests
+      layer: protocol
+      command: bun run test:workflow-skills
+      blocker_level: blocks-merge
+      description: Run workflow skill generator tests.
+      phase: P9
+      owner: workflow-system
+    - name: workflow-docs-tests
+      layer: protocol
+      command: bun run test:workflow-docs
+      blocker_level: blocks-merge
+      description: Run workflow docs generator tests.
+      phase: P9
+      owner: workflow-system
+    - name: registry-tests
+      layer: protocol
+      command: bun run test:registry
+      blocker_level: blocks-merge
+      description: Run registry generator tests.
+      phase: P9
+      owner: workflow-system
+    - name: bootstrap-tests
+      layer: protocol
+      command: bun run test:bootstrap-governance
+      blocker_level: blocks-merge
+      description: Run bootstrap planning capability tests.
+      phase: P9
+      owner: workflow-system
+    - name: task-identity-tests
+      layer: protocol
+      command: bun run test:task-identity
+      blocker_level: blocks-merge
+      description: Run task identity contract tests.
+      phase: P9
+      owner: workflow-system
+    # --- Project-level: unbound slots for Adoption A4 ---
+    - name: unit
+      layer: project
+      command: ""
+      blocker_level: blocks-merge
+      description: Bind the target project unit-test command or runner during Adoption A4.
+      phase: A4
+      owner: target-project
+    - name: integration
+      layer: project
+      command: ""
+      blocker_level: blocks-merge
+      description: Bind the target project integration-test command or runner during Adoption A4.
+      phase: A4
+      owner: target-project
+    - name: e2e-smoke
+      layer: project
+      command: ""
+      blocker_level: blocks-merge
+      description: Bind the target project smoke or end-to-end validation command during Adoption A4.
+      phase: A4
+      owner: target-project
+    - name: contract-compatibility
+      layer: project
+      command: ""
+      blocker_level: blocks-merge
+      description: Bind target-project contract compatibility checks during Adoption A4.
+      phase: A4
+      owner: target-project

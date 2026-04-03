@@ -44,7 +44,8 @@
     "test:registry": "bun run gen:registry --dry-run && bun test test/gen-registry.test.ts",
     "test:bootstrap-governance": "bun test test/bootstrap-project-governance.test.ts",
     "test:task-identity": "bun test test/task-identity.test.ts",
-    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry"
+    "test:validation-model": "bun test test/validation-model.test.ts",
+    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry && bun run test:bootstrap-governance && bun run test:task-identity && bun run test:validation-model"
   },
   "dependencies": {
     "diff": "^7.0.0",

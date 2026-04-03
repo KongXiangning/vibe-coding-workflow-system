@@ -2,7 +2,7 @@
 
 Status: Active
 Owner: kongx
-Last-Updated: 2026-04-02
+Last-Updated: 2026-04-03
 Source-Plan: [workflow-system-implementation-plan.md](./workflow-system-implementation-plan.md)
 
 ## Purpose
@@ -62,7 +62,7 @@ If a change does not update this file when required, that change must be treated
 | P6 | [WORKFLOW_PROTOCOL.md](/e:/coding/github/gstack/WORKFLOW_PROTOCOL.md) §14 | Hybrid sync policy defined inside `WORKFLOW_PROTOCOL.md` | — | Complete (Protocol-only) |
 | P7a | [bootstrap-project-governance.ts](/e:/coding/github/gstack/scripts/bootstrap-project-governance.ts), [workflow-doc-contracts.ts](/e:/coding/github/gstack/scripts/workflow-doc-contracts.ts) | Dry-run bootstrap plan output only (no committed artifact) | [bootstrap-project-governance.test.ts](/e:/coding/github/gstack/test/bootstrap-project-governance.test.ts) | Complete |
 | P7b | [task-identity.ts](/e:/coding/github/gstack/scripts/task-identity.ts), [WORKFLOW_PROTOCOL.md](/e:/coding/github/gstack/WORKFLOW_PROTOCOL.md) §3.4, [FILE_SCHEMAS.md](/e:/coding/github/gstack/FILE_SCHEMAS.md) | [CURRENT_TASK.md](/e:/coding/github/gstack/generated/workflow-docs/CURRENT_TASK.md), [TASK_ARCHIVE.md](/e:/coding/github/gstack/generated/workflow-docs/TASK_ARCHIVE.md), [archive-task.SKILL.md](/e:/coding/github/gstack/generated/workflow-skills/archive-task.SKILL.md), [create-current-task.SKILL.md](/e:/coding/github/gstack/generated/workflow-skills/create-current-task.SKILL.md), [SKILL_REGISTRY.md](/e:/coding/github/gstack/SKILL_REGISTRY.md) | [task-identity.test.ts](/e:/coding/github/gstack/test/task-identity.test.ts), [bootstrap-project-governance.test.ts](/e:/coding/github/gstack/test/bootstrap-project-governance.test.ts), [gen-workflow-docs.test.ts](/e:/coding/github/gstack/test/gen-workflow-docs.test.ts), [gen-workflow-skills.test.ts](/e:/coding/github/gstack/test/gen-workflow-skills.test.ts) | Complete |
-| P8 | — | — | — | Not Started |
+| P8 | [validation-model.ts](/e:/coding/github/gstack/scripts/validation-model.ts), [WORKFLOW_PROTOCOL.md](/e:/coding/github/gstack/WORKFLOW_PROTOCOL.md) §16, [PROJECT_PROFILE.yaml](/e:/coding/github/gstack/PROJECT_PROFILE.yaml) `validation.matrix` | Validation model spec, blocker levels, layer precedence, and matrix contract defined in protocol and profile | [validation-model.test.ts](/e:/coding/github/gstack/test/validation-model.test.ts) | Complete |
 | P9 | — | — | — | Not Started |
 | P10 | — | — | — | Not Started |
 | P11 | — | — | — | Not Started |
@@ -79,3 +79,4 @@ If a change does not update this file when required, that change must be treated
 - `scripts/workflow-doc-contracts.ts` now centralizes required workflow-doc headings and runtime-placeholder allowances for docs generation, bootstrap planning, and workflow-doc tests.
 - P7b now defines a concrete task identity contract: `TASK_ID` is a zero-padded decimal string, `TASK_SLUG` is lowercase ASCII kebab-case, `CURRENT_TASK.md` becomes the live source of task identity, and archive naming is fixed to `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`.
 - Bootstrap output now reports `task_identity` status separately from governed-doc classification so Adoption `A2` can distinguish placeholder-preserved task packages from A3-ready concrete identities without writing any archive files.
+- P8 defines the project-level validation model in `WORKFLOW_PROTOCOL.md` §16 with six subsections: validation layers, blocker levels, layer precedence, validation matrix contract, freshness as protocol-level gates, and separation of concerns. The `scripts/validation-model.ts` module provides types, constants, matrix parsing, layer partitioning, and report building. `PROJECT_PROFILE.yaml` now carries a `validation.matrix` with 8 protocol-level and 4 project-level entrypoints. `test:workflow-all` now includes bootstrap, task-identity, and validation-model tests.

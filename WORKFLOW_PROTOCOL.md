@@ -1056,14 +1056,176 @@ This check is complementary to generator freshness checks:
 
 ---
 
+## 16. Validation model
+
+This section defines the project-level validation model, blocker levels, layer precedence, and the contract for target projects to declare their validation matrix.
+
+### §16.1 Validation layers
+
+Validation is split into two layers with distinct ownership and scope:
+
+1. **Protocol-level validation** — owned by the workflow-system, validates generator correctness and workflow integrity
+2. **Project-level validation** — owned by the target project, validates implementation quality and project-specific contracts
+
+Protocol-level validation covers:
+
+- template schema validity
+- stage coverage completeness
+- handoff graph closure
+- placeholder resolution rules
+- path grammar correctness
+- atomic write correctness
+- read/write boundary conflicts
+- registry freshness against generated skills
+- docs freshness against generated skeletons
+
+Project-level validation covers:
+
+- unit tests
+- integration tests
+- end-to-end / smoke tests
+- contract compatibility checks
+- performance baselines
+- reliability checks
+- compatibility checks
+- security checks
+- deploy / release constraints
+
+### §16.2 Blocker levels
+
+Every validation entrypoint must declare exactly one blocker level.
+
+The blocker levels are, in order of severity:
+
+| Blocker level | Semantics |
+|---|---|
+| `blocks-generator` | Failure prevents generator output from being written. Protocol-level only. |
+| `blocks-merge` | Failure prevents merge into the protected branch. |
+| `blocks-ship` | Failure prevents release or deploy. |
+| `warning-only` | Failure is logged but does not block any gate. |
+
+Assignment rules:
+
+- protocol-level validation entrypoints default to `blocks-generator` unless overridden by the protocol
+- project-level validation entrypoints are declared by the target project; the workflow-system does not assign default blocker levels for project-level gates
+- a target project may promote a `warning-only` entrypoint to a higher blocker level in its own configuration
+- a target project may not demote a `blocks-generator` entrypoint below `blocks-merge`
+
+### §16.3 Layer precedence
+
+Layer precedence is mandatory and must be enforced by any validation runner.
+
+Precedence rules:
+
+1. Protocol-level validation always runs first.
+2. If protocol-level validation fails at `blocks-generator` or `blocks-merge` severity, project-level validation results are not authoritative for release decisions.
+3. Project-level validation only runs on top of a protocol-valid workflow-system state.
+4. A validation runner must not interleave protocol-level and project-level checks in a way that obscures which layer failed.
+5. Validation reports must tag every result with its layer (`protocol` or `project`) so failures from different layers cannot be conflated.
+
+Precedence table:
+
+| Gate | Protocol-level must pass first? | Project-level runs? | Decision authority |
+|---|---|---|---|
+| Generator output | Yes | No | Protocol-level only |
+| Merge | Yes | Yes, if protocol passes | Both layers; protocol failure overrides project pass |
+| Ship / deploy | Yes | Yes, if protocol passes | Both layers; protocol failure overrides project pass |
+| Warning report | No (runs unconditionally) | No (runs unconditionally) | Advisory only |
+
+### §16.4 Validation matrix contract
+
+A target project declares its validation matrix in `PROJECT_PROFILE.yaml` under the `validation` key.
+
+The validation matrix is a list of named entrypoints with the following required fields:
+
+```yaml
+validation:
+  matrix:
+    - name: <string>            # human-readable entrypoint name
+      layer: <protocol|project> # which validation layer this belongs to
+      command: <string>         # executable command or runner
+      blocker_level: <blocks-generator|blocks-merge|blocks-ship|warning-only>
+      description: <string>     # purpose of this entrypoint
+      phase: <string>           # when this entrypoint is expected to be bound (e.g., "P9", "A4")
+      owner: <string>           # who owns this entrypoint ("workflow-system" or "target-project")
+```
+
+Contract rules:
+
+- `layer` must be either `protocol` or `project`; no other values are valid
+- `blocker_level` must be one of the four levels defined in §16.2
+- protocol-layer entrypoints with `owner: workflow-system` are defined by the workflow-system and must not be redefined by a target project
+- project-layer entrypoints with `owner: target-project` are declared by the target project and bound during Adoption `A4`
+- an entrypoint with `command` set to an empty string or a placeholder is treated as `unbound`
+- unbound entrypoints are not executed; they serve as documented slots for future binding
+
+Minimum matrix:
+
+The workflow-system defines the following protocol-level entrypoints as the minimum validation matrix:
+
+| Name | Layer | Blocker level | Command | Owner |
+|---|---|---|---|---|
+| `workflow-skills-validation` | `protocol` | `blocks-generator` | `bun run gen:workflow-skills --dry-run` | `workflow-system` |
+| `workflow-docs-validation` | `protocol` | `blocks-generator` | `bun run gen:workflow-docs --dry-run` | `workflow-system` |
+| `registry-validation` | `protocol` | `blocks-generator` | `bun run gen:registry --dry-run` | `workflow-system` |
+| `workflow-skills-tests` | `protocol` | `blocks-merge` | `bun run test:workflow-skills` | `workflow-system` |
+| `workflow-docs-tests` | `protocol` | `blocks-merge` | `bun run test:workflow-docs` | `workflow-system` |
+| `registry-tests` | `protocol` | `blocks-merge` | `bun run test:registry` | `workflow-system` |
+| `bootstrap-tests` | `protocol` | `blocks-merge` | `bun run test:bootstrap-governance` | `workflow-system` |
+| `task-identity-tests` | `protocol` | `blocks-merge` | `bun run test:task-identity` | `workflow-system` |
+
+Target projects are expected to declare at least the following project-level slots (unbound by default):
+
+| Name | Layer | Blocker level | Phase | Owner |
+|---|---|---|---|---|
+| `unit` | `project` | target-project-defined | `A4` | `target-project` |
+| `integration` | `project` | target-project-defined | `A4` | `target-project` |
+| `e2e-smoke` | `project` | target-project-defined | `A4` | `target-project` |
+| `contract-compatibility` | `project` | target-project-defined | `A4` | `target-project` |
+
+Non-functional entrypoint slots that a target project may optionally declare:
+
+- `performance`
+- `reliability`
+- `compatibility`
+- `security`
+- `deploy`
+
+### §16.5 Freshness as protocol-level gates
+
+Docs freshness and registry freshness are protocol-level validation gates.
+
+They are not project-quality layers.
+
+Freshness rules:
+
+- generated workflow skills must match the output of `gen:workflow-skills --dry-run`
+- generated workflow docs must match the output of `gen:workflow-docs --dry-run`
+- the committed `SKILL_REGISTRY.md` must match the output of `gen:registry --dry-run`
+
+If any freshness check fails, it must be treated as a protocol-level failure with blocker level `blocks-merge`.
+
+Freshness checks are complementary to generator dry-run checks:
+
+- generator dry-run checks validate that templates can be rendered without errors
+- freshness checks validate that committed artifacts match the current generator output
+
+### §16.6 Separation of concerns
+
+The following separation rules are mandatory:
+
+- `run-regression` remains a task-level verification entry; it is not the owner of the entire validation model
+- protocol-level validation and project-level validation must not be merged into a single catch-all gate
+- a validation runner must report protocol-level results and project-level results separately
+- CI checks for the workflow-system in the incubation repository wire only protocol-level entrypoints; project-level entrypoints are wired only in target projects during Adoption `A4`
+- the validation model defines what must be checked and at what blocker level; it does not mandate a specific CI platform or runner implementation
+
 ## 15. Future-contract boundary
 
-This protocol revision is reviewed and corrected against the currently implemented `P1-P6` surface only.
+This protocol revision is reviewed and corrected against the currently implemented `P1-P8` surface.
 
 The following contracts are intentionally **not** finalized here and remain owned by later plan phases:
 
-- `P7a`: bootstrap planning CLI, dry-run output contract, and classification/report shape
-- `P8`: project-level validation matrix, blocker levels, and precedence beyond the current protocol-level generator checks
 - `P9`: CI/reporting wiring beyond the current `test:workflow-*` and freshness enforcement already implemented
 - `P10`: runtime host install/sync entrypoints and target-project import/install contract
 - `P11`: long-term versioned governance, release/compatibility/security/deploy baselines
