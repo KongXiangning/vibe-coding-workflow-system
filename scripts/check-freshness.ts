@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { resolveRoot } from './workflow-core';
 
@@ -58,6 +59,8 @@ export const FRESHNESS_TARGETS: readonly FreshnessTarget[] = [
   },
 ];
 
+const SCRIPT_ROOT = path.resolve(import.meta.dir, '..');
+
 // --- Implementation ---
 
 function readDirFiles(dir: string, pattern: string): Map<string, string> {
@@ -86,49 +89,86 @@ function snapshotOutput(dir: string, pattern: string): Map<string, string> {
   return readDirFiles(dir, pattern);
 }
 
+function materializeCommand(command: string[]): string[] {
+  return command
+    .filter(arg => arg !== '--dry-run')
+    .map(arg => (arg.startsWith('scripts/') ? path.join(SCRIPT_ROOT, arg) : arg));
+}
+
+function copyFreshnessInputs(root: string, tempRoot: string): void {
+  const copies = [
+    ['PROJECT_PROFILE.yaml', 'PROJECT_PROFILE.yaml'],
+    ['VERSION', 'VERSION'],
+    [path.join('templates', 'skills'), path.join('templates', 'skills')],
+    [path.join('templates', 'docs'), path.join('templates', 'docs')],
+  ] as const;
+
+  for (const [sourceRelative, targetRelative] of copies) {
+    const source = path.join(root, sourceRelative);
+    if (!fs.existsSync(source)) {
+      continue;
+    }
+
+    const target = path.join(tempRoot, targetRelative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.cpSync(source, target, { recursive: true });
+  }
+}
+
+function generateExpectedOutput(root: string, target: FreshnessTarget): Map<string, string> {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-freshness-'));
+
+  try {
+    copyFreshnessInputs(root, tempRoot);
+
+    const bunExe = process.execPath;
+    const result = spawnSync(bunExe, materializeCommand(target.generatorCommand), {
+      cwd: SCRIPT_ROOT,
+      encoding: 'utf8',
+      stdio: 'pipe',
+      env: {
+        ...process.env,
+        WORKFLOW_SYSTEM_ROOT: tempRoot,
+      },
+    });
+
+    if (result.error || result.status !== 0) {
+      throw new Error(
+        result.error?.message ??
+          `Generator exited with code ${result.status}: ${(result.stderr ?? '').trim()}`,
+      );
+    }
+
+    return snapshotOutput(path.join(tempRoot, target.outputDir), target.filePattern);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 export function checkFreshness(root: string, target: FreshnessTarget): FreshnessResult {
   const outputDir = path.join(root, target.outputDir);
+  const committed = snapshotOutput(outputDir, target.filePattern);
 
-  // Snapshot committed state
-  const before = snapshotOutput(outputDir, target.filePattern);
-
-  // Run dry-run — generators print summary but don't write in dry-run mode
-  const bunExe = process.execPath;
-  const result = spawnSync(bunExe, target.generatorCommand, {
-    cwd: root,
-    encoding: 'utf8',
-    stdio: 'pipe',
-  });
-
-  if (result.error || result.status !== 0) {
+  const staleFiles: string[] = [];
+  try {
+    const expected = generateExpectedOutput(root, target);
+    for (const [file, content] of expected) {
+      if (committed.get(file) !== content) {
+        staleFiles.push(file);
+      }
+    }
+    for (const file of committed.keys()) {
+      if (!expected.has(file)) {
+        staleFiles.push(`${file} (orphaned)`);
+      }
+    }
+  } catch (error) {
     return {
       target: target.name,
       status: 'error',
       stale_files: [],
-      error: result.error?.message ?? `Generator exited with code ${result.status}: ${(result.stderr ?? '').trim()}`,
+      error: error instanceof Error ? error.message : String(error),
     };
-  }
-
-  // Compare: dry-run mode means committed files should already match
-  // Since dry-run doesn't write, committed files ARE the check — if generator
-  // succeeds in dry-run, the only freshness concern is whether the files were
-  // actually regenerated and committed after the last template change.
-  //
-  // For a true content comparison, we'd need to capture generator output.
-  // For now, check that all expected files exist and generator dry-run passes.
-  const after = snapshotOutput(outputDir, target.filePattern);
-
-  const staleFiles: string[] = [];
-  for (const [file, content] of after) {
-    const committed = before.get(file);
-    if (committed !== content) {
-      staleFiles.push(file);
-    }
-  }
-  for (const file of before.keys()) {
-    if (!after.has(file)) {
-      staleFiles.push(`${file} (orphaned)`);
-    }
   }
 
   return {

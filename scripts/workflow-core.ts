@@ -88,6 +88,10 @@ export function readText(filePath: string): string {
 }
 
 export function resolveRoot(): string {
+  const override = process.env.WORKFLOW_SYSTEM_ROOT?.trim();
+  if (override) {
+    return path.resolve(override);
+  }
   return path.resolve(import.meta.dir, '..');
 }
 

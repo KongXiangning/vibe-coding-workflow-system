@@ -30,10 +30,25 @@ import {
   extractHandoff,
   validateHandoff,
   executeWrites,
+  resolveRoot,
   runGenerator,
 } from '../scripts/workflow-core';
 
 describe('workflow-core', () => {
+  test('resolveRoot honors WORKFLOW_SYSTEM_ROOT override', () => {
+    const original = process.env.WORKFLOW_SYSTEM_ROOT;
+    try {
+      process.env.WORKFLOW_SYSTEM_ROOT = path.join(os.tmpdir(), 'workflow-root-override');
+      expect(resolveRoot()).toBe(path.resolve(process.env.WORKFLOW_SYSTEM_ROOT));
+    } finally {
+      if (original === undefined) {
+        delete process.env.WORKFLOW_SYSTEM_ROOT;
+      } else {
+        process.env.WORKFLOW_SYSTEM_ROOT = original;
+      }
+    }
+  });
+
   // --- Stage enum ---
 
   describe('stage enum', () => {

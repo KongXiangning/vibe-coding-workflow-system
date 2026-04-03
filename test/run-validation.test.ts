@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import {
   executeEntrypoint,
@@ -146,6 +148,30 @@ describe('check-freshness', () => {
       expect(result.target).toBe(target.name);
       expect(['fresh', 'stale', 'error']).toContain(result.status);
       expect(Array.isArray(result.stale_files)).toBe(true);
+    }
+  });
+
+  test('checkFreshness detects stale committed output content', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-freshness-stale-'));
+
+    try {
+      fs.cpSync(path.join(ROOT, 'PROJECT_PROFILE.yaml'), path.join(tempRoot, 'PROJECT_PROFILE.yaml'));
+      fs.cpSync(path.join(ROOT, 'VERSION'), path.join(tempRoot, 'VERSION'));
+      fs.cpSync(path.join(ROOT, 'templates'), path.join(tempRoot, 'templates'), { recursive: true });
+      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      fs.cpSync(path.join(ROOT, 'SKILL_REGISTRY.md'), path.join(tempRoot, 'SKILL_REGISTRY.md'));
+
+      const staleFile = path.join(tempRoot, 'generated', 'workflow-docs', 'STATUS.md');
+      fs.writeFileSync(staleFile, `${fs.readFileSync(staleFile, 'utf8')}\nSTALE TEST MARKER\n`, 'utf8');
+
+      const target = FRESHNESS_TARGETS.find(item => item.name === 'workflow-docs');
+      expect(target).toBeDefined();
+
+      const result = checkFreshness(tempRoot, target!);
+      expect(result.status).toBe('stale');
+      expect(result.stale_files).toContain('STATUS.md');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 });
