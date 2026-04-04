@@ -8,6 +8,7 @@ import {
   buildWorkflowHealthReport,
   detectRuntimeHost,
   getExportManifest,
+  parseRuntimeCliArgs,
   syncWorkflowHost,
 } from '../scripts/workflow-runtime';
 
@@ -62,6 +63,9 @@ function buildManifestPackageJson(overrides: Record<string, unknown> = {}): stri
       'workflow:health': 'bun run scripts/workflow-runtime.ts health',
       'workflow:manifest': 'bun run scripts/workflow-runtime.ts manifest',
       'workflow:sync': 'bun run scripts/workflow-runtime.ts sync',
+      'workflow:pack': 'bun run scripts/workflow-runtime.ts pack',
+      'workflow:install': 'bun run scripts/workflow-runtime.ts install',
+      'workflow:adopt': 'bun run scripts/workflow-runtime.ts adopt',
     },
     dependencies: { yaml: '^2.8.3' },
     ...overrides,
@@ -287,5 +291,46 @@ describe('workflow-runtime health', () => {
       expect(report.blocked_by).toContain('generators');
       expect(report.blocked_by).toContain('protocol');
     });
+  });
+});
+
+describe('workflow-runtime CLI routing', () => {
+  test('parseRuntimeCliArgs accepts pack, install, adopt commands', () => {
+    const pack = parseRuntimeCliArgs(['pack', '--out-dir', '/tmp/bundle', '--include-tests']);
+    expect(pack.command).toBe('pack');
+    expect(pack.outDir).toBe('/tmp/bundle');
+    expect(pack.includeTests).toBe(true);
+
+    const install = parseRuntimeCliArgs(['install', '--bundle', '/tmp/bundle', '--root', '/tmp/target', '--host', 'claude', '--dry-run']);
+    expect(install.command).toBe('install');
+    expect(install.bundle).toBe('/tmp/bundle');
+    expect(install.root).toBe('/tmp/target');
+    expect(install.host).toBe('claude');
+    expect(install.dryRun).toBe(true);
+
+    const adopt = parseRuntimeCliArgs(['adopt', '--root', '/tmp/target', '--host', 'codex', '--dry-run']);
+    expect(adopt.command).toBe('adopt');
+    expect(adopt.root).toBe('/tmp/target');
+    expect(adopt.host).toBe('codex');
+    expect(adopt.dryRun).toBe(true);
+  });
+
+  test('pack/install/adopt commands throw not-yet-implemented', () => {
+    // These stubs ensure the CLI routing is wired up and will be replaced
+    // with real implementations in W1-W4.
+    expect(() => {
+      const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'pack'], { cwd: ROOT });
+      if (child.exitCode !== 0) throw new Error(child.stderr.toString());
+    }).toThrow(/not yet implemented/);
+
+    expect(() => {
+      const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'install'], { cwd: ROOT });
+      if (child.exitCode !== 0) throw new Error(child.stderr.toString());
+    }).toThrow(/not yet implemented/);
+
+    expect(() => {
+      const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'adopt'], { cwd: ROOT });
+      if (child.exitCode !== 0) throw new Error(child.stderr.toString());
+    }).toThrow(/not yet implemented/);
   });
 });

@@ -53,7 +53,10 @@
     "validate:freshness": "bun run scripts/check-freshness.ts",
     "workflow:health": "bun run scripts/workflow-runtime.ts health",
     "workflow:manifest": "bun run scripts/workflow-runtime.ts manifest",
-    "workflow:sync": "bun run scripts/workflow-runtime.ts sync"
+    "workflow:sync": "bun run scripts/workflow-runtime.ts sync",
+    "workflow:pack": "bun run scripts/workflow-runtime.ts pack",
+    "workflow:install": "bun run scripts/workflow-runtime.ts install",
+    "workflow:adopt": "bun run scripts/workflow-runtime.ts adopt"
   },
   "dependencies": {
     "diff": "^7.0.0",

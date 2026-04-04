@@ -27,7 +27,7 @@ import { runValidation } from './run-validation';
 export const SUPPORTED_RUNTIME_HOSTS = ['claude', 'codex', 'factory'] as const;
 export type RuntimeHost = (typeof SUPPORTED_RUNTIME_HOSTS)[number];
 export type DetectedRuntimeHost = RuntimeHost | 'unknown';
-export type RuntimeCommand = 'health' | 'manifest' | 'sync';
+export type RuntimeCommand = 'health' | 'manifest' | 'sync' | 'pack' | 'install' | 'adopt';
 export type ManifestCategory = 'script' | 'protocol' | 'template' | 'config' | 'test';
 export type SyncMode = 'copy';
 
@@ -136,6 +136,10 @@ type ParsedCliArgs = {
   json: boolean;
   write: boolean;
   root?: string;
+  bundle?: string;
+  dryRun: boolean;
+  outDir?: string;
+  includeTests: boolean;
 };
 
 type HostResolution = {
@@ -212,6 +216,9 @@ const REQUIRED_PACKAGE_SCRIPTS = [
   'workflow:health',
   'workflow:manifest',
   'workflow:sync',
+  'workflow:pack',
+  'workflow:install',
+  'workflow:adopt',
 ] as const;
 
 function buildPackageJsonContract(packageJson: {
@@ -281,7 +288,7 @@ function getFlagValue(argv: string[], flag: string): string | undefined {
 export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
   const hasSubcommand = argv[0] && !argv[0].startsWith('--');
   const command = (hasSubcommand ? argv[0] : 'health') as RuntimeCommand;
-  if (!['health', 'manifest', 'sync'].includes(command)) {
+  if (!['health', 'manifest', 'sync', 'pack', 'install', 'adopt'].includes(command)) {
     throw new Error(`Unknown workflow-runtime command: ${command}`);
   }
 
@@ -292,6 +299,8 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
   }
 
   const root = getFlagValue(flags, '--root');
+  const bundle = getFlagValue(flags, '--bundle');
+  const outDir = getFlagValue(flags, '--out-dir');
 
   for (const flag of flags) {
     if (
@@ -299,12 +308,18 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
       flag === '--write' ||
       flag === '--host' ||
       flag === '--root' ||
+      flag === '--bundle' ||
+      flag === '--dry-run' ||
+      flag === '--out-dir' ||
+      flag === '--include-tests' ||
       flag.startsWith('--host=') ||
-      flag.startsWith('--root=')
+      flag.startsWith('--root=') ||
+      flag.startsWith('--bundle=') ||
+      flag.startsWith('--out-dir=')
     ) {
       continue;
     }
-    if ((flag === hostValue || flag === root) && !flag.startsWith('--')) {
+    if ((flag === hostValue || flag === root || flag === bundle || flag === outDir) && !flag.startsWith('--')) {
       continue;
     }
     if (flag.startsWith('--')) {
@@ -318,6 +333,10 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
     json: flags.includes('--json'),
     write: flags.includes('--write'),
     root,
+    bundle,
+    dryRun: flags.includes('--dry-run'),
+    outDir,
+    includeTests: flags.includes('--include-tests'),
   };
 }
 
@@ -797,6 +816,18 @@ function main(): void {
     const manifest = getExportManifest(root);
     console.log(args.json ? JSON.stringify(manifest, null, 2) : formatExportManifest(manifest));
     return;
+  }
+
+  if (args.command === 'pack') {
+    throw new Error('workflow:pack is not yet implemented. See docs/plans/workflow-system-packaging-and-adoption-plan.md W1.');
+  }
+
+  if (args.command === 'install') {
+    throw new Error('workflow:install is not yet implemented. See docs/plans/workflow-system-packaging-and-adoption-plan.md W2-W3.');
+  }
+
+  if (args.command === 'adopt') {
+    throw new Error('workflow:adopt is not yet implemented. See docs/plans/workflow-system-packaging-and-adoption-plan.md W4.');
   }
 
   const profile = fs.existsSync(path.join(root, 'PROJECT_PROFILE.yaml'))

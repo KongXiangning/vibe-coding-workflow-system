@@ -267,8 +267,13 @@ Paths:
 Rules:
 
 - Only workflow-owned fragments are operated on.
-- Target fragment matches last-install value → upgrade to new bundle value.
-- Target fragment was modified by the user → install fails and reports conflict; no automatic write-back.
+- **First install (no install-state exists):**
+  - Workflow-owned fragment absent in target → write the bundle contract value.
+  - Workflow-owned fragment present and compatible with the bundle contract → accept the existing value and record it as the baseline in install-state.
+  - Workflow-owned fragment present but incompatible (e.g., conflicting `engines.bun`, different `scripts[gen:*]` commands) → fail with `contract_conflict`; do not overwrite.
+- **Upgrade install (install-state exists):**
+  - Target fragment matches last-install value → upgrade to new bundle value.
+  - Target fragment was modified by the user → install fails and reports `local_drift`; no automatic write-back.
 
 ### `live-doc`
 
