@@ -210,19 +210,26 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
 
 `bundle_id` format is fixed: `workflow-system@<version>+<source-tree-hash-short>`.
 
-`source_tree_hash` is computed over the workflow engine subtree only — the set of files listed in `EXPORT_ARTIFACTS` (required + optional). Changes to unrelated repository files (README, browse subsystem, etc.) do not affect the hash. The hash algorithm is SHA-256, truncated to 12 hex characters for `bundle_id` and stored in full in `source_tree_hash`.
+`source_tree_hash` is computed over only the files actually included in this specific bundle — not over the full `EXPORT_ARTIFACTS` set. This means:
 
-`source_commit` is the HEAD git commit SHA at pack time. `workflow:pack` does not require a clean git working tree. If there are uncommitted changes to EXPORT_ARTIFACTS files, the `source_tree_hash` will reflect the actual file content on disk (which may differ from `source_commit`). The bundle metadata does not assert that `source_commit` matches `source_tree_hash`; consumers should treat `source_tree_hash` as the authoritative identity and `source_commit` as an advisory reference for traceability.
+- A pack without `--include-tests` hashes only the required artifacts (scripts, protocol docs, templates, config contracts).
+- A pack with `--include-tests` hashes required + optional test artifacts.
+- The two produce different `source_tree_hash` values and therefore different `bundle_id` values and output directories.
+
+Changes to unrelated repository files (README, browse subsystem, etc.) never affect the hash. The hash algorithm is SHA-256, truncated to 12 hex characters for `bundle_id` and stored in full in `source_tree_hash`.
+
+`source_commit` is the HEAD git commit SHA at pack time. `workflow:pack` does not require a clean git working tree. If there are uncommitted changes to included files, the `source_tree_hash` will reflect the actual file content on disk (which may differ from `source_commit`). The bundle metadata does not assert that `source_commit` matches `source_tree_hash`; consumers should treat `source_tree_hash` as the authoritative identity and `source_commit` as an advisory reference for traceability.
 
 All file checksums (artifact checksums in `workflow-bundle.json`, managed file checksums in `install-state.json`) use SHA-256 over raw byte content with no line-ending normalization. Install and upgrade tools must read files in binary mode for checksum comparison to avoid CRLF/LF discrepancies on Windows.
 
 Idempotency rule:
 
-- Same source state, repeated pack → identical `bundle_id`, directory name, and artifact checksums.
+- Same source state + same flags, repeated pack → identical `bundle_id`, directory name, and artifact checksums.
 - Source state changes but version does not → different `bundle_id` and output directory.
+- `--include-tests` vs no `--include-tests` on the same source state → different `bundle_id` and output directory.
 - `created_at` is a wallclock timestamp and is explicitly excluded from the idempotency assertion. It does not affect `bundle_id`, directory name, or artifact checksums.
 
-The artifact list in `workflow-bundle.json` must be the resolved list of actual bundle files plus their checksums; abstract globs are not permitted.
+The `artifacts` list in `workflow-bundle.json` must be the resolved list of actual bundle content files plus their checksums; abstract globs are not permitted. `workflow-bundle.json` itself is excluded from the `artifacts` list and from the `source_tree_hash` computation — it is the manifest, not an artifact. Bundle integrity is verified by confirming that every listed artifact matches its checksum and that no unlisted files exist in the bundle directory (aside from `workflow-bundle.json` itself).
 
 `package.json` is not copied wholesale from the source repository into the target project. The bundle only exposes the `package_json_contract` fragment.
 
@@ -352,11 +359,14 @@ Required fields:
   - `installed_checksum`
 - `package_json_fragment`
 - `project_profile_fragment`
-- `host_sync_namespace`
+- `host_sync_state` (keyed by host name)
+  - `namespace`
+  - `synced_at`
+  - `synced_entries[]` (skill name + target path)
 
 `managed_files[]` only tracks `replace-managed` paths (whole-file ownership). The `mode` field is currently always `replace-managed` but is included for forward compatibility if additional managed modes are introduced later. `merge-managed` paths (`package.json`, `PROJECT_PROFILE.yaml`) are tracked separately via `package_json_fragment` and `project_profile_fragment`, which record only the workflow-owned key/value pairs — not the full file content.
 
-`host_sync_namespace` is written by `workflow:install` based on the `--host` flag (or detected host). `workflow:adopt` updates it after successful host sync to reflect the actual synced namespace.
+`host_sync_state` is a map keyed by host name (`claude`, `codex`, `factory`). Each entry records the sync namespace, timestamp, and synced entries for that host independently. `workflow:install` initializes the map with the `--host` value (or detected host) as a placeholder entry. `workflow:adopt --host <host>` updates only that host's entry after successful sync, preserving other hosts' state. This allows sequential `workflow:adopt --host claude` then `workflow:adopt --host codex` without losing the first host's sync record.
 
 Recovery: If `install-state.json` is missing but managed files already exist in the target project (e.g., deleted manually or lost after a clone), `workflow:install` treats this as a first-install scenario. Existing managed files that match the bundle's expected content are accepted and recorded as baseline. Files that differ trigger `contract_conflict` since there is no prior baseline to compare against. Users who lose install-state must either ensure managed files match the bundle or delete them before re-installing.
 
@@ -508,7 +518,7 @@ All machine-readable reports (install report, adopt report, dry-run output) are 
 
 A single `workflow:install` execution targets one host at a time. To install for multiple hosts, run `workflow:install` once (host-agnostic managed files are written), then `workflow:adopt --host <host>` separately for each host. Alternatively, `--host all` may be supported in a future version but is not part of v1.
 
-The `--host` flag on `workflow:install` does not change which `replace-managed` files are installed (those are always host-agnostic). It only affects: (1) the `host_sync_namespace` recorded in install-state, and (2) the `project.primary_hosts` default when scaffolding a new `PROJECT_PROFILE.yaml`. If omitted, the host is auto-detected via the standard 4-level fallback (CLI → ENV → directory marker → profile).
+The `--host` flag on `workflow:install` does not change which `replace-managed` files are installed (those are always host-agnostic). It only affects: (1) the initial `host_sync_state` entry recorded in install-state, and (2) the `project.primary_hosts` default when scaffolding a new `PROJECT_PROFILE.yaml`. If omitted, the host is auto-detected via the standard 4-level fallback (CLI → ENV → directory marker → profile).
 
 ## Public Interfaces
 
@@ -690,6 +700,8 @@ This plan is complete when all of the following are true:
 - Source changes but version unchanged → output directory and `bundle_id` change.
 - `workflow-bundle.json` artifact list matches actual bundle contents.
 - `--include-tests` correctly controls optional test artifacts.
+- Same source state with `--include-tests` vs without → different `bundle_id` and output directory.
+- `workflow-bundle.json` is excluded from artifact checksums; bundle integrity verified via artifact list completeness.
 
 ### Install
 
@@ -712,6 +724,7 @@ This plan is complete when all of the following are true:
 - `CURRENT_TASK.md` runtime placeholders are preserved; no task identity generated.
 - Target-project A4 validation commands are not executed.
 - Host sync only touches `workflow-system-*` namespace.
+- Sequential adopt for different hosts preserves each host's sync state in install-state independently.
 - Second adopt run (all docs already exist) → zero materializations, re-runs gen:all / health / host sync only.
 - `--dry-run` → full plan output, zero writes.
 
