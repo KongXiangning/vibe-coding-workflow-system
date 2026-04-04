@@ -214,6 +214,7 @@ Idempotency rule:
 
 - Same source state, repeated pack → identical `bundle_id`, directory name, and artifact checksums.
 - Source state changes but version does not → different `bundle_id` and output directory.
+- `created_at` is a wallclock timestamp and is explicitly excluded from the idempotency assertion. It does not affect `bundle_id`, directory name, or artifact checksums.
 
 The artifact list in `workflow-bundle.json` must be the resolved list of actual bundle files plus their checksums; abstract globs are not permitted.
 
@@ -231,11 +232,24 @@ Every target path belongs to exactly one ownership mode. This matrix is normativ
 
 Paths:
 
-- `scripts/**`
+- `scripts/workflow-core.ts`
+- `scripts/repo-path-patterns.ts`
+- `scripts/workflow-doc-contracts.ts`
+- `scripts/task-identity.ts`
+- `scripts/bootstrap-project-governance.ts`
+- `scripts/validation-model.ts`
+- `scripts/run-validation.ts`
+- `scripts/check-freshness.ts`
+- `scripts/gen-workflow-skills.ts`
+- `scripts/gen-workflow-docs.ts`
+- `scripts/gen-registry.ts`
+- `scripts/workflow-runtime.ts`
 - `templates/docs/**`
 - `templates/skills/**`
 - `WORKFLOW_PROTOCOL.md`
 - `FILE_SCHEMAS.md`
+
+Note: Only the workflow-system engine scripts listed above are managed. Target-project scripts outside this list are never touched.
 
 Rules:
 
@@ -335,6 +349,13 @@ Required fields:
 7. If health or host sync fails → do not roll back already-materialized absent docs, but output an explicit failure report and do not modify any existing live docs.
 
 Both commands must support `--dry-run`. Dry-run outputs the full plan / report but performs zero repo-tracked writes.
+
+`--dry-run` behavior for `workflow:adopt`:
+
+- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree.
+- Bootstrap classify and materialize planning run against the temporary generated outputs.
+- The full plan (including what would be materialized, health check expectations, and host sync targets) is reported.
+- On exit, the temporary workspace is cleaned up. No files are written to the target project.
 
 ## `package.json` Merge Policy
 

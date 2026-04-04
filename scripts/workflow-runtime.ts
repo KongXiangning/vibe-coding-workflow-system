@@ -76,12 +76,22 @@ export type ExportManifest = {
   post_install: string[];
   verification: string[];
   import_contract: {
-    adoption_stage: 'A1';
-    steps: Array<{
-      name: string;
-      description: string;
-      command?: string;
-    }>;
+    install: {
+      adoption_stage: 'A1';
+      steps: Array<{
+        name: string;
+        description: string;
+        command?: string;
+      }>;
+    };
+    adopt: {
+      adoption_stage: 'A3';
+      steps: Array<{
+        name: string;
+        description: string;
+        command?: string;
+      }>;
+    };
   };
   host_compatibility: Record<RuntimeHost, HostCompatibilityNote>;
 };
@@ -424,37 +434,44 @@ export function getExportManifest(root?: string): ExportManifest {
     post_install: [...POST_INSTALL_COMMANDS],
     verification: [...VERIFICATION_COMMANDS],
     import_contract: {
-      adoption_stage: 'A1',
-      steps: [
-        {
-          name: 'copy-artifacts',
-          description: 'Import the required workflow-system scripts, templates, protocol docs, and profile scaffold.',
-        },
-        {
-          name: 'package-json-integration',
-          description: 'Merge the minimum package.json contract required for workflow:* / gen:* / validate:* scripts and runtime dependencies.',
-        },
-        {
-          name: 'install-dependencies',
-          description: 'Install runtime dependencies declared by the imported workflow-system package.json contract.',
-          command: 'bun install',
-        },
-        {
-          name: 'generate-outputs',
-          description: 'Render the workflow skills, docs, and registry through the imported package.json script contract inside the target project.',
-          command: 'bun run gen:all',
-        },
-        {
-          name: 'verify-health',
-          description: 'Run repo-local health checks through the imported package.json script contract before enabling host sync.',
-          command: 'bun run workflow:health',
-        },
-        {
-          name: 'sync-host-runtime',
-          description: 'Copy generated workflow skills into the target host namespace.',
-          command: 'bun run workflow:sync --host <claude|codex|factory>',
-        },
-      ],
+      install: {
+        adoption_stage: 'A1',
+        steps: [
+          {
+            name: 'copy-artifacts',
+            description: 'Import the required workflow-system scripts, templates, protocol docs, and profile scaffold.',
+          },
+          {
+            name: 'package-json-integration',
+            description: 'Merge the minimum package.json contract required for workflow:* / gen:* / validate:* scripts and runtime dependencies.',
+          },
+          {
+            name: 'install-dependencies',
+            description: 'Install runtime dependencies declared by the imported workflow-system package.json contract.',
+            command: 'bun install',
+          },
+        ],
+      },
+      adopt: {
+        adoption_stage: 'A3',
+        steps: [
+          {
+            name: 'generate-outputs',
+            description: 'Render the workflow skills, docs, and registry through the imported package.json script contract inside the target project.',
+            command: 'bun run gen:all',
+          },
+          {
+            name: 'verify-health',
+            description: 'Run repo-local health checks through the imported package.json script contract before enabling host sync.',
+            command: 'bun run workflow:health',
+          },
+          {
+            name: 'sync-host-runtime',
+            description: 'Copy generated workflow skills into the target host namespace.',
+            command: 'bun run workflow:sync --host <claude|codex|factory>',
+          },
+        ],
+      },
     },
     host_compatibility: getHostCompatibilityNotes(),
   };

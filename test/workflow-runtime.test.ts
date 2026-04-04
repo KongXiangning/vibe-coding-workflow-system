@@ -84,9 +84,13 @@ describe('workflow-runtime manifest', () => {
     expect(manifest.package_json_contract.dependencies.yaml).toBe('^2.8.3');
     expect(manifest.package_json_contract.scripts['gen:all']).toBe('bun run gen:workflow-skills && bun run gen:workflow-docs && bun run gen:registry');
     expect(manifest.package_json_contract.scripts['workflow:health']).toBe('bun run scripts/workflow-runtime.ts health');
-    expect(manifest.import_contract.adoption_stage).toBe('A1');
-    expect(manifest.import_contract.steps.map(step => step.name)).toContain('package-json-integration');
-    expect(manifest.import_contract.steps.map(step => step.name)).toContain('sync-host-runtime');
+    expect(manifest.import_contract.install.adoption_stage).toBe('A1');
+    expect(manifest.import_contract.install.steps.map(step => step.name)).toContain('package-json-integration');
+    expect(manifest.import_contract.install.steps.map(step => step.name)).not.toContain('generate-outputs');
+    expect(manifest.import_contract.install.steps.map(step => step.name)).not.toContain('sync-host-runtime');
+    expect(manifest.import_contract.adopt.adoption_stage).toBe('A3');
+    expect(manifest.import_contract.adopt.steps.map(step => step.name)).toContain('generate-outputs');
+    expect(manifest.import_contract.adopt.steps.map(step => step.name)).toContain('sync-host-runtime');
     expect(manifest.host_compatibility.codex.runtime_root).toBe(path.join('.agents', 'skills'));
     expect(manifest.host_compatibility.codex.isolated_prefix).toBe('workflow-system-');
     expect(manifest.verification).toContain('bun run workflow:health');
