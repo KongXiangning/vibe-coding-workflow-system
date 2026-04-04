@@ -208,7 +208,16 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
 - `host_compatibility`
 - `includes_optional_tests`
 
-`profile_scaffold_template` is a structured object embedded directly in `workflow-bundle.json`. It contains the default values, section structure, and seed data needed to render a new `PROJECT_PROFILE.yaml` in the target project. The pack command derives it from the source repository's `PROJECT_PROFILE.yaml` by extracting workflow-owned sections and scaffold defaults. It is not a separate file in the bundle output directory.
+`profile_scaffold_template` is a structured object embedded directly in `workflow-bundle.json`. It contains the curated default values, section structure, and seed data needed to render a new `PROJECT_PROFILE.yaml` in a target project. It is **not** extracted from the source repository's `PROJECT_PROFILE.yaml` — the source profile contains repository-specific values (e.g., gstack's `browse/dist/**`, `design/dist/**`) that must not leak into target project scaffolds. Instead, the pack command builds the template from the bundle contract and the ownership matrix as follows:
+
+- `paths.workflow_template_directories` → fixed: `["templates/docs", "templates/skills"]`
+- `paths.generated_artifacts` (workflow portion) → fixed: `["generated/workflow-docs", "generated/workflow-skills"]`. These are the workflow system's generation output directories. Source-repo-specific paths (e.g., `browse/dist/**`) are excluded.
+- `boundaries.workflow_owned_paths` → derived from the ownership matrix's `replace-managed` paths plus `PROJECT_PROFILE.yaml`. Concretely: all 12 managed scripts, `templates/docs/**`, `templates/skills/**`, `WORKFLOW_PROTOCOL.md`, `FILE_SCHEMAS.md`, `PROJECT_PROFILE.yaml`. Source-repo-specific entries are excluded.
+- `validation.matrix_seed` → selection rule: include protocol-level entries where `blocker_level === 'blocks-generator'` (these validate generator output structure via `--dry-run` and work without external test infrastructure), plus all `layer === 'project'` placeholder slots. Exclude protocol-level `blocks-merge` entries (test commands like `bun run test:workflow-skills`) because they depend on optional test file imports that the target project may not have.
+- `boundaries.forbidden_paths_seed` → fixed: `[".git/**", "node_modules/**"]`
+- `runtime.*` → fixed: `{ "package_manager": "bun", "module_system": "esm" }`
+
+The template is not a separate file in the bundle output directory.
 
 `profile_scaffold_template` schema:
 
@@ -223,7 +232,25 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
     "generated_artifacts": ["generated/workflow-docs", "generated/workflow-skills"]
   },
   "boundaries": {
-    "workflow_owned_paths": ["scripts/workflow-*.ts", "scripts/gen-*.ts", "..."],
+    "workflow_owned_paths": [
+      "scripts/workflow-core.ts",
+      "scripts/repo-path-patterns.ts",
+      "scripts/workflow-doc-contracts.ts",
+      "scripts/task-identity.ts",
+      "scripts/bootstrap-project-governance.ts",
+      "scripts/validation-model.ts",
+      "scripts/run-validation.ts",
+      "scripts/check-freshness.ts",
+      "scripts/gen-workflow-skills.ts",
+      "scripts/gen-workflow-docs.ts",
+      "scripts/gen-registry.ts",
+      "scripts/workflow-runtime.ts",
+      "templates/docs/**",
+      "templates/skills/**",
+      "WORKFLOW_PROTOCOL.md",
+      "FILE_SCHEMAS.md",
+      "PROJECT_PROFILE.yaml"
+    ],
     "forbidden_paths_seed": [".git/**", "node_modules/**"]
   },
   "validation": {
@@ -598,7 +625,8 @@ When scaffolding a new `PROJECT_PROFILE.yaml`, the following defaults apply:
 - `project.primary_hosts` → prefer existing `.claude` / `.agents` / `.factory` directory markers; then explicit `--host` flag; then current runtime host.
 - `runtime.package_manager` → `bun`
 - `runtime.module_system` → `esm`
-- `validation.matrix` → seed with workflow-system protocol entries + 4 A4 project slots.
+- `validation.matrix` → seed with `blocks-generator` protocol entries (3 validators) + 4 A4 project placeholder slots. `blocks-merge` protocol entries (test commands) are excluded from scaffold because they depend on optional test file imports.
+- `boundaries.workflow_owned_paths` → seed with all `replace-managed` paths from the ownership matrix plus `PROJECT_PROFILE.yaml`.
 - `boundaries.forbidden_paths` → seed with `.git/**`, `node_modules/**`.
 
 ## Frozen Guard And Safety Boundary
