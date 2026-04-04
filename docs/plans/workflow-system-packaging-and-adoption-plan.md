@@ -210,6 +210,10 @@ dist/workflow-system/workflow-system-<version>+<source-revision>/
 
 `bundle_id` format is fixed: `workflow-system@<version>+<source-tree-hash-short>`.
 
+`source_tree_hash` is computed over the workflow engine subtree only — the set of files listed in `EXPORT_ARTIFACTS` (required + optional). Changes to unrelated repository files (README, browse subsystem, etc.) do not affect the hash. The hash algorithm is SHA-256, truncated to 12 hex characters for `bundle_id` and stored in full in `source_tree_hash`.
+
+All file checksums (artifact checksums in `workflow-bundle.json`, managed file checksums in `install-state.json`) use SHA-256 over raw byte content with no line-ending normalization. Install and upgrade tools must read files in binary mode for checksum comparison to avoid CRLF/LF discrepancies on Windows.
+
 Idempotency rule:
 
 - Same source state, repeated pack → identical `bundle_id`, directory name, and artifact checksums.
@@ -250,6 +254,8 @@ Paths:
 - `FILE_SCHEMAS.md`
 
 Note: Only the workflow-system engine scripts listed above are managed. Target-project scripts outside this list are never touched.
+
+The authoritative source of truth for the managed script list is the `EXPORT_ARTIFACTS` constant in `scripts/workflow-runtime.ts` (category `'script'`, `required: true`). This plan, `REQUIRED_PACKAGE_SCRIPTS`, and any pack/install logic must derive from that constant. When adding or removing a workflow engine script, update `EXPORT_ARTIFACTS` first, then propagate.
 
 Rules:
 
@@ -309,6 +315,16 @@ Rules:
 - Orphaned `workflow-system-*` directories may be pruned.
 - Non-workflow namespaces are never touched.
 
+### Unmanaged Paths
+
+The following target paths appear in the project layout but are not managed by install or adopt:
+
+- `SKILL_REGISTRY.md` — generated artifact; produced by `gen:registry` during the adopt phase. Not tracked in install-state. Re-generated on each `workflow:adopt` or manual `gen:all`.
+- `generated/workflow-docs/` — generated artifacts; produced by `gen:workflow-docs`. Not tracked in install-state. `workflow:install` does not touch this directory. `workflow:adopt` regenerates it via `gen:all`.
+- `generated/workflow-skills/` — generated artifacts; produced by `gen:workflow-skills`. Same policy as `generated/workflow-docs/`.
+
+These paths are owned by the target project's local generation cycle, not by the bundle.
+
 ## Install State And Transaction Model
 
 ### Install State File
@@ -330,6 +346,12 @@ Required fields:
 - `project_profile_fragment`
 - `host_sync_namespace`
 
+Recovery: If `install-state.json` is missing but managed files already exist in the target project (e.g., deleted manually or lost after a clone), `workflow:install` treats this as a first-install scenario. Existing managed files that match the bundle's expected content are accepted and recorded as baseline. Files that differ trigger `contract_conflict` since there is no prior baseline to compare against. Users who lose install-state must either ensure managed files match the bundle or delete them before re-installing.
+
+### `.workflow-system/` Directory Tracking
+
+`.workflow-system/` must be committed to the target repository (not gitignored). It contains the install-state that is required for upgrade detection and drift comparison. Without it, `workflow:install` cannot distinguish first install from upgrade and may fail on existing managed files.
+
 ### `workflow:install` Transaction Flow
 
 1. Read bundle and target project state.
@@ -341,7 +363,9 @@ Required fields:
    - `package.json` merge applied.
    - `PROJECT_PROFILE.yaml` merge / scaffold applied.
    - `.workflow-system/install-state.json` written.
-6. Output machine-readable install report.
+6. Output machine-readable install report (JSON format, schema versioned via `report_version` field).
+
+Partial failure during step 5: If a write fails after preflight passed (e.g., disk full, permission error), the command aborts immediately with a non-zero exit code. Already-written files are not rolled back. `install-state.json` is written last; if it is absent after a failed run, the next `workflow:install` treats the project as first-install and re-evaluates all managed files. This is safe because first-install rules accept files matching the bundle content.
 
 ### `workflow:adopt` Transaction Flow
 
@@ -449,9 +473,28 @@ The failure report must distinguish:
 - `contract_conflict` — bundle contract conflicts with target project state.
 - `incompatible_target` — target project fails a prerequisite (e.g., CommonJS).
 
+### Exit Codes
+
+All workflow commands use the following exit code mapping:
+
+- `0` — success.
+- `1` — general failure (runtime error, I/O error).
+- `2` — preflight failure: `frozen_path` or `local_drift` detected.
+- `3` — contract failure: `contract_conflict` or `incompatible_target`.
+
+### Report Format
+
+All machine-readable reports (install report, adopt report, dry-run output) are JSON objects written to stdout. Each report includes a `report_version` field (integer, starting at 1) to support forward-compatible schema evolution. Human-readable summaries are written to stderr when `--json` is not specified.
+
 ### v1 Limitations
 
-v1 does not provide `--force` to override frozen or drift failures.
+- v1 does not provide `--force` to override frozen or drift failures.
+- v1 does not provide a `workflow:uninstall` command. To remove the workflow system from a target project, delete the files listed in `.workflow-system/install-state.json` `managed_files[]`, reverse the `package_json_fragment` and `project_profile_fragment` merges manually, then delete the `.workflow-system/` directory.
+- v1 distributes bundles as directory copies (e.g., `cp -r`, `rsync`, git submodule, or manual transfer). No registry publish or fetch protocol is provided.
+
+### Multi-Host Install
+
+A single `workflow:install` execution targets one host at a time. To install for multiple hosts, run `workflow:install` once (host-agnostic managed files are written), then `workflow:adopt --host <host>` separately for each host. Alternatively, `--host all` may be supported in a future version but is not part of v1.
 
 ## Public Interfaces
 
@@ -502,6 +545,8 @@ For existing live docs:
 ## Workstreams
 
 This plan uses packaging-specific workstreams rather than reusing `P1-P11`.
+
+Dependency order: W1 → W2 → W3 → W4 → W5 → W6. W2 and W3 may be implemented in parallel once W1 is complete. W5 depends on W1 + W2. W6 runs continuously but completes after W5.
 
 ### W1. Bundle Manifest And Export
 
