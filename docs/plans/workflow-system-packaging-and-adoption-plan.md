@@ -212,6 +212,8 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
 
 `source_tree_hash` is computed over the workflow engine subtree only — the set of files listed in `EXPORT_ARTIFACTS` (required + optional). Changes to unrelated repository files (README, browse subsystem, etc.) do not affect the hash. The hash algorithm is SHA-256, truncated to 12 hex characters for `bundle_id` and stored in full in `source_tree_hash`.
 
+`source_commit` is the HEAD git commit SHA at pack time. `workflow:pack` does not require a clean git working tree. If there are uncommitted changes to EXPORT_ARTIFACTS files, the `source_tree_hash` will reflect the actual file content on disk (which may differ from `source_commit`). The bundle metadata does not assert that `source_commit` matches `source_tree_hash`; consumers should treat `source_tree_hash` as the authoritative identity and `source_commit` as an advisory reference for traceability.
+
 All file checksums (artifact checksums in `workflow-bundle.json`, managed file checksums in `install-state.json`) use SHA-256 over raw byte content with no line-ending normalization. Install and upgrade tools must read files in binary mode for checksum comparison to avoid CRLF/LF discrepancies on Windows.
 
 Idempotency rule:
@@ -352,7 +354,7 @@ Required fields:
 - `project_profile_fragment`
 - `host_sync_namespace`
 
-`managed_files[]` only tracks `replace-managed` paths (whole-file ownership). `merge-managed` paths (`package.json`, `PROJECT_PROFILE.yaml`) are tracked separately via `package_json_fragment` and `project_profile_fragment`, which record only the workflow-owned key/value pairs — not the full file content.
+`managed_files[]` only tracks `replace-managed` paths (whole-file ownership). The `mode` field is currently always `replace-managed` but is included for forward compatibility if additional managed modes are introduced later. `merge-managed` paths (`package.json`, `PROJECT_PROFILE.yaml`) are tracked separately via `package_json_fragment` and `project_profile_fragment`, which record only the workflow-owned key/value pairs — not the full file content.
 
 `host_sync_namespace` is written by `workflow:install` based on the `--host` flag (or detected host). `workflow:adopt` updates it after successful host sync to reflect the actual synced namespace.
 
@@ -506,6 +508,8 @@ All machine-readable reports (install report, adopt report, dry-run output) are 
 
 A single `workflow:install` execution targets one host at a time. To install for multiple hosts, run `workflow:install` once (host-agnostic managed files are written), then `workflow:adopt --host <host>` separately for each host. Alternatively, `--host all` may be supported in a future version but is not part of v1.
 
+The `--host` flag on `workflow:install` does not change which `replace-managed` files are installed (those are always host-agnostic). It only affects: (1) the `host_sync_namespace` recorded in install-state, and (2) the `project.primary_hosts` default when scaffolding a new `PROJECT_PROFILE.yaml`. If omitted, the host is auto-detected via the standard 4-level fallback (CLI → ENV → directory marker → profile).
+
 ## Public Interfaces
 
 Commands:
@@ -557,7 +561,7 @@ For existing live docs:
 
 This plan uses packaging-specific workstreams rather than reusing `P1-P11`.
 
-Dependency order: W1 → W2 → W3 → W4 → W5 → W6. W2 and W3 may be implemented in parallel once W1 is complete. W5 depends on W1 + W2 + W3. W6 runs continuously but completes after W5.
+Dependency order: W1 → {W2 ∥ W3} → W4 → W5 → W6. W2 and W3 may be implemented in parallel once W1 is complete. W4 depends on both W2 and W3. W5 depends on W1 + W2 + W3. W6 runs continuously but completes after W5.
 
 ### W1. Bundle Manifest And Export
 
@@ -695,6 +699,10 @@ This plan is complete when all of the following are true:
 - Target project is CommonJS → fail immediately, no auto-migration.
 - Managed file with local drift → upgrade fails with zero writes.
 - Any target path frozen → entire install produces zero writes.
+- First install with existing compatible workflow-owned fragment → accept and record as baseline.
+- First install with existing incompatible workflow-owned fragment → fail with `contract_conflict`.
+- Recovery from missing install-state with matching managed files → succeed as first-install.
+- Recovery from missing install-state with non-matching managed files → fail with `contract_conflict`.
 - `--dry-run` → full plan output, zero writes.
 
 ### Adopt
@@ -704,6 +712,7 @@ This plan is complete when all of the following are true:
 - `CURRENT_TASK.md` runtime placeholders are preserved; no task identity generated.
 - Target-project A4 validation commands are not executed.
 - Host sync only touches `workflow-system-*` namespace.
+- Second adopt run (all docs already exist) → zero materializations, re-runs gen:all / health / host sync only.
 - `--dry-run` → full plan output, zero writes.
 
 ### Upgrade
