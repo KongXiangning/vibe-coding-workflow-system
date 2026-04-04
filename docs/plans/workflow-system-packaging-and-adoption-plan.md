@@ -348,10 +348,15 @@ Rules:
   - Workflow-owned fragment absent in target → write the bundle contract value.
   - Workflow-owned fragment present and compatible with the bundle contract → accept the existing value and record it as the baseline in install-state.
   - Workflow-owned fragment present but incompatible → fail with `contract_conflict`; do not overwrite.
-  - **Compatibility definition** (per key type):
+  - **Compatibility definition for `package.json`** (per key type):
     - `scripts[gen:*]`, `scripts[bootstrap:*]`, `scripts[validate:*]`, `scripts[workflow:*]` — compatible if and only if the existing value is **byte-identical** to the bundle contract value. Any difference (even whitespace) is `contract_conflict`.
     - `dependencies.yaml` — compatible if the existing value is a semver range that **intersects** the bundle contract range (evaluated via `semver.intersects`). Exact match is not required. Disjoint ranges are `contract_conflict`.
     - `engines.bun` — compatible if the existing value, parsed as a semver range, is **satisfied by** the bundle contract's minimum version (evaluated via `semver.satisfies(bundleMin, existingRange)`). If the existing range would exclude the bundle's required minimum, it is `contract_conflict`.
+  - **Compatibility definition for `PROJECT_PROFILE.yaml`** (per section type):
+    - **Exact-match sections** (`runtime.package_manager`, `runtime.module_system`): compatible if and only if the existing value is **identical** to the bundle contract value (e.g., `"bun"`, `"esm"`). Any other value is `contract_conflict`.
+    - **Superset sections** (`paths.workflow_template_directories`, `paths.generated_artifacts`, `boundaries.workflow_owned_paths`): compatible if the existing array **contains all** bundle-required entries (extra target-project entries are preserved). If any bundle-required entry is missing, it is written (merged in). This never triggers `contract_conflict` — missing entries are added, extra entries are kept.
+    - **Additive sections** (`project.primary_hosts`, `validation.matrix`): always compatible. Bundle seed entries are merged into the existing array without removing existing entries. Duplicate entries (by identity key: host name for `primary_hosts`, `source` field for `validation.matrix`) are not duplicated.
+    - If the entire `PROJECT_PROFILE.yaml` workflow-owned section is absent in target, it is written from the bundle's `profile_scaffold_template`. If the section is present, the per-section rules above apply.
 - **Upgrade install (install-state exists):**
   - Target fragment matches last-install value → upgrade to new bundle value.
   - Target fragment was modified by the user → install fails and reports `local_drift`; no automatic write-back.
@@ -513,7 +518,7 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 
 `--dry-run` behavior for `workflow:adopt`:
 
-- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree. The mechanism is: create a temp directory, copy `PROJECT_PROFILE.yaml` and all `templates/` content into it, then invoke `gen:all` with `--root` pointing to the temp directory. Generator scripts already accept `--root` for path resolution (this is the same flag used by `workflow:install`).
+- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree. The mechanism is: create a temp directory, copy `PROJECT_PROFILE.yaml`, all `templates/` content, and all `scripts/` content into it, then invoke `gen:all` with the `WORKFLOW_SYSTEM_ROOT` environment variable pointing to the temp directory. Existing generators (`gen-workflow-skills.ts`, `gen-workflow-docs.ts`, `gen-registry.ts`) already resolve their root via `resolveRoot()` which respects this env var (see `workflow-core.ts` L91-94). Bootstrap classify is invoked with `--target-root <temp-dir>`, which it already accepts.
 - Bootstrap classify and materialize planning run against the temporary generated outputs.
 - The full plan (including what would be materialized, health check expectations, and host sync targets) is reported.
 - On exit, the temporary workspace is cleaned up. No files are written to the target project.
@@ -837,6 +842,9 @@ This plan is complete when all of the following are true:
 - Any target path frozen → entire install produces zero writes.
 - First install with existing compatible workflow-owned fragment → accept and record as baseline.
 - First install with existing incompatible workflow-owned fragment → fail with `contract_conflict`.
+- First install with existing `PROJECT_PROFILE.yaml` where `runtime.package_manager != "bun"` → fail with `contract_conflict`.
+- First install with existing `PROJECT_PROFILE.yaml` where `paths.workflow_template_directories` has extra entries → compatible; bundle entries merged, extra preserved.
+- First install with existing `PROJECT_PROFILE.yaml` where `validation.matrix` has existing entries → additive merge; no entries removed.
 - Recovery from missing install-state with matching managed files → succeed as first-install.
 - Recovery from missing install-state with non-matching managed files → fail with `contract_conflict`.
 - `--dry-run` → full plan output, zero writes.
