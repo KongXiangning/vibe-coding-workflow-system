@@ -148,6 +148,7 @@ These paths live directly in the target project root or standard subdirectories:
   templates/skills/
   generated/workflow-docs/
   generated/workflow-skills/
+  .workflow-system/
 ```
 
 Interpretation:
@@ -200,20 +201,29 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
 - `created_at`
 - `artifacts`
 - `package_json_contract`
+- `profile_scaffold_template`
 - `post_install`
 - `verification`
 - `import_contract`
 - `host_compatibility`
 - `includes_optional_tests`
 
+`profile_scaffold_template` is a structured object embedded directly in `workflow-bundle.json`. It contains the default values, section structure, and seed data needed to render a new `PROJECT_PROFILE.yaml` in the target project. The pack command derives it from the source repository's `PROJECT_PROFILE.yaml` by extracting workflow-owned sections and scaffold defaults. It is not a separate file in the bundle output directory.
+
 ### Bundle Identity Rules
 
 `bundle_id` format is fixed: `workflow-system@<version>+<source-tree-hash-short>`.
 
-`source_tree_hash` is computed over only the files actually included in this specific bundle — not over the full `EXPORT_ARTIFACTS` set. This means:
+`source_tree_hash` is computed over all `EXPORT_ARTIFACTS` source files used to produce this bundle — regardless of whether those files appear verbatim in the bundle output directory. This means:
 
-- A pack without `--include-tests` hashes only the required artifacts (scripts, protocol docs, templates, config contracts).
-- A pack with `--include-tests` hashes required + optional test artifacts.
+- `script`, `protocol`, and `template` category source files are included (they also appear as bundle output files).
+- `config` category source files (`package.json`, `PROJECT_PROFILE.yaml`) are included because their content affects the bundle's `package_json_contract` and profile scaffold. They are not copied to the bundle output directory but their changes alter the bundle contract.
+- `test` category source files are included only when `--include-tests` is specified.
+
+Therefore:
+
+- A pack without `--include-tests` hashes required script + protocol + template + config source files.
+- A pack with `--include-tests` hashes all of the above plus optional test source files.
 - The two produce different `source_tree_hash` values and therefore different `bundle_id` values and output directories.
 
 Changes to unrelated repository files (README, browse subsystem, etc.) never affect the hash. The hash algorithm is SHA-256, truncated to 12 hex characters for `bundle_id` and stored in full in `source_tree_hash`.
@@ -235,7 +245,7 @@ The `artifacts` list in `workflow-bundle.json` must be the resolved list of actu
 
 ### EXPORT_ARTIFACTS Category Handling
 
-`EXPORT_ARTIFACTS` entries with `category: 'config'` (`package.json`, `PROJECT_PROFILE.yaml`) are not copied to the target project as files. The pack command consumes them to generate the `package_json_contract` field and the profile scaffold template embedded in the bundle. Only entries with `category` values of `script`, `protocol`, `template`, and `test` produce actual files in the bundle output directory.
+`EXPORT_ARTIFACTS` entries with `category: 'config'` (`package.json`, `PROJECT_PROFILE.yaml`) are not copied to the target project as files. The pack command consumes them to generate the `package_json_contract` field and the `profile_scaffold_template` object embedded in `workflow-bundle.json`. Only entries with `category` values of `script`, `protocol`, `template`, and `test` produce actual files in the bundle output directory. However, all categories (including `config`) contribute to the `source_tree_hash` computation.
 
 ### Relationship To `workflow:manifest`
 
