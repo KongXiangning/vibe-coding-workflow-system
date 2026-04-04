@@ -29,7 +29,7 @@ This plan completes the productization loop with the following core decisions:
 - A new install-state file `.workflow-system/install-state.json` records bundle identity, installed files, last-install checksums, and merged `package.json` / `PROJECT_PROFILE.yaml` fragments, serving as the basis for re-run and upgrade determination.
 - A file ownership matrix classifies every target path into one of four modes — `replace-managed`, `merge-managed`, `live-doc`, `runtime-host` — eliminating ad-hoc override rules at implementation time.
 - `workflow:install` and `workflow:adopt` both perform a full preflight before any writes; if any planned write hits a frozen rule or local drift conflict, the entire command fails before the first write.
-- Bundle identity is no longer based solely on `package.json.version`. It is now `workflow_system_version + source_revision`, with the output directory fixed to `dist/workflow-system/workflow-system-<version>+<source-revision>/`, resolving the conflict when source changes but the version does not.
+- Bundle identity is no longer based solely on `package.json.version`. It is now `workflow_system_version + source_tree_hash`, with the output directory fixed to `dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/`, resolving the conflict when source changes but the version does not.
 
 ## Current Completed Baseline
 
@@ -185,7 +185,7 @@ Bundle format is:
 Output path is fixed:
 
 ```text
-dist/workflow-system/workflow-system-<version>+<source-revision>/
+dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
 ```
 
 ### `workflow-bundle.json` Required Fields
@@ -223,6 +223,10 @@ Idempotency rule:
 The artifact list in `workflow-bundle.json` must be the resolved list of actual bundle files plus their checksums; abstract globs are not permitted.
 
 `package.json` is not copied wholesale from the source repository into the target project. The bundle only exposes the `package_json_contract` fragment.
+
+### EXPORT_ARTIFACTS Category Handling
+
+`EXPORT_ARTIFACTS` entries with `category: 'config'` (`package.json`, `PROJECT_PROFILE.yaml`) are not copied to the target project as files. The pack command consumes them to generate the `package_json_contract` field and the profile scaffold template embedded in the bundle. Only entries with `category` values of `script`, `protocol`, `template`, and `test` produce actual files in the bundle output directory.
 
 ### Relationship To `workflow:manifest`
 
@@ -262,6 +266,8 @@ Rules:
 - File absent → create.
 - File exists and matches last-install checksum → overwrite on upgrade.
 - File exists but does not match last-install checksum → local drift; install fails and reports conflict; no automatic overwrite.
+
+For `replace-managed` glob directories (`templates/docs/**`, `templates/skills/**`), the bundle's file set is the complete set. Files present in the target directory but absent from the bundle are pruned during install/upgrade, provided they are tracked in install-state from a prior install. Files that exist in the target but were never installed by the workflow system are left untouched.
 
 ### `merge-managed`
 
@@ -345,6 +351,10 @@ Required fields:
 - `package_json_fragment`
 - `project_profile_fragment`
 - `host_sync_namespace`
+
+`managed_files[]` only tracks `replace-managed` paths (whole-file ownership). `merge-managed` paths (`package.json`, `PROJECT_PROFILE.yaml`) are tracked separately via `package_json_fragment` and `project_profile_fragment`, which record only the workflow-owned key/value pairs — not the full file content.
+
+`host_sync_namespace` is written by `workflow:install` based on the `--host` flag (or detected host). `workflow:adopt` updates it after successful host sync to reflect the actual synced namespace.
 
 Recovery: If `install-state.json` is missing but managed files already exist in the target project (e.g., deleted manually or lost after a clone), `workflow:install` treats this as a first-install scenario. Existing managed files that match the bundle's expected content are accepted and recorded as baseline. Files that differ trigger `contract_conflict` since there is no prior baseline to compare against. Users who lose install-state must either ensure managed files match the bundle or delete them before re-installing.
 
@@ -500,9 +510,9 @@ A single `workflow:install` execution targets one host at a time. To install for
 
 Commands:
 
-- `workflow:pack [--out-dir <path>] [--include-tests]`
-- `workflow:install --bundle <dir> [--root <target>] [--host <claude|codex|factory>] [--dry-run]`
-- `workflow:adopt [--root <target>] [--host <claude|codex|factory>] [--dry-run]`
+- `workflow:pack [--out-dir <path>] [--include-tests] [--json]`
+- `workflow:install --bundle <dir> [--root <target>] [--host <claude|codex|factory>] [--dry-run] [--json]`
+- `workflow:adopt [--root <target>] [--host <claude|codex|factory>] [--dry-run] [--json]`
 
 Files:
 
@@ -516,6 +526,7 @@ Files:
 - A1 covers import + merge + scaffold only.
 - A3 covers generation + classify + absent-doc materialization + health + host sync only.
 - `workflow:manifest.import_contract` reflects this boundary. `gen:all`, `workflow:health`, and host sync are no longer attributed to the install phase.
+- `ExportManifest.post_install` is an informational field listing commands the user (or the adopt command) should run after install completes. These commands are A3 steps executed by `workflow:adopt`, not part of the `workflow:install` transaction.
 
 ### Locked Adoption Boundary
 
@@ -546,7 +557,7 @@ For existing live docs:
 
 This plan uses packaging-specific workstreams rather than reusing `P1-P11`.
 
-Dependency order: W1 → W2 → W3 → W4 → W5 → W6. W2 and W3 may be implemented in parallel once W1 is complete. W5 depends on W1 + W2. W6 runs continuously but completes after W5.
+Dependency order: W1 → W2 → W3 → W4 → W5 → W6. W2 and W3 may be implemented in parallel once W1 is complete. W5 depends on W1 + W2 + W3. W6 runs continuously but completes after W5.
 
 ### W1. Bundle Manifest And Export
 
