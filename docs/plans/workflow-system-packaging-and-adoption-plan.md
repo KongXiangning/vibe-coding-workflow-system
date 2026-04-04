@@ -610,7 +610,8 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 
 `--dry-run` behavior for `workflow:adopt`:
 
-- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree. The mechanism is: create a temp directory, copy `PROJECT_PROFILE.yaml`, `VERSION`, all `templates/` content, and all `scripts/` content into it, then invoke `gen:all` with the `WORKFLOW_SYSTEM_ROOT` environment variable pointing to the temp directory. Existing generators (`gen-workflow-skills.ts`, `gen-workflow-docs.ts`, `gen-registry.ts`) already resolve their root via `resolveRoot()` which respects this env var (see `workflow-core.ts` L91-94). `gen-workflow-docs.ts` additionally reads `VERSION` from root (L28), which is why it must be included. Bootstrap classify is invoked with `--target-root <temp-dir>`, which it already accepts.
+- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree. The mechanism is: create a temp directory, copy `PROJECT_PROFILE.yaml`, `VERSION`, all `templates/` content, and all `scripts/` content into it, then invoke `gen:all` with the `WORKFLOW_SYSTEM_ROOT` environment variable pointing to the temp directory. Existing generators (`gen-workflow-skills.ts`, `gen-workflow-docs.ts`, `gen-registry.ts`) already resolve their root via `resolveRoot()` which respects this env var (see `workflow-core.ts` L91-94). `gen-workflow-docs.ts` additionally reads `VERSION` from root (L28), which is why it must be included.
+- Bootstrap classify is also invoked with `WORKFLOW_SYSTEM_ROOT=<temp-dir>` set (so that `resolveRoot()` returns the temp dir as `systemRoot`), **plus** `--target-root <temp-dir>` (so that `targetRoot` also points to the temp workspace). Bootstrap has a dual-root model (`systemRoot` for reading `generated/` outputs, `targetRoot` for reading profile and live docs — see `bootstrap-project-governance.ts` L652-654). Both roots must point to the temp workspace; otherwise bootstrap would fall back to the source repository root for generated docs, violating the dry-run isolation.
 - Bootstrap classify and materialize planning run against the temporary generated outputs.
 - The full plan (including what would be materialized, health check expectations, and host sync targets) is reported.
 - On exit, the temporary workspace is cleaned up. No files are written to the target project.
@@ -651,7 +652,18 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 `workflow:install` rules for `PROJECT_PROFILE.yaml`:
 
 - Absent → render from bundle-embedded profile scaffold template and write.
-- Present → merge workflow-owned sections only; do not rewrite target-project semantics.
+- Present → merge workflow-owned sections only; do not rewrite target-project semantics. **Additionally**, run a preflight completeness check: verify that all fields required by `projectPlaceholders()` and `validateProfilePathSemantics()` exist in the target profile. If any required field is missing, fail with `incompatible_target` and list the missing fields. This prevents install from succeeding while leaving the profile in a state that would immediately fail `gen:all` or `workflow:health`. The installer does not patch missing target-owned fields — the target project must add them manually.
+
+Required fields for preflight completeness check (must all be present and non-empty):
+
+- `project.name`, `project.type` (from `projectPlaceholders`)
+- `runtime.languages`, `runtime.test_commands` (from `projectPlaceholders`)
+- `decision_types`, `architecture_rules` (from `projectPlaceholders`)
+- `paths.source_directories` (from `projectPlaceholders`)
+- `boundaries.forbidden_paths` (from `projectPlaceholders`)
+- `paths.documentation_files`, `paths.existing_skill_template_patterns` (from `validateProfilePathSemantics`)
+- `paths.generated_artifacts`, `boundaries.generated_only_paths`, `boundaries.workflow_owned_paths` (from `validateProfilePathSemantics`)
+- `governance.current_documents` (from `validateProfilePathSemantics`)
 
 ### Workflow-Owned Sections
 
@@ -847,12 +859,13 @@ Make installation produce a usable target-project `PROJECT_PROFILE.yaml` baselin
 Deliverables:
 
 - profile scaffold behavior for missing profile
-- patch behavior for incomplete profile
+- preflight completeness check for existing profile (fail-fast if missing required fields, do not silently patch)
 - minimum validation matrix seeding
 
 Acceptance:
 
 - target project can run workflow commands after install without hand-authoring a profile from scratch
+- existing incomplete profile → install fails with clear list of missing fields
 - seeded matrix preserves protocol-level entries and unbound project-level slots
 
 ### W4. Safe `A3` Adoption Command
@@ -937,6 +950,7 @@ This plan is complete when all of the following are true:
 - Empty target project → scaffold `package.json`, `PROJECT_PROFILE.yaml`, and managed files successfully.
 - Existing `package.json` → preserve unrelated keys, merge only workflow-owned keys.
 - Existing `PROJECT_PROFILE.yaml` → merge only workflow-owned sections.
+- Existing `PROJECT_PROFILE.yaml` missing required target-owned fields (e.g., `project.type`) → fail with `incompatible_target` listing missing fields.
 - Target project is CommonJS → fail immediately, no auto-migration.
 - Managed file with local drift → upgrade fails with zero writes.
 - Any target path frozen → entire install produces zero writes.
