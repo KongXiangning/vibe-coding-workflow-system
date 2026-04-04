@@ -217,21 +217,43 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
 - `boundaries.forbidden_paths_seed` → fixed: `[".git/**", "node_modules/**"]`
 - `runtime.*` → fixed: `{ "package_manager": "bun", "module_system": "esm" }`
 
+The template also includes **target-project-owned defaults** — sensible starting values for fields that generators and validators require but which the target project owns after scaffold. These defaults are only written when the profile is scaffolded from scratch (absent target). They are never touched during upgrade merges. Required by:
+
+- `projectPlaceholders()` (workflow-core.ts L143-153): `project.type`, `runtime.languages`, `runtime.test_commands`, `decision_types`, `paths.source_directories`, `boundaries.forbidden_paths`, `architecture_rules`
+- `validateProfilePathSemantics()` (workflow-core.ts L340-362): `paths.documentation_files`, `paths.existing_skill_template_patterns`, `boundaries.generated_only_paths`, `governance.current_documents`
+
+Without these defaults, a freshly scaffolded profile would fail on the first `gen:all` or `workflow:health` run.
+
 The template is not a separate file in the bundle output directory.
 
 `profile_scaffold_template` schema:
 
 ```json
 {
+  "schema_version": 1,
+  "project": {
+    "type": "application",
+    "summary": "TODO: describe this project",
+    "primary_hosts": []
+  },
   "runtime": {
+    "languages": ["TypeScript"],
     "package_manager": "bun",
-    "module_system": "esm"
+    "module_system": "esm",
+    "build_commands": [],
+    "test_commands": ["bun test"],
+    "dev_commands": []
   },
   "paths": {
+    "source_directories": ["scripts"],
+    "documentation_files": ["README.md"],
     "workflow_template_directories": ["templates/docs", "templates/skills"],
+    "existing_skill_template_patterns": ["*/SKILL.md.tmpl", "SKILL.md.tmpl"],
     "generated_artifacts": ["generated/workflow-docs/**", "generated/workflow-skills/**", "SKILL_REGISTRY.md"]
   },
   "boundaries": {
+    "forbidden_paths": [".git/**", "node_modules/**"],
+    "generated_only_paths": ["generated/workflow-docs/**", "generated/workflow-skills/**", "SKILL_REGISTRY.md"],
     "workflow_owned_paths": [
       "scripts/workflow-core.ts",
       "scripts/repo-path-patterns.ts",
@@ -250,8 +272,22 @@ The template is not a separate file in the bundle output directory.
       "WORKFLOW_PROTOCOL.md",
       "FILE_SCHEMAS.md",
       "PROJECT_PROFILE.yaml"
+    ]
+  },
+  "architecture_rules": [
+    "Keep workflow automation and generators in scripts/.",
+    "Treat templates/skills/ as workflow skill template sources, not runtime outputs.",
+    "Do not hand-edit generated outputs."
+  ],
+  "decision_types": ["mechanical", "taste", "user_challenge"],
+  "governance": {
+    "current_documents": [
+      "PROJECT_PROFILE.yaml",
+      "WORKFLOW_PROTOCOL.md",
+      "FILE_SCHEMAS.md",
+      "SKILL_REGISTRY.md"
     ],
-    "forbidden_paths_seed": [".git/**", "node_modules/**"]
+    "planned_documents": []
   },
   "validation": {
     "matrix_seed": [
@@ -266,6 +302,25 @@ The template is not a separate file in the bundle output directory.
   }
 }
 ```
+
+**Scaffold section ownership summary:**
+
+| Section | Owner | Scaffold behavior | Upgrade behavior |
+|---------|-------|-------------------|------------------|
+| `runtime.package_manager/module_system` | workflow | Written from template | Merge (exact-match) |
+| `paths.workflow_template_directories` | workflow | Written from template | Merge (superset) |
+| `paths.generated_artifacts` | workflow | Written from template | Merge (superset) |
+| `boundaries.workflow_owned_paths` | workflow | Written from template | Merge (superset) |
+| `validation.matrix` | workflow | Seeded from template | Merge (additive) |
+| `project.primary_hosts` | workflow | Derived at install time | Merge (additive) |
+| `project.name/slug` | target | Derived at install time | Never touched |
+| `project.type/summary` | target | Defaults from template | Never touched |
+| `runtime.languages/test_commands/...` | target | Defaults from template | Never touched |
+| `paths.source_directories/documentation_files` | target | Defaults from template | Never touched |
+| `boundaries.forbidden_paths/generated_only_paths` | target | Defaults from template | Never touched |
+| `architecture_rules` | target | Defaults from template | Never touched |
+| `decision_types` | target | Defaults from template | Never touched |
+| `governance.*` | target | Defaults from template | Never touched |
 
 Placeholder entries in `validation.matrix_seed` (those with `"placeholder": true`) are scaffolded as commented-out YAML entries in the rendered `PROJECT_PROFILE.yaml`, indicating where the target project should bind its own commands during Adoption A4. Non-placeholder entries (protocol-level validators) are scaffolded as active entries. The `matrix_seed` schema matches the real `PROJECT_PROFILE.yaml` validation matrix structure (`name`, `layer`, `command`, `blocker_level`, `description`, `owner`). `project.name`, `project.slug`, and `project.primary_hosts` are not in the template — they are derived at install time from the target project context (see Profile Scaffold Defaults below).
 
@@ -602,6 +657,8 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 
 ### Target-Project-Owned Sections (Preserved)
 
+These sections are written with sensible defaults during scaffold (absent profile) but are **never touched** during upgrade merges. After scaffold, the target project owns them completely.
+
 - `project.name`
 - `project.slug`
 - `project.type`
@@ -612,14 +669,18 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 - `runtime.dev_commands`
 - `paths.source_directories`
 - `paths.documentation_files`
+- `paths.existing_skill_template_patterns`
 - `boundaries.forbidden_paths`
+- `boundaries.generated_only_paths`
 - `architecture_rules`
 - `decision_types`
 - `governance.*`
 
+These fields are required by `projectPlaceholders()` (workflow-core.ts L143-153) and `validateProfilePathSemantics()` (workflow-core.ts L340-362). A scaffolded profile missing any of them would fail on the first `gen:all` or `workflow:health` run.
+
 ### Profile Scaffold Defaults
 
-When scaffolding a new `PROJECT_PROFILE.yaml`, the following defaults apply:
+When scaffolding a new `PROJECT_PROFILE.yaml`, the following defaults apply. All other sections use the values from `profile_scaffold_template` (see schema above).
 
 - `project.name` / `slug` → prefer target `package.json.name`; fall back to target directory name.
 - `project.primary_hosts` → prefer existing `.claude` / `.agents` / `.factory` directory markers; then explicit `--host` flag; then current runtime host.
@@ -628,6 +689,7 @@ When scaffolding a new `PROJECT_PROFILE.yaml`, the following defaults apply:
 - `validation.matrix` → seed with `blocks-generator` protocol entries (3 validators) + 4 A4 project placeholder slots. `blocks-merge` protocol entries (test commands) are excluded from scaffold because they depend on optional test file imports.
 - `boundaries.workflow_owned_paths` → seed with all `replace-managed` paths from the ownership matrix plus `PROJECT_PROFILE.yaml`.
 - `boundaries.forbidden_paths` → seed with `.git/**`, `node_modules/**`.
+- All target-project-owned defaults (`project.type`, `runtime.languages`, `paths.source_directories`, `architecture_rules`, `decision_types`, `governance.*`, etc.) → values from `profile_scaffold_template`. The target project should customize these after install.
 
 ## Frozen Guard And Safety Boundary
 
