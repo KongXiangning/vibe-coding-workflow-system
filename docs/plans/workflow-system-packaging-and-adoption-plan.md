@@ -233,8 +233,7 @@ The template is not a separate file in the bundle output directory.
   "schema_version": 1,
   "project": {
     "type": "application",
-    "summary": "TODO: describe this project",
-    "primary_hosts": []
+    "summary": "TODO: describe this project"
   },
   "runtime": {
     "languages": ["TypeScript"],
@@ -375,11 +374,20 @@ The `artifacts` list in `workflow-bundle.json` must be the resolved list of actu
 
 ### EXPORT_ARTIFACTS Category Handling
 
-`EXPORT_ARTIFACTS` entries with `category: 'config'` (`package.json`, `PROJECT_PROFILE.yaml`) are not copied to the target project as files. The pack command consumes `package.json` to generate the `package_json_contract` field. The `profile_scaffold_template` is curated from hardcoded values and the ownership matrix (not extracted from the source `PROJECT_PROFILE.yaml`). Only entries with `category` values of `script`, `protocol`, `template`, and `test` produce actual files in the bundle output directory. For `source_tree_hash` computation, only `package.json` from the config category is included; `PROJECT_PROFILE.yaml` is excluded (see Bundle Identity Rules).
+`EXPORT_ARTIFACTS` entries with `category: 'config'` (`package.json`, `PROJECT_PROFILE.yaml`) are not copied to the target project as files. Their handling is asymmetric:
+
+- `package.json` — pack reads it to generate the `package_json_contract` field. Included in `source_tree_hash` because its content directly determines the contract.
+- `PROJECT_PROFILE.yaml` — pack does **not** read it. The `profile_scaffold_template` is curated from hardcoded values and the ownership matrix, not extracted from the source profile. **Excluded** from `source_tree_hash`.
+
+`PROJECT_PROFILE.yaml` remains in `EXPORT_ARTIFACTS` because `workflow:manifest` reports it as a required import artifact (target projects need to know they need a profile), and the manifest's `import_contract` references it. Removing it from `EXPORT_ARTIFACTS` would break the manifest's completeness. The pack command simply skips it during hash computation and bundle content generation.
+
+Only entries with `category` values of `script`, `protocol`, `template`, and `test` produce actual files in the bundle output directory.
 
 ### Relationship To `workflow:manifest`
 
 `workflow:manifest` is the canonical contract. `workflow-bundle.json` must not diverge from its semantics. The bundle JSON may only add bundle-specific metadata (identity, checksums, timestamps) on top of the manifest contract.
+
+The `profile_scaffold_template` in `workflow-bundle.json` is bundle-specific metadata — it does not exist in the manifest. The manifest declares that a profile is required; the bundle provides the means to scaffold one. This is analogous to the manifest declaring required scripts while the bundle provides the actual files.
 
 ## Ownership Matrix And Upgrade Rules
 
