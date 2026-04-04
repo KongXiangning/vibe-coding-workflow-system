@@ -228,17 +228,19 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
   },
   "validation": {
     "matrix_seed": [
-      { "source": "WORKFLOW_PROTOCOL.md", "type": "protocol", "note": "workflow-system protocol entry" },
-      { "placeholder": true, "type": "project", "note": "A4 project slot 1" },
-      { "placeholder": true, "type": "project", "note": "A4 project slot 2" },
-      { "placeholder": true, "type": "project", "note": "A4 project slot 3" },
-      { "placeholder": true, "type": "project", "note": "A4 project slot 4" }
+      { "name": "workflow-skills-validation", "layer": "protocol", "command": "bun run gen:workflow-skills --dry-run", "blocker_level": "blocks-generator", "description": "Validate workflow skill templates.", "owner": "workflow-system" },
+      { "name": "workflow-docs-validation", "layer": "protocol", "command": "bun run gen:workflow-docs --dry-run", "blocker_level": "blocks-generator", "description": "Validate generated governance doc structure.", "owner": "workflow-system" },
+      { "name": "registry-validation", "layer": "protocol", "command": "bun run gen:registry --dry-run", "blocker_level": "blocks-generator", "description": "Validate registry generation.", "owner": "workflow-system" },
+      { "placeholder": true, "name": "unit", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project unit-test command during A4.", "owner": "target-project" },
+      { "placeholder": true, "name": "integration", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project integration-test command during A4.", "owner": "target-project" },
+      { "placeholder": true, "name": "e2e-smoke", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project smoke validation during A4.", "owner": "target-project" },
+      { "placeholder": true, "name": "contract-compatibility", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project contract checks during A4.", "owner": "target-project" }
     ]
   }
 }
 ```
 
-Placeholder entries in `validation.matrix_seed` are scaffolded as commented-out YAML entries in the rendered `PROJECT_PROFILE.yaml`, indicating where the target project should add its own validation rules. `project.name`, `project.slug`, and `project.primary_hosts` are not in the template — they are derived at install time from the target project context (see Profile Scaffold Defaults below).
+Placeholder entries in `validation.matrix_seed` (those with `"placeholder": true`) are scaffolded as commented-out YAML entries in the rendered `PROJECT_PROFILE.yaml`, indicating where the target project should bind its own commands during Adoption A4. Non-placeholder entries (protocol-level validators) are scaffolded as active entries. The `matrix_seed` schema matches the real `PROJECT_PROFILE.yaml` validation matrix structure (`name`, `layer`, `command`, `blocker_level`, `description`, `owner`). `project.name`, `project.slug`, and `project.primary_hosts` are not in the template — they are derived at install time from the target project context (see Profile Scaffold Defaults below).
 
 ### Bundle Identity Rules
 
@@ -355,7 +357,7 @@ Rules:
   - **Compatibility definition for `PROJECT_PROFILE.yaml`** (per section type):
     - **Exact-match sections** (`runtime.package_manager`, `runtime.module_system`): compatible if and only if the existing value is **identical** to the bundle contract value (e.g., `"bun"`, `"esm"`). Any other value is `contract_conflict`.
     - **Superset sections** (`paths.workflow_template_directories`, `paths.generated_artifacts`, `boundaries.workflow_owned_paths`): compatible if the existing array **contains all** bundle-required entries (extra target-project entries are preserved). If any bundle-required entry is missing, it is written (merged in). This never triggers `contract_conflict` — missing entries are added, extra entries are kept.
-    - **Additive sections** (`project.primary_hosts`, `validation.matrix`): always compatible. Bundle seed entries are merged into the existing array without removing existing entries. Duplicate entries (by identity key: host name for `primary_hosts`, `source` field for `validation.matrix`) are not duplicated.
+    - **Additive sections** (`project.primary_hosts`, `validation.matrix`): always compatible. Bundle seed entries are merged into the existing array without removing existing entries. Duplicate entries (by identity key: host name for `primary_hosts`, `name` field for `validation.matrix`) are not duplicated.
     - If the entire `PROJECT_PROFILE.yaml` workflow-owned section is absent in target, it is written from the bundle's `profile_scaffold_template`. If the section is present, the per-section rules above apply.
 - **Upgrade install (install-state exists):**
   - Target fragment matches last-install value → upgrade to new bundle value.
@@ -518,7 +520,7 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 
 `--dry-run` behavior for `workflow:adopt`:
 
-- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree. The mechanism is: create a temp directory, copy `PROJECT_PROFILE.yaml`, all `templates/` content, and all `scripts/` content into it, then invoke `gen:all` with the `WORKFLOW_SYSTEM_ROOT` environment variable pointing to the temp directory. Existing generators (`gen-workflow-skills.ts`, `gen-workflow-docs.ts`, `gen-registry.ts`) already resolve their root via `resolveRoot()` which respects this env var (see `workflow-core.ts` L91-94). Bootstrap classify is invoked with `--target-root <temp-dir>`, which it already accepts.
+- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree. The mechanism is: create a temp directory, copy `PROJECT_PROFILE.yaml`, `VERSION`, all `templates/` content, and all `scripts/` content into it, then invoke `gen:all` with the `WORKFLOW_SYSTEM_ROOT` environment variable pointing to the temp directory. Existing generators (`gen-workflow-skills.ts`, `gen-workflow-docs.ts`, `gen-registry.ts`) already resolve their root via `resolveRoot()` which respects this env var (see `workflow-core.ts` L91-94). `gen-workflow-docs.ts` additionally reads `VERSION` from root (L28), which is why it must be included. Bootstrap classify is invoked with `--target-root <temp-dir>`, which it already accepts.
 - Bootstrap classify and materialize planning run against the temporary generated outputs.
 - The full plan (including what would be materialized, health check expectations, and host sync targets) is reported.
 - On exit, the temporary workspace is cleaned up. No files are written to the target project.
