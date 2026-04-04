@@ -27,7 +27,7 @@ This plan completes the productization loop with the following core decisions:
 
 - `workflow:manifest` continues to serve as the sole semantic source for the existing runtime / import contract. `workflow-bundle.json` is a packed superset and must not define a parallel contract.
 - A new install-state file `.workflow-system/install-state.json` records bundle identity, installed files, last-install checksums, and merged `package.json` / `PROJECT_PROFILE.yaml` fragments, serving as the basis for re-run and upgrade determination.
-- A file ownership matrix classifies every target path into one of four modes — `replace-managed`, `merge-managed`, `live-doc`, `runtime-host` — eliminating ad-hoc override rules at implementation time.
+- A file ownership matrix classifies every target path into one of five modes — `replace-managed`, `merge-managed`, `live-doc`, `runtime-host`, `install-infrastructure` — eliminating ad-hoc override rules at implementation time.
 - `workflow:install` and `workflow:adopt` both perform a full preflight before any writes; if any planned write hits a frozen rule or local drift conflict, the entire command fails before the first write.
 - Bundle identity is no longer based solely on `package.json.version`. It is now `workflow_system_version + source_tree_hash`, with the output directory fixed to `dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/`, resolving the conflict when source changes but the version does not.
 
@@ -210,9 +210,41 @@ dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/
 
 `profile_scaffold_template` is a structured object embedded directly in `workflow-bundle.json`. It contains the default values, section structure, and seed data needed to render a new `PROJECT_PROFILE.yaml` in the target project. The pack command derives it from the source repository's `PROJECT_PROFILE.yaml` by extracting workflow-owned sections and scaffold defaults. It is not a separate file in the bundle output directory.
 
+`profile_scaffold_template` schema:
+
+```json
+{
+  "runtime": {
+    "package_manager": "bun",
+    "module_system": "esm"
+  },
+  "paths": {
+    "workflow_template_directories": ["templates/docs", "templates/skills"],
+    "generated_artifacts": ["generated/workflow-docs", "generated/workflow-skills"]
+  },
+  "boundaries": {
+    "workflow_owned_paths": ["scripts/workflow-*.ts", "scripts/gen-*.ts", "..."],
+    "forbidden_paths_seed": [".git/**", "node_modules/**"]
+  },
+  "validation": {
+    "matrix_seed": [
+      { "source": "WORKFLOW_PROTOCOL.md", "type": "protocol", "note": "workflow-system protocol entry" },
+      { "placeholder": true, "type": "project", "note": "A4 project slot 1" },
+      { "placeholder": true, "type": "project", "note": "A4 project slot 2" },
+      { "placeholder": true, "type": "project", "note": "A4 project slot 3" },
+      { "placeholder": true, "type": "project", "note": "A4 project slot 4" }
+    ]
+  }
+}
+```
+
+Placeholder entries in `validation.matrix_seed` are scaffolded as commented-out YAML entries in the rendered `PROJECT_PROFILE.yaml`, indicating where the target project should add its own validation rules. `project.name`, `project.slug`, and `project.primary_hosts` are not in the template — they are derived at install time from the target project context (see Profile Scaffold Defaults below).
+
 ### Bundle Identity Rules
 
 `bundle_id` format is fixed: `workflow-system@<version>+<source-tree-hash-short>`.
+
+`workflow_system_version` is read from the source repository's `package.json` `version` field at pack time (see `workflow-runtime.ts` L445). This is the single authoritative source; the `VERSION` file is not used.
 
 `source_tree_hash` is computed over all `EXPORT_ARTIFACTS` source files used to produce this bundle — regardless of whether those files appear verbatim in the bundle output directory. This means:
 
@@ -227,6 +259,20 @@ Therefore:
 - The two produce different `source_tree_hash` values and therefore different `bundle_id` values and output directories.
 
 Changes to unrelated repository files (README, browse subsystem, etc.) never affect the hash. The hash algorithm is SHA-256, truncated to 12 hex characters for `bundle_id` and stored in full in `source_tree_hash`.
+
+#### `source_tree_hash` Computation Algorithm
+
+The exact algorithm is:
+
+1. Enumerate all included source files from `EXPORT_ARTIFACTS` (filtered by `--include-tests`).
+2. Expand glob entries (`templates/docs/**`, `templates/skills/**`) to concrete file paths.
+3. Normalize every path to forward-slash separators (regardless of host OS) and sort lexicographically (byte-order ascending).
+4. For each file in sorted order, compute: `SHA-256(utf8(normalized_path) + 0x00 + raw_file_bytes)`. The `0x00` null byte separator prevents path/content boundary ambiguity.
+5. Collect all per-file hex digests into a sorted list (already sorted by path order from step 3).
+6. Concatenate all hex digests (no separator) and compute `SHA-256` of the concatenated string (UTF-8 encoded).
+7. The result is the full `source_tree_hash`. Truncate to the first 12 hex characters for `source-tree-hash-short` in `bundle_id`.
+
+This algorithm ensures: (a) deterministic output regardless of OS glob expansion order, (b) no collision between files whose concatenated content is identical but whose path boundaries differ, and (c) reproducibility across Windows and Unix systems via forward-slash normalization and binary-mode reads.
 
 `source_commit` is the HEAD git commit SHA at pack time. `workflow:pack` does not require a clean git working tree. If there are uncommitted changes to included files, the `source_tree_hash` will reflect the actual file content on disk (which may differ from `source_commit`). The bundle metadata does not assert that `source_commit` matches `source_tree_hash`; consumers should treat `source_tree_hash` as the authoritative identity and `source_commit` as an advisory reference for traceability.
 
@@ -253,7 +299,7 @@ The `artifacts` list in `workflow-bundle.json` must be the resolved list of actu
 
 ## Ownership Matrix And Upgrade Rules
 
-Every target path belongs to exactly one ownership mode. This matrix is normative and must not be extended at implementation time without updating this plan.
+Every target path belongs to exactly one ownership mode. This matrix is normative and must not be extended at implementation time without updating this plan. There are five modes: `replace-managed`, `merge-managed`, `live-doc`, `runtime-host`, and `install-infrastructure`.
 
 ### `replace-managed`
 
@@ -301,7 +347,11 @@ Rules:
 - **First install (no install-state exists):**
   - Workflow-owned fragment absent in target → write the bundle contract value.
   - Workflow-owned fragment present and compatible with the bundle contract → accept the existing value and record it as the baseline in install-state.
-  - Workflow-owned fragment present but incompatible (e.g., conflicting `engines.bun`, different `scripts[gen:*]` commands) → fail with `contract_conflict`; do not overwrite.
+  - Workflow-owned fragment present but incompatible → fail with `contract_conflict`; do not overwrite.
+  - **Compatibility definition** (per key type):
+    - `scripts[gen:*]`, `scripts[bootstrap:*]`, `scripts[validate:*]`, `scripts[workflow:*]` — compatible if and only if the existing value is **byte-identical** to the bundle contract value. Any difference (even whitespace) is `contract_conflict`.
+    - `dependencies.yaml` — compatible if the existing value is a semver range that **intersects** the bundle contract range (evaluated via `semver.intersects`). Exact match is not required. Disjoint ranges are `contract_conflict`.
+    - `engines.bun` — compatible if the existing value, parsed as a semver range, is **satisfied by** the bundle contract's minimum version (evaluated via `semver.satisfies(bundleMin, existingRange)`). If the existing range would exclude the bundle's required minimum, it is `contract_conflict`.
 - **Upgrade install (install-state exists):**
   - Target fragment matches last-install value → upgrade to new bundle value.
   - Target fragment was modified by the user → install fails and reports `local_drift`; no automatic write-back.
@@ -350,6 +400,20 @@ The following target paths appear in the project layout but are not managed by i
 
 These paths are owned by the target project's local generation cycle, not by the bundle.
 
+### `install-infrastructure`
+
+Paths:
+
+- `.workflow-system/install-state.json`
+
+Rules:
+
+- Created and updated exclusively by `workflow:install` and `workflow:adopt`.
+- Not sourced from the bundle (not a bundle artifact).
+- Not user-editable — manual edits may cause drift detection failures on next install.
+- Subject to frozen checks like all other planned writes.
+- Ownership mode exists to close the matrix; no other paths use this mode in v1.
+
 ## Install State And Transaction Model
 
 ### Install State File
@@ -375,6 +439,32 @@ Required fields:
   - `synced_entries[]` (skill name + target path)
 
 `managed_files[]` only tracks `replace-managed` paths (whole-file ownership). The `mode` field is currently always `replace-managed` but is included for forward compatibility if additional managed modes are introduced later. `merge-managed` paths (`package.json`, `PROJECT_PROFILE.yaml`) are tracked separately via `package_json_fragment` and `project_profile_fragment`, which record only the workflow-owned key/value pairs — not the full file content.
+
+`package_json_fragment` serialization format: a nested JSON object mirroring the `package.json` structure, containing only workflow-owned keys. Example:
+
+```json
+{
+  "scripts": {
+    "gen:workflow-skills": "bun run scripts/gen-workflow-skills.ts",
+    "workflow:health": "bun run scripts/workflow-runtime.ts health"
+  },
+  "dependencies": { "yaml": "^2.7.1" },
+  "engines": { "bun": ">=1.0.0" }
+}
+```
+
+`project_profile_fragment` serialization format: a nested JSON object mirroring the `PROJECT_PROFILE.yaml` structure (converted from YAML to JSON), containing only workflow-owned sections. Example:
+
+```json
+{
+  "runtime": { "package_manager": "bun", "module_system": "esm" },
+  "paths": { "workflow_template_directories": ["templates/docs", "templates/skills"] },
+  "boundaries": { "workflow_owned_paths": ["scripts/workflow-*.ts"] },
+  "validation": { "matrix": [...] }
+}
+```
+
+Both fragments are **deep-compared** against the current target file content during upgrade drift detection. The comparison extracts the same key paths from the current target file and compares values using deep equality (not string comparison of serialized forms).
 
 `host_sync_state` is a map keyed by host name (`claude`, `codex`, `factory`). Each entry records the sync namespace, timestamp, and synced entries for that host independently. `workflow:install` initializes the map with the `--host` value (or detected host) as a placeholder entry. `workflow:adopt --host <host>` updates only that host's entry after successful sync, preserving other hosts' state. This allows sequential `workflow:adopt --host claude` then `workflow:adopt --host codex` without losing the first host's sync record.
 
@@ -402,18 +492,28 @@ Partial failure during step 5: If a write fails after preflight passed (e.g., di
 ### `workflow:adopt` Transaction Flow
 
 1. Read install state. Require that a bundle was installed successfully.
-2. Execute `gen:all`.
+2. Execute `gen:all`. If `gen:all` fails (non-zero exit), abort the entire adopt with exit code 1. No subsequent steps execute.
 3. Execute bootstrap classify / dry-run.
 4. Generate materialize plan for absent live docs only.
 5. Execute frozen check against planned materializations + host sync targets.
 6. On pass → write absent docs, execute `workflow:health`, execute host sync.
 7. If health or host sync fails → do not roll back already-materialized absent docs, but output an explicit failure report and do not modify any existing live docs.
 
+Install-state update rules for `workflow:adopt`:
+
+- Adopt does not modify `managed_files[]`, `bundle_id`, `workflow_system_version`, `package_json_fragment`, or `project_profile_fragment` — those are install-time fields.
+- Adopt only updates `host_sync_state` in install-state, and only after **successful** host sync for the target host.
+- If health fails (sync never executes) → install-state is **not** modified.
+- If host sync fails → install-state is **not** modified for that host. Other hosts' entries are untouched.
+- If host sync succeeds → install-state is updated atomically: the host's `host_sync_state` entry is written with the new `synced_at`, `namespace`, and `synced_entries[]`.
+
+Partial failure during step 6 (write absent docs): If writing one absent doc fails (e.g., permission error), the command aborts immediately. Already-written absent docs are not rolled back — they are live-doc files now owned by the target project. Health and host sync do not execute. The failure report lists which docs were written and which failed.
+
 Both commands must support `--dry-run`. Dry-run outputs the full plan / report but performs zero repo-tracked writes.
 
 `--dry-run` behavior for `workflow:adopt`:
 
-- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree.
+- `gen:all` is executed into a temporary workspace directory, not the target project's `generated/` tree. The mechanism is: create a temp directory, copy `PROJECT_PROFILE.yaml` and all `templates/` content into it, then invoke `gen:all` with `--root` pointing to the temp directory. Generator scripts already accept `--root` for path resolution (this is the same flag used by `workflow:install`).
 - Bootstrap classify and materialize planning run against the temporary generated outputs.
 - The full plan (including what would be materialized, health check expectations, and host sync targets) is reported.
 - On exit, the temporary workspace is cleaned up. No files are written to the target project.
@@ -422,7 +522,19 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 
 `workflow:install` rules for `package.json`:
 
-- Target file absent → scaffold a minimal Bun + ESM `package.json`.
+- Target file absent → scaffold a minimal Bun + ESM `package.json` with exactly these keys:
+  ```json
+  {
+    "name": "<derived-from-directory-name>",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": { /* workflow-owned scripts from bundle contract */ },
+    "dependencies": { "yaml": "<bundle-contract-value>" },
+    "engines": { "bun": "<bundle-contract-value>" }
+  }
+  ```
+  `name` is the target directory's basename, lowercased, with spaces replaced by hyphens. `version` starts at `0.0.0`. `private: true` prevents accidental npm publish. All workflow-owned keys are populated from the bundle's `package_json_contract`.
 - Target exists and `type !== "module"` → fail immediately; do not auto-migrate to ESM.
 - Workflow-owned keys are limited to:
   - `scripts[gen:*]`
@@ -434,8 +546,8 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 - All non-workflow keys are preserved unconditionally.
 - `engines.bun` handling:
   - Absent → write the bundle contract value.
-  - Present and satisfies the bundle contract → preserve the existing value.
-  - Present and incompatible → fail.
+  - Present and the existing semver range is satisfied by the bundle contract's minimum version → preserve the existing value.
+  - Present and the existing semver range excludes the bundle contract's minimum version → fail with `contract_conflict`.
 
 ## `PROJECT_PROFILE.yaml` Merge Policy
 
@@ -537,6 +649,8 @@ Commands:
 - `workflow:pack [--out-dir <path>] [--include-tests] [--json]`
 - `workflow:install --bundle <dir> [--root <target>] [--host <claude|codex|factory>] [--dry-run] [--json]`
 - `workflow:adopt [--root <target>] [--host <claude|codex|factory>] [--dry-run] [--json]`
+
+`--root` defaults to the current working directory (`process.cwd()`). It must point to the target project root (the directory containing or that will contain `package.json`). If `--root` is a subdirectory of a git repository, the command does **not** walk up to the git root — it uses the specified (or cwd) directory literally.
 
 Files:
 
@@ -736,6 +850,10 @@ This plan is complete when all of the following are true:
 - Host sync only touches `workflow-system-*` namespace.
 - Sequential adopt for different hosts preserves each host's sync state in install-state independently.
 - Second adopt run (all docs already exist) → zero materializations, re-runs gen:all / health / host sync only.
+- `gen:all` failure → adopt aborts with exit code 1, no absent docs written, no health/sync.
+- Absent doc write partial failure → already-written docs preserved, health/sync not executed, failure report lists written and failed docs.
+- Health failure → install-state `host_sync_state` not modified.
+- Host sync failure → install-state `host_sync_state` not modified for that host.
 - `--dry-run` → full plan output, zero writes.
 
 ### Upgrade
