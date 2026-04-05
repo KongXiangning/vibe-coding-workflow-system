@@ -27,7 +27,7 @@ This plan completes the productization loop with the following core decisions:
 
 - `workflow:manifest` continues to serve as the sole semantic source for the existing runtime / import contract. `workflow-bundle.json` is a packed superset and must not define a parallel contract.
 - A new install-state file `.workflow-system/install-state.json` records bundle identity, installed files, last-install checksums, and merged `package.json` / `PROJECT_PROFILE.yaml` fragments, serving as the basis for re-run and upgrade determination.
-- A file ownership matrix classifies every target path into one of five modes — `replace-managed`, `merge-managed`, `live-doc`, `runtime-host`, `install-infrastructure` — eliminating ad-hoc override rules at implementation time.
+- A file ownership matrix classifies every target path into one of six modes — `replace-managed`, `merge-managed`, `live-doc`, `runtime-host`, `install-infrastructure`, `scaffold-once` — eliminating ad-hoc override rules at implementation time.
 - `workflow:install` and `workflow:adopt` both perform a full preflight before any writes; if any planned write hits a frozen rule or local drift conflict, the entire command fails before the first write.
 - Bundle identity is no longer based solely on `package.json.version`. It is now `workflow_system_version + source_tree_hash`, with the output directory fixed to `dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/`, resolving the conflict when source changes but the version does not.
 
@@ -84,6 +84,7 @@ The minimum workflow-system engine imported into a target project must include:
 - `templates/skills/**`
 - `templates/docs/**`
 - a project-local `PROJECT_PROFILE.yaml` scaffold
+- a target-local `VERSION` scaffold
 - the minimum workflow `package.json` contract:
   - required `workflow:*` scripts
   - required `gen:*` scripts
@@ -130,6 +131,7 @@ These paths live directly in the target project root or standard subdirectories:
 ```text
 <target-project>/
   package.json
+  VERSION
   PROJECT_PROFILE.yaml
   WORKFLOW_PROTOCOL.md
   FILE_SCHEMAS.md
@@ -391,7 +393,7 @@ The `profile_scaffold_template` in `workflow-bundle.json` is bundle-specific met
 
 ## Ownership Matrix And Upgrade Rules
 
-Every target path belongs to exactly one ownership mode. This matrix is normative and must not be extended at implementation time without updating this plan. There are five modes: `replace-managed`, `merge-managed`, `live-doc`, `runtime-host`, and `install-infrastructure`.
+Every target path belongs to exactly one ownership mode. This matrix is normative and must not be extended at implementation time without updating this plan. There are six modes: `replace-managed`, `merge-managed`, `live-doc`, `runtime-host`, `install-infrastructure`, and `scaffold-once`.
 
 ### `replace-managed`
 
@@ -511,6 +513,20 @@ Rules:
 - Subject to frozen checks like all other planned writes.
 - Ownership mode exists to close the matrix; no other paths use this mode in v1.
 
+### `scaffold-once`
+
+Paths:
+
+- `VERSION`
+
+Rules:
+
+- File absent during `workflow:install` → create.
+- Scaffold value derives from target `package.json.version` if present and non-empty; otherwise use `0.0.0`.
+- File present → `workflow:install` and `workflow:adopt` never modify it.
+- Not tracked in `managed_files[]` and not treated as workflow-owned for upgrade drift detection; it is a target-project-owned bootstrap prerequisite.
+- Subject to frozen checks like all other planned writes.
+
 ## Install State And Transaction Model
 
 ### Install State File
@@ -563,7 +579,17 @@ Required fields:
 
 Both fragments are **deep-compared** against the current target file content during upgrade drift detection. The comparison extracts the same key paths from the current target file and compares values using deep equality (not string comparison of serialized forms).
 
-`host_sync_state` is a map keyed by host name (`claude`, `codex`, `factory`). Each entry records the sync namespace, timestamp, and synced entries for that host independently. `workflow:install` initializes the map with the `--host` value (or detected host) as a placeholder entry. `workflow:adopt --host <host>` updates only that host's entry after successful sync, preserving other hosts' state. This allows sequential `workflow:adopt --host claude` then `workflow:adopt --host codex` without losing the first host's sync record.
+`host_sync_state` is a map keyed by host name (`claude`, `codex`, `factory`). Each entry records the sync namespace, timestamp, and synced entries for that host independently. `workflow:install` initializes the map with the `--host` value (or detected host) as a placeholder entry shaped exactly as:
+
+```json
+{
+  "namespace": "workflow-system-*",
+  "synced_at": null,
+  "synced_entries": []
+}
+```
+
+`synced_at: null` means "host selected but never successfully synced yet". `workflow:adopt --host <host>` updates only that host's entry after successful sync, preserving other hosts' state. This allows sequential `workflow:adopt --host claude` then `workflow:adopt --host codex` without losing the first host's sync record.
 
 Recovery: If `install-state.json` is missing but managed files already exist in the target project (e.g., deleted manually or lost after a clone), `workflow:install` treats this as a first-install scenario. Existing managed files that match the bundle's expected content are accepted and recorded as baseline. Files that differ trigger `contract_conflict` since there is no prior baseline to compare against. Users who lose install-state must either ensure managed files match the bundle or delete them before re-installing.
 
@@ -580,6 +606,7 @@ Recovery: If `install-state.json` is missing but managed files already exist in 
 5. On pass → execute writes:
    - `replace-managed` files written.
    - `package.json` merge applied.
+   - `VERSION` scaffold written if absent.
    - `PROJECT_PROFILE.yaml` merge / scaffold applied.
    - `.workflow-system/install-state.json` written.
 6. Output machine-readable install report (JSON format, schema versioned via `report_version` field).
@@ -703,7 +730,7 @@ These fields are required by `projectPlaceholders()` (workflow-core.ts L143-153)
 When scaffolding a new `PROJECT_PROFILE.yaml`, the following defaults apply. All other sections use the values from `profile_scaffold_template` (see schema above).
 
 - `project.name` / `slug` → prefer target `package.json.name`; fall back to target directory name.
-- `project.primary_hosts` → prefer existing `.claude` / `.agents` / `.factory` directory markers; then explicit `--host` flag; then current runtime host.
+- `project.primary_hosts` → prefer explicit `--host` flag; otherwise fall back to directory markers (`.claude` / `.agents` / `.factory`); otherwise current runtime host. This is the same precedence used by `workflow:install`; explicit CLI input always wins over auto-detection.
 - `runtime.package_manager` → `bun`
 - `runtime.module_system` → `esm`
 - `validation.matrix` → seed with `blocks-generator` protocol entries (3 validators) + 4 A4 project placeholder slots. `blocks-merge` protocol entries (test commands) are excluded from scaffold because they depend on optional test file imports.
@@ -757,7 +784,7 @@ All machine-readable reports (install report, adopt report, dry-run output) are 
 
 A single `workflow:install` execution targets one host at a time. To install for multiple hosts, run `workflow:install` once (host-agnostic managed files are written), then `workflow:adopt --host <host>` separately for each host. Alternatively, `--host all` may be supported in a future version but is not part of v1.
 
-The `--host` flag on `workflow:install` does not change which `replace-managed` files are installed (those are always host-agnostic). It only affects: (1) the initial `host_sync_state` entry recorded in install-state, and (2) the `project.primary_hosts` default when scaffolding a new `PROJECT_PROFILE.yaml`. If omitted, the host is auto-detected via the standard 4-level fallback (CLI → ENV → directory marker → profile).
+The `--host` flag on `workflow:install` does not change which `replace-managed` files are installed (those are always host-agnostic). It only affects: (1) the initial `host_sync_state` entry recorded in install-state, and (2) the `project.primary_hosts` default when scaffolding a new `PROJECT_PROFILE.yaml`. Precedence is fixed as: explicit `--host` flag → ENV override → directory marker → existing profile. If `--host` is omitted, the command follows the remaining fallback chain.
 
 ## Public Interfaces
 
@@ -948,9 +975,11 @@ This plan is complete when all of the following are true:
 ### Install
 
 - Empty target project → scaffold `package.json`, `PROJECT_PROFILE.yaml`, and managed files successfully.
+- Empty target project → scaffold `VERSION` so that `gen:workflow-docs` can run immediately.
 - Existing `package.json` → preserve unrelated keys, merge only workflow-owned keys.
 - Existing `PROJECT_PROFILE.yaml` → merge only workflow-owned sections.
 - Existing `PROJECT_PROFILE.yaml` missing required target-owned fields (e.g., `project.type`) → fail with `incompatible_target` listing missing fields.
+- Existing target with missing `VERSION` → scaffold `VERSION` from `package.json.version` or `0.0.0`.
 - Target project is CommonJS → fail immediately, no auto-migration.
 - Managed file with local drift → upgrade fails with zero writes.
 - Any target path frozen → entire install produces zero writes.
@@ -983,6 +1012,7 @@ This plan is complete when all of the following are true:
 - Unmodified managed files upgrade from old bundle to new bundle.
 - User-modified managed files trigger drift conflict.
 - Package / profile workflow-owned fragments upgrade; target-owned content preserved.
+- Existing `VERSION` remains untouched across upgrade.
 
 ### End-To-End
 
