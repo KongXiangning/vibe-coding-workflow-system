@@ -9,8 +9,12 @@
  * - host-specific sync entrypoints
  */
 
+import { execSync, spawnSync } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { parse, stringify } from 'yaml';
 import {
   executeWrites,
   getRequiredPath,
@@ -18,9 +22,12 @@ import {
   normalizeList,
   readText,
   resolveRoot,
+  validateProfilePathSemantics,
   type JsonObject,
   type WriteOperation,
 } from './workflow-core';
+import { repoPatternMatchesPath } from './repo-path-patterns';
+import { buildBootstrapPlan, type BootstrapPlan } from './bootstrap-project-governance';
 import { runFreshnessChecks } from './check-freshness';
 import { runValidation } from './run-validation';
 
@@ -142,6 +149,128 @@ type ParsedCliArgs = {
   includeTests: boolean;
 };
 
+export type BundleArtifact = {
+  path: string;
+  category: ManifestCategory;
+  required: boolean;
+  checksum: string;
+};
+
+export type WorkflowBundle = {
+  contract_version: 1;
+  workflow_system_version: string;
+  bundle_id: string;
+  source_commit: string;
+  source_tree_hash: string;
+  created_at: string;
+  artifacts: BundleArtifact[];
+  package_json_contract: ExportManifest['package_json_contract'];
+  profile_scaffold_template: JsonObject;
+  post_install: string[];
+  verification: string[];
+  import_contract: ExportManifest['import_contract'];
+  host_compatibility: Record<RuntimeHost, HostCompatibilityNote>;
+  includes_optional_tests: boolean;
+};
+
+export type PackReport = {
+  report_version: 1;
+  bundle_id: string;
+  workflow_system_version: string;
+  source_commit: string;
+  source_tree_hash: string;
+  output_directory: string;
+  artifact_count: number;
+  includes_optional_tests: boolean;
+  created_at: string;
+};
+
+export type PackOptions = {
+  root?: string;
+  outDir?: string;
+  includeTests?: boolean;
+  dryRun?: boolean;
+};
+
+export type FailureCategory = 'frozen_path' | 'local_drift' | 'contract_conflict' | 'incompatible_target';
+
+export type PreflightFailure = {
+  category: FailureCategory;
+  path: string;
+  message: string;
+};
+
+export type ManagedFileEntry = {
+  path: string;
+  mode: 'replace-managed';
+  bundle_checksum: string;
+  installed_checksum: string;
+};
+
+export type HostSyncStateEntry = {
+  namespace: string;
+  synced_at: string | null;
+  synced_entries: Array<{ skill_name: string; target_path: string }>;
+};
+
+export type InstallState = {
+  state_version: 1;
+  bundle_id: string;
+  workflow_system_version: string;
+  installed_at: string;
+  managed_files: ManagedFileEntry[];
+  package_json_fragment: JsonObject;
+  project_profile_fragment: JsonObject;
+  host_sync_state: Record<string, HostSyncStateEntry>;
+};
+
+export type PlannedWrite = {
+  path: string;
+  action: 'create' | 'overwrite' | 'merge' | 'scaffold' | 'delete';
+  mode: string;
+  content?: string;
+};
+
+export type InstallReport = {
+  report_version: 1;
+  bundle_id: string;
+  workflow_system_version: string;
+  dry_run: boolean;
+  success: boolean;
+  failures: PreflightFailure[];
+  planned_writes: Array<{ path: string; action: string; mode: string }>;
+  exit_code: number;
+};
+
+export type InstallOptions = {
+  bundleDir: string;
+  root?: string;
+  host?: RuntimeHost;
+  dryRun?: boolean;
+};
+
+export type AdoptOptions = {
+  root?: string;
+  host?: RuntimeHost;
+  dryRun?: boolean;
+};
+
+export type AdoptReport = {
+  report_version: 1;
+  dry_run: boolean;
+  success: boolean;
+  host: RuntimeHost;
+  planned_materializations: string[];
+  planned_host_sync_targets: string[];
+  health_check_required: boolean;
+  bootstrap_plan: BootstrapPlan;
+  written_materializations?: string[];
+  failed_materialization?: string;
+  error?: string;
+  failures: PreflightFailure[];
+  exit_code: number;
+};
+
 type HostResolution = {
   host: DetectedRuntimeHost;
   source: 'cli' | 'env' | 'directory' | 'profile' | 'fallback';
@@ -219,6 +348,31 @@ const REQUIRED_PACKAGE_SCRIPTS = [
   'workflow:pack',
   'workflow:install',
   'workflow:adopt',
+] as const;
+
+const EXACT_MATCH_PROFILE_PATHS = ['runtime.package_manager', 'runtime.module_system'] as const;
+const SUPERSET_PROFILE_PATHS = [
+  'paths.workflow_template_directories',
+  'paths.generated_artifacts',
+  'boundaries.workflow_owned_paths',
+] as const;
+const ADDITIVE_PROFILE_PATHS = ['project.primary_hosts', 'validation.matrix'] as const;
+const REQUIRED_PROFILE_FIELDS = [
+  'project.name',
+  'project.slug',
+  'project.type',
+  'runtime.languages',
+  'runtime.test_commands',
+  'decision_types',
+  'architecture_rules',
+  'paths.source_directories',
+  'boundaries.forbidden_paths',
+  'paths.documentation_files',
+  'paths.existing_skill_template_patterns',
+  'paths.generated_artifacts',
+  'boundaries.generated_only_paths',
+  'boundaries.workflow_owned_paths',
+  'governance.current_documents',
 ] as const;
 
 function buildPackageJsonContract(packageJson: {
@@ -427,6 +581,1284 @@ function getHostCompatibilityNotes(): Record<RuntimeHost, HostCompatibilityNote>
       ],
     },
   };
+}
+
+// --- Pack implementation ---
+
+function expandGlobArtifacts(root: string, artifacts: readonly ExportArtifact[]): ExportArtifact[] {
+  const expanded: ExportArtifact[] = [];
+  for (const artifact of artifacts) {
+    if (artifact.path.endsWith('/**')) {
+      const baseDir = artifact.path.slice(0, -3);
+      const fullDir = path.join(root, baseDir);
+      if (!fs.existsSync(fullDir)) {
+        throw new Error(`Artifact glob directory not found: ${fullDir}`);
+      }
+      const files = collectFilesRecursively(fullDir);
+      for (const file of files) {
+        const relativePath = path.relative(root, file).replace(/\\/g, '/');
+        expanded.push({
+          path: relativePath,
+          category: artifact.category,
+          required: artifact.required,
+          description: artifact.description,
+        });
+      }
+    } else {
+      expanded.push({ ...artifact });
+    }
+  }
+  return expanded;
+}
+
+function collectFilesRecursively(dir: string): string[] {
+  const results: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...collectFilesRecursively(fullPath));
+    } else if (entry.isFile()) {
+      results.push(fullPath);
+    }
+  }
+  return results.sort();
+}
+
+function computeFileChecksum(filePath: string): string {
+  const content = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+/**
+ * Compute source_tree_hash per the plan's algorithm:
+ * 1. Enumerate included source files from EXPORT_ARTIFACTS (filtered by --include-tests)
+ * 2. Expand globs to concrete paths
+ * 3. Normalize to forward-slash, sort lexicographically
+ * 4. For each file: SHA-256(utf8(normalized_path) + 0x00 + raw_file_bytes)
+ * 5. Concatenate all hex digests (already sorted by path order)
+ * 6. SHA-256 of the concatenated string
+ */
+export function computeSourceTreeHash(root: string, includeTests: boolean): string {
+  const included = EXPORT_ARTIFACTS.filter(a => {
+    if (!includeTests && a.category === 'test') return false;
+    // config category: only package.json is included; PROJECT_PROFILE.yaml excluded
+    if (a.category === 'config' && a.path === 'PROJECT_PROFILE.yaml') return false;
+    return true;
+  });
+
+  const expanded = expandGlobArtifacts(root, included);
+
+  // Normalize to forward-slash and sort
+  const sortedPaths = expanded
+    .map(a => a.path.replace(/\\/g, '/'))
+    .sort();
+
+  const perFileDigests: string[] = [];
+  for (const normalizedPath of sortedPaths) {
+    const fullPath = path.join(root, normalizedPath.replace(/\//g, path.sep));
+    const rawBytes = fs.readFileSync(fullPath);
+    const pathBytes = Buffer.from(normalizedPath, 'utf8');
+    const separator = Buffer.from([0x00]);
+    const combined = Buffer.concat([pathBytes, separator, rawBytes]);
+    const digest = crypto.createHash('sha256').update(combined).digest('hex');
+    perFileDigests.push(digest);
+  }
+
+  const concatenated = perFileDigests.join('');
+  return crypto.createHash('sha256').update(concatenated, 'utf8').digest('hex');
+}
+
+function getSourceCommit(root: string): string {
+  try {
+    return execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function buildProfileScaffoldTemplate(): JsonObject {
+  return {
+    schema_version: 1,
+    project: {
+      type: 'application',
+      summary: 'TODO: describe this project',
+    },
+    runtime: {
+      languages: ['TypeScript'],
+      package_manager: 'bun',
+      module_system: 'esm',
+      build_commands: [],
+      test_commands: ['bun test'],
+      dev_commands: [],
+    },
+    paths: {
+      source_directories: ['scripts'],
+      documentation_files: ['README.md'],
+      workflow_template_directories: ['templates/docs', 'templates/skills'],
+      existing_skill_template_patterns: ['*/SKILL.md.tmpl', 'SKILL.md.tmpl'],
+      generated_artifacts: ['generated/workflow-docs/**', 'generated/workflow-skills/**', 'SKILL_REGISTRY.md'],
+    },
+    boundaries: {
+      forbidden_paths: ['.git/**', 'node_modules/**'],
+      generated_only_paths: ['generated/workflow-docs/**', 'generated/workflow-skills/**', 'SKILL_REGISTRY.md'],
+      workflow_owned_paths: [
+        'scripts/workflow-core.ts',
+        'scripts/repo-path-patterns.ts',
+        'scripts/workflow-doc-contracts.ts',
+        'scripts/task-identity.ts',
+        'scripts/bootstrap-project-governance.ts',
+        'scripts/validation-model.ts',
+        'scripts/run-validation.ts',
+        'scripts/check-freshness.ts',
+        'scripts/gen-workflow-skills.ts',
+        'scripts/gen-workflow-docs.ts',
+        'scripts/gen-registry.ts',
+        'scripts/workflow-runtime.ts',
+        'templates/docs/**',
+        'templates/skills/**',
+        'WORKFLOW_PROTOCOL.md',
+        'FILE_SCHEMAS.md',
+        'PROJECT_PROFILE.yaml',
+      ],
+    },
+    architecture_rules: [
+      'Keep workflow automation and generators in scripts/.',
+      'Treat templates/skills/ as workflow skill template sources, not runtime outputs.',
+      'Do not hand-edit generated outputs.',
+    ],
+    decision_types: ['mechanical', 'taste', 'user_challenge'],
+    governance: {
+      current_documents: [
+        'PROJECT_PROFILE.yaml',
+        'WORKFLOW_PROTOCOL.md',
+        'FILE_SCHEMAS.md',
+        'SKILL_REGISTRY.md',
+      ],
+      planned_documents: [],
+    },
+    validation: {
+      matrix_seed: [
+        { name: 'workflow-skills-validation', layer: 'protocol', command: 'bun run gen:workflow-skills --dry-run', blocker_level: 'blocks-generator', description: 'Validate workflow skill templates.', phase: 'P9', owner: 'workflow-system' },
+        { name: 'workflow-docs-validation', layer: 'protocol', command: 'bun run gen:workflow-docs --dry-run', blocker_level: 'blocks-generator', description: 'Validate generated governance doc structure.', phase: 'P9', owner: 'workflow-system' },
+        { name: 'registry-validation', layer: 'protocol', command: 'bun run gen:registry --dry-run', blocker_level: 'blocks-generator', description: 'Validate registry generation.', phase: 'P9', owner: 'workflow-system' },
+        { placeholder: true, name: 'unit', layer: 'project', command: '', blocker_level: 'blocks-merge', description: 'Bind target project unit-test command during A4.', phase: 'A4', owner: 'target-project' },
+        { placeholder: true, name: 'integration', layer: 'project', command: '', blocker_level: 'blocks-merge', description: 'Bind target project integration-test command during A4.', phase: 'A4', owner: 'target-project' },
+        { placeholder: true, name: 'e2e-smoke', layer: 'project', command: '', blocker_level: 'blocks-merge', description: 'Bind target project smoke validation during A4.', phase: 'A4', owner: 'target-project' },
+        { placeholder: true, name: 'contract-compatibility', layer: 'project', command: '', blocker_level: 'blocks-merge', description: 'Bind target project contract checks during A4.', phase: 'A4', owner: 'target-project' },
+      ],
+    },
+  };
+}
+
+export function packWorkflowBundle(options: PackOptions = {}): PackReport {
+  const root = path.resolve(options.root ?? resolveRoot());
+  const manifest = getExportManifest(root);
+  const includeTests = options.includeTests ?? false;
+  const dryRun = options.dryRun ?? false;
+
+  // Compute source_tree_hash
+  const sourceTreeHash = computeSourceTreeHash(root, includeTests);
+  const sourceTreeHashShort = sourceTreeHash.slice(0, 12);
+  const version = manifest.workflow_system_version;
+  const bundleId = `workflow-system@${version}+${sourceTreeHashShort}`;
+  const sourceCommit = getSourceCommit(root);
+
+  // Determine output directory
+  const outParent = options.outDir
+    ? path.resolve(options.outDir)
+    : path.join(root, 'dist', 'workflow-system');
+  const bundleDirName = `workflow-system-${version}+${sourceTreeHashShort}`;
+  const bundleDir = path.join(outParent, bundleDirName);
+
+  // Filter artifacts to include in the bundle (only script, protocol, template, and optionally test)
+  const artifactsToInclude = EXPORT_ARTIFACTS.filter(a => {
+    if (a.category === 'config') return false;
+    if (a.category === 'test' && !includeTests) return false;
+    return true;
+  });
+
+  // Expand globs for the actual file copy
+  const expandedArtifacts = expandGlobArtifacts(root, artifactsToInclude);
+
+  // Build artifact list with checksums
+  const bundleArtifacts: BundleArtifact[] = expandedArtifacts.map(a => ({
+    path: a.path.replace(/\\/g, '/'),
+    category: a.category,
+    required: a.required,
+    checksum: computeFileChecksum(path.join(root, a.path.replace(/\//g, path.sep))),
+  }));
+
+  const createdAt = new Date().toISOString();
+
+  const bundleJson: WorkflowBundle = {
+    contract_version: 1,
+    workflow_system_version: version,
+    bundle_id: bundleId,
+    source_commit: sourceCommit,
+    source_tree_hash: sourceTreeHash,
+    created_at: createdAt,
+    artifacts: bundleArtifacts,
+    package_json_contract: manifest.package_json_contract,
+    profile_scaffold_template: buildProfileScaffoldTemplate(),
+    post_install: manifest.post_install,
+    verification: manifest.verification,
+    import_contract: manifest.import_contract,
+    host_compatibility: manifest.host_compatibility,
+    includes_optional_tests: includeTests,
+  };
+
+  if (!dryRun) {
+    // Create bundle directory
+    fs.mkdirSync(bundleDir, { recursive: true });
+
+    // Copy artifact files
+    for (const artifact of expandedArtifacts) {
+      const sourcePath = path.join(root, artifact.path.replace(/\//g, path.sep));
+      const targetPath = path.join(bundleDir, artifact.path.replace(/\//g, path.sep));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.copyFileSync(sourcePath, targetPath);
+    }
+
+    // Write workflow-bundle.json
+    fs.writeFileSync(
+      path.join(bundleDir, 'workflow-bundle.json'),
+      JSON.stringify(bundleJson, null, 2) + '\n',
+      'utf8',
+    );
+  }
+
+  return {
+    report_version: 1,
+    bundle_id: bundleId,
+    workflow_system_version: version,
+    source_commit: sourceCommit,
+    source_tree_hash: sourceTreeHash,
+    output_directory: bundleDir,
+    artifact_count: bundleArtifacts.length,
+    includes_optional_tests: includeTests,
+    created_at: createdAt,
+  };
+}
+
+export function formatPackReport(report: PackReport): string {
+  return [
+    `workflow:pack ${report.bundle_id}`,
+    `version: ${report.workflow_system_version}`,
+    `source_commit: ${report.source_commit}`,
+    `source_tree_hash: ${report.source_tree_hash}`,
+    `output: ${report.output_directory}`,
+    `artifacts: ${report.artifact_count}`,
+    `includes tests: ${report.includes_optional_tests}`,
+  ].join('\n');
+}
+
+function normalizeRelativePath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
+function getRelativePath(root: string, fullPath: string): string {
+  return normalizeRelativePath(path.relative(root, fullPath));
+}
+
+function isNonEmptyValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+function getDottedValue(obj: JsonObject, dottedPath: string): unknown {
+  const parts = dottedPath.split('.');
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || Array.isArray(current) || !(part in current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function setDottedValue(obj: JsonObject, dottedPath: string, value: unknown): void {
+  const parts = dottedPath.split('.');
+  let current: Record<string, unknown> = obj;
+  for (const part of parts.slice(0, -1)) {
+    const next = current[part];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      current[part] = {};
+    }
+    current = current[part] as Record<string, unknown>;
+  }
+  current[parts.at(-1)!] = value as JsonObject[keyof JsonObject];
+}
+
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function deepEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function ensureObject(value: unknown, label: string): JsonObject {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as JsonObject;
+}
+
+function parseWorkflowBundle(bundleDir: string): WorkflowBundle {
+  const manifestPath = path.join(bundleDir, 'workflow-bundle.json');
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`Bundle manifest not found: ${manifestPath}`);
+  }
+  return JSON.parse(readText(manifestPath)) as WorkflowBundle;
+}
+
+function verifyBundleIntegrity(bundleDir: string, bundle: WorkflowBundle): void {
+  const expected = new Set(bundle.artifacts.map(artifact => normalizeRelativePath(artifact.path)));
+  for (const artifact of bundle.artifacts) {
+    const fullPath = path.join(bundleDir, artifact.path.replace(/\//g, path.sep));
+    if (!fs.existsSync(fullPath)) {
+      throw new Error(`Bundle artifact missing: ${artifact.path}`);
+    }
+    const checksum = computeFileChecksum(fullPath);
+    if (checksum !== artifact.checksum) {
+      throw new Error(`Bundle artifact checksum mismatch: ${artifact.path}`);
+    }
+  }
+
+  const actualFiles = collectFilesRecursively(bundleDir)
+    .map(file => getRelativePath(bundleDir, file))
+    .filter(file => file !== 'workflow-bundle.json');
+  for (const file of actualFiles) {
+    if (!expected.has(file)) {
+      throw new Error(`Bundle contains unlisted artifact: ${file}`);
+    }
+  }
+}
+
+function readInstallState(root: string): InstallState | undefined {
+  const installStatePath = path.join(root, '.workflow-system', 'install-state.json');
+  if (!fs.existsSync(installStatePath)) {
+    return undefined;
+  }
+  return JSON.parse(readText(installStatePath)) as InstallState;
+}
+
+function getManagedBundleArtifacts(bundle: WorkflowBundle): BundleArtifact[] {
+  return bundle.artifacts.filter(
+    artifact => artifact.category === 'script' || artifact.category === 'protocol' || artifact.category === 'template',
+  );
+}
+
+function getDefaultHost(root: string, explicitHost?: RuntimeHost, profile?: JsonObject): RuntimeHost {
+  const resolved = detectRuntimeHost(root, profile, explicitHost);
+  if (resolved.host !== 'unknown') {
+    return resolved.host;
+  }
+  return explicitHost ?? 'codex';
+}
+
+function parseVersion(version: string): [number, number, number] {
+  const normalized = version.trim().replace(/^[^\d]*/, '');
+  const [major = '0', minor = '0', patch = '0'] = normalized.split('.');
+  return [Number(major) || 0, Number(minor) || 0, Number(patch) || 0];
+}
+
+function compareVersions(left: string, right: string): number {
+  const l = parseVersion(left);
+  const r = parseVersion(right);
+  for (let index = 0; index < 3; index += 1) {
+    if (l[index] < r[index]) return -1;
+    if (l[index] > r[index]) return 1;
+  }
+  return 0;
+}
+
+function satisfiesRange(version: string, range: string): boolean {
+  const trimmed = range.trim();
+  if (trimmed.startsWith('>=')) {
+    return compareVersions(version, trimmed.slice(2)) >= 0;
+  }
+  if (trimmed.startsWith('^')) {
+    const base = trimmed.slice(1);
+    const [major, minor, patch] = parseVersion(base);
+    if (compareVersions(version, base) < 0) {
+      return false;
+    }
+    const [vMajor, vMinor, vPatch] = parseVersion(version);
+    if (major > 0) {
+      return vMajor === major;
+    }
+    if (minor > 0) {
+      return vMajor === 0 && vMinor === minor && vPatch >= patch;
+    }
+    return vMajor === 0 && vMinor === 0 && vPatch >= patch;
+  }
+  return compareVersions(version, trimmed) === 0;
+}
+
+function rangesIntersect(left: string, right: string): boolean {
+  return satisfiesRange(parseMinimumVersion(left), right) || satisfiesRange(parseMinimumVersion(right), left);
+}
+
+function parseMinimumVersion(range: string): string {
+  const trimmed = range.trim();
+  if (trimmed.startsWith('>=')) {
+    return trimmed.slice(2);
+  }
+  if (trimmed.startsWith('^')) {
+    return trimmed.slice(1);
+  }
+  return trimmed;
+}
+
+function packageFragmentFromContract(contract: ExportManifest['package_json_contract']): JsonObject {
+  return {
+    scripts: deepClone(contract.scripts),
+    dependencies: { yaml: contract.dependencies.yaml },
+    engines: { bun: contract.engines.bun },
+  };
+}
+
+function extractPackageJsonFragment(packageJson: JsonObject): JsonObject {
+  const scriptsValue = ensureObject(packageJson.scripts ?? {}, 'package.json.scripts');
+  const dependenciesValue = ensureObject(packageJson.dependencies ?? {}, 'package.json.dependencies');
+  const enginesValue = ensureObject(packageJson.engines ?? {}, 'package.json.engines');
+  const scripts: Record<string, string> = {};
+  for (const name of REQUIRED_PACKAGE_SCRIPTS) {
+    const value = scriptsValue[name];
+    if (typeof value === 'string') {
+      scripts[name] = value;
+    }
+  }
+  const fragment: JsonObject = { scripts };
+  if (typeof dependenciesValue.yaml === 'string') {
+    fragment.dependencies = { yaml: dependenciesValue.yaml };
+  }
+  if (typeof enginesValue.bun === 'string') {
+    fragment.engines = { bun: enginesValue.bun };
+  }
+  return fragment;
+}
+
+function deriveProjectSlug(root: string, packageJson?: JsonObject): string {
+  const packageName = typeof packageJson?.name === 'string' && packageJson.name.trim().length > 0
+    ? packageJson.name.trim()
+    : path.basename(root);
+  return packageName.toLowerCase().replace(/\s+/g, '-');
+}
+
+function buildScaffoldPackageJson(root: string, bundle: WorkflowBundle): JsonObject {
+  const name = deriveProjectSlug(root);
+  return {
+    name,
+    version: '0.0.0',
+    private: true,
+    type: 'module',
+    scripts: deepClone(bundle.package_json_contract.scripts),
+    dependencies: { yaml: bundle.package_json_contract.dependencies.yaml },
+    engines: { bun: bundle.package_json_contract.engines.bun },
+  };
+}
+
+function renderProfileScaffold(root: string, bundle: WorkflowBundle, host: RuntimeHost, packageJson?: JsonObject): JsonObject {
+  const template = deepClone(bundle.profile_scaffold_template);
+  const project = ensureObject(template.project, 'profile_scaffold_template.project');
+  project.name = deriveProjectSlug(root, packageJson);
+  project.slug = deriveProjectSlug(root, packageJson);
+  project.primary_hosts = [host];
+  const validation = ensureObject(template.validation, 'profile_scaffold_template.validation');
+  const matrixSeed = Array.isArray(validation.matrix_seed) ? validation.matrix_seed : [];
+  validation.matrix = matrixSeed.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return entry;
+    }
+    const copy = { ...(entry as Record<string, unknown>) };
+    delete copy.placeholder;
+    return copy;
+  }) as JsonObject[keyof JsonObject];
+  delete validation.matrix_seed;
+  return template;
+}
+
+function extractProfileFragment(profile: JsonObject): JsonObject {
+  const fragment: JsonObject = {};
+  for (const dottedPath of [...EXACT_MATCH_PROFILE_PATHS, ...SUPERSET_PROFILE_PATHS, ...ADDITIVE_PROFILE_PATHS]) {
+    const value = getDottedValue(profile, dottedPath);
+    if (value !== undefined) {
+      setDottedValue(fragment, dottedPath, deepClone(value));
+    }
+  }
+  return fragment;
+}
+
+function checkProfileCompleteness(profile: JsonObject): string[] {
+  return REQUIRED_PROFILE_FIELDS.filter(field => !isNonEmptyValue(getDottedValue(profile, field)));
+}
+
+function mergeUniqueStringArray(current: unknown, required: unknown): string[] {
+  const existing = Array.isArray(current) ? current.map(item => String(item)) : [];
+  const needed = Array.isArray(required) ? required.map(item => String(item)) : [];
+  return [...existing, ...needed.filter(item => !existing.includes(item))];
+}
+
+function mergeValidationMatrix(current: unknown, seeded: unknown): JsonObject[] {
+  const existing = Array.isArray(current) ? current.map(item => ensureObject(item, 'validation.matrix entry')) : [];
+  const incoming = Array.isArray(seeded) ? seeded.map(item => ensureObject(item, 'validation.matrix seed entry')) : [];
+  const names = new Set(existing.map(item => String(item.name ?? '')));
+  return [...existing, ...incoming.filter(item => !names.has(String(item.name ?? '')))];
+}
+
+function mergeProfileWithBundle(
+  root: string,
+  bundle: WorkflowBundle,
+  host: RuntimeHost,
+  existingProfile?: JsonObject,
+): { profile: JsonObject; fragment: JsonObject; failures: PreflightFailure[] } {
+  const failures: PreflightFailure[] = [];
+  const template = renderProfileScaffold(root, bundle, host);
+  if (!existingProfile) {
+    const profile = deepClone(template);
+    return { profile, fragment: extractProfileFragment(profile), failures };
+  }
+
+  const missingFields = checkProfileCompleteness(existingProfile);
+  if (missingFields.length > 0) {
+    return {
+      profile: existingProfile,
+      fragment: extractProfileFragment(existingProfile),
+      failures: missingFields.map(field => ({
+        category: 'incompatible_target',
+        path: 'PROJECT_PROFILE.yaml',
+        message: `Missing required target profile field: ${field}`,
+      })),
+    };
+  }
+
+  const merged = deepClone(existingProfile);
+  for (const dottedPath of EXACT_MATCH_PROFILE_PATHS) {
+    const current = getDottedValue(merged, dottedPath);
+    const required = getDottedValue(template, dottedPath);
+    if (current === undefined) {
+      setDottedValue(merged, dottedPath, deepClone(required));
+      continue;
+    }
+    if (!deepEqual(current, required)) {
+      failures.push({
+        category: 'contract_conflict',
+        path: 'PROJECT_PROFILE.yaml',
+        message: `Incompatible workflow-owned profile field: ${dottedPath}`,
+      });
+    }
+  }
+  for (const dottedPath of SUPERSET_PROFILE_PATHS) {
+    setDottedValue(
+      merged,
+      dottedPath,
+      mergeUniqueStringArray(getDottedValue(merged, dottedPath), getDottedValue(template, dottedPath)),
+    );
+  }
+  setDottedValue(merged, 'project.primary_hosts', mergeUniqueStringArray(getDottedValue(merged, 'project.primary_hosts'), [host]));
+  setDottedValue(
+    merged,
+    'validation.matrix',
+    mergeValidationMatrix(getDottedValue(merged, 'validation.matrix'), getDottedValue(template, 'validation.matrix')),
+  );
+  return { profile: merged, fragment: extractProfileFragment(merged), failures };
+}
+
+function readJsonObject(filePath: string): JsonObject {
+  return ensureObject(JSON.parse(readText(filePath)) as unknown, filePath);
+}
+
+function writeTextFile(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, 'utf8');
+}
+
+function readFreezeRegistry(root: string): string[] {
+  const registryPath = path.join(root, 'FREEZE_REGISTRY.md');
+  if (!fs.existsSync(registryPath)) {
+    return [];
+  }
+  return readText(registryPath)
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && !line.startsWith('#'))
+    .map(line => line.replace(/^[-*]\s*/, '').replace(/^`|`$/g, ''))
+    .map(normalizeRelativePath);
+}
+
+function getGovernanceForbiddenPatterns(profile?: JsonObject): string[] {
+  const value = profile ? getDottedValue(profile, 'boundaries.forbidden_paths') : undefined;
+  return Array.isArray(value) ? value.map(item => String(item)) : [];
+}
+
+function pathIsFrozen(root: string, targetPath: string, profile?: JsonObject): boolean {
+  const relative = getRelativePath(root, targetPath);
+  for (const pattern of [...readFreezeRegistry(root), ...getGovernanceForbiddenPatterns(profile)]) {
+    if (repoPatternMatchesPath(relative, pattern)) {
+      return true;
+    }
+  }
+  if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+    const header = fs.readFileSync(targetPath, 'utf8').slice(0, 500);
+    if (header.includes('@frozen') || header.includes('DO NOT MODIFY')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function buildPackageJsonPlan(
+  root: string,
+  bundle: WorkflowBundle,
+  installState?: InstallState,
+): { packageJson: JsonObject; fragment: JsonObject; failures: PreflightFailure[]; writeNeeded: boolean } {
+  const packagePath = path.join(root, 'package.json');
+  const failures: PreflightFailure[] = [];
+  if (!fs.existsSync(packagePath)) {
+    const packageJson = buildScaffoldPackageJson(root, bundle);
+    return { packageJson, fragment: extractPackageJsonFragment(packageJson), failures, writeNeeded: true };
+  }
+
+  const packageJson = readJsonObject(packagePath);
+  if (packageJson.type !== 'module') {
+    failures.push({
+      category: 'incompatible_target',
+      path: 'package.json',
+      message: 'Target project must already be ESM (`type: module`).',
+    });
+    return { packageJson, fragment: extractPackageJsonFragment(packageJson), failures, writeNeeded: false };
+  }
+
+  const currentScripts = ensureObject(packageJson.scripts ?? {}, 'package.json.scripts');
+  const currentDependencies = ensureObject(packageJson.dependencies ?? {}, 'package.json.dependencies');
+  const currentEngines = ensureObject(packageJson.engines ?? {}, 'package.json.engines');
+  const contract = bundle.package_json_contract;
+
+  if (installState) {
+    const currentFragment = extractPackageJsonFragment(packageJson);
+    if (!deepEqual(currentFragment, installState.package_json_fragment)) {
+      failures.push({
+        category: 'local_drift',
+        path: 'package.json',
+        message: 'Workflow-owned package.json fragment was modified locally since last install.',
+      });
+      return { packageJson, fragment: currentFragment, failures, writeNeeded: false };
+    }
+  } else {
+    for (const [name, expected] of Object.entries(contract.scripts)) {
+      const current = currentScripts[name];
+      if (current !== undefined && current !== expected) {
+        failures.push({
+          category: 'contract_conflict',
+          path: 'package.json',
+          message: `Existing workflow script conflicts with bundle contract: scripts.${name}`,
+        });
+      }
+    }
+    if (typeof currentDependencies.yaml === 'string' && !rangesIntersect(currentDependencies.yaml, contract.dependencies.yaml)) {
+      failures.push({
+        category: 'contract_conflict',
+        path: 'package.json',
+        message: 'Existing dependencies.yaml does not intersect the bundle contract.',
+      });
+    }
+    if (typeof currentEngines.bun === 'string' && !satisfiesRange(parseMinimumVersion(contract.engines.bun), currentEngines.bun)) {
+      failures.push({
+        category: 'contract_conflict',
+        path: 'package.json',
+        message: 'Existing engines.bun excludes the bundle minimum version.',
+      });
+    }
+    if (failures.length > 0) {
+      return { packageJson, fragment: extractPackageJsonFragment(packageJson), failures, writeNeeded: false };
+    }
+  }
+
+  const merged = deepClone(packageJson);
+  const mergedScripts = { ...(merged.scripts as Record<string, unknown> ?? {}) };
+  for (const [name, expected] of Object.entries(contract.scripts)) {
+    mergedScripts[name] =
+      !installState && typeof currentScripts[name] === 'string'
+        ? currentScripts[name]
+        : expected;
+  }
+  merged.scripts = mergedScripts;
+
+  const mergedDependencies = { ...(merged.dependencies as Record<string, unknown> ?? {}) };
+  mergedDependencies.yaml =
+    !installState && typeof currentDependencies.yaml === 'string' && rangesIntersect(currentDependencies.yaml, contract.dependencies.yaml)
+      ? currentDependencies.yaml
+      : contract.dependencies.yaml;
+  merged.dependencies = mergedDependencies;
+
+  const mergedEngines = { ...(merged.engines as Record<string, unknown> ?? {}) };
+  mergedEngines.bun =
+    !installState && typeof currentEngines.bun === 'string' && satisfiesRange(parseMinimumVersion(contract.engines.bun), currentEngines.bun)
+      ? currentEngines.bun
+      : contract.engines.bun;
+  merged.engines = mergedEngines;
+  const currentContent = JSON.stringify(packageJson, null, 2);
+  const nextContent = JSON.stringify(merged, null, 2);
+  return {
+    packageJson: merged,
+    fragment: extractPackageJsonFragment(merged),
+    failures,
+    writeNeeded: currentContent !== nextContent,
+  };
+}
+
+function buildReplaceManagedPlan(
+  root: string,
+  bundleDir: string,
+  bundle: WorkflowBundle,
+  installState?: InstallState,
+): { plannedWrites: PlannedWrite[]; managedFiles: ManagedFileEntry[]; failures: PreflightFailure[] } {
+  const failures: PreflightFailure[] = [];
+  const plannedWrites: PlannedWrite[] = [];
+  const managedFiles: ManagedFileEntry[] = [];
+  const currentStateByPath = new Map((installState?.managed_files ?? []).map(entry => [normalizeRelativePath(entry.path), entry]));
+  const bundleArtifacts = getManagedBundleArtifacts(bundle);
+  const bundlePaths = new Set(bundleArtifacts.map(artifact => normalizeRelativePath(artifact.path)));
+
+  for (const artifact of bundleArtifacts) {
+    const relativePath = normalizeRelativePath(artifact.path);
+    const targetPath = path.join(root, relativePath.replace(/\//g, path.sep));
+    const stateEntry = currentStateByPath.get(relativePath);
+    const currentExists = fs.existsSync(targetPath);
+    const currentChecksum = currentExists ? computeFileChecksum(targetPath) : undefined;
+    managedFiles.push({
+      path: relativePath,
+      mode: 'replace-managed',
+      bundle_checksum: artifact.checksum,
+      installed_checksum: currentExists ? currentChecksum! : artifact.checksum,
+    });
+
+    if (!installState) {
+      if (!currentExists) {
+        plannedWrites.push({ path: targetPath, action: 'create', mode: 'replace-managed' });
+      } else if (currentChecksum !== artifact.checksum) {
+        failures.push({
+          category: 'contract_conflict',
+          path: relativePath,
+          message: 'Existing managed file differs from bundle content on first install.',
+        });
+      }
+      continue;
+    }
+
+    if (currentExists && stateEntry && currentChecksum !== stateEntry.installed_checksum) {
+      failures.push({
+        category: 'local_drift',
+        path: relativePath,
+        message: 'Managed file was modified locally since last install.',
+      });
+      continue;
+    }
+
+    if (!currentExists || !stateEntry || stateEntry.bundle_checksum !== artifact.checksum) {
+      plannedWrites.push({
+        path: targetPath,
+        action: currentExists ? 'overwrite' : 'create',
+        mode: 'replace-managed',
+      });
+    }
+  }
+
+  for (const prior of installState?.managed_files ?? []) {
+    if (!bundlePaths.has(normalizeRelativePath(prior.path))) {
+      const targetPath = path.join(root, prior.path.replace(/\//g, path.sep));
+      if (fs.existsSync(targetPath) && computeFileChecksum(targetPath) !== prior.installed_checksum) {
+        failures.push({
+          category: 'local_drift',
+          path: prior.path,
+          message: 'Managed file slated for prune was modified locally since last install.',
+        });
+        continue;
+      }
+      plannedWrites.push({ path: targetPath, action: 'delete', mode: 'replace-managed' });
+    }
+  }
+
+  return { plannedWrites, managedFiles, failures };
+}
+
+function writePlannedFiles(
+  root: string,
+  bundleDir: string,
+  bundle: WorkflowBundle,
+  plannedWrites: PlannedWrite[],
+  packageJson?: JsonObject,
+  profile?: JsonObject,
+  versionContent?: string,
+  installState?: InstallState,
+): void {
+  for (const planned of plannedWrites) {
+    if (planned.action === 'delete') {
+      if (fs.existsSync(planned.path)) {
+        fs.rmSync(planned.path, { recursive: true, force: true });
+      }
+      continue;
+    }
+
+    if (planned.path === path.join(root, 'package.json') && packageJson) {
+      writeTextFile(planned.path, `${JSON.stringify(packageJson, null, 2)}\n`);
+      continue;
+    }
+    if (planned.path === path.join(root, 'PROJECT_PROFILE.yaml') && profile) {
+      writeTextFile(planned.path, stringify(profile).trimEnd() + '\n');
+      continue;
+    }
+    if (planned.path === path.join(root, 'VERSION') && typeof versionContent === 'string') {
+      writeTextFile(planned.path, `${versionContent}\n`);
+      continue;
+    }
+    if (planned.path === path.join(root, '.workflow-system', 'install-state.json') && installState) {
+      writeTextFile(planned.path, `${JSON.stringify(installState, null, 2)}\n`);
+      continue;
+    }
+
+    const relative = getRelativePath(root, planned.path);
+    const sourcePath = path.join(bundleDir, relative.replace(/\//g, path.sep));
+    writeTextFile(planned.path, fs.readFileSync(sourcePath, 'utf8'));
+  }
+}
+
+export function installWorkflowBundle(options: InstallOptions): InstallReport {
+  const root = path.resolve(options.root ?? process.cwd());
+  const bundleDir = path.resolve(options.bundleDir);
+  const bundle = parseWorkflowBundle(bundleDir);
+  verifyBundleIntegrity(bundleDir, bundle);
+  const existingInstallState = readInstallState(root);
+  const existingProfile = fs.existsSync(path.join(root, 'PROJECT_PROFILE.yaml'))
+    ? loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'))
+    : undefined;
+  const host = getDefaultHost(root, options.host, existingProfile);
+  const failures: PreflightFailure[] = [];
+
+  const replaceManagedPlan = buildReplaceManagedPlan(root, bundleDir, bundle, existingInstallState);
+  failures.push(...replaceManagedPlan.failures);
+
+  const packagePlan = buildPackageJsonPlan(root, bundle, existingInstallState);
+  failures.push(...packagePlan.failures);
+
+  if (existingInstallState) {
+    if (!existingProfile) {
+      failures.push({
+        category: 'local_drift',
+        path: 'PROJECT_PROFILE.yaml',
+        message: 'Workflow-owned PROJECT_PROFILE.yaml fragment is missing since last install.',
+      });
+    } else {
+      const currentProfileFragment = extractProfileFragment(existingProfile);
+      if (!deepEqual(currentProfileFragment, existingInstallState.project_profile_fragment)) {
+        failures.push({
+          category: 'local_drift',
+          path: 'PROJECT_PROFILE.yaml',
+          message: 'Workflow-owned PROJECT_PROFILE.yaml fragment was modified locally since last install.',
+        });
+      }
+    }
+  }
+
+  const profilePlan = mergeProfileWithBundle(root, bundle, host, existingProfile);
+  failures.push(...profilePlan.failures);
+  if (profilePlan.failures.length === 0) {
+    try {
+      validateProfilePathSemantics(profilePlan.profile);
+    } catch (error) {
+      failures.push({
+        category: 'incompatible_target',
+        path: 'PROJECT_PROFILE.yaml',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const versionPath = path.join(root, 'VERSION');
+  const packageVersion = typeof packagePlan.packageJson.version === 'string' && packagePlan.packageJson.version.trim().length > 0
+    ? packagePlan.packageJson.version.trim()
+    : '0.0.0';
+  const versionWriteNeeded = !fs.existsSync(versionPath);
+  const versionContent = versionWriteNeeded ? packageVersion : undefined;
+
+  const installedAt = new Date().toISOString();
+  const nextInstallState: InstallState = {
+    state_version: 1,
+    bundle_id: bundle.bundle_id,
+    workflow_system_version: bundle.workflow_system_version,
+    installed_at: installedAt,
+    managed_files: replaceManagedPlan.managedFiles,
+    package_json_fragment: packagePlan.fragment,
+    project_profile_fragment: profilePlan.fragment,
+    host_sync_state: {
+      ...(existingInstallState?.host_sync_state ?? {}),
+      [host]: existingInstallState?.host_sync_state?.[host] ?? {
+        namespace: 'workflow-system-*',
+        synced_at: null,
+        synced_entries: [],
+      },
+    },
+  };
+
+  const plannedWrites: PlannedWrite[] = [...replaceManagedPlan.plannedWrites];
+  if (packagePlan.writeNeeded) {
+    plannedWrites.push({
+      path: path.join(root, 'package.json'),
+      action: fs.existsSync(path.join(root, 'package.json')) ? 'merge' : 'scaffold',
+      mode: 'merge-managed',
+    });
+  }
+  if (!existingProfile || !deepEqual(existingProfile, profilePlan.profile)) {
+    plannedWrites.push({
+      path: path.join(root, 'PROJECT_PROFILE.yaml'),
+      action: existingProfile ? 'merge' : 'scaffold',
+      mode: 'merge-managed',
+    });
+  }
+  if (versionWriteNeeded) {
+    plannedWrites.push({ path: versionPath, action: 'scaffold', mode: 'scaffold-once' });
+  }
+  plannedWrites.push({
+    path: path.join(root, '.workflow-system', 'install-state.json'),
+    action: 'create',
+    mode: 'install-infrastructure',
+  });
+
+  for (const planned of plannedWrites) {
+    if (pathIsFrozen(root, planned.path, existingProfile ?? profilePlan.profile)) {
+      failures.push({
+        category: 'frozen_path',
+        path: getRelativePath(root, planned.path),
+        message: 'Planned write targets a frozen path.',
+      });
+    }
+  }
+
+  const success = failures.length === 0;
+  const exit_code = success ? 0 : failures.some(failure => failure.category === 'contract_conflict' || failure.category === 'incompatible_target') ? 3 : 2;
+
+  if (success && !options.dryRun) {
+    writePlannedFiles(root, bundleDir, bundle, plannedWrites, packagePlan.packageJson, profilePlan.profile, versionContent, nextInstallState);
+  }
+
+  return {
+    report_version: 1,
+    bundle_id: bundle.bundle_id,
+    workflow_system_version: bundle.workflow_system_version,
+    dry_run: Boolean(options.dryRun),
+    success,
+    failures,
+    planned_writes: plannedWrites.map(write => ({
+      path: getRelativePath(root, write.path),
+      action: write.action,
+      mode: write.mode,
+    })),
+    exit_code,
+  };
+}
+
+export function formatInstallReport(report: InstallReport): string {
+  const lines = [
+    `workflow:install ${report.success ? 'OK' : 'FAILED'}`,
+    `bundle: ${report.bundle_id}`,
+    `version: ${report.workflow_system_version}`,
+    `dry-run: ${report.dry_run}`,
+    `planned writes: ${report.planned_writes.length}`,
+  ];
+  for (const failure of report.failures) {
+    lines.push(`- ${failure.category}: ${failure.path} (${failure.message})`);
+  }
+  return lines.join('\n');
+}
+
+function copyRecursive(sourcePath: string, targetPath: string): void {
+  const stat = fs.statSync(sourcePath);
+  if (stat.isDirectory()) {
+    fs.mkdirSync(targetPath, { recursive: true });
+    for (const entry of fs.readdirSync(sourcePath)) {
+      copyRecursive(path.join(sourcePath, entry), path.join(targetPath, entry));
+    }
+    return;
+  }
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function runTargetCommand(root: string, args: string[], env: NodeJS.ProcessEnv = process.env): void {
+  const result = spawnSync('bun', args, { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`${args.join(' ')} failed: ${(result.stderr ?? result.stdout ?? '').trim()}`);
+  }
+}
+
+function buildAdoptDryRunWorkspace(root: string): string {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-adopt-'));
+  for (const entry of ['PROJECT_PROFILE.yaml', 'VERSION', 'package.json']) {
+    const source = path.join(root, entry);
+    if (fs.existsSync(source)) {
+      copyRecursive(source, path.join(tempRoot, entry));
+    }
+  }
+  for (const entry of ['scripts', 'templates']) {
+    const source = path.join(root, entry);
+    if (fs.existsSync(source)) {
+      copyRecursive(source, path.join(tempRoot, entry));
+    }
+  }
+  return tempRoot;
+}
+
+function buildEmptyBootstrapPlan(systemRoot: string, targetRoot: string): BootstrapPlan {
+  return {
+    schema_version: 'bootstrap-plan/v0.1.0',
+    mode: 'dry-run',
+    system_root: systemRoot,
+    target_root: targetRoot,
+    profile: {
+      name: path.basename(targetRoot),
+      slug: path.basename(targetRoot),
+      type: 'unknown',
+    },
+    generator_checks: [],
+    minimal_workflow_checks: [],
+    governed_docs: [],
+    task_identity: {
+      current_task_path: path.join(targetRoot, 'CURRENT_TASK.md'),
+      required_fields: ['任务 ID', '任务标题', '任务 slug'],
+      archive_path_pattern: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md',
+      identity_source: 'CURRENT_TASK.md##任务信息',
+      materialization_phase: 'A3',
+      bootstrap_behavior: 'preserve-placeholders',
+      status: 'absent',
+      reasons: ['Bootstrap plan could not be built because adopt failed before classify ran.'],
+    },
+    summary: {
+      materialize: 0,
+      propose_diff_only: 0,
+      awaiting_confirmation: 0,
+      blocked: 0,
+    },
+    first_run_checklist: [],
+    validation_entrypoint_slots: [],
+    warnings: ['Bootstrap plan unavailable because adopt failed before classify ran.'],
+  };
+}
+
+export function adoptWorkflow(options: AdoptOptions = {}): AdoptReport {
+  const root = path.resolve(options.root ?? process.cwd());
+  const installState = readInstallState(root);
+  if (!installState) {
+    throw new Error('workflow:adopt requires a prior successful workflow:install.');
+  }
+
+  const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+  const host = getDefaultHost(root, options.host, profile);
+  let planRoot = root;
+  let tempRoot: string | undefined;
+  let bootstrapPlan: BootstrapPlan | undefined;
+  let materializations: Array<BootstrapPlan['governed_docs'][number]> = [];
+  let hostSyncPlan: HostSyncPlan | undefined;
+  const writtenMaterializations: string[] = [];
+  try {
+    if (options.dryRun) {
+      tempRoot = buildAdoptDryRunWorkspace(root);
+      const tempEnv = { WORKFLOW_SYSTEM_ROOT: tempRoot };
+      runTargetCommand(root, ['run', path.join(root, 'scripts', 'gen-workflow-skills.ts')], tempEnv);
+      runTargetCommand(root, ['run', path.join(root, 'scripts', 'gen-workflow-docs.ts')], tempEnv);
+      runTargetCommand(root, ['run', path.join(root, 'scripts', 'gen-registry.ts')], tempEnv);
+      planRoot = tempRoot;
+    } else {
+      runTargetCommand(root, ['run', 'gen:all']);
+    }
+
+    bootstrapPlan = buildBootstrapPlan({
+      systemRoot: planRoot,
+      targetRoot: planRoot,
+      runGeneratorChecks: false,
+    });
+    materializations = bootstrapPlan.governed_docs.filter(doc => doc.planned_action === 'materialize' && doc.lifecycle === 'absent');
+    hostSyncPlan = buildHostSyncPlan(planRoot, host);
+    const failures: PreflightFailure[] = [];
+
+    for (const doc of materializations) {
+      if (pathIsFrozen(root, path.join(root, doc.file), profile)) {
+        failures.push({
+          category: 'frozen_path',
+          path: doc.file,
+          message: 'Planned live-doc materialization targets a frozen path.',
+        });
+      }
+    }
+    for (const entry of hostSyncPlan.entries) {
+      const realTarget = options.dryRun
+        ? path.join(root, getRelativePath(planRoot, entry.target).replace(/\//g, path.sep))
+        : entry.target;
+      if (pathIsFrozen(root, realTarget, profile)) {
+        failures.push({
+          category: 'frozen_path',
+          path: getRelativePath(root, realTarget),
+          message: 'Planned host sync targets a frozen path.',
+        });
+      }
+    }
+
+    const success = failures.length === 0;
+    const exit_code = success ? 0 : 2;
+    if (success && !options.dryRun) {
+      for (const doc of materializations) {
+        try {
+          writeTextFile(path.join(root, doc.file), readText(doc.generated_path));
+          writtenMaterializations.push(doc.file);
+        } catch (error) {
+          return {
+            report_version: 1,
+            dry_run: false,
+            success: false,
+            host,
+            planned_materializations: materializations.map(item => item.file),
+            planned_host_sync_targets: hostSyncPlan.entries.map(entry => getRelativePath(root, entry.target)),
+            health_check_required: true,
+            bootstrap_plan: bootstrapPlan,
+            written_materializations: [...writtenMaterializations],
+            failed_materialization: doc.file,
+            error: error instanceof Error ? error.message : String(error),
+            failures: [],
+            exit_code: 1,
+          };
+        }
+      }
+      const health = buildWorkflowHealthReport({ root, host });
+      if (!health.ok) {
+        return {
+          report_version: 1,
+          dry_run: false,
+          success: false,
+          host,
+          planned_materializations: materializations.map(doc => doc.file),
+          planned_host_sync_targets: hostSyncPlan.entries.map(entry => getRelativePath(root, entry.target)),
+          health_check_required: true,
+          bootstrap_plan: bootstrapPlan,
+          written_materializations: [...writtenMaterializations],
+          failures: [{
+            category: 'incompatible_target',
+            path: '.',
+            message: `workflow:health failed: ${health.blocked_by.join(', ')}`,
+          }],
+          exit_code: 1,
+        };
+      }
+      let syncResult: HostSyncResult;
+      try {
+        syncResult = syncWorkflowHost({ root, host, write: true });
+      } catch (error) {
+        return {
+          report_version: 1,
+          dry_run: false,
+          success: false,
+          host,
+          planned_materializations: materializations.map(doc => doc.file),
+          planned_host_sync_targets: hostSyncPlan.entries.map(entry => getRelativePath(root, entry.target)),
+          health_check_required: true,
+          bootstrap_plan: bootstrapPlan,
+          written_materializations: [...writtenMaterializations],
+          error: error instanceof Error ? error.message : String(error),
+          failures: [],
+          exit_code: 1,
+        };
+      }
+      const nextInstallState = deepClone(installState);
+      nextInstallState.host_sync_state[host] = {
+        namespace: 'workflow-system-*',
+        synced_at: new Date().toISOString(),
+        synced_entries: syncResult.entries.map(entry => ({
+          skill_name: entry.skill_name,
+          target_path: getRelativePath(root, entry.target),
+        })),
+      };
+      writeTextFile(path.join(root, '.workflow-system', 'install-state.json'), `${JSON.stringify(nextInstallState, null, 2)}\n`);
+    }
+
+    return {
+      report_version: 1,
+      dry_run: Boolean(options.dryRun),
+      success,
+      host,
+      planned_materializations: materializations.map(doc => doc.file),
+      planned_host_sync_targets: hostSyncPlan.entries.map(entry =>
+        options.dryRun
+          ? getRelativePath(planRoot, entry.target)
+          : getRelativePath(root, entry.target),
+      ),
+      health_check_required: true,
+      bootstrap_plan: bootstrapPlan,
+      written_materializations: options.dryRun ? [] : [...writtenMaterializations],
+      failures,
+      exit_code,
+    };
+  } catch (error) {
+    return {
+      report_version: 1,
+      dry_run: Boolean(options.dryRun),
+      success: false,
+      host,
+      planned_materializations: materializations.map(doc => doc.file),
+      planned_host_sync_targets: hostSyncPlan?.entries.map(entry =>
+        options.dryRun
+          ? getRelativePath(planRoot, entry.target)
+          : getRelativePath(root, entry.target),
+      ) ?? [],
+      health_check_required: true,
+      bootstrap_plan: bootstrapPlan ?? buildEmptyBootstrapPlan(planRoot, planRoot),
+      written_materializations: [...writtenMaterializations],
+      error: error instanceof Error ? error.message : String(error),
+      failures: [],
+      exit_code: 1,
+    };
+  } finally {
+    if (tempRoot) {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+export function formatAdoptReport(report: AdoptReport): string {
+  const lines = [
+    `workflow:adopt ${report.success ? 'OK' : 'FAILED'}`,
+    `host: ${report.host}`,
+    `dry-run: ${report.dry_run}`,
+    `materializations: ${report.planned_materializations.length}`,
+    `host sync targets: ${report.planned_host_sync_targets.length}`,
+    `bootstrap governed docs: ${report.bootstrap_plan.governed_docs.length}`,
+  ];
+  if (report.written_materializations && report.written_materializations.length > 0) {
+    lines.push(`written materializations: ${report.written_materializations.join(', ')}`);
+  }
+  if (report.failed_materialization) {
+    lines.push(`failed materialization: ${report.failed_materialization}`);
+  }
+  if (report.error) {
+    lines.push(`error: ${report.error}`);
+  }
+  for (const failure of report.failures) {
+    lines.push(`- ${failure.category}: ${failure.path} (${failure.message})`);
+  }
+  return lines.join('\n');
+}
+
+function writeCliReport(reportText: string, options?: { json?: boolean; success?: boolean }): void {
+  if (options?.json || options?.success !== false) {
+    console.log(reportText);
+    return;
+  }
+  console.error(reportText);
 }
 
 export function getExportManifest(root?: string): ExportManifest {
@@ -819,15 +2251,50 @@ function main(): void {
   }
 
   if (args.command === 'pack') {
-    throw new Error('workflow:pack is not yet implemented. See docs/plans/workflow-system-packaging-and-adoption-plan.md W1.');
+    const report = packWorkflowBundle({
+      root,
+      outDir: args.outDir,
+      includeTests: args.includeTests,
+      dryRun: args.dryRun,
+    });
+    console.log(args.json ? JSON.stringify(report, null, 2) : formatPackReport(report));
+    return;
   }
 
   if (args.command === 'install') {
-    throw new Error('workflow:install is not yet implemented. See docs/plans/workflow-system-packaging-and-adoption-plan.md W2-W3.');
+    if (!args.bundle) {
+      throw new Error('workflow:install requires --bundle <dir>.');
+    }
+    const report = installWorkflowBundle({
+      bundleDir: args.bundle,
+      root: args.root ?? process.cwd(),
+      host: args.host,
+      dryRun: args.dryRun,
+    });
+    writeCliReport(args.json ? JSON.stringify(report, null, 2) : formatInstallReport(report), {
+      json: args.json,
+      success: report.success,
+    });
+    if (!report.success) {
+      process.exit(report.exit_code);
+    }
+    return;
   }
 
   if (args.command === 'adopt') {
-    throw new Error('workflow:adopt is not yet implemented. See docs/plans/workflow-system-packaging-and-adoption-plan.md W4.');
+    const report = adoptWorkflow({
+      root: args.root ?? process.cwd(),
+      host: args.host,
+      dryRun: args.dryRun,
+    });
+    writeCliReport(args.json ? JSON.stringify(report, null, 2) : formatAdoptReport(report), {
+      json: args.json,
+      success: report.success,
+    });
+    if (!report.success) {
+      process.exit(report.exit_code);
+    }
+    return;
   }
 
   const profile = fs.existsSync(path.join(root, 'PROJECT_PROFILE.yaml'))

@@ -19,6 +19,34 @@ import {
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
+function copyGeneratedSnapshot(targetRoot: string): void {
+  const sourceRoot = path.join(ROOT, 'generated');
+  const outputRoot = path.join(targetRoot, 'generated');
+
+  const copyDir = (sourceDir: string, destinationDir: string): void => {
+    fs.mkdirSync(destinationDir, { recursive: true });
+    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+      if (
+        entry.name.startsWith('.') ||
+        entry.name.includes('.bak.') ||
+        entry.name.endsWith('.tmp')
+      ) {
+        continue;
+      }
+
+      const sourcePath = path.join(sourceDir, entry.name);
+      const destinationPath = path.join(destinationDir, entry.name);
+      if (entry.isDirectory()) {
+        copyDir(sourcePath, destinationPath);
+      } else if (entry.isFile()) {
+        fs.copyFileSync(sourcePath, destinationPath);
+      }
+    }
+  };
+
+  copyDir(sourceRoot, outputRoot);
+}
+
 describe('run-validation', () => {
   test('loadMatrixFromProfile loads entrypoints from PROJECT_PROFILE.yaml', () => {
     const entrypoints = loadMatrixFromProfile(ROOT);
@@ -114,7 +142,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-threshold-governance-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -164,7 +192,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-governance-ok-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -195,7 +223,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-roadmap-missing-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -227,7 +255,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-decisions-live-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -293,7 +321,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-baseline-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -335,7 +363,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-baseline-ok-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -425,7 +453,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-baseline-missing-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -458,7 +486,7 @@ describe('run-validation', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-full-run-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.writeFileSync(
         path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
         [
@@ -533,7 +561,7 @@ describe('check-freshness', () => {
       fs.cpSync(path.join(ROOT, 'PROJECT_PROFILE.yaml'), path.join(tempRoot, 'PROJECT_PROFILE.yaml'));
       fs.cpSync(path.join(ROOT, 'VERSION'), path.join(tempRoot, 'VERSION'));
       fs.cpSync(path.join(ROOT, 'templates'), path.join(tempRoot, 'templates'), { recursive: true });
-      fs.cpSync(path.join(ROOT, 'generated'), path.join(tempRoot, 'generated'), { recursive: true });
+      copyGeneratedSnapshot(tempRoot);
       fs.cpSync(path.join(ROOT, 'SKILL_REGISTRY.md'), path.join(tempRoot, 'SKILL_REGISTRY.md'));
 
       const staleFile = path.join(tempRoot, 'generated', 'workflow-docs', 'STATUS.md');

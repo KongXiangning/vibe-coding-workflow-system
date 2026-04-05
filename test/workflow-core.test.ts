@@ -541,6 +541,51 @@ describe('workflow-core', () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+
+    test('keeps staging and backup files outside generated live directories', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-core-generated-'));
+      const generatedDir = path.join(tempDir, 'generated', 'workflow-skills');
+      const targetPath = path.join(generatedDir, 'review-diff.SKILL.md');
+      fs.mkdirSync(generatedDir, { recursive: true });
+      fs.writeFileSync(targetPath, 'old-content', 'utf8');
+
+      const observedRenames: Array<{ from: string; to: string }> = [];
+      const fileSystem = {
+        ...fs,
+        renameSync(from: fs.PathLike, to: fs.PathLike) {
+          observedRenames.push({ from: String(from), to: String(to) });
+          return fs.renameSync(from, to);
+        },
+      };
+
+      try {
+        executeWrites(
+          [{ path: targetPath, content: 'new-content' }],
+          false,
+          'test write',
+          undefined,
+          fileSystem,
+        );
+
+        expect(fs.readFileSync(targetPath, 'utf8')).toBe('new-content');
+        expect(
+          observedRenames.some(
+            entry =>
+              entry.from.includes(generatedDir) &&
+              entry.from.endsWith('.tmp'),
+          ),
+        ).toBe(false);
+        expect(
+          observedRenames.some(
+            entry =>
+              entry.to.includes(generatedDir) &&
+              entry.to.includes('.bak.'),
+          ),
+        ).toBe(false);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 
   // --- normalizeList ---

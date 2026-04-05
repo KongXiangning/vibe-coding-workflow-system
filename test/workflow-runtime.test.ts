@@ -4,10 +4,14 @@ import * as os from 'os';
 import * as path from 'path';
 import { loadProfile } from '../scripts/workflow-core';
 import {
+  adoptWorkflow,
   buildHostSyncPlan,
   buildWorkflowHealthReport,
   detectRuntimeHost,
+  formatAdoptReport,
   getExportManifest,
+  installWorkflowBundle,
+  packWorkflowBundle,
   parseRuntimeCliArgs,
   syncWorkflowHost,
 } from '../scripts/workflow-runtime';
@@ -70,6 +74,30 @@ function buildManifestPackageJson(overrides: Record<string, unknown> = {}): stri
     dependencies: { yaml: '^2.8.3' },
     ...overrides,
   }, null, 2);
+}
+
+function readJson(filePath: string): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+}
+
+function linkNodeModules(targetRoot: string): void {
+  fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(targetRoot, 'node_modules'), 'junction');
+}
+
+function listRelativeFiles(root: string): string[] {
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.isFile()) {
+        files.push(path.relative(root, fullPath).replace(/\\/g, '/'));
+      }
+    }
+  };
+  walk(root);
+  return files.sort();
 }
 
 describe('workflow-runtime manifest', () => {
@@ -166,6 +194,38 @@ describe('workflow-runtime manifest', () => {
       expect(() => getExportManifest(root)).toThrow(
         'package.json is missing required workflow engine contract: engines.bun',
       );
+    });
+  });
+});
+
+describe('workflow-runtime pack', () => {
+  test('packWorkflowBundle changes bundle identity when --include-tests changes', () => {
+    withTempRoot(bundleOutDir => {
+      const withoutTests = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      const withTests = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir, includeTests: true });
+
+      expect(withoutTests.bundle_id).not.toBe(withTests.bundle_id);
+
+      const withoutTestsBundle = readJson(path.join(withoutTests.output_directory, 'workflow-bundle.json'));
+      const withTestsBundle = readJson(path.join(withTests.output_directory, 'workflow-bundle.json'));
+      expect(withoutTestsBundle.includes_optional_tests).toBe(false);
+      expect(withTestsBundle.includes_optional_tests).toBe(true);
+      expect(
+        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('test/')),
+      ).toBe(false);
+      expect(
+        (withTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('test/')),
+      ).toBe(true);
+    });
+  });
+
+  test('workflow-bundle.json artifact list matches actual bundle contents', () => {
+    withTempRoot(bundleOutDir => {
+      const report = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir, includeTests: true });
+      const bundle = readJson(path.join(report.output_directory, 'workflow-bundle.json'));
+      const actualFiles = listRelativeFiles(report.output_directory).filter(file => file !== 'workflow-bundle.json');
+      const manifestFiles = (bundle.artifacts as Array<Record<string, unknown>>).map(artifact => String(artifact.path)).sort();
+      expect(actualFiles).toEqual(manifestFiles);
     });
   });
 });
@@ -294,6 +354,290 @@ describe('workflow-runtime health', () => {
   });
 });
 
+describe('workflow-runtime install', () => {
+  test('installWorkflowBundle installs the bundle into an empty target project', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+
+        expect(report.success).toBe(true);
+        expect(report.exit_code).toBe(0);
+        expect(fs.existsSync(path.join(targetRoot, 'package.json'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'PROJECT_PROFILE.yaml'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'VERSION'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'scripts', 'workflow-runtime.ts'))).toBe(true);
+
+        const packageJson = readJson(path.join(targetRoot, 'package.json'));
+        expect(packageJson.type).toBe('module');
+        expect((packageJson.scripts as Record<string, unknown>)['workflow:install']).toBe('bun run scripts/workflow-runtime.ts install');
+
+        const installState = readJson(path.join(targetRoot, '.workflow-system', 'install-state.json'));
+        expect(installState.bundle_id).toBe(packReport.bundle_id);
+      });
+    });
+  });
+
+  test('installWorkflowBundle preserves unrelated package.json fields while merging workflow fragment', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        fs.writeFileSync(
+          path.join(targetRoot, 'package.json'),
+          JSON.stringify({
+            name: 'custom-target',
+            version: '1.2.3',
+            private: true,
+            type: 'module',
+            scripts: { lint: 'bun test' },
+            dependencies: { yaml: '^2.8.0' },
+            engines: { bun: '>=1.0.0' },
+          }, null, 2),
+          'utf8',
+        );
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+
+        expect(report.success).toBe(true);
+        const packageJson = readJson(path.join(targetRoot, 'package.json'));
+        expect((packageJson.scripts as Record<string, unknown>).lint).toBe('bun test');
+        expect((packageJson.scripts as Record<string, unknown>)['workflow:health']).toBe('bun run scripts/workflow-runtime.ts health');
+        expect((packageJson.dependencies as Record<string, unknown>).yaml).toBe('^2.8.0');
+        expect((packageJson.engines as Record<string, unknown>).bun).toBe('>=1.0.0');
+      });
+    });
+  });
+
+  test('installWorkflowBundle fails for CommonJS targets', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        fs.writeFileSync(
+          path.join(targetRoot, 'package.json'),
+          JSON.stringify({ name: 'cjs-target', version: '0.0.1', type: 'commonjs' }, null, 2),
+          'utf8',
+        );
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+        });
+
+        expect(report.success).toBe(false);
+        expect(report.exit_code).toBe(3);
+        expect(report.failures.some(failure => failure.category === 'incompatible_target')).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(false);
+      });
+    });
+  });
+
+  test('installWorkflowBundle is safe to rerun on an unmodified target', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        const second = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+        });
+        expect(second.success).toBe(true);
+        expect(second.failures).toEqual([]);
+      });
+    });
+  });
+
+  test('installWorkflowBundle reports local drift for modified replace-managed files', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        fs.appendFileSync(path.join(targetRoot, 'scripts', 'workflow-core.ts'), '\n// local drift\n', 'utf8');
+
+        const second = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+        });
+        expect(second.success).toBe(false);
+        expect(second.exit_code).toBe(2);
+        expect(second.failures.some(failure => failure.category === 'local_drift')).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle blocks frozen planned writes before install', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        fs.writeFileSync(path.join(targetRoot, 'FREEZE_REGISTRY.md'), '- scripts/workflow-core.ts\n', 'utf8');
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+        });
+
+        expect(report.success).toBe(false);
+        expect(report.exit_code).toBe(2);
+        expect(report.failures.some(failure => failure.category === 'frozen_path')).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle treats profile forbidden_paths as frozen governance rules', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        const profilePath = path.join(targetRoot, 'PROJECT_PROFILE.yaml');
+        const profileText = fs.readFileSync(profilePath, 'utf8');
+        fs.writeFileSync(
+          profilePath,
+          profileText.replace(
+            '  forbidden_paths:\n    - .git/**\n    - node_modules/**',
+            '  forbidden_paths:\n    - .git/**\n    - node_modules/**\n    - scripts/workflow-core.ts',
+          ),
+          'utf8',
+        );
+        fs.rmSync(path.join(targetRoot, 'scripts', 'workflow-core.ts'), { force: true });
+
+        const second = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+        });
+        expect(second.success).toBe(false);
+        expect(second.failures.some(failure => failure.category === 'frozen_path')).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle reports local drift for modified workflow-owned profile fragments', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        const profilePath = path.join(targetRoot, 'PROJECT_PROFILE.yaml');
+        const profileText = fs.readFileSync(profilePath, 'utf8');
+        fs.writeFileSync(
+          profilePath,
+          profileText.replace('  primary_hosts:\n    - codex', '  primary_hosts:\n    - codex\n    - factory'),
+          'utf8',
+        );
+
+        const second = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+        });
+        expect(second.success).toBe(false);
+        expect(second.failures.some(failure => failure.category === 'local_drift' && failure.path === 'PROJECT_PROFILE.yaml')).toBe(true);
+      });
+    });
+  });
+});
+
+describe('workflow-runtime adopt', () => {
+  test('adoptWorkflow dry-run plans materialization without writing live docs', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const installReport = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(installReport.success).toBe(true);
+        linkNodeModules(targetRoot);
+
+        const report = adoptWorkflow({ root: targetRoot, dryRun: true });
+        expect(report.success).toBe(true);
+        expect(report.health_check_required).toBe(true);
+        expect(report.bootstrap_plan.governed_docs.length).toBeGreaterThan(0);
+        expect(report.planned_materializations).toContain('CURRENT_TASK.md');
+        expect(fs.existsSync(path.join(targetRoot, 'CURRENT_TASK.md'))).toBe(false);
+        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-archive-task', 'SKILL.md'))).toBe(false);
+      });
+    });
+  });
+
+  test('adoptWorkflow materializes absent docs, syncs host namespace, and updates install-state', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const installReport = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(installReport.success).toBe(true);
+        linkNodeModules(targetRoot);
+
+        const report = adoptWorkflow({ root: targetRoot });
+        expect(report.success).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'CURRENT_TASK.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-archive-task', 'SKILL.md'))).toBe(true);
+
+        const installState = readJson(path.join(targetRoot, '.workflow-system', 'install-state.json'));
+        const hostSyncState = installState.host_sync_state as Record<string, Record<string, unknown>>;
+        expect(hostSyncState.codex.synced_at).toBeTruthy();
+        expect((hostSyncState.codex.synced_entries as Array<unknown>).length).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  test('adoptWorkflow returns a structured report when gen:all fails', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const installReport = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(installReport.success).toBe(true);
+        linkNodeModules(targetRoot);
+        fs.rmSync(path.join(targetRoot, 'scripts', 'gen-workflow-docs.ts'), { force: true });
+
+        const report = adoptWorkflow({ root: targetRoot });
+        expect(report.success).toBe(false);
+        expect(report.exit_code).toBe(1);
+        expect(report.error).toBeTruthy();
+        expect(report.written_materializations).toEqual([]);
+        const formatted = formatAdoptReport(report);
+        expect(formatted).toContain('workflow:adopt FAILED');
+        expect(formatted).toContain('error:');
+      });
+    });
+  });
+});
+
 describe('workflow-runtime CLI routing', () => {
   test('parseRuntimeCliArgs accepts pack, install, adopt commands', () => {
     const pack = parseRuntimeCliArgs(['pack', '--out-dir', '/tmp/bundle', '--include-tests']);
@@ -315,22 +659,38 @@ describe('workflow-runtime CLI routing', () => {
     expect(adopt.dryRun).toBe(true);
   });
 
-  test('pack/install/adopt commands throw not-yet-implemented', () => {
-    // These stubs ensure the CLI routing is wired up and will be replaced
-    // with real implementations in W1-W4.
-    expect(() => {
-      const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'pack'], { cwd: ROOT });
-      if (child.exitCode !== 0) throw new Error(child.stderr.toString());
-    }).toThrow(/not yet implemented/);
-
+  test('install and adopt commands fail with actionable runtime errors when prerequisites are missing', () => {
     expect(() => {
       const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'install'], { cwd: ROOT });
       if (child.exitCode !== 0) throw new Error(child.stderr.toString());
-    }).toThrow(/not yet implemented/);
+    }).toThrow(/requires --bundle/);
 
     expect(() => {
       const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'adopt'], { cwd: ROOT });
       if (child.exitCode !== 0) throw new Error(child.stderr.toString());
-    }).toThrow(/not yet implemented/);
+    }).toThrow(/requires a prior successful workflow:install/);
+  });
+
+  test('adopt command writes human failure reports to stderr', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const installReport = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(installReport.success).toBe(true);
+        linkNodeModules(targetRoot);
+        fs.rmSync(path.join(targetRoot, 'scripts', 'gen-workflow-docs.ts'), { force: true });
+
+        const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'adopt', '--root', targetRoot], {
+          cwd: ROOT,
+        });
+        expect(child.exitCode).toBe(1);
+        expect(child.stdout.toString()).toBe('');
+        expect(child.stderr.toString()).toContain('workflow:adopt FAILED');
+        expect(child.stderr.toString()).toContain('error:');
+      });
+    });
   });
 });

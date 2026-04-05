@@ -92,6 +92,35 @@ cd ~/gstack && ./setup --host auto
 
 For Codex-compatible hosts, setup now supports both repo-local installs from `.agents/skills/gstack` and user-global installs from `~/.codex/skills/gstack`. All 31 skills work across all supported agents. Hook-based safety skills (careful, freeze, guard) use inline safety advisory prose on non-Claude hosts.
 
+### Workflow-system packaging commands
+
+When you want to package the workflow-system itself for another repo, use the runtime commands directly:
+
+```bash
+bun run workflow:pack --json
+bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex --dry-run --json
+bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex
+bun run workflow:adopt --root <target-repo> --host codex --dry-run --json
+bun run workflow:adopt --root <target-repo> --host codex
+```
+
+`workflow:pack` exports a deterministic bundle with `workflow-bundle.json`.
+`workflow:install` performs the A1 import step, copies workflow-managed files, merges
+the documented `package.json` surface, and writes `.workflow-system/install-state.json`.
+`workflow:adopt` performs the A3 adoption step, runs generators, materializes any
+missing governed docs, runs `workflow:health`, and syncs the isolated
+`workflow-system-*` host namespace.
+
+Use `--root <target-repo>` to point at the repo being installed or adopted. If you omit
+`--root`, install and adopt both operate on the current working directory.
+
+Recommended flow: run `workflow:install` and `workflow:adopt` with `--dry-run --json`
+first, inspect the planned writes and failure categories, then rerun without `--dry-run`
+to apply. Install failures are reported as `frozen_path`, `local_drift`,
+`contract_conflict`, or `incompatible_target`. Adopt exits with code `2` when the repo
+has not completed `workflow:install`, and with code `1` when generator, materialization,
+health, or host-sync execution fails after planning.
+
 ### Factory Droid
 
 gstack works with [Factory Droid](https://factory.ai). Skills install to `.factory/skills/` and are discovered automatically. Sensitive skills (ship, land-and-deploy, guard) use `disable-model-invocation: true` so Droids don't auto-invoke them.

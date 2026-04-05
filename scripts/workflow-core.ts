@@ -612,24 +612,35 @@ export function executeWrites(
     const stagedWrites: Array<{ tempPath: string; targetPath: string }> = [];
     const rollbackEntries: Array<{ targetPath: string; backupPath?: string }> = [];
     let counter = 0;
+    const stagingRoot = getWriteStagingRoot(operations);
+    const stagingDir = fs.mkdtempSync(
+      path.join(stagingRoot, `.workflow-write-staging-${process.pid}-`),
+    );
 
     try {
       prepare?.();
 
-      for (const op of operations) {
-        fileSystem.mkdirSync(path.dirname(op.path), { recursive: true });
+      for (const [index, op] of operations.entries()) {
         const tempPath = path.join(
-          path.dirname(op.path),
-          `.${path.basename(op.path)}.${process.pid}.${Date.now()}.${counter++}.tmp`,
+          stagingDir,
+          'staged',
+          `${index}-${path.basename(op.path)}.${counter++}.tmp`,
         );
+        fileSystem.mkdirSync(path.dirname(op.path), { recursive: true });
+        fileSystem.mkdirSync(path.dirname(tempPath), { recursive: true });
         fileSystem.writeFileSync(tempPath, op.content, 'utf8');
         stagedWrites.push({ tempPath, targetPath: op.path });
       }
 
-      for (const staged of stagedWrites) {
+      for (const [index, staged] of stagedWrites.entries()) {
         let backupPath: string | undefined;
         if (fileSystem.existsSync(staged.targetPath)) {
-          backupPath = `${staged.targetPath}.bak.${process.pid}.${Date.now()}.${counter++}`;
+          backupPath = path.join(
+            stagingDir,
+            'backup',
+            `${index}-${path.basename(staged.targetPath)}.bak.${counter++}`,
+          );
+          fileSystem.mkdirSync(path.dirname(backupPath), { recursive: true });
           fileSystem.renameSync(staged.targetPath, backupPath);
         }
 
@@ -642,6 +653,7 @@ export function executeWrites(
           fileSystem.rmSync(entry.backupPath, { force: true });
         }
       }
+      fileSystem.rmSync(stagingDir, { recursive: true, force: true });
     } catch (error) {
       for (const staged of stagedWrites) {
         if (fileSystem.existsSync(staged.tempPath)) {
@@ -657,11 +669,57 @@ export function executeWrites(
           fileSystem.renameSync(entry.backupPath, entry.targetPath);
         }
       }
+      if (fileSystem.existsSync(stagingDir)) {
+        fileSystem.rmSync(stagingDir, { recursive: true, force: true });
+      }
 
       throw error;
     }
   }
   console.log(`${summary}${dryRun ? ' (dry-run)' : ''}`);
+}
+
+function getWriteStagingRoot(operations: WriteOperation[]): string {
+  const resolvedDirs = operations.map(op => path.resolve(path.dirname(op.path)));
+  let candidate = resolvedDirs[0] ?? process.cwd();
+  for (const currentDir of resolvedDirs.slice(1)) {
+    while (
+      !currentDir.toLowerCase().startsWith(`${candidate.toLowerCase()}${path.sep}`) &&
+      currentDir.toLowerCase() !== candidate.toLowerCase()
+    ) {
+      const parent = path.dirname(candidate);
+      if (parent === candidate) {
+        break;
+      }
+      candidate = parent;
+    }
+  }
+
+  while (shouldEscapeWriteStagingRoot(candidate)) {
+    const parent = path.dirname(candidate);
+    if (parent === candidate) {
+      break;
+    }
+    candidate = parent;
+  }
+
+  return candidate;
+}
+
+function shouldEscapeWriteStagingRoot(candidate: string): boolean {
+  const base = path.basename(candidate);
+  return (
+    base === 'generated' ||
+    base === 'workflow-docs' ||
+    base === 'workflow-skills' ||
+    base === 'scripts' ||
+    base === 'templates' ||
+    base === 'skills' ||
+    base === '.agents' ||
+    base === '.claude' ||
+    base === '.factory' ||
+    base.startsWith('workflow-system-')
+  );
 }
 
 export function runGenerator(name: string, main: () => void): void {

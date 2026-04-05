@@ -1286,15 +1286,24 @@ A target project must not be expected to discover those script entries from undo
 
 The import contract defines the steps a target project follows during Adoption `A1` to import the workflow-system:
 
-1. Copy workflow-system scripts to the target project
-2. Copy protocol spec, templates, and the documented `package.json` contract surface
-3. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
-4. Create a project-specific `PROJECT_PROFILE.yaml`
-5. Run generators to produce initial workflow outputs
-6. Run health check to verify correct installation
-7. Sync generated artifacts to the target project's AI host
+1. Run `workflow:pack` in the source workflow-system repo to export a deterministic bundle with `workflow-bundle.json`
+2. Run `workflow:install --bundle <bundle-dir>` in the target repo to perform Adoption `A1`
+3. Copy workflow-system scripts, protocol spec, templates, and the documented `package.json` contract surface
+4. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
+5. Create or merge the project-specific `PROJECT_PROFILE.yaml`
+6. Write `.workflow-system/install-state.json` only after the install transaction succeeds
+7. Run `workflow:adopt` in the target repo to perform Adoption `A3`
+8. Run generators to produce initial workflow outputs, materialize missing governed docs, run health, and sync generated artifacts to the target project's AI host
 
 The import contract is self-documenting — a target project must not need undocumented repository knowledge to complete the import.
+
+Public runtime interface notes:
+
+- `workflow:install --root <target-repo>` and `workflow:adopt --root <target-repo>` operate on the explicit target repo; when `--root` is omitted they operate on the current working directory
+- the recommended operator flow is `--dry-run --json` first, then a second run without `--dry-run` to apply
+- install failures must report explicit categories so the operator can distinguish `frozen_path`, `local_drift`, `contract_conflict`, and `incompatible_target`
+- adopt must preserve structured failure reporting for generator, materialization, health, and host-sync failures, with exit code `2` reserved for the missing-install prerequisite and exit code `1` for post-plan execution failures
+- human-readable failure reports should be emitted on stderr; JSON reports remain machine-readable on stdout
 
 ### §17.4 Host-specific sync
 
