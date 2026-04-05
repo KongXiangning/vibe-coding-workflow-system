@@ -1,8 +1,8 @@
 # Workflow System Packaging And Adoption Plan
 
-Status: Active
+Status: Complete
 Owner: kongx
-Last-Updated: 2026-04-04
+Last-Updated: 2026-04-05
 Depends-On: [workflow-system-implementation-plan.md](./workflow-system-implementation-plan.md), [workflow-system-artifact-inventory.md](./workflow-system-artifact-inventory.md)
 
 ## Purpose
@@ -30,6 +30,12 @@ This plan completes the productization loop with the following core decisions:
 - A file ownership matrix classifies every target path into one of six modes — `replace-managed`, `merge-managed`, `live-doc`, `runtime-host`, `install-infrastructure`, `scaffold-once` — eliminating ad-hoc override rules at implementation time.
 - `workflow:install` and `workflow:adopt` both perform a full preflight before any writes; if any planned write hits a frozen rule or local drift conflict, the entire command fails before the first write.
 - Bundle identity is no longer based solely on `package.json.version`. It is now `workflow_system_version + source_tree_hash`, with the output directory fixed to `dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/`, resolving the conflict when source changes but the version does not.
+
+Completion note:
+
+- W1-W6 are now implemented in-repo.
+- `workflow:pack`, `workflow:install`, and `workflow:adopt` are shipped as supported runtime commands.
+- acceptance criteria and packaging/adoption regression coverage were reviewed against the repository state on 2026-04-05 and found aligned with this plan.
 
 ## Current Completed Baseline
 
@@ -292,13 +298,13 @@ The template is not a separate file in the bundle output directory.
   },
   "validation": {
     "matrix_seed": [
-      { "name": "workflow-skills-validation", "layer": "protocol", "command": "bun run gen:workflow-skills --dry-run", "blocker_level": "blocks-generator", "description": "Validate workflow skill templates.", "owner": "workflow-system" },
-      { "name": "workflow-docs-validation", "layer": "protocol", "command": "bun run gen:workflow-docs --dry-run", "blocker_level": "blocks-generator", "description": "Validate generated governance doc structure.", "owner": "workflow-system" },
-      { "name": "registry-validation", "layer": "protocol", "command": "bun run gen:registry --dry-run", "blocker_level": "blocks-generator", "description": "Validate registry generation.", "owner": "workflow-system" },
-      { "placeholder": true, "name": "unit", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project unit-test command during A4.", "owner": "target-project" },
-      { "placeholder": true, "name": "integration", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project integration-test command during A4.", "owner": "target-project" },
-      { "placeholder": true, "name": "e2e-smoke", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project smoke validation during A4.", "owner": "target-project" },
-      { "placeholder": true, "name": "contract-compatibility", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project contract checks during A4.", "owner": "target-project" }
+      { "name": "workflow-skills-validation", "layer": "protocol", "command": "bun run gen:workflow-skills --dry-run", "blocker_level": "blocks-generator", "description": "Validate workflow skill templates.", "phase": "P9", "owner": "workflow-system" },
+      { "name": "workflow-docs-validation", "layer": "protocol", "command": "bun run gen:workflow-docs --dry-run", "blocker_level": "blocks-generator", "description": "Validate generated governance doc structure.", "phase": "P9", "owner": "workflow-system" },
+      { "name": "registry-validation", "layer": "protocol", "command": "bun run gen:registry --dry-run", "blocker_level": "blocks-generator", "description": "Validate registry generation.", "phase": "P9", "owner": "workflow-system" },
+      { "placeholder": true, "name": "unit", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project unit-test command during A4.", "phase": "A4", "owner": "target-project" },
+      { "placeholder": true, "name": "integration", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project integration-test command during A4.", "phase": "A4", "owner": "target-project" },
+      { "placeholder": true, "name": "e2e-smoke", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project smoke validation during A4.", "phase": "A4", "owner": "target-project" },
+      { "placeholder": true, "name": "contract-compatibility", "layer": "project", "command": "", "blocker_level": "blocks-merge", "description": "Bind target project contract checks during A4.", "phase": "A4", "owner": "target-project" }
     ]
   }
 }
@@ -323,7 +329,7 @@ The template is not a separate file in the bundle output directory.
 | `decision_types` | target | Defaults from template | Never touched |
 | `governance.*` | target | Defaults from template | Never touched |
 
-Placeholder entries in `validation.matrix_seed` (those with `"placeholder": true`) are scaffolded as commented-out YAML entries in the rendered `PROJECT_PROFILE.yaml`, indicating where the target project should bind its own commands during Adoption A4. Non-placeholder entries (protocol-level validators) are scaffolded as active entries. The `matrix_seed` schema matches the real `PROJECT_PROFILE.yaml` validation matrix structure (`name`, `layer`, `command`, `blocker_level`, `description`, `owner`). `project.name`, `project.slug`, and `project.primary_hosts` are not in the template — they are derived at install time from the target project context (see Profile Scaffold Defaults below).
+`validation.matrix_seed` extends the real `PROJECT_PROFILE.yaml` validation-entry schema with one bundle-only metadata field: `"placeholder": true` for A4 target-project slots. When the scaffold is rendered into `PROJECT_PROFILE.yaml`, every seeded entry is emitted as an **active YAML item** inside `validation.matrix` with the real parser-required fields (`name`, `layer`, `command`, `blocker_level`, `description`, `phase`, `owner`). For placeholder slots, the renderer omits the bundle-only `placeholder` field and keeps `command: ""`, leaving them as real unbound project-level slots rather than comments. Optional explanatory YAML comments may be added adjacent to those entries, but the entries themselves must remain present in `validation.matrix` so downstream parsing and additive merges work. `project.name`, `project.slug`, and `project.primary_hosts` are not in the template — they are derived at install time from the target project context (see Profile Scaffold Defaults below).
 
 ### Bundle Identity Rules
 
@@ -679,11 +685,11 @@ Both commands must support `--dry-run`. Dry-run outputs the full plan / report b
 `workflow:install` rules for `PROJECT_PROFILE.yaml`:
 
 - Absent → render from bundle-embedded profile scaffold template and write.
-- Present → merge workflow-owned sections only; do not rewrite target-project semantics. **Additionally**, run a preflight completeness check: verify that all fields required by `projectPlaceholders()` and `validateProfilePathSemantics()` exist in the target profile. If any required field is missing, fail with `incompatible_target` and list the missing fields. This prevents install from succeeding while leaving the profile in a state that would immediately fail `gen:all` or `workflow:health`. The installer does not patch missing target-owned fields — the target project must add them manually.
+- Present → merge workflow-owned sections only; do not rewrite target-project semantics. **Additionally**, run a preflight completeness check: verify that all fields required by `projectPlaceholders()`, `validateProfilePathSemantics()`, and bootstrap planning metadata extraction exist in the target profile. If any required field is missing, fail with `incompatible_target` and list the missing fields. This prevents install from succeeding while leaving the profile in a state that would immediately fail `gen:all`, `workflow:health`, or bootstrap classify. The installer does not patch missing target-owned fields — the target project must add them manually.
 
 Required fields for preflight completeness check (must all be present and non-empty):
 
-- `project.name`, `project.type` (from `projectPlaceholders`)
+- `project.name`, `project.slug`, `project.type` (from bootstrap planning / `projectPlaceholders`)
 - `runtime.languages`, `runtime.test_commands` (from `projectPlaceholders`)
 - `decision_types`, `architecture_rules` (from `projectPlaceholders`)
 - `paths.source_directories` (from `projectPlaceholders`)
@@ -800,6 +806,259 @@ Files:
 
 - `workflow-bundle.json` — bundle manifest (inside bundle directory)
 - `.workflow-system/install-state.json` — install state (inside target project)
+
+## 使用说明
+
+本节是 v1 打包 / 安装 / 首次采用流程的操作说明。它规定执行顺序、参数含义、预期输出，以及将 bundle 交给其他工程师或自动化系统时必须附带的最小上下文。
+
+### 推荐执行顺序
+
+v1 的标准执行顺序如下：
+
+1. 在源 workflow-system 仓库执行 `workflow:pack`。
+2. 将生成的 bundle 目录传输到目标环境。
+3. 在目标项目执行 `workflow:install --dry-run`。
+4. 如果 install dry-run 结果干净，再执行真实 `workflow:install`。
+5. 在目标项目执行 `workflow:adopt --dry-run`。
+6. 如果 adopt dry-run 结果干净，再执行真实 `workflow:adopt`。
+7. 如果需要多个 host，则对剩余 host 逐个执行 `workflow:adopt --host <host>`。
+
+常规规则：
+
+- `workflow:pack` 只在源仓库执行。
+- `workflow:install` 与 `workflow:adopt` 只在目标项目执行。
+- 对一个新的目标状态，第一次真实 `install` 和第一次真实 `adopt` 之前都应先跑 `--dry-run`。
+
+### 命令说明
+
+#### `workflow:pack`
+
+用途：
+
+- 生成可分发的 workflow-system 目录 bundle
+- 计算 bundle 身份与校验信息
+- 输出 `workflow-bundle.json`
+
+命令：
+
+```bash
+bun run workflow:pack [--out-dir <path>] [--include-tests] [--json]
+```
+
+参数：
+
+- `--out-dir <path>`：覆盖默认 bundle 输出父目录；省略时输出到 `dist/workflow-system/`
+- `--include-tests`：将可选协议测试文件一并打入 bundle，并纳入 `source_tree_hash` 计算
+- `--json`：向 stdout 输出机器可读的 pack report
+
+操作说明：
+
+- 该命令只能在源 workflow-system 仓库执行
+- 执行后需要记录 `bundle_id`、输出目录、`source_commit`，以及是否使用了 `--include-tests`
+- v1 的产物是目录 bundle，不要求额外再打成 zip/tar
+
+预期输出：
+
+- bundle 目录：`dist/workflow-system/workflow-system-<version>+<source-tree-hash-short>/`，除非使用 `--out-dir` 覆盖父目录
+- `workflow-bundle.json`
+- 打包后的脚本、协议文档、模板，以及可选测试文件
+
+#### `workflow:install`
+
+用途：
+
+- 将 workflow-system engine 导入目标项目
+- 合并 workflow-owned 的 `package.json` 与 `PROJECT_PROFILE.yaml` 契约片段
+- 创建 `.workflow-system/install-state.json`
+
+命令：
+
+```bash
+bun run workflow:install --bundle <dir> [--root <target>] [--host <claude|codex|factory>] [--dry-run] [--json]
+```
+
+参数：
+
+- `--bundle <dir>`：必填，指向打包好的 workflow-system bundle 目录
+- `--root <target>`：目标项目根目录；默认值为 `process.cwd()`
+- `--host <claude|codex|factory>`：记录本次 install 的初始 host；只影响 host 默认值和 install-state，host-agnostic managed files 不因 host 而变化
+- `--dry-run`：只生成并输出 install plan，不进行任何 repo-tracked 写入
+- `--json`：向 stdout 输出机器可读的 install report
+
+推荐执行步骤：
+
+1. 执行 `workflow:install --bundle <dir> --root <target> --host <host> --dry-run --json`
+2. 检查是否存在 `frozen_path`、`local_drift`、`contract_conflict`、`incompatible_target`
+3. 如果结果干净，去掉 `--dry-run` 后按相同参数重新执行
+
+操作说明：
+
+- 如果已经知道目标 host，首次 install 应显式传 `--host`；CLI 显式输入优先级最高
+- 如果目标仓库已经存在 `PROJECT_PROFILE.yaml`，在预期 install 成功前应先确认 target-owned required fields 完整
+- 如果 install 以 `incompatible_target` 失败，需要先手工修复目标项目后再重跑；v1 不会自动补齐 target-owned incomplete profile 字段
+
+预期输出：
+
+- workflow-managed 脚本、模板、协议文档写入目标路径
+- `package.json` 中的 workflow fragment 合并完成
+- 若目标缺少 `VERSION`，则自动 scaffold
+- `PROJECT_PROFILE.yaml` 被 scaffold 或 merge
+- `.workflow-system/install-state.json` 最后写入
+
+#### `workflow:adopt`
+
+用途：
+
+- 在目标项目执行安全的 A3 首次采用流程
+- 在本地重新生成 workflow outputs
+- 只 materialize 缺失的 live governance docs
+- 执行 health checks 并同步所选 host 命名空间
+
+命令：
+
+```bash
+bun run workflow:adopt [--root <target>] [--host <claude|codex|factory>] [--dry-run] [--json]
+```
+
+参数：
+
+- `--root <target>`：目标项目根目录；默认值为 `process.cwd()`
+- `--host <claude|codex|factory>`：adopt 时要同步的 host 命名空间
+- `--dry-run`：以隔离 dry-run 模式执行生成与规划，零 repo-tracked 写入
+- `--json`：向 stdout 输出机器可读的 adopt report
+
+推荐执行步骤：
+
+1. 执行 `workflow:adopt --root <target> --host <host> --dry-run --json`
+2. 查看计划中的 absent-doc materialization、health 预期、host sync 目标
+3. 如果结果干净，去掉 `--dry-run` 后重新执行
+4. 如果还需要其他 host，则对每个额外 host 单独执行 `workflow:adopt --root <target> --host <other-host>`
+
+操作说明：
+
+- `workflow:adopt` 依赖先前一次成功的 `workflow:install`
+- v1 不会自动修改已有 live docs；只会 materialize 缺失文件
+- 第二次 adopt 是正常操作；它通常会重新执行 `gen:all`、`workflow:health` 和 host sync
+
+预期输出：
+
+- 重新生成 `generated/workflow-docs/`、`generated/workflow-skills/`、`SKILL_REGISTRY.md`
+- 仅当 live docs 缺失时才写入新文件
+- host sync 写入 `.agents/skills/workflow-system-*`、`.claude/skills/workflow-system-*` 或 `.factory/skills/workflow-system-*`
+- 只有成功的 host 才会更新对应的 `host_sync_state`
+
+### 标准端到端流程
+
+#### 空目标项目
+
+适用于目标项目此前从未安装过 workflow-system。
+
+1. 源仓库：`bun run workflow:pack --json`
+2. 将生成的 bundle 目录传输到目标环境
+3. 目标仓库：`bun run workflow:install --bundle <bundle-dir> --root <target-root> --host <host> --dry-run --json`
+4. 目标仓库：`bun run workflow:install --bundle <bundle-dir> --root <target-root> --host <host> --json`
+5. 目标仓库：`bun run workflow:adopt --root <target-root> --host <host> --dry-run --json`
+6. 目标仓库：`bun run workflow:adopt --root <target-root> --host <host> --json`
+
+预期结果：
+
+- 目标项目达到 A3 baseline
+- workflow-owned 文件安装完成
+- generated outputs 在目标项目本地重新生成
+- 缺失的 live docs 被 materialize
+- 所选 host 完成同步
+
+#### 已有目标项目
+
+适用于目标项目已经存在 `package.json`、`PROJECT_PROFILE.yaml`、live docs，或者已经安装过旧版本 workflow-system。
+
+1. 先执行 `workflow:install --dry-run`
+2. 处理 `contract_conflict`、`local_drift`、`frozen_path`、`incompatible_target`
+3. 执行真实 `workflow:install`
+4. 执行 `workflow:adopt --dry-run`
+5. 检查 existing live docs 的 diff-only report
+6. 如果 A3 计划可接受，再执行真实 `workflow:adopt`
+
+预期结果：
+
+- workflow-owned engine surface 被安装或升级
+- 已存在的 live docs 保持不变
+- 只有缺失的 live docs 会被 materialize
+
+#### 升级已有安装
+
+适用于源仓库发生变化，需要把新 bundle 安装到已存在 workflow-system import 的目标项目。
+
+1. 源仓库重新执行 `workflow:pack` 并记录新的 `bundle_id`
+2. 目标仓库执行 `workflow:install --bundle <new-bundle-dir> --root <target-root> --dry-run --json`
+3. 处理 drift 或 contract failures
+4. 执行真实 `workflow:install`
+5. 执行 `workflow:adopt --dry-run`
+6. 执行真实 `workflow:adopt`
+
+预期结果：
+
+- 未被修改的 workflow-managed files 原地升级
+- 被用户修改过的 managed files 以 drift conflict 失败
+- target-owned profile 内容与 live docs 保持不变
+
+### 最小交接内容
+
+当 bundle 被交给其他工程师、团队或自动化系统时，必须至少附带以下上下文：
+
+- `bundle_id`
+- bundle 目录路径
+- `workflow_system_version`
+- `source_commit`
+- 是否使用了 `--include-tests`
+- 目标项目根目录
+- 目标 host 或 host 列表
+- 目标项目当前属于空仓、已有项目、还是已有安装升级场景
+- 对已有 profile 是否必须在 install 前阻断不完整状态
+- 期望执行的完整命令顺序
+
+最小交接示例：
+
+```text
+Bundle: workflow-system@1.2.3+abc123def456
+Path: /path/to/workflow-system-1.2.3+abc123def456/
+Source commit: 0123456789abcdef
+Include tests: no
+Target root: /repo/example-project
+Initial host: codex
+Run order:
+  1. bun run workflow:install --bundle /path/to/workflow-system-1.2.3+abc123def456 --root /repo/example-project --host codex --dry-run --json
+  2. bun run workflow:install --bundle /path/to/workflow-system-1.2.3+abc123def456 --root /repo/example-project --host codex --json
+  3. bun run workflow:adopt --root /repo/example-project --host codex --dry-run --json
+  4. bun run workflow:adopt --root /repo/example-project --host codex --json
+```
+
+### 每个阶段需要检查的内容
+
+在执行 `workflow:pack` 之前：
+
+- 确认当前源仓库状态就是要交付的状态
+- 决定是否需要把可选测试一并打包
+
+在执行真实 `workflow:install` 之前：
+
+- 确认 `--bundle` 路径指向预期 bundle 目录
+- 确认 `--root` 路径指向预期目标仓库根目录
+- 确认所选 host 正确
+- 检查 dry-run 输出中是否有 drift、frozen path、contract incompatibility
+
+在执行真实 `workflow:adopt` 之前：
+
+- 检查哪些 live docs 缺失并将被 materialize
+- 检查已有 live docs 的 diff-only 输出
+- 确认所选 host namespace 正确
+- 确认 dry-run report 中没有意外的 health 或 sync targets
+
+在执行 `workflow:adopt` 之后：
+
+- 验证 host sync 只触碰了 `workflow-system-*` 命名空间
+- 验证 generated outputs 是在目标项目中本地生成的，而不是从源 bundle 复制进来的
+- 验证 `.workflow-system/install-state.json` 中写入了预期的 host sync entry
 
 ### A1 / A3 Responsibility Split
 
@@ -978,7 +1237,7 @@ This plan is complete when all of the following are true:
 - Empty target project → scaffold `VERSION` so that `gen:workflow-docs` can run immediately.
 - Existing `package.json` → preserve unrelated keys, merge only workflow-owned keys.
 - Existing `PROJECT_PROFILE.yaml` → merge only workflow-owned sections.
-- Existing `PROJECT_PROFILE.yaml` missing required target-owned fields (e.g., `project.type`) → fail with `incompatible_target` listing missing fields.
+- Existing `PROJECT_PROFILE.yaml` missing required target-owned fields (e.g., `project.slug`, `project.type`) → fail with `incompatible_target` listing missing fields.
 - Existing target with missing `VERSION` → scaffold `VERSION` from `package.json.version` or `0.0.0`.
 - Target project is CommonJS → fail immediately, no auto-migration.
 - Managed file with local drift → upgrade fails with zero writes.
