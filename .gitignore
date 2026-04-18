@@ -19,3 +19,4 @@ extension/.auth.json
 !.env.example
 supabase/.temp/
 generated/
+dist/
