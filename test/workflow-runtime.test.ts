@@ -106,11 +106,17 @@ describe('workflow-runtime manifest', () => {
     expect(manifest.contract_version).toBe(1);
     expect(manifest.artifacts.some(artifact => artifact.path === 'scripts/workflow-runtime.ts' && artifact.required)).toBe(true);
     expect(manifest.artifacts.some(artifact => artifact.path === 'WORKFLOW_PROTOCOL.md' && artifact.category === 'protocol')).toBe(true);
+    expect(manifest.artifacts.some(artifact => artifact.path === 'generated/workflow-docs/**' && artifact.category === 'generated')).toBe(true);
     expect(manifest.artifacts.some(artifact =>
       artifact.path === 'package.json' &&
       artifact.category === 'config' &&
       artifact.description.includes('workflow:* / gen:* / validate:* script contract'),
     )).toBe(true);
+    expect(manifest.source_pipeline.normative_sources.protocol).toEqual(['WORKFLOW_PROTOCOL.md']);
+    expect(manifest.source_pipeline.normative_sources.schemas).toEqual(['FILE_SCHEMAS.md']);
+    expect(manifest.source_pipeline.generated_references).toContain('generated/workflow-docs/**');
+    expect(manifest.source_pipeline.generated_references).toContain('generated/workflow-skills/**');
+    expect(manifest.source_pipeline.bundle_output_root).toBe('dist/workflow-system');
     expect(manifest.package_json_contract.type).toBe('module');
     expect(manifest.package_json_contract.engines.bun).toBe('>=1.0.0');
     expect(manifest.package_json_contract.dependencies.yaml).toBe('^2.8.3');
@@ -198,6 +204,113 @@ describe('workflow-runtime manifest', () => {
   });
 });
 
+describe('workflow protocol v26 propagation governance', () => {
+  test('protocol enumerates the full v26 public interface surface', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    for (const name of [
+      'EvidenceRecord',
+      'UIAnchorReplacement',
+      'ContractCompatibilityResult',
+      'EvidenceAggregation',
+      'ComplexityAssessment',
+      'over_limit_policy',
+      'evidence_diff_threshold',
+      'MutationEligibilityAssessment',
+      'EntityMutationChecklist',
+      'LayoutContract',
+      'RegistryFreshnessReport',
+      'LinkedRegressionRecord',
+      'BehaviorContract',
+      'StagedMigrationPlan',
+      'migration_plan_requirement',
+      'implicit_shared_object_detection',
+    ]) {
+      expect(protocol).toContain(`- \`${name}\``);
+    }
+  });
+
+  test('protocol documents the v26 public interfaces and conditional eligibility schema', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    expect(protocol).toContain('### §18.6 Propagation-governance public interfaces');
+    expect(protocol).toContain('- `ContractCompatibilityResult`');
+    expect(protocol).toContain('- `MutationEligibilityAssessment`');
+    expect(protocol).toContain('when_pending_prerequisites:');
+    expect(protocol).toContain('when_completed:');
+    expect(protocol).toContain('locked_hit_gap_unresolved');
+    expect(protocol).toContain('REGISTRY_FRESHNESS_STALE_LOCKED_HIT');
+  });
+
+  test('protocol pins the compatibility-result field contract and severity semantics', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    expect(protocol).toContain('contract_compatibility_result:');
+    expect(protocol).toContain('default_blocker_level: <warning-only|blocks-merge|blocks-ship>');
+    expect(protocol).toContain('over_limit_policy_branch: <recommend_task_split|enforce_compat_layer|enforce_adapter_boundary|hard_stop|none>');
+    expect(protocol).toContain('divergence_state: <no_divergence|significant_divergence|locked_hit_gap>');
+    expect(protocol).toContain('`warning` is allowed only for `warning-only`');
+    expect(protocol).toContain('`error` is the default severity for `blocks-merge` blockers');
+    expect(protocol).toContain('`none` is allowed only in `strategy_origin.over_limit_policy_branch`');
+  });
+
+  test('protocol covers over-limit branches and their blocker outputs', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    expect(protocol).toContain('over_limit_policy:');
+    expect(protocol).toContain('`ComplexityAssessment` formalizes the strategy decision');
+    expect(protocol).toContain('forced_strategy: <direct-change|recommend_task_split|enforce_compat_layer|enforce_adapter_boundary|hard_stop>');
+    expect(protocol).toContain('`hard_stop` must emit `IMPACT_HARD_STOP_REQUIRED`');
+    expect(protocol).toContain('`enforce_adapter_boundary` without boundary artifacts must emit `COMPAT_ADAPTER_BOUNDARY_MISSING`');
+    expect(protocol).toContain('`enforce_compat_layer` without a compat-layer path must emit `COMPAT_LAYER_REQUIRED_BUT_MISSING`');
+    expect(protocol).toContain('ignoring `recommend_task_split` while still widening scope must emit `IMPACT_TASK_SPLIT_IGNORED`');
+  });
+
+  test('protocol covers migration, layout, behavior, and linked-regression blocker branches', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    expect(protocol).toContain('layout break coverage must include sibling reflow, breakpoint drift, specificity override, and stacking-context break');
+    expect(protocol).toContain('`MIGRATION_PLAN_REQUIRED_BUT_MISSING`');
+    expect(protocol).toContain('`MIGRATION_RUNTIME_STATE_UNDECLARED`');
+    expect(protocol).toContain('`MIGRATION_PLAN_INCOMPLETE`');
+    expect(protocol).toContain('`LINKED_REGRESSION_EARLY_STOP`');
+    expect(protocol).toContain('layout breaks must emit `LAYOUT_CONTRACT_BREAK`; behavior breaks must emit `BEHAVIOR_CONTRACT_BREAK`');
+  });
+
+  test('protocol documents v26 gate mapping and execution order rules', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    expect(protocol).toContain('#### §18.6.5 Error-code, gate, and execution-order rules');
+    expect(protocol).toContain('IMPACT_HARD_STOP_REQUIRED');
+    expect(protocol).toContain('MIGRATION_RUNTIME_STATE_UNDECLARED');
+    expect(protocol).toContain('COMPAT_REMOVAL_PRECONDITION_UNMET');
+    expect(protocol).toContain('1. establish the `change_start_set`');
+    expect(protocol).toContain('all must be emitted; fix order follows blocker priority');
+  });
+
+  test('protocol formalizes the remaining v26 consumer, registry, and downstream validation rules', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    expect(protocol).toContain('`direct_consumers_exceeded` must enter `over_limit_policy`; its semantic meaning is "protect the existing direct entrypoints"');
+    expect(protocol).toContain('`total_consumers_exceeded` must enter `over_limit_policy`; its semantic meaning is "control the total propagation surface"');
+    expect(protocol).toContain('effective_consumers:');
+    expect(protocol).toContain('reconciliation: <aligned|registry-only|discovered-union>');
+    expect(protocol).toContain('the effective impact set must expand by discovered union');
+    expect(protocol).toContain('covered_categories:');
+    expect(protocol).toContain('gap_resolution:');
+    expect(protocol).toContain('the protocol must preserve `A` and introduce an `A -> AA` wrapper / compat object');
+    expect(protocol).toContain('backend API changes must extend downstream validation across frontend `hook`, `store`, `page`, `widget`, `form`, `table`, and `detail view` consumers');
+  });
+
+  test('protocol and file schemas require formal schema, default rules, and test requirements for public interfaces', () => {
+    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const schemas = fs.readFileSync(path.join(ROOT, 'FILE_SCHEMAS.md'), 'utf8');
+    expect(protocol).toContain('every public interface listed in `§18.6` must carry three things in the normative source: a formal schema, default rules, and conformance-test requirements');
+    expect(protocol).toContain('#### §18.6.6 Conformance test requirements');
+    expect(protocol).toContain('Every propagation-governance conformance case must record:');
+    expect(protocol).toContain('- `EntityMutationChecklist`: category coverage across storage / api / dto / event / projection / ui');
+    expect(schemas).toContain('## 1.1 传播治理公开结构 schema 要求');
+    expect(schemas).toContain('### 测试样例通用要求');
+    expect(schemas).toContain('### ContractCompatibilityResult');
+    expect(schemas).toContain('### implicit_shared_object_detection');
+    expect(schemas).toContain('registry 与 discovery 不一致时，按 discovered union 扩展 `effective_consumers`');
+    expect(schemas).toContain('同文件 `A/B/C/Z` 复用场景要保住 `A`，走 `A -> AA` wrapper / compat path');
+  });
+});
+
 describe('workflow-runtime pack', () => {
   test('packWorkflowBundle changes bundle identity when --include-tests changes', () => {
     withTempRoot(bundleOutDir => {
@@ -210,11 +323,21 @@ describe('workflow-runtime pack', () => {
       const withTestsBundle = readJson(path.join(withTests.output_directory, 'workflow-bundle.json'));
       expect(withoutTestsBundle.includes_optional_tests).toBe(false);
       expect(withTestsBundle.includes_optional_tests).toBe(true);
+      expect((withoutTestsBundle.source_pipeline as Record<string, unknown>).bundle_output_root).toBe('dist/workflow-system');
       expect(
         (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('test/')),
       ).toBe(false);
       expect(
         (withTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('test/')),
+      ).toBe(true);
+      expect(
+        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('generated/workflow-docs/')),
+      ).toBe(true);
+      expect(
+        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('generated/workflow-skills/')),
+      ).toBe(true);
+      expect(
+        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path) === 'SKILL_REGISTRY.md'),
       ).toBe(true);
     });
   });

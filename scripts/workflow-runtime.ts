@@ -35,8 +35,19 @@ export const SUPPORTED_RUNTIME_HOSTS = ['claude', 'codex', 'factory'] as const;
 export type RuntimeHost = (typeof SUPPORTED_RUNTIME_HOSTS)[number];
 export type DetectedRuntimeHost = RuntimeHost | 'unknown';
 export type RuntimeCommand = 'health' | 'manifest' | 'sync' | 'pack' | 'install' | 'adopt';
-export type ManifestCategory = 'script' | 'protocol' | 'template' | 'config' | 'test';
+export type ManifestCategory = 'script' | 'protocol' | 'template' | 'config' | 'test' | 'generated';
 export type SyncMode = 'copy';
+
+export type WorkflowSourcePipeline = {
+  normative_sources: {
+    protocol: string[];
+    schemas: string[];
+  };
+  template_roots: string[];
+  generated_references: string[];
+  runtime_entry: string;
+  bundle_output_root: string;
+};
 
 export type WorkflowHealthComponent = {
   name: 'profile' | 'generators' | 'protocol' | 'host';
@@ -71,6 +82,7 @@ export type ExportManifest = {
   contract_version: 1;
   workflow_system_version: string;
   artifacts: ExportArtifact[];
+  source_pipeline: WorkflowSourcePipeline;
   package_json_contract: {
     type: 'module';
     engines: {
@@ -164,6 +176,7 @@ export type WorkflowBundle = {
   source_tree_hash: string;
   created_at: string;
   artifacts: BundleArtifact[];
+  source_pipeline: WorkflowSourcePipeline;
   package_json_contract: ExportManifest['package_json_contract'];
   profile_scaffold_template: JsonObject;
   post_install: string[];
@@ -295,6 +308,7 @@ const EXPORT_ARTIFACTS: readonly ExportArtifact[] = [
   { path: 'scripts/workflow-core.ts', category: 'script', required: true, description: 'Shared workflow generator core.' },
   { path: 'scripts/repo-path-patterns.ts', category: 'script', required: true, description: 'Restricted repo-path grammar and validation helpers.' },
   { path: 'scripts/workflow-doc-contracts.ts', category: 'script', required: true, description: 'Shared workflow-doc contract rules.' },
+  { path: 'scripts/propagation-governance.ts', category: 'script', required: true, description: 'Runtime propagation-governance semantic validation.' },
   { path: 'scripts/task-identity.ts', category: 'script', required: true, description: 'Task identity contract and archive naming rules.' },
   { path: 'scripts/bootstrap-project-governance.ts', category: 'script', required: true, description: 'Adoption bootstrap planning entrypoint.' },
   { path: 'scripts/validation-model.ts', category: 'script', required: true, description: 'Validation-layer and blocker-level model.' },
@@ -310,6 +324,9 @@ const EXPORT_ARTIFACTS: readonly ExportArtifact[] = [
   { path: 'PROJECT_PROFILE.yaml', category: 'config', required: true, description: 'Project profile declaring hosts, paths, and validation matrix.' },
   { path: 'templates/skills/**', category: 'template', required: true, description: 'Workflow skill templates to be rendered in the target project.' },
   { path: 'templates/docs/**', category: 'template', required: true, description: 'Workflow governance-doc templates to be rendered in the target project.' },
+  { path: 'generated/workflow-skills/**', category: 'generated', required: false, description: 'Freshness-checked reference workflow skills rendered in the source workflow-system repo.' },
+  { path: 'generated/workflow-docs/**', category: 'generated', required: false, description: 'Freshness-checked reference governance docs rendered in the source workflow-system repo.' },
+  { path: 'SKILL_REGISTRY.md', category: 'generated', required: false, description: 'Freshness-checked reference registry rendered in the source workflow-system repo.' },
   { path: 'test/gen-workflow-skills.test.ts', category: 'test', required: false, description: 'Workflow skill generator tests.' },
   { path: 'test/gen-workflow-docs.test.ts', category: 'test', required: false, description: 'Workflow docs generator tests.' },
   { path: 'test/gen-registry.test.ts', category: 'test', required: false, description: 'Registry generator tests.' },
@@ -319,6 +336,17 @@ const EXPORT_ARTIFACTS: readonly ExportArtifact[] = [
   { path: 'test/run-validation.test.ts', category: 'test', required: false, description: 'Validation runner and freshness tests.' },
   { path: 'test/workflow-runtime.test.ts', category: 'test', required: false, description: 'Runtime manifest, health, and sync tests.' },
 ];
+
+const SOURCE_PIPELINE: WorkflowSourcePipeline = {
+  normative_sources: {
+    protocol: ['WORKFLOW_PROTOCOL.md'],
+    schemas: ['FILE_SCHEMAS.md'],
+  },
+  template_roots: ['templates/skills', 'templates/docs'],
+  generated_references: ['generated/workflow-skills/**', 'generated/workflow-docs/**', 'SKILL_REGISTRY.md'],
+  runtime_entry: 'scripts/workflow-runtime.ts',
+  bundle_output_root: 'dist/workflow-system',
+};
 
 const POST_INSTALL_COMMANDS = [
   'bun install',
@@ -770,7 +798,7 @@ export function packWorkflowBundle(options: PackOptions = {}): PackReport {
   const bundleDirName = `workflow-system-${version}+${sourceTreeHashShort}`;
   const bundleDir = path.join(outParent, bundleDirName);
 
-  // Filter artifacts to include in the bundle (only script, protocol, template, and optionally test)
+  // Filter artifacts to include in the bundle (exclude config; tests remain opt-in)
   const artifactsToInclude = EXPORT_ARTIFACTS.filter(a => {
     if (a.category === 'config') return false;
     if (a.category === 'test' && !includeTests) return false;
@@ -798,6 +826,7 @@ export function packWorkflowBundle(options: PackOptions = {}): PackReport {
     source_tree_hash: sourceTreeHash,
     created_at: createdAt,
     artifacts: bundleArtifacts,
+    source_pipeline: deepClone(manifest.source_pipeline),
     package_json_contract: manifest.package_json_contract,
     profile_scaffold_template: buildProfileScaffoldTemplate(),
     post_install: manifest.post_install,
@@ -1876,6 +1905,7 @@ export function getExportManifest(root?: string): ExportManifest {
     contract_version: 1,
     workflow_system_version: packageJson.version ?? '0.0.0',
     artifacts: [...EXPORT_ARTIFACTS],
+    source_pipeline: deepClone(SOURCE_PIPELINE),
     package_json_contract: packageJsonContract,
     requirements: [
       'bun >= 1.0.0',
@@ -2201,7 +2231,8 @@ export function formatExportManifest(manifest: ExportManifest): string {
     `workflow-runtime manifest v${manifest.contract_version}`,
     `workflow-system version: ${manifest.workflow_system_version}`,
     `required artifacts: ${manifest.artifacts.filter(artifact => artifact.required).length}`,
-    `optional tests: ${manifest.artifacts.filter(artifact => !artifact.required).length}`,
+    `optional artifacts: ${manifest.artifacts.filter(artifact => !artifact.required).length}`,
+    `reference outputs: ${manifest.source_pipeline.generated_references.join(', ')}`,
     `supported hosts: ${Object.keys(manifest.host_compatibility).join(', ')}`,
   ].join('\n');
 }

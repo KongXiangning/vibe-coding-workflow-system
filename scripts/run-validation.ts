@@ -14,6 +14,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { parse } from 'yaml';
 import { readText, resolveRoot } from './workflow-core';
+import { validatePropagationGovernanceDocs } from './propagation-governance';
 import {
   validateBaselineCoverageForBoundSlots,
   validateLifecycleGovernanceDoc,
@@ -260,6 +261,20 @@ function buildProjectGovernanceHomeFailure(
   };
 }
 
+function buildPropagationGovernanceFailure(
+  layer: ValidationLayer,
+  blockerLevel: BlockerLevel,
+  error: Error,
+): ValidationResult {
+  return {
+    entrypoint: layer === 'protocol' ? 'propagation-governance-surface' : 'propagation-governance-home',
+    layer,
+    blocker_level: blockerLevel,
+    status: 'failed',
+    error: error.message,
+  };
+}
+
 function validateProjectGovernanceHomes(root: string, entrypoints: ValidationEntrypoint[]): ValidationResult[] {
   if (getBoundProjectEntrypoints(entrypoints).length === 0) {
     return [];
@@ -312,14 +327,54 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
     protocolResults.push(executeEntrypoint(entry, root));
   }
 
+  if (options.layer !== 'project') {
+    try {
+      validatePropagationGovernanceDocs(root, 'protocol');
+    } catch (error) {
+      protocolResults.push(
+        buildPropagationGovernanceFailure(
+          'protocol',
+          'blocks-merge',
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
+    }
+  }
+
   // Check protocol pass before running project
   const protocolPassed = protocolResults.every(
     r => r.status === 'passed' || r.status === 'skipped' || r.blocker_level === 'warning-only',
   );
 
   const projectResults: ValidationResult[] = [];
-  const governanceHomeFailures =
-    options.layer === 'protocol' ? [] : validateProjectGovernanceHomes(root, thresholdProject);
+  const governanceHomeFailures = options.layer === 'protocol'
+    ? []
+    : [
+        ...validateProjectGovernanceHomes(root, thresholdProject),
+        ...(() => {
+          if (getBoundProjectEntrypoints(thresholdProject).length === 0) {
+            return [];
+          }
+          try {
+            validatePropagationGovernanceDocs(root, 'project');
+            return [];
+          } catch (error) {
+            const relevant = getBoundProjectEntrypoints(thresholdProject);
+            const blockerLevel = relevant.reduce<BlockerLevel>(
+              (current, entry) =>
+                BLOCKER_SEVERITY[entry.blocker_level] > BLOCKER_SEVERITY[current] ? entry.blocker_level : current,
+              'warning-only',
+            );
+            return [
+              buildPropagationGovernanceFailure(
+                'project',
+                blockerLevel,
+                error instanceof Error ? error : new Error(String(error)),
+              ),
+            ];
+          }
+        })(),
+      ];
 
   if (protocolPassed && governanceHomeFailures.length > 0) {
     projectResults.push(...governanceHomeFailures);

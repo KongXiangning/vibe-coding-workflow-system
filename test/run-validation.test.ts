@@ -188,6 +188,27 @@ describe('run-validation', () => {
     }
   });
 
+  test('protocol validation fails when generated propagation-governance skeleton loses required v26 runtime fields', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-propagation-protocol-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      fs.copyFileSync(path.join(ROOT, 'PROJECT_PROFILE.yaml'), path.join(tempRoot, 'PROJECT_PROFILE.yaml'));
+
+      const currentTaskPath = path.join(tempRoot, 'generated', 'workflow-docs', 'CURRENT_TASK.md');
+      const broken = fs.readFileSync(currentTaskPath, 'utf8').replace(/^\s*-\s+effective_consumers：\s*$/m, '');
+      fs.writeFileSync(currentTaskPath, broken, 'utf8');
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_passed).toBe(false);
+      const failure = report.protocol_results.find(result => result.entrypoint === 'propagation-governance-surface');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('CURRENT_TASK.md is missing required propagation-governance snippet "- effective_consumers："');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test('project validation accepts generated lifecycle governance homes when project entrypoints are bound', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-governance-ok-'));
 
@@ -214,6 +235,48 @@ describe('run-validation', () => {
       expect(report.project_results[0]?.entrypoint).toBe('unit');
       expect(report.project_results[0]?.status).toBe('skipped');
       expect(report.project_results[0]?.output).toBe('dry-run mode');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('project validation fails when live CURRENT_TASK.md violates materialized v26 propagation semantics', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-propagation-project-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      fs.writeFileSync(
+        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: unit',
+          '      layer: project',
+          '      command: bun run test:unit',
+          '      blocker_level: blocks-merge',
+          '      description: target unit gate',
+          '      phase: A4',
+          '      owner: target-project',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const liveCurrentTask = fs.readFileSync(path.join(ROOT, 'generated', 'workflow-docs', 'CURRENT_TASK.md'), 'utf8')
+        .replace(/^\s*-\s+common\.object_kind：\s*$/m, '  - common.object_kind：api')
+        .replace(/^\s*-\s+threshold_trigger：\s*$/m, '  - threshold_trigger：direct_consumers_exceeded')
+        .replace(/^\s*-\s+selected_branch：\s*$/m, '  - selected_branch：hard_stop')
+        .replace(/^\s*-\s+when_pending_prerequisites\.assessment_status：\s*$/m, '  - when_pending_prerequisites.assessment_status：pending-prerequisites')
+        .replace(/^\s*-\s+when_completed\.eligibility：\s*$/m, '  - when_completed.eligibility：directly-mutable');
+
+      fs.writeFileSync(path.join(tempRoot, 'CURRENT_TASK.md'), liveCurrentTask, 'utf8');
+
+      const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
+      const failure = report.project_results.find(result => result.entrypoint === 'propagation-governance-home');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('must record non-empty blocking_gaps when assessment_status=pending-prerequisites');
+      expect(failure?.error).toContain('must not materialize when_completed.eligibility when assessment_status=pending-prerequisites');
+      expect(failure?.error).toContain('must emit IMPACT_HARD_STOP_REQUIRED when selected_branch=hard_stop');
+      expect(failure?.error).toContain('must materialize API downstream validation surfaces');
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -317,7 +380,7 @@ describe('run-validation', () => {
     }
   });
 
-  test('protocol-only validation ignores project baseline-home enforcement', () => {
+  test('protocol-only validation still fails when the propagation-governance baseline skeleton drifts', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-baseline-'));
 
     try {
@@ -352,8 +415,12 @@ describe('run-validation', () => {
       expect(() => loadMatrixFromProfile(tempRoot)).not.toThrow();
 
       const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
-      expect(report.protocol_results.length).toBe(1);
+      expect(report.protocol_results.length).toBe(2);
+      const failure = report.protocol_results.find(result => result.entrypoint === 'propagation-governance-surface');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('Workflow doc contract missing required snippet "### SEC-001:" in BASELINES.md');
       expect(report.project_results).toHaveLength(0);
+      expect(report.protocol_passed).toBe(false);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
@@ -482,7 +549,7 @@ describe('run-validation', () => {
     }
   });
 
-  test('full validation preserves protocol results before reporting baseline-home failure', () => {
+  test('full validation blocks project authority when propagation-governance protocol docs are missing', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-full-run-'));
 
     try {
@@ -513,11 +580,12 @@ describe('run-validation', () => {
       fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
 
       const report = runValidation({ root: tempRoot, dryRun: true });
-      expect(report.protocol_results).toHaveLength(1);
-      expect(report.protocol_results[0]?.entrypoint).toBe('workflow-docs-validation');
-      expect(report.protocol_passed).toBe(true);
-      const failure = report.project_results.find(result => result.entrypoint === 'baseline-governance-home');
-      expect(failure?.status).toBe('failed');
+      expect(report.protocol_results.map(result => result.entrypoint)).toContain('workflow-docs-validation');
+      expect(report.protocol_results.map(result => result.entrypoint)).toContain('propagation-governance-surface');
+      expect(report.protocol_passed).toBe(false);
+      const skippedProject = report.project_results.find(result => result.entrypoint === 'deploy');
+      expect(skippedProject?.status).toBe('skipped');
+      expect(skippedProject?.output).toContain('Protocol-level validation failed');
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

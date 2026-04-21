@@ -70,6 +70,97 @@
 - 验证入口：
 - 例外处理：
 
+## Gate 与错误码基线
+
+### GATE-001: 传播治理默认 gate
+
+- 状态：candidate
+- 生效版本 / 范围：
+- blocker level：
+- 适用错误码：
+- merge gate：
+- ship gate：
+- 升级条件：
+- 相关 strategy_origin / branch 语义：
+- 兼容窗口 / removal precondition：
+- 证据归档位置：
+
+### GATE-002: P0 前置 gap 错误码
+
+- 状态：candidate
+- 封闭集合：
+  - `IMPACT_LOCKED_HIT_GAP_UNRESOLVED`
+  - `REGISTRY_FRESHNESS_STALE_LOCKED_HIT`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 release / ship critical path 时升级 `blocks-ship`
+- 升级条件：eligibility 未收敛且 blocker 属于前置 gap
+- 相关 strategy_origin / branch 语义：`locked_hit_gap`
+
+### GATE-003: P1 直接变更不允许错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `IMPACT_HARD_STOP_REQUIRED`
+  - `INCOMPATIBLE_MUTATION_CONFLICT`
+  - `MUTATION_NOT_ELIGIBLE`
+  - `COMPAT_ADAPTER_BOUNDARY_MISSING`
+  - `COMPAT_LAYER_REQUIRED_BUT_MISSING`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 release / ship critical path 或 ship compatibility baseline 时升级 `blocks-ship`
+- 升级条件：兼容路径缺失或 eligibility 已完成收敛为不允许
+- 相关 strategy_origin / branch 语义：`hard_stop|enforce_adapter_boundary|enforce_compat_layer`
+
+### GATE-004: P2 迁移缺失错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `MIGRATION_PLAN_REQUIRED_BUT_MISSING`
+  - `MIGRATION_PLAN_INCOMPLETE`
+  - `MIGRATION_PHASE_ORDER_INVALID`
+  - `MIGRATION_RUNTIME_STATE_UNDECLARED`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：迁移窗口相关场景升级 `blocks-ship`
+- 升级条件：扩边继续推进但缺少正式迁移计划
+- 相关 strategy_origin / branch 语义：`recommend_task_split`
+
+### GATE-005: P3 contract 破坏错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `LAYOUT_CONTRACT_BREAK`
+  - `BEHAVIOR_CONTRACT_BREAK`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 frozen UI region、locked anchor、critical interaction path、release-critical behavior contract 时升级 `blocks-ship`
+- 升级条件：layout / behavior contract 已被破坏
+- 相关 strategy_origin / branch 语义：`significant_divergence`
+
+### GATE-006: P4 链式风险升级错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `LINKED_REGRESSION_EARLY_STOP`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 release / ship critical path 时升级 `blocks-ship`
+- 升级条件：同一回归链进入早停阈值
+- 相关 strategy_origin / branch 语义：`none`
+
+### GATE-007: 兼容窗口与移除前提错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `COMPAT_WINDOW_VIOLATION`
+  - `COMPAT_REMOVAL_PRECONDITION_UNMET`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：发布 / deploy gate 升级 `blocks-ship`
+- 升级条件：兼容窗口未结束或 removal precondition 未满足
+- 相关 strategy_origin / branch 语义：`none`
+
 ## 基线变更记录
 
 - {{DATE}}：初始化 baseline 模板

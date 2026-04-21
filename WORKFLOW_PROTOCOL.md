@@ -66,6 +66,22 @@ Conflict resolution rules:
 - If a template embeds a default that `PROJECT_PROFILE.yaml` also defines, the profile value wins silently.
 - Chat context, LLM inference, and runtime conversation history are never authoritative for protocol or project values. They may inform task-level placeholders only.
 
+### 1.2 Workflow-system source pipeline
+
+The workflow-system has four formal layers:
+
+1. **Normative spec sources** — `WORKFLOW_PROTOCOL.md` and `FILE_SCHEMAS.md`
+2. **Template skeletons** — `templates/skills/*.SKILL.md.tmpl` and `templates/docs/*.md.tmpl`
+3. **Generated reference outputs** — `generated/workflow-skills/**`, `generated/workflow-docs/**`, and `SKILL_REGISTRY.md`
+4. **Runtime bundle output** — `scripts/workflow-runtime.ts` packages the workflow-system into `dist/workflow-system/**`
+
+Synchronization rules:
+
+- A section, field, error-code home, or document structure referenced by templates, generated outputs, or tests must first be declared in `WORKFLOW_PROTOCOL.md` or `FILE_SCHEMAS.md`.
+- Templates define render skeletons only. They must not silently supersede normative protocol/schema rules.
+- Generated reference outputs are the committed, freshness-checked renders for the source repo. They are exported as audit/reference material, not as target-project-owned live docs.
+- `workflow:install` may install only the script / protocol / template surfaces into a target project. Generated reference outputs remain bundle-local evidence of what the workflow-system renders in its source repo.
+
 ---
 
 ## 2. Output model
@@ -827,6 +843,16 @@ The docs generator may emit generated skeletons, but it must not write, overwrit
 
 Any live-doc materialization or refresh must flow through the hybrid sync policy defined in §14.
 
+### 12.6 Propagation-governance doc extensions
+
+Protocol-Version `0.2.0` formalizes three propagation-governance homes in the generated docs surface:
+
+- `CURRENT_TASK.md` must include `## 传播治理记录` covering discovery evidence, aggregation/complexity, eligibility/candidate/registry state, layout/behavior contracts, migration state, linked regression state, and blocker/gate outputs.
+- `CONTRACTS.md` must include `## 四、传播治理补充` covering candidate writeback records, `LayoutContract`, `BehaviorContract`, frozen-zone constraints, and `UIAnchorReplacement`.
+- `BASELINES.md` must include `## Gate 与错误码基线` covering blocker levels, merge/ship gate behavior, escalation rules, and grouped error-code homes.
+
+These structures are normative extensions of the generated-doc contract. Templates may reorganize prose within those sections, but they must not drop the sections or their minimum fields defined in `FILE_SCHEMAS.md`.
+
 ---
 
 ## 13. Skill registry generation
@@ -1267,7 +1293,7 @@ The export manifest is a machine-readable listing of all workflow-system artifac
 Each artifact in the manifest declares:
 
 - `path` — relative to the workflow-system root
-- `category` — one of: `script`, `protocol`, `template`, `config`, `test`
+- `category` — one of: `script`, `protocol`, `template`, `config`, `test`, `generated`
 - `required` — whether the artifact is mandatory for a functioning workflow-system
 - `description` — human-readable purpose
 
@@ -1277,10 +1303,17 @@ The manifest also declares:
 - `requirements` — runtime dependencies (e.g., `bun >= 1.0`)
 - `post_install` — commands to run after importing artifacts and merging the package script contract
 - `verification` — commands to verify correct installation through the imported package script contract
+- `source_pipeline` — the authoritative source chain from normative specs through templates and generated reference outputs into `dist/workflow-system/**`
 
 `package.json` is part of the required import surface for `A1`.
 The manifest must explicitly describe the minimum `workflow:*`, `gen:*`, and `validate:*` script contract plus the runtime dependencies needed by the imported workflow-system artifacts in a machine-readable `package_json_contract` field.
 A target project must not be expected to discover those script entries from undocumented source-repository knowledge.
+
+`generated` artifacts are reference-only bundle contents:
+
+- they document what the source workflow-system currently renders
+- they participate in checksum/integrity verification
+- they are not part of the target project's install-managed surface
 
 ### §17.3 Import contract
 
@@ -1288,12 +1321,18 @@ The import contract defines the steps a target project follows during Adoption `
 
 1. Run `workflow:pack` in the source workflow-system repo to export a deterministic bundle with `workflow-bundle.json`
 2. Run `workflow:install --bundle <bundle-dir>` in the target repo to perform Adoption `A1`
-3. Copy workflow-system scripts, protocol spec, templates, and the documented `package.json` contract surface
+3. Copy workflow-system scripts, protocol/spec sources, templates, and the documented `package.json` contract surface
 4. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
 5. Create or merge the project-specific `PROJECT_PROFILE.yaml`
 6. Write `.workflow-system/install-state.json` only after the install transaction succeeds
 7. Run `workflow:adopt` in the target repo to perform Adoption `A3`
 8. Run generators to produce initial workflow outputs, materialize missing governed docs, run health, and sync generated artifacts to the target project's AI host
+
+Import boundary note:
+
+- the exported bundle must also carry generated reference outputs and source-pipeline metadata for auditability
+- `workflow:install` must not write those generated reference outputs into the target repo as managed files
+- only scripts, protocol/schema docs, and templates participate in replace-managed install semantics
 
 The import contract is self-documenting — a target project must not need undocumented repository knowledge to complete the import.
 
@@ -1417,6 +1456,401 @@ It does not centralize:
 - target-project private release automation
 - environment-specific deploy commands
 - credentials, secrets, or operational procedures that belong to a concrete production environment
+
+### §18.6 Propagation-governance public interfaces
+
+The propagation-governance surface extends the workflow-system with the following public interfaces / contracts:
+
+- `EvidenceRecord`
+- `UIAnchorReplacement`
+- `ContractCompatibilityResult`
+- `EvidenceAggregation`
+- `ComplexityAssessment`
+- `over_limit_policy`
+- `evidence_diff_threshold`
+- `MutationEligibilityAssessment`
+- `EntityMutationChecklist`
+- `LayoutContract`
+- `RegistryFreshnessReport`
+- `LinkedRegressionRecord`
+- `BehaviorContract`
+- `StagedMigrationPlan`
+- `migration_plan_requirement`
+- `implicit_shared_object_detection`
+
+Compatibility rules:
+
+- once a structure is referenced by protocol, schema, templates, or tests, it becomes part of the public workflow-system contract
+- later revisions should extend these structures additively unless a field or rule is explicitly marked as superseded
+- blocker output must converge into formal `ContractCompatibilityResult` objects rather than informal prose-only warnings
+- v26 is an additive repair revision over v25 rather than a rewrite; prior mainline contract semantics remain in force unless this section explicitly tightens or supersedes them
+- every public interface listed in `§18.6` must carry three things in the normative source: a formal schema, default rules, and conformance-test requirements
+
+#### §18.6.1 Compatibility result and discovery records
+
+`ContractCompatibilityResult` is the formal blocker/report object:
+
+```yaml
+contract_compatibility_result:
+  error_code: <string>
+  object_path: <string>
+  severity: <warning|error|critical>
+  default_blocker_level: <warning-only|blocks-merge|blocks-ship>
+  evidence:
+    - <EvidenceRecord ref or summary>
+  strategy_origin:
+    over_limit_policy_branch: <recommend_task_split|enforce_compat_layer|enforce_adapter_boundary|hard_stop|none>
+    divergence_state: <no_divergence|significant_divergence|locked_hit_gap>
+  branch_gate_mapping:
+    merge_gate: <warning-only|blocks-merge>
+    ship_gate: <warning-only|blocks-merge|blocks-ship>
+    rationale: <string>
+  suggested_resolution: <string>
+```
+
+`EvidenceRecord` is the minimum auditable discovery unit:
+
+```yaml
+evidence_record:
+  mechanism: <symbol-reference-search|import-graph|api-client-grep|dto-type-usage|event-usage-search|ui-usage-scan|selector-search|snapshot-scan|style-source-scan>
+  query_or_entrypoint: <string>
+  scope: <string>
+  result_summary: <string>
+  confidence: <low|medium|high>
+  gaps:
+    - <string>
+```
+
+`UIAnchorReplacement` formalizes anchor migration:
+
+```yaml
+ui_anchor_replacement:
+  old_anchor: <ui object path + machine anchor>
+  successor_anchor: <ui object path + machine anchor>
+  transition_window: <version|window|task-cycle>
+  alias_policy: <dual-anchor|alias-selector|no-alias-with-reason>
+  alias_details: <string>
+  relation_migration:
+    - from_relation: <old relation>
+      to_relation: <new relation>
+  removal_precondition: <string>
+  verification: <string>
+```
+
+Rules:
+
+- `severity` must not down-grade `default_blocker_level`
+- `warning` is allowed only for `warning-only`
+- `error` is the default severity for `blocks-merge` blockers unless a stronger or weaker severity is explicitly justified by the branch rule
+- `critical` is required for `blocks-ship`, `hard_stop`, `locked_hit_gap`, or release-critical layout/behavior failures
+- `none` is allowed only in `strategy_origin.over_limit_policy_branch`
+- `no_divergence` is allowed only in `strategy_origin.divergence_state`
+- locked / shared / API / UI-frozen targets require at least two distinct discovery mechanisms by default
+
+#### §18.6.2 Complexity and evidence governance
+
+`evidence_diff_threshold` is fixed to the workflow-system baseline:
+
+```yaml
+evidence_diff_threshold:
+  absolute_diff: 3
+  relative_diff_ratio: 0.5
+```
+
+`EvidenceAggregation` formalizes the unioned impact set:
+
+```yaml
+evidence_aggregation:
+  aggregation_strategy: union
+  sources:
+    - <EvidenceRecord ref>
+  candidate_impact_set:
+    - <object_path>
+  significant_divergence: <true|false>
+  divergence_reason:
+    - <string>
+  unresolved_gaps:
+    - <string>
+  aggregated_confidence: <low|medium|high>
+```
+
+`over_limit_policy` formalizes branch selection once a threshold is exceeded:
+
+```yaml
+over_limit_policy:
+  threshold_trigger:
+    - <propagation_depth_exceeded|direct_consumers_exceeded|total_consumers_exceeded|cross_boundary_hops_exceeded>
+  selected_branch: <recommend_task_split|enforce_compat_layer|enforce_adapter_boundary|hard_stop|none>
+  rationale: <string>
+  preserved_entrypoints:
+    - <object_path>
+  migration_window_judgement: <not-required|required-and-declared|required-but-missing>
+```
+
+`ComplexityAssessment` formalizes the strategy decision:
+
+```yaml
+complexity_assessment:
+  propagation_depth: <number>
+  direct_consumers: <number>
+  total_candidate_consumers: <number>
+  cross_boundary_hops: <number>
+  exceeded_metrics:
+    - <propagation_depth_exceeded|direct_consumers_exceeded|total_consumers_exceeded|cross_boundary_hops_exceeded>
+  threshold_status: <within-limit|over-limit>
+  forced_strategy: <direct-change|recommend_task_split|enforce_compat_layer|enforce_adapter_boundary|hard_stop>
+```
+
+Rules:
+
+- `EvidenceAggregation.aggregation_strategy` is fixed to `union`; `intersection` and `priority` are outside the v26 mainline
+- divergence priority is fixed to `locked_hit_gap` -> `significant_divergence` -> `no_divergence`
+- `direct_consumers_exceeded` must enter `over_limit_policy`; its semantic meaning is "protect the existing direct entrypoints", which defaults to wrapper / compat-path preservation rather than destructive in-place mutation
+- `total_consumers_exceeded` must enter `over_limit_policy`; its semantic meaning is "control the total propagation surface", which requires migration-window judgement and staged rollout / rollback planning
+- `direct_consumers_exceeded` and `total_consumers_exceeded` must be evaluated independently even when both are present in the same task
+- `direct-change` is allowed only in `forced_strategy`, never in `strategy_origin.over_limit_policy_branch`
+- shared blocker branches are limited to `recommend_task_split`, `enforce_compat_layer`, `enforce_adapter_boundary`, and `hard_stop`
+- `hard_stop` must emit `IMPACT_HARD_STOP_REQUIRED`
+- `enforce_adapter_boundary` without boundary artifacts must emit `COMPAT_ADAPTER_BOUNDARY_MISSING`
+- `enforce_compat_layer` without a compat-layer path must emit `COMPAT_LAYER_REQUIRED_BUT_MISSING`
+- ignoring `recommend_task_split` while still widening scope must emit `IMPACT_TASK_SPLIT_IGNORED`
+- `significant_divergence` against locked/shared/UI-frozen targets must emit `IMPACT_SIGNIFICANT_DIVERGENCE_BLOCKING`
+- unresolved locked-hit gaps that survive a `within-limit` result must emit `IMPACT_LOCKED_HIT_GAP_UNRESOLVED`
+
+#### §18.6.3 Eligibility, candidate, and registry governance
+
+`MutationEligibilityAssessment` is the formal decision object for "can this object be directly mutated?":
+
+```yaml
+mutation_eligibility_assessment:
+  common:
+    object_path: <string>
+    object_kind: <symbol|api|dto-field|entity-field|ui-anchor|layout-container>
+    explicit_contract_state: <locked|extend-only|unregistered>
+    discovered_direct_consumers: <number>
+    cross_boundary: <true|false>
+    critical_path_hit: <true|false>
+    locked_hit_chain: <true|false>
+    registry_freshness: <fresh|stale|unknown>
+    rationale: <string>
+  when_pending_prerequisites:
+    assessment_status: pending-prerequisites
+    blocking_gaps:
+      - <locked_hit_gap_unresolved|registry_freshness_stale_locked_hit>
+    eligibility: forbidden
+  when_completed:
+    assessment_status: completed
+    blocking_gaps: forbidden
+    eligibility: <directly-mutable|compatible-extension-only|adapter-required|not-eligible>
+```
+
+Supporting structures:
+
+```yaml
+implicit_shared_object_detection:
+  object_path: <string>
+  object_kind: <string>
+  direct_consumers: <number>
+  cross_boundary: <true|false>
+  critical_path_hit: <true|false>
+  locked_hit_chain: <true|false>
+  proposed_contract_state: <extend-only-candidate|locked-candidate>
+  writeback_required: <true|false>
+
+registry_freshness_report:
+  object_path: <string>
+  registry_consumers:
+    - <string>
+  discovered_consumers:
+    - <string>
+  effective_consumers:
+    - <string>
+  freshness: <fresh|stale|unknown>
+  reconciliation: <aligned|registry-only|discovered-union>
+  divergence_summary: <string>
+
+entity_mutation_checklist:
+  entity_name: <string>
+  covered_categories:
+    - <storage|api|dto|event|projection|ui>
+  unresolved_categories:
+    - <storage|api|dto|event|projection|ui>
+  gap_resolution:
+    - category: <storage|api|dto|event|projection|ui>
+      handling: <resolved|unresolved|blocker-emitted>
+      blocker_error_code: <string|none>
+```
+
+Rules:
+
+- `pending-prerequisites` means eligibility has not formally converged; `eligibility` must not appear in that branch
+- `completed` means eligibility is final; `blocking_gaps` must not appear in that branch
+- `blocking_gaps` are a closed set and map 1:1 to P0 errors:
+  - `locked_hit_gap_unresolved` -> `IMPACT_LOCKED_HIT_GAP_UNRESOLVED`
+  - `registry_freshness_stale_locked_hit` -> `REGISTRY_FRESHNESS_STALE_LOCKED_HIT`
+- `MUTATION_NOT_ELIGIBLE` is allowed only when `assessment_status=completed` and `eligibility=not-eligible`
+- `locked_hit_chain=true` means the current object is on a propagation chain that already reaches at least one protected object and must not be treated as an ordinary unregistered object
+- hitting the shared-threshold without writeback or explicit blocking must emit `IMPLICIT_SHARED_OBJECT_UNPROTECTED`
+- when `RegistryFreshnessReport` disagrees with discovery, the effective impact set must expand by discovered union before eligibility, gate, or migration decisions are finalized
+- `RegistryFreshnessReport.reconciliation=discovered-union` means the discovered set is now normative for the active task until the registry is rewritten
+- stale registry state on a locked hit must emit `REGISTRY_FRESHNESS_STALE_LOCKED_HIT`
+- `EntityMutationChecklist.covered_categories` must explicitly classify the entity surface across storage / api / dto / event / projection / ui
+- any category gap must remain visible through `unresolved_categories` or emit a blocker through `gap_resolution`; silent category drops are forbidden
+- in the same-file `A/B/C/Z` reuse pattern, if stable object `A` is already reused by multiple consumers and `Z` only needs new semantics, the protocol must preserve `A` and introduce an `A -> AA` wrapper / compat object instead of mutating `A` in place
+- locked entity / DTO / event / API-field consumers without a compat path must emit `INCOMPATIBLE_MUTATION_CONFLICT`
+
+#### §18.6.4 Layout, behavior, migration, and linked-regression governance
+
+```yaml
+layout_contract:
+  container_path: <string>
+  machine_anchor: <string>
+  layout_model: <string>
+  locked_properties:
+    - <string>
+  locked_relations:
+    - <string>
+  cascade_sources:
+    - <string>
+  sibling_reflow_sensitive: <true|false>
+  insertion_guard:
+    mode: <allow|guarded|forbidden>
+    protected_siblings:
+      - <string>
+  breakpoint_contracts:
+    - <string>
+  stacking_context: <string>
+  side_effect_scope: <string>
+
+behavior_contract:
+  object_path: <string>
+  assertions:
+    - <string>
+  verification: <string>
+
+migration_plan_requirement:
+  required: <true|false>
+  trigger_reason: <string>
+
+staged_migration_plan:
+  migration_id: <string>
+  phases:
+    - phase_id: <string>
+      goal: <string>
+      runtime_state: <string>
+      verification: <string>
+      exit_criteria: <string>
+  dependencies:
+    - <string>
+
+linked_regression_record:
+  regression_chain_id: <string>
+  current_issue: <string>
+  prior_fix_refs:
+    - <string>
+  window_scope: <string>
+  window_size: <number>
+  count_basis: <string>
+  linked_components:
+    - <string>
+  shared_objects:
+    - <string>
+  relation: <string>
+  escalation: <string>
+```
+
+Rules:
+
+- layout break coverage must include sibling reflow, breakpoint drift, specificity override, and stacking-context break
+- behavior break coverage must preserve critical interaction-path assertions
+- backend API changes must extend downstream validation across frontend `hook`, `store`, `page`, `widget`, `form`, `table`, and `detail view` consumers
+- continuing a `recommend_task_split` path without a migration plan must emit `MIGRATION_PLAN_REQUIRED_BUT_MISSING`
+- missing `runtime_state` in `StagedMigrationPlan` must emit `MIGRATION_RUNTIME_STATE_UNDECLARED`
+- incomplete phases or missing verification / exit criteria must emit `MIGRATION_PLAN_INCOMPLETE`
+- two consecutive fix tasks in the same `regression_chain_id` window must emit `LINKED_REGRESSION_EARLY_STOP`
+- layout breaks must emit `LAYOUT_CONTRACT_BREAK`; behavior breaks must emit `BEHAVIOR_CONTRACT_BREAK`
+
+#### §18.6.5 Error-code, gate, and execution-order rules
+
+Closed P0 set:
+
+- `IMPACT_LOCKED_HIT_GAP_UNRESOLVED`
+- `REGISTRY_FRESHNESS_STALE_LOCKED_HIT`
+
+Default gate mapping:
+
+- `IMPACT_HARD_STOP_REQUIRED` -> `blocks-merge`
+- `COMPAT_ADAPTER_BOUNDARY_MISSING` -> `blocks-merge`
+- `COMPAT_LAYER_REQUIRED_BUT_MISSING` -> `blocks-merge`
+- `IMPACT_TASK_SPLIT_IGNORED` -> `blocks-merge`
+- `IMPACT_SIGNIFICANT_DIVERGENCE_BLOCKING` -> `blocks-merge`
+- `IMPACT_LOCKED_HIT_GAP_UNRESOLVED` -> `blocks-merge`
+- `IMPLICIT_SHARED_OBJECT_UNPROTECTED` -> `blocks-merge`, ship-critical paths escalate to `blocks-ship`
+- `MUTATION_NOT_ELIGIBLE` -> `blocks-merge`, ship-critical paths escalate to `blocks-ship`
+- `MIGRATION_PLAN_REQUIRED_BUT_MISSING` -> `blocks-merge`
+- `MIGRATION_PLAN_INCOMPLETE` -> `blocks-merge`
+- `MIGRATION_PHASE_ORDER_INVALID` -> `blocks-merge`
+- `MIGRATION_RUNTIME_STATE_UNDECLARED` -> `blocks-merge`
+- `LINKED_REGRESSION_EARLY_STOP` -> `blocks-merge`
+- `LAYOUT_CONTRACT_BREAK` -> `blocks-merge`
+- `BEHAVIOR_CONTRACT_BREAK` -> `blocks-merge`
+- `REGISTRY_FRESHNESS_STALE_LOCKED_HIT` -> `blocks-merge`, ship-critical paths escalate to `blocks-ship`
+- `INCOMPATIBLE_MUTATION_CONFLICT` -> `blocks-merge`, ship-baseline impact escalates to `blocks-ship`
+- `COMPAT_WINDOW_VIOLATION` -> `blocks-merge`, deploy/ship gates escalate to `blocks-ship`
+- `COMPAT_REMOVAL_PRECONDITION_UNMET` -> `blocks-merge`, deploy/ship gates escalate to `blocks-ship`
+
+Branch-to-blocker mapping rules:
+
+- every non-`none` `strategy_origin.over_limit_policy_branch` must converge into an explicit blocker error path; `none` means "no over-limit blocker on this axis"
+- `hard_stop` -> `IMPACT_HARD_STOP_REQUIRED`
+- `enforce_adapter_boundary` -> `COMPAT_ADAPTER_BOUNDARY_MISSING` when the required boundary artifact is absent
+- `enforce_compat_layer` -> `COMPAT_LAYER_REQUIRED_BUT_MISSING` when the required compat layer is absent
+- `recommend_task_split` -> `IMPACT_TASK_SPLIT_IGNORED` when the split is ignored and the task keeps widening scope
+- `direct-change` intentionally has no standalone blocker code; it is a permitted forced strategy only when no blocker branch is required
+
+Execution protocol:
+
+1. establish the `change_start_set`
+2. collect the minimum discovery evidence and emit `EvidenceRecord`
+3. union discovery into `EvidenceAggregation`
+4. evaluate thresholds and choose `ComplexityAssessment.forced_strategy`
+5. resolve `MutationEligibilityAssessment`
+6. reconcile candidate writeback, registry freshness, layout/behavior contracts, migration requirements, and linked regression state
+7. emit all matching `ContractCompatibilityResult` objects
+
+Blocker priority:
+
+- unresolved P0 prerequisite gaps must be emitted before any completed-state `MUTATION_NOT_ELIGIBLE`
+- P0 / P1 blockers must be resolved before advancing into P2-P4 remediation work
+- when multiple blockers match, all must be emitted; fix order follows blocker priority rather than "first error wins"
+
+#### §18.6.6 Conformance test requirements
+
+Every propagation-governance conformance case must record:
+
+- input scenario
+- discovery evidence
+- expected `ContractCompatibilityResult`
+- expected gate / severity / `strategy_origin`
+
+Per-structure minimum assertions:
+
+- `EvidenceRecord`: discovery mechanism, query / entrypoint, scope, result summary, confidence, and gaps; protected targets must verify distinct-mechanism coverage
+- `UIAnchorReplacement`: old / successor anchor, alias policy, removal precondition, and verification path
+- `ContractCompatibilityResult`: `error_code`, `object_path`, `severity`, `default_blocker_level`, `evidence`, `strategy_origin`, `branch_gate_mapping`, and `suggested_resolution`
+- `EvidenceAggregation`: `aggregation_strategy=union`, candidate impact set, divergence state inputs, unresolved gaps, and aggregated confidence
+- `ComplexityAssessment`: threshold inputs, exceeded metrics, forced strategy, and the distinct semantics of `direct_consumers_exceeded` vs `total_consumers_exceeded`
+- `over_limit_policy`: trigger, selected branch, rationale, preserved-entrypoint handling, and migration-window reasoning when total surface exceeds threshold
+- `evidence_diff_threshold`: fixed absolute / relative thresholds and the branch-selection effect when the threshold is exceeded
+- `MutationEligibilityAssessment`: conditional schema branch validity, `blocking_gaps` closure, `locked_hit_chain`, and `MUTATION_NOT_ELIGIBLE` only for completed / not-eligible outcomes
+- `EntityMutationChecklist`: category coverage across storage / api / dto / event / projection / ui, visible unresolved gaps, and blocker emission when a gap is not resolved
+- `LayoutContract`: sibling reflow, breakpoint drift, specificity override, stacking-context break, insertion guard, and cascade-source preservation
+- `RegistryFreshnessReport`: registry vs discovered consumers, discovered-union reconciliation, stale locked-hit escalation, and effective-consumer expansion
+- `LinkedRegressionRecord`: regression-chain window counting, linked components / shared objects, and early-stop escalation after two consecutive fix tasks
+- `BehaviorContract`: preserved assertions, verification path, and downstream consumer validation when an API mutation propagates into frontend `hook`, `store`, `page`, `widget`, `form`, `table`, or `detail view` behavior
+- `StagedMigrationPlan`: phase order, per-phase `runtime_state`, `verification`, `exit_criteria`, and dependency completeness
+- `migration_plan_requirement`: required / trigger semantics and the blocker path when a required plan is missing
+- `implicit_shared_object_detection`: shared-threshold detection, candidate writeback state, locked-hit-chain carry-over, and protection of implicit shared objects
 
 ## 19. Future-contract boundary
 

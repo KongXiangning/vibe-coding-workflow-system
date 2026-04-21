@@ -68,3 +68,71 @@
 - 任何跨层依赖变动都必须先明确记录原因和影响
 - 任何接口返回结构变化都必须有兼容策略或明确升级计划
 - 任何“顺手重构”如果超出当前任务范围，必须停止并单独立项
+
+## 四、传播治理补充
+
+### candidate 回写记录
+
+- 对象路径：
+  - 当前状态：`extend-only-candidate|locked-candidate`
+  - direct consumers：
+  - cross_boundary：
+  - critical_path_hit：
+  - locked_hit_chain：
+  - writeback_required：
+
+### LayoutContract
+
+- 容器路径：
+  - machine_anchor：
+  - layout_model：
+  - locked_properties：
+  - locked_relations：
+  - cascade_sources：
+  - sibling_reflow_sensitive：
+  - insertion_guard：
+    - mode：
+    - protected_siblings：
+  - breakpoint_contracts：
+  - stacking_context：
+  - side_effect_scope：
+
+### BehaviorContract
+
+- 对象路径：
+  - assertions：
+  - verification：
+
+### compat path / wrapper rules
+
+- stable source object：
+  - same-file reuse pattern：
+  - successor wrapper / compat object：
+  - preserved direct entrypoints：
+  - decision rationale：
+
+### API change downstream validation
+
+- hook：
+- store：
+- page：
+- widget：
+- form：
+- table：
+- detail view：
+
+### frozen zone / UI anchor migration
+
+- frozen zone：
+  - zone type：`allowed-extension|expand-only-no-reflow|fully-frozen`
+  - protected siblings：
+  - removal precondition：
+- `UIAnchorReplacement`：
+  - old_anchor：
+  - successor_anchor：
+  - transition_window：
+  - alias_policy：
+  - alias_details：
+  - relation_migration：
+  - removal_precondition：
+  - verification：

@@ -102,6 +102,10 @@ describe('bootstrap-project-governance', () => {
       '',
       '- drifted order',
       '',
+      '## 四、传播治理补充',
+      '',
+      '- drifted order',
+      '',
     ].join('\n');
 
     const result = classifyExistingLiveDoc('CONTRACTS.md', generated, live);
