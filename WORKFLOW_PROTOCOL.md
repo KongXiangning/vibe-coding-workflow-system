@@ -70,13 +70,14 @@ Conflict resolution rules:
 
 ### 1.2 Workflow-system source pipeline
 
-The `dist/workflow-system/**` bundle is determined by the complete workflow-system source chain:
+The workflow-system source inputs are:
 
 1. **Normative spec sources** — `WORKFLOW_PROTOCOL.md` and `FILE_SCHEMAS.md`
-2. **Template skeletons** — `templates/skills/*.SKILL.md.tmpl` and `templates/docs/*.md.tmpl`
+2. **Template skeletons** — `templates/docs/**` and `templates/skills/**`
 3. **Generation and contract implementation** — `scripts/gen-workflow-docs.ts`, `scripts/gen-workflow-skills.ts`, and `scripts/workflow-doc-contracts.ts`
 4. **Runtime bundle implementation** — `scripts/workflow-runtime.ts`, which packages the workflow-system into `dist/workflow-system/**`
-5. **Generated reference outputs** — `generated/workflow-skills/**`, `generated/workflow-docs/**`, and `SKILL_REGISTRY.md`
+
+Generated outputs such as `generated/workflow-skills/**`, `generated/workflow-docs/**`, and `SKILL_REGISTRY.md` are bundle-local reference evidence produced from this chain. They are not source inputs.
 
 Synchronization rules:
 
@@ -780,10 +781,10 @@ The docs generator must also treat the following files as authoritative:
 Current implementation:
 
 - the docs generator does not yet parse `FILE_SCHEMAS.md` directly
-- instead, the required heading contract is mirrored into generator code and must stay aligned with `FILE_SCHEMAS.md`
+- the generator may carry an implementation cache of the `FILE_SCHEMAS.md` heading contract, but that cache must be mechanically checked against `FILE_SCHEMAS.md`; any divergence is a protocol-level failure
 - the generator must not invent document sections that are not supported by the `FILE_SCHEMAS.md` contract
 
-The mirrored heading contract in generator code is an implementation copy of `FILE_SCHEMAS.md`, not a normative source; changes must originate in `FILE_SCHEMAS.md` / `WORKFLOW_PROTOCOL.md` and then be propagated to `scripts/gen-workflow-docs.ts` and `scripts/workflow-doc-contracts.ts`.
+The cache must not be edited or reviewed as an independent contract. Changes must originate in `FILE_SCHEMAS.md` / `WORKFLOW_PROTOCOL.md` and then be propagated to `scripts/gen-workflow-docs.ts` and `scripts/workflow-doc-contracts.ts`.
 
 ### 12.2 Docs output model
 
@@ -1860,7 +1861,7 @@ Per-structure minimum assertions:
 
 ## 19. Future-contract boundary
 
-This protocol revision is reviewed and corrected against the currently implemented `P1-P11` incubation surface.
+This protocol revision contains normative incubation definitions through `P11`, but only `P1-P6` are the current implemented baseline; `P7a-P11` must not be treated as implemented unless execution code and tests exist.
 
 The following contracts remain outside the currently implemented workflow-system baseline:
 

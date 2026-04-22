@@ -572,7 +572,7 @@ bun run workflow:health
 
 如果是大功能完成，还应该补三件事：
 
-- 把 `CURRENT_TASK.md` 归档到 `TASKS/` 目录（如 `TASKS/TASK-012-订单筛选.md`）
+- 把 `CURRENT_TASK.md` 归档到协议规定的 `TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md` 路径；具体命名规则以 `WORKFLOW_PROTOCOL.md §3.4` 为准
 - 把文档同步到项目文档中
 - 把下一阶段任务写回 `STATUS.md`，并创建新的 `CURRENT_TASK.md`
 
