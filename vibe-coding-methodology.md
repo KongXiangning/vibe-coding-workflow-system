@@ -856,7 +856,7 @@ AI 可以自己判断。
 
 每做完一步，都确认本轮改动没有越界。
 
-#### 固定检查项
+#### 推荐检查维度（非输出结构）
 
 ##### 1. 改动范围检查
 
@@ -904,9 +904,8 @@ git --no-pager diff --stat
 
 - 这次改动的起点是什么
 - 影响证据是否足够支持当前判断
-- 影响范围是否触达共享对象、锁定对象、冻结区域或关键路径
-- 是否应该走兼容扩展、边界隔离、分阶段迁移或任务拆分
-- 是否涉及布局、行为、迁移路径或链式回归风险
+- 是否存在需要回到 `WORKFLOW_PROTOCOL.md` / `FILE_SCHEMAS.md` 判断的非局部影响风险
+- 是否需要按协议源确认正式记录、blocker、gate 或处置路径
 
 #### 阶段门槛
 
@@ -964,37 +963,7 @@ bun run workflow:health
 
 把本轮开发的结果更新回治理系统，而不是只留在聊天记录里。
 
-#### 至少同步五类信息
-
-##### 1. 更新 `CURRENT_TASK.md`
-
-- 把完成步骤打 `[x]`
-- 记录实际改动与预期差异
-- 如果任务完成，准备归档
-
-##### 2. 更新 `STATUS.md`
-
-- 哪个子任务完成了
-- 哪个模块从“开发中”进入“稳定”
-- 哪个需求取消或推迟
-
-##### 3. 更新 `CONTRACTS.md`
-
-- 新稳定接口写入接口契约层
-- 新稳定结构规则写入架构契约层
-
-##### 4. 更新 `DECISIONS.md`
-
-- 新架构决策
-- 新口味决策
-- 暂缓决策
-- 否决决策
-
-##### 5. 更新 `LESSONS.md`
-
-- 本轮踩的坑
-- 易被 AI 误改的边界
-- 更稳定的提示方式
+一轮任务结束后，应检查治理文档是否需要同步；正式同步对象、更新时机、章节、字段和生成/校验规则以 `FILE_SCHEMAS.md`、`templates/docs/**` 与 workflow sync 规则为准。
 
 #### 阶段门槛
 
@@ -1440,6 +1409,8 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 
 ## 八、可直接复用的使用提示
 
+以下提示仅是对话启动示例，不定义 skill、文档、审查报告或输出 schema；如与 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/**` 或生成器实现冲突，以规范源和生成器为准。
+
 本节只提供对话提示写法，不提供治理文档模板。`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` 等文档的章节、字段、必填项和校验规则，以 `FILE_SCHEMAS.md` 及 `templates/docs/**` 为准。
 
 ---
@@ -1649,6 +1620,8 @@ CLAUDE.md + CONTRACTS.md（接口层） + STATUS.md
 ## 十、与 `gstack` 原始机制的对应关系
 
 这套体系不是照搬 `gstack`，而是把它最值得迁移的机制翻译成更适合个人项目的形式：
+
+下表只是概念映射，不是 workflow-system 的实现映射、skill 清单、文档字段或生成规则来源；正式实现关系以 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/**` 和脚本实现为准。
 
 | `gstack` 机制 | 对应简化实现 |
 | --- | --- |
@@ -2036,6 +2009,8 @@ IDEA -> DESIGN -> REVIEW -> CODE -> SHIP -> DOCUMENT -> RETRO -> LEARN
 
 ### 11.4 QA 报告结构
 
+以下仅描述 native gstack 既有机制，不属于 workflow-system 文档、报告或 TODO schema；如需纳入 workflow-system，必须先登记到 `WORKFLOW_PROTOCOL.md` / `FILE_SCHEMAS.md` 并由 `templates/**` 承载。
+
 仓库里不仅定义了 QA 行为，还提供了标准 QA 报告模板：`qa/templates/qa-report-template.md`。
 
 这个模板要求 QA 报告至少包含：
@@ -2056,6 +2031,8 @@ IDEA -> DESIGN -> REVIEW -> CODE -> SHIP -> DOCUMENT -> RETRO -> LEARN
 ---
 
 ### 11.5 TODO 治理格式
+
+以下仅描述 native gstack 既有机制，不属于 workflow-system 文档、报告或 TODO schema；如需纳入 workflow-system，必须先登记到 `WORKFLOW_PROTOCOL.md` / `FILE_SCHEMAS.md` 并由 `templates/**` 承载。
 
 `gstack` 没把 TODO 当作随手便签，它有明确的 TODO 格式规范，仓库里还有单独的 `review/TODOS-format.md`。
 
