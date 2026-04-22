@@ -1,9 +1,9 @@
 # Workflow Protocol
 
 ```yaml
-Protocol-Version: 0.2.0
+Protocol-Version: 0.3.0
 Status: Formal Spec
-Last-Updated: 2026-04-03
+Last-Updated: 2026-04-22
 ```
 
 This file defines the execution rules for the workflow skill system.
@@ -39,9 +39,11 @@ For the authoritative freeze boundary and update rules, see [`docs/plans/workflo
 
 ---
 
-## 1. Inputs to the generator
+## 1. Inputs to the workflow skill generator only
 
 The workflow skill generator must treat the following inputs as authoritative:
+
+This section applies only to `gen-workflow-skills`; it does not describe the full `dist/workflow-system/**` source pipeline.
 
 1. `PROJECT_PROFILE.yaml`
 2. `templates/skills/*.SKILL.md.tmpl`
@@ -780,6 +782,8 @@ Current implementation:
 - instead, the required heading contract is mirrored into generator code and must stay aligned with `FILE_SCHEMAS.md`
 - the generator must not invent document sections that are not supported by the `FILE_SCHEMAS.md` contract
 
+The mirrored heading contract in generator code is an implementation copy of `FILE_SCHEMAS.md`, not a normative source; changes must originate in `FILE_SCHEMAS.md` / `WORKFLOW_PROTOCOL.md` and then be propagated to `scripts/gen-workflow-docs.ts` and `scripts/workflow-doc-contracts.ts`.
+
 ### 12.2 Docs output model
 
 The workflow docs generator must emit rendered docs into:
@@ -919,13 +923,13 @@ This section governs repository compliance, not generator correctness. A sync fa
 
 The purpose of this model is to prevent dual truth:
 
-- generated docs remain the authoritative structure reference
+- generated docs are committed reference renders of the structure defined by WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md; they are not an independent source of structural truth
 - live docs remain the authoritative project-truth content record
 - sync behavior must be explicit, classifiable, and reviewable
 
 ### 14.1 Ownership model
 
-Generated docs own the following structural contract:
+Generated docs materialize the following structural contract as rendered artifacts derived from WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md:
 
 - filename
 - required headings
@@ -943,12 +947,13 @@ Live docs own the following runtime or project-specific content:
 Boundary rule:
 
 - live docs may add content inside an existing generated-owned section, but that flexibility does not grant structural ownership over new independent headings or sections
-- heading-level and section-level structure remains part of the generated contract surface, even when the live doc adds project-specific content nearby
+- heading-level and section-level structure remains part of the structure contract defined by WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md, as rendered through generated docs, even when the live doc adds project-specific content nearby
 - any extra heading, including a new sub-heading inserted inside an existing generated-owned section, counts as extra heading-level structure rather than ordinary live-owned content
 
 Authority split:
 
-- generated docs are the canonical source of truth for structure
+- WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md are the canonical source of truth for structure
+- generated docs are synchronized reference renders of that structure contract
 - live docs are the canonical source of truth for project truth and runtime content
 
 For the purpose of sync:

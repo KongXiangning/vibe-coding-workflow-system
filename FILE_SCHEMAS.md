@@ -19,11 +19,13 @@
 - 如果某文档被 skill 持续读写，该文档必须能被独立理解
 - `WORKFLOW_PROTOCOL.md` 与 `FILE_SCHEMAS.md` 是规范源；模板只能承载这里已经定义的结构
 - `templates/**` 负责定义生成骨架，不能偷偷扩展未在规范源登记的新章节或新字段
-- `generated/**` 与 `SKILL_REGISTRY.md` 是当前仓库的参考产物；`scripts/workflow-runtime.ts` 必须把规范源、模板骨架和参考产物一起收集到 `dist/workflow-system/**`
+- `dist/workflow-system/**` 由规范源、`templates/docs/**`、`templates/skills/**`、`scripts/gen-workflow-docs.ts`、`scripts/gen-workflow-skills.ts`、`scripts/workflow-doc-contracts.ts` 与 `scripts/workflow-runtime.ts` 共同决定；其中 `generated/**` 产物是参考证据，不是独立规范源
 - v26 是在 v25 基线上的增量修复版；规范更新默认按 additive extend 处理，除非显式声明替代旧规则
 - 任何传播治理公开结构一旦进入规范源，必须同时具备：正式 schema、默认规则、测试要求，不能只留结构名
 
 ## 1.1 传播治理公开结构 schema 要求
+
+本节只登记这些结构在治理文档中的承载位置和最小出现要求；字段级 schema、枚举、gate、错误码、默认 blocker 规则以 `WORKFLOW_PROTOCOL.md §18.6` 为准。
 
 ### 测试样例通用要求
 
@@ -154,11 +156,7 @@
 - 默认规则：命中 shared threshold 后必须立即进入 candidate / protected 面；同文件 `A/B/C/Z` 复用场景要保住 `A`，走 `A -> AA` wrapper / compat path
 - 测试要求：验证 shared-threshold 命中、candidate 回写、`locked_hit_chain` 传递与 `A -> AA` 路径
 
-推荐的占位符约定：
-
-- 项目级变量：`{{PROJECT_NAME}}`、`{{PROJECT_TYPE}}`、`{{TECH_STACK}}`
-- 任务级变量：`{{TASK_ID}}`、`{{TASK_TITLE}}`、`{{TASK_SLUG}}`
-- 运行时变量：`{{DATE}}`、`{{AUTHOR}}`、`{{VERSION}}`
+占位符语法、类别、来源和保留规则不在本文维护；治理文档模板使用的占位符必须引用 `WORKFLOW_PROTOCOL.md §3`。
 
 ---
 

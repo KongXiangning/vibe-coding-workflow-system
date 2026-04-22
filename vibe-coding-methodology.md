@@ -269,24 +269,9 @@ CURRENT_TASK.md
 
 ---
 
-## 三、治理体系：六个配套文件
+## 三、治理体系的核心意图
 
-这一套体系最终落在六个常驻文件上。
-
-不是每个项目一开始都必须全上，但完整形态是这六个：
-
-1. `CLAUDE.md`
-2. `CONTRACTS.md`
-3. `STATUS.md`
-4. `DECISIONS.md`
-5. `CURRENT_TASK.md`
-6. `LESSONS.md`
-
-此外，还有三个**支撑文件**用于标准化和自动化这六个治理文件的管理：
-
-- **`FILE_SCHEMAS.md`** — 定义每个治理文件的最小字段、更新时机和校验规则
-- **`SKILL_REGISTRY.md`** — 所有工作流 skill 的人类可读索引（名称、阶段、触发条件、读写工件、交接去向）
-- **`WORKFLOW_PROTOCOL.md`** — 生成器执行规则（变量来源、输出位置、校验逻辑）
+治理文件集合会随 workflow-system 演进；本文只解释边界、决策、状态、任务、经验这几类治理意图。当前正式文档集合、必填章节和落地顺序以 `FILE_SCHEMAS.md` 为准。
 
 ---
 
@@ -380,7 +365,9 @@ CURRENT_TASK.md
 - 布局 / 行为 / 响应式 / 样式级联保护面
 - API 变更后的前端下游验证面
 
-#### 模板示例
+#### 治理意图示例
+
+下面只是说明契约文档应表达的治理意图，不是可复制模板；正式章节和字段以 `FILE_SCHEMAS.md` / `templates/docs/CONTRACTS.md.tmpl` 为准。
 
 ```md
 # CONTRACTS.md
@@ -1636,13 +1623,13 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 
 ---
 
-## 八、可直接复用的模板
+## 八、可直接复用的使用提示
 
-下面给出一套可直接用的模板。
+本节只提供对话提示写法，不提供治理文档模板。`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` 等文档的章节、字段、必填项和校验规则，以 `FILE_SCHEMAS.md` 及 `templates/docs/**` 为准。
 
 ---
 
-### 8.1 通用任务提示模板
+### 8.1 通用任务提示
 
 ```md
 这是一次大型项目中的局部开发任务。
@@ -1670,127 +1657,7 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 
 ---
 
-### 8.2 `CURRENT_TASK.md` 模板
-
-```md
-# CURRENT_TASK.md
-
-## 任务信息
-- 任务 ID：
-- 目标：
-- 创建时间：
-
-## 验收标准
-- ...
-- ...
-
-## 允许修改范围
-- ...
-- ...
-
-## 禁止修改范围
-- ...
-- ...
-
-## 受影响的契约
-- ...
-
-## 回归检查项
-- ...
-- ...
-
-## 回滚点
-- ...
-
-## 决策分类
-- 可自动决策：
-  - ...
-- 口味决策：
-  - ...
-- 不可静默改变的决策：
-  - ...
-
-## 执行记录
-- [ ] 步骤 1：
-- [ ] 步骤 2：
-- [ ] 步骤 3：
-```
-
----
-
-### 8.3 `CONTRACTS.md` 模板
-
-```md
-# CONTRACTS.md
-
-## 一、接口契约
-
-### 🔒 已锁定接口
-- ...
-
-### 🔒 已锁定核心函数
-- ...
-
-### 🔒 已锁定表结构
-- ...
-
-### 🟡 可扩展不可破坏
-- ...
-
-### 🟢 自由修改
-- ...
-
-## 二、架构契约
-
-### 🔒 依赖方向
-- ...
-
-### 🔒 状态流
-- ...
-
-### 🔒 目录职责
-- ...
-
-### 🔒 DTO / 事件语义
-- ...
-
-### 🔒 分层规则
-- ...
-```
-
----
-
-### 8.4 `DECISIONS.md` 模板
-
-```md
-# DECISIONS.md
-
-## 🏗️ 架构决策
-### AD-001:
-- 原因：
-- 约束：
-- 不可逆性：
-
-## 🎨 口味决策
-### TD-001:
-- 为什么这么选：
-- AI 不可自行改为什么：
-
-## ⏸️ 暂缓决策
-### DEFER-001:
-- 当前不做什么：
-- 以后什么时候再看：
-
-## ❌ 已否决
-### REJECTED-001:
-- 被否决的方案：
-- 否决原因：
-- AI 不可重新引入：
-```
-
----
-
-### 8.5 `CLAUDE.md` 的最小规则块
+### 8.2 `CLAUDE.md` 的最小规则提示
 
 ```md
 开始任何代码修改前，先读取：
@@ -1807,6 +1674,66 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 4. 只完成当前步骤，不要顺手重构
 5. 完成后执行范围复核和回归验证
 6. 连续 3 次修复失败后停止继续猜测
+```
+
+---
+
+### 8.3 审查阶段提示
+
+```md
+请不要修改代码，只审查当前改动。
+
+重点检查：
+1. 是否超出 CURRENT_TASK.md 的允许修改范围
+2. 是否修改了禁止修改的内容
+3. 是否破坏 CONTRACTS.md 中的接口或架构契约
+4. 是否覆盖 DECISIONS.md 中已确认的决策
+5. 是否引入未说明的额外行为或隐性变更
+
+输出：
+- 列出所有改动文件
+- 指出潜在问题（如果有）
+- 如果没有问题，直接说明“本轮改动边界安全”
+```
+
+---
+
+### 8.4 回归验证提示
+
+```md
+请执行回归验证。
+
+要求：
+- 对照 CURRENT_TASK.md 的验收标准逐条核对
+- 检查本次改动是否影响已有功能
+- 检查关键流程是否仍然可用
+- 检查是否引入异常路径或错误状态
+
+输出：
+- 已验证的关键点
+- 每一项结论（通过 / 风险 / 未覆盖）
+- 如存在问题，说明影响范围
+- 给出是否可以继续推进的结论
+```
+
+---
+
+### 8.5 状态同步提示
+
+```md
+请同步当前任务状态。
+
+要求：
+- 更新 CURRENT_TASK.md 执行记录
+- 标记已完成步骤
+- 补充本轮实际发生的关键变化
+- 标记是否存在未解决问题或风险
+
+输出：
+- 当前任务状态（进行中 / 已完成 / 需修正）
+- 已完成内容总结
+- 当前风险或问题（如有）
+- 是否可以进入下一阶段
 ```
 
 ---
@@ -1928,38 +1855,11 @@ CLAUDE.md + CONTRACTS.md（接口层） + STATUS.md
 
 ## 十〇、生成管线与自动化工具
 
-本方法论的治理文件和工作流 skill 均可通过模板 + 生成器自动化产出：
+本节不定义当前仓库的 workflow-system 生成链。实际 `dist/workflow-system/**` 来源链以 `WORKFLOW_PROTOCOL.md §1.2` 和 runtime manifest 为准；本文只说明治理体系可以被自动化这一方法论观点。
 
-### 模板来源
+方法论层面只保留一个判断：治理规则如果长期靠人工复制，就会漂移；更稳的做法是让规范源、模板、生成器、校验器和运行时打包流程形成可复查链路。
 
-| 类型 | 模板目录 | 数量 |
-|------|----------|------|
-| 工作流 Skill | `templates/skills/*.SKILL.md.tmpl` | 18 |
-| 治理文档 | `templates/docs/*.md.tmpl` | 7 |
-
-### 生成器
-
-| 命令 | 作用 |
-|------|------|
-| `bun run gen:workflow-skills` | 从 skill 模板 + `PROJECT_PROFILE.yaml` 生成项目专属 skill |
-| `bun run gen:workflow-docs` | 从 docs 模板 + `PROJECT_PROFILE.yaml` 生成治理文档骨架 |
-| `bun run gen:registry` | 从 `templates/skills/*.SKILL.md.tmpl` frontmatter 自动生成 `SKILL_REGISTRY.md` |
-| `bun run gen:all` | 一键执行以上三个生成器 |
-
-### 校验
-
-| 命令 | 作用 |
-|------|------|
-| `bun run test:workflow-skills` | 校验 skill 生成结果（schema 字段、handoff 链路、读写冲突） |
-| `bun run test:workflow-docs` | 校验 docs 生成结果（标题结构、占位符解析） |
-| `bun run test:registry` | 校验 registry 全覆盖、列结构、handoff 合法性与占位符解析 |
-| `bun run test:workflow-all` | 一键执行以上三项校验 |
-
-### 关键配置文件
-
-- **`PROJECT_PROFILE.yaml`** — 生成器的唯一输入源，定义项目名、技术栈、目录、测试命令等
-- **`FILE_SCHEMAS.md`** — 每个治理文档的最小字段 schema 与更新时机
-- **`SKILL_REGISTRY.md`** — 所有 18 个工作流 skill 的索引，由 `bun run gen:registry` 自动生成
+因此，本节不维护模板数量、生成命令、测试命令、配置字段或输入优先级。涉及模板集合、占位符、生成器输入、校验规则、manifest、`dist/workflow-system/**` 打包范围时，必须回到 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md` 和对应脚本实现。
 
 ---
 
@@ -1970,6 +1870,8 @@ CLAUDE.md + CONTRACTS.md（接口层） + STATUS.md
 ---
 
 ### 11.1 Skill 模板系统
+
+本节描述 native gstack skill-doc 生成机制，不描述 workflow-system 的 `dist/workflow-system/**` 规范链；后者以 `WORKFLOW_PROTOCOL.md §1.2` 和 runtime manifest 为准。
 
 `gstack` 的核心不是零散的 `SKILL.md` 文件，而是一套模板生成系统。仓库中真正维护的是 `SKILL.md.tmpl`，然后通过统一的生成脚本产出不同 host 可消费的最终文档。
 

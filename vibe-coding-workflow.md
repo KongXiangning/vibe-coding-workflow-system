@@ -123,7 +123,7 @@ document-release / learn / retro
 - 决策边界（哪些可自动，哪些不可）
 - 执行进度或步骤
 
-如果任务命中高传播面触发条件，还应补充传播影响相关判断。判断内容通常包括：
+如果任务命中高传播面风险线索，还应补充传播影响相关判断。判断内容通常包括：
 
 - 改动起点
 - 影响依据
@@ -135,11 +135,11 @@ document-release / learn / retro
 
 若项目接入 workflow-system，正式章节、字段和校验规则以 `FILE_SCHEMAS.md` / `WORKFLOW_PROTOCOL.md` 为准；上述判断内容在需要结构化表达时，应映射到规范源中定义的正式结构。
 
-本文只定义哪些任务需要高传播面记录，以及记录应服务什么目的；字段名、枚举、gate、错误码不在本文维护，也不在本文解释或扩展其字段语义。
+本文只说明哪些任务值得提高传播影响警觉，以及记录应服务什么目的；正式触发条件、字段名、枚举、gate、错误码不在本文维护，也不在本文解释或扩展其字段语义。
 
-#### 传播治理触发条件
+#### 传播治理风险线索
 
-当任务满足以下任一条件时，必须启用传播治理记录：
+以下是识别传播治理风险的思考线索；正式触发条件、gate 行为和记录要求以 `WORKFLOW_PROTOCOL.md` / `FILE_SCHEMAS.md` 为准：
 
 - 修改共享接口 / 共享函数 / 多消费方 API
 - 修改实体 / DTO / schema / event / table 结构
@@ -147,7 +147,7 @@ document-release / learn / retro
 - 涉及已锁定 UI / 组件 / 交互结构的变更
 - 预期存在非局部影响（跨模块 / 跨层 / 多消费者）
 
-未命中以上条件时，任务视为非传播型任务，不要求填写传播治理记录。
+这些线索只用于提醒执行者不要把高传播影响当成普通局部修改；它们不是触发闭集，也不定义记录结构。
 
 补充约束：
 
@@ -155,25 +155,16 @@ document-release / learn / retro
 
 #### 2. Skill 协议
 
-每个 skill 都不应该只是“一段提示词”，而应当有固定结构：
+每个 skill 都不应该只是“一段提示词”，而应当表达清楚它在流程中的治理职责。
 
-```text
-Skill 名称
-用途
-触发条件
-读取哪些文档
-允许更新哪些文档
-必须检查什么
-何时必须停止并提问
-完成后交给哪个下游 skill
-```
-
-也就是说，一个合格的 skill 不是只说“帮我做 X”，而是要有：
+也就是说，一个合格的 skill 不是只说“帮我做 X”，而是要让执行者理解：
 
 - 输入边界
 - 输出边界
 - 停机条件
 - 交接关系
+
+这些是职责维度，不是字段名、章节结构或 metadata schema。正式 skill 字段、handoff 规则和校验逻辑以 `WORKFLOW_PROTOCOL.md` 为准。
 
 #### 3. 状态流转协议
 
@@ -206,46 +197,7 @@ Skill 名称
 
 一旦协议固定，下一层就应该是模板。
 
-模板至少分两类：
-
-#### A. 文档模板
-
-这些模板定义“文档长什么样”：
-
-- `CURRENT_TASK.md.tmpl`
-- `CONTRACTS.md.tmpl`
-- `STATUS.md.tmpl`
-- `DECISIONS.md.tmpl`
-- `LESSONS.md.tmpl`
-- `TASK_SUMMARY.md.tmpl`
-- `TASK_ARCHIVE.md.tmpl`
-
-#### B. Skill 模板
-
-这些模板定义“不同任务类型应该怎么驱动 AI”：
-
-- `init-governance.SKILL.md.tmpl`
-- `create-current-task.SKILL.md.tmpl`
-- `review-current-task.SKILL.md.tmpl`
-- `lock-scope.SKILL.md.tmpl`
-- `classify-decisions.SKILL.md.tmpl`
-- `decompose-task.SKILL.md.tmpl`
-- `implement-current-step.SKILL.md.tmpl`
-- `review-diff.SKILL.md.tmpl`
-- `run-regression.SKILL.md.tmpl`
-- `sync-state.SKILL.md.tmpl`
-- `archive-task.SKILL.md.tmpl`
-
-这类模板不写死项目细节，而是保留变量位，例如：
-
-- `{PROJECT_TYPE}`
-- `{TECH_STACK}`
-- `{CODE_DIRECTORIES}`
-- `{TEST_COMMANDS}`
-- `{FORBIDDEN_PATHS}`
-- `{ARCHITECTURE_RULES}`
-- `{DECISION_TYPES}`
-- `{RELEASE_FLOW}`
+模板目录和模板文件清单不在本文维护；实际模板集合以 `templates/docs/**`、`templates/skills/**` 及 `WORKFLOW_PROTOCOL.md` 的 manifest / source-pipeline 规则为准。本文只说明为什么需要模板层。
 
 所以模板层的作用不是替你写内容，而是确保**所有项目都遵循同一语义结构**。
 
@@ -287,311 +239,45 @@ Skill 名称
 
 ---
 
-### 3.4 推荐的 Skill 标准结构
+### 3.4 Skill 结构示意（非 schema）
 
-建议你给每个 skill 固定下面这套结构：
+以下结构仅用于说明一个 skill 在执行时通常需要表达的信息类型：
 
-```md
-# Skill: <name>
+- 目的（为什么存在）
+- 触发时机（什么时候使用）
+- 输入来源（读取哪些信息）
+- 输出边界（允许修改什么）
+- 必要检查（必须验证什么）
+- 停机条件（何时必须停止并提问）
+- 输出结果
+- 与其他 skill 的衔接关系
 
-## Purpose
+这些信息用于帮助理解 skill 的治理职责，不对应固定字段名、章节结构或 metadata schema。
 
-## Trigger
+skill 的字段定义、结构约束、枚举值、handoff 规则及校验逻辑，均以 `WORKFLOW_PROTOCOL.md` 为唯一来源。
 
-## Reads
-- ...
+本文不提供可直接用于模板或生成器的结构定义。
 
-## Writes
-- ...
+### 3.6 不同类型 Skill 的治理关注点（非字段定义）
 
-## Must Check
-- ...
+不同类型的 skill 在执行时会关注不同的治理问题，例如：
 
-## Stop Conditions
-- ...
+- 任务生成类：关注范围定义是否清晰、验收标准是否可执行
+- 范围与契约类：关注是否越界、是否破坏接口或架构边界
+- 实现类：关注是否扩大修改范围、是否引入隐性变更或顺手重构
+- 验证类：关注验证覆盖是否足够、结论是否能支撑放行
+- 状态同步类：关注信息是否回写完整、是否与当前事实一致
+- 归档与交付类：关注结果是否可追溯、是否便于后续复用
 
-## Output
-- ...
+这些差异仅用于说明不同 skill 的治理关注点，不对应字段定义、metadata 结构或最小字段集合。
 
-## Handoff
-- next skill: ...
-```
+本文不命名、规定或推荐任何扩展字段。
 
-其中最重要的是 4 个约束：
+如果某类 skill 需要新增 metadata 字段，必须先在 `WORKFLOW_PROTOCOL.md` 中登记字段语义、校验规则和生成器行为，再由 `templates/skills/**` 承载。
 
-1. **Reads**：执行前必须读取哪些文档
-2. **Writes**：执行后允许更新哪些文档
-3. **Must Check**：强制检查项
-4. **Stop Conditions**：哪些情况必须停下并问你
+### 3.8 Skill 类型示意（非清单源）
 
-如果没有这 4 项，skill 只是提示词，不是治理单元。
-
----
-
-### 3.5 Skill 字段 Schema：通用字段规范
-
-如果你想让 skill 真正可生成、可组合、可审计，那么上面的结构还不够，还需要把字段进一步标准化成 schema。
-
-也就是说，不只是“这个 skill 大概有这些章节”，而是要明确：
-
-- 每个字段是干什么的
-- 哪些字段必须有
-- 哪些字段只能填写固定类型的内容
-- 哪些字段决定是否允许执行
-- 哪些字段决定是否必须停下来问你
-
-推荐把每个 skill 的通用 schema 固定成下面这些字段：
-
-| 字段 | 是否必须 | 作用 | 典型内容 |
-|---|---|---|---|
-| `name` | 必须 | skill 唯一标识 | `create-current-task` |
-| `purpose` | 必须 | skill 的唯一目标 | 生成任务包初稿 |
-| `stage` | 必须 | 所属工作流阶段 | `阶段 1：需求进入` |
-| `trigger` | 必须 | 什么情况下调用它 | 新需求进入时 |
-| `inputs` | 必须 | skill 的输入来源 | 用户需求、已有文档、diff、测试结果 |
-| `reads` | 必须 | 执行前必须读取的文件 | `CURRENT_TASK.md`、`DECISIONS.md` |
-| `writes` | 必须 | 允许写入的文件；纯分析 / 纯审查 skill 可为空列表 `[]` | `CURRENT_TASK.md` |
-| `forbidden_writes` | 建议必须 | 明确禁止修改的文件 | 代码文件、`CONTRACTS.md` |
-| `must_check` | 必须 | 执行时必须检查的项 | 范围、契约、决策一致性 |
-| `stop_conditions` | 必须 | 哪些情况必须停下来请你确认 | 越界修改、覆盖已确认决策 |
-| `output` | 必须 | 该 skill 必须产出什么 | 任务包初稿、风险清单、验证结果 |
-| `handoff` | 必须 | skill 完成后的流转；应使用 `success` / `failure` 子字段 | `success: review-current-task` |
-| `decision_policy` | 建议必须 | 哪类决策可自动处理，哪类不可 | Mechanical / Taste / User challenge |
-| `verification` | 建议必须 | 如何证明这一步真的完成了 | 文件已更新、diff 已检查、测试通过 |
-| `notes` | 可选 | 补充说明 | 项目特例、特殊限制 |
-
-从作用上看，这些字段可以分成 5 组：
-
-#### A. 身份字段
-
-用于定义这个 skill 是什么：
-
-- `name`
-- `purpose`
-- `stage`
-
-#### B. 触发与输入字段
-
-用于定义它什么时候可以运行，以及靠什么运行：
-
-- `trigger`
-- `inputs`
-- `reads`
-
-#### C. 执行边界字段
-
-用于限制它能做什么、不能做什么：
-
-- `writes`
-- `forbidden_writes`
-- `must_check`
-- `stop_conditions`
-- `decision_policy`
-
-#### D. 输出与流转字段
-
-用于把它接进完整工作流：
-
-- `output`
-- `handoff`
-- `verification`
-
-#### E. 补充字段
-
-用于承接项目特例：
-
-- `notes`
-
-这样一来，skill 就不再是“看起来像 prompt 的说明文”，而是一个**有边界、有输入输出、有流转关系的标准流程节点**。
-
-#### 推荐的结构化写法
-
-如果将来你要把 skill 做成模板文件，建议采用这种结构：
-
-```yaml
-name: create-current-task
-purpose: Generate the first draft of CURRENT_TASK.md from a user request.
-stage: 阶段 1：需求进入
-trigger: 当用户提出新需求，且当前没有可直接执行的任务包时
-inputs:
-  - user_request
-  - project_profile
-  - current_status
-reads:
-  - PROJECT_PROFILE.yaml
-  - STATUS.md
-  - DECISIONS.md
-writes:
-  - CURRENT_TASK.md
-forbidden_writes:
-  - CONTRACTS.md
-  - codebase/*
-must_check:
-  - 是否写清任务目标
-  - 是否写清允许修改范围
-  - 是否写清禁止修改范围
-  - 是否写清验收标准
-stop_conditions:
-  - 用户需求本身仍然模糊
-  - 任务边界无法确定
-  - 触及已确认决策但未显式说明
-output:
-  - CURRENT_TASK.md draft
-handoff:
-  success: review-current-task
-  failure: ask-user
-decision_policy:
-  mechanical: 可自动补全字段格式
-  taste: 不可自动假设验收标准细节
-  user_challenge: 不可擅自改写任务目标
-verification:
-  - CURRENT_TASK.md 含所有必填章节
-  - 修改范围与禁止范围明确
-notes:
-  - 如项目尚未建立治理文件，先提示使用 init-governance
-```
-
-这个 schema 最重要的价值是：以后你不是在维护“很多 skill 文本”，而是在维护**一套一致的 skill 协议**。
-
-补充约束：
-
-- `handoff.failure` 可以指向另一个 skill，也可以指向保留的人工交互节点 `ask-user`
-- 纯分析 / 纯审查类 skill 应使用 `writes: []`，而不是模糊写成 “response only”
-
----
-
-### 3.6 各类 Skill 的扩展字段
-
-虽然所有 skill 都应该遵循统一的通用 schema，但不同类型的 skill 还会有各自专属字段。
-
-推荐按 6 类补充扩展字段：
-
-#### 1. 任务生成类 Skill
-
-适用：
-
-- `create-current-task`
-- `review-current-task`
-- `decompose-task`
-
-建议增加：
-
-- `task_scope_rules`：如何定义允许/禁止修改范围
-- `required_sections`：文档中必须包含的章节
-- `acceptance_rules`：验收标准应达到什么粒度
-- `step_granularity`：拆步应细到什么程度
-
-#### 2. 范围与契约类 Skill
-
-适用：
-
-- `lock-scope`
-- `verify-contracts`
-- `review-diff`
-
-建议增加：
-
-- `contract_layers`：检查接口契约还是架构契约
-- `scope_sources`：边界定义来自哪些文档
-- `diff_filters`：审查哪些文件类型或目录
-- `violation_levels`：越界问题如何分级
-
-#### 3. 实现类 Skill
-
-适用：
-
-- `implement-current-step`
-- `investigate-root-cause`
-
-建议增加：
-
-- `allowed_change_types`：允许做新增、修改、删除中的哪些
-- `disallowed_patterns`：禁止顺手重构、禁止扩大范围等
-- `step_limit`：一次最多执行几个步骤
-- `regression_expectation`：完成后最少要做哪些验证
-
-#### 4. 验证类 Skill
-
-适用：
-
-- `run-regression`
-- `review-diff`
-
-建议增加：
-
-- `test_sources`：从哪里读取测试命令
-- `smoke_checks`：最低人工检查清单
-- `pass_criteria`：什么叫通过
-- `failure_policy`：失败后是停机、重试还是进入根因定位
-
-#### 5. 状态同步类 Skill
-
-适用：
-
-- `sync-current-task`
-- `sync-status`
-- `sync-contracts`
-- `sync-decisions`
-- `capture-lessons`
-
-建议增加：
-
-- `sync_rules`：何种情况下应该更新此文档
-- `stability_threshold`：什么程度才允许写入稳定契约
-- `decision_record_policy`：什么决策值得正式记录
-- `lesson_capture_rules`：什么坑值得写入长期经验
-
-#### 6. 交付与归档类 Skill
-
-适用：
-
-- `prepare-delivery-summary`
-- `archive-task`
-
-建议增加：
-
-- `summary_fields`：交付摘要必须包含哪些字段
-- `archive_naming`：归档文件命名规则
-- `archive_conditions`：什么时候允许归档
-- `next_task_policy`：是否需要自动提示下一任务
-
-这些扩展字段的作用是：在不破坏通用 schema 的前提下，让每类 skill 更适配自己的工作职责。
-
----
-
-### 3.7 每个 Skill 的最小字段建议
-
-下面这张表，是你后续真要实现 skill 模板时最有用的“最小字段要求”。
-
-| Skill | 最少必须补充的字段 |
-|---|---|
-| `init-governance` | `inputs`、`writes`、`output`、`verification` |
-| `create-current-task` | `required_sections`、`task_scope_rules`、`acceptance_rules` |
-| `review-current-task` | `must_check`、`stop_conditions`、`decision_policy` |
-| `lock-scope` | `scope_sources`、`contract_layers`、`violation_levels` |
-| `classify-decisions` | `decision_policy`、`output`、`handoff` |
-| `decompose-task` | `step_granularity`、`acceptance_rules`、`verification` |
-| `implement-current-step` | `allowed_change_types`、`disallowed_patterns`、`step_limit` |
-| `investigate-root-cause` | `inputs`、`must_check`、`failure_policy` |
-| `review-diff` | `diff_filters`、`contract_layers`、`violation_levels` |
-| `verify-contracts` | `contract_layers`、`pass_criteria`、`stop_conditions` |
-| `run-regression` | `test_sources`、`smoke_checks`、`pass_criteria` |
-| `sync-current-task` | `sync_rules`、`verification` |
-| `sync-status` | `sync_rules`、`output` |
-| `sync-contracts` | `stability_threshold`、`contract_layers` |
-| `sync-decisions` | `decision_record_policy`、`decision_policy` |
-| `capture-lessons` | `lesson_capture_rules`、`output` |
-| `prepare-delivery-summary` | `summary_fields`、`verification` |
-| `archive-task` | `archive_naming`、`archive_conditions`、`next_task_policy` |
-
-这个表的意义是：  
-你以后就算先不做完整模板系统，也可以先检查“某个 skill 是否已经达到最低治理标准”。
-
----
-
-### 3.8 完整 Skill 清单
-
-下面这份清单，是把这套工作流真正系统化时，最值得先具备的标准 skill 集。
+下面这组名称只用于说明一个完整工作流通常会覆盖哪些治理职责，不作为正式 skill 清单、模板清单或 registry 来源。实际 skill 集合以 `WORKFLOW_PROTOCOL.md`、`templates/skills/**` 和生成出的 `SKILL_REGISTRY.md` 为准。
 
 | Skill | 作用 | 触发时机 | 读取 | 更新/输出 | 对应阶段 |
 |---|---|---|---|---|---|
@@ -614,14 +300,13 @@ notes:
 | `prepare-delivery-summary` | 形成本轮摘要 | 一轮任务完成时 | `CURRENT_TASK.md`、验证结果、diff | `TASK_SUMMARY` 内容 | 阶段 8 |
 | `archive-task` | 归档本轮任务 | 任务正式完成时 | `CURRENT_TASK.md`、摘要 | `TASKS/` 归档文件 | 阶段 8 |
 
-这套 skill 清单本身就是标准化协议的一部分：  
-以后你不是每次临时想“该怎么提示 AI”，而是**按阶段调用固定 skill**。
+这组示意背后的原则是：不要每次临时想“该怎么提示 AI”，而是让 workflow-system 的正式 skill 集合承载阶段职责、输入输出和交接关系。
 
 ---
 
-### 3.9 所有需要的文件清单（先定义，不先生成）
+### 3.9 文件分层示意（非模板清单源）
 
-如果你要把这套体系真正做成“模板 + skill + 协议”的系统，建议把文件分成 4 层。
+如果你要把这套体系真正做成“模板 + skill + 协议”的系统，可以从职责上理解为 4 层。下面只说明分层意图，不维护实际文件清单；正式模板集合、导出 manifest 和 source pipeline 以 `WORKFLOW_PROTOCOL.md` 及仓库内 `templates/docs/**`、`templates/skills/**` 为准。
 
 #### A. 协议与配置层
 
@@ -634,33 +319,7 @@ notes:
 
 #### B. 模板层
 
-这些文件负责定义未来如何生成文档和 skill：
-
-- `templates/docs/CURRENT_TASK.md.tmpl`
-- `templates/docs/CONTRACTS.md.tmpl`
-- `templates/docs/STATUS.md.tmpl`
-- `templates/docs/DECISIONS.md.tmpl`
-- `templates/docs/LESSONS.md.tmpl`
-- `templates/docs/TASK_SUMMARY.md.tmpl`
-- `templates/docs/TASK_ARCHIVE.md.tmpl`
-- `templates/skills/init-governance.SKILL.md.tmpl`
-- `templates/skills/create-current-task.SKILL.md.tmpl`
-- `templates/skills/review-current-task.SKILL.md.tmpl`
-- `templates/skills/lock-scope.SKILL.md.tmpl`
-- `templates/skills/classify-decisions.SKILL.md.tmpl`
-- `templates/skills/decompose-task.SKILL.md.tmpl`
-- `templates/skills/implement-current-step.SKILL.md.tmpl`
-- `templates/skills/investigate-root-cause.SKILL.md.tmpl`
-- `templates/skills/review-diff.SKILL.md.tmpl`
-- `templates/skills/verify-contracts.SKILL.md.tmpl`
-- `templates/skills/run-regression.SKILL.md.tmpl`
-- `templates/skills/sync-current-task.SKILL.md.tmpl`
-- `templates/skills/sync-status.SKILL.md.tmpl`
-- `templates/skills/sync-contracts.SKILL.md.tmpl`
-- `templates/skills/sync-decisions.SKILL.md.tmpl`
-- `templates/skills/capture-lessons.SKILL.md.tmpl`
-- `templates/skills/prepare-delivery-summary.SKILL.md.tmpl`
-- `templates/skills/archive-task.SKILL.md.tmpl`
+模板层负责承载规范源已经定义的文档和 skill 骨架。本文不列出模板文件名，也不定义模板变量；实际模板路径、变量语法和生成规则以 `WORKFLOW_PROTOCOL.md` 与 `templates/**` 为准。
 
 #### C. 运行时治理文档层
 
@@ -686,25 +345,25 @@ notes:
 
 ---
 
-### 3.10 文件与工作流步骤的对应关系
+### 3.10 文件与工作流步骤的对应关系示意
 
-下面这张表，是你真正落地时最关键的映射。
+下面这张表只说明阶段、职责和工件之间的典型协作关系，不维护必备模板、字段结构或正式生成链。
 
-| 工作流步骤 | 核心 skill | 必读文件 | 主要输出/更新 | 必备模板 |
-|---|---|---|---|---|
-| 阶段 1：需求进入 | `create-current-task` / `review-current-task` | `PROJECT_PROFILE.yaml`、`STATUS.md`、`DECISIONS.md` | `CURRENT_TASK.md` 初稿与修订版 | `CURRENT_TASK.md.tmpl` |
-| 阶段 2：范围锁定 | `lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md` | 范围锁定说明、禁止修改清单 | `lock-scope.SKILL.md.tmpl` |
-| 阶段 3：方案拆解 | `classify-decisions` / `decompose-task` | `CURRENT_TASK.md`、`DECISIONS.md`、`PROJECT_PROFILE.yaml` | 决策分类、步骤拆解 | `decompose-task.SKILL.md.tmpl` |
-| 阶段 4：小步实现 | `implement-current-step` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码改动、执行记录 | `implement-current-step.SKILL.md.tmpl` |
-| 阶段 5：范围复核 | `review-diff` / `verify-contracts` | diff、`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 越界结论、契约风险清单 | `review-diff.SKILL.md.tmpl` |
-| 阶段 6：回归验证 | `run-regression` / `investigate-root-cause` | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、测试结果 | 验证结论、修复建议 | `run-regression.SKILL.md.tmpl` |
-| 阶段 7：状态同步 | `sync-current-task` / `sync-status` / `sync-contracts` / `sync-decisions` / `capture-lessons` | `CURRENT_TASK.md`、`STATUS.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 文档同步结果 | 对应各 sync 模板 |
-| 阶段 8：交付沉淀 | `prepare-delivery-summary` / `archive-task` | `CURRENT_TASK.md`、验证结果、摘要内容 | `TASKS/` 归档、任务摘要 | `TASK_SUMMARY.md.tmpl`、`TASK_ARCHIVE.md.tmpl` |
+| 工作流步骤 | 典型职责 | 典型读取 | 典型输出/更新 |
+|---|---|---|---|
+| 阶段 1：需求进入 | 形成任务包并收敛需求 | 项目画像、状态、决策 | 任务包初稿与待确认项 |
+| 阶段 2：范围锁定 | 明确允许/禁止修改范围 | 当前任务、契约 | 范围锁定说明 |
+| 阶段 3：方案拆解 | 做决策分类和步骤拆分 | 当前任务、决策、项目画像 | 决策分类、步骤拆解 |
+| 阶段 4：小步实现 | 按当前步骤执行改动 | 当前任务、契约、决策、经验 | 代码改动、执行记录 |
+| 阶段 5：范围复核 | 检查是否越界或破坏契约 | diff、当前任务、契约、决策 | 审查结论、风险清单 |
+| 阶段 6：回归验证 | 验证旧功能和关键路径 | 当前任务、测试结果、项目画像 | 验证结论、修复建议 |
+| 阶段 7：状态同步 | 回写任务、状态、契约、决策、经验 | 当前任务和治理文档 | 文档同步结果 |
+| 阶段 8：交付沉淀 | 汇总交付并归档上下文 | 当前任务、验证结果、摘要内容 | 归档、任务摘要 |
 
 这张表背后的原则是：
 
-- 每个阶段都有固定 skill
-- 每个 skill 都有固定输入
+- 每个阶段都有明确职责
+- 每个执行单元都有明确输入
 - 每个阶段结束都必须产出下阶段可消费的工件
 
 这时你的系统才不是“靠聊天记忆推进”，而是**靠工件链路推进**。
@@ -738,7 +397,7 @@ notes:
 - 决策分类
 - 执行记录
 
-如果命中高传播面触发条件，还应补充以下判断内容（表达形式不固定）：
+如果命中高传播面风险线索，还应补充以下判断内容（表达形式不固定）：
 
 - 改动起点
 - 影响依据
@@ -1175,6 +834,8 @@ bun run workflow:health
 ## 七、你每次都可以直接复用的执行模板
 
 下面是一份适合直接发给 AI 的任务模板：
+
+以下是一次任务的对话提示，不是 `CURRENT_TASK.md` 的章节或字段模板；正式任务包结构以 `FILE_SCHEMAS.md` 和 `templates/docs/CURRENT_TASK.md.tmpl` 为准。
 
 ```md
 这是一次大型项目中的局部开发任务。
