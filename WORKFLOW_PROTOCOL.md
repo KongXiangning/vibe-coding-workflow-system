@@ -70,14 +70,28 @@ Conflict resolution rules:
 
 ### 1.2 Workflow-system source pipeline
 
-The workflow-system source inputs are:
+The workflow-system is defined by a strict source pipeline composed of the following authoritative inputs:
 
-1. **Normative spec sources** — `WORKFLOW_PROTOCOL.md` and `FILE_SCHEMAS.md`
-2. **Template skeletons** — `templates/docs/**` and `templates/skills/**`
-3. **Generation and contract implementation** — `scripts/gen-workflow-docs.ts`, `scripts/gen-workflow-skills.ts`, and `scripts/workflow-doc-contracts.ts`
-4. **Runtime bundle implementation** — `scripts/workflow-runtime.ts`, which packages the workflow-system into `dist/workflow-system/**`
+- `WORKFLOW_PROTOCOL.md`
+- `FILE_SCHEMAS.md`
+- `templates/docs/**`
+- `templates/skills/**`
+- `scripts/gen-workflow-docs.ts`
+- `scripts/gen-workflow-skills.ts`
+- `scripts/workflow-doc-contracts.ts`
+- `scripts/workflow-runtime.ts`
 
-Generated outputs such as `generated/workflow-skills/**`, `generated/workflow-docs/**`, and `SKILL_REGISTRY.md` are bundle-local reference evidence produced from this chain. They are not source inputs.
+These inputs collectively define, enforce, and materialize the workflow-system structure.
+
+Generated artifacts:
+
+- `generated/workflow-docs/**`
+- `generated/workflow-skills/**`
+- `SKILL_REGISTRY.md`
+
+are **bundle-local reference evidence produced by the pipeline**, used for auditability and verification.
+
+They are not source inputs and must not be treated as part of the authoritative source chain.
 
 Synchronization rules:
 
@@ -242,7 +256,7 @@ Materialization boundary:
 
 The generator must specialize skills by project type.
 
-Supported project types in Protocol-Version `0.2.0`:
+Supported project types in this protocol revision:
 
 - `frontend-app`
 - `backend-service`
@@ -295,7 +309,7 @@ Current implementation:
 
 - the workflow skill generator appends a `## Project-Type Emphasis` section to each rendered skill body
 - that section is derived from `project.type` in `PROJECT_PROFILE.yaml`
-- Protocol-Version `0.2.0` currently defines emphasis text only for:
+- This protocol revision currently defines emphasis text only for:
   - `frontend-app`
   - `backend-service`
   - `fullstack-app`
@@ -354,7 +368,7 @@ All references in this protocol to stage coverage must use the count of 10.
 - `{{ARCHITECTURE_RULES}}`
 - `{{DECISION_TYPES}}`
 
-### 5.2 Must remain as placeholders in Protocol-Version `0.2.0`
+### 5.2 Must remain as placeholders in this protocol revision
 
 - `{{TASK_ID}}`
 - `{{TASK_SLUG}}`
@@ -476,8 +490,8 @@ Generation must fail if:
 
 Current implementation:
 
-- Protocol-Version `0.2.0` validates overlap conflicts between explicit paths and restricted directory patterns
-- Protocol-Version `0.2.0` does **not yet** perform semantic path authorization such as "outside its workflow role" or "writes code paths" classification
+- the current implementation validates overlap conflicts between explicit paths and restricted directory patterns
+- the current implementation does **not yet** perform semantic path authorization such as "outside its workflow role" or "writes code paths" classification
 
 ### 7.4 Contract-sensitive skills
 
@@ -571,7 +585,7 @@ Minimum validation checks:
 3. no `writes` / `forbidden_writes` conflict exists
 4. all 10 workflow stage groups are represented (see §4a)
 5. all placeholders intended for project expansion are resolved
-6. task placeholders intentionally preserved in Protocol-Version `0.2.0` remain untouched
+6. task placeholders intentionally preserved by this protocol revision remain untouched
 
 If any check fails, the generator must:
 
@@ -700,9 +714,9 @@ gen:workflow-skills: generation failed — 2 errors, 1 warning
 | `1` | Generation error — input/output/file-system failure |
 | `2` | Validation error — rendered output failed protocol checks |
 
-## 10. Protocol scope for Version `0.2.0`
+## 10. Workflow skill generator scope
 
-Protocol-Version `0.2.0` constrains the workflow skill generator to the following scope:
+This protocol revision constrains the workflow skill generator to the following scope:
 
 1. read `PROJECT_PROFILE.yaml`
 2. read `templates/skills/*.SKILL.md.tmpl`
@@ -710,7 +724,7 @@ Protocol-Version `0.2.0` constrains the workflow skill generator to the followin
 4. render output to `generated/workflow-skills/`
 5. validate the rendered set
 
-Protocol-Version `0.2.0` excludes the following:
+The workflow skill generator scope excludes the following:
 
 - generate docs templates
 - install generated skills into runtime host directories
@@ -768,23 +782,44 @@ This protocol is considered implemented when all of the following machine-checka
 
 The next workflow-system phase extends generation beyond skills into governance docs.
 
-### 12.1 Additional authoritative inputs
+### 12.1 Generator inputs and schema authority
 
-The docs generator must also treat the following files as authoritative:
+The docs generator operates with the following inputs:
 
-1. `PROJECT_PROFILE.yaml`
-2. `VERSION`
-3. `templates/docs/*.md.tmpl`
+1. Runtime configuration and versioning:
+   - `PROJECT_PROFILE.yaml`
+   - `VERSION`
 
-`FILE_SCHEMAS.md` is the normative authoring reference for required headings and document structure.
+2. Template skeletons:
+   - `templates/docs/*.md.tmpl`
 
-Current implementation:
+3. Normative schema source:
+   - `FILE_SCHEMAS.md`
 
-- the docs generator does not yet parse `FILE_SCHEMAS.md` directly
-- the generator may carry an implementation cache of the `FILE_SCHEMAS.md` heading contract, but that cache must be mechanically checked against `FILE_SCHEMAS.md`; any divergence is a protocol-level failure
-- the generator must not invent document sections that are not supported by the `FILE_SCHEMAS.md` contract
+`FILE_SCHEMAS.md` is the single authoritative source for required headings, document structure, and schema constraints.
 
-The cache must not be edited or reviewed as an independent contract. Changes must originate in `FILE_SCHEMAS.md` / `WORKFLOW_PROTOCOL.md` and then be propagated to `scripts/gen-workflow-docs.ts` and `scripts/workflow-doc-contracts.ts`.
+---
+
+### Implementation model
+
+The generator may carry an implementation cache of the structure defined in `FILE_SCHEMAS.md`.
+
+This cache:
+
+- exists solely as a runtime optimization and enforcement mechanism
+- must be mechanically and continuously validated against `FILE_SCHEMAS.md`
+- must never diverge from the normative specification
+
+Any divergence between the cache and `FILE_SCHEMAS.md` is a protocol-level failure.
+
+---
+
+### Strict constraints
+
+- The generator must not invent document sections, fields, or structure not defined in `FILE_SCHEMAS.md`.
+- Templates must not introduce structure that is not supported by the schema.
+- The implementation cache must not be edited, reviewed, or evolved as an independent contract.
+- All structural changes must originate from `FILE_SCHEMAS.md` / `WORKFLOW_PROTOCOL.md`, and then be propagated to generator code.
 
 ### 12.2 Docs output model
 
@@ -808,7 +843,7 @@ ROADMAP.md
 BASELINES.md
 ```
 
-Protocol-Version `0.2.0` extends the required generated doc set with lifecycle-governance docs:
+This protocol revision extends the required generated doc set with lifecycle-governance docs:
 
 - `ROADMAP.md` for milestone / roadmap / version-window planning
 - `BASELINES.md` for release, compatibility, security, deploy, and non-functional baselines
@@ -826,7 +861,7 @@ The docs generator must expand project-level placeholders such as:
 - `{{ARCHITECTURE_RULES}}`
 - `{{VERSION}}`
 
-The docs generator must preserve runtime placeholders in Protocol-Version `0.2.0`:
+The docs generator must preserve runtime placeholders in this protocol revision:
 
 - `{{TASK_ID}}`
 - `{{TASK_TITLE}}`
@@ -851,13 +886,13 @@ Any live-doc materialization or refresh must flow through the hybrid sync policy
 
 ### 12.6 Propagation-governance doc extensions
 
-Protocol-Version `0.2.0` formalizes three propagation-governance homes in the generated docs surface:
+This protocol revision formalizes three propagation-governance homes in the generated docs surface:
 
 - `CURRENT_TASK.md` must include `## 传播治理记录` covering discovery evidence, aggregation/complexity, eligibility/candidate/registry state, layout/behavior contracts, migration state, linked regression state, and blocker/gate outputs.
 - `CONTRACTS.md` must include `## 四、传播治理补充` covering candidate writeback records, `LayoutContract`, `BehaviorContract`, frozen-zone constraints, and `UIAnchorReplacement`.
 - `BASELINES.md` must include `## Gate 与错误码基线` covering blocker levels, merge/ship gate behavior, escalation rules, and grouped error-code homes.
 
-These structures are normative extensions of the generated-doc contract. Templates may reorganize prose within those sections, but they must not drop the sections or their minimum fields defined in `FILE_SCHEMAS.md`.
+These structures are normative extensions of the generated-doc contract. Templates may reorganize prose within those sections, but must preserve the required homes and auditable references defined in `FILE_SCHEMAS.md`; field-level schema remains owned by `WORKFLOW_PROTOCOL.md §18.6`.
 
 ---
 
@@ -1034,7 +1069,7 @@ Human confirmation policy is mandatory:
 - `refresh-structure` requires explicit confirmation per file
 - `merge-safe update` requires explicit confirmation per file
 - `incompatible and diff-only until confirmed` files must never be auto-merged
-- in Protocol-Version `0.2.0`, `incompatible and diff-only until confirmed` means the sync layer may present the diff and classification result, but it must stop without writing
+- in this protocol revision, `incompatible and diff-only until confirmed` means the sync layer may present the diff and classification result, but it must stop without writing
 - any confirmed follow-up for an `incompatible` file is outside the automatic sync actions defined by P6 and must be handled by a separate manual decision or a later-phase contract
 - if a file is `incompatible` because of extra live-only headings or sections, the sync layer must not automatically preserve, move, fold, or reorder that extra structure
 - `orphaned` files must only produce a warning; they must not be deleted automatically
