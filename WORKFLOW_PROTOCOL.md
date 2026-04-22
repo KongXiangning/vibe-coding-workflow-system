@@ -70,18 +70,19 @@ Conflict resolution rules:
 
 ### 1.2 Workflow-system source pipeline
 
-The workflow-system has four formal layers:
+The `dist/workflow-system/**` bundle is determined by the complete workflow-system source chain:
 
 1. **Normative spec sources** — `WORKFLOW_PROTOCOL.md` and `FILE_SCHEMAS.md`
 2. **Template skeletons** — `templates/skills/*.SKILL.md.tmpl` and `templates/docs/*.md.tmpl`
-3. **Generated reference outputs** — `generated/workflow-skills/**`, `generated/workflow-docs/**`, and `SKILL_REGISTRY.md`
-4. **Runtime bundle output** — `scripts/workflow-runtime.ts` packages the workflow-system into `dist/workflow-system/**`
+3. **Generation and contract implementation** — `scripts/gen-workflow-docs.ts`, `scripts/gen-workflow-skills.ts`, and `scripts/workflow-doc-contracts.ts`
+4. **Runtime bundle implementation** — `scripts/workflow-runtime.ts`, which packages the workflow-system into `dist/workflow-system/**`
+5. **Generated reference outputs** — `generated/workflow-skills/**`, `generated/workflow-docs/**`, and `SKILL_REGISTRY.md`
 
 Synchronization rules:
 
 - A section, field, error-code home, or document structure referenced by templates, generated outputs, or tests must first be declared in `WORKFLOW_PROTOCOL.md` or `FILE_SCHEMAS.md`.
 - Templates define render skeletons only. They must not silently supersede normative protocol/schema rules.
-- Generated reference outputs are the committed, freshness-checked renders for the source repo. They are exported as audit/reference material, not as target-project-owned live docs.
+- Generated reference outputs are committed, freshness-checked renders for the source repo. They are exported as audit/reference material, not as target-project-owned live docs or independent normative sources.
 - `workflow:install` may install only the script / protocol / template surfaces into a target project. Generated reference outputs remain bundle-local evidence of what the workflow-system renders in its source repo.
 
 ---
@@ -1308,7 +1309,7 @@ The manifest also declares:
 - `requirements` — runtime dependencies (e.g., `bun >= 1.0`)
 - `post_install` — commands to run after importing artifacts and merging the package script contract
 - `verification` — commands to verify correct installation through the imported package script contract
-- `source_pipeline` — the authoritative source chain from normative specs through templates and generated reference outputs into `dist/workflow-system/**`
+- `source_pipeline` — the authoritative source chain from normative specs through templates, generation / contract scripts, and runtime packaging into `dist/workflow-system/**`; generated outputs appear only as freshness-checked reference evidence
 
 `package.json` is part of the required import surface for `A1`.
 The manifest must explicitly describe the minimum `workflow:*`, `gen:*`, and `validate:*` script contract plus the runtime dependencies needed by the imported workflow-system artifacts in a machine-readable `package_json_contract` field.

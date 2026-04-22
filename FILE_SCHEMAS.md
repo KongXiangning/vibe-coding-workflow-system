@@ -21,140 +21,30 @@
 - `templates/**` 负责定义生成骨架，不能偷偷扩展未在规范源登记的新章节或新字段
 - `dist/workflow-system/**` 由规范源、`templates/docs/**`、`templates/skills/**`、`scripts/gen-workflow-docs.ts`、`scripts/gen-workflow-skills.ts`、`scripts/workflow-doc-contracts.ts` 与 `scripts/workflow-runtime.ts` 共同决定；其中 `generated/**` 产物是参考证据，不是独立规范源
 - v26 是在 v25 基线上的增量修复版；规范更新默认按 additive extend 处理，除非显式声明替代旧规则
-- 任何传播治理公开结构一旦进入规范源，必须同时具备：正式 schema、默认规则、测试要求，不能只留结构名
+- 传播治理公开结构的字段、默认规则和 conformance 测试要求由 `WORKFLOW_PROTOCOL.md` 定义；`FILE_SCHEMAS.md` 只登记这些结构在治理文档中的承载位置和最小文档可审计要求
 
-## 1.1 传播治理公开结构 schema 要求
+## 1.1 传播治理公开结构承载位置
 
-本节只登记这些结构在治理文档中的承载位置和最小出现要求；字段级 schema、枚举、gate、错误码、默认 blocker 规则以 `WORKFLOW_PROTOCOL.md §18.6` 为准。
+本节只登记传播治理公开结构在治理文档中的承载位置。字段级 schema、枚举、gate、错误码、默认 blocker 规则和 conformance 测试要求均以 `WORKFLOW_PROTOCOL.md §18.6` 为唯一来源；本文不重复维护字段或规则。
 
-### 测试样例通用要求
-
-- 每个测试样例都必须记录：
-  - 输入场景
-  - discovery evidence
-  - 期望 `ContractCompatibilityResult`
-  - 期望 gate / severity / `strategy_origin`
-- 所有错误结果都必须落成正式字段，而不是口头说明：
-  - `error_code`
-  - `object_path`
-  - `severity`
-  - `default_blocker_level`
-  - `evidence`
-  - `strategy_origin`
-  - `branch_gate_mapping`
-  - `suggested_resolution`
-
-### EvidenceRecord
-
-- 文档承载：`CURRENT_TASK.md > 传播治理记录 > discovery evidence`
-- 正式字段：`mechanism`、`query_or_entrypoint`、`scope`、`result_summary`、`confidence`、`gaps`
-- 默认规则：命中 locked / shared / API / UI frozen target 时，默认至少记录两种不同 discovery mechanism
-- 测试要求：验证 discovery 输入、机制多样性、confidence 与 gap 输出
-
-### UIAnchorReplacement
-
-- 文档承载：`CONTRACTS.md > frozen zone / UI anchor migration`
-- 正式字段：`old_anchor`、`successor_anchor`、`transition_window`、`alias_policy`、`alias_details`、`relation_migration`、`removal_precondition`、`verification`
-- 默认规则：旧锚点移除前必须满足 `removal_precondition`
-- 测试要求：验证 alias 策略、迁移窗口与 removal precondition
-
-### ContractCompatibilityResult
-
-- 文档承载：`CURRENT_TASK.md > blockers / gate status`
-- 正式字段：`error_code`、`object_path`、`severity`、`default_blocker_level`、`evidence`、`strategy_origin`、`branch_gate_mapping`、`suggested_resolution`
-- 默认规则：必须作为正式 schema 使用，不能退化成“推荐结构”或自由 prose
-- 测试要求：验证 blocker 结果字段完整且 gate / severity / strategy_origin 一致
-
-### EvidenceAggregation
-
-- 文档承载：`CURRENT_TASK.md > aggregation / complexity`
-- 正式字段：`aggregation_strategy`、`sources`、`candidate_impact_set`、`significant_divergence`、`divergence_reason`、`unresolved_gaps`、`aggregated_confidence`
-- 默认规则：主线固定 `aggregation_strategy=union`
-- 测试要求：验证 union 聚合、divergence priority 与 unresolved gap 输出
-
-### ComplexityAssessment
-
-- 文档承载：`CURRENT_TASK.md > aggregation / complexity`
-- 正式字段：`propagation_depth`、`direct_consumers`、`total_candidate_consumers`、`cross_boundary_hops`、`exceeded_metrics`、`threshold_status`、`forced_strategy`
-- 默认规则：`direct_consumers_exceeded` 与 `total_consumers_exceeded` 必须分开解释，前者保护旧入口，后者控制全传播面与迁移窗口
-- 测试要求：验证 over-limit 进入正确 branch，且 direct / total 两类 exceed 语义不混写
-
-### over_limit_policy
-
-- 文档承载：`CURRENT_TASK.md > aggregation / complexity`
-- 正式字段：`threshold_trigger`、`selected_branch`、`rationale`
-- 默认规则：每个非 `none` 分支都必须能映射到 blocker 路径；`direct-change` 只允许在 `forced_strategy`
-- 测试要求：验证 branch 选择、rationale、旧入口保护与迁移窗口判断
-
-### evidence_diff_threshold
-
-- 文档承载：`CURRENT_TASK.md > aggregation / complexity`
-- 正式字段：`absolute_diff`、`relative_diff_ratio`
-- 默认规则：v26 主线固定 `3` / `0.5`
-- 测试要求：验证 threshold 命中时的 branch / gate 影响
-
-### MutationEligibilityAssessment
-
-- 文档承载：`CURRENT_TASK.md > eligibility / candidate / registry`
-- 正式字段：`common`、`when_pending_prerequisites`、`when_completed`
-- 默认规则：必须采用 `common / when_pending_prerequisites / when_completed` 条件分支 schema；`pending-prerequisites` 禁止最终 eligibility，`completed` 禁止残留 `blocking_gaps`
-- 测试要求：验证条件分支约束、`blocking_gaps` 到 P0 映射、`MUTATION_NOT_ELIGIBLE` 与前置 gap 分流
-
-### EntityMutationChecklist
-
-- 文档承载：`CURRENT_TASK.md > eligibility / candidate / registry`
-- 正式字段：`entity_name`、`covered_categories`、`unresolved_categories`、`gap_resolution`
-- 默认规则：必须覆盖 storage / api / dto / event / projection / ui；存在 gap 时必须留在 unresolved 或 blocker 路径
-- 测试要求：验证分类覆盖、gap 可见性与 blocker 输出
-
-### LayoutContract
-
-- 文档承载：`CURRENT_TASK.md > layout / behavior / migration / regression` 与 `CONTRACTS.md > LayoutContract`
-- 正式字段：`container_path`、`machine_anchor`、`layout_model`、`locked_properties`、`locked_relations`、`cascade_sources`、`sibling_reflow_sensitive`、`insertion_guard`、`breakpoint_contracts`、`stacking_context`、`side_effect_scope`
-- 默认规则：必须显式记录 cascade source、breakpoint、reflow、stacking context 与 insertion guard
-- 测试要求：验证 sibling reflow、breakpoint drift、specificity override、stacking context break
-
-### RegistryFreshnessReport
-
-- 文档承载：`CURRENT_TASK.md > eligibility / candidate / registry`
-- 正式字段：`object_path`、`registry_consumers`、`discovered_consumers`、`effective_consumers`、`freshness`、`reconciliation`、`divergence_summary`
-- 默认规则：registry 与 discovery 不一致时，按 discovered union 扩展 `effective_consumers`
-- 测试要求：验证 stale / locked-hit 场景、reconciliation 与 discovered-union 生效
-
-### LinkedRegressionRecord
-
-- 文档承载：`CURRENT_TASK.md > layout / behavior / migration / regression`
-- 正式字段：`regression_chain_id`、`current_issue`、`prior_fix_refs`、`window_scope`、`window_size`、`count_basis`、`linked_components`、`shared_objects`、`relation`、`escalation`
-- 默认规则：同一 `regression_chain_id` 下连续两个 fix task 命中关联回归时必须早停
-- 测试要求：验证回归链计数、shared object 关联与 `LINKED_REGRESSION_EARLY_STOP`
-
-### BehaviorContract
-
-- 文档承载：`CURRENT_TASK.md > layout / behavior / migration / regression` 与 `CONTRACTS.md > BehaviorContract`
-- 正式字段：`object_path`、`assertions`、`verification`
-- 默认规则：后端 API 变更时必须扩展验证前端 `hook` / `store` / `page` / `widget` / `form` / `table` / `detail view`
-- 测试要求：验证关键交互断言与下游 consumer 面
-
-### StagedMigrationPlan
-
-- 文档承载：`CURRENT_TASK.md > layout / behavior / migration / regression`
-- 正式字段：`migration_id`、`phases[*].phase_id`、`phases[*].goal`、`phases[*].runtime_state`、`phases[*].verification`、`phases[*].exit_criteria`、`dependencies`
-- 默认规则：phase 不足、`runtime_state` 缺失、缺少 `verification` / `exit_criteria` 都属于不完整
-- 测试要求：验证 phase 完整性、runtime_state、verification、exit criteria 与依赖关系
-
-### migration_plan_requirement
-
-- 文档承载：`CURRENT_TASK.md > layout / behavior / migration / regression`
-- 正式字段：`required`、`trigger_reason`
-- 默认规则：`recommend_task_split` 继续推进时，若 `required=true` 则必须同步给出 `StagedMigrationPlan`
-- 测试要求：验证 required 条件与缺失时 blocker
-
-### implicit_shared_object_detection
-
-- 文档承载：`CURRENT_TASK.md > eligibility / candidate / registry` 与 `CONTRACTS.md > candidate 回写记录`
-- 正式字段：`object_path`、`object_kind`、`direct_consumers`、`cross_boundary`、`critical_path_hit`、`locked_hit_chain`、`proposed_contract_state`、`writeback_required`
-- 默认规则：命中 shared threshold 后必须立即进入 candidate / protected 面；同文件 `A/B/C/Z` 复用场景要保住 `A`，走 `A -> AA` wrapper / compat path
-- 测试要求：验证 shared-threshold 命中、candidate 回写、`locked_hit_chain` 传递与 `A -> AA` 路径
+| 结构 | 文档承载位置 |
+|---|---|
+| `EvidenceRecord` | `CURRENT_TASK.md > 传播治理记录 > discovery evidence` |
+| `UIAnchorReplacement` | `CONTRACTS.md > frozen zone / UI anchor migration` |
+| `ContractCompatibilityResult` | `CURRENT_TASK.md > blockers / gate status` |
+| `EvidenceAggregation` | `CURRENT_TASK.md > aggregation / complexity` |
+| `ComplexityAssessment` | `CURRENT_TASK.md > aggregation / complexity` |
+| `over_limit_policy` | `CURRENT_TASK.md > aggregation / complexity` |
+| `evidence_diff_threshold` | `CURRENT_TASK.md > aggregation / complexity` |
+| `MutationEligibilityAssessment` | `CURRENT_TASK.md > eligibility / candidate / registry` |
+| `EntityMutationChecklist` | `CURRENT_TASK.md > eligibility / candidate / registry` |
+| `LayoutContract` | `CURRENT_TASK.md > layout / behavior / migration / regression` 与 `CONTRACTS.md > LayoutContract` |
+| `RegistryFreshnessReport` | `CURRENT_TASK.md > eligibility / candidate / registry` |
+| `LinkedRegressionRecord` | `CURRENT_TASK.md > layout / behavior / migration / regression` |
+| `BehaviorContract` | `CURRENT_TASK.md > layout / behavior / migration / regression` 与 `CONTRACTS.md > BehaviorContract` |
+| `StagedMigrationPlan` | `CURRENT_TASK.md > layout / behavior / migration / regression` |
+| `migration_plan_requirement` | `CURRENT_TASK.md > layout / behavior / migration / regression` |
+| `implicit_shared_object_detection` | `CURRENT_TASK.md > eligibility / candidate / registry` 与 `CONTRACTS.md > candidate 回写记录` |
 
 占位符语法、类别、来源和保留规则不在本文维护；治理文档模板使用的占位符必须引用 `WORKFLOW_PROTOCOL.md §3`。
 
@@ -184,22 +74,7 @@
 
 ### 传播治理记录最小内容
 
-- `change_start_set`
-- `EvidenceRecord`
-- `evidence_diff_threshold`
-- `EvidenceAggregation`
-- `ComplexityAssessment`
-- `MutationEligibilityAssessment`
-- `implicit_shared_object_detection`
-- `RegistryFreshnessReport`
-- `EntityMutationChecklist`
-- `LayoutContract`
-- `BehaviorContract`
-- `migration_plan_requirement`
-- `StagedMigrationPlan`
-- `LinkedRegressionRecord`
-- `ContractCompatibilityResult`
-- conformance / verification cases
+命中传播治理时，`CURRENT_TASK.md` 必须承载或引用 `WORKFLOW_PROTOCOL.md §18.6` 定义的传播治理对象与 conformance evidence。本文只要求存在可审计记录，不重复定义对象字段、默认规则、错误码、gate 或测试断言。
 
 ### 更新时机
 
@@ -213,15 +88,8 @@
 - 验收标准必须可验证
 - 允许/禁止修改范围必须明确到目录、文件或契约层
 - `## 任务信息` 在进入 A3 执行后必须包含任务 ID、任务标题和任务 slug；生成骨架阶段允许保留对应占位符
-- 命中传播治理时，`## 传播治理记录` 必须显式记录 discovery、aggregation、eligibility、layout/behavior、migration 和 blocker 状态，而不是只在对话里口头说明
-- 命中传播治理 blocker 或兼容性判断时，必须记录至少一个 conformance case，包含输入场景、discovery evidence、期望 `ContractCompatibilityResult`、期望 gate / severity / `strategy_origin`
-- `MutationEligibilityAssessment` 必须区分 `pending-prerequisites` 与 `completed` 两类状态，不能把前置 gap 和最终 `not-eligible` 结果混写
-- `ContractCompatibilityResult` 必须至少包含错误码、对象路径、blocker/gate 语义、证据与建议处置
-- `ComplexityAssessment` 必须把 `direct_consumers_exceeded` 与 `total_consumers_exceeded` 分开记录其语义，不能用一个笼统 over-limit 结论带过
-- `RegistryFreshnessReport` 命中 registry / discovery 不一致时，必须记录 `effective_consumers` 或等价的 discovered-union 扩展结果
-- `EntityMutationChecklist` 必须记录 `covered_categories` 与 `gap_resolution`
-- `StagedMigrationPlan` 命中 task split / 迁移窗口时必须带 `runtime_state`、`verification` 和 `exit_criteria`
-- 后端 API 变更必须在任务包里显式列出前端下游验证面：`hook`、`store`、`page`、`widget`、`form`、`table`、`detail view`
+- 命中传播治理时，`## 传播治理记录` 必须显式承载或引用 `WORKFLOW_PROTOCOL.md §18.6` 定义的对象、evidence、compatibility result 和 conformance case，而不是只在对话里口头说明
+- `## 传播治理记录` 不得在本文定义之外新增、改名或降级任何协议对象字段、错误码、gate 或 blocker 语义
 - 至少包含一个当前可执行步骤
 - 回滚点必须可操作，不能只有笼统描述
 
@@ -524,14 +392,7 @@
 
 ### Gate 与错误码基线最小字段
 
-- gate 编号
-- 适用错误码或封闭集合
-- 默认 blocker level
-- merge gate
-- ship gate 或升级条件
-- 兼容窗口 / removal precondition（如适用）
-- 证据归档位置
-- 相关 `strategy_origin` / branch 语义（如适用）
+`BASELINES.md` 只能镜像或引用 `WORKFLOW_PROTOCOL.md` 中已定义的 error code、blocker level、gate mapping、兼容窗口和 removal precondition。它不得新增、改名、降级或重新解释任何错误码、blocker level、merge gate、ship gate 或 `strategy_origin` 语义。
 
 ### 更新时机
 
@@ -545,7 +406,7 @@
 - 每条基线都必须有生效范围，不能是无边界口号
 - 发布、兼容性、安全、部署至少各有一个可落地条目
 - 性能与可靠性基线必须包含可观察指标或明确验证入口
-- Gate 与错误码基线必须能把 blocker level、merge gate、ship gate 与错误码集合对齐
+- Gate 与错误码基线必须能追溯到 `WORKFLOW_PROTOCOL.md` 的正式定义，并保持 blocker level、merge gate、ship gate 与错误码集合对齐
 - 基线变更必须追加记录，不能直接抹去旧版本要求
 
 ---
