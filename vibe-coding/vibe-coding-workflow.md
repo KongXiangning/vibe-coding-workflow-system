@@ -2,8 +2,8 @@
 
 这份工作流基于两份文档整理而成：
 
-- `gstack-analysis.md`：提供了 gstack 的完整流程框架
-- `vibe-coding-quality-system.md`：提供了适合个人开发者的质量控制体系
+- [`gstack-analysis.md`](../gstack-analysis.md)：提供了 gstack 的完整流程框架
+- [`vibe-coding-quality-system.md`](./vibe-coding-quality-system.md)：提供了适合个人开发者的质量控制体系
 
 目标是把 gstack 的“规划 → 审查 → QA → 交付 → 复盘”主线，结合个人 vibe coding 的高速度开发方式，变成一套更轻、更稳、更适合大项目长期推进的流程。
 

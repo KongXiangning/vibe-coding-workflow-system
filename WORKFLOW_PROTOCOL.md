@@ -8,9 +8,9 @@ Last-Updated: 2026-04-22
 
 This file defines the execution rules for the workflow skill system.
 
-Its purpose is narrower than `vibe-coding-workflow.md`:
+Its purpose is narrower than `vibe-coding/vibe-coding-workflow.md`:
 
-- `vibe-coding-workflow.md` explains the full methodology
+- `vibe-coding/vibe-coding-workflow.md` explains the full methodology
 - `WORKFLOW_PROTOCOL.md` defines the concrete rules the generator must follow
 
 ### Versioning scheme
@@ -52,7 +52,7 @@ The generator must not infer project facts from chat context alone.
 
 If a required value is missing from `PROJECT_PROFILE.yaml`, generation must fail loudly instead of silently defaulting.
 
-Methodology references such as `vibe-coding-workflow.md` may inform template authoring and review, but they are not direct machine inputs in the current implemented generators.
+Methodology references such as `vibe-coding/vibe-coding-workflow.md` may inform template authoring and review, but they are not direct machine inputs in the current implemented generators.
 
 ### 1.1 Input precedence
 

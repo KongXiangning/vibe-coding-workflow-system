@@ -42,8 +42,10 @@ paths:
     - README.md
     - ARCHITECTURE.md
     - docs/repo-path-grammar.md
-    - vibe-coding-workflow.md
-    - vibe-coding-methodology.md
+    - vibe-coding/README.md
+    - vibe-coding/vibe-coding-workflow.md
+    - vibe-coding/vibe-coding-methodology.md
+    - vibe-coding/vibe-coding-quality-system.md
   workflow_template_directories:
     - templates/skills
     - templates/docs
@@ -79,8 +81,10 @@ boundaries:
   human_review_required:
     - README.md
     - ARCHITECTURE.md
-    - vibe-coding-workflow.md
-    - vibe-coding-methodology.md
+    - vibe-coding/README.md
+    - vibe-coding/vibe-coding-workflow.md
+    - vibe-coding/vibe-coding-methodology.md
+    - vibe-coding/vibe-coding-quality-system.md
 
 architecture_rules:
   - Keep repository-wide automation and generators in scripts/.
@@ -101,8 +105,10 @@ governance:
     - FILE_SCHEMAS.md
     - SKILL_REGISTRY.md
     - docs/repo-path-grammar.md
-    - vibe-coding-workflow.md
-    - vibe-coding-methodology.md
+    - vibe-coding/README.md
+    - vibe-coding/vibe-coding-workflow.md
+    - vibe-coding/vibe-coding-methodology.md
+    - vibe-coding/vibe-coding-quality-system.md
     - templates/docs/*.md.tmpl
     - templates/skills/*.SKILL.md.tmpl
   planned_documents: []

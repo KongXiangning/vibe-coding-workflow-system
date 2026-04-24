@@ -2,9 +2,9 @@
 
 这是一份把以下三份文档合并、去重、重构后的完整方法论文档：
 
-- `gstack-analysis.md`
-- `vibe-coding-quality-system.md`
-- `vibe-coding-workflow.md`
+- [`gstack-analysis.md`](../gstack-analysis.md)
+- [`vibe-coding-quality-system.md`](./vibe-coding-quality-system.md)
+- [`vibe-coding-workflow.md`](./vibe-coding-workflow.md)
 
 它不是对 `gstack` 的逐句翻译，也不是一套提示词合集。
 
@@ -18,7 +18,7 @@
 - AI 在没有明确授权的情况下替你做了产品或架构决策
 - 修 bug 越修越乱，最后无法判断哪些东西还是可信的
 
-如果只想先理解治理思想，可以从本文开始；正式结构、流程执行规则和生成链仍以 WORKFLOW_PROTOCOL.md、FILE_SCHEMAS.md 与 vibe-coding-workflow.md 为准。
+如果只想先理解治理思想，可以从本文开始；正式结构、流程执行规则和生成链仍以 [`WORKFLOW_PROTOCOL.md`](../WORKFLOW_PROTOCOL.md)、[`FILE_SCHEMAS.md`](../FILE_SCHEMAS.md) 与 [`vibe-coding-workflow.md`](./vibe-coding-workflow.md) 为准。
 
 ---
 
