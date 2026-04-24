@@ -27,6 +27,8 @@
 
 本节只登记传播治理公开结构在治理文档中的承载位置。字段级 schema、枚举、gate、错误码、默认 blocker 规则和 conformance 测试要求均以 `WORKFLOW_PROTOCOL.md §18.6` 为唯一来源；本文不重复维护字段或规则。
 
+下表的承载位置是概念性审计区域，不要求生成同名字段或子章节；字段级 schema、对象结构、枚举、gate 和错误码均以 `WORKFLOW_PROTOCOL.md §18.6` 为唯一来源。
+
 | 结构 | 文档承载位置 |
 |---|---|
 | `EvidenceRecord` | `CURRENT_TASK.md > 传播治理记录 > discovery evidence` |
@@ -89,7 +91,7 @@
 - 允许/禁止修改范围必须明确到目录、文件或契约层
 - `## 任务信息` 在进入 A3 执行后必须包含任务 ID、任务标题和任务 slug；生成骨架阶段允许保留对应占位符
 - 命中传播治理时，`## 传播治理记录` 必须显式承载或引用 `WORKFLOW_PROTOCOL.md §18.6` 定义的对象、evidence、compatibility result 和 conformance case，而不是只在对话里口头说明
-- `## 传播治理记录` 不得在本文定义之外新增、改名或降级任何协议对象字段、错误码、gate 或 blocker 语义
+- `## 传播治理记录` 不得新增、改名、降级或重新解释 `WORKFLOW_PROTOCOL.md §18.6` 已定义的协议对象字段、错误码、gate 或 blocker 语义；需要扩展时先修改协议源。
 - 至少包含一个当前可执行步骤
 - 回滚点必须可操作，不能只有笼统描述
 
@@ -126,6 +128,8 @@
 - 事件或 DTO 语义
 
 ### 传播治理补充最小内容
+
+传播治理补充应能引用或呈现 `WORKFLOW_PROTOCOL.md §18.6` 中相关对象的审计结论。以下是审计维度提示，不是字段清单：
 
 - candidate 回写记录
 - `LayoutContract`

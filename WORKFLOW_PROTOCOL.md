@@ -95,7 +95,7 @@ They are not source inputs and must not be treated as part of the authoritative 
 
 Synchronization rules:
 
-- A section, field, error-code home, or document structure referenced by templates, generated outputs, or tests must first be declared in `WORKFLOW_PROTOCOL.md` or `FILE_SCHEMAS.md`.
+- Templates and tests must not reference a section, field, error-code home, or document structure unless it is first declared in `WORKFLOW_PROTOCOL.md` or `FILE_SCHEMAS.md`; generated outputs may only contain structures rendered from those declared sources.
 - Templates define render skeletons only. They must not silently supersede normative protocol/schema rules.
 - Generated reference outputs are committed, freshness-checked renders for the source repo. They are exported as audit/reference material, not as target-project-owned live docs or independent normative sources.
 - `workflow:install` may install only the script / protocol / template surfaces into a target project. Generated reference outputs remain bundle-local evidence of what the workflow-system renders in its source repo.
@@ -1054,7 +1054,7 @@ Classification rules:
 
 Minimum classification inputs:
 
-- the generated doc for that filename
+- the freshness-checked generated render for that filename, used only as a comparison fixture
 - the live doc for that filename
 - the required heading contract implied by `FILE_SCHEMAS.md`
 
@@ -1117,7 +1117,7 @@ It is a repository-compliance gate, not a workflow-system-integrity gate.
 
 CI behavior:
 
-- a future sync-check command must classify repo-root live docs against `generated/workflow-docs/`
+- a future sync-check command must classify repo-root live docs against the freshness-checked structural contract derived from `WORKFLOW_PROTOCOL.md` and `FILE_SCHEMAS.md`; `generated/workflow-docs/**` may be used only as comparison fixtures after freshness passes.
 - CI passes when each evaluated doc is either `absent` or `structure-compatible`
 - CI blocks merge when any evaluated doc is `structure-drifted but mergeable` or `incompatible and diff-only until confirmed`
 - `orphaned` files must emit warnings unless a stricter host policy overrides that default
@@ -1522,7 +1522,7 @@ The propagation-governance surface extends the workflow-system with the followin
 
 Compatibility rules:
 
-- once a structure is referenced by protocol, schema, templates, or tests, it becomes part of the public workflow-system contract
+- once a structure is declared in WORKFLOW_PROTOCOL.md or FILE_SCHEMAS.md and then referenced by templates or tests, it becomes part of the public workflow-system contract.
 - later revisions should extend these structures additively unless a field or rule is explicitly marked as superseded
 - blocker output must converge into formal `ContractCompatibilityResult` objects rather than informal prose-only warnings
 - v26 is an additive repair revision over v25 rather than a rewrite; prior mainline contract semantics remain in force unless this section explicitly tightens or supersedes them

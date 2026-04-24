@@ -18,7 +18,7 @@
 - AI 在没有明确授权的情况下替你做了产品或架构决策
 - 修 bug 越修越乱，最后无法判断哪些东西还是可信的
 
-如果你只想保留一份文档，这一份就够了。
+如果只想先理解治理思想，可以从本文开始；正式结构、流程执行规则和生成链仍以 WORKFLOW_PROTOCOL.md、FILE_SCHEMAS.md 与 vibe-coding-workflow.md 为准。
 
 ---
 
@@ -292,7 +292,7 @@ CURRENT_TASK.md
 - 是否允许顺手重构
 - 是否允许修改稳定契约
 
-#### 最小内容建议
+#### 行为约束示例（非 CLAUDE.md schema）
 
 ```md
 # CLAUDE.md
@@ -977,7 +977,7 @@ bun run workflow:health
 
 把“做完一轮”变成“可继续推进下一轮”。
 
-#### 每轮最好产出固定摘要
+#### 每轮可用以下提示收敛交付信息（非 TASK_SUMMARY.md schema）
 
 ```md
 本轮任务摘要：
@@ -1694,7 +1694,7 @@ benefits-from:
 ---
 ```
 
-这些字段的含义很关键：
+以下仅是 native gstack skill-doc 的历史示例项说明，不可迁移为 workflow-system metadata schema；workflow-system skill 字段只以 `WORKFLOW_PROTOCOL.md` 为准。
 
 - `name`：skill 身份标识
 - `preamble-tier`：注入多少层共享上下文与政策约束
@@ -2013,7 +2013,7 @@ IDEA -> DESIGN -> REVIEW -> CODE -> SHIP -> DOCUMENT -> RETRO -> LEARN
 
 仓库里不仅定义了 QA 行为，还提供了标准 QA 报告模板：`qa/templates/qa-report-template.md`。
 
-这个模板要求 QA 报告至少包含：
+这个 native 模板通常覆盖以下信息维度，作为设计参考而非 workflow-system 报告 schema：
 
 - metadata table
 - 按类别拆分的 health score
@@ -2036,7 +2036,7 @@ IDEA -> DESIGN -> REVIEW -> CODE -> SHIP -> DOCUMENT -> RETRO -> LEARN
 
 `gstack` 没把 TODO 当作随手便签，它有明确的 TODO 格式规范，仓库里还有单独的 `review/TODOS-format.md`。
 
-标准结构大致如下：
+这个 native TODO 格式通常覆盖以下信息维度，作为设计参考而非 workflow-system TODO schema：
 
 ```text
 # TODOS
@@ -2053,7 +2053,7 @@ Depends on
 ## Completed
 ```
 
-其中每个字段承担明确职责：
+其中每个信息维度承担明确职责：
 
 - `What`：到底要做什么
 - `Why`：为什么值得做

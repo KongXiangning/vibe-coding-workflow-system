@@ -230,7 +230,7 @@ Skill 应表达清楚治理职责、执行边界和交接意图。正式 metadat
 
 一个完整 workflow 通常覆盖初始化、任务生成、范围锁定、实现、审查、验证、同步、归档等职责。
 
-本文不列正式 skill 名称、阶段归属、输入输出、handoff 或 registry 内容。实际 skill 集合、字段结构、交接关系和生成结果必须从 `WORKFLOW_PROTOCOL.md`、`templates/skills/**`、生成器实现和生成出的 `SKILL_REGISTRY.md` 反查。
+本文不列正式 skill 名称、阶段归属、输入输出、handoff 或 registry 内容。实际 skill 集合、字段结构、交接关系和生成规则必须以 `WORKFLOW_PROTOCOL.md`、`templates/skills/**` 和生成器实现为准；`SKILL_REGISTRY.md` 仅作为 freshness-checked reference output 用于核对。
 
 这组示意背后的原则是：不要每次临时想“该怎么提示 AI”，而是让 workflow-system 的正式 skill 集合承载阶段职责、输入输出和交接关系。
 
@@ -242,7 +242,7 @@ Skill 应表达清楚治理职责、执行边界和交接意图。正式 metadat
 
 #### A. 协议与配置层
 
-这些文件负责定义规则本身：
+下列条目分别承担规范源、项目实例配置或参考索引职责；只有 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/**` 与对应脚本实现参与正式 source pipeline：
 
 - `PROJECT_PROFILE.yaml`：项目画像，描述技术栈、目录、测试命令、禁改区域、架构边界
 - `WORKFLOW_PROTOCOL.md`：工作流协议，定义阶段流转、状态更新要求、停止条件
