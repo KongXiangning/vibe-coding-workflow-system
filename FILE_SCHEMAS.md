@@ -415,18 +415,50 @@
 
 ---
 
-## 11. 推荐落地顺序
+## 11. WORKFLOW_GUIDE.md
+
+### 作用
+
+给目标项目中的使用者和 AI agent 提供 workflow-system 操作手册，说明什么时候读哪些治理文档、什么时候调用哪些 skill、不同场景应该走哪条流程。
+
+### 必填章节
+
+- `## 使用规则`
+- `## 文档速查`
+- `## Skill 速查`
+- `## 标准任务流程`
+- `## 按场景选择`
+- `## 越界处理`
+- `## 交付检查`
+
+### 更新时机
+
+- 新增、删除或重命名 workflow skill 时更新
+- 调整标准任务流程、handoff 或主要治理文档职责时更新
+- 新增治理文档产出物时更新
+
+### 校验要求
+
+- 必须覆盖所有核心治理文档的用途和主要使用时机
+- 必须覆盖标准任务链上的主要 skill
+- 不得重新定义字段结构、错误码、gate 或 blocker 语义
+- 与 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md` 或 skill frontmatter 冲突时，以规范源和 skill frontmatter 为准
+
+---
+
+## 12. 推荐落地顺序
 
 如果要逐步启用这些文档，建议按下面顺序启用：
 
-1. `CONTRACTS.md`
-2. `STATUS.md`
-3. `ROADMAP.md`
-4. `BASELINES.md`
-5. `DECISIONS.md`
-6. `CURRENT_TASK.md`
-7. `LESSONS.md`
-8. `TASK_SUMMARY.md`
-9. `TASK_ARCHIVE.md`
+1. `WORKFLOW_GUIDE.md`
+2. `CONTRACTS.md`
+3. `STATUS.md`
+4. `ROADMAP.md`
+5. `BASELINES.md`
+6. `DECISIONS.md`
+7. `CURRENT_TASK.md`
+8. `LESSONS.md`
+9. `TASK_SUMMARY.md`
+10. `TASK_ARCHIVE.md`
 
 这样可以先建立稳定边界和长期演进框架，再补齐任务治理和经验沉淀。

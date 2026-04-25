@@ -8,6 +8,7 @@ export const WORKFLOW_DOC_NAMES = [
   'STATUS.md',
   'TASK_ARCHIVE.md',
   'TASK_SUMMARY.md',
+  'WORKFLOW_GUIDE.md',
 ] as const;
 
 export type WorkflowDocName = (typeof WORKFLOW_DOC_NAMES)[number];
@@ -96,6 +97,15 @@ export const WORKFLOW_DOC_REQUIRED_HEADINGS: Record<WorkflowDocName, readonly st
     '## 风险与后续',
     '## 交付清单',
   ],
+  'WORKFLOW_GUIDE.md': [
+    '## 使用规则',
+    '## 文档速查',
+    '## Skill 速查',
+    '## 标准任务流程',
+    '## 按场景选择',
+    '## 越界处理',
+    '## 交付检查',
+  ],
 };
 
 export const WORKFLOW_DOC_REQUIRED_SNIPPETS: Partial<Record<WorkflowDocName, readonly string[]>> = {
@@ -169,6 +179,17 @@ export const WORKFLOW_DOC_REQUIRED_SNIPPETS: Partial<Record<WorkflowDocName, rea
     '- 当前主线：',
     '- 已锁定范围：',
     '- 明确不做：',
+  ],
+  'WORKFLOW_GUIDE.md': [
+    '| `CURRENT_TASK.md` |',
+    '| `/create-current-task` |',
+    '| `/lock-scope` |',
+    '| `/implement-current-step` |',
+    '| `/review-diff` |',
+    '| `/verify-contracts` |',
+    '| `/run-regression` |',
+    '`FILE_SCHEMAS.md`',
+    '如果实现需要修改 `CURRENT_TASK.md` 允许范围外的文件',
   ],
 };
 

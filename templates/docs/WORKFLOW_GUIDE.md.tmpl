@@ -1,0 +1,89 @@
+# WORKFLOW_GUIDE.md
+
+## 使用规则
+
+- 本文件说明 workflow-system 的日常操作顺序：什么时候读哪些治理文档、什么时候调用哪些 skill。
+- 本文件只解释使用方法，不定义字段、章节、错误码或 gate 语义。
+- 详细文档结构以 `FILE_SCHEMAS.md` 为准；skill 的 reads / writes / handoff 以对应 `SKILL.md` 为准。
+- 如果本文件与 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md` 或具体 skill frontmatter 冲突，以规范源和 skill frontmatter 为准。
+
+## 文档速查
+
+| 文档 | 作用 | 主要使用时机 |
+| --- | --- | --- |
+| `STATUS.md` | 当前项目状态、稳定模块、风险和下一检查点 | 开始任务前、任务结束后 |
+| `ROADMAP.md` | 里程碑、当前窗口、候选事项和跨阶段风险 | 规划阶段、排优先级时 |
+| `CURRENT_TASK.md` | 本轮任务目标、范围、验收、回归和执行记录 | 每轮工作前、每步完成后 |
+| `CONTRACTS.md` | 稳定接口、架构边界、目录职责和不可破坏约束 | 实现前、审核前、契约复核前 |
+| `DECISIONS.md` | 已确认的架构、产品、口味、暂缓和否决决策 | 涉及选择、取舍或改方向时 |
+| `LESSONS.md` | 可复用经验、踩坑记录和触发信号 | 调试前、复盘时、遇到类似问题时 |
+| `BASELINES.md` | 发布、兼容、安全、部署、性能和 gate 基线 | 涉及发布 gate、兼容窗口或非功能要求时 |
+| `TASK_SUMMARY.md` | 交付摘要结构参考 | 交付前准备摘要时 |
+| `TASK_ARCHIVE.md` | 任务归档结构参考 | 任务完成后、追溯历史时 |
+
+## Skill 速查
+
+| 场景 | 使用 skill | 主要读取 | 主要产出 |
+| --- | --- | --- | --- |
+| 初始化治理文档 | `/init-governance` | 项目根目录、项目结构 | 初始治理状态判断 |
+| 创建任务包 | `/create-current-task` | `STATUS.md`、`ROADMAP.md`、用户需求 | `CURRENT_TASK.md` |
+| 审查任务包 | `/review-current-task` | `CURRENT_TASK.md` | 修订后的任务边界、验收和风险 |
+| 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 明确允许/禁止修改范围 |
+| 分类决策 | `/classify-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | Mechanical / Taste / User challenge 分类 |
+| 拆解步骤 | `/decompose-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 小步实施计划 |
+| 调查根因 | `/investigate-root-cause` | `CURRENT_TASK.md`、代码和日志线索 | 根因、证据、最小修复建议 |
+| 实现当前步骤 | `/implement-current-step` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码改动、验证结果、执行记录 |
+| 审查 diff | `/review-diff` | `git diff`、`CURRENT_TASK.md`、`DECISIONS.md` | scope drift / decision drift / 回归风险 |
+| 验证契约 | `/verify-contracts` | `git diff`、`CONTRACTS.md`、`CURRENT_TASK.md` | 接口和架构契约检查结果 |
+| 执行回归 | `/run-regression` | `CURRENT_TASK.md`、测试命令 | 回归验证结果 |
+| 同步任务记录 | `/sync-current-task` | `CURRENT_TASK.md`、实际执行事实 | 更新后的 `CURRENT_TASK.md` |
+| 同步契约 | `/sync-contracts` | `CURRENT_TASK.md`、`CONTRACTS.md` | 新稳定边界记录 |
+| 同步决策 | `/sync-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | 新确认决策记录 |
+| 同步状态 | `/sync-status` | `CURRENT_TASK.md`、`STATUS.md` | 更新后的项目状态 |
+| 交付摘要 | `/prepare-delivery-summary` | `CURRENT_TASK.md`、diff、验证结果 | 交付摘要内容，不自动写文件 |
+| 捕获经验 | `/capture-lessons` | `CURRENT_TASK.md`、验证/复盘事实 | `LESSONS.md` 更新建议 |
+| 归档任务 | `/archive-task` | `CURRENT_TASK.md`、交付摘要、`STATUS.md` | `TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md` 和下一轮入口建议 |
+
+## 标准任务流程
+
+1. 先读 `STATUS.md` / `ROADMAP.md`，确认当前任务是否处在正确窗口。
+2. 用 `/create-current-task` 创建 `CURRENT_TASK.md`。
+3. 用 `/review-current-task` 收敛目标、验收、风险和范围。
+4. 用 `/lock-scope` 明确允许修改范围、禁止修改范围和受影响契约。
+5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
+6. 用 `/decompose-task` 拆成一次只做一个当前步骤的小步计划。
+7. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
+8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核。
+9. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` 同步治理事实。
+10. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
+
+## 按场景选择
+
+| 场景 | 推荐入口 |
+| --- | --- |
+| 新需求进入 | `/create-current-task` |
+| 任务范围太大或不清楚 | `/review-current-task` → `/lock-scope` |
+| 需要多个模块联动 | `/classify-decisions` → `/decompose-task` |
+| 只允许改一个模块 | `/lock-scope`，并在 `CURRENT_TASK.md` 写明允许/禁止范围 |
+| 不确定 bug 根因 | `/investigate-root-cause` |
+| 代码已经改完，需要检查是否越界 | `/review-diff` |
+| 担心破坏稳定接口或架构边界 | `/verify-contracts` |
+| 需要证明本轮没回归 | `/run-regression` |
+| 任务完成但状态文档未同步 | `/sync-current-task` → `/sync-status` |
+| 任务可以交付 | `/prepare-delivery-summary` → `/archive-task` |
+
+## 越界处理
+
+- 如果实现需要修改 `CURRENT_TASK.md` 允许范围外的文件，停止当前实现并回到 `/lock-scope`。
+- 如果实现需要改变 `CONTRACTS.md` 中锁定边界，先记录决策并获得确认。
+- 如果实现依赖 Taste 或 User challenge 决策，先通过 `/classify-decisions` 暴露并确认。
+- 如果 diff 已经越界，先用 `/review-diff` 标记越界文件，再决定回滚、拆任务或扩大范围。
+
+## 交付检查
+
+- `CURRENT_TASK.md` 的验收标准已满足。
+- 实际改动文件没有未解释的 scope drift。
+- `CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` 中需要同步的事实已同步。
+- 回归检查项已有执行结果。
+- 交付摘要已能说明目标、结果、范围、验证和剩余风险。
+- 可复用经验已写入或建议写入 `LESSONS.md`。

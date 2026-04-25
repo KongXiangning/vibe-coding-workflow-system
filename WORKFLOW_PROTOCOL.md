@@ -841,12 +841,14 @@ TASK_SUMMARY.md
 TASK_ARCHIVE.md
 ROADMAP.md
 BASELINES.md
+WORKFLOW_GUIDE.md
 ```
 
 This protocol revision extends the required generated doc set with lifecycle-governance docs:
 
 - `ROADMAP.md` for milestone / roadmap / version-window planning
 - `BASELINES.md` for release, compatibility, security, deploy, and non-functional baselines
+- `WORKFLOW_GUIDE.md` for target-project operating guidance: when to use each governance doc and workflow skill
 
 ### 12.3 Docs substitution rules
 
