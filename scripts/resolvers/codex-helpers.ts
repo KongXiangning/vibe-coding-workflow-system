@@ -3,12 +3,13 @@ import type { Host } from './types';
 const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
 
 export function extractNameAndDescription(content: string): { name: string; description: string } {
-  const fmStart = content.indexOf('---\n');
+  const normalized = content.replace(/\r\n/g, '\n');
+  const fmStart = normalized.indexOf('---\n');
   if (fmStart !== 0) return { name: '', description: '' };
-  const fmEnd = content.indexOf('\n---', fmStart + 4);
+  const fmEnd = normalized.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return { name: '', description: '' };
 
-  const frontmatter = content.slice(fmStart + 4, fmEnd);
+  const frontmatter = normalized.slice(fmStart + 4, fmEnd);
   const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
   const name = nameMatch ? nameMatch[1].trim() : '';
 
@@ -78,12 +79,13 @@ export function transformFrontmatter(content: string, host: Host): string {
   if (host === 'claude') return content;
 
   // Find frontmatter boundaries
-  const fmStart = content.indexOf('---\n');
+  const normalized = content.replace(/\r\n/g, '\n');
+  const fmStart = normalized.indexOf('---\n');
   if (fmStart !== 0) return content; // frontmatter must be at the start
-  const fmEnd = content.indexOf('\n---', fmStart + 4);
+  const fmEnd = normalized.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return content;
 
-  const body = content.slice(fmEnd + 4); // includes the leading \n after ---
+  const body = normalized.slice(fmEnd + 4); // includes the leading \n after ---
   const { name, description } = extractNameAndDescription(content);
 
   // Codex 1024-char description limit — fail build, don't ship broken skills

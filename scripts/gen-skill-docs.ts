@@ -95,12 +95,13 @@ function externalSkillName(skillDir: string, frontmatterName?: string): string {
 }
 
 function extractNameAndDescription(content: string): { name: string; description: string } {
-  const fmStart = content.indexOf('---\n');
+  const normalized = content.replace(/\r\n/g, '\n');
+  const fmStart = normalized.indexOf('---\n');
   if (fmStart !== 0) return { name: '', description: '' };
-  const fmEnd = content.indexOf('\n---', fmStart + 4);
+  const fmEnd = normalized.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return { name: '', description: '' };
 
-  const frontmatter = content.slice(fmStart + 4, fmEnd);
+  const frontmatter = normalized.slice(fmStart + 4, fmEnd);
   const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
   const name = nameMatch ? nameMatch[1].trim() : '';
 
@@ -167,12 +168,13 @@ function transformFrontmatter(content: string, host: Host): string {
     return content.replace(/^sensitive:\s*true\n/m, '');
   }
 
-  const fmStart = content.indexOf('---\n');
+  const normalized = content.replace(/\r\n/g, '\n');
+  const fmStart = normalized.indexOf('---\n');
   if (fmStart !== 0) return content;
-  const fmEnd = content.indexOf('\n---', fmStart + 4);
+  const fmEnd = normalized.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return content;
-  const frontmatter = content.slice(fmStart + 4, fmEnd);
-  const body = content.slice(fmEnd + 4); // includes the leading \n after ---
+  const frontmatter = normalized.slice(fmStart + 4, fmEnd);
+  const body = normalized.slice(fmEnd + 4); // includes the leading \n after ---
   const { name, description } = extractNameAndDescription(content);
 
   if (host === 'codex') {

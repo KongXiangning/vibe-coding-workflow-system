@@ -295,19 +295,17 @@ describe('workflow protocol v26 propagation governance', () => {
     expect(protocol).toContain('backend API changes must extend downstream validation across frontend `hook`, `store`, `page`, `widget`, `form`, `table`, and `detail view` consumers');
   });
 
-  test('protocol and file schemas require formal schema, default rules, and test requirements for public interfaces', () => {
+  test('protocol owns formal schema, default rules, and test requirements for public interfaces', () => {
     const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
     const schemas = fs.readFileSync(path.join(ROOT, 'FILE_SCHEMAS.md'), 'utf8');
     expect(protocol).toContain('every public interface listed in `§18.6` must carry three things in the normative source: a formal schema, default rules, and conformance-test requirements');
     expect(protocol).toContain('#### §18.6.6 Conformance test requirements');
     expect(protocol).toContain('Every propagation-governance conformance case must record:');
     expect(protocol).toContain('- `EntityMutationChecklist`: category coverage across storage / api / dto / event / projection / ui');
-    expect(schemas).toContain('## 1.1 传播治理公开结构 schema 要求');
-    expect(schemas).toContain('### 测试样例通用要求');
-    expect(schemas).toContain('### ContractCompatibilityResult');
-    expect(schemas).toContain('### implicit_shared_object_detection');
-    expect(schemas).toContain('registry 与 discovery 不一致时，按 discovered union 扩展 `effective_consumers`');
-    expect(schemas).toContain('同文件 `A/B/C/Z` 复用场景要保住 `A`，走 `A -> AA` wrapper / compat path');
+    expect(schemas).toContain('## 1.1 传播治理公开结构承载位置');
+    expect(schemas).toContain('字段级 schema、枚举、gate、错误码、默认 blocker 规则和 conformance 测试要求均以 `WORKFLOW_PROTOCOL.md §18.6` 为唯一来源');
+    expect(schemas).toContain('| `ContractCompatibilityResult` | `CURRENT_TASK.md > blockers / gate status` |');
+    expect(schemas).toContain('| `implicit_shared_object_detection` | `CURRENT_TASK.md > eligibility / candidate / registry` 与 `CONTRACTS.md > candidate 回写记录` |');
   });
 });
 

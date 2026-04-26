@@ -74,7 +74,7 @@ describe('gen-skill-docs', () => {
   });
 
   test('command table is sorted alphabetically within categories', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8').replace(/\r\n/g, '\n');
     // Extract command names from the Navigation section as a test
     const navSection = content.match(/### Navigation\n\|.*\n\|.*\n([\s\S]*?)(?=\n###|\n## )/);
     expect(navSection).not.toBeNull();
@@ -125,7 +125,7 @@ describe('gen-skill-docs', () => {
 
   test('every generated SKILL.md has valid YAML frontmatter', () => {
     for (const skill of ALL_SKILLS) {
-      const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
+      const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8').replace(/\r\n/g, '\n');
       expect(content.startsWith('---\n')).toBe(true);
       expect(content).toContain('name:');
       expect(content).toContain('description:');
@@ -184,7 +184,7 @@ describe('gen-skill-docs', () => {
       stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     // Every skill should be FRESH
     for (const skill of ALL_SKILLS) {
       const file = skill.dir === '.' ? 'SKILL.md' : `${skill.dir}/SKILL.md`;
@@ -1523,6 +1523,7 @@ describe('Codex generation (--host codex)', () => {
       const content = fs.readFileSync(metadata, 'utf-8');
       expect(content).toContain(`display_name: "${skill.codexName}"`);
       expect(content).toContain('short_description:');
+      expect(content).toMatch(/short_description:\s*"[^"]+"/);
       expect(content).toContain('allow_implicit_invocation: true');
     }
   });
@@ -1563,7 +1564,7 @@ describe('Codex generation (--host codex)', () => {
       stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     // Every Codex skill should be FRESH
     for (const skill of CODEX_SKILLS) {
       expect(output).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
@@ -1862,7 +1863,7 @@ describe('Factory generation (--host factory)', () => {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     for (const skill of FACTORY_SKILLS) {
       expect(output).toContain(`FRESH: .factory/skills/${skill.factoryName}/SKILL.md`);
     }
@@ -1885,7 +1886,7 @@ describe('--host all', () => {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     // All three hosts should appear in output
     expect(output).toContain('FRESH: SKILL.md');           // claude
     expect(output).toContain('FRESH: .agents/skills/');     // codex
