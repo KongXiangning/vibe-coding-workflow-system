@@ -7,6 +7,7 @@ import {
   STAGE_MAP,
   STAGE_ALIASES,
   REQUIRED_STAGES,
+  REQUIRED_RUNTIME_SKILL_STAGES,
   RESERVED_FAILURE_TARGETS,
   normalizeList,
   getRequiredPath,
@@ -26,6 +27,7 @@ import {
   validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
   validateStages,
+  validateRuntimeSkillStages,
   validateRequiredFields,
   extractHandoff,
   validateHandoff,
@@ -69,6 +71,14 @@ describe('workflow-core', () => {
     test('REQUIRED_STAGES contains all Chinese display names', () => {
       for (const display of STAGE_MAP.values()) {
         expect(REQUIRED_STAGES.has(display)).toBe(true);
+      }
+    });
+
+    test('REQUIRED_RUNTIME_SKILL_STAGES excludes init but keeps numbered phases', () => {
+      expect(REQUIRED_RUNTIME_SKILL_STAGES.has('初始化')).toBe(false);
+      for (const display of STAGE_MAP.values()) {
+        if (display === '初始化') continue;
+        expect(REQUIRED_RUNTIME_SKILL_STAGES.has(display)).toBe(true);
       }
     });
 
@@ -118,6 +128,22 @@ describe('workflow-core', () => {
     test('throws on extra unknown stages', () => {
       const withExtra = [...allChineseStages, 'unknown-stage'];
       expect(() => validateStages(withExtra)).toThrow(/Invalid stage value/);
+    });
+  });
+
+  describe('validateRuntimeSkillStages', () => {
+    const runtimeChineseStages = [...STAGE_MAP.values()].filter(stage => stage !== '初始化');
+    const runtimeCanonicalStages = [...STAGE_MAP.entries()]
+      .filter(([, display]) => display !== '初始化')
+      .map(([canonical]) => canonical);
+
+    test('accepts numbered workflow stages without init', () => {
+      expect(() => validateRuntimeSkillStages(runtimeChineseStages)).not.toThrow();
+      expect(() => validateRuntimeSkillStages(runtimeCanonicalStages)).not.toThrow();
+    });
+
+    test('throws when a numbered runtime stage is missing', () => {
+      expect(() => validateRuntimeSkillStages(runtimeChineseStages.slice(1))).toThrow(/Missing required stage coverage/);
     });
   });
 

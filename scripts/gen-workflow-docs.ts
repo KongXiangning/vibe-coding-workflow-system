@@ -12,6 +12,7 @@ import {
   validateProfilePathSemantics,
   validateUnresolvedPlaceholders,
   resolveRoot,
+  getWorkflowGeneratedDir,
   ensureCleanOutputDir,
   executeWrites,
   runGenerator,
@@ -27,7 +28,6 @@ const ROOT = resolveRoot();
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
 const VERSION_PATH = path.join(ROOT, 'VERSION');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'docs');
-const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-docs');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const REQUIRED_DOCS = new Set(WORKFLOW_DOC_NAMES);
@@ -51,6 +51,7 @@ function validateRequiredHeadings(fileName: string, content: string): void {
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
   validateProfilePathSemantics(profile);
+  const outputDir = getWorkflowGeneratedDir(ROOT, profile, 'workflow-docs');
 
   const version = readText(VERSION_PATH).trim();
   if (!version) {
@@ -74,7 +75,7 @@ function main(): void {
     validateRequiredHeadings(outputName, content);
     validateUnresolvedPlaceholders(outputName, content, WORKFLOW_DOC_RUNTIME_PLACEHOLDERS);
 
-    pendingWrites.push({ path: path.join(OUTPUT_DIR, outputName), content });
+    pendingWrites.push({ path: path.join(outputDir, outputName), content });
   }
 
   const renderedNames = new Set(pendingWrites.map(w => path.basename(w.path)));
@@ -88,12 +89,12 @@ function main(): void {
   executeWrites(
     pendingWrites,
     DRY_RUN,
-    `Generated ${pendingWrites.length} workflow docs to ${OUTPUT_DIR}`,
+    `Generated ${pendingWrites.length} workflow docs to ${outputDir}`,
   );
 
   if (!DRY_RUN) {
     ensureCleanOutputDir(
-      OUTPUT_DIR,
+      outputDir,
       '.md',
       pendingWrites.map(operation => operation.path),
     );

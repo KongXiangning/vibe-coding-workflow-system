@@ -54,9 +54,11 @@ allowed-tools:
   - Edit
   - AskUserQuestion
 benefits-from:
-  - /init-governance
+  - bun run workflow:init --mode greenfield
+  - bun run workflow:init --mode existing
 notes:
   - 这是任务包创建 skill，不进入实现。
+  - 项目级初始化由 workflow:init 命令层承担，而不是长期 runtime skill。
   - 任务标识字段必须保留在 CURRENT_TASK.md 中；bootstrap planning 不得伪造其具体值。
 required_sections:
   - 任务信息
@@ -190,5 +192,6 @@ acceptance_rules:
 ## Notes
 
 - 这是任务包创建 skill，不进入实现。
+- 项目级初始化由 workflow:init 命令层承担，而不是长期 runtime skill。
 - This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
 - Replace project variables with concrete project-specific values during skill generation.

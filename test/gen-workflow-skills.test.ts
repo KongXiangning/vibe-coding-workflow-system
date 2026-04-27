@@ -26,7 +26,6 @@ const REQUIRED_FIELDS = [
 ] as const;
 
 const REQUIRED_STAGES = new Set([
-  '初始化',
   '阶段 1：需求进入',
   '阶段 2：范围锁定',
   '阶段 3：方案拆解',

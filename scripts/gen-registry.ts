@@ -12,15 +12,18 @@ import {
   projectPlaceholders,
   parseFrontmatter,
   renderValue,
+  renderWorkflowDocReferences,
   validateProfilePathSemantics,
   validatePathEntries,
   validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
-  validateStages,
+  validateRuntimeSkillStages,
   validateRequiredFields,
   extractHandoff,
   validateHandoff,
   resolveRoot,
+  getWorkflowGeneratedRelativeDir,
+  getWorkflowRegistryPath,
   executeWrites,
   runGenerator,
 } from './workflow-core';
@@ -51,7 +54,6 @@ type StageSection = {
 const ROOT = resolveRoot();
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
-const OUTPUT_PATH = path.join(ROOT, 'SKILL_REGISTRY.md');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const REQUIRED_FIELDS = ['name', 'purpose', 'stage', 'trigger', 'reads', 'writes', 'handoff'] as const;
@@ -66,7 +68,6 @@ const HIGH_RISK_SKILLS = [
   'archive-task',
 ];
 const WORKFLOW_ORDER = [
-  'init-governance',
   'create-current-task',
   'review-current-task',
   'lock-scope',
@@ -86,20 +87,19 @@ const WORKFLOW_ORDER = [
   'archive-task',
 ] as const;
 const STAGE_SECTIONS: StageSection[] = [
-  { stage: '初始化', sectionTitle: '### 3.1 初始化', summaryLabel: '初始化' },
-  { stage: '阶段 1：需求进入', sectionTitle: '### 3.2 阶段 1：需求进入', summaryLabel: '阶段 1：需求进入' },
-  { stage: '阶段 2：范围锁定', sectionTitle: '### 3.3 阶段 2：范围锁定', summaryLabel: '阶段 2：范围锁定' },
-  { stage: '阶段 3：方案拆解', sectionTitle: '### 3.4 阶段 3：方案拆解', summaryLabel: '阶段 3：方案拆解' },
-  { stage: '阶段 4：小步实现', sectionTitle: '### 3.5 阶段 4：小步实现', summaryLabel: '阶段 4：小步实现' },
+  { stage: '阶段 1：需求进入', sectionTitle: '### 3.1 阶段 1：需求进入', summaryLabel: '阶段 1：需求进入' },
+  { stage: '阶段 2：范围锁定', sectionTitle: '### 3.2 阶段 2：范围锁定', summaryLabel: '阶段 2：范围锁定' },
+  { stage: '阶段 3：方案拆解', sectionTitle: '### 3.3 阶段 3：方案拆解', summaryLabel: '阶段 3：方案拆解' },
+  { stage: '阶段 4：小步实现', sectionTitle: '### 3.4 阶段 4：小步实现', summaryLabel: '阶段 4：小步实现' },
   {
     stage: '阶段 4/6：实现或验证异常',
-    sectionTitle: '### 3.6 阶段 4/6：异常处理',
+    sectionTitle: '### 3.5 阶段 4/6：异常处理',
     summaryLabel: '阶段 4/6：异常处理',
   },
-  { stage: '阶段 5：范围复核', sectionTitle: '### 3.7 阶段 5：范围复核', summaryLabel: '阶段 5：范围复核' },
-  { stage: '阶段 6：回归验证', sectionTitle: '### 3.8 阶段 6：回归验证', summaryLabel: '阶段 6：回归验证' },
-  { stage: '阶段 7：状态同步', sectionTitle: '### 3.9 阶段 7：状态同步', summaryLabel: '阶段 7：状态同步' },
-  { stage: '阶段 8：交付沉淀', sectionTitle: '### 3.10 阶段 8：交付沉淀', summaryLabel: '阶段 8：交付沉淀' },
+  { stage: '阶段 5：范围复核', sectionTitle: '### 3.6 阶段 5：范围复核', summaryLabel: '阶段 5：范围复核' },
+  { stage: '阶段 6：回归验证', sectionTitle: '### 3.7 阶段 6：回归验证', summaryLabel: '阶段 6：回归验证' },
+  { stage: '阶段 7：状态同步', sectionTitle: '### 3.8 阶段 7：状态同步', summaryLabel: '阶段 7：状态同步' },
+  { stage: '阶段 8：交付沉淀', sectionTitle: '### 3.9 阶段 8：交付沉淀', summaryLabel: '阶段 8：交付沉淀' },
 ];
 
 const WORKFLOW_ORDER_INDEX = new Map(WORKFLOW_ORDER.map((name, index) => [name, index]));
@@ -204,7 +204,7 @@ function renderStageSection(section: StageSection, skills: RegistrySkill[]): str
   ].join('\n');
 }
 
-function renderRegistry(skills: RegistrySkill[]): string {
+function renderRegistry(skills: RegistrySkill[], workflowSkillDir: string): string {
   const sortedSkills = sortSkills(skills);
   const grouped = new Map<string, RegistrySkill[]>();
 
@@ -242,7 +242,7 @@ function renderRegistry(skills: RegistrySkill[]): string {
 - 本文件面向人类阅读与审查
 - 本文件由 \`bun run gen:registry\` 自动生成，请勿手工编辑
 - 元数据来源为 \`templates/skills/*.SKILL.md.tmpl\` frontmatter，并按 \`PROJECT_PROFILE.yaml\` 解析项目级占位符
-- 真实执行协议以 \`generated/workflow-skills/*.SKILL.md\` 为准
+- 真实执行协议以 \`${workflowSkillDir}/*.SKILL.md\` 为准
 
 ---
 
@@ -293,6 +293,8 @@ ${HIGH_RISK_SKILLS.map(name => `- \`${name}\``).join('\n')}
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
   validateProfilePathSemantics(profile);
+  const outputPath = getWorkflowRegistryPath(ROOT, profile);
+  const workflowSkillDir = getWorkflowGeneratedRelativeDir(profile, 'workflow-skills');
 
   const replacements = projectPlaceholders(profile);
   const templates = loadTemplates();
@@ -300,7 +302,10 @@ function main(): void {
   const knownNames = new Set(templates.map(template => template.name));
 
   for (const template of templates) {
-    const renderedFrontmatter = renderValue(template.frontmatter, replacements) as JsonObject;
+    const renderedFrontmatter = renderWorkflowDocReferences(
+      renderValue(template.frontmatter, replacements),
+      profile,
+    ) as JsonObject;
     validateRequiredFields(renderedFrontmatter, REQUIRED_FIELDS, template.filePath);
     validatePathEntries(renderedFrontmatter, ['reads', 'writes', 'forbidden_writes'], template.filePath);
     validateWriteBoundaryConflicts(renderedFrontmatter, template.filePath);
@@ -313,16 +318,16 @@ function main(): void {
     renderedSkills.push(skill);
   }
 
-  validateStages(renderedSkills.map(skill => skill.stage));
+  validateRuntimeSkillStages(renderedSkills.map(skill => skill.stage));
   validateWorkflowOrder(renderedSkills);
 
-  const content = renderRegistry(renderedSkills);
+  const content = renderRegistry(renderedSkills, workflowSkillDir);
   validateUnresolvedPlaceholders('registry', content, ALLOWED_UNRESOLVED);
 
   executeWrites(
-    [{ path: OUTPUT_PATH, content }],
+    [{ path: outputPath, content }],
     DRY_RUN,
-    `Generated workflow skill registry to ${OUTPUT_PATH}`,
+    `Generated workflow skill registry to ${outputPath}`,
   );
 }
 

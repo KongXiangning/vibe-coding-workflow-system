@@ -11,6 +11,7 @@ bin/gstack-global-discover
 extension/.auth.json
 .gstack-worktrees/
 /tmp/
+.tmp/
 *.log
 *.bun-build
 .env

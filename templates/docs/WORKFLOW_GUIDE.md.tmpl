@@ -25,7 +25,7 @@
 
 | 场景 | 使用 skill | 主要读取 | 主要产出 |
 | --- | --- | --- | --- |
-| 初始化治理文档 | `/init-governance` | 项目根目录、项目结构 | 初始治理状态判断 |
+| 初始化治理文档 | `bun run workflow:init --mode greenfield|existing` | `PROJECT_PROFILE.yaml`、项目根目录、项目结构 | 初始化报告 / 接管计划 |
 | 创建任务包 | `/create-current-task` | `STATUS.md`、`ROADMAP.md`、用户需求 | `CURRENT_TASK.md` |
 | 审查任务包 | `/review-current-task` | `CURRENT_TASK.md` | 修订后的任务边界、验收和风险 |
 | 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 明确允许/禁止修改范围 |

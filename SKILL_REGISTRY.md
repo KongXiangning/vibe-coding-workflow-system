@@ -19,7 +19,6 @@
 
 | 阶段 | Skill |
 |---|---|
-| 初始化 | `init-governance` |
 | 阶段 1：需求进入 | `create-current-task` → `review-current-task` |
 | 阶段 2：范围锁定 | `lock-scope` |
 | 阶段 3：方案拆解 | `classify-decisions` → `decompose-task` |
@@ -39,58 +38,52 @@
 
 ## 3. Skill 清单
 
-### 3.1 初始化
-
-| Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
-|---|---|---|---|---|---|---|
-| `init-governance` | 识别项目当前治理成熟度，给出建议的治理骨架与缺失文件清单。 | 当项目第一次接入这套方法论，或治理文件尚未建立时。 | `项目根目录`、`README.md`、`ARCHITECTURE.md`、`package.json`、`bun.lock`、`pyproject.toml`、`go.mod` | `[]` | `create-current-task` | `ask-user` |
-
-### 3.2 阶段 1：需求进入
+### 3.1 阶段 1：需求进入
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `create-current-task` | 根据用户需求生成可执行的 CURRENT_TASK.md 初稿。 | 当用户提出新需求，且当前没有可直接执行的任务包时。 | `PROJECT_PROFILE.yaml`、`STATUS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `review-current-task` | `ask-user` |
 | `review-current-task` | 审查 CURRENT_TASK.md 初稿并收敛成可执行任务包。 | 当 CURRENT_TASK.md 初稿已经生成，进入实现前。 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | `CURRENT_TASK.md` | `lock-scope` | `ask-user` |
 
-### 3.3 阶段 2：范围锁定
+### 3.2 阶段 2：范围锁定
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `lock-scope` | 锁定本轮允许修改与禁止修改的边界。 | 在任何实现动作开始前。 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `classify-decisions` | `ask-user` |
 
-### 3.4 阶段 3：方案拆解
+### 3.3 阶段 3：方案拆解
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `classify-decisions` | 把任务中的决策分为 Mechanical、Taste、User challenge。 | 开始拆步骤前。 | `CURRENT_TASK.md`、`DECISIONS.md` | `CURRENT_TASK.md`、`DECISIONS.md` | `decompose-task` | `ask-user` |
 | `decompose-task` | 把任务拆成独立、可验证、低污染的小步骤。 | 完成决策分级后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`DECISIONS.md` | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
 
-### 3.5 阶段 4：小步实现
+### 3.4 阶段 4：小步实现
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `implement-current-step` | 只实现 CURRENT_TASK.md 中当前步骤，禁止顺手扩散。 | 进入具体编码实现时。 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | `scripts`、`browse/src`、`design/src`、`test`、`browse/test`、`CURRENT_TASK.md` | `review-diff` | `ask-user` |
 
-### 3.6 阶段 4/6：异常处理
+### 3.5 阶段 4/6：异常处理
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `investigate-root-cause` | 先做根因定位，再提出最小修复建议。 | 测试失败、验证失败或实现过程中出现异常时。 | `CURRENT_TASK.md`、`报错信息`、`当前 diff`、`相关日志或测试结果` | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
 
-### 3.7 阶段 5：范围复核
+### 3.6 阶段 5：范围复核
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `review-diff` | 审查当前 diff 是否越界、是否偏离任务意图。 | 每完成一个实现步骤后。 | `git diff`、`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | `[]` | `verify-contracts` | `ask-user` |
 | `verify-contracts` | 专门核查接口契约和架构契约是否被破坏。 | diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时。 | `git diff`、`CONTRACTS.md`、`CURRENT_TASK.md` | `[]` | `run-regression` | `ask-user` |
 
-### 3.8 阶段 6：回归验证
+### 3.7 阶段 6：回归验证
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `run-regression` | 运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`测试命令`、`验证清单` | `[]` | `sync-current-task` | `investigate-root-cause` |
 
-### 3.9 阶段 7：状态同步
+### 3.8 阶段 7：状态同步
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
@@ -100,7 +93,7 @@
 | `sync-decisions` | 把本轮已确认的决策写入 DECISIONS.md。 | 本轮实现明确形成了新的架构决策、口味决策、暂缓项或否决项时。 | `DECISIONS.md`、`CURRENT_TASK.md`、`实际结果`、`用户确认信息` | `DECISIONS.md` | `capture-lessons` | `ask-user` |
 | `capture-lessons` | 把本轮踩坑经验和稳定协作方式沉淀到 LESSONS.md。 | 任务收尾、踩坑后复盘，或发现新的高价值协作经验时。 | `LESSONS.md`、`CURRENT_TASK.md`、`验证结果`、`本轮问题与修复过程` | `LESSONS.md` | `prepare-delivery-summary` | `ask-user` |
 
-### 3.10 阶段 8：交付沉淀
+### 3.9 阶段 8：交付沉淀
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|

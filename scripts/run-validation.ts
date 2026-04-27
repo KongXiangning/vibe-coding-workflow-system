@@ -13,7 +13,13 @@
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { parse } from 'yaml';
-import { readText, resolveRoot } from './workflow-core';
+import {
+  getWorkflowDocPath,
+  getWorkflowGeneratedDir,
+  loadProfile,
+  readText,
+  resolveRoot,
+} from './workflow-core';
 import { validatePropagationGovernanceDocs } from './propagation-governance';
 import {
   validateBaselineCoverageForBoundSlots,
@@ -217,13 +223,14 @@ function getBoundProjectEntrypoints(entrypoints: readonly ValidationEntrypoint[]
 }
 
 function resolveGovernanceDocPath(root: string, file: LifecycleGovernanceDoc): string {
-  const livePath = path.join(root, file);
+  const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+  const livePath = getWorkflowDocPath(root, profile, file);
   try {
     readText(livePath);
     return livePath;
   } catch {}
 
-  const generatedPath = path.join(root, 'generated', 'workflow-docs', file);
+  const generatedPath = path.join(getWorkflowGeneratedDir(root, profile, 'workflow-docs'), file);
   try {
     readText(generatedPath);
     return generatedPath;

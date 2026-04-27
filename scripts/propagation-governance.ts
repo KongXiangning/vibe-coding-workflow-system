@@ -1,5 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+  getWorkflowDocPath,
+  getWorkflowGeneratedDir,
+  loadProfile,
+  type JsonObject,
+} from './workflow-core';
 import { validateWorkflowDocContract } from './workflow-doc-contracts';
 
 export type PropagationGovernanceMode = 'protocol' | 'project';
@@ -92,9 +98,13 @@ function blockHasMaterializedChildren(content: string, label: string): boolean {
   });
 }
 
-function resolveDocPath(root: string, file: 'CURRENT_TASK.md' | 'CONTRACTS.md' | 'BASELINES.md', mode: PropagationGovernanceMode): string {
-  const livePath = path.join(root, file);
-  const generatedPath = path.join(root, 'generated', 'workflow-docs', file);
+function loadRootProfile(root: string): JsonObject {
+  return loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+}
+
+function resolveDocPath(root: string, profile: JsonObject, file: 'CURRENT_TASK.md' | 'CONTRACTS.md' | 'BASELINES.md', mode: PropagationGovernanceMode): string {
+  const livePath = getWorkflowDocPath(root, profile, file);
+  const generatedPath = path.join(getWorkflowGeneratedDir(root, profile, 'workflow-docs'), file);
 
   if (mode === 'protocol') {
     if (fs.existsSync(generatedPath)) {
@@ -293,9 +303,10 @@ function validateBaselines(content: string, issues: string[]): void {
 
 export function validatePropagationGovernanceDocs(root: string, mode: PropagationGovernanceMode = 'protocol'): void {
   const issues: string[] = [];
-  const currentTask = fs.readFileSync(resolveDocPath(root, 'CURRENT_TASK.md', mode), 'utf8');
-  const contracts = fs.readFileSync(resolveDocPath(root, 'CONTRACTS.md', mode), 'utf8');
-  const baselines = fs.readFileSync(resolveDocPath(root, 'BASELINES.md', mode), 'utf8');
+  const profile = loadRootProfile(root);
+  const currentTask = fs.readFileSync(resolveDocPath(root, profile, 'CURRENT_TASK.md', mode), 'utf8');
+  const contracts = fs.readFileSync(resolveDocPath(root, profile, 'CONTRACTS.md', mode), 'utf8');
+  const baselines = fs.readFileSync(resolveDocPath(root, profile, 'BASELINES.md', mode), 'utf8');
 
   validateCurrentTask(currentTask, issues);
   validateContracts(contracts, issues);

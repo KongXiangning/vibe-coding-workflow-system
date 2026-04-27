@@ -15,6 +15,7 @@ import {
   repoPatternMatchesPath,
   hasDottedPath,
 } from './repo-path-patterns';
+import { WORKFLOW_DOC_NAMES } from './workflow-doc-contracts';
 export type { RepoPatternField } from './repo-path-patterns';
 
 // --- Types ---
@@ -76,6 +77,14 @@ export const REQUIRED_STAGES = new Set([
   '阶段 8：交付沉淀',
 ]);
 
+/**
+ * Runtime workflow skills cover the numbered workflow phases.
+ * Project initialization is handled by workflow:init at the command layer.
+ */
+export const REQUIRED_RUNTIME_SKILL_STAGES = new Set(
+  [...REQUIRED_STAGES].filter(stage => stage !== '初始化'),
+);
+
 export const RESERVED_FAILURE_TARGETS = new Set(['ask-user']);
 
 // --- File I/O ---
@@ -132,6 +141,75 @@ export function getRequiredPath(obj: JsonObject, dottedPath: string): JsonValue 
   }
 
   return current;
+}
+
+export function getWorkflowHome(profile: JsonObject): string {
+  const paths = profile.paths;
+  if (!paths || typeof paths !== 'object' || Array.isArray(paths) || !('workflow_home' in paths)) {
+    return '';
+  }
+
+  const rawValue = (paths as JsonObject).workflow_home;
+  if (rawValue == null) {
+    return '';
+  }
+  if (typeof rawValue !== 'string') {
+    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: value must be a string');
+  }
+
+  const normalized = normalizePathEntry(rawValue);
+  if (normalized === '.') {
+    return '';
+  }
+  if (normalized.length === 0) {
+    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: empty string');
+  }
+  if (/[\0-\x1F\x7F]/.test(normalized)) {
+    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: control character');
+  }
+  if (normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
+    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: absolute path');
+  }
+  if (normalized.includes('..')) {
+    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: parent traversal');
+  }
+  if (normalized.includes('*')) {
+    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: wildcard');
+  }
+
+  return normalized.replace(/\/+$/, '');
+}
+
+function joinRepoPath(...parts: string[]): string {
+  return parts.filter(Boolean).join('/').replace(/\/+/g, '/');
+}
+
+export function getWorkflowRelativePath(profile: JsonObject, ...parts: string[]): string {
+  return joinRepoPath(getWorkflowHome(profile), ...parts);
+}
+
+export function getWorkflowGeneratedRelativeDir(profile: JsonObject, name: 'workflow-docs' | 'workflow-skills'): string {
+  return getWorkflowRelativePath(profile, 'generated', name);
+}
+
+export function getWorkflowGeneratedDir(root: string, profile: JsonObject, name: 'workflow-docs' | 'workflow-skills'): string {
+  return path.join(root, ...getWorkflowGeneratedRelativeDir(profile, name).split('/').filter(Boolean));
+}
+
+export function getWorkflowRegistryRelativePath(profile: JsonObject): string {
+  return getWorkflowRelativePath(profile, 'SKILL_REGISTRY.md');
+}
+
+export function getWorkflowRegistryPath(root: string, profile: JsonObject): string {
+  return path.join(root, ...getWorkflowRegistryRelativePath(profile).split('/').filter(Boolean));
+}
+
+export function getWorkflowDocRelativePath(profile: JsonObject, file: string): string {
+  return getWorkflowRelativePath(profile, file);
+}
+
+export function getWorkflowDocPath(root: string, profile: JsonObject, file: string): string {
+  return path.join(root, ...getWorkflowDocRelativePath(profile, file).split('/').filter(Boolean));
 }
 
 export function normalizeList(value: JsonValue): string[] {
@@ -220,6 +298,40 @@ export function renderValue(
   let rendered = value;
   for (const [placeholder, replacement] of Object.entries(replacements)) {
     rendered = rendered.split(placeholder).join(stringifyInline(replacement));
+  }
+  return rendered;
+}
+
+function replaceRepoToken(value: string, token: string, replacement: string): string {
+  if (token === replacement) {
+    return value;
+  }
+
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(?<![A-Za-z0-9_./-])${escaped}(?![A-Za-z0-9_/-])`, 'g');
+  return value.replace(pattern, replacement);
+}
+
+export function renderWorkflowDocReferences(value: JsonValue, profile: JsonObject): JsonValue {
+  if (Array.isArray(value)) {
+    return value.map(item => renderWorkflowDocReferences(item, profile));
+  }
+
+  if (value && typeof value === 'object') {
+    const result: JsonObject = {};
+    for (const [key, child] of Object.entries(value)) {
+      result[key] = renderWorkflowDocReferences(child, profile);
+    }
+    return result;
+  }
+
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  let rendered = value;
+  for (const file of WORKFLOW_DOC_NAMES) {
+    rendered = replaceRepoToken(rendered, file, getWorkflowDocRelativePath(profile, file));
   }
   return rendered;
 }
@@ -338,6 +450,8 @@ export function validateWriteBoundaryConflicts(obj: JsonObject, context: string)
 }
 
 export function validateProfilePathSemantics(profile: JsonObject, context = 'PROJECT_PROFILE.yaml'): void {
+  getWorkflowHome(profile);
+
   validatePathEntries(
     {
       reads: [],
@@ -403,6 +517,14 @@ export function validateUnresolvedPlaceholders(
 }
 
 export function validateStages(stages: Iterable<string>): void {
+  validateStageCoverage(stages, REQUIRED_STAGES);
+}
+
+export function validateRuntimeSkillStages(stages: Iterable<string>): void {
+  validateStageCoverage(stages, REQUIRED_RUNTIME_SKILL_STAGES);
+}
+
+function validateStageCoverage(stages: Iterable<string>, requiredStages: ReadonlySet<string>): void {
   const seen = new Set<string>();
   for (const stage of stages) {
     const canonical = STAGE_ALIASES.get(stage);
@@ -415,7 +537,7 @@ export function validateStages(stages: Iterable<string>): void {
     }
   }
   for (const [canonical, display] of STAGE_MAP) {
-    if (!seen.has(canonical)) {
+    if (requiredStages.has(display) && !seen.has(canonical)) {
       throw new Error(`Missing required stage coverage: ${display}`);
     }
   }
@@ -613,6 +735,7 @@ export function executeWrites(
     const rollbackEntries: Array<{ targetPath: string; backupPath?: string }> = [];
     let counter = 0;
     const stagingRoot = getWriteStagingRoot(operations);
+    fs.mkdirSync(stagingRoot, { recursive: true });
     const stagingDir = fs.mkdtempSync(
       path.join(stagingRoot, `.workflow-write-staging-${process.pid}-`),
     );

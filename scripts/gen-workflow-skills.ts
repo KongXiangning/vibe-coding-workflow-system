@@ -14,15 +14,17 @@ import {
   parseFrontmatter,
   stringifyInline,
   renderValue,
+  renderWorkflowDocReferences,
   validateProfilePathSemantics,
   validatePathEntries,
   validateWriteBoundaryConflicts,
   validateUnresolvedPlaceholders,
-  validateStages,
+  validateRuntimeSkillStages,
   validateRequiredFields,
   extractHandoff,
   validateHandoff,
   resolveRoot,
+  getWorkflowGeneratedDir,
   ensureCleanOutputDir,
   executeWrites,
   runGenerator,
@@ -38,7 +40,6 @@ type SkillFile = {
 const ROOT = resolveRoot();
 const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
-const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-skills');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const REQUIRED_FIELDS = [
@@ -135,6 +136,7 @@ function loadTemplates(): SkillFile[] {
 function main(): void {
   const profile = loadProfile(PROFILE_PATH);
   validateProfilePathSemantics(profile);
+  const outputDir = getWorkflowGeneratedDir(ROOT, profile, 'workflow-skills');
 
   const replacements = projectPlaceholders(profile);
   const projectType = String(getRequiredPath(profile, 'project.type'));
@@ -145,8 +147,14 @@ function main(): void {
 
   // Phase 1: Render and validate all templates in memory
   for (const template of templates) {
-    const renderedFrontmatter = renderValue(template.frontmatter, replacements) as JsonObject;
-    const renderedBody = renderBody(template.body, replacements, projectType);
+    const renderedFrontmatter = renderWorkflowDocReferences(
+      renderValue(template.frontmatter, replacements),
+      profile,
+    ) as JsonObject;
+    const renderedBody = renderWorkflowDocReferences(
+      renderBody(template.body, replacements, projectType),
+      profile,
+    ) as string;
     const renderedFile: SkillFile = {
       name: template.name,
       filePath: template.filePath,
@@ -159,7 +167,7 @@ function main(): void {
     const handoff = extractHandoff(renderedFrontmatter, template.filePath);
     validateHandoff(handoff, knownNames, template.filePath);
 
-    const outputPath = path.join(OUTPUT_DIR, `${template.name}.SKILL.md`);
+    const outputPath = path.join(outputDir, `${template.name}.SKILL.md`);
     const content = formatSkill(renderedFrontmatter, renderedBody);
     validateUnresolvedPlaceholders(outputPath, content, ALLOWED_UNRESOLVED);
 
@@ -167,18 +175,18 @@ function main(): void {
     pendingWrites.push({ path: outputPath, content });
   }
 
-  validateStages(renderedSkills.map(skill => String(skill.frontmatter.stage)));
+  validateRuntimeSkillStages(renderedSkills.map(skill => String(skill.frontmatter.stage)));
 
   // Phase 2: Write all files only after all validations pass
   executeWrites(
     pendingWrites,
     DRY_RUN,
-    `Generated ${renderedSkills.length} workflow skills to ${OUTPUT_DIR}`,
+    `Generated ${renderedSkills.length} workflow skills to ${outputDir}`,
   );
 
   if (!DRY_RUN) {
     ensureCleanOutputDir(
-      OUTPUT_DIR,
+      outputDir,
       '.SKILL.md',
       pendingWrites.map(operation => operation.path),
     );

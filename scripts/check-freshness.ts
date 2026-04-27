@@ -13,7 +13,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
-import { resolveRoot } from './workflow-core';
+import {
+  getWorkflowGeneratedDir,
+  getWorkflowRegistryPath,
+  loadProfile,
+  resolveRoot,
+  validateProfilePathSemantics,
+} from './workflow-core';
 
 // --- Types ---
 
@@ -139,14 +145,29 @@ function generateExpectedOutput(root: string, target: FreshnessTarget): Map<stri
       );
     }
 
-    return snapshotOutput(path.join(tempRoot, target.outputDir), target.filePattern);
+    return snapshotOutput(resolveFreshnessOutputDir(tempRoot, target), target.filePattern);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 }
 
+function resolveFreshnessOutputDir(root: string, target: FreshnessTarget): string {
+  const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+  validateProfilePathSemantics(profile);
+  if (target.name === 'workflow-skills') {
+    return getWorkflowGeneratedDir(root, profile, 'workflow-skills');
+  }
+  if (target.name === 'workflow-docs') {
+    return getWorkflowGeneratedDir(root, profile, 'workflow-docs');
+  }
+  if (target.name === 'registry') {
+    return path.dirname(getWorkflowRegistryPath(root, profile));
+  }
+  return path.join(root, target.outputDir);
+}
+
 export function checkFreshness(root: string, target: FreshnessTarget): FreshnessResult {
-  const outputDir = path.join(root, target.outputDir);
+  const outputDir = resolveFreshnessOutputDir(root, target);
   const committed = snapshotOutput(outputDir, target.filePattern);
 
   const staleFiles: string[] = [];

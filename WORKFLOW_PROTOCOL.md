@@ -339,10 +339,10 @@ The workflow system defines exactly 10 stage groups. Generators must validate th
 ### 4a.1 Validation rules
 
 - Generators must accept both the canonical ID and the Chinese display name when reading the `stage` field from templates.
-- Generators must validate that the rendered skill set covers **all 10 stage groups** (not 8 — the `phase-4-6-exception` stage is distinct).
+- Generators must validate that the rendered **runtime skill set** covers all numbered workflow stages plus `phase-4-6-exception`. The `init` stage is owned by the runtime command layer (`workflow:init`) rather than by a long-lived generated skill.
 - The canonical ID is the protocol-level identifier. The display name is an alias for human readability.
 - A stage value that matches neither the canonical ID nor the display name is invalid and must cause generation to fail.
-- Multiple skills may belong to the same stage. The minimum required coverage is at least one skill per stage group.
+- Multiple skills may belong to the same stage. The minimum required runtime-skill coverage is at least one generated skill per non-init stage group.
 
 ### 4a.2 Stage count clarification
 
@@ -429,7 +429,7 @@ Generation must fail if a handoff points to:
 The rendered chain must support:
 
 ```text
-init-governance
+workflow:init --mode <greenfield|existing>
   -> create-current-task
   -> review-current-task
   -> lock-scope
@@ -1369,8 +1369,9 @@ The import contract defines the steps a target project follows during Adoption `
 4. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
 5. Create or merge the project-specific `PROJECT_PROFILE.yaml`
 6. Write `.workflow-system/install-state.json` only after the install transaction succeeds
-7. Run `workflow:adopt` in the target repo to perform Adoption `A3`
-8. Run generators to produce initial workflow outputs, materialize missing governed docs, run health, and sync generated artifacts to the target project's AI host
+7. Run `workflow:init --mode <greenfield|existing>` in the target repo to perform Adoption `A2`
+8. Run `workflow:adopt` in the target repo to perform Adoption `A3`
+9. Run generators to produce initial workflow outputs, materialize missing governed docs, run health, and sync generated artifacts to the target project's AI host
 
 Import boundary note:
 
@@ -1382,7 +1383,7 @@ The import contract is self-documenting — a target project must not need undoc
 
 Public runtime interface notes:
 
-- `workflow:install --root <target-repo>` and `workflow:adopt --root <target-repo>` operate on the explicit target repo; when `--root` is omitted they operate on the current working directory
+- `workflow:install --root <target-repo>`, `workflow:init --root <target-repo>`, and `workflow:adopt --root <target-repo>` operate on the explicit target repo; when `--root` is omitted they operate on the current working directory
 - the recommended operator flow is `--dry-run --json` first, then a second run without `--dry-run` to apply
 - install failures must report explicit categories so the operator can distinguish `frozen_path`, `local_drift`, `contract_conflict`, and `incompatible_target`
 - adopt must preserve structured failure reporting for generator, materialization, health, and host-sync failures, with exit code `2` reserved for the missing-install prerequisite and exit code `1` for post-plan execution failures

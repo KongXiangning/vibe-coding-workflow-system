@@ -56,6 +56,7 @@
     "workflow:sync": "bun run scripts/workflow-runtime.ts sync",
     "workflow:pack": "bun run scripts/workflow-runtime.ts pack",
     "workflow:install": "bun run scripts/workflow-runtime.ts install",
+    "workflow:init": "bun run scripts/workflow-runtime.ts init",
     "workflow:adopt": "bun run scripts/workflow-runtime.ts adopt"
   },
   "dependencies": {

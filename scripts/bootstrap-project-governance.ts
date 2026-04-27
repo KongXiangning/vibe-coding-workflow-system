@@ -3,7 +3,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { getRequiredPath, loadProfile, readText, resolveRoot, validateProfilePathSemantics } from './workflow-core';
+import {
+  getRequiredPath,
+  getWorkflowDocPath,
+  getWorkflowDocRelativePath,
+  getWorkflowGeneratedDir,
+  loadProfile,
+  readText,
+  resolveRoot,
+  validateProfilePathSemantics,
+  type JsonObject,
+} from './workflow-core';
 import {
   classifyTaskIdentityFromCurrentTask,
   getTaskArchivePath,
@@ -52,7 +62,8 @@ export type ValidationEntrypointSlot = {
 };
 
 export type BootstrapGovernedDocPlan = {
-  file: WorkflowDocName;
+  file: string;
+  doc_name: WorkflowDocName;
   generated_path: string;
   live_path: string;
   lifecycle: BootstrapDocLifecycle;
@@ -438,15 +449,19 @@ export function classifyExistingLiveDoc(
 function planGovernedDoc(
   systemRoot: string,
   targetRoot: string,
+  systemProfile: JsonObject,
+  targetProfile: JsonObject,
   file: WorkflowDocName,
   generatedContent: string,
 ): BootstrapGovernedDocPlan {
-  const livePath = path.join(targetRoot, file);
-  const generatedPath = path.join(systemRoot, 'generated', 'workflow-docs', file);
+  const relativeLiveFile = getWorkflowDocRelativePath(targetProfile, file);
+  const livePath = getWorkflowDocPath(targetRoot, targetProfile, file);
+  const generatedPath = path.join(getWorkflowGeneratedDir(systemRoot, systemProfile, 'workflow-docs'), file);
 
   if (!fs.existsSync(livePath)) {
     return {
-      file,
+      file: relativeLiveFile,
+      doc_name: file,
       generated_path: generatedPath,
       live_path: livePath,
       lifecycle: 'absent',
@@ -465,7 +480,8 @@ function planGovernedDoc(
 
   if (classification.classification === 'structure-compatible') {
     return {
-      file,
+      file: relativeLiveFile,
+      doc_name: file,
       generated_path: generatedPath,
       live_path: livePath,
       lifecycle: classification.lifecycle,
@@ -481,7 +497,8 @@ function planGovernedDoc(
 
   if (classification.classification === 'structure-drifted but mergeable') {
     return {
-      file,
+      file: relativeLiveFile,
+      doc_name: file,
       generated_path: generatedPath,
       live_path: livePath,
       lifecycle: classification.lifecycle,
@@ -496,7 +513,8 @@ function planGovernedDoc(
   }
 
   return {
-    file,
+    file: relativeLiveFile,
+    doc_name: file,
     generated_path: generatedPath,
     live_path: livePath,
     lifecycle: classification.lifecycle,
@@ -536,10 +554,10 @@ export function runProtocolGeneratorChecks(systemRoot: string): GeneratorCheckRe
   });
 }
 
-function loadGeneratedDocs(systemRoot: string): Map<WorkflowDocName, string> {
+function loadGeneratedDocs(systemRoot: string, profile: JsonObject): Map<WorkflowDocName, string> {
   const generatedDocs = new Map<WorkflowDocName, string>();
   for (const file of WORKFLOW_DOC_NAMES) {
-    const generatedPath = path.join(systemRoot, 'generated', 'workflow-docs', file);
+    const generatedPath = path.join(getWorkflowGeneratedDir(systemRoot, profile, 'workflow-docs'), file);
     const content = readText(generatedPath);
     ensureGeneratedDocContract(file, content);
     generatedDocs.set(file, content);
@@ -611,8 +629,8 @@ function buildMinimalWorkflowChecks(): MinimalWorkflowCheck[] {
   }));
 }
 
-function buildTaskIdentityPlan(targetRoot: string): BootstrapTaskIdentityPlan {
-  const currentTaskPath = path.join(targetRoot, 'CURRENT_TASK.md');
+function buildTaskIdentityPlan(targetRoot: string, profile: JsonObject): BootstrapTaskIdentityPlan {
+  const currentTaskPath = getWorkflowDocPath(targetRoot, profile, 'CURRENT_TASK.md');
   if (!fs.existsSync(currentTaskPath)) {
     return {
       current_task_path: currentTaskPath,
@@ -655,11 +673,13 @@ export function buildBootstrapPlan(options: BuildBootstrapPlanOptions = {}): Boo
   const profilePath = path.join(targetRoot, 'PROJECT_PROFILE.yaml');
   const profile = loadProfile(profilePath);
   validateProfilePathSemantics(profile);
+  const systemProfile = loadProfile(path.join(systemRoot, 'PROJECT_PROFILE.yaml'));
+  validateProfilePathSemantics(systemProfile);
 
-  const generatedDocs = loadGeneratedDocs(systemRoot);
+  const generatedDocs = loadGeneratedDocs(systemRoot, systemProfile);
   const generatorChecks = options.runGeneratorChecks === false ? [] : runProtocolGeneratorChecks(systemRoot);
   const governedDocs = WORKFLOW_DOC_NAMES.map(file =>
-    planGovernedDoc(systemRoot, targetRoot, file, generatedDocs.get(file)!),
+    planGovernedDoc(systemRoot, targetRoot, systemProfile, profile, file, generatedDocs.get(file)!),
   );
 
   return {
@@ -675,7 +695,7 @@ export function buildBootstrapPlan(options: BuildBootstrapPlanOptions = {}): Boo
     generator_checks: generatorChecks,
     minimal_workflow_checks: buildMinimalWorkflowChecks(),
     governed_docs: governedDocs,
-    task_identity: buildTaskIdentityPlan(targetRoot),
+    task_identity: buildTaskIdentityPlan(targetRoot, profile),
     summary: summarizePlans(governedDocs),
     first_run_checklist: buildChecklist(governedDocs),
     validation_entrypoint_slots: VALIDATION_ENTRYPOINT_SLOTS,

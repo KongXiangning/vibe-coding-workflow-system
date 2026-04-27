@@ -9,7 +9,9 @@ import {
   buildWorkflowHealthReport,
   detectRuntimeHost,
   formatAdoptReport,
+  formatInitReport,
   getExportManifest,
+  initWorkflow,
   installWorkflowBundle,
   packWorkflowBundle,
   parseRuntimeCliArgs,
@@ -69,6 +71,7 @@ function buildManifestPackageJson(overrides: Record<string, unknown> = {}): stri
       'workflow:sync': 'bun run scripts/workflow-runtime.ts sync',
       'workflow:pack': 'bun run scripts/workflow-runtime.ts pack',
       'workflow:install': 'bun run scripts/workflow-runtime.ts install',
+      'workflow:init': 'bun run scripts/workflow-runtime.ts init',
       'workflow:adopt': 'bun run scripts/workflow-runtime.ts adopt',
     },
     dependencies: { yaml: '^2.8.3' },
@@ -78,6 +81,24 @@ function buildManifestPackageJson(overrides: Record<string, unknown> = {}): stri
 
 function readJson(filePath: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+}
+
+function removeGeneratedArtifactsFromBundle(bundleDir: string): void {
+  fs.rmSync(path.join(bundleDir, 'generated'), { recursive: true, force: true });
+  const bundlePath = path.join(bundleDir, 'workflow-bundle.json');
+  const bundle = readJson(bundlePath);
+  bundle.artifacts = (bundle.artifacts as Array<Record<string, unknown>>).filter(
+    artifact => !String(artifact.path).startsWith('generated/'),
+  ) as Record<string, unknown>[];
+  fs.writeFileSync(bundlePath, JSON.stringify(bundle, null, 2) + '\n', 'utf8');
+}
+
+function listWorkflowInitTempDirs(): Set<string> {
+  return new Set(
+    fs
+      .readdirSync(os.tmpdir())
+      .filter(entry => entry.startsWith('workflow-init-')),
+  );
 }
 
 function linkNodeModules(targetRoot: string): void {
@@ -122,10 +143,13 @@ describe('workflow-runtime manifest', () => {
     expect(manifest.package_json_contract.dependencies.yaml).toBe('^2.8.3');
     expect(manifest.package_json_contract.scripts['gen:all']).toBe('bun run gen:workflow-skills && bun run gen:workflow-docs && bun run gen:registry');
     expect(manifest.package_json_contract.scripts['workflow:health']).toBe('bun run scripts/workflow-runtime.ts health');
+    expect(manifest.package_json_contract.scripts['workflow:init']).toBe('bun run scripts/workflow-runtime.ts init');
     expect(manifest.import_contract.install.adoption_stage).toBe('A1');
     expect(manifest.import_contract.install.steps.map(step => step.name)).toContain('package-json-integration');
     expect(manifest.import_contract.install.steps.map(step => step.name)).not.toContain('generate-outputs');
     expect(manifest.import_contract.install.steps.map(step => step.name)).not.toContain('sync-host-runtime');
+    expect(manifest.import_contract.init.adoption_stage).toBe('A2');
+    expect(manifest.import_contract.init.steps.map(step => step.name)).toContain('collect-project-context');
     expect(manifest.import_contract.adopt.adoption_stage).toBe('A3');
     expect(manifest.import_contract.adopt.steps.map(step => step.name)).toContain('generate-outputs');
     expect(manifest.import_contract.adopt.steps.map(step => step.name)).toContain('sync-host-runtime');
@@ -164,6 +188,7 @@ describe('workflow-runtime manifest', () => {
             'workflow:health': 'bun run scripts/workflow-runtime.ts health',
             'workflow:manifest': 'bun run scripts/workflow-runtime.ts manifest',
             'workflow:sync': 'bun run scripts/workflow-runtime.ts sync',
+            'workflow:init': 'bun run scripts/workflow-runtime.ts init',
           },
         }),
         'utf8',
@@ -496,6 +521,7 @@ describe('workflow-runtime install', () => {
         const packageJson = readJson(path.join(targetRoot, 'package.json'));
         expect(packageJson.type).toBe('module');
         expect((packageJson.scripts as Record<string, unknown>)['workflow:install']).toBe('bun run scripts/workflow-runtime.ts install');
+        expect((packageJson.scripts as Record<string, unknown>)['workflow:init']).toBe('bun run scripts/workflow-runtime.ts init');
 
         const installState = readJson(path.join(targetRoot, '.workflow-system', 'install-state.json'));
         expect(installState.bundle_id).toBe(packReport.bundle_id);
@@ -530,6 +556,7 @@ describe('workflow-runtime install', () => {
         const packageJson = readJson(path.join(targetRoot, 'package.json'));
         expect((packageJson.scripts as Record<string, unknown>).lint).toBe('bun test');
         expect((packageJson.scripts as Record<string, unknown>)['workflow:health']).toBe('bun run scripts/workflow-runtime.ts health');
+        expect((packageJson.scripts as Record<string, unknown>)['workflow:init']).toBe('bun run scripts/workflow-runtime.ts init');
         expect((packageJson.dependencies as Record<string, unknown>).yaml).toBe('^2.8.0');
         expect((packageJson.engines as Record<string, unknown>).bun).toBe('>=1.0.0');
       });
@@ -703,7 +730,9 @@ describe('workflow-runtime adopt', () => {
         expect(report.success).toBe(true);
         expect(report.health_check_required).toBe(true);
         expect(report.bootstrap_plan.governed_docs.length).toBeGreaterThan(0);
-        expect(report.planned_materializations).toContain('CURRENT_TASK.md');
+        expect(report.planned_materializations).toContain('docs/workflow/CURRENT_TASK.md');
+        expect(report.planned_materializations).toContain('AGENTS.md');
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'CURRENT_TASK.md'))).toBe(false);
         expect(fs.existsSync(path.join(targetRoot, 'CURRENT_TASK.md'))).toBe(false);
         expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-archive-task', 'SKILL.md'))).toBe(false);
       });
@@ -723,8 +752,18 @@ describe('workflow-runtime adopt', () => {
 
         const report = adoptWorkflow({ root: targetRoot });
         expect(report.success).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, 'CURRENT_TASK.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'AGENTS.md'))).toBe(true);
+        expect(fs.readFileSync(path.join(targetRoot, 'AGENTS.md'), 'utf8')).toContain('docs/workflow/WORKFLOW_GUIDE.md');
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'CURRENT_TASK.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'SKILL_REGISTRY.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'generated', 'workflow-docs', 'CURRENT_TASK.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'generated', 'workflow-skills', 'archive-task.SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'CURRENT_TASK.md'))).toBe(false);
+        expect(fs.existsSync(path.join(targetRoot, 'SKILL_REGISTRY.md'))).toBe(false);
         expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-archive-task', 'SKILL.md'))).toBe(true);
+        expect(fs.readFileSync(path.join(targetRoot, 'docs', 'workflow', 'generated', 'workflow-skills', 'create-current-task.SKILL.md'), 'utf8')).toContain('docs/workflow/CURRENT_TASK.md');
+        expect(fs.readFileSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-create-current-task', 'SKILL.md'), 'utf8')).toContain('docs/workflow/CURRENT_TASK.md');
+        expect(fs.readFileSync(path.join(targetRoot, 'docs', 'workflow', 'SKILL_REGISTRY.md'), 'utf8')).toContain('docs/workflow/generated/workflow-skills/*.SKILL.md');
 
         const installState = readJson(path.join(targetRoot, '.workflow-system', 'install-state.json'));
         const hostSyncState = installState.host_sync_state as Record<string, Record<string, unknown>>;
@@ -760,7 +799,7 @@ describe('workflow-runtime adopt', () => {
 });
 
 describe('workflow-runtime CLI routing', () => {
-  test('parseRuntimeCliArgs accepts pack, install, adopt commands', () => {
+  test('parseRuntimeCliArgs accepts pack, install, init, adopt commands', () => {
     const pack = parseRuntimeCliArgs(['pack', '--out-dir', '/tmp/bundle', '--include-tests']);
     expect(pack.command).toBe('pack');
     expect(pack.outDir).toBe('/tmp/bundle');
@@ -778,6 +817,12 @@ describe('workflow-runtime CLI routing', () => {
     expect(adopt.root).toBe('/tmp/target');
     expect(adopt.host).toBe('codex');
     expect(adopt.dryRun).toBe(true);
+
+    const init = parseRuntimeCliArgs(['init', '--mode', 'existing', '--root', '/tmp/target', '--dry-run']);
+    expect(init.command).toBe('init');
+    expect(init.mode).toBe('existing');
+    expect(init.root).toBe('/tmp/target');
+    expect(init.dryRun).toBe(true);
   });
 
   test('install and adopt commands fail with actionable runtime errors when prerequisites are missing', () => {
@@ -787,9 +832,83 @@ describe('workflow-runtime CLI routing', () => {
     }).toThrow(/requires --bundle/);
 
     expect(() => {
+      const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'init'], { cwd: ROOT });
+      if (child.exitCode !== 0) throw new Error(child.stderr.toString());
+    }).toThrow(/requires --mode/);
+
+    expect(() => {
       const child = Bun.spawnSync(['bun', 'run', 'scripts/workflow-runtime.ts', 'adopt'], { cwd: ROOT });
       if (child.exitCode !== 0) throw new Error(child.stderr.toString());
     }).toThrow(/requires a prior successful workflow:install/);
+  });
+
+  test('initWorkflow reports greenfield profile gaps before adoption', () => {
+    withTempRoot(root => {
+      writeProfile(root, 'claude');
+      const report = initWorkflow({ root, mode: 'greenfield', dryRun: true });
+      expect(report.mode).toBe('greenfield');
+      expect(report.status).toBe('needs-profile-input');
+      expect(report.profile_missing_fields).toContain('project.slug');
+      expect(report.bootstrap_plan).toBeUndefined();
+      expect(formatInitReport(report)).toContain('workflow:init NEEDS-PROFILE-INPUT');
+    });
+  });
+
+  test('init command plans existing-project adoption before generated artifacts exist', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      removeGeneratedArtifactsFromBundle(packReport.output_directory);
+
+      withTempRoot(targetRoot => {
+        fs.mkdirSync(path.join(targetRoot, '.agents'), { recursive: true });
+        const installReport = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          host: 'codex',
+        });
+        expect(installReport.success).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'generated', 'workflow-docs'))).toBe(false);
+        linkNodeModules(targetRoot);
+
+        const child = Bun.spawnSync(
+          ['bun', 'run', 'workflow:init', '--mode', 'existing', '--dry-run', '--json'],
+          { cwd: targetRoot, stdout: 'pipe', stderr: 'pipe' },
+        );
+        expect(child.exitCode).toBe(0);
+        const report = JSON.parse(child.stdout.toString()) as Record<string, unknown>;
+        expect(report.status).toBe('ready');
+        expect(report.mode).toBe('existing');
+        expect(report.bootstrap_plan).toBeDefined();
+        const bootstrapPlan = report.bootstrap_plan as Record<string, unknown>;
+        expect(bootstrapPlan.system_root).toBe(targetRoot);
+        const governedDocs = bootstrapPlan.governed_docs as Array<Record<string, unknown>>;
+        expect(String(governedDocs[0].generated_path).startsWith(targetRoot)).toBe(true);
+        expect(String(governedDocs[0].generated_path)).not.toContain('workflow-init-');
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'generated', 'workflow-docs'))).toBe(false);
+      });
+    });
+  });
+
+  test('init command cleans planning workspace when generator execution fails', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+
+      withTempRoot(targetRoot => {
+        fs.mkdirSync(path.join(targetRoot, '.agents'), { recursive: true });
+        const installReport = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          host: 'codex',
+        });
+        expect(installReport.success).toBe(true);
+
+        const before = listWorkflowInitTempDirs();
+        expect(() => initWorkflow({ root: targetRoot, mode: 'existing', dryRun: true })).toThrow(/Cannot find package 'yaml'/);
+        const after = listWorkflowInitTempDirs();
+        const created = [...after].filter(entry => !before.has(entry));
+        expect(created).toEqual([]);
+      });
+    });
   });
 
   test('adopt command writes human failure reports to stderr', () => {
