@@ -68,6 +68,8 @@ const HIGH_RISK_SKILLS = [
   'archive-task',
 ];
 const WORKFLOW_ORDER = [
+  'greenfield-init',
+  'adopt-existing-project',
   'create-current-task',
   'review-current-task',
   'lock-scope',
@@ -87,19 +89,20 @@ const WORKFLOW_ORDER = [
   'archive-task',
 ] as const;
 const STAGE_SECTIONS: StageSection[] = [
-  { stage: '阶段 1：需求进入', sectionTitle: '### 3.1 阶段 1：需求进入', summaryLabel: '阶段 1：需求进入' },
-  { stage: '阶段 2：范围锁定', sectionTitle: '### 3.2 阶段 2：范围锁定', summaryLabel: '阶段 2：范围锁定' },
-  { stage: '阶段 3：方案拆解', sectionTitle: '### 3.3 阶段 3：方案拆解', summaryLabel: '阶段 3：方案拆解' },
-  { stage: '阶段 4：小步实现', sectionTitle: '### 3.4 阶段 4：小步实现', summaryLabel: '阶段 4：小步实现' },
+  { stage: '初始化', sectionTitle: '### 3.1 初始化', summaryLabel: '初始化' },
+  { stage: '阶段 1：需求进入', sectionTitle: '### 3.2 阶段 1：需求进入', summaryLabel: '阶段 1：需求进入' },
+  { stage: '阶段 2：范围锁定', sectionTitle: '### 3.3 阶段 2：范围锁定', summaryLabel: '阶段 2：范围锁定' },
+  { stage: '阶段 3：方案拆解', sectionTitle: '### 3.4 阶段 3：方案拆解', summaryLabel: '阶段 3：方案拆解' },
+  { stage: '阶段 4：小步实现', sectionTitle: '### 3.5 阶段 4：小步实现', summaryLabel: '阶段 4：小步实现' },
   {
     stage: '阶段 4/6：实现或验证异常',
-    sectionTitle: '### 3.5 阶段 4/6：异常处理',
+    sectionTitle: '### 3.6 阶段 4/6：异常处理',
     summaryLabel: '阶段 4/6：异常处理',
   },
-  { stage: '阶段 5：范围复核', sectionTitle: '### 3.6 阶段 5：范围复核', summaryLabel: '阶段 5：范围复核' },
-  { stage: '阶段 6：回归验证', sectionTitle: '### 3.7 阶段 6：回归验证', summaryLabel: '阶段 6：回归验证' },
-  { stage: '阶段 7：状态同步', sectionTitle: '### 3.8 阶段 7：状态同步', summaryLabel: '阶段 7：状态同步' },
-  { stage: '阶段 8：交付沉淀', sectionTitle: '### 3.9 阶段 8：交付沉淀', summaryLabel: '阶段 8：交付沉淀' },
+  { stage: '阶段 5：范围复核', sectionTitle: '### 3.7 阶段 5：范围复核', summaryLabel: '阶段 5：范围复核' },
+  { stage: '阶段 6：回归验证', sectionTitle: '### 3.8 阶段 6：回归验证', summaryLabel: '阶段 6：回归验证' },
+  { stage: '阶段 7：状态同步', sectionTitle: '### 3.9 阶段 7：状态同步', summaryLabel: '阶段 7：状态同步' },
+  { stage: '阶段 8：交付沉淀', sectionTitle: '### 3.10 阶段 8：交付沉淀', summaryLabel: '阶段 8：交付沉淀' },
 ];
 
 const WORKFLOW_ORDER_INDEX = new Map(WORKFLOW_ORDER.map((name, index) => [name, index]));

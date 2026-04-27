@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
 import { loadProfile, pathEntriesOverlap, validatePathEntry, validateProfilePathSemantics } from '../scripts/workflow-core';
+import { WORKFLOW_DOC_REQUIRED_HEADINGS } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-skills');
@@ -26,6 +27,7 @@ const REQUIRED_FIELDS = [
 ] as const;
 
 const REQUIRED_STAGES = new Set([
+  '初始化',
   '阶段 1：需求进入',
   '阶段 2：范围锁定',
   '阶段 3：方案拆解',
@@ -184,12 +186,55 @@ describe('gen-workflow-skills', () => {
     const frontmatter = parseFrontmatter(currentTaskPath);
     const requiredSections = normalizeList(frontmatter.required_sections);
     const content = fs.readFileSync(currentTaskPath, 'utf8');
+    const schemaSections = WORKFLOW_DOC_REQUIRED_HEADINGS['CURRENT_TASK.md']
+      .map(heading => heading.replace(/^##\s+/, ''));
 
-    expect(requiredSections).toContain('已确认决策');
-    expect(requiredSections).toContain('待确认问题');
+    expect(requiredSections).toEqual(schemaSections);
+    expect(content).toContain('- 背景与上下文');
+    expect(content).toContain('- 实施步骤');
     expect(requiredSections).not.toContain('决策分类');
     expect(content).toContain('- 已确认决策');
     expect(content).toContain('- 待确认问题');
     expect(content).not.toContain('- 决策分类');
+  });
+
+  test('bootstrap init skills read schema sources before writing governance docs', () => {
+    for (const skill of ['greenfield-init', 'adopt-existing-project']) {
+      const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, `${skill}.SKILL.md`));
+      const reads = normalizeList(frontmatter.reads);
+      const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
+      expect(reads).toContain('WORKFLOW_PROTOCOL.md');
+      expect(reads).toContain('FILE_SCHEMAS.md');
+      expect(reads).toContain('templates/docs/');
+      expect(content).toContain('FILE_SCHEMAS.md');
+      expect(content).toContain('templates/docs/');
+    }
+  });
+
+  test('task intake and review skills enforce mutation scope and precedence gates', () => {
+    const createFrontmatter = parseFrontmatter(path.join(OUTPUT_DIR, 'create-current-task.SKILL.md'));
+    const createForbidden = normalizeList(createFrontmatter.forbidden_writes);
+    expect(createForbidden).toContain('PROJECT_PROFILE.yaml');
+    expect(createForbidden).toContain('CONTRACTS.md');
+
+    for (const skill of ['create-current-task', 'review-current-task', 'lock-scope', 'review-diff']) {
+      const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
+      expect(content).toContain('Allowed Files');
+      expect(content).toContain('Forbidden Files');
+      expect(content).toContain('Conditional Files');
+      expect(content).toContain('CONTRACTS.md');
+      expect(content).toContain('CURRENT_TASK.md');
+    }
+
+    const reviewTask = fs.readFileSync(path.join(OUTPUT_DIR, 'review-current-task.SKILL.md'), 'utf8');
+    expect(reviewTask).toContain('source-of-truth precedence');
+    expect(reviewTask).toContain('CONTRACTS.md 是项目层最高约束，CURRENT_TASK.md 不得覆盖');
+
+    const lockScope = fs.readFileSync(path.join(OUTPUT_DIR, 'lock-scope.SKILL.md'), 'utf8');
+    expect(lockScope).toContain('未明确允许的文件默认禁止修改');
+
+    const reviewDiff = fs.readFileSync(path.join(OUTPUT_DIR, 'review-diff.SKILL.md'), 'utf8');
+    expect(reviewDiff).toContain('发现未授权文件出现在 diff 中');
+    expect(reviewDiff).toContain('Change Propagation Check');
   });
 });

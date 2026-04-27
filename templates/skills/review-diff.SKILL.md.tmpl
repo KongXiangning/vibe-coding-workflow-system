@@ -26,12 +26,17 @@ forbidden_writes:
   - CONTRACTS.md
   - DECISIONS.md
 must_check:
-  - 是否超出允许修改范围
+  - diff 是否只触碰 Allowed Files
+  - diff 是否触碰 Forbidden Files
+  - diff 触碰 Conditional Files 时条件和证据是否成立
   - 是否顺手做了无关改动
   - 是否覆盖既有决策
+  - 是否遗漏 Change Propagation Check
 stop_conditions:
   - 发现高风险越界
+  - 发现未授权文件出现在 diff 中
   - 发现明显决策漂移
+  - 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
   - 当前 diff 无法映射到任务目标
 output:
   - 边界审查结论
@@ -45,6 +50,8 @@ decision_policy:
   user_challenge: 发现意图偏移时必须明确上浮。
 verification:
   - 已对照任务范围和决策执行审查
+  - 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
+  - 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
   - 已输出 clean 或问题列表
   - 没有直接修改代码
 allowed-tools:
@@ -64,6 +71,18 @@ scope_sources:
   - CURRENT_TASK.md
   - CONTRACTS.md
   - DECISIONS.md
+mutation_scope_buckets:
+  - Allowed Files
+  - Forbidden Files
+  - Conditional Files
+source_of_truth_rules:
+  - CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+  - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
+  - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
+  - 必须声明兼容策略：backward-compatible、breaking 或 unknown
+  - 必须核对 CONTRACTS.md、DECISIONS.md 和回归检查项是否同步
 diff_filters:
   - 当前 step 相关文件
   - 授权范围外文件
@@ -123,14 +142,19 @@ failure_policy:
 
 ## Must Check
 
-- 是否超出允许修改范围
+- diff 是否只触碰 Allowed Files
+- diff 是否触碰 Forbidden Files
+- diff 触碰 Conditional Files 时条件和证据是否成立
 - 是否顺手做了无关改动
 - 是否覆盖既有决策
+- 是否遗漏 Change Propagation Check
 
 ## Stop Conditions
 
 - 发现高风险越界
+- 发现未授权文件出现在 diff 中
 - 发现明显决策漂移
+- 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
 - 当前 diff 无法映射到任务目标
 
 ## Decision Policy
@@ -142,6 +166,8 @@ failure_policy:
 ## Verification
 
 - 已对照任务范围和决策执行审查
+- 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
+- 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
 - 已输出 clean 或问题列表
 - 没有直接修改代码
 
@@ -155,6 +181,21 @@ failure_policy:
 - CURRENT_TASK.md
 - CONTRACTS.md
 - DECISIONS.md
+
+### mutation_scope_buckets
+- Allowed Files
+- Forbidden Files
+- Conditional Files
+
+### source_of_truth_rules
+- CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+- CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
+- DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
+- 必须声明兼容策略：backward-compatible、breaking 或 unknown
+- 必须核对 CONTRACTS.md、DECISIONS.md 和回归检查项是否同步
 
 ### diff_filters
 - 当前 step 相关文件

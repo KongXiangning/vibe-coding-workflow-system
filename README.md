@@ -101,33 +101,30 @@ bun run workflow:pack --json
 bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex --dry-run --json
 bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex
 (cd <target-repo> && bun install)
-bun run workflow:init --root <target-repo> --mode existing --dry-run --json
-bun run workflow:init --root <target-repo> --mode existing
-bun run workflow:adopt --root <target-repo> --host codex --dry-run --json
-bun run workflow:adopt --root <target-repo> --host codex
+(invoke `/greenfield-init` or `/adopt-existing-project` in the target host)
+(cd <target-repo> && bun run gen:all)
+(cd <target-repo> && bun run workflow:sync --host codex --write)
+(cd <target-repo> && bun run workflow:health)
 ```
 
 `workflow:pack` exports a deterministic bundle with `workflow-bundle.json`.
 `workflow:install` performs the A1 import step, copies workflow-managed files, merges
-the documented `package.json` surface, and writes `.workflow-system/install-state.json`.
-`workflow:init` performs the A2 bootstrap step, classifies the target as greenfield or
-existing-project bootstrap, and surfaces the project facts that must be confirmed before
-governed docs are materialized.
-`workflow:adopt` performs the A3 adoption step, runs generators, materializes any
-missing governed docs, runs `workflow:health`, and syncs the isolated
-`workflow-system-*` host namespace.
+the documented `package.json` surface, writes `.workflow-system/install-state.json`, and
+pre-installs the static bootstrap skills `greenfield-init` and `adopt-existing-project`
+into the isolated `workflow-system-*` host namespace.
+`greenfield-init` and `adopt-existing-project` are the project-level initialization
+entrypoints: they establish the first governance baseline as skills, not runtime commands.
+After initialization, run `gen:all`, `workflow:sync --write`, and `workflow:health` to render the
+full runtime skill set and verify the target repo.
 
-Use `--root <target-repo>` to point at the repo being installed or adopted. If you omit
-`--root`, install, init, and adopt all operate on the current working directory.
+Use `--root <target-repo>` to point at the repo being installed. If you omit `--root`,
+install and sync operate on the current working directory.
 
 Recommended flow: run `workflow:install`, install the target repo dependencies with
-`bun install`, then run `workflow:init` and `workflow:adopt` with `--dry-run --json`
-first. Inspect the planned writes and failure categories, then rerun without `--dry-run`
-to apply. Install failures are reported as `frozen_path`, `local_drift`,
-`contract_conflict`, or `incompatible_target`. `workflow:init` exits with code `2` when
-required project-profile facts are still missing. Adopt exits with code `2` when the repo
-has not completed `workflow:install`, and with code `1` when generator, materialization,
-health, or host-sync execution fails after planning.
+`bun install`, invoke `/greenfield-init` or `/adopt-existing-project`, then run
+`gen:all`, `workflow:sync --write`, and `workflow:health`. Inspect install failures first; they
+are reported as `frozen_path`, `local_drift`, `contract_conflict`, or
+`incompatible_target`.
 
 ### Factory Droid
 

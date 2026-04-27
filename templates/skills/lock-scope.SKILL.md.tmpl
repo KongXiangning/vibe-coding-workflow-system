@@ -23,9 +23,11 @@ forbidden_writes:
   - "{{CODE_DIRECTORIES}}"
   - db/**
 must_check:
-  - 允许修改范围是否足够小
-  - 禁止修改范围是否清楚
+  - Allowed Files 是否足够小
+  - Forbidden Files 是否清楚
+  - Conditional Files 是否包含触发条件和证据要求
   - 锁定契约是否已识别
+  - 是否触发 Change Propagation Check
   - 决策越界是否可见
 stop_conditions:
   - 需要改范围外文件
@@ -33,7 +35,7 @@ stop_conditions:
   - 需要覆盖 DECISIONS.md 中已确认的决策
 output:
   - 范围锁定结论
-  - CURRENT_TASK.md 中补充的边界说明
+  - CURRENT_TASK.md 中补充的 Allowed Files / Forbidden Files / Conditional Files
 handoff:
   success: classify-decisions
   failure: ask-user
@@ -42,7 +44,7 @@ decision_policy:
   taste: 不要用主观偏好扩大或缩小修改范围。
   user_challenge: 发现必须越界时必须停下，不能静默继续。
 verification:
-  - 允许修改范围和禁止修改范围都已显式记录
+  - Allowed Files、Forbidden Files、Conditional Files 都已显式记录
   - 涉及的锁定契约已列出
   - 没有把范围外工作混入当前任务
 allowed-tools:
@@ -56,6 +58,7 @@ benefits-from:
   - /review-current-task
 notes:
   - 范围锁定结果应该回写到 CURRENT_TASK.md，而不是只留在回复中。
+  - 未明确允许的文件默认禁止修改。
 contract_layers:
   - 接口契约
   - 架构契约
@@ -63,6 +66,17 @@ scope_sources:
   - CURRENT_TASK.md
   - CONTRACTS.md
   - DECISIONS.md
+mutation_scope_buckets:
+  - Allowed Files
+  - Forbidden Files
+  - Conditional Files
+source_of_truth_rules:
+  - CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+  - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
+  - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
+  - 必须声明兼容策略和回归检查项
 diff_filters:
   - 仅允许后续审查当前授权目录
   - 发现范围外文件即视为越界
@@ -112,9 +126,11 @@ violation_levels:
 
 ## Must Check
 
-- 允许修改范围是否足够小
-- 禁止修改范围是否清楚
+- Allowed Files 是否足够小
+- Forbidden Files 是否清楚
+- Conditional Files 是否包含触发条件和证据要求
 - 锁定契约是否已识别
+- 是否触发 Change Propagation Check
 - 决策越界是否可见
 
 ## Stop Conditions
@@ -131,7 +147,7 @@ violation_levels:
 
 ## Verification
 
-- 允许修改范围和禁止修改范围都已显式记录
+- Allowed Files、Forbidden Files、Conditional Files 都已显式记录
 - 涉及的锁定契约已列出
 - 没有把范围外工作混入当前任务
 
@@ -145,6 +161,20 @@ violation_levels:
 - CURRENT_TASK.md
 - CONTRACTS.md
 - DECISIONS.md
+
+### mutation_scope_buckets
+- Allowed Files
+- Forbidden Files
+- Conditional Files
+
+### source_of_truth_rules
+- CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+- CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
+- DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
+- 必须声明兼容策略和回归检查项
 
 ### diff_filters
 - 仅允许后续审查当前授权目录
@@ -176,5 +206,6 @@ violation_levels:
 ## Notes
 
 - 范围锁定结果应该回写到 CURRENT_TASK.md，而不是只留在回复中。
+- 未明确允许的文件默认禁止修改。
 - This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
 - Replace project variables with concrete project-specific values during skill generation.

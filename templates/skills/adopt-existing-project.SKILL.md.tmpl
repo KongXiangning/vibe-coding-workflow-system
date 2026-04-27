@@ -1,0 +1,105 @@
+---
+name: adopt-existing-project
+preamble-tier: 1
+version: 0.1.0
+description: |
+  Scan an existing repository, extract confirmed facts, and establish the first workflow governance baseline.
+purpose: |
+  扫描现有仓库，抽取已有事实，在确认后建立首版治理基线，供后续任务流使用。
+stage: 初始化
+trigger: |
+  当老项目已存在，但还没有 workflow 治理工件，或者准备正式接入 workflow 时。
+inputs:
+  - existing_repository
+  - user_request
+  - business_context
+reads:
+  - PROJECT_PROFILE.yaml
+  - WORKFLOW_PROTOCOL.md
+  - FILE_SCHEMAS.md
+  - templates/docs/
+  - README.md
+  - docs/
+  - package.json
+  - scripts/
+  - test/
+  - src/
+writes:
+  - PROJECT_PROFILE.yaml
+  - AGENTS.md
+  - CLAUDE.md
+  - CONTRACTS.md
+  - STATUS.md
+  - DECISIONS.md
+forbidden_writes:
+  - src/**
+  - test/**
+  - scripts/**
+must_check:
+  - 现有仓库中哪些是已证实事实，哪些只是推断
+  - 现有命令、目录结构、契约边界和工作流是否已被扫描
+  - 需要用户确认的业务背景、命名约定和边界是否显式列出
+  - 首版治理基线是否只固化了已确认事实
+stop_conditions:
+  - 核心仓库事实无法从代码或文档中得到证据
+  - 关键业务背景缺失且影响治理基线表述
+  - 发现多个互相冲突的事实来源但无法判定真值
+output:
+  - 首版 PROJECT_PROFILE.yaml
+  - 首版 host 指引文件（Codex 用 AGENTS.md，Claude 用 CLAUDE.md）
+  - 首版 CONTRACTS.md / STATUS.md / DECISIONS.md
+  - 必要时附带 adoption 报告
+handoff:
+  success: create-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以整理扫描结果、抽取命令、汇总目录和契约事实。
+  taste: 对协作方式、文档语气、治理粒度不要擅自定稿，必须标出需要确认的点。
+  user_challenge: 不得把推断当作事实写入治理基线；必须先抽取、再确认、再落地。
+verification:
+  - 所有写入治理文档的关键事实都有代码、配置或文档证据
+  - 未确认项被显式标记，而不是被静默固化
+  - 项目基线足以支撑后续 create-current-task / review-current-task
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+notes:
+  - 这是老项目接管 skill，不改业务代码，只建立治理基线。
+  - 必须先扫描仓库、抽取事实，再向用户确认不能从仓库直接证明的部分。
+  - 完成后下一步通常是 create-current-task。
+---
+
+# Skill: adopt-existing-project
+
+## Purpose
+
+扫描现有仓库，抽取已有事实，在确认后建立首版治理基线，供后续任务流使用。
+
+## Trigger
+
+当老项目已存在，但还没有 workflow 治理工件，或者准备正式接入 workflow 时。
+
+## Execution Rules
+
+1. 先读取 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/docs/`，再系统扫描仓库中的现有事实：代码结构、目录布局、README/docs、`package.json` scripts、测试入口、部署/运行线索、已有协作文档。
+2. 把扫描结果拆成两类：  
+   - 可被仓库直接证明的事实  
+   - 必须由用户补充或确认的事实
+3. 只在确认后按 `FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架写出首版 `PROJECT_PROFILE.yaml`、host 指引文件、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`；必要时附带 adoption 报告说明证据和未决点。
+4. host 指引文件按当前宿主选择：Codex 使用 `AGENTS.md`，Claude 使用 `CLAUDE.md`；不要把 `CLAUDE.md` 当作所有宿主的唯一入口。
+5. 不修改业务代码，不把推断写成既定事实，不把“当前实现细节”误升格成长期治理规则。
+
+## Hard Boundaries
+
+- 不修改 `src/`、`test/`、`scripts/` 下的业务或执行逻辑。
+- 不把猜测、默认值、或单次偶然现象写成项目基线。
+- 不跳过用户确认直接冻结高影响结论。
+
+## Handoff
+
+- 成功：`create-current-task`
+- 失败：`ask-user`

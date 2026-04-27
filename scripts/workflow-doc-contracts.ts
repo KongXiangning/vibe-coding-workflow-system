@@ -189,7 +189,9 @@ export const WORKFLOW_DOC_REQUIRED_SNIPPETS: Partial<Record<WorkflowDocName, rea
     '| `/verify-contracts` |',
     '| `/run-regression` |',
     '`FILE_SCHEMAS.md`',
-    '如果实现需要修改 `CURRENT_TASK.md` 允许范围外的文件',
+    'Allowed Files',
+    'Conditional Files',
+    '未明确允许的文件默认禁止修改',
   ],
 };
 

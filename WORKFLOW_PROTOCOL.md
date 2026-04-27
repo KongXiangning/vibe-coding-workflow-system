@@ -339,10 +339,10 @@ The workflow system defines exactly 10 stage groups. Generators must validate th
 ### 4a.1 Validation rules
 
 - Generators must accept both the canonical ID and the Chinese display name when reading the `stage` field from templates.
-- Generators must validate that the rendered **runtime skill set** covers all numbered workflow stages plus `phase-4-6-exception`. The `init` stage is owned by the runtime command layer (`workflow:init`) rather than by a long-lived generated skill.
+- Generators must validate that the rendered **runtime skill set** covers all workflow stages, including `init` and `phase-4-6-exception`.
 - The canonical ID is the protocol-level identifier. The display name is an alias for human readability.
 - A stage value that matches neither the canonical ID nor the display name is invalid and must cause generation to fail.
-- Multiple skills may belong to the same stage. The minimum required runtime-skill coverage is at least one generated skill per non-init stage group.
+- Multiple skills may belong to the same stage. The minimum required runtime-skill coverage is at least one generated skill per stage group.
 
 ### 4a.2 Stage count clarification
 
@@ -352,6 +352,89 @@ This protocol defines **10 stage groups**, not 8. The original §8 reference to 
 - `phase-4-6-exception` (cross-phase exception handling)
 
 All references in this protocol to stage coverage must use the count of 10.
+
+---
+
+## 4b. Runtime governance gates
+
+The runtime workflow must select exactly one entry mode before writing governance or task state.
+
+### 4b.1 Mode Selection Rules
+
+Mode selection is mandatory and must use repository facts plus the user's current intent.
+
+| Condition | Required mode |
+|---|---|
+| Repository is empty or has no meaningful implementation and no governance baseline | `greenfield-init` |
+| Repository has existing implementation or docs but no workflow governance baseline | `adopt-existing-project` |
+| Governance baseline exists and the user is entering a concrete feature, bugfix, refactor, or change request | `create-current-task` |
+| Active `CURRENT_TASK.md` already exists and is not archived or explicitly replaced | Continue the current task flow instead of starting a new baseline |
+
+Prohibitions:
+
+- `greenfield-init` and `adopt-existing-project` must not implement feature work.
+- `create-current-task` must not rewrite `PROJECT_PROFILE.yaml`.
+- Task-phase skills must not rewrite the `CONTRACTS.md` baseline unless the current task explicitly declares contract evolution as an allowed or conditional mutation.
+- A workflow step must stop and ask the user when multiple modes match and the repository facts do not disambiguate them.
+
+### 4b.2 Source of Truth Precedence
+
+Protocol/schema authority is evaluated before project runtime authority:
+
+1. `WORKFLOW_PROTOCOL.md`
+2. `FILE_SCHEMAS.md`
+
+Project runtime authority is evaluated in this order:
+
+1. `CONTRACTS.md` — current stable interface, architecture, behavior, and protected-boundary constraints.
+2. `PROJECT_PROFILE.yaml` — long-lived project configuration, workflow paths, validation slots, and architectural defaults.
+3. `DECISIONS.md` — decision history, rationale, rejected alternatives, and review conditions.
+4. `CURRENT_TASK.md` — local task scope and temporary narrowing for the active task.
+5. `STATUS.md` — descriptive project state only.
+
+Precedence rules:
+
+- `CURRENT_TASK.md` may narrow the active task scope but must not override `CONTRACTS.md`.
+- `STATUS.md` must not introduce new rules or override any higher-precedence document.
+- `DECISIONS.md` records why a decision was made; it does not define the current effective rule by itself.
+- Any decision that changes current behavior, architecture, API, or governance rules must be reflected in `CONTRACTS.md` or `PROJECT_PROFILE.yaml` before it is treated as active.
+- When two project runtime documents conflict, the higher-precedence document wins and the conflict must be surfaced instead of silently resolved.
+
+### 4b.3 Mutation Scope Rules
+
+Every active task must declare the mutation scope before implementation begins.
+
+Required task scope buckets:
+
+- `Allowed Files` — files, directories, or contract surfaces explicitly authorized for mutation.
+- `Forbidden Files` — files, directories, or contract surfaces that must not be mutated.
+- `Conditional Files` — files or contract surfaces that may be mutated only when the stated condition is met and recorded.
+
+Default rule:
+
+- Any file or contract surface not explicitly listed in `Allowed Files` or eligible through `Conditional Files` is forbidden.
+
+Task skills must treat an unscoped mutation as a blocker. Review skills must compare the actual diff to the declared mutation scope and stop when an unauthorized file appears.
+
+### 4b.4 Change Propagation Check
+
+A task must run the propagation check before implementation and again during diff review when the change touches any of the following:
+
+- public API, schema, DTO, event, or serialized data contract
+- any object protected by `CONTRACTS.md`
+- shared logic consumed by multiple modules
+- generated workflow behavior, runtime synchronization, or validation gates
+- layout or behavior anchors recorded by propagation governance
+
+When triggered, the task must record:
+
+1. impacted consumers or candidate impact set
+2. compatibility strategy (`backward-compatible`, `breaking`, or `unknown`)
+3. migration, wrapper, adapter, or rollback strategy when compatibility is not clearly backward-compatible
+4. required `CONTRACTS.md` or `DECISIONS.md` updates
+5. regression checks that cover the affected surface
+
+If the impact set cannot be established with sufficient evidence, the task must stop before implementation and route through `ask-user` or the appropriate investigation step.
 
 ---
 
@@ -429,7 +512,7 @@ Generation must fail if a handoff points to:
 The rendered chain must support:
 
 ```text
-workflow:init --mode <greenfield|existing>
+greenfield-init | adopt-existing-project
   -> create-current-task
   -> review-current-task
   -> lock-scope
@@ -1369,9 +1452,9 @@ The import contract defines the steps a target project follows during Adoption `
 4. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
 5. Create or merge the project-specific `PROJECT_PROFILE.yaml`
 6. Write `.workflow-system/install-state.json` only after the install transaction succeeds
-7. Run `workflow:init --mode <greenfield|existing>` in the target repo to perform Adoption `A2`
-8. Run `workflow:adopt` in the target repo to perform Adoption `A3`
-9. Run generators to produce initial workflow outputs, materialize missing governed docs, run health, and sync generated artifacts to the target project's AI host
+7. Install the bootstrap init skills (`greenfield-init`, `adopt-existing-project`) into the target host namespace during `workflow:install`
+8. Invoke `greenfield-init` or `adopt-existing-project` in the target host to perform Adoption `A2`
+9. Run generators plus `workflow:sync` / `workflow:health` to produce initial workflow outputs and activate the full runtime skill set after the baseline exists
 
 Import boundary note:
 
@@ -1383,11 +1466,10 @@ The import contract is self-documenting — a target project must not need undoc
 
 Public runtime interface notes:
 
-- `workflow:install --root <target-repo>`, `workflow:init --root <target-repo>`, and `workflow:adopt --root <target-repo>` operate on the explicit target repo; when `--root` is omitted they operate on the current working directory
+- `workflow:install --root <target-repo>` and `workflow:sync --root <target-repo>` operate on the explicit target repo; when `--root` is omitted they operate on the current working directory
 - the recommended operator flow is `--dry-run --json` first, then a second run without `--dry-run` to apply
 - install failures must report explicit categories so the operator can distinguish `frozen_path`, `local_drift`, `contract_conflict`, and `incompatible_target`
-- adopt must preserve structured failure reporting for generator, materialization, health, and host-sync failures, with exit code `2` reserved for the missing-install prerequisite and exit code `1` for post-plan execution failures
-- human-readable failure reports should be emitted on stderr; JSON reports remain machine-readable on stdout
+- post-init mechanical steps must preserve explicit failure reporting for generator, health, and host-sync failures
 
 ### §17.4 Host-specific sync
 

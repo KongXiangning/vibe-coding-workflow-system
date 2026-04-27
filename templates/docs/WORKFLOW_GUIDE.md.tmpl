@@ -25,7 +25,8 @@
 
 | 场景 | 使用 skill | 主要读取 | 主要产出 |
 | --- | --- | --- | --- |
-| 初始化治理文档 | `bun run workflow:init --mode greenfield|existing` | `PROJECT_PROFILE.yaml`、项目根目录、项目结构 | 初始化报告 / 接管计划 |
+| 初始化新项目基线 | `/greenfield-init` | 用户目标、技术栈偏好、`PROJECT_PROFILE.yaml` scaffold | 首版 `PROJECT_PROFILE.yaml`、host 指引文件、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md` |
+| 接管老项目基线 | `/adopt-existing-project` | 现有仓库代码、README/docs、package scripts、测试命令 | 首版 `PROJECT_PROFILE.yaml`、host 指引文件、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`、可选 adoption 报告 |
 | 创建任务包 | `/create-current-task` | `STATUS.md`、`ROADMAP.md`、用户需求 | `CURRENT_TASK.md` |
 | 审查任务包 | `/review-current-task` | `CURRENT_TASK.md` | 修订后的任务边界、验收和风险 |
 | 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 明确允许/禁止修改范围 |
@@ -49,7 +50,7 @@
 1. 先读 `STATUS.md` / `ROADMAP.md`，确认当前任务是否处在正确窗口。
 2. 用 `/create-current-task` 创建 `CURRENT_TASK.md`。
 3. 用 `/review-current-task` 收敛目标、验收、风险和范围。
-4. 用 `/lock-scope` 明确允许修改范围、禁止修改范围和受影响契约。
+4. 用 `/lock-scope` 明确 `Allowed Files`、`Forbidden Files`、`Conditional Files` 和受影响契约。
 5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
 6. 用 `/decompose-task` 拆成一次只做一个当前步骤的小步计划。
 7. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
@@ -61,6 +62,8 @@
 
 | 场景 | 推荐入口 |
 | --- | --- |
+| 空仓库或无实现且无治理基线 | `/greenfield-init` |
+| 已有代码但无 workflow 治理基线 | `/adopt-existing-project` |
 | 新需求进入 | `/create-current-task` |
 | 任务范围太大或不清楚 | `/review-current-task` → `/lock-scope` |
 | 需要多个模块联动 | `/classify-decisions` → `/decompose-task` |
@@ -74,8 +77,10 @@
 
 ## 越界处理
 
-- 如果实现需要修改 `CURRENT_TASK.md` 允许范围外的文件，停止当前实现并回到 `/lock-scope`。
+- 如果实现需要修改 `CURRENT_TASK.md` 的 `Allowed Files` / `Conditional Files` 之外的文件，停止当前实现并回到 `/lock-scope`。
+- 未明确允许的文件默认禁止修改。
 - 如果实现需要改变 `CONTRACTS.md` 中锁定边界，先记录决策并获得确认。
+- `CURRENT_TASK.md` 不能覆盖 `CONTRACTS.md`；`DECISIONS.md` 只记录原因和历史，不单独定义当前有效规则。
 - 如果实现依赖 Taste 或 User challenge 决策，先通过 `/classify-decisions` 暴露并确认。
 - 如果 diff 已经越界，先用 `/review-diff` 标记越界文件，再决定回滚、拆任务或扩大范围。
 

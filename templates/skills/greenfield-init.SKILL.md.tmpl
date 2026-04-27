@@ -1,0 +1,97 @@
+---
+name: greenfield-init
+preamble-tier: 1
+version: 0.1.0
+description: |
+  Initialize workflow governance for a brand-new project before any task package exists.
+purpose: |
+  为新项目建立首版治理基线，包括项目画像、协作约束、契约边界、状态和决策文档。
+stage: 初始化
+trigger: |
+  当项目刚开始，尚未建立治理体系，需要先把项目基线搭起来时。
+inputs:
+  - user_request
+  - project_goals
+  - target_users_and_scenarios
+  - stack_preferences
+  - delivery_constraints
+reads:
+  - PROJECT_PROFILE.yaml
+  - WORKFLOW_PROTOCOL.md
+  - FILE_SCHEMAS.md
+  - templates/docs/
+  - README.md
+  - package.json
+writes:
+  - PROJECT_PROFILE.yaml
+  - AGENTS.md
+  - CLAUDE.md
+  - CONTRACTS.md
+  - STATUS.md
+  - DECISIONS.md
+forbidden_writes: []
+must_check:
+  - 项目目标、目标用户和成功标准是否明确
+  - 技术栈、测试方式、部署方式和禁区是否明确
+  - 需要用户确认的高层产品或架构决策是否显式暴露
+  - 首版治理文档是否能支撑后续 create-current-task
+stop_conditions:
+  - 项目目标或目标用户不明确
+  - 技术栈和部署方式存在多个高影响备选方案
+  - 用户尚未确认关键边界或禁区
+output:
+  - 首版 PROJECT_PROFILE.yaml
+  - 首版 host 指引文件（Codex 用 AGENTS.md，Claude 用 CLAUDE.md）
+  - 首版 CONTRACTS.md / STATUS.md / DECISIONS.md
+handoff:
+  success: create-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以整理结构、补齐字段、统一格式。
+  taste: 对工程偏好和协作方式不要擅自定稿，必须显式暴露。
+  user_challenge: 不得静默替用户做高层产品定位、核心架构或范围取舍。
+verification:
+  - PROJECT_PROFILE.yaml 具备后续技能渲染所需的核心字段
+  - host 指引文件、CONTRACTS.md、STATUS.md、DECISIONS.md 已建立首版骨架
+  - 未把未确认假设写成既定事实
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+notes:
+  - 这是项目级初始化 skill，不直接开始实现功能。
+  - 必须先问清用户目标、边界、禁区，再写首版治理基线。
+  - 完成后下一步通常是 create-current-task，而不是直接编码。
+---
+
+# Skill: greenfield-init
+
+## Purpose
+
+为新项目建立首版治理基线，包括项目画像、协作约束、契约边界、状态和决策文档。
+
+## Trigger
+
+当项目刚开始，尚未建立治理体系，需要先把项目基线搭起来时。
+
+## Execution Rules
+
+1. 先读取已有 scaffold（如 `PROJECT_PROFILE.yaml`、`README.md`、`package.json`）以及 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/docs/`；如果项目文件不存在，就把缺失视为待建立事实，而不是错误。
+2. 按 `FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架建立首版 `PROJECT_PROFILE.yaml`、host 指引文件、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`。
+3. host 指引文件按当前宿主选择：Codex 使用 `AGENTS.md`，Claude 使用 `CLAUDE.md`；不要把 `CLAUDE.md` 当作所有宿主的唯一入口。
+4. 任何高层产品定位、技术选型、部署策略、测试策略、目录规划，只能写入**已确认事实**；未确认项必须显式列为待确认，而不是暗自决定。
+5. 输出结果必须能让后续 `/create-current-task` 在不重复问项目级问题的前提下工作。
+
+## Hard Boundaries
+
+- 不直接开始功能实现。
+- 不静默做高层产品或架构决策。
+- 不把猜测写成项目事实。
+
+## Handoff
+
+- 成功：`create-current-task`
+- 失败：`ask-user`

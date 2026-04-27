@@ -21,12 +21,14 @@ reads:
 writes:
   - CURRENT_TASK.md
 forbidden_writes:
+  - PROJECT_PROFILE.yaml
   - CONTRACTS.md
   - "{{CODE_DIRECTORIES}}"
 must_check:
   - 任务目标是否明确
   - 验收标准是否可验证
-  - 允许与禁止修改范围是否明确
+  - Allowed Files、Forbidden Files、Conditional Files 是否明确
+  - 是否触发 Change Propagation Check
   - 回滚点是否存在
 stop_conditions:
   - 需求本身模糊
@@ -44,7 +46,7 @@ decision_policy:
 verification:
   - CURRENT_TASK.md 包含所有必填章节
   - CURRENT_TASK.md 的任务信息包含任务 ID、任务标题、任务 slug 字段
-  - 修改范围与禁止范围明确
+  - Allowed Files、Forbidden Files、Conditional Files 明确
   - 至少包含一个可执行的当前步骤
 allowed-tools:
   - Read
@@ -54,14 +56,15 @@ allowed-tools:
   - Edit
   - AskUserQuestion
 benefits-from:
-  - bun run workflow:init --mode greenfield
-  - bun run workflow:init --mode existing
+  - greenfield-init
+  - adopt-existing-project
 notes:
   - 这是任务包创建 skill，不进入实现。
-  - 项目级初始化由 workflow:init 命令层承担，而不是长期 runtime skill。
+  - 项目级初始化由专用初始化 skill 承担，而不是命令层入口。
   - 任务标识字段必须保留在 CURRENT_TASK.md 中；bootstrap planning 不得伪造其具体值。
 required_sections:
   - 任务信息
+  - 背景与上下文
   - 验收标准
   - 允许修改范围
   - 禁止修改范围
@@ -69,13 +72,25 @@ required_sections:
   - 已确认决策
   - 待确认问题
   - 传播治理记录
+  - 实施步骤
   - 回归检查项
   - 回滚点
   - 执行记录
 task_scope_rules:
   - 范围要小到可单步执行
-  - 禁止范围必须显式列出
+  - 必须写明 Allowed Files
+  - 必须写明 Forbidden Files
+  - 必须写明 Conditional Files 及触发条件
+  - 未明确允许的文件默认禁止修改
   - 如果范围不清楚，应暂停而非猜测
+source_of_truth_rules:
+  - CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+  - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
+  - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
+  - 必须声明兼容策略：backward-compatible、breaking 或 unknown
+  - 必须列出需要更新的 CONTRACTS.md、DECISIONS.md 和回归检查项
 acceptance_rules:
   - 必须可验证
   - 必须避免空泛措辞
@@ -125,7 +140,8 @@ acceptance_rules:
 
 - 任务目标是否明确
 - 验收标准是否可验证
-- 允许与禁止修改范围是否明确
+- Allowed Files、Forbidden Files、Conditional Files 是否明确
+- 是否触发 Change Propagation Check
 - 回滚点是否存在
 
 ## Stop Conditions
@@ -143,13 +159,14 @@ acceptance_rules:
 ## Verification
 
 - CURRENT_TASK.md 包含所有必填章节
-- 修改范围与禁止范围明确
+- Allowed Files、Forbidden Files、Conditional Files 明确
 - 至少包含一个可执行的当前步骤
 
 ## Extension Fields
 
 ### required_sections
 - 任务信息
+- 背景与上下文
 - 验收标准
 - 允许修改范围
 - 禁止修改范围
@@ -157,14 +174,28 @@ acceptance_rules:
 - 已确认决策
 - 待确认问题
 - 传播治理记录
+- 实施步骤
 - 回归检查项
 - 回滚点
 - 执行记录
 
 ### task_scope_rules
 - 范围要小到可单步执行
-- 禁止范围必须显式列出
+- 必须写明 Allowed Files
+- 必须写明 Forbidden Files
+- 必须写明 Conditional Files 及触发条件
+- 未明确允许的文件默认禁止修改
 - 如果范围不清楚，应暂停而非猜测
+
+### source_of_truth_rules
+- CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+- CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
+- DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
+- 必须声明兼容策略：backward-compatible、breaking 或 unknown
+- 必须列出需要更新的 CONTRACTS.md、DECISIONS.md 和回归检查项
 
 ### acceptance_rules
 - 必须可验证
@@ -192,6 +223,6 @@ acceptance_rules:
 ## Notes
 
 - 这是任务包创建 skill，不进入实现。
-- 项目级初始化由 workflow:init 命令层承担，而不是长期 runtime skill。
+- 项目级初始化由专用初始化 skill 承担，而不是命令层入口。
 - This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
 - Replace project variables with concrete project-specific values during skill generation.

@@ -26,13 +26,16 @@ forbidden_writes:
   - db/**
 must_check:
   - 验收标准是否足够具体
-  - 修改范围是否过宽
+  - Allowed Files、Forbidden Files、Conditional Files 是否完整
+  - 是否存在 CURRENT_TASK.md 覆盖 CONTRACTS.md 的冲突
   - 是否遗漏关键契约
+  - 是否触发 Change Propagation Check
   - 是否存在未分类决策
 stop_conditions:
   - 任务包仍包含多个不相干目标
   - 存在关键口味决策未确认
   - 存在与既有决策冲突
+  - CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 PROJECT_PROFILE.yaml
 output:
   - 修订后的 CURRENT_TASK.md
   - 待确认问题列表
@@ -45,6 +48,8 @@ decision_policy:
   user_challenge: 不得绕过已确认架构或产品方向。
 verification:
   - 任务包只剩一个主目标
+  - source-of-truth precedence 冲突已处理或上浮
+  - Allowed Files、Forbidden Files、Conditional Files 已收敛
   - 所有高风险未决项已上浮
   - 当前任务可进入范围锁定
 allowed-tools:
@@ -68,7 +73,18 @@ required_sections:
   - 传播治理记录
 task_scope_rules:
   - 范围过宽时必须收缩
+  - Allowed Files 必须只列本任务确需修改的文件或目录
+  - Forbidden Files 必须列出高风险和明确禁止触碰的文件或契约面
+  - Conditional Files 必须列触发条件和证据要求
+  - 未明确允许的文件默认禁止修改
   - 禁止顺手把下阶段工作塞进当前任务包
+source_of_truth_rules:
+  - CONTRACTS.md 是项目层最高约束，CURRENT_TASK.md 不得覆盖
+  - PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
+  - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须上浮影响集合
+  - 兼容策略为 breaking 或 unknown 时不得直接进入实现
 acceptance_rules:
   - 每条验收标准都应可验证
   - 口味问题要与技术问题分开
@@ -116,8 +132,10 @@ acceptance_rules:
 ## Must Check
 
 - 验收标准是否足够具体
-- 修改范围是否过宽
+- Allowed Files、Forbidden Files、Conditional Files 是否完整
+- 是否存在 CURRENT_TASK.md 覆盖 CONTRACTS.md 的冲突
 - 是否遗漏关键契约
+- 是否触发 Change Propagation Check
 - 是否存在未分类决策
 
 ## Stop Conditions
@@ -125,6 +143,7 @@ acceptance_rules:
 - 任务包仍包含多个不相干目标
 - 存在关键口味决策未确认
 - 存在与既有决策冲突
+- CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 PROJECT_PROFILE.yaml
 
 ## Decision Policy
 
@@ -135,6 +154,8 @@ acceptance_rules:
 ## Verification
 
 - 任务包只剩一个主目标
+- source-of-truth precedence 冲突已处理或上浮
+- Allowed Files、Forbidden Files、Conditional Files 已收敛
 - 所有高风险未决项已上浮
 - 当前任务可进入范围锁定
 
@@ -151,7 +172,20 @@ acceptance_rules:
 
 ### task_scope_rules
 - 范围过宽时必须收缩
+- Allowed Files 必须只列本任务确需修改的文件或目录
+- Forbidden Files 必须列出高风险和明确禁止触碰的文件或契约面
+- Conditional Files 必须列触发条件和证据要求
+- 未明确允许的文件默认禁止修改
 - 禁止顺手把下阶段工作塞进当前任务包
+
+### source_of_truth_rules
+- CONTRACTS.md 是项目层最高约束，CURRENT_TASK.md 不得覆盖
+- PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
+- DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须上浮影响集合
+- 兼容策略为 breaking 或 unknown 时不得直接进入实现
 
 ### acceptance_rules
 - 每条验收标准都应可验证

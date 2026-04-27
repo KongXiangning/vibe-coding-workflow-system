@@ -74,10 +74,9 @@ describe('workflow-core', () => {
       }
     });
 
-    test('REQUIRED_RUNTIME_SKILL_STAGES excludes init but keeps numbered phases', () => {
-      expect(REQUIRED_RUNTIME_SKILL_STAGES.has('初始化')).toBe(false);
+    test('REQUIRED_RUNTIME_SKILL_STAGES covers the full runtime skill flow including init', () => {
+      expect(REQUIRED_RUNTIME_SKILL_STAGES.has('初始化')).toBe(true);
       for (const display of STAGE_MAP.values()) {
-        if (display === '初始化') continue;
         expect(REQUIRED_RUNTIME_SKILL_STAGES.has(display)).toBe(true);
       }
     });
@@ -132,17 +131,15 @@ describe('workflow-core', () => {
   });
 
   describe('validateRuntimeSkillStages', () => {
-    const runtimeChineseStages = [...STAGE_MAP.values()].filter(stage => stage !== '初始化');
-    const runtimeCanonicalStages = [...STAGE_MAP.entries()]
-      .filter(([, display]) => display !== '初始化')
-      .map(([canonical]) => canonical);
+    const runtimeChineseStages = [...STAGE_MAP.values()];
+    const runtimeCanonicalStages = [...STAGE_MAP.keys()];
 
-    test('accepts numbered workflow stages without init', () => {
+    test('accepts the full runtime skill stage set', () => {
       expect(() => validateRuntimeSkillStages(runtimeChineseStages)).not.toThrow();
       expect(() => validateRuntimeSkillStages(runtimeCanonicalStages)).not.toThrow();
     });
 
-    test('throws when a numbered runtime stage is missing', () => {
+    test('throws when a runtime stage is missing', () => {
       expect(() => validateRuntimeSkillStages(runtimeChineseStages.slice(1))).toThrow(/Missing required stage coverage/);
     });
   });

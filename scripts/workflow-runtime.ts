@@ -24,21 +24,20 @@ import {
   loadProfile,
   normalizeList,
   readText,
+  renderWorkflowDocReferences,
   resolveRoot,
   validateProfilePathSemantics,
   type JsonObject,
   type WriteOperation,
 } from './workflow-core';
 import { repoPatternMatchesPath } from './repo-path-patterns';
-import { buildBootstrapPlan, formatBootstrapPlan, type BootstrapPlan } from './bootstrap-project-governance';
 import { runFreshnessChecks } from './check-freshness';
 import { runValidation } from './run-validation';
 
 export const SUPPORTED_RUNTIME_HOSTS = ['claude', 'codex', 'factory'] as const;
 export type RuntimeHost = (typeof SUPPORTED_RUNTIME_HOSTS)[number];
 export type DetectedRuntimeHost = RuntimeHost | 'unknown';
-export type RuntimeCommand = 'health' | 'manifest' | 'sync' | 'pack' | 'install' | 'init' | 'adopt';
-export type RuntimeInitMode = 'greenfield' | 'existing';
+export type RuntimeCommand = 'health' | 'manifest' | 'sync' | 'pack' | 'install';
 export type ManifestCategory = 'script' | 'protocol' | 'template' | 'config' | 'test' | 'generated';
 export type SyncMode = 'copy';
 
@@ -163,7 +162,6 @@ export type SyncWorkflowHostOptions = {
 
 type ParsedCliArgs = {
   command: RuntimeCommand;
-  mode?: RuntimeInitMode;
   host?: RuntimeHost;
   json: boolean;
   write: boolean;
@@ -268,48 +266,11 @@ export type InstallReport = {
   exit_code: number;
 };
 
-export type InitReport = {
-  report_version: 1;
-  mode: RuntimeInitMode;
-  root: string;
-  dry_run: boolean;
-  install_state_present: boolean;
-  profile_path: string;
-  profile_exists: boolean;
-  profile_missing_fields: string[];
-  status: 'ready' | 'needs-profile-input';
-  summary: string[];
-  next_steps: string[];
-  bootstrap_plan?: BootstrapPlan;
-};
-
 export type InstallOptions = {
   bundleDir: string;
   root?: string;
   host?: RuntimeHost;
   dryRun?: boolean;
-};
-
-export type AdoptOptions = {
-  root?: string;
-  host?: RuntimeHost;
-  dryRun?: boolean;
-};
-
-export type AdoptReport = {
-  report_version: 1;
-  dry_run: boolean;
-  success: boolean;
-  host: RuntimeHost;
-  planned_materializations: string[];
-  planned_host_sync_targets: string[];
-  health_check_required: boolean;
-  bootstrap_plan: BootstrapPlan;
-  written_materializations?: string[];
-  failed_materialization?: string;
-  error?: string;
-  failures: PreflightFailure[];
-  exit_code: number;
 };
 
 type HostResolution = {
@@ -319,6 +280,7 @@ type HostResolution = {
 };
 
 const WORKFLOW_RUNTIME_PREFIX = 'workflow-system-';
+const BOOTSTRAP_INIT_SKILLS = ['greenfield-init', 'adopt-existing-project'] as const;
 
 const HOST_SKILL_DIRECTORIES: Record<RuntimeHost, string> = {
   claude: path.join('.claude', 'skills'),
@@ -378,7 +340,9 @@ const SOURCE_PIPELINE: WorkflowSourcePipeline = {
 
 const POST_INSTALL_COMMANDS = [
   'bun install',
+  'Invoke /greenfield-init or /adopt-existing-project in the installed host namespace.',
   'bun run gen:all',
+  'bun run workflow:sync --host <claude|codex|factory> --write',
   'bun run workflow:health',
 ];
 
@@ -386,7 +350,7 @@ const VERIFICATION_COMMANDS = [
   'bun run validate:protocol',
   'bun run workflow:manifest --json',
   'bun run workflow:health',
-  'bun run workflow:sync --host <claude|codex|factory>',
+  'bun run workflow:sync --host <claude|codex|factory> --write',
 ];
 
 const REQUIRED_PACKAGE_SCRIPTS = [
@@ -403,8 +367,6 @@ const REQUIRED_PACKAGE_SCRIPTS = [
   'workflow:sync',
   'workflow:pack',
   'workflow:install',
-  'workflow:init',
-  'workflow:adopt',
 ] as const;
 
 const EXACT_MATCH_PROFILE_PATHS = ['runtime.package_manager', 'runtime.module_system'] as const;
@@ -499,15 +461,11 @@ function getFlagValue(argv: string[], flag: string): string | undefined {
 export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
   const hasSubcommand = argv[0] && !argv[0].startsWith('--');
   const command = (hasSubcommand ? argv[0] : 'health') as RuntimeCommand;
-  if (!['health', 'manifest', 'sync', 'pack', 'install', 'init', 'adopt'].includes(command)) {
+  if (!['health', 'manifest', 'sync', 'pack', 'install'].includes(command)) {
     throw new Error(`Unknown workflow-runtime command: ${command}`);
   }
 
   const flags = hasSubcommand ? argv.slice(1) : argv;
-  const modeValue = getFlagValue(flags, '--mode');
-  if (modeValue && modeValue !== 'greenfield' && modeValue !== 'existing') {
-    throw new Error(`--mode must be one of greenfield, existing. Got: ${modeValue}`);
-  }
   const hostValue = getFlagValue(flags, '--host');
   if (hostValue && !isRuntimeHost(hostValue)) {
     throw new Error(`--host must be one of ${SUPPORTED_RUNTIME_HOSTS.join(', ')}. Got: ${hostValue}`);
@@ -521,14 +479,12 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
     if (
         flag === '--json' ||
         flag === '--write' ||
-        flag === '--mode' ||
         flag === '--host' ||
         flag === '--root' ||
         flag === '--bundle' ||
       flag === '--dry-run' ||
       flag === '--out-dir' ||
         flag === '--include-tests' ||
-        flag.startsWith('--mode=') ||
         flag.startsWith('--host=') ||
         flag.startsWith('--root=') ||
         flag.startsWith('--bundle=') ||
@@ -536,7 +492,7 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
     ) {
       continue;
     }
-    if ((flag === modeValue || flag === hostValue || flag === root || flag === bundle || flag === outDir) && !flag.startsWith('--')) {
+    if ((flag === hostValue || flag === root || flag === bundle || flag === outDir) && !flag.startsWith('--')) {
       continue;
     }
     if (flag.startsWith('--')) {
@@ -546,7 +502,6 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
 
   return {
     command,
-    mode: modeValue as RuntimeInitMode | undefined,
     host: hostValue,
     json: flags.includes('--json'),
     write: flags.includes('--write'),
@@ -560,6 +515,31 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
 
 function getRuntimeSkillRoot(root: string, host: RuntimeHost): string {
   return path.join(root, HOST_SKILL_DIRECTORIES[host]);
+}
+
+function getBootstrapInitSkillTemplatePath(root: string, skillName: (typeof BOOTSTRAP_INIT_SKILLS)[number]): string {
+  return path.join(root, 'templates', 'skills', `${skillName}.SKILL.md.tmpl`);
+}
+
+function getBootstrapInitSkillTarget(root: string, host: RuntimeHost, skillName: (typeof BOOTSTRAP_INIT_SKILLS)[number]): string {
+  return path.join(getRuntimeSkillRoot(root, host), `${WORKFLOW_RUNTIME_PREFIX}${skillName}`, 'SKILL.md');
+}
+
+function renderBootstrapInitSkillTemplate(content: string, profile: JsonObject): string {
+  return String(renderWorkflowDocReferences(content, profile));
+}
+
+function buildBootstrapInitSkillWrites(root: string, bundleDir: string, host: RuntimeHost, profile: JsonObject): PlannedWrite[] {
+  return BOOTSTRAP_INIT_SKILLS.map(skillName => {
+    const targetPath = getBootstrapInitSkillTarget(root, host, skillName);
+    const templatePath = getBootstrapInitSkillTemplatePath(bundleDir, skillName);
+    return {
+      path: targetPath,
+      action: fs.existsSync(targetPath) ? 'overwrite' : 'create',
+      mode: 'bootstrap-skill-install',
+      content: renderBootstrapInitSkillTemplate(readText(templatePath), profile),
+    };
+  });
 }
 
 function readWorkflowProfile(root: string): JsonObject {
@@ -1507,6 +1487,10 @@ function writePlannedFiles(
       writeTextFile(planned.path, `${JSON.stringify(installState, null, 2)}\n`);
       continue;
     }
+    if (typeof planned.content === 'string') {
+      writeTextFile(planned.path, planned.content);
+      continue;
+    }
 
     const relative = getRelativePath(root, planned.path);
     const sourcePath = path.join(bundleDir, relative.replace(/\//g, path.sep));
@@ -1609,6 +1593,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
   if (versionWriteNeeded) {
     plannedWrites.push({ path: versionPath, action: 'scaffold', mode: 'scaffold-once' });
   }
+  plannedWrites.push(...buildBootstrapInitSkillWrites(root, bundleDir, host, profilePlan.profile));
   plannedWrites.push({
     path: path.join(root, '.workflow-system', 'install-state.json'),
     action: 'create',
@@ -1656,505 +1641,6 @@ export function formatInstallReport(report: InstallReport): string {
     `dry-run: ${report.dry_run}`,
     `planned writes: ${report.planned_writes.length}`,
   ];
-  for (const failure of report.failures) {
-    lines.push(`- ${failure.category}: ${failure.path} (${failure.message})`);
-  }
-  return lines.join('\n');
-}
-
-function formatMissingFieldList(fields: string[]): string {
-  return fields.length > 0 ? fields.join(', ') : 'none';
-}
-
-function buildGeneratedPlanningWorkspace(root: string, prefix: string): string {
-  const tempRoot = buildAdoptDryRunWorkspace(root, prefix);
-  try {
-    const tempEnv = { WORKFLOW_SYSTEM_ROOT: tempRoot };
-    runTargetCommand(root, ['run', path.join(root, 'scripts', 'gen-workflow-skills.ts')], tempEnv);
-    runTargetCommand(root, ['run', path.join(root, 'scripts', 'gen-workflow-docs.ts')], tempEnv);
-    runTargetCommand(root, ['run', path.join(root, 'scripts', 'gen-registry.ts')], tempEnv);
-    return tempRoot;
-  } catch (error) {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    throw error;
-  }
-}
-
-function sanitizeInitBootstrapPlan(plan: BootstrapPlan, root: string, profile: JsonObject): BootstrapPlan {
-  const sanitized = deepClone(plan);
-  sanitized.system_root = root;
-  sanitized.governed_docs = sanitized.governed_docs.map(doc => ({
-    ...doc,
-    generated_path: path.join(getWorkflowGeneratedDir(root, profile, 'workflow-docs'), doc.doc_name),
-  }));
-  return sanitized;
-}
-
-export function initWorkflow(options: {
-  root?: string;
-  mode: RuntimeInitMode;
-  dryRun?: boolean;
-}): InitReport {
-  const root = path.resolve(options.root ?? resolveRoot());
-  const profilePath = path.join(root, 'PROJECT_PROFILE.yaml');
-  const profileExists = fs.existsSync(profilePath);
-  const installStatePresent = readInstallState(root) !== null;
-  const dryRun = Boolean(options.dryRun);
-  const summary: string[] = [];
-  const nextSteps: string[] = [];
-
-  if (!profileExists) {
-    summary.push('PROJECT_PROFILE.yaml is missing.');
-    nextSteps.push('Run workflow:install first so the workflow profile scaffold is available.');
-    return {
-      report_version: 1,
-      mode: options.mode,
-      root,
-      dry_run: dryRun,
-      install_state_present: installStatePresent,
-      profile_path: profilePath,
-      profile_exists: false,
-      profile_missing_fields: [...REQUIRED_PROFILE_FIELDS],
-      status: 'needs-profile-input',
-      summary,
-      next_steps: nextSteps,
-    };
-  }
-
-  const profile = readWorkflowProfile(root);
-  const missingFields = checkProfileCompleteness(profile);
-
-  if (options.mode === 'greenfield') {
-    summary.push(`Profile completeness: ${missingFields.length === 0 ? 'ready' : 'missing required fields'}.`);
-    summary.push(`Missing fields: ${formatMissingFieldList(missingFields)}.`);
-    nextSteps.push(
-      missingFields.length === 0
-        ? 'Review PROJECT_PROFILE.yaml once, then run workflow:adopt to materialize governed docs and host runtime outputs.'
-        : 'Fill the missing project profile fields before running workflow:adopt.',
-    );
-    nextSteps.push('Use this mode for greenfield repos where project goals and boundaries come from user-provided intent.');
-    return {
-      report_version: 1,
-      mode: options.mode,
-      root,
-      dry_run: dryRun,
-      install_state_present: installStatePresent,
-      profile_path: profilePath,
-      profile_exists: true,
-      profile_missing_fields: missingFields,
-      status: missingFields.length === 0 ? 'ready' : 'needs-profile-input',
-      summary,
-      next_steps: nextSteps,
-    };
-  }
-
-  summary.push('Existing-project adoption inspects current governance readiness and materialization drift.');
-  summary.push(`Profile completeness: ${missingFields.length === 0 ? 'ready' : 'missing required fields'}.`);
-
-  if (missingFields.length > 0) {
-    summary.push(`Missing fields: ${formatMissingFieldList(missingFields)}.`);
-    nextSteps.push('Fill the missing project profile fields before running existing-project adoption planning.');
-    nextSteps.push('Once the profile is complete, rerun workflow:init --mode existing and then workflow:adopt.');
-    return {
-      report_version: 1,
-      mode: options.mode,
-      root,
-      dry_run: dryRun,
-      install_state_present: installStatePresent,
-      profile_path: profilePath,
-      profile_exists: true,
-      profile_missing_fields: missingFields,
-      status: 'needs-profile-input',
-      summary,
-      next_steps: nextSteps,
-    };
-  }
-
-  let tempRoot: string | undefined;
-  try {
-    tempRoot = buildGeneratedPlanningWorkspace(root, 'workflow-init-');
-    const bootstrapPlan = buildBootstrapPlan({
-      systemRoot: tempRoot,
-      targetRoot: root,
-      runGeneratorChecks: false,
-    });
-    const reportPlan = sanitizeInitBootstrapPlan(bootstrapPlan, root, profile);
-    summary.push(
-      `Bootstrap plan: materialize=${reportPlan.summary.materialize}, diff-only=${reportPlan.summary.propose_diff_only}, awaiting-confirmation=${reportPlan.summary.awaiting_confirmation}, blocked=${reportPlan.summary.blocked}.`,
-    );
-    nextSteps.push('Review the bootstrap plan and unresolved confirmations for the existing repository.');
-    nextSteps.push('Run workflow:adopt after reviewing the plan to materialize governed docs and sync runtime skills.');
-    return {
-      report_version: 1,
-      mode: options.mode,
-      root,
-      dry_run: dryRun,
-      install_state_present: installStatePresent,
-      profile_path: profilePath,
-      profile_exists: true,
-      profile_missing_fields: [],
-      status: 'ready',
-      summary,
-      next_steps: nextSteps,
-      bootstrap_plan: reportPlan,
-    };
-  } finally {
-    if (tempRoot) {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    }
-  }
-}
-
-export function formatInitReport(report: InitReport): string {
-  const lines = [
-    `workflow:init ${report.status.toUpperCase()}`,
-    `mode: ${report.mode}`,
-    `root: ${report.root}`,
-    `dry-run: ${report.dry_run}`,
-    `install-state: ${report.install_state_present ? 'present' : 'missing'}`,
-    `profile: ${report.profile_exists ? report.profile_path : 'missing'}`,
-    `missing profile fields: ${formatMissingFieldList(report.profile_missing_fields)}`,
-    '',
-    'Summary:',
-    ...report.summary.map(item => `- ${item}`),
-    '',
-    'Next steps:',
-    ...report.next_steps.map(item => `- ${item}`),
-  ];
-
-  if (report.bootstrap_plan) {
-    lines.push('', 'Bootstrap plan:', ...formatBootstrapPlan(report.bootstrap_plan).split('\n'));
-  }
-
-  return lines.join('\n');
-}
-
-function copyRecursive(sourcePath: string, targetPath: string): void {
-  const stat = fs.statSync(sourcePath);
-  if (stat.isDirectory()) {
-    fs.mkdirSync(targetPath, { recursive: true });
-    for (const entry of fs.readdirSync(sourcePath)) {
-      copyRecursive(path.join(sourcePath, entry), path.join(targetPath, entry));
-    }
-    return;
-  }
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.copyFileSync(sourcePath, targetPath);
-}
-
-function runTargetCommand(root: string, args: string[], env: NodeJS.ProcessEnv = process.env): void {
-  const result = spawnSync('bun', args, { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(`${args.join(' ')} failed: ${(result.stderr ?? result.stdout ?? '').trim()}`);
-  }
-}
-
-function buildAdoptDryRunWorkspace(root: string, prefix = 'workflow-adopt-'): string {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  for (const entry of ['PROJECT_PROFILE.yaml', 'VERSION', 'package.json']) {
-    const source = path.join(root, entry);
-    if (fs.existsSync(source)) {
-      copyRecursive(source, path.join(tempRoot, entry));
-    }
-  }
-  for (const entry of ['scripts', 'templates']) {
-    const source = path.join(root, entry);
-    if (fs.existsSync(source)) {
-      copyRecursive(source, path.join(tempRoot, entry));
-    }
-  }
-  return tempRoot;
-}
-
-function buildEmptyBootstrapPlan(systemRoot: string, targetRoot: string): BootstrapPlan {
-  return {
-    schema_version: 'bootstrap-plan/v0.1.0',
-    mode: 'dry-run',
-    system_root: systemRoot,
-    target_root: targetRoot,
-    profile: {
-      name: path.basename(targetRoot),
-      slug: path.basename(targetRoot),
-      type: 'unknown',
-    },
-    generator_checks: [],
-    minimal_workflow_checks: [],
-    governed_docs: [],
-    task_identity: {
-      current_task_path: path.join(targetRoot, 'CURRENT_TASK.md'),
-      required_fields: ['任务 ID', '任务标题', '任务 slug'],
-      archive_path_pattern: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md',
-      identity_source: 'CURRENT_TASK.md##任务信息',
-      materialization_phase: 'A3',
-      bootstrap_behavior: 'preserve-placeholders',
-      status: 'absent',
-      reasons: ['Bootstrap plan could not be built because adopt failed before classify ran.'],
-    },
-    summary: {
-      materialize: 0,
-      propose_diff_only: 0,
-      awaiting_confirmation: 0,
-      blocked: 0,
-    },
-    first_run_checklist: [],
-    validation_entrypoint_slots: [],
-    warnings: ['Bootstrap plan unavailable because adopt failed before classify ran.'],
-  };
-}
-
-function renderAgentsMd(host: RuntimeHost, profile: JsonObject): string {
-  const workflowGuide = getWorkflowDocRelativePath(profile, 'WORKFLOW_GUIDE.md');
-  const currentTask = getWorkflowDocRelativePath(profile, 'CURRENT_TASK.md');
-  const contracts = getWorkflowDocRelativePath(profile, 'CONTRACTS.md');
-  const runtimeRoot = HOST_SKILL_DIRECTORIES[host].replace(/\\/g, '/');
-
-  return [
-    '# AGENTS.md',
-    '',
-    'This project uses the gstack workflow system.',
-    '',
-    `- Workflow guide: \`${workflowGuide}\``,
-    `- Current task: \`${currentTask}\``,
-    `- Contracts: \`${contracts}\``,
-    `- Runtime skills: \`${runtimeRoot}/workflow-system-*/SKILL.md\``,
-    '',
-    `Read \`${workflowGuide}\` before workflow-governed changes and keep task state in \`${currentTask}\`.`,
-    '',
-  ].join('\n');
-}
-
-function planAgentsMdMaterialization(root: string): string[] {
-  return fs.existsSync(path.join(root, 'AGENTS.md')) ? [] : ['AGENTS.md'];
-}
-
-export function adoptWorkflow(options: AdoptOptions = {}): AdoptReport {
-  const root = path.resolve(options.root ?? process.cwd());
-  const installState = readInstallState(root);
-  if (!installState) {
-    throw new Error('workflow:adopt requires a prior successful workflow:install.');
-  }
-
-  const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
-  const host = getDefaultHost(root, options.host, profile);
-  let planRoot = root;
-  let tempRoot: string | undefined;
-  let bootstrapPlan: BootstrapPlan | undefined;
-  let materializations: Array<BootstrapPlan['governed_docs'][number]> = [];
-  let agentsMdMaterializations: string[] = [];
-  let hostSyncPlan: HostSyncPlan | undefined;
-  const writtenMaterializations: string[] = [];
-  try {
-    if (options.dryRun) {
-      tempRoot = buildGeneratedPlanningWorkspace(root, 'workflow-adopt-');
-      planRoot = tempRoot;
-    } else {
-      runTargetCommand(root, ['run', 'gen:all']);
-    }
-
-    bootstrapPlan = buildBootstrapPlan({
-      systemRoot: planRoot,
-      targetRoot: planRoot,
-      runGeneratorChecks: false,
-    });
-    materializations = bootstrapPlan.governed_docs.filter(doc => doc.planned_action === 'materialize' && doc.lifecycle === 'absent');
-    agentsMdMaterializations = planAgentsMdMaterialization(root);
-    hostSyncPlan = buildHostSyncPlan(planRoot, host);
-    const failures: PreflightFailure[] = [];
-
-    for (const doc of materializations) {
-      if (pathIsFrozen(root, path.join(root, doc.file), profile)) {
-        failures.push({
-          category: 'frozen_path',
-          path: doc.file,
-          message: 'Planned live-doc materialization targets a frozen path.',
-        });
-      }
-    }
-    for (const file of agentsMdMaterializations) {
-      const targetPath = path.join(root, file);
-      if (pathIsFrozen(root, targetPath, profile)) {
-        failures.push({
-          category: 'frozen_path',
-          path: file,
-          message: 'Planned AGENTS.md materialization targets a frozen path.',
-        });
-      }
-    }
-    for (const entry of hostSyncPlan.entries) {
-      const realTarget = options.dryRun
-        ? path.join(root, getRelativePath(planRoot, entry.target).replace(/\//g, path.sep))
-        : entry.target;
-      if (pathIsFrozen(root, realTarget, profile)) {
-        failures.push({
-          category: 'frozen_path',
-          path: getRelativePath(root, realTarget),
-          message: 'Planned host sync targets a frozen path.',
-        });
-      }
-    }
-
-    const success = failures.length === 0;
-    const exit_code = success ? 0 : 2;
-    if (success && !options.dryRun) {
-      for (const doc of materializations) {
-        try {
-          writeTextFile(getWorkflowDocPath(root, profile, doc.doc_name), readText(doc.generated_path));
-          writtenMaterializations.push(doc.file);
-        } catch (error) {
-          return {
-            report_version: 1,
-            dry_run: false,
-            success: false,
-            host,
-            planned_materializations: [...materializations.map(item => item.file), ...agentsMdMaterializations],
-            planned_host_sync_targets: hostSyncPlan.entries.map(entry => getRelativePath(root, entry.target)),
-            health_check_required: true,
-            bootstrap_plan: bootstrapPlan,
-            written_materializations: [...writtenMaterializations],
-            failed_materialization: doc.file,
-            error: error instanceof Error ? error.message : String(error),
-            failures: [],
-            exit_code: 1,
-          };
-        }
-      }
-      if (agentsMdMaterializations.length > 0) {
-        try {
-          writeTextFile(path.join(root, 'AGENTS.md'), renderAgentsMd(host, profile));
-          writtenMaterializations.push('AGENTS.md');
-        } catch (error) {
-          return {
-            report_version: 1,
-            dry_run: false,
-            success: false,
-            host,
-            planned_materializations: [...materializations.map(item => item.file), ...agentsMdMaterializations],
-            planned_host_sync_targets: hostSyncPlan.entries.map(entry => getRelativePath(root, entry.target)),
-            health_check_required: true,
-            bootstrap_plan: bootstrapPlan,
-            written_materializations: [...writtenMaterializations],
-            failed_materialization: 'AGENTS.md',
-            error: error instanceof Error ? error.message : String(error),
-            failures: [],
-            exit_code: 1,
-          };
-        }
-      }
-      const health = buildWorkflowHealthReport({ root, host });
-      if (!health.ok) {
-        return {
-          report_version: 1,
-          dry_run: false,
-          success: false,
-          host,
-          planned_materializations: [...materializations.map(doc => doc.file), ...agentsMdMaterializations],
-          planned_host_sync_targets: hostSyncPlan.entries.map(entry => getRelativePath(root, entry.target)),
-          health_check_required: true,
-          bootstrap_plan: bootstrapPlan,
-          written_materializations: [...writtenMaterializations],
-          failures: [{
-            category: 'incompatible_target',
-            path: '.',
-            message: `workflow:health failed: ${health.blocked_by.join(', ')}`,
-          }],
-          exit_code: 1,
-        };
-      }
-      let syncResult: HostSyncResult;
-      try {
-        syncResult = syncWorkflowHost({ root, host, write: true });
-      } catch (error) {
-        return {
-          report_version: 1,
-          dry_run: false,
-          success: false,
-          host,
-          planned_materializations: [...materializations.map(doc => doc.file), ...agentsMdMaterializations],
-          planned_host_sync_targets: hostSyncPlan.entries.map(entry => getRelativePath(root, entry.target)),
-          health_check_required: true,
-          bootstrap_plan: bootstrapPlan,
-          written_materializations: [...writtenMaterializations],
-          error: error instanceof Error ? error.message : String(error),
-          failures: [],
-          exit_code: 1,
-        };
-      }
-      const nextInstallState = deepClone(installState);
-      nextInstallState.host_sync_state[host] = {
-        namespace: 'workflow-system-*',
-        synced_at: new Date().toISOString(),
-        synced_entries: syncResult.entries.map(entry => ({
-          skill_name: entry.skill_name,
-          target_path: getRelativePath(root, entry.target),
-        })),
-      };
-      writeTextFile(path.join(root, '.workflow-system', 'install-state.json'), `${JSON.stringify(nextInstallState, null, 2)}\n`);
-    }
-
-    return {
-      report_version: 1,
-      dry_run: Boolean(options.dryRun),
-      success,
-      host,
-      planned_materializations: [...materializations.map(doc => doc.file), ...agentsMdMaterializations],
-      planned_host_sync_targets: hostSyncPlan.entries.map(entry =>
-        options.dryRun
-          ? getRelativePath(planRoot, entry.target)
-          : getRelativePath(root, entry.target),
-      ),
-      health_check_required: true,
-      bootstrap_plan: bootstrapPlan,
-      written_materializations: options.dryRun ? [] : [...writtenMaterializations],
-      failures,
-      exit_code,
-    };
-  } catch (error) {
-    return {
-      report_version: 1,
-      dry_run: Boolean(options.dryRun),
-      success: false,
-      host,
-      planned_materializations: [...materializations.map(doc => doc.file), ...agentsMdMaterializations],
-      planned_host_sync_targets: hostSyncPlan?.entries.map(entry =>
-        options.dryRun
-          ? getRelativePath(planRoot, entry.target)
-          : getRelativePath(root, entry.target),
-      ) ?? [],
-      health_check_required: true,
-      bootstrap_plan: bootstrapPlan ?? buildEmptyBootstrapPlan(planRoot, planRoot),
-      written_materializations: [...writtenMaterializations],
-      error: error instanceof Error ? error.message : String(error),
-      failures: [],
-      exit_code: 1,
-    };
-  } finally {
-    if (tempRoot) {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    }
-  }
-}
-
-export function formatAdoptReport(report: AdoptReport): string {
-  const lines = [
-    `workflow:adopt ${report.success ? 'OK' : 'FAILED'}`,
-    `host: ${report.host}`,
-    `dry-run: ${report.dry_run}`,
-    `materializations: ${report.planned_materializations.length}`,
-    `host sync targets: ${report.planned_host_sync_targets.length}`,
-    `bootstrap governed docs: ${report.bootstrap_plan.governed_docs.length}`,
-  ];
-  if (report.written_materializations && report.written_materializations.length > 0) {
-    lines.push(`written materializations: ${report.written_materializations.join(', ')}`);
-  }
-  if (report.failed_materialization) {
-    lines.push(`failed materialization: ${report.failed_materialization}`);
-  }
-  if (report.error) {
-    lines.push(`error: ${report.error}`);
-  }
   for (const failure of report.failures) {
     lines.push(`- ${failure.category}: ${failure.path} (${failure.message})`);
   }
@@ -2216,9 +1702,8 @@ export function getExportManifest(root?: string): ExportManifest {
         adoption_stage: 'A2',
         steps: [
           {
-            name: 'collect-project-context',
-            description: 'Run the bootstrap initialization command to classify the target as greenfield or existing and surface the project facts needed before governed docs are materialized.',
-            command: 'bun run workflow:init --mode <greenfield|existing>',
+            name: 'invoke-bootstrap-skill',
+            description: 'Invoke the installed bootstrap skill entrypoint: greenfield-init for new projects, adopt-existing-project for existing repos.',
           },
         ],
       },
@@ -2227,18 +1712,18 @@ export function getExportManifest(root?: string): ExportManifest {
         steps: [
           {
             name: 'generate-outputs',
-            description: 'Render the workflow skills, docs, and registry through the imported package.json script contract inside the target project.',
+            description: 'After the init skill writes the project baseline, render the workflow skills, docs, and registry through the imported package.json script contract inside the target project.',
             command: 'bun run gen:all',
-          },
-          {
-            name: 'verify-health',
-            description: 'Run repo-local health checks through the imported package.json script contract before enabling host sync.',
-            command: 'bun run workflow:health',
           },
           {
             name: 'sync-host-runtime',
             description: 'Copy generated workflow skills into the target host namespace.',
-            command: 'bun run workflow:sync --host <claude|codex|factory>',
+            command: 'bun run workflow:sync --host <claude|codex|factory> --write',
+          },
+          {
+            name: 'verify-health',
+            description: 'Run repo-local health checks through the imported package.json script contract after host sync.',
+            command: 'bun run workflow:health',
           },
         ],
       },
@@ -2595,41 +2080,6 @@ function main(): void {
       dryRun: args.dryRun,
     });
     writeCliReport(args.json ? JSON.stringify(report, null, 2) : formatInstallReport(report), {
-      json: args.json,
-      success: report.success,
-    });
-    if (!report.success) {
-      process.exit(report.exit_code);
-    }
-    return;
-  }
-
-  if (args.command === 'init') {
-    if (!args.mode) {
-      throw new Error('workflow:init requires --mode <greenfield|existing>.');
-    }
-    const report = initWorkflow({
-      root: args.root ?? process.cwd(),
-      mode: args.mode,
-      dryRun: args.dryRun,
-    });
-    writeCliReport(args.json ? JSON.stringify(report, null, 2) : formatInitReport(report), {
-      json: args.json,
-      success: report.status === 'ready',
-    });
-    if (report.status !== 'ready') {
-      process.exit(2);
-    }
-    return;
-  }
-
-  if (args.command === 'adopt') {
-    const report = adoptWorkflow({
-      root: args.root ?? process.cwd(),
-      host: args.host,
-      dryRun: args.dryRun,
-    });
-    writeCliReport(args.json ? JSON.stringify(report, null, 2) : formatAdoptReport(report), {
       json: args.json,
       success: report.success,
     });

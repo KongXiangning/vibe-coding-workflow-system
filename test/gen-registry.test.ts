@@ -10,15 +10,16 @@ const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
 const GENERATED_SKILLS_DIR = path.join(ROOT, 'generated', 'workflow-skills');
 
 const EXPECTED_SECTIONS = [
-  { heading: '### 3.1 阶段 1：需求进入', stage: '阶段 1：需求进入' },
-  { heading: '### 3.2 阶段 2：范围锁定', stage: '阶段 2：范围锁定' },
-  { heading: '### 3.3 阶段 3：方案拆解', stage: '阶段 3：方案拆解' },
-  { heading: '### 3.4 阶段 4：小步实现', stage: '阶段 4：小步实现' },
-  { heading: '### 3.5 阶段 4/6：异常处理', stage: '阶段 4/6：实现或验证异常' },
-  { heading: '### 3.6 阶段 5：范围复核', stage: '阶段 5：范围复核' },
-  { heading: '### 3.7 阶段 6：回归验证', stage: '阶段 6：回归验证' },
-  { heading: '### 3.8 阶段 7：状态同步', stage: '阶段 7：状态同步' },
-  { heading: '### 3.9 阶段 8：交付沉淀', stage: '阶段 8：交付沉淀' },
+  { heading: '### 3.1 初始化', stage: '初始化' },
+  { heading: '### 3.2 阶段 1：需求进入', stage: '阶段 1：需求进入' },
+  { heading: '### 3.3 阶段 2：范围锁定', stage: '阶段 2：范围锁定' },
+  { heading: '### 3.4 阶段 3：方案拆解', stage: '阶段 3：方案拆解' },
+  { heading: '### 3.5 阶段 4：小步实现', stage: '阶段 4：小步实现' },
+  { heading: '### 3.6 阶段 4/6：异常处理', stage: '阶段 4/6：实现或验证异常' },
+  { heading: '### 3.7 阶段 5：范围复核', stage: '阶段 5：范围复核' },
+  { heading: '### 3.8 阶段 6：回归验证', stage: '阶段 6：回归验证' },
+  { heading: '### 3.9 阶段 7：状态同步', stage: '阶段 7：状态同步' },
+  { heading: '### 3.10 阶段 8：交付沉淀', stage: '阶段 8：交付沉淀' },
 ] as const;
 
 const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);

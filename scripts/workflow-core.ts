@@ -78,12 +78,10 @@ export const REQUIRED_STAGES = new Set([
 ]);
 
 /**
- * Runtime workflow skills cover the numbered workflow phases.
- * Project initialization is handled by workflow:init at the command layer.
+ * Runtime workflow skills cover the full workflow, including project initialization.
+ * `greenfield-init` and `adopt-existing-project` are skill entrypoints, not command entrypoints.
  */
-export const REQUIRED_RUNTIME_SKILL_STAGES = new Set(
-  [...REQUIRED_STAGES].filter(stage => stage !== '初始化'),
-);
+export const REQUIRED_RUNTIME_SKILL_STAGES = new Set(REQUIRED_STAGES);
 
 export const RESERVED_FAILURE_TARGETS = new Set(['ask-user']);
 
