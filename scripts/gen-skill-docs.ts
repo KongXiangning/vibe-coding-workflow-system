@@ -94,8 +94,12 @@ function externalSkillName(skillDir: string, frontmatterName?: string): string {
   return `gstack-${baseName}`;
 }
 
+function normalizeLineEndings(content: string): string {
+  return content.replace(/\r\n?/g, '\n');
+}
+
 function extractNameAndDescription(content: string): { name: string; description: string } {
-  const normalized = content.replace(/\r\n/g, '\n');
+  const normalized = normalizeLineEndings(content);
   const fmStart = normalized.indexOf('---\n');
   if (fmStart !== 0) return { name: '', description: '' };
   const fmEnd = normalized.indexOf('\n---', fmStart + 4);
@@ -168,7 +172,7 @@ function transformFrontmatter(content: string, host: Host): string {
     return content.replace(/^sensitive:\s*true\n/m, '');
   }
 
-  const normalized = content.replace(/\r\n/g, '\n');
+  const normalized = normalizeLineEndings(content);
   const fmStart = normalized.indexOf('---\n');
   if (fmStart !== 0) return content;
   const fmEnd = normalized.indexOf('\n---', fmStart + 4);
@@ -422,15 +426,20 @@ for (const currentHost of hostsToRun) {
         console.log(`SKIPPED (symlink loop): ${relOutput}`);
       } else if (DRY_RUN) {
         const existing = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
-        if (existing !== content) {
+        if (normalizeLineEndings(existing) !== normalizeLineEndings(content)) {
           console.log(`STALE: ${relOutput}`);
           hasChanges = true;
         } else {
           console.log(`FRESH: ${relOutput}`);
         }
       } else {
-        fs.writeFileSync(outputPath, content);
-        console.log(`GENERATED: ${relOutput}`);
+        const existing = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : null;
+        if (existing !== null && normalizeLineEndings(existing) === normalizeLineEndings(content)) {
+          console.log(`UNCHANGED: ${relOutput}`);
+        } else {
+          fs.writeFileSync(outputPath, content);
+          console.log(`GENERATED: ${relOutput}`);
+        }
       }
 
       // Track token budget

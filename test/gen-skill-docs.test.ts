@@ -193,6 +193,29 @@ describe('gen-skill-docs', () => {
     expect(output).not.toContain('STALE');
   });
 
+  test('non-dry-run generation skips rewriting CRLF-only SKILL.md changes', () => {
+    const skillPath = path.join(ROOT, 'benchmark', 'SKILL.md');
+    const original = fs.readFileSync(skillPath, 'utf-8');
+    const crlfVersion = original.replace(/\r?\n/g, '\r\n');
+
+    fs.writeFileSync(skillPath, crlfVersion, 'utf-8');
+
+    try {
+      const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts'], {
+        cwd: ROOT,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(result.exitCode).toBe(0);
+
+      const output = result.stdout.toString().replace(/\\/g, '/');
+      expect(output).toContain('UNCHANGED: benchmark/SKILL.md');
+      expect(fs.readFileSync(skillPath, 'utf-8')).toBe(crlfVersion);
+    } finally {
+      fs.writeFileSync(skillPath, original, 'utf-8');
+    }
+  });
+
   test('no generated SKILL.md contains unresolved placeholders', () => {
     for (const skill of ALL_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
