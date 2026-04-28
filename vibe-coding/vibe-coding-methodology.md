@@ -678,6 +678,97 @@ git --no-pager diff --stat
 - `investigate`
 - `qa` 中的自我停止逻辑
 
+### Bug 调查闭环：先证明根因，再允许修复
+
+`gstack /investigate` 最值得迁移的不是“会修 bug”，而是它把调试从猜测式补丁变成了可审计的调查流程。
+
+在大型 Vibe Coding 项目里，只要出现测试失败、回归验证失败、实现过程中出现异常，或者连续修复没有收敛，就不应该继续让 AI “试一个修复”。正确动作是进入 Bug 调查闭环。
+
+#### 触发条件
+
+- 测试失败但原因不明
+- 回归验证失败
+- 实现过程中出现无法解释的异常
+- 同一个 bug 连续修复没有收敛
+- 问题可能来自范围外系统、共享模块或架构边界
+
+#### 五步闭环
+
+1. **收集现象**：记录错误信息、失败断言、堆栈、用户可见行为和已知复现步骤。
+2. **建立复现**：先确认能否稳定复现；不能复现时先补证据，不直接修。
+3. **追踪路径**：从症状反向追代码路径、数据流、状态流、最近 diff 和相关日志。
+4. **提出假设**：写出一条可验证的 `Root cause hypothesis`，说明“哪里错了”以及“为什么会导致这个现象”。
+5. **验证假设**：用测试、日志、断言、debug 输出或最小复现证明假设成立后，才允许提出最小修复。
+
+#### 硬规则
+
+- 未验证 root cause hypothesis 前不得修复。
+- 一次只验证一个假设，不得同时尝试多个修复方向。
+- 修复必须针对已证明的根因，而不是隐藏报错、扩大兜底或绕过失败路径。
+- 如果 3 个假设都失败，停止并汇报已验证证据，不继续猜。
+- 如果根因或最小修复路径超出 `CURRENT_TASK.md` 的允许范围，回到范围锁定，而不是直接扩大改动。
+- 如果修复需要改变产品行为、接口契约或架构边界，必须停下确认。
+
+#### 最小调查报告
+
+```md
+Bug 调查报告：
+- Symptom:
+- Reproduction:
+- Root cause hypothesis:
+- Evidence:
+- Minimal fix path:
+- Regression check:
+- Remaining risk:
+```
+
+这对应 workflow-system 中的 `/investigate-root-cause`：方法论文档说明“为什么”，实际项目执行时应由 skill 模板和 `WORKFLOW_GUIDE.md` 承载“怎么做、什么时候用”。
+
+### QA 模式分流：先选验证深度，再跑检查
+
+`gstack` 的 `/qa`、`/qa-only`、`/browse`、`/setup-browser-cookies` 不是四个孤立动作，而是一套验证分流思想：
+
+- `/qa` 提供差异感知验证、完整 QA、快速 smoke 和回归对比。
+- `/qa-only` 提供只报告不修复的只读验证模式。
+- `/browse` 让 AI 能看到真实 UI、登录状态、交互结果、控制台错误和页面状态。
+- `/setup-browser-cookies` 解决认证态页面验证的前置条件。
+
+在 workflow-system 中，这组能力不需要照搬成同名 skill；更稳的落点是阶段 6 的 `/run-regression`。它应该先判断本轮需要哪种 QA mode，再决定要跑哪些测试、是否需要 browser-backed smoke、是否需要 session/cookie。
+
+#### QA mode
+
+| 模式 | 使用场景 | 验证重点 |
+| --- | --- | --- |
+| `diff-aware` | 默认模式；一般功能改动 | 根据 `CURRENT_TASK.md`、当前 diff 和回归项验证受影响路径 |
+| `quick-smoke` | 小任务、低风险改动 | 相关测试、关键入口、最小 smoke check |
+| `full-qa` | 大任务、UI / 交互、高传播面改动 | 核心路径、页面状态、控制台错误、关键用户流程 |
+| `report-only` | 冻结期、外部验收、只读审查 | 只输出问题和证据，不修复、不进入实现 |
+| `authenticated-browser` | 登录态页面、权限流、账号状态 | 先确认 session/cookie 或人工登录可用 |
+| `regression-baseline` | 有 baseline、截图、历史报告 | 前后行为、视觉或性能对比 |
+
+#### 分流规则
+
+- 默认使用 `diff-aware`，不要盲目跑全量 QA。
+- UI / 登录 / 表单 / 路由 / 状态流任务，必须说明是否做过 browser-backed smoke。
+- 需要登录但 session/cookie 不可用时，应标记为 blocked，而不是把未验证页面记为通过。
+- `report-only` 模式下，即使发现问题，也只输出证据，不直接修复。
+- `/run-regression` 发现真实失败后，进入 `/investigate-root-cause`；修复仍由实现阶段完成。
+- 不把具体浏览器工具写死进方法论；有工具就执行 browser-backed smoke，没有工具就记录人工验证项或 blocked risk。
+
+#### 最小 QA 报告
+
+```md
+QA Report:
+- QA mode:
+- Target surface:
+- Checks run:
+- Browser/session requirement:
+- Findings:
+- Pass / fail:
+- Evidence:
+- Handoff:
+```
+
 ---
 
 ## 五、标准工作流
@@ -921,12 +1012,25 @@ git --no-pager diff --stat
 
 #### 优先顺序
 
-##### A. 跑已有测试
+##### A. 先选择 QA mode
+
+根据任务风险选择：
+
+- `diff-aware`：默认模式，验证当前 diff 影响面
+- `quick-smoke`：小任务或低风险改动
+- `full-qa`：大任务、UI / 交互或高传播面改动
+- `report-only`：只报告不修复
+- `authenticated-browser`：需要登录态或权限验证
+- `regression-baseline`：需要前后对比
+
+没有 QA mode，就容易出现两种错误：小改动过度验证，或者高风险 UI 改动只跑了单元测试。
+
+##### B. 跑已有测试
 
 - 先跑与当前改动直接相关的测试
 - 再跑核心稳定功能相关测试
 
-##### B. 做最小 smoke check
+##### C. 做最小 smoke check
 
 如果测试不完善，至少检查：
 
@@ -935,6 +1039,7 @@ git --no-pager diff --stat
 - 关键流程是否仍走通
 - 关键 import / 路由 / 状态流是否断裂
 - 高传播面附加检查的结论和剩余风险是否仍然自洽
+- UI / 登录 / 表单 / 路由 / 状态流任务是否完成 browser-backed smoke，或明确记录 blocked risk
 
 对于使用 workflow-system 的项目，可追加当前仓库的参考实现校验：
 
@@ -944,12 +1049,12 @@ bun run validate:all
 bun run workflow:health
 ```
 
-##### C. 发现 bug 时按最小修复原则处理
+##### D. 发现 bug 时按最小修复原则处理
 
-- 先定位根因
-- 只修当前 bug
+- 先进入 Bug 调查闭环，验证 root cause hypothesis
+- 只修已证明的当前 bug
 - 禁止顺手优化
-- 连续 3 次失败后必须停
+- 3 个假设失败后必须停
 
 #### 阶段门槛
 
@@ -1157,9 +1262,10 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 
 #### 模式 C：Bug 修复
 
-1. Copilot CLI 做根因定位
-2. Codex CLI 只挑战根因判断
-3. 确认后由一个工具实施最小修复
+1. Copilot CLI 做现象收集、复现和代码路径追踪
+2. Codex CLI 只挑战 root cause hypothesis 是否有证据
+3. 未确认根因前，任何 CLI 都不实施修复
+4. 确认后由一个工具实施最小修复，并回到回归验证
 
 #### 模式 D：发布前复核
 
@@ -1443,7 +1549,25 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 
 ---
 
-### 8.2 `CLAUDE.md` 的最小规则提示
+### 8.2 Bug 调查提示
+
+```md
+请进入 Bug 调查闭环，不要先修代码。
+
+先输出：
+1. 已确认现象
+2. 最小复现路径
+3. 相关代码路径 / 数据流
+4. Root cause hypothesis
+5. 准备用什么证据验证该假设
+
+只有当根因被验证后，才允许提出最小修复。
+如果 3 个假设都失败，停止并汇报，不要继续猜。
+```
+
+---
+
+### 8.3 `CLAUDE.md` 的最小规则提示
 
 ```md
 开始任何代码修改前，先读取：
@@ -1464,7 +1588,7 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 
 ---
 
-### 8.3 审查阶段提示
+### 8.4 审查阶段提示
 
 ```md
 请不要修改代码，只审查当前改动。
@@ -1484,7 +1608,24 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 
 ---
 
-### 8.4 回归验证提示
+### 8.5 QA 模式分流提示
+
+```md
+请先做 QA 模式分流，不要默认全量测试，也不要默认通过。
+
+先输出：
+1. QA mode：diff-aware / quick-smoke / full-qa / report-only / authenticated-browser / regression-baseline
+2. Target surface：本轮 diff 影响到哪些页面、接口、流程或状态
+3. Browser/session requirement：是否需要真实浏览器、登录态、cookie/session
+4. Checks run：准备跑哪些测试、smoke check 或人工验证项
+5. 如果是 report-only，只报告问题和证据，不修复
+
+需要登录但 session/cookie 不可用时，标记 blocked，不要把未验证页面记为通过。
+```
+
+---
+
+### 8.6 回归验证提示
 
 ```md
 请执行回归验证。
@@ -1494,17 +1635,18 @@ Codex 做架构审查 / review → Copilot 实现 → Codex 复核
 - 检查本次改动是否影响已有功能
 - 检查关键流程是否仍然可用
 - 检查是否引入异常路径或错误状态
+- UI / 登录 / 表单 / 路由 / 状态流任务必须说明是否做过 browser-backed smoke
 
 输出：
 - 已验证的关键点
-- 每一项结论（通过 / 风险 / 未覆盖）
+- 每一项结论（通过 / 风险 / blocked / 未覆盖）
 - 如存在问题，说明影响范围
 - 给出是否可以继续推进的结论
 ```
 
 ---
 
-### 8.5 状态同步提示
+### 8.7 状态同步提示
 
 ```md
 请同步当前任务状态。

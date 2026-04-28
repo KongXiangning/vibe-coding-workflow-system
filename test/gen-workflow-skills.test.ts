@@ -237,4 +237,37 @@ describe('gen-workflow-skills', () => {
     expect(reviewDiff).toContain('发现未授权文件出现在 diff 中');
     expect(reviewDiff).toContain('Change Propagation Check');
   });
+
+  test('investigate-root-cause enforces root-cause-first debugging loop', () => {
+    const content = fs.readFileSync(path.join(OUTPUT_DIR, 'investigate-root-cause.SKILL.md'), 'utf8');
+    expect(content).toContain('Root cause hypothesis');
+    expect(content).toContain('Reproduction');
+    expect(content).toContain('Evidence');
+    expect(content).toContain('Minimal fix path');
+    expect(content).toContain('Regression check');
+    expect(content).toContain('未验证 root cause hypothesis 前不得修复');
+    expect(content).toContain('若三个 root cause hypothesis 仍不收敛');
+    expect(content).toContain('修复后必须复验原始失败场景');
+  });
+
+  test('run-regression enforces QA mode selection and report-only behavior', () => {
+    const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, 'run-regression.SKILL.md'));
+    const content = fs.readFileSync(path.join(OUTPUT_DIR, 'run-regression.SKILL.md'), 'utf8');
+    expect(String((frontmatter.handoff as Record<string, unknown>).failure)).toBe('investigate-root-cause');
+    for (const expected of [
+      'QA mode',
+      'diff-aware',
+      'quick-smoke',
+      'full-qa',
+      'report-only',
+      'authenticated-browser',
+      'regression-baseline',
+      'Browser/session requirement',
+    ]) {
+      expect(content).toContain(expected);
+    }
+    expect(content).toContain('report-only 模式只报告问题和证据，不进入实现或修复');
+    expect(content).toContain('需要登录但 session/cookie 不可用时输出 blocked');
+    expect(content).toContain('不得把未验证页面记为通过');
+  });
 });

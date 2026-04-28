@@ -89,7 +89,7 @@
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `run-regression` | 运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`测试命令`、`验证清单` | `[]` | `sync-current-task` | `investigate-root-cause` |
+| `run-regression` | 选择合适 QA 模式，运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`当前 diff`、`测试命令`、`验证清单` | `[]` | `sync-current-task` | `investigate-root-cause` |
 
 ### 3.9 阶段 7：状态同步
 
