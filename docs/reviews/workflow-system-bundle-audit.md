@@ -4,12 +4,16 @@ Bundle: `dist/workflow-system/workflow-system-0.14.5.0+ded286c453de`
 
 ## Local Recheck After Fixes
 
-Source: local `bun run gen:all` after commit `71ad89e2` (`Fix workflow skill contracts`).
+Source: local `bun run gen:all` after the contract fixes and the follow-up reference-render clarification pass.
 
 Legend:
 
 - **Resolved**: the locally regenerated outputs no longer reproduce the original issue.
 - **Invalid premise**: the original finding relied on treating `generated/workflow-skills/**` as target-project live runtime artifacts. The runtime contract defines them as **source-repo reference outputs**, while install only manages `script` / `protocol` / `template` artifacts (`scripts/workflow-runtime.ts:322-323, 341, 1024-1027`).
+
+Additional local note:
+
+- The regenerated workflow skills now explicitly label themselves as **source-repo reference renders** and state that target projects re-render them from their own `PROJECT_PROFILE.yaml` during install / sync. This does not change the runtime contract, but it reduces the ambiguity behind the earlier invalid-premise findings.
 
 ### 1. `design-baseline-init`
 

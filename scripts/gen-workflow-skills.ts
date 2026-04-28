@@ -89,18 +89,35 @@ const PROJECT_TYPE_EMPHASIS: Record<string, string[]> = {
   ],
 };
 
+const PROJECT_VARIABLE_NOTE =
+  'Replace project variables with concrete project-specific values during skill generation.';
+
+const REFERENCE_RENDER_NOTE = [
+  '## Reference Render Semantics',
+  '',
+  '- This generated file is a source-repo reference render produced from the current `PROJECT_PROFILE.yaml`.',
+  '- The concrete project values shown here reflect this repository\'s profile, not a universal target-project default.',
+  '- Target projects render workflow skills from their own `PROJECT_PROFILE.yaml` during install / sync.',
+].join('\n');
+
 function renderBody(body: string, replacements: Record<string, JsonValue>, projectType: string): string {
   let rendered = body;
   for (const [placeholder, replacement] of Object.entries(replacements)) {
     rendered = rendered.split(placeholder).join(stringifyInline(replacement));
   }
 
+  rendered = rendered.replace(
+    PROJECT_VARIABLE_NOTE,
+    'This source-repo reference render already expands the current `PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.',
+  );
+
   const emphasis = PROJECT_TYPE_EMPHASIS[projectType] ?? [];
+  const referenceSection = `\n\n${REFERENCE_RENDER_NOTE}\n`;
   if (emphasis.length === 0) {
-    return rendered;
+    return `${rendered.trimEnd()}${referenceSection}`;
   }
 
-  return `${rendered.trimEnd()}\n\n## Project-Type Emphasis\n\n${emphasis.map(item => `- ${item}`).join('\n')}\n`;
+  return `${rendered.trimEnd()}${referenceSection}\n## Project-Type Emphasis\n\n${emphasis.map(item => `- ${item}`).join('\n')}\n`;
 }
 
 function validateWrites(skill: SkillFile): void {

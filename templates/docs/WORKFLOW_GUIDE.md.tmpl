@@ -6,6 +6,7 @@
 - 本文件只解释使用方法，不定义字段、章节、错误码或 gate 语义。
 - 详细文档结构以 `FILE_SCHEMAS.md` 为准；skill 的 reads / writes / handoff 以对应 `SKILL.md` 为准。
 - 如果本文件与 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md` 或具体 skill frontmatter 冲突，以规范源和 skill frontmatter 为准。
+- `generated/workflow-skills/**` 与 `generated/workflow-docs/**` 是 source-repo reference render，不是安装到 target project 后的 live runtime artifacts；target repo 会在 install / sync 时按自己的 `PROJECT_PROFILE.yaml` 重新渲染。
 
 ## 文档速查
 
