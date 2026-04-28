@@ -50,11 +50,11 @@ stop_conditions:
 output:
   - ROADMAP.md 初稿
   - ARCHITECTURE.md 初稿
-  - DATABASE.md 或 docs/designs/database-design.md
+  - DATABASE.md 与 docs/designs/database-design.md 草案
   - docs/designs/detailed-design.md
   - docs/designs/api-contracts.md
   - docs/designs/domain-model.md
-  - BASELINES.md / DECISIONS.md 草案（如适用）
+  - BASELINES.md / DECISIONS.md 草案
 handoff:
   success: greenfield-init
   failure: ask-user
@@ -95,11 +95,11 @@ notes:
 2. 先产出设计基线，不创建 `CURRENT_TASK.md`，不写业务代码。
 3. `ROADMAP.md` 记录版本窗口、里程碑、当前阶段目标和明确不做的范围。
 4. `ARCHITECTURE.md` 描述目标架构、模块职责、依赖方向、运行时边界和关键数据流。
-5. `DATABASE.md` 或 `docs/designs/database-design.md` 描述领域对象、表结构、迁移约束、数据生命周期和不可破坏字段。
+5. `DATABASE.md` 作为数据库设计 home；必要时在 `docs/designs/database-design.md` 补充更细的数据库设计草案，描述领域对象、表结构、迁移约束、数据生命周期和不可破坏字段。
 6. `docs/designs/api-contracts.md` 描述 API / DTO / Event / Module contracts 草案；不要把草案写入 `CONTRACTS.md`。
 7. `docs/designs/detailed-design.md` 描述关键流程、状态机、错误路径、权限、异步任务和边界条件。
 8. `docs/designs/domain-model.md` 描述核心实体、关系、状态和业务不变量。
-9. `BASELINES.md` 和 `DECISIONS.md` 只能写草案或待确认项；正式固化由 `greenfield-init` 完成。
+9. `BASELINES.md` 和 `DECISIONS.md` 如被创建，只能写草案或待确认项；正式固化由 `greenfield-init` 完成。
 10. 所有未确认设计取舍必须标为待确认，不得写成稳定事实。
 
 ## Hard Boundaries

@@ -36,7 +36,8 @@ writes:
   - BASELINES.md
   - STATUS.md
   - DECISIONS.md
-forbidden_writes: []
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
 must_check:
   - 项目目标、目标用户和成功标准是否明确
   - 技术栈、测试方式、部署方式和禁区是否明确
@@ -50,7 +51,7 @@ stop_conditions:
   - 用户尚未确认关键边界或禁区
 output:
   - 首版 PROJECT_PROFILE.yaml
-  - 首版 host 指引文件（Codex 用 AGENTS.md，Claude 用 CLAUDE.md）
+  - 首版 host 指引文件（授权路径包含 `AGENTS.md` / `CLAUDE.md`；实际只更新当前宿主对应文件）
   - 首版 ROADMAP.md / CONTRACTS.md / BASELINES.md / STATUS.md / DECISIONS.md
 handoff:
   success: create-current-task
@@ -61,7 +62,7 @@ decision_policy:
   user_challenge: 不得静默替用户做高层产品定位、核心架构或范围取舍。
 verification:
   - PROJECT_PROFILE.yaml 具备后续技能渲染所需的核心字段
-  - host 指引文件、ROADMAP.md、CONTRACTS.md、BASELINES.md、STATUS.md、DECISIONS.md 已建立首版骨架
+  - host 指引文件授权路径已就绪，且当前宿主对应文件、ROADMAP.md、CONTRACTS.md、BASELINES.md、STATUS.md、DECISIONS.md 已建立首版骨架
   - 已确认接口、模块和数据约束已固化到 CONTRACTS.md
   - 架构取舍和否决方案已记录到 DECISIONS.md
   - 未把未确认假设写成既定事实
@@ -94,7 +95,7 @@ notes:
 2. 复杂新项目若缺少架构、数据库、接口或详细设计基线，先停止并要求进入 `design-baseline-init`，不要在本 skill 中现场推导完整设计。
 3. 按 `FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架建立首版 `PROJECT_PROFILE.yaml`、host 指引文件、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`。
 4. 只把已确认设计固化为治理基线：稳定接口、模块边界和数据约束写入 `CONTRACTS.md`；版本窗口和当前阶段写入 `ROADMAP.md`；发布、兼容、安全、部署、性能要求写入 `BASELINES.md`；架构取舍、替代方案和否决方案写入 `DECISIONS.md`。
-5. host 指引文件按当前宿主选择：Codex 使用 `AGENTS.md`，Claude 使用 `CLAUDE.md`；不要把 `CLAUDE.md` 当作所有宿主的唯一入口。
+5. host 指引文件按当前宿主选择：Codex 使用 `AGENTS.md`，Claude 使用 `CLAUDE.md`；`writes` 里列出的是 host-compatible 授权路径，但实际只更新当前宿主对应文件，不要把 `CLAUDE.md` 当作所有宿主的唯一入口。
 6. 任何高层产品定位、技术选型、部署策略、测试策略、目录规划，只能写入**已确认事实**；未确认项必须显式列为待确认，而不是暗自决定。
 7. 输出结果必须能让后续 `/create-current-task` 在不重复问项目级问题的前提下工作。
 

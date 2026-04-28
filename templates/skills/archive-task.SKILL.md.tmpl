@@ -15,7 +15,6 @@ inputs:
   - status_doc
 reads:
   - CURRENT_TASK.md
-  - 任务摘要
   - STATUS.md
 writes:
   - "TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md"
@@ -123,6 +122,7 @@ post_release_fields:
 ## Must Check
 
 - 归档命名是否规范
+- CURRENT_TASK.md 中的任务 ID / 任务 slug 是否已实体化
 - 归档内容是否包含任务定义与结果
 - 发布后验证证据和后续观察点是否已归档
 - 是否需要创建下一轮任务包
@@ -131,6 +131,7 @@ post_release_fields:
 
 - 当前任务仍未满足验收标准
 - release gate 未满足但试图归档为完成
+- CURRENT_TASK.md 中的任务 ID 或任务 slug 仍为占位符或缺失
 - 下一步任务依赖尚不明确
 
 ## Decision Policy
@@ -144,6 +145,7 @@ post_release_fields:
 - 归档文件包含定义、执行、验证、后续建议
 - 归档文件保留 Release evidence、canary result、performance baseline result、remaining observation
 - 归档命名符合规范
+- 归档命名与 CURRENT_TASK.md 中的任务 ID / 任务 slug 一致
 - CURRENT_TASK.md 已为下一轮做好准备或明确保留
 
 ## Extension Fields
