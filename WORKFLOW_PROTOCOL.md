@@ -365,14 +365,16 @@ Mode selection is mandatory and must use repository facts plus the user's curren
 
 | Condition | Required mode |
 |---|---|
-| Repository is empty or has no meaningful implementation and no governance baseline | `greenfield-init` |
-| Repository has existing implementation or docs but no workflow governance baseline | `adopt-existing-project` |
+| Repository is empty or has no meaningful implementation, no governance baseline, and no confirmed design baseline | `design-baseline-init` |
+| Repository is empty or has no meaningful implementation, no governance baseline, and already has a confirmed design baseline | `greenfield-init` |
+| Repository has existing implementation or docs, no workflow governance baseline, and no adoption inventory | `legacy-inventory` |
+| Repository has existing implementation or docs, no workflow governance baseline, and already has confirmed adoption inventory | `adopt-existing-project` |
 | Governance baseline exists and the user is entering a concrete feature, bugfix, refactor, or change request | `create-current-task` |
 | Active `CURRENT_TASK.md` already exists and is not archived or explicitly replaced | Continue the current task flow instead of starting a new baseline |
 
 Prohibitions:
 
-- `greenfield-init` and `adopt-existing-project` must not implement feature work.
+- `design-baseline-init`, `greenfield-init`, `legacy-inventory`, and `adopt-existing-project` must not implement feature work.
 - `create-current-task` must not rewrite `PROJECT_PROFILE.yaml`.
 - Task-phase skills must not rewrite the `CONTRACTS.md` baseline unless the current task explicitly declares contract evolution as an allowed or conditional mutation.
 - A workflow step must stop and ask the user when multiple modes match and the repository facts do not disambiguate them.
@@ -512,7 +514,7 @@ Generation must fail if a handoff points to:
 The rendered chain must support:
 
 ```text
-greenfield-init | adopt-existing-project
+design-baseline-init -> greenfield-init | legacy-inventory -> adopt-existing-project
   -> create-current-task
   -> review-current-task
   -> lock-scope
@@ -1452,8 +1454,8 @@ The import contract defines the steps a target project follows during Adoption `
 4. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
 5. Create or merge the project-specific `PROJECT_PROFILE.yaml`
 6. Write `.workflow-system/install-state.json` only after the install transaction succeeds
-7. Install the bootstrap init skills (`greenfield-init`, `adopt-existing-project`) into the target host namespace during `workflow:install`
-8. Invoke `greenfield-init` or `adopt-existing-project` in the target host to perform Adoption `A2`
+7. Install the bootstrap init skills (`design-baseline-init`, `greenfield-init`, `legacy-inventory`, `adopt-existing-project`) into the target host namespace during `workflow:install`
+8. Invoke `design-baseline-init` -> `greenfield-init` for new projects, or `legacy-inventory` -> `adopt-existing-project` for existing repos, in the target host to perform Adoption `A2`
 9. Run generators plus `workflow:sync` / `workflow:health` to produce initial workflow outputs and activate the full runtime skill set after the baseline exists
 
 Import boundary note:

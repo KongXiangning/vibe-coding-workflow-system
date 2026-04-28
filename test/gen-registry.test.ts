@@ -127,6 +127,22 @@ describe('gen-registry', () => {
     expect(rows.map(row => row.name).sort()).toEqual(expectedSkillNames());
   });
 
+  test('initialization stage preserves the two-step bootstrap ordering', () => {
+    const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
+    const rows = parseRegistryRows(content);
+    const initSkills = rows
+      .filter(row => row.stage === '初始化')
+      .map(row => row.name);
+
+    expect(initSkills).toEqual([
+      'design-baseline-init',
+      'greenfield-init',
+      'legacy-inventory',
+      'adopt-existing-project',
+    ]);
+    expect(content).toContain('| 初始化 | `design-baseline-init` → `greenfield-init` / `legacy-inventory` → `adopt-existing-project` |');
+  });
+
   test('every skill row has the expected 7 registry columns', () => {
     const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
     const rows = parseRegistryRows(content);

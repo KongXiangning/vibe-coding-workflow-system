@@ -208,7 +208,7 @@ AI 最大的改变，不只是把写代码变快了，而是把 **“把事情�
 
 必须把关键控制信息落成工件。
 
-推荐的工件链路如下：
+项目初始化或接入完成后，所有具体变更都应该统一进入同一条日常任务链路：
 
 ```text
 需求 / 想法
@@ -229,6 +229,60 @@ CURRENT_TASK.md
 ```
 
 这就是从“靠聊天推动”升级为“靠工件驱动”。
+
+注意，这条链路的前置条件是：项目治理基线已经建立。新项目和老项目进入这条链路之前，入口不同。
+
+#### 新项目：先设计基线，再治理固化
+
+新项目不是直接进入 `CURRENT_TASK.md`。当项目只有原始需求或产品想法时，应该先走：
+
+```text
+原始需求 / 产品想法
+    ↓
+design-baseline-init
+    ↓
+ROADMAP.md / ARCHITECTURE.md / DATABASE.md / docs/designs/**
+    ↓
+greenfield-init
+    ↓
+PROJECT_PROFILE.yaml / CONTRACTS.md / DECISIONS.md / BASELINES.md / STATUS.md
+    ↓
+create-current-task
+    ↓
+CURRENT_TASK.md
+    ↓
+日常任务链路
+```
+
+`design-baseline-init` 负责把需求推导成首版设计基线：目标用户、核心场景、非目标、成功标准、总体架构、领域模型、数据库设计、接口边界、关键流程、错误路径、权限、异步任务和边界条件。
+
+`greenfield-init` 负责把已经确认的设计固化成治理基线。它不重新设计系统，只把稳定接口、模块边界、数据约束写入 `CONTRACTS.md`，把架构取舍、替代方案和否决方案写入 `DECISIONS.md`，把版本窗口写入 `ROADMAP.md`，把测试、发布、安全、部署、性能等要求写入 `BASELINES.md`。
+
+#### 老项目：先事实盘点，再现状固化
+
+老项目不能按新项目那样重新设计。它应该先做事实盘点、现状固化和风险标注：
+
+```text
+现有代码 / 文档 / 数据库 / 部署状态
+    ↓
+legacy-inventory
+    ↓
+ARCHITECTURE.md / DATABASE.md / docs/adoption/**
+    ↓
+adopt-existing-project
+    ↓
+PROJECT_PROFILE.yaml / CONTRACTS.md / DECISIONS.md / BASELINES.md / STATUS.md / ROADMAP.md
+    ↓
+create-current-task
+    ↓
+CURRENT_TASK.md
+    ↓
+日常任务链路
+```
+
+`legacy-inventory` 只描述当前事实：目录、模块、入口、依赖、运行方式、测试方式、真实 API、真实数据模型、真实边界、部署线索和风险区域。结论必须标明 `confirmed`、`inferred` 或 `unknown`。
+
+`adopt-existing-project` 负责把确认后的老项目事实固化为治理基线。`CONTRACTS.md` 优先锁定已经被代码依赖的 API、数据库字段、公共模块、目录职责和兼容性行为；`STATUS.md` 标记 stable / fragile / unknown / deprecated；`DECISIONS.md` 补录历史决策时可以写 `source: inferred from existing implementation`、`original reason: unknown` 和 `review condition`，不能强行编造历史原因。
 
 ---
 

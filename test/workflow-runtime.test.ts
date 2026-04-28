@@ -528,7 +528,9 @@ describe('workflow-runtime install', () => {
         expect(fs.existsSync(path.join(targetRoot, 'VERSION'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'scripts', 'workflow-runtime.ts'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
         const greenfieldInit = fs.readFileSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'), 'utf8');
         expect(greenfieldInit).toContain('docs/workflow/CONTRACTS.md');

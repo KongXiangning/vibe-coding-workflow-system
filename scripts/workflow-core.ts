@@ -79,7 +79,8 @@ export const REQUIRED_STAGES = new Set([
 
 /**
  * Runtime workflow skills cover the full workflow, including project initialization.
- * `greenfield-init` and `adopt-existing-project` are skill entrypoints, not command entrypoints.
+ * `design-baseline-init` -> `greenfield-init` and `legacy-inventory` -> `adopt-existing-project`
+ * are skill entrypoints, not command entrypoints.
  */
 export const REQUIRED_RUNTIME_SKILL_STAGES = new Set(REQUIRED_STAGES);
 

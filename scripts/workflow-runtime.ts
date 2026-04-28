@@ -280,7 +280,12 @@ type HostResolution = {
 };
 
 const WORKFLOW_RUNTIME_PREFIX = 'workflow-system-';
-const BOOTSTRAP_INIT_SKILLS = ['greenfield-init', 'adopt-existing-project'] as const;
+const BOOTSTRAP_INIT_SKILLS = [
+  'design-baseline-init',
+  'greenfield-init',
+  'legacy-inventory',
+  'adopt-existing-project',
+] as const;
 
 const HOST_SKILL_DIRECTORIES: Record<RuntimeHost, string> = {
   claude: path.join('.claude', 'skills'),
@@ -340,7 +345,7 @@ const SOURCE_PIPELINE: WorkflowSourcePipeline = {
 
 const POST_INSTALL_COMMANDS = [
   'bun install',
-  'Invoke /greenfield-init or /adopt-existing-project in the installed host namespace.',
+  'Invoke /design-baseline-init -> /greenfield-init for new projects, or /legacy-inventory -> /adopt-existing-project for existing repos.',
   'bun run gen:all',
   'bun run workflow:sync --host <claude|codex|factory> --write',
   'bun run workflow:health',
@@ -1703,7 +1708,7 @@ export function getExportManifest(root?: string): ExportManifest {
         steps: [
           {
             name: 'invoke-bootstrap-skill',
-            description: 'Invoke the installed bootstrap skill entrypoint: greenfield-init for new projects, adopt-existing-project for existing repos.',
+            description: 'Invoke the installed bootstrap skill entrypoint: design-baseline-init -> greenfield-init for new projects, legacy-inventory -> adopt-existing-project for existing repos.',
           },
         ],
       },

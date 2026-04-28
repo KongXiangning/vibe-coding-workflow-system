@@ -199,7 +199,12 @@ describe('gen-workflow-skills', () => {
   });
 
   test('bootstrap init skills read schema sources before writing governance docs', () => {
-    for (const skill of ['greenfield-init', 'adopt-existing-project']) {
+    for (const skill of [
+      'design-baseline-init',
+      'greenfield-init',
+      'legacy-inventory',
+      'adopt-existing-project',
+    ]) {
       const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, `${skill}.SKILL.md`));
       const reads = normalizeList(frontmatter.reads);
       const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
@@ -209,6 +214,14 @@ describe('gen-workflow-skills', () => {
       expect(content).toContain('FILE_SCHEMAS.md');
       expect(content).toContain('templates/docs/');
     }
+
+    const designBaseline = parseFrontmatter(path.join(OUTPUT_DIR, 'design-baseline-init.SKILL.md'));
+    const designHandoff = designBaseline.handoff as Record<string, unknown>;
+    expect(designHandoff.success).toBe('greenfield-init');
+
+    const legacyInventory = parseFrontmatter(path.join(OUTPUT_DIR, 'legacy-inventory.SKILL.md'));
+    const legacyHandoff = legacyInventory.handoff as Record<string, unknown>;
+    expect(legacyHandoff.success).toBe('adopt-existing-project');
   });
 
   test('task intake and review skills enforce mutation scope and precedence gates', () => {

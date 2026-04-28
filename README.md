@@ -101,7 +101,7 @@ bun run workflow:pack --json
 bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex --dry-run --json
 bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex
 (cd <target-repo> && bun install)
-(invoke `/greenfield-init` or `/adopt-existing-project` in the target host)
+(invoke `/design-baseline-init` -> `/greenfield-init` for new projects, or `/legacy-inventory` -> `/adopt-existing-project` for existing repos, in the target host)
 (cd <target-repo> && bun run gen:all)
 (cd <target-repo> && bun run workflow:sync --host codex --write)
 (cd <target-repo> && bun run workflow:health)
@@ -110,10 +110,12 @@ bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <targ
 `workflow:pack` exports a deterministic bundle with `workflow-bundle.json`.
 `workflow:install` performs the A1 import step, copies workflow-managed files, merges
 the documented `package.json` surface, writes `.workflow-system/install-state.json`, and
-pre-installs the static bootstrap skills `greenfield-init` and `adopt-existing-project`
-into the isolated `workflow-system-*` host namespace.
-`greenfield-init` and `adopt-existing-project` are the project-level initialization
-entrypoints: they establish the first governance baseline as skills, not runtime commands.
+pre-installs the static bootstrap skills `design-baseline-init`, `greenfield-init`,
+`legacy-inventory`, and `adopt-existing-project` into the isolated
+`workflow-system-*` host namespace.
+`design-baseline-init` -> `greenfield-init` and `legacy-inventory` ->
+`adopt-existing-project` are the project-level initialization entrypoints: they
+establish the first governance baseline as skills, not runtime commands.
 After initialization, run `gen:all`, `workflow:sync --write`, and `workflow:health` to render the
 full runtime skill set and verify the target repo.
 
@@ -121,7 +123,8 @@ Use `--root <target-repo>` to point at the repo being installed. If you omit `--
 install and sync operate on the current working directory.
 
 Recommended flow: run `workflow:install`, install the target repo dependencies with
-`bun install`, invoke `/greenfield-init` or `/adopt-existing-project`, then run
+`bun install`, invoke `/design-baseline-init` -> `/greenfield-init` for new projects,
+or `/legacy-inventory` -> `/adopt-existing-project` for existing repos, then run
 `gen:all`, `workflow:sync --write`, and `workflow:health`. Inspect install failures first; they
 are reported as `frozen_path`, `local_drift`, `contract_conflict`, or
 `incompatible_target`.
