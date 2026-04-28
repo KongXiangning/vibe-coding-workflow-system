@@ -2,6 +2,161 @@
 
 Bundle: `dist/workflow-system/workflow-system-0.14.5.0+ded286c453de`
 
+## Local Recheck After Fixes
+
+Source: local `bun run gen:all` after commit `71ad89e2` (`Fix workflow skill contracts`).
+
+Legend:
+
+- **Resolved**: the locally regenerated outputs no longer reproduce the original issue.
+- **Invalid premise**: the original finding relied on treating `generated/workflow-skills/**` as target-project live runtime artifacts. The runtime contract defines them as **source-repo reference outputs**, while install only manages `script` / `protocol` / `template` artifacts (`scripts/workflow-runtime.ts:322-323, 341, 1024-1027`).
+
+### 1. `design-baseline-init`
+
+**Status:** Resolved
+
+1. **Resolved.** `output` / execution text now align with the authorized write surface by explicitly treating `DATABASE.md` as the home and `docs/designs/database-design.md` as the companion draft.
+2. **Resolved.** `BASELINES.md` / `DECISIONS.md` are now described consistently as draft outputs instead of “如适用”.
+
+### 2. `greenfield-init`
+
+**Status:** Resolved
+
+1. **Resolved.** Human-readable text now explains that `writes` enumerates host-compatible authorized paths while only the current host file should actually be updated.
+2. **Resolved.** `forbidden_writes` now blocks code directories, so init runs no longer have an empty file-level guard.
+
+### 3. `legacy-inventory`
+
+**Status:** Resolved
+
+1. **Resolved.** The skill no longer advertises `schema snapshot`; it now consistently outputs `DATABASE.md`.
+2. **Resolved.** The template now reads `{{CODE_DIRECTORIES}}` instead of hardcoding `src/`, `scripts/`, `test/`, `migrations/`, `db/`, `prisma/`, `drizzle/`, and `deploy/`.
+
+### 4. `adopt-existing-project`
+
+**Status:** Resolved
+
+1. **Resolved.** Host-guidance wording now matches the host-compatible authorization model used by `writes`.
+2. **Resolved.** `writes` now includes `docs/adoption/ADOPTION_REPORT.md`, matching the body’s “必要时更新 adoption 报告” behavior.
+
+### 5. `create-current-task`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` now includes `CONTRACTS.md`, matching the skill’s source-of-truth and propagation rules.
+2. **Invalid premise.** The repo-specific rendered project variables are still present in `generated/workflow-skills/create-current-task.SKILL.md`, but that file is a source-repo reference render, not an installed target-project runtime skill.
+
+### 6. `review-current-task`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` now includes `PROJECT_PROFILE.yaml`, so the skill can actually police task-package overrides against project-level settings.
+2. **Invalid premise.** The remaining repo-specific rendered project variables are expected in source-repo reference outputs.
+
+### 7. `lock-scope`
+
+**Status:** Partially resolved
+
+1. **Invalid premise.** The rendered project structure in `generated/workflow-skills/lock-scope.SKILL.md` is still repo-specific because this file is a source-repo reference render, not a target-project-installed live skill.
+2. **Resolved.** `reads` now includes `PROJECT_PROFILE.yaml`, matching the precedence rules that mention it.
+
+### 8. `classify-decisions`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `writes` no longer includes `DECISIONS.md`; the skill now only writes `CURRENT_TASK.md`, matching its classification-only role.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected for the source repo.
+
+### 9. `decompose-task`
+
+**Status:** Invalid premise
+
+1. **Invalid premise.** This finding targets repo-specific rendered project variables inside a source-repo reference output, not a target-project-installed live skill.
+
+### 10. `implement-current-step`
+
+**Status:** Invalid premise
+
+1. **Invalid premise.** The rendered `writes` / structure values are source-repo reference renderings, not hardcoded target-project runtime restrictions.
+2. **Invalid premise.** The remaining “Replace project variables...” note appears in the reference output because this repo renders its own profile into `generated/**`.
+
+### 11. `review-diff`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains `git diff`; the diff remains an execution input/context, not a path entry.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 12. `verify-contracts`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains `git diff`.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 13. `run-regression`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` now only contains path entries (`CURRENT_TASK.md`, `PROJECT_PROFILE.yaml`); diff/test/checklist inputs remain dynamic inputs instead of fake paths.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 14. `investigate-root-cause`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains prose descriptors like `报错信息` / `当前 diff` / `相关日志或测试结果`.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 15. `sync-current-task`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains `验证结果` / `实际修改结果`.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 16. `sync-status`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains descriptive pseudo-inputs like `验证结果`.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 17. `sync-contracts`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains `实际改动` / `验证结果`.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 18. `sync-decisions`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains `实际结果` / `用户确认信息`.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 19. `capture-lessons`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains `验证结果` / `本轮问题与修复过程`.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 20. `prepare-delivery-summary`
+
+**Status:** Partially resolved
+
+1. **Resolved.** `reads` no longer contains `验证结果` / `git diff --stat` / `状态同步结果`; it now reads real paths only.
+2. **Invalid premise.** Repo-specific rendered project variables in the generated reference output are expected.
+
+### 21. `archive-task`
+
+**Status:** Resolved
+
+1. **Resolved.** `reads` no longer contains `任务摘要` as a fake path entry.
+2. **Resolved.** The generated body now preserves the `TASK_ID` / `TASK_SLUG` materialization checks in both `Must Check` and `Stop Conditions`.
+
 ## Review Log
 
 ### 1. `design-baseline-init`
