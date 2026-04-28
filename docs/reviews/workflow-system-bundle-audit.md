@@ -27,10 +27,10 @@ Legend:
 
 ### 3. `legacy-inventory`
 
-**Status:** Partially resolved
+**Status:** Resolved
 
 1. **Resolved.** The skill no longer advertises `schema snapshot`; it now consistently outputs `DATABASE.md`.
-2. **Partially resolved.** The source template now uses `{{CODE_DIRECTORIES}}` instead of hardcoding `src/`, `scripts/`, `test/`, `migrations/`, `db/`, `prisma/`, `drizzle/`, and `deploy/`. The locally generated reference output still renders this repo’s concrete code directories by design, so the portability bug moved from “hardcoded template paths” to “expected source-repo reference rendering”.
+2. **Resolved.** The source template now uses profile-derived code directories instead of hardcoded `src/`, `scripts/`, `test/`, `migrations/`, `db/`, `prisma/`, `drizzle/`, and `deploy/`, and the regenerated reference output now explicitly explains that its concrete directory list is a source-repo render, not a universal target-project directory contract.
 
 ### 4. `adopt-existing-project`
 

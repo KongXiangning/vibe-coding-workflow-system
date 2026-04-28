@@ -29,9 +29,7 @@ writes:
   - docs/adoption/ADOPTION_REPORT.md
   - ROADMAP.md
 forbidden_writes:
-  - src/**
-  - test/**
-  - scripts/**
+  - "{{CODE_DIRECTORIES}}"
   - CURRENT_TASK.md
   - CONTRACTS.md
 must_check:
@@ -72,6 +70,7 @@ notes:
   - 这是老项目盘点 skill，不改业务代码。
   - 目标是固化现状，不是假装重新设计。
   - 完成后下一步通常是 adopt-existing-project。
+  - "`reads` / `forbidden_writes` 中列出的代码目录来自项目 profile 的 source-directories 渲染结果；在 source-repo reference output 中会展开为当前仓库目录，不代表所有 target repo 共享同一套目录结构。"
 ---
 
 # Skill: legacy-inventory
@@ -86,7 +85,7 @@ notes:
 
 ## Execution Rules
 
-1. 系统扫描现有代码、文档、配置，以及仓库中可发现的测试、数据库迁移和部署线索；不要预设特定目录名，优先依据仓库事实发现入口和边界。
+1. 系统扫描现有代码、文档、配置，以及仓库中可发现的测试、数据库迁移和部署线索；不要预设特定目录名，优先依据仓库事实发现入口和边界。`reads` 中渲染出的代码目录是项目 profile 的具体展开值，不是 workflow-system 的固定目录假设。
 2. 把每条结论标为 `confirmed`、`inferred` 或 `unknown`，并附证据来源。
 3. `ARCHITECTURE.md` 只描述当前实际架构，不美化、不重写、不提出新架构作为事实。
 4. `DATABASE.md` 只固化当前表结构、迁移状态、数据约束和高风险字段。
@@ -98,7 +97,7 @@ notes:
 
 ## Hard Boundaries
 
-- 不修改 `src/`、`test/`、`scripts/` 下的业务或执行逻辑。
+- 不修改项目代码目录下的业务或执行逻辑。
 - 不创建 `CURRENT_TASK.md`。
 - 不修改 `CONTRACTS.md`。
 - 不重新设计老项目。
