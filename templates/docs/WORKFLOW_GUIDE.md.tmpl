@@ -29,12 +29,12 @@
 | 接管老项目基线 | `/adopt-existing-project` | 现有仓库代码、README/docs、package scripts、测试命令 | 首版 `PROJECT_PROFILE.yaml`、host 指引文件、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`、可选 adoption 报告 |
 | 创建任务包 | `/create-current-task` | `STATUS.md`、`ROADMAP.md`、用户需求 | `CURRENT_TASK.md` |
 | 审查任务包 | `/review-current-task` | `CURRENT_TASK.md` | 修订后的任务边界、验收和风险 |
-| 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 明确允许/禁止修改范围 |
+| 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | Safety mode、Allowed Files、Forbidden Files、Conditional Files、Dangerous surfaces、Unlock / widening conditions |
 | 分类决策 | `/classify-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | Mechanical / Taste / User challenge 分类 |
 | 拆解步骤 | `/decompose-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 小步实施计划 |
 | 调查根因 | `/investigate-root-cause` | `CURRENT_TASK.md`、代码和日志线索 | Symptom、Reproduction、Root cause hypothesis、Evidence、Minimal fix path、Regression check |
-| 实现当前步骤 | `/implement-current-step` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码改动、验证结果、执行记录 |
-| 审查 diff | `/review-diff` | `git diff`、`CURRENT_TASK.md`、`DECISIONS.md` | scope drift / decision drift / 回归风险 |
+| 实现当前步骤 | `/implement-current-step` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码改动、dangerous command gate、验证结果、执行记录 |
+| 审查 diff | `/review-diff` | `git diff`、`CURRENT_TASK.md`、`DECISIONS.md` | scope drift / decision drift / safety boundary review / 回归风险 |
 | 验证契约 | `/verify-contracts` | `git diff`、`CONTRACTS.md`、`CURRENT_TASK.md` | 接口和架构契约检查结果 |
 | 执行回归 | `/run-regression` | `CURRENT_TASK.md`、当前 diff、测试命令、验证清单 | QA mode、Target surface、Checks run、Browser/session requirement、Findings、Pass / fail、Evidence、Handoff |
 | 同步任务记录 | `/sync-current-task` | `CURRENT_TASK.md`、实际执行事实 | 更新后的 `CURRENT_TASK.md` |
@@ -50,7 +50,7 @@
 1. 先读 `STATUS.md` / `ROADMAP.md`，确认当前任务是否处在正确窗口。
 2. 用 `/create-current-task` 创建 `CURRENT_TASK.md`。
 3. 用 `/review-current-task` 收敛目标、验收、风险和范围。
-4. 用 `/lock-scope` 明确 `Allowed Files`、`Forbidden Files`、`Conditional Files` 和受影响契约。
+4. 用 `/lock-scope` 明确 Safety mode、`Allowed Files`、`Forbidden Files`、`Conditional Files`、Dangerous surfaces 和受影响契约。
 5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
 6. 用 `/decompose-task` 拆成一次只做一个当前步骤的小步计划。
 7. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
@@ -67,7 +67,10 @@
 | 新需求进入 | `/create-current-task` |
 | 任务范围太大或不清楚 | `/review-current-task` → `/lock-scope` |
 | 需要多个模块联动 | `/classify-decisions` → `/decompose-task` |
-| 只允许改一个模块 | `/lock-scope`，并在 `CURRENT_TASK.md` 写明允许/禁止范围 |
+| 高风险任务涉及生产、数据库、权限、认证、支付、部署、迁移、批量删除、force push 或历史重写 | `/lock-scope` 选择 `guarded` |
+| 只允许改一个模块 | `/lock-scope` 选择 `frozen-scope`，并在 `CURRENT_TASK.md` 写明允许/禁止范围 |
+| 需要危险命令或高影响操作 | `/implement-current-step` 执行 dangerous command gate |
+| 需要解除或扩大修改范围 | 回到 `/lock-scope`，重新记录原因、影响文件、风险、验证方式和三类范围 |
 | 不确定 bug 根因 | `/investigate-root-cause` |
 | 测试失败但原因不明 | `/investigate-root-cause` |
 | 回归验证失败 | `/investigate-root-cause` |
@@ -89,6 +92,10 @@
 
 - 如果实现需要修改 `CURRENT_TASK.md` 的 `Allowed Files` / `Conditional Files` 之外的文件，停止当前实现并回到 `/lock-scope`。
 - 未明确允许的文件默认禁止修改。
+- workflow-system 不依赖 native hook；即使没有 shell 拦截器或 session-level freeze，也必须按 Safety mode、mutation scope 和 dangerous command gate 执行。
+- 高风险任务应在 `/lock-scope` 选择 `guarded`；只允许改一个模块时选择 `frozen-scope`。
+- 危险命令必须在 `/implement-current-step` 先说明 command、risk、target、rollback/recovery、scope check 和 confirmation，不能伪装成普通 Bash 操作。
+- 解除或扩大范围必须回到 `/lock-scope`，不能在实现过程中直接修改未授权文件。
 - 如果实现需要改变 `CONTRACTS.md` 中锁定边界，先记录决策并获得确认。
 - `CURRENT_TASK.md` 不能覆盖 `CONTRACTS.md`；`DECISIONS.md` 只记录原因和历史，不单独定义当前有效规则。
 - 如果实现依赖 Taste 或 User challenge 决策，先通过 `/classify-decisions` 暴露并确认。
@@ -101,6 +108,8 @@
 
 - `CURRENT_TASK.md` 的验收标准已满足。
 - 实际改动文件没有未解释的 scope drift。
+- Safety mode、Dangerous surfaces、Unlock / widening conditions 已说明。
+- 没有未说明的 dangerous command、deployment 或 database surfaces。
 - `CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` 中需要同步的事实已同步。
 - 回归检查项已有执行结果。
 - QA mode、Target surface、Checks run、Browser/session requirement、Findings、Pass / fail、Evidence、Handoff 已说明。

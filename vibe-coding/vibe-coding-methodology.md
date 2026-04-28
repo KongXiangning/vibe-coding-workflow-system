@@ -769,6 +769,50 @@ QA Report:
 - Handoff:
 ```
 
+### 安全修改边界：把安全模式写进任务工件
+
+`gstack` 的 `/careful`、`/freeze`、`/guard`、`/unfreeze` 不是要在 workflow-system 里照搬成同名 skill，而是下沉到任务级安全边界：
+
+- `/careful`：危险命令不是禁止，而是必须识别、解释、确认。
+- `/freeze`：不是依赖 session hook，而是写入 `CURRENT_TASK.md` 的 Allowed Files / Forbidden Files / Conditional Files。
+- `/guard`：用于生产、数据库、权限、认证、支付、部署、迁移、批量删除、force push、历史重写等高风险任务。
+- `/unfreeze`：不是随手解锁，而是范围扩大流程，必须回到 `/lock-scope` 并留下理由和证据。
+
+workflow-system 不依赖 Claude hook 或 shell 拦截器。即使没有原生 hook，安全约束也必须由 skill 模板、`WORKFLOW_GUIDE.md`、`CURRENT_TASK.md` 和 `/review-diff` 执行。
+
+#### Safety mode
+
+| 模式 | 使用场景 | 落地点 |
+| --- | --- | --- |
+| `normal` | 普通低风险任务 | `/lock-scope` 仍声明三类修改范围 |
+| `careful` | 可能需要危险命令或高影响操作 | `/implement-current-step` 执行 dangerous command gate |
+| `frozen-scope` | 只允许改一个模块或一组明确文件 | `CURRENT_TASK.md` 锁定 Allowed / Forbidden / Conditional Files |
+| `guarded` | 生产、数据、权限、认证、支付、部署、迁移等高风险任务 | 范围锁定 + 危险命令确认 + `/review-diff` 安全边界审查 |
+
+#### 范围扩大规则
+
+当实现需要修改范围外文件、解除冻结或扩大范围时，不能直接继续实现。正确动作是回到 `/lock-scope`，重新写明：
+
+- 为什么必须扩大范围
+- 影响哪些文件
+- 风险是什么
+- 如何验证
+- 新的 Allowed Files / Forbidden Files / Conditional Files
+
+#### 危险命令规则
+
+`/implement-current-step` 遇到递归删除、数据库破坏操作、force push、hard reset、批量移动/删除、生产部署/删除、容器/集群破坏性操作时，必须先输出命令、风险、目标、回滚或恢复方式、范围检查和确认状态。普通构建产物清理可以标为低风险，但仍不得越过任务范围。
+
+#### 安全审查规则
+
+`/review-diff` 不只看 diff 是否能运行，还要检查是否出现：
+
+- 未授权范围扩大
+- Forbidden Files 被修改
+- Conditional Files 条件不成立
+- 危险命令、部署、数据库、权限相关变更
+- 绕过 `/lock-scope` 的解锁或扩大范围流程
+
 ---
 
 ## 五、标准工作流

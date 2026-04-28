@@ -30,8 +30,11 @@ must_check:
   - 是否只执行当前步骤
   - 是否只改允许范围内的文件
   - 是否遵守既有决策与 lessons
+  - 是否触发 dangerous command gate
 stop_conditions:
   - 需要修改范围外文件
+  - 命令目标超出 Allowed Files 或命中 Forbidden Files
+  - dangerous command 未说明命令、风险、目标、回滚/恢复方式并获得确认
   - 需要破坏锁定契约
   - 实现依赖未确认的 Taste / User challenge 决策
 output:
@@ -48,6 +51,7 @@ decision_policy:
   user_challenge: 不得绕过锁定架构、接口和用户已定方向。
 verification:
   - 修改文件全部在授权范围内
+  - 没有在未通过 dangerous command gate 的情况下执行危险命令
   - 当前步骤有最小验证结果
   - CURRENT_TASK.md 执行记录已更新
 allowed-tools:
@@ -70,6 +74,21 @@ disallowed_patterns:
   - 顺手重构
   - 顺手补 unrelated bug
   - 未经授权扩大范围
+dangerous_command_gate:
+  - recursive delete
+  - database destructive operation
+  - force push
+  - hard reset
+  - bulk move/delete
+  - production deploy/delete
+  - container/cluster destructive operation
+dangerous_command_required_fields:
+  - command
+  - risk
+  - target
+  - rollback/recovery
+  - scope check
+  - confirmation
 step_limit:
   - 一次只允许完成一个当前步骤
 regression_expectation:
@@ -121,10 +140,13 @@ regression_expectation:
 - 是否只执行当前步骤
 - 是否只改允许范围内的文件
 - 是否遵守既有决策与 lessons
+- 是否触发 dangerous command gate
 
 ## Stop Conditions
 
 - 需要修改范围外文件
+- 命令目标超出 Allowed Files 或命中 Forbidden Files
+- dangerous command 未说明命令、风险、目标、回滚/恢复方式并获得确认
 - 需要破坏锁定契约
 - 实现依赖未确认的 Taste / User challenge 决策
 
@@ -137,6 +159,7 @@ regression_expectation:
 ## Verification
 
 - 修改文件全部在授权范围内
+- 没有在未通过 dangerous command gate 的情况下执行危险命令
 - 当前步骤有最小验证结果
 - CURRENT_TASK.md 执行记录已更新
 
@@ -152,12 +175,54 @@ regression_expectation:
 - 顺手补 unrelated bug
 - 未经授权扩大范围
 
+### dangerous_command_gate
+- recursive delete
+- database destructive operation
+- force push
+- hard reset
+- bulk move/delete
+- production deploy/delete
+- container/cluster destructive operation
+
+### dangerous_command_required_fields
+- command
+- risk
+- target
+- rollback/recovery
+- scope check
+- confirmation
+
 ### step_limit
 - 一次只允许完成一个当前步骤
 
 ### regression_expectation
 - 完成后至少提供最小验证结果
 - 不得把未验证步骤标记为完成
+
+## Dangerous Command Gate
+
+`/careful` 在 workflow-system 中不是 shell 拦截器，而是实现阶段的 dangerous command gate。命令可能造成数据丢失、历史重写、生产资源删除或大范围文件变更时，先停下。
+
+高风险命令包括但不限于：
+
+- recursive delete，例如 `rm -rf`
+- database destructive operation，例如 `DROP TABLE`、`DROP DATABASE`、`TRUNCATE`
+- force push，例如 `git push --force`
+- hard reset，例如 `git reset --hard`
+- 批量移动或删除
+- 生产部署、生产删除或生产资源变更
+- 容器或集群破坏性操作，例如 `kubectl delete`、`docker rm -f`、`docker system prune`
+
+执行前必须输出：
+
+- command
+- risk
+- target
+- rollback/recovery
+- scope check
+- confirmation
+
+普通构建产物清理可以记录为低风险，但仍不得越过 `CURRENT_TASK.md` 的 Allowed Files / Forbidden Files / Conditional Files。
 
 ## Execution Protocol
 

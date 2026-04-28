@@ -238,6 +238,47 @@ describe('gen-workflow-skills', () => {
     expect(reviewDiff).toContain('Change Propagation Check');
   });
 
+  test('safety boundary skills are integrated without adding native safety skill names', () => {
+    for (const skill of ['careful', 'freeze', 'guard', 'unfreeze']) {
+      expect(fs.existsSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`))).toBe(false);
+      expect(fs.existsSync(path.join(TEMPLATE_DIR, `${skill}.SKILL.md.tmpl`))).toBe(false);
+    }
+
+    const lockScope = fs.readFileSync(path.join(OUTPUT_DIR, 'lock-scope.SKILL.md'), 'utf8');
+    for (const expected of [
+      'Safety mode',
+      'normal',
+      'careful',
+      'frozen-scope',
+      'guarded',
+      'Unlock / widening conditions',
+    ]) {
+      expect(lockScope).toContain(expected);
+    }
+
+    const implementStep = fs.readFileSync(path.join(OUTPUT_DIR, 'implement-current-step.SKILL.md'), 'utf8');
+    for (const expected of [
+      'dangerous command gate',
+      'force push',
+      'hard reset',
+      'recursive delete',
+      'database destructive operation',
+    ]) {
+      expect(implementStep).toContain(expected);
+    }
+
+    const reviewDiff = fs.readFileSync(path.join(OUTPUT_DIR, 'review-diff.SKILL.md'), 'utf8');
+    for (const expected of [
+      'safety boundary review',
+      'unauthorized scope widening',
+      'dangerous command',
+      'deployment',
+      'database',
+    ]) {
+      expect(reviewDiff).toContain(expected);
+    }
+  });
+
   test('investigate-root-cause enforces root-cause-first debugging loop', () => {
     const content = fs.readFileSync(path.join(OUTPUT_DIR, 'investigate-root-cause.SKILL.md'), 'utf8');
     expect(content).toContain('Root cause hypothesis');

@@ -26,16 +26,24 @@ must_check:
   - Allowed Files 是否足够小
   - Forbidden Files 是否清楚
   - Conditional Files 是否包含触发条件和证据要求
+  - Safety mode 是否匹配任务风险
+  - 高风险任务是否选择 guarded 或说明不用 guarded 的理由
+  - Dangerous surfaces 是否已识别
+  - scope unlock / widening 是否包含理由、影响文件、风险和验证方式
   - 锁定契约是否已识别
   - 是否触发 Change Propagation Check
   - 决策越界是否可见
 stop_conditions:
   - 需要改范围外文件
+  - 需要解除或扩大范围但未重新生成 Allowed Files / Forbidden Files / Conditional Files
   - 需要触碰 CONTRACTS.md 中的锁定边界
   - 需要覆盖 DECISIONS.md 中已确认的决策
 output:
   - 范围锁定结论
+  - Safety mode
   - CURRENT_TASK.md 中补充的 Allowed Files / Forbidden Files / Conditional Files
+  - Dangerous surfaces
+  - Unlock / widening conditions
 handoff:
   success: classify-decisions
   failure: ask-user
@@ -45,6 +53,9 @@ decision_policy:
   user_challenge: 发现必须越界时必须停下，不能静默继续。
 verification:
   - Allowed Files、Forbidden Files、Conditional Files 都已显式记录
+  - Safety mode 已显式记录
+  - Dangerous surfaces 已核对
+  - Unlock / widening conditions 已写明，或明确本轮不允许扩大范围
   - 涉及的锁定契约已列出
   - 没有把范围外工作混入当前任务
 allowed-tools:
@@ -70,6 +81,28 @@ mutation_scope_buckets:
   - Allowed Files
   - Forbidden Files
   - Conditional Files
+safety_modes:
+  - normal
+  - careful
+  - frozen-scope
+  - guarded
+dangerous_surfaces:
+  - production
+  - database
+  - permissions
+  - authentication
+  - payments
+  - deployment
+  - bulk delete
+  - migration
+  - force push
+  - history rewrite
+unlock_widening_rules:
+  - 必须写明原因
+  - 必须列出影响文件
+  - 必须说明风险
+  - 必须说明验证方式
+  - 必须重新生成 Allowed Files / Forbidden Files / Conditional Files
 source_of_truth_rules:
   - CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
   - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
@@ -129,6 +162,10 @@ violation_levels:
 - Allowed Files 是否足够小
 - Forbidden Files 是否清楚
 - Conditional Files 是否包含触发条件和证据要求
+- Safety mode 是否匹配任务风险
+- 高风险任务是否选择 guarded 或说明不用 guarded 的理由
+- Dangerous surfaces 是否已识别
+- scope unlock / widening 是否包含理由、影响文件、风险和验证方式
 - 锁定契约是否已识别
 - 是否触发 Change Propagation Check
 - 决策越界是否可见
@@ -136,6 +173,7 @@ violation_levels:
 ## Stop Conditions
 
 - 需要改范围外文件
+- 需要解除或扩大范围但未重新生成 Allowed Files / Forbidden Files / Conditional Files
 - 需要触碰 CONTRACTS.md 中的锁定边界
 - 需要覆盖 DECISIONS.md 中已确认的决策
 
@@ -148,6 +186,9 @@ violation_levels:
 ## Verification
 
 - Allowed Files、Forbidden Files、Conditional Files 都已显式记录
+- Safety mode 已显式记录
+- Dangerous surfaces 已核对
+- Unlock / widening conditions 已写明，或明确本轮不允许扩大范围
 - 涉及的锁定契约已列出
 - 没有把范围外工作混入当前任务
 
@@ -167,6 +208,31 @@ violation_levels:
 - Forbidden Files
 - Conditional Files
 
+### safety_modes
+- normal
+- careful
+- frozen-scope
+- guarded
+
+### dangerous_surfaces
+- production
+- database
+- permissions
+- authentication
+- payments
+- deployment
+- bulk delete
+- migration
+- force push
+- history rewrite
+
+### unlock_widening_rules
+- 必须写明原因
+- 必须列出影响文件
+- 必须说明风险
+- 必须说明验证方式
+- 必须重新生成 Allowed Files / Forbidden Files / Conditional Files
+
 ### source_of_truth_rules
 - CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
 - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
@@ -184,6 +250,28 @@ violation_levels:
 - minor: 可解释的边缘越界
 - major: 非授权代码改动
 - critical: 破坏锁定契约或已确认决策
+
+## Safety Mode Selection
+
+`/freeze` 在 workflow-system 中落地为 `CURRENT_TASK.md` 的任务级 mutation scope，`/careful` 落地为危险操作前置确认，`/guard` 是二者组合，`/unfreeze` 是范围扩大流程而不是随手解除限制。
+
+- `normal`: 普通低风险任务，仍必须声明 Allowed Files / Forbidden Files / Conditional Files。
+- `careful`: 可能需要危险命令或高影响操作，但文件范围不需要强冻结。
+- `frozen-scope`: 只允许修改一个模块或一组明确文件；未明确允许即禁止。
+- `guarded`: 生产、数据库、权限、认证、支付、部署、迁移、批量删除、force push、历史重写等高风险任务；必须同时锁定范围并要求危险命令 gate。
+
+## Scope Unlock / Widening Rules
+
+解除或扩大范围必须回到 `/lock-scope`，不能在实现中直接越界。写回 `CURRENT_TASK.md` 时必须包含：
+
+- Safety mode
+- Allowed Files
+- Forbidden Files
+- Conditional Files
+- Dangerous surfaces
+- Unlock / widening conditions
+
+`Unlock / widening conditions` 至少说明原因、影响文件、风险、验证方式，并重新生成 Allowed Files / Forbidden Files / Conditional Files。
 
 ## Execution Protocol
 

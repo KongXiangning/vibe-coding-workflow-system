@@ -32,9 +32,14 @@ must_check:
   - 是否顺手做了无关改动
   - 是否覆盖既有决策
   - 是否遗漏 Change Propagation Check
+  - 是否通过 safety boundary review
+  - 是否存在 unauthorized scope widening
+  - 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
 stop_conditions:
   - 发现高风险越界
   - 发现未授权文件出现在 diff 中
+  - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
+  - 发现 dangerous command / deployment / database surfaces 未授权或未记录
   - 发现明显决策漂移
   - 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
   - 当前 diff 无法映射到任务目标
@@ -51,6 +56,9 @@ decision_policy:
 verification:
   - 已对照任务范围和决策执行审查
   - 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
+  - 已执行 safety boundary review
+  - 已检查 unauthorized scope widening
+  - 已检查 dangerous command / deployment / database surfaces
   - 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
   - 已输出 clean 或问题列表
   - 没有直接修改代码
@@ -99,6 +107,19 @@ pass_criteria:
   - 要么 clean，要么给出明确问题清单
 failure_policy:
   - 发现严重问题时停止继续推进并交给 ask-user
+safety_boundary_review:
+  - unauthorized scope widening
+  - forbidden file mutation
+  - unsatisfied conditional file mutation
+  - dangerous command changes
+  - deployment changes
+  - database changes
+unlock_widening_review:
+  - CURRENT_TASK.md 是否记录扩大范围理由
+  - CURRENT_TASK.md 是否记录影响文件
+  - CURRENT_TASK.md 是否记录风险
+  - CURRENT_TASK.md 是否记录验证方式
+  - Allowed Files / Forbidden Files / Conditional Files 是否重新生成
 ---
 
 # Skill: review-diff
@@ -148,11 +169,16 @@ failure_policy:
 - 是否顺手做了无关改动
 - 是否覆盖既有决策
 - 是否遗漏 Change Propagation Check
+- 是否通过 safety boundary review
+- 是否存在 unauthorized scope widening
+- 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
 
 ## Stop Conditions
 
 - 发现高风险越界
 - 发现未授权文件出现在 diff 中
+- 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
+- 发现 dangerous command / deployment / database surfaces 未授权或未记录
 - 发现明显决策漂移
 - 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
 - 当前 diff 无法映射到任务目标
@@ -167,6 +193,9 @@ failure_policy:
 
 - 已对照任务范围和决策执行审查
 - 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
+- 已执行 safety boundary review
+- 已检查 unauthorized scope widening
+- 已检查 dangerous command / deployment / database surfaces
 - 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
 - 已输出 clean 或问题列表
 - 没有直接修改代码
@@ -218,6 +247,33 @@ failure_policy:
 
 ### failure_policy
 - 发现严重问题时停止继续推进并交给 ask-user
+
+### safety_boundary_review
+- unauthorized scope widening
+- forbidden file mutation
+- unsatisfied conditional file mutation
+- dangerous command changes
+- deployment changes
+- database changes
+
+### unlock_widening_review
+- CURRENT_TASK.md 是否记录扩大范围理由
+- CURRENT_TASK.md 是否记录影响文件
+- CURRENT_TASK.md 是否记录风险
+- CURRENT_TASK.md 是否记录验证方式
+- Allowed Files / Forbidden Files / Conditional Files 是否重新生成
+
+## Safety Boundary Review
+
+`/review-diff` 必须做 safety boundary review，而不只是看代码是否能编译。重点检查：
+
+- diff 是否包含 unauthorized scope widening。
+- diff 是否触碰 Forbidden Files。
+- diff 是否触碰 Conditional Files 但没有满足条件或证据。
+- diff 是否出现 dangerous command 相关脚本、CI、部署或数据库变更。
+- diff 是否绕过 `/lock-scope` 的 unlock / widening 流程。
+
+发现 Forbidden Files、未满足 Conditional Files、未记录的范围扩大、危险命令、deployment 或 database surfaces 时，标记为 blocker。
 
 ## Execution Protocol
 
