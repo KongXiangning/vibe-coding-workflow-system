@@ -28,7 +28,7 @@
 | 初始化新项目基线 | `/greenfield-init` | 用户目标、技术栈偏好、`PROJECT_PROFILE.yaml` scaffold | 首版 `PROJECT_PROFILE.yaml`、host 指引文件、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md` |
 | 接管老项目基线 | `/adopt-existing-project` | 现有仓库代码、README/docs、package scripts、测试命令 | 首版 `PROJECT_PROFILE.yaml`、host 指引文件、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`、可选 adoption 报告 |
 | 创建任务包 | `/create-current-task` | `STATUS.md`、`ROADMAP.md`、用户需求 | `CURRENT_TASK.md` |
-| 审查任务包 | `/review-current-task` | `CURRENT_TASK.md` | 修订后的任务边界、验收和风险 |
+| 审查任务包 | `/review-current-task` | `CURRENT_TASK.md` | 修订后的任务边界、验收、设计约束和风险 |
 | 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | Safety mode、Allowed Files、Forbidden Files、Conditional Files、Dangerous surfaces、Unlock / widening conditions |
 | 分类决策 | `/classify-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | Mechanical / Taste / User challenge 分类 |
 | 拆解步骤 | `/decompose-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 小步实施计划 |
@@ -54,7 +54,7 @@
 5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
 6. 用 `/decompose-task` 拆成一次只做一个当前步骤的小步计划。
 7. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
-8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
+8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
 9. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` 同步治理事实。
 10. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
 
@@ -67,6 +67,10 @@
 | 新需求进入 | `/create-current-task` |
 | 任务范围太大或不清楚 | `/review-current-task` → `/lock-scope` |
 | 需要多个模块联动 | `/classify-decisions` → `/decompose-task` |
+| 从零建立设计系统或视觉方向 | `/create-current-task` → `/review-current-task`，在 `设计约束` 中选择 `design-system` |
+| UI 方向不确定，需要多方案探索 | `/decompose-task` 拆出 `exploration` 步骤；有工具则使用设计生成 / comparison board，否则记录人工参考或 blocked risk |
+| 已批准 mockup / 参考图需要转实现 | `/implement-current-step` 执行 `design-to-code`，只实现已确认设计 |
+| 实现后需要视觉 QA | `/run-regression` + `/review-diff` 执行 `visual-qa` 和 design drift review |
 | 高风险任务涉及生产、数据库、权限、认证、支付、部署、迁移、批量删除、force push 或历史重写 | `/lock-scope` 选择 `guarded` |
 | 只允许改一个模块 | `/lock-scope` 选择 `frozen-scope`，并在 `CURRENT_TASK.md` 写明允许/禁止范围 |
 | 需要危险命令或高影响操作 | `/implement-current-step` 执行 dangerous command gate |
@@ -93,6 +97,9 @@
 - 如果实现需要修改 `CURRENT_TASK.md` 的 `Allowed Files` / `Conditional Files` 之外的文件，停止当前实现并回到 `/lock-scope`。
 - 未明确允许的文件默认禁止修改。
 - workflow-system 不依赖 native hook；即使没有 shell 拦截器或 session-level freeze，也必须按 Safety mode、mutation scope 和 dangerous command gate 执行。
+- workflow-system 不绑定具体设计生成工具、comparison board、Pretext 或 browse daemon；`DESIGN.md` 只能作为 optional source，不加入 required reads。
+- UI / 视觉任务如果没有 `DESIGN.md`、mockup、截图或参考链接，必须进入 `design-system` 或 `exploration`，不能直接实现。
+- 实现阶段不得静默更换字体、颜色、布局、动效、品牌语气或整体视觉方向。
 - 高风险任务应在 `/lock-scope` 选择 `guarded`；只允许改一个模块时选择 `frozen-scope`。
 - 危险命令必须在 `/implement-current-step` 先说明 command、risk、target、rollback/recovery、scope check 和 confirmation，不能伪装成普通 Bash 操作。
 - 解除或扩大范围必须回到 `/lock-scope`，不能在实现过程中直接修改未授权文件。
@@ -110,6 +117,8 @@
 - 实际改动文件没有未解释的 scope drift。
 - Safety mode、Dangerous surfaces、Unlock / widening conditions 已说明。
 - 没有未说明的 dangerous command、deployment 或 database surfaces。
+- UI / 视觉任务的 Design mode、Design source、Design acceptance、Design evidence、Design open decisions 已说明。
+- 视觉结论有截图、mockup、人工验收记录、browser-backed smoke 或 blocked reason 支撑。
 - `CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` 中需要同步的事实已同步。
 - 回归检查项已有执行结果。
 - QA mode、Target surface、Checks run、Browser/session requirement、Findings、Pass / fail、Evidence、Handoff 已说明。

@@ -74,9 +74,25 @@
 - `## 回滚点`
 - `## 执行记录`
 
+### 条件必填章节
+
+- `## 设计约束`：UI / 视觉 / 交互任务必须填写；非 UI 任务可保留默认 `Design mode: none`
+
 ### 传播治理记录最小内容
 
 命中传播治理时，`CURRENT_TASK.md` 必须承载或引用 `WORKFLOW_PROTOCOL.md §18.6` 定义的传播治理对象与 conformance evidence。本文只要求存在可审计记录，不重复定义对象字段、默认规则、错误码、gate 或测试断言。
+
+### 设计约束最小内容
+
+当任务涉及 UI、页面、组件、交互、品牌、视觉、设计系统或实现后视觉 QA 时，`CURRENT_TASK.md` 必须填写 `## 设计约束`。该章节只代表当前任务级设计约束，不替代长期 `DESIGN.md`、`PROJECT_PROFILE.yaml` 或项目基线。
+
+- `Design mode`：`none` / `design-system` / `exploration` / `design-to-code` / `visual-qa`
+- `Design source`：`existing DESIGN.md` / `approved mockup` / `user-provided reference` / `current UI` / `none`
+- `Design acceptance`：视觉层级、状态覆盖、响应式、可访问性、anti-slop、browser smoke
+- `Design evidence`：截图、mockup 链接、人工验收记录或 blocked reason
+- `Design open decisions`：未确认口味决策
+
+`DESIGN.md` 只能作为 optional source；缺失时不得阻断非 UI 任务，也不得被加入 required reads。若需要让设计系统长期生效，应另开 `DESIGN.md` / 项目基线同步计划。
 
 ### 更新时机
 
@@ -88,6 +104,9 @@
 ### 校验要求
 
 - 验收标准必须可验证
+- UI / 视觉 / 交互任务必须显式填写 `## 设计约束`
+- `## 设计约束` 中的 `Design mode`、`Design source`、`Design acceptance`、`Design evidence`、`Design open decisions` 必须可审计
+- 没有 `DESIGN.md`、mockup、截图或参考链接时，UI 任务必须进入 `design-system` 或 `exploration`，不能直接实现
 - 允许/禁止修改范围必须明确到目录、文件或契约层
 - `## 允许修改范围` 必须显式包含 `Allowed Files` 与 `Conditional Files`
 - `## 禁止修改范围` 必须显式包含 `Forbidden Files`

@@ -71,6 +71,12 @@ describe('gen-workflow-docs', () => {
     expect(currentTask).toContain('- 任务 ID：{{TASK_ID}}');
     expect(currentTask).toContain('- 任务标题：{{TASK_TITLE}}');
     expect(currentTask).toContain('- 任务 slug：{{TASK_SLUG}}');
+    expect(currentTask).toContain('## 设计约束');
+    expect(currentTask).toContain('- Design mode:');
+    expect(currentTask).toContain('- Design source:');
+    expect(currentTask).toContain('- Design acceptance:');
+    expect(currentTask).toContain('- Design evidence:');
+    expect(currentTask).toContain('- Design open decisions:');
     expect(currentTask).toContain('## 传播治理记录');
     expect(currentTask).toContain('- `MutationEligibilityAssessment`：');
     expect(currentTask).toContain('- `ContractCompatibilityResult`：');
@@ -149,6 +155,17 @@ describe('gen-workflow-docs', () => {
     expect(contracts).toContain('- cascade_sources：');
     expect(contracts).toContain('- breakpoint_contracts：');
     expect(contracts).toContain('- removal_precondition：');
+  });
+
+  test('workflow guide documents the design production chain', () => {
+    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
+    expect(guide).toContain('Design mode');
+    expect(guide).toContain('Design source');
+    expect(guide).toContain('Design acceptance');
+    expect(guide).toContain('Design evidence');
+    expect(guide).toContain('design drift review');
+    expect(guide).toContain('DESIGN.md` 只能作为 optional source');
+    expect(guide).toContain('workflow-system 不绑定具体设计生成工具');
   });
 
   test('baseline gate skeleton covers v26 blocker families', () => {

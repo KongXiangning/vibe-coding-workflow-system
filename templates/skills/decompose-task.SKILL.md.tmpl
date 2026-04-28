@@ -24,10 +24,12 @@ forbidden_writes:
 must_check:
   - 每步是否有明确输入输出
   - 每步是否可独立验证
+  - UI / 视觉任务是否按 Design mode 拆出设计步骤
   - 是否避免同一轮混合多类改动
 stop_conditions:
   - 步骤拆分后仍需要同时改太多模块
   - 当前步骤仍包含未确认决策
+  - UI 任务把 design exploration、design implementation、visual QA 混成同一步
 output:
   - 步骤清单
   - 建议执行顺序
@@ -41,6 +43,7 @@ decision_policy:
 verification:
   - 执行记录中已有可单步执行的步骤
   - 每一步都能独立验证
+  - UI / 视觉任务已分离 design exploration、design implementation、visual QA
   - 当前步骤数量与复杂度匹配任务风险
 allowed-tools:
   - Read
@@ -60,6 +63,11 @@ step_granularity:
   - 一步一验
   - 避免同一轮同时修改太多模块
   - 优先按数据/服务/UI 顺序拆分
+design_step_rules:
+  - Design mode 由 CURRENT_TASK.md 提供，本 skill 只消费，不重新选择
+  - exploration 先产出多方案或明确跳过理由
+  - design implementation 只实现已确认设计
+  - visual QA 必须独立于实现步骤
 ---
 
 # Skill: decompose-task
@@ -104,12 +112,14 @@ step_granularity:
 
 - 每步是否有明确输入输出
 - 每步是否可独立验证
+- UI / 视觉任务是否按 Design mode 拆出设计步骤
 - 是否避免同一轮混合多类改动
 
 ## Stop Conditions
 
 - 步骤拆分后仍需要同时改太多模块
 - 当前步骤仍包含未确认决策
+- UI 任务把 design exploration、design implementation、visual QA 混成同一步
 
 ## Decision Policy
 
@@ -121,6 +131,7 @@ step_granularity:
 
 - 执行记录中已有可单步执行的步骤
 - 每一步都能独立验证
+- UI / 视觉任务已分离 design exploration、design implementation、visual QA
 - 当前步骤数量与复杂度匹配任务风险
 
 ## Extension Fields
@@ -136,6 +147,23 @@ step_granularity:
 - 一步一验
 - 避免同一轮同时修改太多模块
 - 优先按数据/服务/UI 顺序拆分
+
+### design_step_rules
+- Design mode 由 CURRENT_TASK.md 提供，本 skill 只消费，不重新选择
+- exploration 先产出多方案或明确跳过理由
+- design implementation 只实现已确认设计
+- visual QA 必须独立于实现步骤
+
+## Design Step Decomposition
+
+UI / 视觉任务必须按 `Design mode` 拆分，不得把方向选择、实现和视觉审查混成一步：
+
+- Design source 提供设计来源
+- Design acceptance 决定每步验收
+- Design evidence 决定视觉 QA 证据
+- design exploration：多方案探索、用户参考或明确跳过理由
+- design implementation：基于已确认设计的实现步骤
+- visual QA：实现后的截图、browser-backed smoke、anti-slop、响应式和可访问性检查
 
 ## Execution Protocol
 

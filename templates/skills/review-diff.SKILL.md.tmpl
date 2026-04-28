@@ -35,11 +35,13 @@ must_check:
   - 是否通过 safety boundary review
   - 是否存在 unauthorized scope widening
   - 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
+  - UI / 视觉 diff 是否通过 design drift review
 stop_conditions:
   - 发现高风险越界
   - 发现未授权文件出现在 diff 中
   - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
   - 发现 dangerous command / deployment / database surfaces 未授权或未记录
+  - 发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论
   - 发现明显决策漂移
   - 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
   - 当前 diff 无法映射到任务目标
@@ -59,6 +61,7 @@ verification:
   - 已执行 safety boundary review
   - 已检查 unauthorized scope widening
   - 已检查 dangerous command / deployment / database surfaces
+  - 已执行 design drift review
   - 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
   - 已输出 clean 或问题列表
   - 没有直接修改代码
@@ -120,6 +123,13 @@ unlock_widening_review:
   - CURRENT_TASK.md 是否记录风险
   - CURRENT_TASK.md 是否记录验证方式
   - Allowed Files / Forbidden Files / Conditional Files 是否重新生成
+design_drift_review:
+  - unauthorized visual change
+  - AI slop
+  - responsive gap
+  - missing interaction state
+  - missing accessibility check
+  - visual conclusion without evidence
 ---
 
 # Skill: review-diff
@@ -172,6 +182,7 @@ unlock_widening_review:
 - 是否通过 safety boundary review
 - 是否存在 unauthorized scope widening
 - 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
+- UI / 视觉 diff 是否通过 design drift review
 
 ## Stop Conditions
 
@@ -179,6 +190,7 @@ unlock_widening_review:
 - 发现未授权文件出现在 diff 中
 - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
 - 发现 dangerous command / deployment / database surfaces 未授权或未记录
+- 发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论
 - 发现明显决策漂移
 - 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
 - 当前 diff 无法映射到任务目标
@@ -196,6 +208,7 @@ unlock_widening_review:
 - 已执行 safety boundary review
 - 已检查 unauthorized scope widening
 - 已检查 dangerous command / deployment / database surfaces
+- 已执行 design drift review
 - 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
 - 已输出 clean 或问题列表
 - 没有直接修改代码
@@ -263,6 +276,14 @@ unlock_widening_review:
 - CURRENT_TASK.md 是否记录验证方式
 - Allowed Files / Forbidden Files / Conditional Files 是否重新生成
 
+### design_drift_review
+- unauthorized visual change
+- AI slop
+- responsive gap
+- missing interaction state
+- missing accessibility check
+- visual conclusion without evidence
+
 ## Safety Boundary Review
 
 `/review-diff` 必须做 safety boundary review，而不只是看代码是否能编译。重点检查：
@@ -274,6 +295,20 @@ unlock_widening_review:
 - diff 是否绕过 `/lock-scope` 的 unlock / widening 流程。
 
 发现 Forbidden Files、未满足 Conditional Files、未记录的范围扩大、危险命令、deployment 或 database surfaces 时，标记为 blocker。
+
+## Design Drift Review
+
+UI / 视觉 diff 必须做 design drift review。重点检查：
+
+- Design mode、Design source、Design acceptance、Design evidence 是否支持当前视觉变化
+- 是否出现未授权视觉变化
+- 是否引入 AI slop 模式
+- 是否存在响应式缺口
+- 是否遗漏 hover、focus、loading、empty、error 等状态
+- 是否缺少可访问性检查
+- 是否没有截图、mockup、人工验收或 browser-backed smoke 证据
+
+发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论时，标记为 blocker 或上浮风险。
 
 ## Execution Protocol
 

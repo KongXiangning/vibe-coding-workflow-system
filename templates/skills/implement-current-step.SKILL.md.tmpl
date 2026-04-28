@@ -29,10 +29,12 @@ forbidden_writes:
 must_check:
   - 是否只执行当前步骤
   - 是否只改允许范围内的文件
+  - UI / 视觉实现是否只采用已确认设计约束
   - 是否遵守既有决策与 lessons
   - 是否触发 dangerous command gate
 stop_conditions:
   - 需要修改范围外文件
+  - 需要静默更换字体、颜色、布局、动效或品牌语气
   - 命令目标超出 Allowed Files 或命中 Forbidden Files
   - dangerous command 未说明命令、风险、目标、回滚/恢复方式并获得确认
   - 需要破坏锁定契约
@@ -51,6 +53,7 @@ decision_policy:
   user_challenge: 不得绕过锁定架构、接口和用户已定方向。
 verification:
   - 修改文件全部在授权范围内
+  - UI / 视觉实现未偏离 Design mode、Design source、Design acceptance
   - 没有在未通过 dangerous command gate 的情况下执行危险命令
   - 当前步骤有最小验证结果
   - CURRENT_TASK.md 执行记录已更新
@@ -74,6 +77,15 @@ disallowed_patterns:
   - 顺手重构
   - 顺手补 unrelated bug
   - 未经授权扩大范围
+  - 静默更换设计方向
+design_implementation_rules:
+  - 只能实现已确认设计
+  - 不得静默更换字体
+  - 不得静默更换颜色
+  - 不得静默更换布局
+  - 不得静默更换动效
+  - 不得静默更换品牌语气
+  - 设计方向变化必须回到 review-current-task 或决策确认
 dangerous_command_gate:
   - recursive delete
   - database destructive operation
@@ -139,12 +151,14 @@ regression_expectation:
 
 - 是否只执行当前步骤
 - 是否只改允许范围内的文件
+- UI / 视觉实现是否只采用已确认设计约束
 - 是否遵守既有决策与 lessons
 - 是否触发 dangerous command gate
 
 ## Stop Conditions
 
 - 需要修改范围外文件
+- 需要静默更换字体、颜色、布局、动效或品牌语气
 - 命令目标超出 Allowed Files 或命中 Forbidden Files
 - dangerous command 未说明命令、风险、目标、回滚/恢复方式并获得确认
 - 需要破坏锁定契约
@@ -159,6 +173,7 @@ regression_expectation:
 ## Verification
 
 - 修改文件全部在授权范围内
+- UI / 视觉实现未偏离 Design mode、Design source、Design acceptance
 - 没有在未通过 dangerous command gate 的情况下执行危险命令
 - 当前步骤有最小验证结果
 - CURRENT_TASK.md 执行记录已更新
@@ -174,6 +189,16 @@ regression_expectation:
 - 顺手重构
 - 顺手补 unrelated bug
 - 未经授权扩大范围
+- 静默更换设计方向
+
+### design_implementation_rules
+- 只能实现已确认设计
+- 不得静默更换字体
+- 不得静默更换颜色
+- 不得静默更换布局
+- 不得静默更换动效
+- 不得静默更换品牌语气
+- 设计方向变化必须回到 review-current-task 或决策确认
 
 ### dangerous_command_gate
 - recursive delete
@@ -223,6 +248,20 @@ regression_expectation:
 - confirmation
 
 普通构建产物清理可以记录为低风险，但仍不得越过 `CURRENT_TASK.md` 的 Allowed Files / Forbidden Files / Conditional Files。
+
+## Design Implementation Gate
+
+UI / 视觉实现只能实现已确认设计。不得静默更换字体、颜色、布局、动效、品牌语气或整体视觉方向。
+
+执行前核对：
+
+- Design mode
+- Design source
+- Design acceptance
+- Design evidence
+- Design open decisions
+
+如果实现需要改变设计方向，停止当前实现，回到 `/review-current-task` 或决策确认。
 
 ## Execution Protocol
 

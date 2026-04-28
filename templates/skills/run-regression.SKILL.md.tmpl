@@ -33,6 +33,7 @@ must_check:
   - 核心稳定功能是否仍正常
   - 最小 smoke check 是否完成
   - UI / 交互 / 登录相关任务是否已考虑 browser-backed smoke
+  - UI / 视觉任务是否输出 visual evidence 或 blocked reason
   - 认证态验证需要 session/cookie 时是否已明确可用性
 stop_conditions:
   - 关键测试失败
@@ -44,6 +45,7 @@ output:
   - Target surface
   - Checks run
   - Browser/session requirement
+  - Visual evidence
   - Findings
   - Pass / fail
   - Evidence
@@ -62,6 +64,7 @@ verification:
   - QA mode selection 已说明
   - 已运行相关测试或完成最小 smoke check
   - UI / 交互相关任务已说明是否执行 browser-backed smoke
+  - UI / 视觉任务已说明 visual QA、browser-backed smoke 或 blocked reason
   - 已明确给出 pass / fail 判断
   - 失败时已转入 investigate-root-cause
 allowed-tools:
@@ -91,6 +94,11 @@ smoke_checks:
   - 核心流程可走通
   - 原有按钮 / 表单 / 接口正常
   - UI / 交互任务说明 browser-backed smoke 结果或阻塞原因
+  - UI / 视觉任务说明 visual evidence 或 blocked reason
+visual_qa_rules:
+  - UI / 视觉任务必须检查视觉层级、状态覆盖、响应式、可访问性和 anti-slop
+  - browser-backed smoke 可用时必须提供截图、页面状态或控制台证据
+  - 浏览器能力不可用时记录 blocked reason，不得把未验证视觉结论标记为通过
 pass_criteria:
   - 相关测试通过
   - 关键 smoke check 无阻断问题
@@ -151,6 +159,7 @@ browser_session_policy:
 - 核心稳定功能是否仍正常
 - 最小 smoke check 是否完成
 - UI / 交互 / 登录相关任务是否已考虑 browser-backed smoke
+- UI / 视觉任务是否输出 visual evidence 或 blocked reason
 - 认证态验证需要 session/cookie 时是否已明确可用性
 
 ## Stop Conditions
@@ -171,6 +180,7 @@ browser_session_policy:
 - QA mode selection 已说明
 - 已运行相关测试或完成最小 smoke check
 - UI / 交互相关任务已说明是否执行 browser-backed smoke
+- UI / 视觉任务已说明 visual QA、browser-backed smoke 或 blocked reason
 - 已明确给出 pass / fail 判断
 - 失败时已转入 investigate-root-cause
 
@@ -194,6 +204,12 @@ browser_session_policy:
 - 核心流程可走通
 - 原有按钮 / 表单 / 接口正常
 - UI / 交互任务说明 browser-backed smoke 结果或阻塞原因
+- UI / 视觉任务说明 visual evidence 或 blocked reason
+
+### visual_qa_rules
+- UI / 视觉任务必须检查视觉层级、状态覆盖、响应式、可访问性和 anti-slop
+- browser-backed smoke 可用时必须提供截图、页面状态或控制台证据
+- 浏览器能力不可用时记录 blocked reason，不得把未验证视觉结论标记为通过
 
 ### pass_criteria
 - 相关测试通过
@@ -219,7 +235,9 @@ browser_session_policy:
 
 ## Browser And Session Rules
 
+- UI / 视觉任务先读取 `CURRENT_TASK.md` 的 Design mode、Design source、Design acceptance、Design evidence，不重新选择设计方向。
 - UI / 交互 / 表单 / 路由 / 状态流相关任务必须至少说明是否做过 browser-backed smoke。
+- UI / 视觉任务必须说明 visual QA 结果、visual evidence 或 blocked reason。
 - 不能只用单元测试替代真实页面验证；如果浏览器能力不可用，应记录为人工验证项或 blocked risk。
 - 需要登录但 session/cookie 不可用时，输出 blocked，不得把未验证页面记为通过。
 - 不写死 native `/browse` 或 `/setup-browser-cookies` 的具体 CLI；只要求在项目有可用浏览器工具或宿主能力时使用它。
@@ -232,6 +250,7 @@ QA Report:
 - Target surface:
 - Checks run:
 - Browser/session requirement:
+- Visual evidence:
 - Findings:
 - Pass / fail:
 - Evidence:

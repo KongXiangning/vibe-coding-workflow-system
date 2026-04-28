@@ -221,6 +221,13 @@ describe('workflow protocol v26 propagation governance', () => {
     expect(schemas).toContain('Allowed Files');
     expect(schemas).toContain('Forbidden Files');
     expect(schemas).toContain('Conditional Files');
+    expect(schemas).toContain('## 设计约束');
+    expect(schemas).toContain('Design mode');
+    expect(schemas).toContain('Design source');
+    expect(schemas).toContain('Design acceptance');
+    expect(schemas).toContain('Design evidence');
+    expect(schemas).toContain('Design open decisions');
+    expect(schemas).toContain('DESIGN.md` 只能作为 optional source');
     expect(schemas).toContain('未列入 `Allowed Files`');
     expect(schemas).toContain('`DECISIONS.md` 只记录原因、历史、替代方案和复议条件');
   });

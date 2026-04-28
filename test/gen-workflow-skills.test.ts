@@ -279,6 +279,53 @@ describe('gen-workflow-skills', () => {
     }
   });
 
+  test('design production chain is integrated without adding native design skill names', () => {
+    for (const skill of ['design-consultation', 'design-shotgun', 'design-html', 'design-review']) {
+      expect(fs.existsSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`))).toBe(false);
+      expect(fs.existsSync(path.join(TEMPLATE_DIR, `${skill}.SKILL.md.tmpl`))).toBe(false);
+    }
+
+    for (const skill of [
+      'create-current-task',
+      'review-current-task',
+      'decompose-task',
+      'implement-current-step',
+      'run-regression',
+      'review-diff',
+    ]) {
+      const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
+      expect(content).toContain('Design mode');
+      expect(content).toContain('Design source');
+      expect(content).toContain('Design acceptance');
+      expect(content).toContain('Design evidence');
+    }
+
+    const reviewTask = fs.readFileSync(path.join(OUTPUT_DIR, 'review-current-task.SKILL.md'), 'utf8');
+    expect(reviewTask).toContain('未确认口味决策不得进入实现');
+
+    const decomposeTask = fs.readFileSync(path.join(OUTPUT_DIR, 'decompose-task.SKILL.md'), 'utf8');
+    expect(decomposeTask).toContain('design exploration');
+    expect(decomposeTask).toContain('design implementation');
+    expect(decomposeTask).toContain('visual QA');
+
+    const implementStep = fs.readFileSync(path.join(OUTPUT_DIR, 'implement-current-step.SKILL.md'), 'utf8');
+    expect(implementStep).toContain('不得静默更换字体');
+    expect(implementStep).toContain('不得静默更换颜色');
+    expect(implementStep).toContain('不得静默更换布局');
+    expect(implementStep).toContain('不得静默更换动效');
+    expect(implementStep).toContain('不得静默更换品牌语气');
+
+    const runRegression = fs.readFileSync(path.join(OUTPUT_DIR, 'run-regression.SKILL.md'), 'utf8');
+    expect(runRegression).toContain('visual QA');
+    expect(runRegression).toContain('browser-backed smoke');
+    expect(runRegression).toContain('visual evidence');
+
+    const reviewDiff = fs.readFileSync(path.join(OUTPUT_DIR, 'review-diff.SKILL.md'), 'utf8');
+    expect(reviewDiff).toContain('design drift review');
+    expect(reviewDiff).toContain('AI slop');
+    expect(reviewDiff).toContain('响应式缺口');
+  });
+
   test('investigate-root-cause enforces root-cause-first debugging loop', () => {
     const content = fs.readFileSync(path.join(OUTPUT_DIR, 'investigate-root-cause.SKILL.md'), 'utf8');
     expect(content).toContain('Root cause hypothesis');

@@ -26,6 +26,8 @@ forbidden_writes:
   - db/**
 must_check:
   - 验收标准是否足够具体
+  - UI / 视觉任务的 Design mode、Design source、Design acceptance 是否清楚
+  - Design open decisions 是否包含未确认口味决策
   - Allowed Files、Forbidden Files、Conditional Files 是否完整
   - 是否存在 CURRENT_TASK.md 覆盖 CONTRACTS.md 的冲突
   - 是否遗漏关键契约
@@ -34,6 +36,7 @@ must_check:
 stop_conditions:
   - 任务包仍包含多个不相干目标
   - 存在关键口味决策未确认
+  - UI / 视觉任务缺少设计来源、设计验收或用户确认
   - 存在与既有决策冲突
   - CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 PROJECT_PROFILE.yaml
 output:
@@ -49,6 +52,7 @@ decision_policy:
 verification:
   - 任务包只剩一个主目标
   - source-of-truth precedence 冲突已处理或上浮
+  - UI / 视觉任务的 Design mode、Design source、Design acceptance、Design evidence 已审查
   - Allowed Files、Forbidden Files、Conditional Files 已收敛
   - 所有高风险未决项已上浮
   - 当前任务可进入范围锁定
@@ -88,6 +92,10 @@ propagation_rules:
 acceptance_rules:
   - 每条验收标准都应可验证
   - 口味问题要与技术问题分开
+design_review_rules:
+  - 后续 skill 只消费 Design mode，不重新选择 Design mode
+  - 未确认口味决策不得进入实现
+  - DESIGN.md 只能作为 optional source，不加入 required reads
 ---
 
 # Skill: review-current-task
@@ -132,6 +140,8 @@ acceptance_rules:
 ## Must Check
 
 - 验收标准是否足够具体
+- UI / 视觉任务的 Design mode、Design source、Design acceptance 是否清楚
+- Design open decisions 是否包含未确认口味决策
 - Allowed Files、Forbidden Files、Conditional Files 是否完整
 - 是否存在 CURRENT_TASK.md 覆盖 CONTRACTS.md 的冲突
 - 是否遗漏关键契约
@@ -142,6 +152,7 @@ acceptance_rules:
 
 - 任务包仍包含多个不相干目标
 - 存在关键口味决策未确认
+- UI / 视觉任务缺少设计来源、设计验收或用户确认
 - 存在与既有决策冲突
 - CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 PROJECT_PROFILE.yaml
 
@@ -155,6 +166,7 @@ acceptance_rules:
 
 - 任务包只剩一个主目标
 - source-of-truth precedence 冲突已处理或上浮
+- UI / 视觉任务的 Design mode、Design source、Design acceptance、Design evidence 已审查
 - Allowed Files、Forbidden Files、Conditional Files 已收敛
 - 所有高风险未决项已上浮
 - 当前任务可进入范围锁定
@@ -190,6 +202,23 @@ acceptance_rules:
 ### acceptance_rules
 - 每条验收标准都应可验证
 - 口味问题要与技术问题分开
+
+### design_review_rules
+- 后续 skill 只消费 Design mode，不重新选择 Design mode
+- 未确认口味决策不得进入实现
+- DESIGN.md 只能作为 optional source，不加入 required reads
+
+## Design Constraint Review
+
+UI / 视觉任务必须审查 `## 设计约束`：
+
+- Design mode
+- Design source
+- Design acceptance
+- Design evidence
+- Design open decisions
+
+未确认口味决策不得进入实现。若没有 `DESIGN.md`、mockup、截图或参考链接，任务必须进入 `design-system` 或 `exploration`，不能直接实现。
 
 ## Execution Protocol
 

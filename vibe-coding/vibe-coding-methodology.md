@@ -813,6 +813,41 @@ workflow-system 不依赖 Claude hook 或 shell 拦截器。即使没有原生 h
 - 危险命令、部署、数据库、权限相关变更
 - 绕过 `/lock-scope` 的解锁或扩大范围流程
 
+### 设计生产链路：从设计约束到视觉证据
+
+`gstack` 的 `/design-consultation`、`/design-shotgun`、`/design-html`、`/design-review` 在 workflow-system 中不复制成同名 skill，而是下沉为当前任务级 `设计约束` 和现有执行链路：
+
+- `/design-consultation`：迁移为 `design-system`，用于从零建立任务级设计方向、字体、颜色、间距、布局、动效和设计约束。
+- `/design-shotgun`：迁移为 `exploration`，用于 UI 方向不确定时的多方案探索与用户选择。
+- `/design-html`：迁移为 `design-to-code`，用于把已批准 mockup、参考图或设计方向转成实现规格。
+- `/design-review`：迁移为 `visual-qa`，用于实现后的视觉 QA 和 design drift review。
+
+这不是 native 工具能力的等价实现。workflow-system 不绑定图片生成、comparison board、Pretext、browse daemon 或具体设计工具；如果宿主或项目有这些能力，可以作为 Design evidence 使用，否则记录人工验收或 blocked reason。
+
+#### 任务级设计约束
+
+`CURRENT_TASK.md` 的 `## 设计约束` 只对当前任务生效，不替代长期 `DESIGN.md`、`PROJECT_PROFILE.yaml` 或项目基线。长期设计系统需要另开同步计划。
+
+```md
+## 设计约束
+
+- Design mode:
+- Design source:
+- Design acceptance:
+- Design evidence:
+- Design open decisions:
+```
+
+`DESIGN.md` 只能作为 optional source，不加入 required reads。没有 `DESIGN.md`、mockup、截图或参考链接时，UI 任务必须进入 `design-system` 或 `exploration`，不能直接实现。
+
+#### 设计链路规则
+
+- `/create-current-task` / `/review-current-task` 负责识别 UI / 视觉任务，并锁定 Design mode。
+- `/decompose-task` 只消费 Design mode，把 design exploration、design implementation、visual QA 拆成独立步骤。
+- `/implement-current-step` 只能实现已确认设计，不得静默更换字体、颜色、布局、动效或品牌语气。
+- `/run-regression` 必须输出 visual QA、browser-backed smoke、visual evidence 或 blocked reason。
+- `/review-diff` 必须检查 design drift、AI slop、响应式缺口、状态遗漏和无证据视觉结论。
+
 ---
 
 ## 五、标准工作流
