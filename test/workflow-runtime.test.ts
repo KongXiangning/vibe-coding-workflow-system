@@ -545,6 +545,26 @@ describe('workflow-runtime install', () => {
 
         const installState = readJson(path.join(targetRoot, '.workflow-system', 'install-state.json'));
         expect(installState.bundle_id).toBe(packReport.bundle_id);
+        expect(installState.managed_files).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              path: '.agents/skills/workflow-system-design-baseline-init/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
+              path: '.agents/skills/workflow-system-greenfield-init/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
+              path: '.agents/skills/workflow-system-legacy-inventory/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
+              path: '.agents/skills/workflow-system-adopt-existing-project/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+          ]),
+        );
       });
     });
   });
@@ -648,6 +668,40 @@ describe('workflow-runtime install', () => {
         expect(second.success).toBe(false);
         expect(second.exit_code).toBe(2);
         expect(second.failures.some(failure => failure.category === 'local_drift')).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle reports local drift for modified bootstrap init skills', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        fs.appendFileSync(
+          path.join(targetRoot, '.agents', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'),
+          '\n<!-- local drift -->\n',
+          'utf8',
+        );
+
+        const second = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+        });
+        expect(second.success).toBe(false);
+        expect(second.exit_code).toBe(2);
+        expect(
+          second.failures.some(
+            failure =>
+              failure.category === 'local_drift' &&
+              failure.path === '.agents/skills/workflow-system-design-baseline-init/SKILL.md',
+          ),
+        ).toBe(true);
       });
     });
   });

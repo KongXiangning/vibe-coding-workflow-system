@@ -226,7 +226,7 @@ export type PreflightFailure = {
 
 export type ManagedFileEntry = {
   path: string;
-  mode: 'replace-managed';
+  mode: 'replace-managed' | 'bootstrap-skill-install';
   bundle_checksum: string;
   installed_checksum: string;
 };
@@ -676,6 +676,10 @@ function collectFilesRecursively(dir: string): string[] {
 function computeFileChecksum(filePath: string): string {
   const content = fs.readFileSync(filePath);
   return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+function computeContentChecksum(content: string): string {
+  return crypto.createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
 /**
@@ -1458,6 +1462,84 @@ function buildReplaceManagedPlan(
   return { plannedWrites, managedFiles, failures };
 }
 
+function buildBootstrapManagedPlan(
+  root: string,
+  bundleDir: string,
+  host: RuntimeHost,
+  profile: JsonObject,
+  installState?: InstallState,
+): { plannedWrites: PlannedWrite[]; managedFiles: ManagedFileEntry[]; failures: PreflightFailure[] } {
+  const failures: PreflightFailure[] = [];
+  const plannedWrites: PlannedWrite[] = [];
+  const managedFiles: ManagedFileEntry[] = [];
+  const currentStateByPath = new Map((installState?.managed_files ?? []).map(entry => [normalizeRelativePath(entry.path), entry]));
+  const bootstrapWrites = buildBootstrapInitSkillWrites(root, bundleDir, host, profile);
+  const bootstrapPaths = new Set<string>();
+
+  for (const planned of bootstrapWrites) {
+    const relativePath = getRelativePath(root, planned.path);
+    const stateEntry = currentStateByPath.get(relativePath);
+    const currentExists = fs.existsSync(planned.path);
+    const currentChecksum = currentExists ? computeFileChecksum(planned.path) : undefined;
+    const expectedChecksum = computeContentChecksum(planned.content ?? '');
+    bootstrapPaths.add(relativePath);
+
+    managedFiles.push({
+      path: relativePath,
+      mode: 'bootstrap-skill-install',
+      bundle_checksum: expectedChecksum,
+      installed_checksum: currentExists ? currentChecksum! : expectedChecksum,
+    });
+
+    if (!installState) {
+      if (!currentExists) {
+        plannedWrites.push(planned);
+      } else if (currentChecksum !== expectedChecksum) {
+        failures.push({
+          category: 'contract_conflict',
+          path: relativePath,
+          message: 'Existing bootstrap skill differs from rendered workflow content on first install.',
+        });
+      }
+      continue;
+    }
+
+    if (currentExists && stateEntry && currentChecksum !== stateEntry.installed_checksum) {
+      failures.push({
+        category: 'local_drift',
+        path: relativePath,
+        message: 'Bootstrap skill was modified locally since last install.',
+      });
+      continue;
+    }
+
+    if (!currentExists || !stateEntry || stateEntry.bundle_checksum !== expectedChecksum) {
+      plannedWrites.push({
+        ...planned,
+        action: currentExists ? 'overwrite' : 'create',
+      });
+    }
+  }
+
+  for (const prior of installState?.managed_files ?? []) {
+    if (prior.mode !== 'bootstrap-skill-install' || bootstrapPaths.has(normalizeRelativePath(prior.path))) {
+      continue;
+    }
+    const targetPath = path.join(root, prior.path.replace(/\//g, path.sep));
+    if (fs.existsSync(targetPath) && computeFileChecksum(targetPath) !== prior.installed_checksum) {
+      failures.push({
+        category: 'local_drift',
+        path: prior.path,
+        message: 'Bootstrap skill slated for prune was modified locally since last install.',
+      });
+      continue;
+    }
+    plannedWrites.push({ path: targetPath, action: 'delete', mode: 'bootstrap-skill-install' });
+  }
+
+  return { plannedWrites, managedFiles, failures };
+}
+
 function writePlannedFiles(
   root: string,
   bundleDir: string,
@@ -1554,6 +1636,15 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     }
   }
 
+  const bootstrapPlan = buildBootstrapManagedPlan(
+    root,
+    bundleDir,
+    host,
+    profilePlan.profile,
+    existingInstallState,
+  );
+  failures.push(...bootstrapPlan.failures);
+
   const versionPath = path.join(root, 'VERSION');
   const packageVersion = typeof packagePlan.packageJson.version === 'string' && packagePlan.packageJson.version.trim().length > 0
     ? packagePlan.packageJson.version.trim()
@@ -1567,7 +1658,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     bundle_id: bundle.bundle_id,
     workflow_system_version: bundle.workflow_system_version,
     installed_at: installedAt,
-    managed_files: replaceManagedPlan.managedFiles,
+    managed_files: [...replaceManagedPlan.managedFiles, ...bootstrapPlan.managedFiles],
     package_json_fragment: packagePlan.fragment,
     project_profile_fragment: profilePlan.fragment,
     host_sync_state: {
@@ -1598,7 +1689,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
   if (versionWriteNeeded) {
     plannedWrites.push({ path: versionPath, action: 'scaffold', mode: 'scaffold-once' });
   }
-  plannedWrites.push(...buildBootstrapInitSkillWrites(root, bundleDir, host, profilePlan.profile));
+  plannedWrites.push(...bootstrapPlan.plannedWrites);
   plannedWrites.push({
     path: path.join(root, '.workflow-system', 'install-state.json'),
     action: 'create',
