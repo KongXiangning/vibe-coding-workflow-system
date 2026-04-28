@@ -76,13 +76,6 @@ export function resolveNodeServerScript(
 
 const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
 
-// On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
-if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
-  throw new Error(
-    'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
-  );
-}
-
 interface ServerState {
   pid: number;
   port: number;
@@ -227,7 +220,12 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
 
   let proc: any = null;
 
-  if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
+  if (IS_WINDOWS) {
+    if (!NODE_SERVER_SCRIPT) {
+      throw new Error(
+        'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
+      );
+    }
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
     // when the CLI exits, the server dies with it. Use Node's child_process.spawn
     // with { detached: true } instead, which is the gold standard for Windows

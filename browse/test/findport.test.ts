@@ -3,6 +3,7 @@ import * as net from 'net';
 import * as path from 'path';
 
 const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs');
+const polyfillSpecifier = JSON.stringify(polyfillPath.replace(/\\/g, '/'));
 
 // Helper: bind a port and hold it open, returning a cleanup function
 function occupyPort(port: number): Promise<() => Promise<void>> {
@@ -99,7 +100,7 @@ describe('findPort / isPortAvailable', () => {
     // On macOS/Linux the OS reclaims the port fast enough that the race
     // rarely manifests, but on Windows TIME_WAIT makes it 100% repro.
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require(${polyfillSpecifier});
       const net = require('net');
 
       async function test() {

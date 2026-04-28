@@ -24,23 +24,34 @@ function getGitRoot(): string | null {
   }
 }
 
+function getBinaryCandidates(): string[] {
+  return process.platform === 'win32'
+    ? ['browse.exe', 'browse']
+    : ['browse'];
+}
+
 export function locateBinary(): string | null {
   const root = getGitRoot();
   const home = homedir();
   const markers = ['.codex', '.agents', '.claude'];
+  const candidates = getBinaryCandidates();
 
   // Workspace-local takes priority (for development)
   if (root) {
     for (const m of markers) {
-      const local = join(root, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
-      if (existsSync(local)) return local;
+      for (const candidate of candidates) {
+        const local = join(root, m, 'skills', 'gstack', 'browse', 'dist', candidate);
+        if (existsSync(local)) return local;
+      }
     }
   }
 
   // Global fallback
   for (const m of markers) {
-    const global = join(home, m, 'skills', 'gstack', 'browse', 'dist', 'browse');
-    if (existsSync(global)) return global;
+    for (const candidate of candidates) {
+      const global = join(home, m, 'skills', 'gstack', 'browse', 'dist', candidate);
+      if (existsSync(global)) return global;
+    }
   }
 
   return null;
@@ -58,4 +69,6 @@ function main() {
   console.log(bin);
 }
 
-main();
+if (import.meta.main) {
+  main();
+}
