@@ -1,90 +1,131 @@
-#!/usr/bin/env bash
-# gstack-diff-scope — categorize what changed in the diff against a base branch
-# Usage: source <(gstack-diff-scope main)  → sets SCOPE_FRONTEND=true SCOPE_BACKEND=false ...
-# Or:    gstack-diff-scope main           → prints SCOPE_*=... lines
-set -euo pipefail
+#!/usr/bin/env bun
 
-BASE="${1:-main}"
+import { spawnSync } from 'child_process';
 
-# Get changed file list
-FILES=$(git diff "${BASE}...HEAD" --name-only 2>/dev/null || git diff "${BASE}" --name-only 2>/dev/null || echo "")
+const BASE = process.argv[2] ?? 'main';
 
-if [ -z "$FILES" ]; then
-  echo "SCOPE_FRONTEND=false"
-  echo "SCOPE_BACKEND=false"
-  echo "SCOPE_PROMPTS=false"
-  echo "SCOPE_TESTS=false"
-  echo "SCOPE_DOCS=false"
-  echo "SCOPE_CONFIG=false"
-  echo "SCOPE_MIGRATIONS=false"
-  echo "SCOPE_API=false"
-  echo "SCOPE_AUTH=false"
-  exit 0
-fi
+function gitDiff(args: string[]): string {
+  const result = spawnSync('git', args, {
+    stdio: 'pipe',
+    timeout: 5_000,
+  });
+  if (result.status !== 0) {
+    return '';
+  }
+  return result.stdout.toString().trim();
+}
 
-FRONTEND=false
-BACKEND=false
-PROMPTS=false
-TESTS=false
-DOCS=false
-CONFIG=false
-MIGRATIONS=false
-API=false
-AUTH=false
+function getChangedFiles(base: string): string[] {
+  const primary = gitDiff(['diff', `${base}...HEAD`, '--name-only']);
+  const fallback = primary || gitDiff(['diff', base, '--name-only']);
+  return fallback
+    .split(/\r?\n/)
+    .map(file => file.trim().replace(/\\/g, '/'))
+    .filter(Boolean);
+}
 
-while IFS= read -r f; do
-  case "$f" in
-    # Frontend: CSS, views, components, templates
-    *.css|*.scss|*.less|*.sass|*.pcss|*.module.css|*.module.scss) FRONTEND=true ;;
-    *.tsx|*.jsx|*.vue|*.svelte|*.astro) FRONTEND=true ;;
-    *.erb|*.haml|*.slim|*.hbs|*.ejs) FRONTEND=true ;;
-    *.html) FRONTEND=true ;;
-    tailwind.config.*|postcss.config.*) FRONTEND=true ;;
-    app/views/*|*/components/*|styles/*|css/*|app/assets/stylesheets/*) FRONTEND=true ;;
+function matchesAny(file: string, patterns: RegExp[]): boolean {
+  return patterns.some(pattern => pattern.test(file));
+}
 
-    # Prompts: prompt builders, system prompts, generation services
-    *prompt_builder*|*generation_service*|*writer_service*|*designer_service*) PROMPTS=true ;;
-    *evaluator*|*scorer*|*classifier_service*|*analyzer*) PROMPTS=true ;;
-    *voice*.rb|*writing*.rb|*prompt*.rb|*token*.rb) PROMPTS=true ;;
-    app/services/chat_tools/*|app/services/x_thread_tools/*) PROMPTS=true ;;
-    config/system_prompts/*) PROMPTS=true ;;
+const files = getChangedFiles(BASE);
 
-    # Tests
-    *.test.*|*.spec.*|*_test.*|*_spec.*) TESTS=true ;;
-    test/*|tests/*|spec/*|__tests__/*|cypress/*|e2e/*) TESTS=true ;;
+const scope = {
+  SCOPE_FRONTEND: false,
+  SCOPE_BACKEND: false,
+  SCOPE_PROMPTS: false,
+  SCOPE_TESTS: false,
+  SCOPE_DOCS: false,
+  SCOPE_CONFIG: false,
+  SCOPE_MIGRATIONS: false,
+  SCOPE_API: false,
+  SCOPE_AUTH: false,
+};
 
-    # Docs
-    *.md) DOCS=true ;;
+const frontendPatterns = [
+  /\.(css|scss|less|sass|pcss)$/i,
+  /\.module\.(css|scss)$/i,
+  /\.(tsx|jsx|vue|svelte|astro|erb|haml|slim|hbs|ejs|html)$/i,
+  /(^|\/)(tailwind\.config|postcss\.config)\.[^/]+$/i,
+  /(^|\/)app\/views\//,
+  /(^|\/)components\//,
+  /(^|\/)(styles|css)\//,
+  /(^|\/)app\/assets\/stylesheets\//,
+];
 
-    # Config
-    package.json|package-lock.json|yarn.lock|bun.lockb) CONFIG=true ;;
-    Gemfile|Gemfile.lock) CONFIG=true ;;
-    *.yml|*.yaml) CONFIG=true ;;
-    .github/*) CONFIG=true ;;
-    requirements.txt|pyproject.toml|go.mod|Cargo.toml|composer.json) CONFIG=true ;;
+const promptPatterns = [
+  /prompt_builder/i,
+  /generation_service/i,
+  /writer_service/i,
+  /designer_service/i,
+  /evaluator/i,
+  /scorer/i,
+  /classifier_service/i,
+  /analyzer/i,
+  /voice.*\.rb$/i,
+  /writing.*\.rb$/i,
+  /prompt.*\.rb$/i,
+  /token.*\.rb$/i,
+  /(^|\/)app\/services\/chat_tools\//,
+  /(^|\/)app\/services\/x_thread_tools\//,
+  /(^|\/)config\/system_prompts\//,
+];
 
-    # Migrations: database migration files
-    db/migrate/*|*/migrations/*|alembic/*|prisma/migrations/*) MIGRATIONS=true ;;
+const testPatterns = [
+  /\.(test|spec)\./i,
+  /(_test|_spec)\./i,
+  /(^|\/)(test|tests|spec|__tests__|cypress|e2e)\//,
+];
 
-    # API: routes, controllers, endpoints, GraphQL/OpenAPI schemas
-    *controller*|*route*|*endpoint*|*/api/*) API=true ;;
-    *.graphql|*.gql|openapi.*|swagger.*) API=true ;;
+const configPatterns = [
+  /(^|\/)(package\.json|package-lock\.json|yarn\.lock|bun\.lockb)$/i,
+  /(^|\/)(Gemfile|Gemfile\.lock)$/i,
+  /\.(yml|yaml)$/i,
+  /(^|\/)\.github\//,
+  /(^|\/)(requirements\.txt|pyproject\.toml|go\.mod|Cargo\.toml|composer\.json)$/i,
+];
 
-    # Auth: authentication, authorization, sessions, permissions
-    *auth*|*session*|*jwt*|*oauth*|*permission*|*role*) AUTH=true ;;
+const migrationPatterns = [
+  /(^|\/)db\/migrate\//,
+  /(^|\/).+\/migrations\//,
+  /(^|\/)alembic\//,
+  /(^|\/)prisma\/migrations\//,
+];
 
-    # Backend: everything else that's code (excluding views/components already matched)
-    *.rb|*.py|*.go|*.rs|*.java|*.php|*.ex|*.exs) BACKEND=true ;;
-    *.ts|*.js) BACKEND=true ;;  # Non-component TS/JS is backend
-  esac
-done <<< "$FILES"
+const apiPatterns = [
+  /controller/i,
+  /route/i,
+  /endpoint/i,
+  /(^|\/)api\//,
+  /\.(graphql|gql)$/i,
+  /(^|\/)(openapi|swagger)\./i,
+];
 
-echo "SCOPE_FRONTEND=$FRONTEND"
-echo "SCOPE_BACKEND=$BACKEND"
-echo "SCOPE_PROMPTS=$PROMPTS"
-echo "SCOPE_TESTS=$TESTS"
-echo "SCOPE_DOCS=$DOCS"
-echo "SCOPE_CONFIG=$CONFIG"
-echo "SCOPE_MIGRATIONS=$MIGRATIONS"
-echo "SCOPE_API=$API"
-echo "SCOPE_AUTH=$AUTH"
+const authPatterns = [
+  /auth/i,
+  /session/i,
+  /jwt/i,
+  /oauth/i,
+  /permission/i,
+  /role/i,
+];
+
+const backendPatterns = [
+  /\.(rb|py|go|rs|java|php|ex|exs|ts|js)$/i,
+];
+
+for (const file of files) {
+  if (matchesAny(file, frontendPatterns)) scope.SCOPE_FRONTEND = true;
+  if (matchesAny(file, promptPatterns)) scope.SCOPE_PROMPTS = true;
+  if (matchesAny(file, testPatterns)) scope.SCOPE_TESTS = true;
+  if (file.endsWith('.md')) scope.SCOPE_DOCS = true;
+  if (matchesAny(file, configPatterns)) scope.SCOPE_CONFIG = true;
+  if (matchesAny(file, migrationPatterns)) scope.SCOPE_MIGRATIONS = true;
+  if (matchesAny(file, apiPatterns)) scope.SCOPE_API = true;
+  if (matchesAny(file, authPatterns)) scope.SCOPE_AUTH = true;
+  if (matchesAny(file, backendPatterns)) scope.SCOPE_BACKEND = true;
+}
+
+for (const [key, value] of Object.entries(scope)) {
+  console.log(`${key}=${value}`);
+}

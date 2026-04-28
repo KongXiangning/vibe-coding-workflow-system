@@ -6,7 +6,7 @@
  */
 import { describe, test, expect, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 
@@ -34,7 +34,7 @@ function createRepo(files: string[]): string {
   run('git', ['checkout', '-b', 'feature/test']);
   for (const f of files) {
     const fullPath = join(dir, f);
-    const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
+    const dirPath = dirname(fullPath);
     if (dirPath !== dir) mkdirSync(dirPath, { recursive: true });
     writeFileSync(fullPath, '# test content\n');
   }
@@ -45,7 +45,7 @@ function createRepo(files: string[]): string {
 }
 
 function runScope(dir: string): Record<string, string> {
-  const result = spawnSync('bash', [SCRIPT, 'main'], {
+  const result = spawnSync('bun', [SCRIPT, 'main'], {
     cwd: dir, stdio: 'pipe', timeout: 5000,
   });
   const output = result.stdout.toString().trim();
