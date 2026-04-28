@@ -848,6 +848,44 @@ workflow-system 不依赖 Claude hook 或 shell 拦截器。即使没有原生 h
 - `/run-regression` 必须输出 visual QA、browser-backed smoke、visual evidence 或 blocked reason。
 - `/review-diff` 必须检查 design drift、AI slop、响应式缺口、状态遗漏和无证据视觉结论。
 
+### 发布后验证链路：从 release gate 到上线观察
+
+`gstack` 的 `/land-and-deploy`、`/canary`、`/benchmark`、`/setup-deploy` 在 workflow-system 中不复制成同名 skill，而是下沉为当前任务级 `发布后验证`、长期 `BASELINES.md` 和现有验证 / 状态同步链路：
+
+- `/setup-deploy`：迁移为 `BASELINES.md` 的部署基线和任务级 `Deploy source`，用于记录 production URL、health endpoint、deploy status source、回滚要求。
+- `/land-and-deploy`：迁移为 `deploy-verification`，用于记录 CI、deploy log、health check、Release evidence 和 Rollback / recovery。
+- `/canary`：迁移为 `canary`，用于记录观察周期、采样次数、失败阈值、默认动作和 remaining observation。
+- `/benchmark`：迁移为 `benchmark`，用于记录 performance baseline、baseline source、允许回退阈值和对比证据。
+
+这不是 native 工具能力的等价实现。workflow-system 不执行真实 merge、push、deploy 或监控轮询，也不绑定 Fly、Vercel、Render、browse daemon、Lighthouse 或 Web Vitals runner；这些动作只能由宿主、CI/CD 或项目工具执行，并作为 Release evidence 写回任务。
+
+#### 任务级发布后验证
+
+`CURRENT_TASK.md` 的 `## 发布后验证` 只对当前任务生效，不替代长期 `BASELINES.md`。
+
+```md
+## 发布后验证
+
+- Release mode:
+- Deploy source:
+- Target environment:
+- Health checks:
+- Canary window:
+- Performance baseline:
+- Rollback / recovery:
+- Release evidence:
+```
+
+没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须输出 blocked risk，不能把任务标记为已稳定。
+
+#### 发布后验证链路规则
+
+- `/create-current-task` / `/review-current-task` 负责识别发布、部署、生产、性能、可靠性或上线后观察任务，并锁定 Release mode。
+- `/lock-scope` 对生产、部署、回滚、CI/CD、监控配置、性能基线变更选择 `guarded` 或记录例外。
+- `/run-regression` 只读执行 release-readiness、deploy-verification、canary、benchmark 验证并输出证据或 blocked reason。
+- `/sync-status` 只能将发布后状态同步为 stable、observing、blocked、rolled-back。
+- `/prepare-delivery-summary` 和 `/archive-task` 必须保留 Release evidence、canary result、performance baseline result、rollback status 和 remaining observation。
+
 ---
 
 ## 五、标准工作流

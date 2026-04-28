@@ -28,6 +28,7 @@ must_check:
   - Conditional Files 是否包含触发条件和证据要求
   - Safety mode 是否匹配任务风险
   - 高风险任务是否选择 guarded 或说明不用 guarded 的理由
+  - 生产、部署、回滚、CI/CD、监控配置、性能基线变更是否选择 guarded 或说明例外
   - Dangerous surfaces 是否已识别
   - scope unlock / widening 是否包含理由、影响文件、风险和验证方式
   - 锁定契约是否已识别
@@ -93,6 +94,10 @@ dangerous_surfaces:
   - authentication
   - payments
   - deployment
+  - rollback
+  - CI/CD
+  - monitoring config
+  - performance baseline
   - bulk delete
   - migration
   - force push
@@ -164,6 +169,7 @@ violation_levels:
 - Conditional Files 是否包含触发条件和证据要求
 - Safety mode 是否匹配任务风险
 - 高风险任务是否选择 guarded 或说明不用 guarded 的理由
+- 生产、部署、回滚、CI/CD、监控配置、性能基线变更是否选择 guarded 或说明例外
 - Dangerous surfaces 是否已识别
 - scope unlock / widening 是否包含理由、影响文件、风险和验证方式
 - 锁定契约是否已识别
@@ -221,6 +227,10 @@ violation_levels:
 - authentication
 - payments
 - deployment
+- rollback
+- CI/CD
+- monitoring config
+- performance baseline
 - bulk delete
 - migration
 - force push
@@ -258,7 +268,7 @@ violation_levels:
 - `normal`: 普通低风险任务，仍必须声明 Allowed Files / Forbidden Files / Conditional Files。
 - `careful`: 可能需要危险命令或高影响操作，但文件范围不需要强冻结。
 - `frozen-scope`: 只允许修改一个模块或一组明确文件；未明确允许即禁止。
-- `guarded`: 生产、数据库、权限、认证、支付、部署、迁移、批量删除、force push、历史重写等高风险任务；必须同时锁定范围并要求危险命令 gate。
+- `guarded`: 生产、数据库、权限、认证、支付、部署、回滚、CI/CD、监控配置、性能基线、迁移、批量删除、force push、历史重写等高风险任务；必须同时锁定范围并要求危险命令 gate。
 
 ## Scope Unlock / Widening Rules
 

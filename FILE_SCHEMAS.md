@@ -77,6 +77,7 @@
 ### 条件必填章节
 
 - `## 设计约束`：UI / 视觉 / 交互任务必须填写；非 UI 任务可保留默认 `Design mode: none`
+- `## 发布后验证`：发布、部署、生产验证、canary、性能基线或上线后观察任务必须填写；其他任务可保留默认 `Release mode: none`
 
 ### 传播治理记录最小内容
 
@@ -94,6 +95,21 @@
 
 `DESIGN.md` 只能作为 optional source；缺失时不得阻断非 UI 任务，也不得被加入 required reads。若需要让设计系统长期生效，应另开 `DESIGN.md` / 项目基线同步计划。
 
+### 发布后验证最小内容
+
+当任务涉及发布、部署、生产验证、canary、性能基线或上线后观察时，`CURRENT_TASK.md` 必须填写 `## 发布后验证`。该章节只代表当前任务级发布验证计划和证据，不替代长期 `BASELINES.md`。
+
+- `Release mode`：`none` / `release-readiness` / `deploy-verification` / `canary` / `benchmark`
+- `Deploy source`：`BASELINES.md` / host config / CI output / manual / none
+- `Target environment`：staging / production / preview / local / unknown
+- `Health checks`：health endpoint、关键页面、关键 API、console errors、job status
+- `Canary window`：观察周期、采样次数、失败阈值、默认动作
+- `Performance baseline`：指标、baseline source、允许回退阈值、证据
+- `Rollback / recovery`：回滚入口、负责人、触发条件、不可自动处理项
+- `Release evidence`：CI、deploy log、health check、截图、监控链接、manual note 或 blocked reason
+
+`BASELINES.md` 是长期发布 / 部署 / 性能可靠性基线；`CURRENT_TASK.md > 发布后验证` 只承载本轮验证计划和结果。没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须输出 blocked risk，不能把任务标记为已稳定。
+
 ### 更新时机
 
 - 新需求进入时创建
@@ -107,6 +123,9 @@
 - UI / 视觉 / 交互任务必须显式填写 `## 设计约束`
 - `## 设计约束` 中的 `Design mode`、`Design source`、`Design acceptance`、`Design evidence`、`Design open decisions` 必须可审计
 - 没有 `DESIGN.md`、mockup、截图或参考链接时，UI 任务必须进入 `design-system` 或 `exploration`，不能直接实现
+- 发布、部署、生产验证、canary、性能基线或上线后观察任务必须显式填写 `## 发布后验证`
+- `## 发布后验证` 中的 `Release mode`、`Deploy source`、`Target environment`、`Health checks`、`Canary window`、`Performance baseline`、`Rollback / recovery`、`Release evidence` 必须可审计
+- 生产发布缺少回滚方案、health check 或发布证据时，不得写成 stable
 - 允许/禁止修改范围必须明确到目录、文件或契约层
 - `## 允许修改范围` 必须显式包含 `Allowed Files` 与 `Conditional Files`
 - `## 禁止修改范围` 必须显式包含 `Forbidden Files`

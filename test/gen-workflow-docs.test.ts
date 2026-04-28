@@ -77,6 +77,15 @@ describe('gen-workflow-docs', () => {
     expect(currentTask).toContain('- Design acceptance:');
     expect(currentTask).toContain('- Design evidence:');
     expect(currentTask).toContain('- Design open decisions:');
+    expect(currentTask).toContain('## 发布后验证');
+    expect(currentTask).toContain('- Release mode:');
+    expect(currentTask).toContain('- Deploy source:');
+    expect(currentTask).toContain('- Target environment:');
+    expect(currentTask).toContain('- Health checks:');
+    expect(currentTask).toContain('- Canary window:');
+    expect(currentTask).toContain('- Performance baseline:');
+    expect(currentTask).toContain('- Rollback / recovery:');
+    expect(currentTask).toContain('- Release evidence:');
     expect(currentTask).toContain('## 传播治理记录');
     expect(currentTask).toContain('- `MutationEligibilityAssessment`：');
     expect(currentTask).toContain('- `ContractCompatibilityResult`：');
@@ -134,6 +143,11 @@ describe('gen-workflow-docs', () => {
     expect(baselines).toContain('### GATE-001:');
     expect(baselines).toContain('- 证据 / 验证入口：');
     expect(baselines).toContain('- 例外处理：');
+    expect(baselines).toContain('- health endpoint：');
+    expect(baselines).toContain('- production URL：');
+    expect(baselines).toContain('- deploy status source：');
+    expect(baselines).toContain('- canary window：');
+    expect(baselines).toContain('- performance regression threshold：');
     expect(baselines).toContain('- merge gate：');
     expect(baselines).toContain('- ship gate：');
     expect(baselines).toContain('- 相关 strategy_origin / branch 语义：');
@@ -166,6 +180,19 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('design drift review');
     expect(guide).toContain('DESIGN.md` 只能作为 optional source');
     expect(guide).toContain('workflow-system 不绑定具体设计生成工具');
+  });
+
+  test('workflow guide documents post-release verification', () => {
+    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
+    expect(guide).toContain('Release mode');
+    expect(guide).toContain('Deploy source');
+    expect(guide).toContain('Target environment');
+    expect(guide).toContain('Health checks');
+    expect(guide).toContain('Canary window');
+    expect(guide).toContain('Performance baseline');
+    expect(guide).toContain('Rollback / recovery');
+    expect(guide).toContain('Release evidence');
+    expect(guide).toContain('workflow-system 不绑定部署平台');
   });
 
   test('baseline gate skeleton covers v26 blocker families', () => {

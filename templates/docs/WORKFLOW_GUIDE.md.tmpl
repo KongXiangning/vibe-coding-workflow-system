@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | `STATUS.md` | 当前项目状态、稳定模块、风险和下一检查点 | 开始任务前、任务结束后 |
 | `ROADMAP.md` | 里程碑、当前窗口、候选事项和跨阶段风险 | 规划阶段、排优先级时 |
-| `CURRENT_TASK.md` | 本轮任务目标、范围、验收、回归和执行记录 | 每轮工作前、每步完成后 |
+| `CURRENT_TASK.md` | 本轮任务目标、范围、验收、设计约束、发布后验证、回归和执行记录 | 每轮工作前、每步完成后 |
 | `CONTRACTS.md` | 稳定接口、架构边界、目录职责和不可破坏约束 | 实现前、审核前、契约复核前 |
 | `DECISIONS.md` | 已确认的架构、产品、口味、暂缓和否决决策 | 涉及选择、取舍或改方向时 |
 | `LESSONS.md` | 可复用经验、踩坑记录和触发信号 | 调试前、复盘时、遇到类似问题时 |
@@ -36,7 +36,7 @@
 | 实现当前步骤 | `/implement-current-step` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码改动、dangerous command gate、验证结果、执行记录 |
 | 审查 diff | `/review-diff` | `git diff`、`CURRENT_TASK.md`、`DECISIONS.md` | scope drift / decision drift / safety boundary review / 回归风险 |
 | 验证契约 | `/verify-contracts` | `git diff`、`CONTRACTS.md`、`CURRENT_TASK.md` | 接口和架构契约检查结果 |
-| 执行回归 | `/run-regression` | `CURRENT_TASK.md`、当前 diff、测试命令、验证清单 | QA mode、Target surface、Checks run、Browser/session requirement、Findings、Pass / fail、Evidence、Handoff |
+| 执行回归 | `/run-regression` | `CURRENT_TASK.md`、当前 diff、测试命令、验证清单 | QA mode、Target surface、Checks run、Browser/session requirement、Release evidence、Findings、Pass / fail、Evidence、Handoff |
 | 同步任务记录 | `/sync-current-task` | `CURRENT_TASK.md`、实际执行事实 | 更新后的 `CURRENT_TASK.md` |
 | 同步契约 | `/sync-contracts` | `CURRENT_TASK.md`、`CONTRACTS.md` | 新稳定边界记录 |
 | 同步决策 | `/sync-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | 新确认决策记录 |
@@ -54,7 +54,7 @@
 5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
 6. 用 `/decompose-task` 拆成一次只做一个当前步骤的小步计划。
 7. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
-8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
+8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
 9. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` 同步治理事实。
 10. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
 
@@ -71,6 +71,11 @@
 | UI 方向不确定，需要多方案探索 | `/decompose-task` 拆出 `exploration` 步骤；有工具则使用设计生成 / comparison board，否则记录人工参考或 blocked risk |
 | 已批准 mockup / 参考图需要转实现 | `/implement-current-step` 执行 `design-to-code`，只实现已确认设计 |
 | 实现后需要视觉 QA | `/run-regression` + `/review-diff` 执行 `visual-qa` 和 design drift review |
+| 需要配置部署或发布基线 | 更新 `BASELINES.md` 的发布 / 部署 / 性能可靠性基线，任务中记录 `Deploy source` |
+| 发布前 readiness 检查 | `/run-regression` 使用 `release-readiness`，核对 CI、release gate、Rollback / recovery |
+| 部署后 health check | `/run-regression` 使用 `deploy-verification`，输出 deploy log、health check 或 blocked reason |
+| 上线后 canary 观察 | `/run-regression` 使用 `canary`，输出 canary window、采样结果、失败阈值和默认动作 |
+| 性能基线对比 | `/run-regression` 使用 `benchmark`，输出 baseline source、指标、阈值和对比证据 |
 | 高风险任务涉及生产、数据库、权限、认证、支付、部署、迁移、批量删除、force push 或历史重写 | `/lock-scope` 选择 `guarded` |
 | 只允许改一个模块 | `/lock-scope` 选择 `frozen-scope`，并在 `CURRENT_TASK.md` 写明允许/禁止范围 |
 | 需要危险命令或高影响操作 | `/implement-current-step` 执行 dangerous command gate |
@@ -98,7 +103,9 @@
 - 未明确允许的文件默认禁止修改。
 - workflow-system 不依赖 native hook；即使没有 shell 拦截器或 session-level freeze，也必须按 Safety mode、mutation scope 和 dangerous command gate 执行。
 - workflow-system 不绑定具体设计生成工具、comparison board、Pretext 或 browse daemon；`DESIGN.md` 只能作为 optional source，不加入 required reads。
+- workflow-system 不绑定部署平台、canary daemon、benchmark 工具、Lighthouse 或 Web Vitals runner；真实 merge、push、deploy 和监控轮询只能由宿主、CI/CD 或项目工具执行，并作为 Release evidence 写回任务。
 - UI / 视觉任务如果没有 `DESIGN.md`、mockup、截图或参考链接，必须进入 `design-system` 或 `exploration`，不能直接实现。
+- 没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，发布后验证必须输出 blocked risk，不能把任务标记为已稳定。
 - 实现阶段不得静默更换字体、颜色、布局、动效、品牌语气或整体视觉方向。
 - 高风险任务应在 `/lock-scope` 选择 `guarded`；只允许改一个模块时选择 `frozen-scope`。
 - 危险命令必须在 `/implement-current-step` 先说明 command、risk、target、rollback/recovery、scope check 和 confirmation，不能伪装成普通 Bash 操作。
@@ -119,6 +126,8 @@
 - 没有未说明的 dangerous command、deployment 或 database surfaces。
 - UI / 视觉任务的 Design mode、Design source、Design acceptance、Design evidence、Design open decisions 已说明。
 - 视觉结论有截图、mockup、人工验收记录、browser-backed smoke 或 blocked reason 支撑。
+- 发布后验证的 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence 已说明。
+- 发布结论有 CI、deploy log、health check、截图、监控链接、manual note 或 blocked reason 支撑。
 - `CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` 中需要同步的事实已同步。
 - 回归检查项已有执行结果。
 - QA mode、Target surface、Checks run、Browser/session requirement、Findings、Pass / fail、Evidence、Handoff 已说明。

@@ -35,12 +35,14 @@ must_check:
   - 是否通过 safety boundary review
   - 是否存在 unauthorized scope widening
   - 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
+  - 是否触碰 CI/CD / deploy config / monitoring / benchmark config 且未授权
   - UI / 视觉 diff 是否通过 design drift review
 stop_conditions:
   - 发现高风险越界
   - 发现未授权文件出现在 diff 中
   - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
   - 发现 dangerous command / deployment / database surfaces 未授权或未记录
+  - 发现 CI/CD、deploy config、monitoring、benchmark config 未授权变更
   - 发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论
   - 发现明显决策漂移
   - 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
@@ -61,6 +63,7 @@ verification:
   - 已执行 safety boundary review
   - 已检查 unauthorized scope widening
   - 已检查 dangerous command / deployment / database surfaces
+  - 已检查 CI/CD / deploy config / monitoring / benchmark config
   - 已执行 design drift review
   - 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
   - 已输出 clean 或问题列表
@@ -116,6 +119,10 @@ safety_boundary_review:
   - unsatisfied conditional file mutation
   - dangerous command changes
   - deployment changes
+  - CI/CD changes
+  - deploy config changes
+  - monitoring changes
+  - benchmark config changes
   - database changes
 unlock_widening_review:
   - CURRENT_TASK.md 是否记录扩大范围理由
@@ -182,6 +189,7 @@ design_drift_review:
 - 是否通过 safety boundary review
 - 是否存在 unauthorized scope widening
 - 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
+- 是否触碰 CI/CD / deploy config / monitoring / benchmark config 且未授权
 - UI / 视觉 diff 是否通过 design drift review
 
 ## Stop Conditions
@@ -190,6 +198,7 @@ design_drift_review:
 - 发现未授权文件出现在 diff 中
 - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
 - 发现 dangerous command / deployment / database surfaces 未授权或未记录
+- 发现 CI/CD、deploy config、monitoring、benchmark config 未授权变更
 - 发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论
 - 发现明显决策漂移
 - 发现 CURRENT_TASK.md 试图覆盖 CONTRACTS.md
@@ -208,6 +217,7 @@ design_drift_review:
 - 已执行 safety boundary review
 - 已检查 unauthorized scope widening
 - 已检查 dangerous command / deployment / database surfaces
+- 已检查 CI/CD / deploy config / monitoring / benchmark config
 - 已执行 design drift review
 - 已检查公共 API、schema、DTO、event、共享逻辑和 CONTRACTS.md 锁定项的传播影响
 - 已输出 clean 或问题列表
@@ -267,6 +277,10 @@ design_drift_review:
 - unsatisfied conditional file mutation
 - dangerous command changes
 - deployment changes
+- CI/CD changes
+- deploy config changes
+- monitoring changes
+- benchmark config changes
 - database changes
 
 ### unlock_widening_review
@@ -292,6 +306,7 @@ design_drift_review:
 - diff 是否触碰 Forbidden Files。
 - diff 是否触碰 Conditional Files 但没有满足条件或证据。
 - diff 是否出现 dangerous command 相关脚本、CI、部署或数据库变更。
+- diff 是否出现 CI/CD、deploy config、monitoring、benchmark config 的未授权变更。
 - diff 是否绕过 `/lock-scope` 的 unlock / widening 流程。
 
 发现 Forbidden Files、未满足 Conditional Files、未记录的范围扩大、危险命令、deployment 或 database surfaces 时，标记为 blocker。

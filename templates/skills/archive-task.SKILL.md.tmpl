@@ -28,9 +28,11 @@ must_check:
   - 归档命名是否规范
   - CURRENT_TASK.md 中的任务 ID / 任务 slug 是否已实体化
   - 归档内容是否包含任务定义与结果
+  - 发布后验证证据和后续观察点是否已归档
   - 是否需要创建下一轮任务包
 stop_conditions:
   - 当前任务仍未满足验收标准
+  - release gate 未满足但试图归档为完成
   - CURRENT_TASK.md 中的任务 ID 或任务 slug 仍为占位符或缺失
   - 下一步任务依赖尚不明确
 output:
@@ -45,6 +47,7 @@ decision_policy:
   user_challenge: 任务未完成时不得强行归档。
 verification:
   - 归档文件包含定义、执行、验证、后续建议
+  - 归档文件保留 Release evidence、canary result、performance baseline result、remaining observation
   - 归档命名符合规范
   - 归档命名与 CURRENT_TASK.md 中的任务 ID / 任务 slug 一致
   - CURRENT_TASK.md 已为下一轮做好准备或明确保留
@@ -65,8 +68,18 @@ archive_conditions:
   - 当前任务满足验收标准
   - 关键验证已完成
   - 交付摘要已形成
+  - release gate 已满足或明确 blocked / rolled-back
 next_task_policy:
   - 如果下一轮任务明确，应提示创建新的 CURRENT_TASK.md
+post_release_fields:
+  - Release mode
+  - Deploy source
+  - Target environment
+  - Health checks
+  - Canary window
+  - Performance baseline
+  - Rollback / recovery
+  - Release evidence
 ---
 
 # Skill: archive-task
@@ -111,11 +124,13 @@ next_task_policy:
 
 - 归档命名是否规范
 - 归档内容是否包含任务定义与结果
+- 发布后验证证据和后续观察点是否已归档
 - 是否需要创建下一轮任务包
 
 ## Stop Conditions
 
 - 当前任务仍未满足验收标准
+- release gate 未满足但试图归档为完成
 - 下一步任务依赖尚不明确
 
 ## Decision Policy
@@ -127,6 +142,7 @@ next_task_policy:
 ## Verification
 
 - 归档文件包含定义、执行、验证、后续建议
+- 归档文件保留 Release evidence、canary result、performance baseline result、remaining observation
 - 归档命名符合规范
 - CURRENT_TASK.md 已为下一轮做好准备或明确保留
 
@@ -139,9 +155,39 @@ next_task_policy:
 - 当前任务满足验收标准
 - 关键验证已完成
 - 交付摘要已形成
+- release gate 已满足或明确 blocked / rolled-back
 
 ### next_task_policy
 - 如果下一轮任务明确，应提示创建新的 CURRENT_TASK.md
+
+### post_release_fields
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+
+## Release Evidence Archive
+
+发布 / 部署 / canary / benchmark 任务归档时必须保留：
+
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+- canary result
+- performance baseline result
+- rollback status
+- remaining observation
+
+release gate 未满足时，不得归档为完成；只能归档为 blocked、observing 或 rolled-back，并明确下一步。
 
 ## Execution Protocol
 

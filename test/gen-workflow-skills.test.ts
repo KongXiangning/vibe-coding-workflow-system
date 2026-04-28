@@ -326,6 +326,55 @@ describe('gen-workflow-skills', () => {
     expect(reviewDiff).toContain('响应式缺口');
   });
 
+  test('post-release verification is integrated without adding native deploy skill names', () => {
+    for (const skill of ['land-and-deploy', 'canary', 'benchmark', 'setup-deploy']) {
+      expect(fs.existsSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`))).toBe(false);
+      expect(fs.existsSync(path.join(TEMPLATE_DIR, `${skill}.SKILL.md.tmpl`))).toBe(false);
+    }
+
+    for (const skill of [
+      'create-current-task',
+      'review-current-task',
+      'run-regression',
+      'sync-status',
+      'prepare-delivery-summary',
+      'archive-task',
+    ]) {
+      const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
+      expect(content).toContain('Release mode');
+      expect(content).toContain('Deploy source');
+      expect(content).toContain('Target environment');
+      expect(content).toContain('Health checks');
+      expect(content).toContain('Canary window');
+      expect(content).toContain('Performance baseline');
+      expect(content).toContain('Rollback / recovery');
+      expect(content).toContain('Release evidence');
+    }
+
+    const reviewTask = fs.readFileSync(path.join(OUTPUT_DIR, 'review-current-task.SKILL.md'), 'utf8');
+    expect(reviewTask).toContain('生产发布缺少回滚方案');
+
+    const lockScope = fs.readFileSync(path.join(OUTPUT_DIR, 'lock-scope.SKILL.md'), 'utf8');
+    expect(lockScope).toContain('生产、部署、回滚、CI/CD、监控配置、性能基线变更是否选择 guarded');
+
+    const runRegression = fs.readFileSync(path.join(OUTPUT_DIR, 'run-regression.SKILL.md'), 'utf8');
+    expect(runRegression).toContain('deploy-verification');
+    expect(runRegression).toContain('canary');
+    expect(runRegression).toContain('benchmark');
+    expect(runRegression).toContain('缺少生产 session、deploy log、health endpoint 或 baseline 时输出 blocked');
+
+    const syncStatus = fs.readFileSync(path.join(OUTPUT_DIR, 'sync-status.SKILL.md'), 'utf8');
+    expect(syncStatus).toContain('stable');
+    expect(syncStatus).toContain('observing');
+    expect(syncStatus).toContain('blocked');
+    expect(syncStatus).toContain('rolled-back');
+
+    const deliverySummary = fs.readFileSync(path.join(OUTPUT_DIR, 'prepare-delivery-summary.SKILL.md'), 'utf8');
+    const archiveTask = fs.readFileSync(path.join(OUTPUT_DIR, 'archive-task.SKILL.md'), 'utf8');
+    expect(deliverySummary).toContain('remaining observation');
+    expect(archiveTask).toContain('remaining observation');
+  });
+
   test('investigate-root-cause enforces root-cause-first debugging loop', () => {
     const content = fs.readFileSync(path.join(OUTPUT_DIR, 'investigate-root-cause.SKILL.md'), 'utf8');
     expect(content).toContain('Root cause hypothesis');

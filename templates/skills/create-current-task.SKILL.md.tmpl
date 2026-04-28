@@ -28,6 +28,7 @@ must_check:
   - 任务目标是否明确
   - 验收标准是否可验证
   - UI / 页面 / 组件 / 交互 / 品牌 / 视觉任务是否需要生成设计约束
+  - 发布 / 部署 / 生产 / 性能 / 可靠性任务是否需要生成发布后验证
   - Allowed Files、Forbidden Files、Conditional Files 是否明确
   - 是否触发 Change Propagation Check
   - 回滚点是否存在
@@ -38,6 +39,7 @@ stop_conditions:
 output:
   - CURRENT_TASK.md 初稿
   - UI / 视觉任务的设计约束
+  - 发布 / 部署 / 性能任务的发布后验证
 handoff:
   success: review-current-task
   failure: ask-user
@@ -49,6 +51,7 @@ verification:
   - CURRENT_TASK.md 包含所有必填章节
   - CURRENT_TASK.md 的任务信息包含任务 ID、任务标题、任务 slug 字段
   - UI / 视觉任务包含 Design mode、Design source、Design acceptance、Design evidence、Design open decisions
+  - 发布 / 部署 / 性能任务包含 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence
   - Allowed Files、Forbidden Files、Conditional Files 明确
   - 至少包含一个可执行的当前步骤
 allowed-tools:
@@ -108,6 +111,16 @@ design_modes:
   - exploration
   - design-to-code
   - visual-qa
+release_verification_rules:
+  - 发布后验证只对当前任务生效，不替代长期 BASELINES.md
+  - workflow-system 不执行真实 merge、push、deploy 或监控轮询
+  - 没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须输出 blocked risk
+release_modes:
+  - none
+  - release-readiness
+  - deploy-verification
+  - canary
+  - benchmark
 ---
 
 # Skill: create-current-task
@@ -154,6 +167,7 @@ design_modes:
 - 任务目标是否明确
 - 验收标准是否可验证
 - UI / 页面 / 组件 / 交互 / 品牌 / 视觉任务是否需要生成设计约束
+- 发布 / 部署 / 生产 / 性能 / 可靠性任务是否需要生成发布后验证
 - Allowed Files、Forbidden Files、Conditional Files 是否明确
 - 是否触发 Change Propagation Check
 - 回滚点是否存在
@@ -174,6 +188,7 @@ design_modes:
 
 - CURRENT_TASK.md 包含所有必填章节
 - UI / 视觉任务包含 Design mode、Design source、Design acceptance、Design evidence、Design open decisions
+- 发布 / 部署 / 性能任务包含 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence
 - Allowed Files、Forbidden Files、Conditional Files 明确
 - 至少包含一个可执行的当前步骤
 
@@ -229,6 +244,18 @@ design_modes:
 - design-to-code
 - visual-qa
 
+### release_verification_rules
+- 发布后验证只对当前任务生效，不替代长期 BASELINES.md
+- workflow-system 不执行真实 merge、push、deploy 或监控轮询
+- 没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须输出 blocked risk
+
+### release_modes
+- none
+- release-readiness
+- deploy-verification
+- canary
+- benchmark
+
 ## Design Constraint Intake
 
 当任务涉及 UI、页面、组件、交互、品牌、视觉或设计系统时，`CURRENT_TASK.md` 必须生成 `## 设计约束`。最小字段为：
@@ -240,6 +267,21 @@ design_modes:
 - Design open decisions
 
 `Design mode` 只能选择 `none`、`design-system`、`exploration`、`design-to-code`、`visual-qa`。没有 `DESIGN.md`、mockup、截图或参考链接时，UI 任务必须进入 `design-system` 或 `exploration`，不能直接实现。
+
+## Release Verification Intake
+
+当任务涉及发布、部署、生产验证、canary、性能基线或上线后观察时，`CURRENT_TASK.md` 必须生成 `## 发布后验证`。最小字段为：
+
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+
+`Release mode` 只能选择 `none`、`release-readiness`、`deploy-verification`、`canary`、`benchmark`。缺少 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须记录 blocked risk，不能把任务标记为已稳定。
 
 ## Execution Protocol
 

@@ -25,9 +25,11 @@ must_check:
   - 哪些模块进入稳定
   - 哪些任务仍在开发中
   - 哪些需求被取消或推迟
+  - 发布后状态是否为 stable / observing / blocked / rolled-back
 stop_conditions:
   - 状态变化事实不清
   - 当前任务尚未完成关键验证
+  - canary 或 benchmark 未完成但试图写入稳定
 output:
   - 更新后的 STATUS.md
 handoff:
@@ -40,6 +42,7 @@ decision_policy:
 verification:
   - STATUS.md 与本轮验证结果一致
   - 开发中 / 稳定 / 推迟状态分类清晰
+  - 发布后状态与 Release evidence 一致
 allowed-tools:
   - Read
   - Write
@@ -54,6 +57,24 @@ sync_rules:
   - 状态应反映真实现状
 stability_threshold:
   - 至少完成当前任务验收并通过关键验证后，才能写入稳定区
+post_release_statuses:
+  - stable
+  - observing
+  - blocked
+  - rolled-back
+post_release_sync_rules:
+  - canary 或 benchmark 未完成时只能写 observing 或 blocked
+  - rollback / recovery 已触发时写 rolled-back
+  - Release evidence 不足时不得写 stable
+post_release_fields:
+  - Release mode
+  - Deploy source
+  - Target environment
+  - Health checks
+  - Canary window
+  - Performance baseline
+  - Rollback / recovery
+  - Release evidence
 ---
 
 # Skill: sync-status
@@ -99,11 +120,13 @@ stability_threshold:
 - 哪些模块进入稳定
 - 哪些任务仍在开发中
 - 哪些需求被取消或推迟
+- 发布后状态是否为 stable / observing / blocked / rolled-back
 
 ## Stop Conditions
 
 - 状态变化事实不清
 - 当前任务尚未完成关键验证
+- canary 或 benchmark 未完成但试图写入稳定
 
 ## Decision Policy
 
@@ -115,6 +138,7 @@ stability_threshold:
 
 - STATUS.md 与本轮验证结果一致
 - 开发中 / 稳定 / 推迟状态分类清晰
+- 发布后状态与 Release evidence 一致
 
 ## Extension Fields
 
@@ -124,6 +148,40 @@ stability_threshold:
 
 ### stability_threshold
 - 至少完成当前任务验收并通过关键验证后，才能写入稳定区
+
+### post_release_statuses
+- stable
+- observing
+- blocked
+- rolled-back
+
+### post_release_sync_rules
+- canary 或 benchmark 未完成时只能写 observing 或 blocked
+- rollback / recovery 已触发时写 rolled-back
+- Release evidence 不足时不得写 stable
+
+### post_release_fields
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+
+## Post-Release Status Sync
+
+发布后状态只能同步为：
+
+- stable
+- observing
+- blocked
+- rolled-back
+
+未完成 canary 或 benchmark 时，不得把任务写成 stable。缺少 Release evidence 时写 blocked；仍在观察窗口内写 observing；已触发 Rollback / recovery 时写 rolled-back。
+
+同步前必须读取 CURRENT_TASK.md 的发布后验证字段：Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence。
 
 ## Execution Protocol
 

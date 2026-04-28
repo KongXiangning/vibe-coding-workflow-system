@@ -29,9 +29,11 @@ must_check:
   - 修改文件清单
   - 是否越界
   - 验证结果
+  - 发布后验证证据是否完整
   - 下一步建议
 stop_conditions:
   - 关键验证仍未完成
+  - release gate 未满足但试图交付为完成
   - 本轮结果仍存在未解释的高风险问题
 output:
   - 交付摘要
@@ -44,6 +46,7 @@ decision_policy:
   user_challenge: 不得把未完成事项写成已完成。
 verification:
   - 摘要覆盖目标、修改、验证、风险、下一步
+  - 摘要覆盖 release evidence、canary result、performance baseline result、rollback status 和 remaining observation
   - 摘要可被后来者直接消费
 allowed-tools:
   - Read
@@ -64,7 +67,21 @@ summary_fields:
   - 是否越界修改
   - 是否触碰稳定契约
   - 验证结果
+  - release evidence
+  - canary result
+  - performance baseline result
+  - rollback status
+  - remaining observation
   - 下一步建议
+post_release_fields:
+  - Release mode
+  - Deploy source
+  - Target environment
+  - Health checks
+  - Canary window
+  - Performance baseline
+  - Rollback / recovery
+  - Release evidence
 ---
 
 # Skill: prepare-delivery-summary
@@ -112,11 +129,13 @@ summary_fields:
 - 修改文件清单
 - 是否越界
 - 验证结果
+- 发布后验证证据是否完整
 - 下一步建议
 
 ## Stop Conditions
 
 - 关键验证仍未完成
+- release gate 未满足但试图交付为完成
 - 本轮结果仍存在未解释的高风险问题
 
 ## Decision Policy
@@ -128,6 +147,7 @@ summary_fields:
 ## Verification
 
 - 摘要覆盖目标、修改、验证、风险、下一步
+- 摘要覆盖 release evidence、canary result、performance baseline result、rollback status 和 remaining observation
 - 摘要可被后来者直接消费
 
 ## Extension Fields
@@ -139,7 +159,41 @@ summary_fields:
 - 是否越界修改
 - 是否触碰稳定契约
 - 验证结果
+- release evidence
+- canary result
+- performance baseline result
+- rollback status
+- remaining observation
 - 下一步建议
+
+### post_release_fields
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+
+## Release Delivery Evidence
+
+发布 / 部署 / canary / benchmark 任务的交付摘要必须包含：
+
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+- canary result
+- performance baseline result
+- rollback status
+- remaining observation
+
+release gate 未满足时，不得把任务描述为完成；应输出 blocked risk 和后续动作。
 
 ## Execution Protocol
 

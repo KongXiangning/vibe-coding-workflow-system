@@ -34,6 +34,7 @@ must_check:
   - 最小 smoke check 是否完成
   - UI / 交互 / 登录相关任务是否已考虑 browser-backed smoke
   - UI / 视觉任务是否输出 visual evidence 或 blocked reason
+  - 发布 / 部署 / canary / benchmark 任务是否输出 Release evidence 或 blocked reason
   - 认证态验证需要 session/cookie 时是否已明确可用性
 stop_conditions:
   - 关键测试失败
@@ -46,6 +47,7 @@ output:
   - Checks run
   - Browser/session requirement
   - Visual evidence
+  - Release evidence
   - Findings
   - Pass / fail
   - Evidence
@@ -65,6 +67,7 @@ verification:
   - 已运行相关测试或完成最小 smoke check
   - UI / 交互相关任务已说明是否执行 browser-backed smoke
   - UI / 视觉任务已说明 visual QA、browser-backed smoke 或 blocked reason
+  - 发布后验证已说明 health / canary / benchmark 证据或 blocked reason
   - 已明确给出 pass / fail 判断
   - 失败时已转入 investigate-root-cause
 allowed-tools:
@@ -89,6 +92,11 @@ qa_modes:
   - report-only
   - authenticated-browser
   - regression-baseline
+release_verification_modes:
+  - release-readiness
+  - deploy-verification
+  - canary
+  - benchmark
 smoke_checks:
   - 关键页面可打开
   - 核心流程可走通
@@ -99,6 +107,12 @@ visual_qa_rules:
   - UI / 视觉任务必须检查视觉层级、状态覆盖、响应式、可访问性和 anti-slop
   - browser-backed smoke 可用时必须提供截图、页面状态或控制台证据
   - 浏览器能力不可用时记录 blocked reason，不得把未验证视觉结论标记为通过
+release_verification_rules:
+  - 读取 CURRENT_TASK.md 的 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence
+  - deploy-verification 必须提供 deploy log、health check 或 blocked reason
+  - canary 必须提供 canary window、采样结果、失败阈值和默认动作
+  - benchmark 必须提供 baseline source、指标、允许回退阈值和对比证据
+  - 缺少生产 session、deploy log、health endpoint 或 baseline 时输出 blocked，不得假装通过
 pass_criteria:
   - 相关测试通过
   - 关键 smoke check 无阻断问题
@@ -160,6 +174,7 @@ browser_session_policy:
 - 最小 smoke check 是否完成
 - UI / 交互 / 登录相关任务是否已考虑 browser-backed smoke
 - UI / 视觉任务是否输出 visual evidence 或 blocked reason
+- 发布 / 部署 / canary / benchmark 任务是否输出 Release evidence 或 blocked reason
 - 认证态验证需要 session/cookie 时是否已明确可用性
 
 ## Stop Conditions
@@ -181,6 +196,7 @@ browser_session_policy:
 - 已运行相关测试或完成最小 smoke check
 - UI / 交互相关任务已说明是否执行 browser-backed smoke
 - UI / 视觉任务已说明 visual QA、browser-backed smoke 或 blocked reason
+- 发布后验证已说明 health / canary / benchmark 证据或 blocked reason
 - 已明确给出 pass / fail 判断
 - 失败时已转入 investigate-root-cause
 
@@ -193,6 +209,12 @@ browser_session_policy:
 - report-only
 - authenticated-browser
 - regression-baseline
+
+### release_verification_modes
+- release-readiness
+- deploy-verification
+- canary
+- benchmark
 
 ### test_sources
 - PROJECT_PROFILE.yaml 中的测试命令
@@ -210,6 +232,13 @@ browser_session_policy:
 - UI / 视觉任务必须检查视觉层级、状态覆盖、响应式、可访问性和 anti-slop
 - browser-backed smoke 可用时必须提供截图、页面状态或控制台证据
 - 浏览器能力不可用时记录 blocked reason，不得把未验证视觉结论标记为通过
+
+### release_verification_rules
+- 读取 CURRENT_TASK.md 的 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence
+- deploy-verification 必须提供 deploy log、health check 或 blocked reason
+- canary 必须提供 canary window、采样结果、失败阈值和默认动作
+- benchmark 必须提供 baseline source、指标、允许回退阈值和对比证据
+- 缺少生产 session、deploy log、health endpoint 或 baseline 时输出 blocked，不得假装通过
 
 ### pass_criteria
 - 相关测试通过
@@ -233,6 +262,23 @@ browser_session_policy:
 - `authenticated-browser`：用于登录态页面、权限流、账号状态相关验证。先确认 session/cookie 或人工登录可用。
 - `regression-baseline`：当存在 baseline、截图、历史报告或性能/行为基线时，做前后对比。
 
+## Release Verification Rules
+
+`/run-regression` 是发布后验证的只读入口，不执行真实 merge、push、deploy 或监控轮询。发布、部署、canary、benchmark 任务必须读取 `CURRENT_TASK.md` 的发布后验证字段：
+
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+
+`deploy-verification` 必须提供 deploy log、health check 或 blocked reason。`canary` 必须提供 canary window、采样结果、失败阈值和默认动作。`benchmark` 必须提供 baseline source、指标、允许回退阈值和对比证据。
+
+缺少生产 session、deploy log、health endpoint 或 baseline 时，输出 blocked，不得把未验证发布状态记为通过。
+
 ## Browser And Session Rules
 
 - UI / 视觉任务先读取 `CURRENT_TASK.md` 的 Design mode、Design source、Design acceptance、Design evidence，不重新选择设计方向。
@@ -251,6 +297,7 @@ QA Report:
 - Checks run:
 - Browser/session requirement:
 - Visual evidence:
+- Release evidence:
 - Findings:
 - Pass / fail:
 - Evidence:
