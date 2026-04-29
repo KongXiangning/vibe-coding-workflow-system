@@ -20,7 +20,7 @@
 | 想理解为什么项目会被 AI 改乱 | [`vibe-coding-methodology.md`](./vibe-coding-methodology.md) | 建立边界、任务、状态、决策治理的整体模型 |
 | 准备让 AI 开始做一个需求 | [`vibe-coding-workflow.md`](./vibe-coding-workflow.md) | 把需求拆成“进入 → 锁范围 → 实现 → 复核 → 同步”的任务链 |
 | 项目已经变大，担心误改稳定功能 | [`vibe-coding-quality-system.md`](./vibe-coding-quality-system.md) | 建立契约锁定、范围锁定和回归检查 |
-| 要改 workflow-system 的协议、模板或生成器 | 根目录正式规范 | 以 [`WORKFLOW_PROTOCOL.md`](../WORKFLOW_PROTOCOL.md)、[`FILE_SCHEMAS.md`](../FILE_SCHEMAS.md) 和 `templates/**` 为准 |
+| 要改 workflow-system 的协议、模板或生成器 | `.workflow-system/` 正式规范 | 以 [`.workflow-system/WORKFLOW_PROTOCOL.md`](../.workflow-system/WORKFLOW_PROTOCOL.md)、[`.workflow-system/FILE_SCHEMAS.md`](../.workflow-system/FILE_SCHEMAS.md) 和 `templates/**` 为准 |
 
 ### 最小使用流程
 
@@ -79,7 +79,7 @@
 
 ## 产出物怎么用
 
-workflow-system 的治理产出物分工如下。这里说明使用入口和更新时机；详细章节、必填字段和校验要求以 [`FILE_SCHEMAS.md`](../FILE_SCHEMAS.md) 与 [`templates/docs/`](../templates/docs/) 为准。
+workflow-system 的治理产出物分工如下。这里说明使用入口和更新时机；详细章节、必填字段和校验要求以 [`.workflow-system/FILE_SCHEMAS.md`](../.workflow-system/FILE_SCHEMAS.md) 与 [`templates/docs/`](../templates/docs/) 为准。
 
 | 产出物 | 用途 | 什么时候读 | 什么时候更新 |
 | --- | --- | --- | --- |
@@ -104,7 +104,7 @@ workflow-system 的治理产出物分工如下。这里说明使用入口和更�
 
 ## 常用命令模版
 
-本节只放可直接复制后替换少量路径的命令。正式命令行为以根目录的 [`package.json`](../package.json) 和 [`WORKFLOW_PROTOCOL.md`](../WORKFLOW_PROTOCOL.md) 为准。
+本节只放可直接复制后替换少量路径的命令。正式命令行为以根目录的 [`package.json`](../package.json) 和 [`.workflow-system/WORKFLOW_PROTOCOL.md`](../.workflow-system/WORKFLOW_PROTOCOL.md) 为准。
 
 ### 打包 workflow-system
 
@@ -133,42 +133,44 @@ $bundle.FullName
 ```powershell
 $target = "E:\coding\github\your-project"
 
-bun run workflow:install --bundle $bundle.FullName --root $target --host codex --dry-run --json
+bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --json
 ```
 
 确认 dry-run 输出没有 `frozen_path`、`local_drift`、`contract_conflict`、`incompatible_target` 后，再执行真实安装：
 
 ```powershell
-bun run workflow:install --bundle $bundle.FullName --root $target --host codex
+bun run workflow:install --bundle $bundle.FullName --root $target
 ```
+
+`workflow:install` 现在默认按双宿主 bootstrap 语义执行，因此 install 阶段不需要再显式传 `--host codex`。
 
 安装完成后，以下现象是**预期行为**，不是安装失败：
 
-- `FILE_SCHEMAS.md`
-- `WORKFLOW_PROTOCOL.md`
-- `PROJECT_PROFILE.yaml`
+- `.workflow-system/FILE_SCHEMAS.md`
+- `.workflow-system/WORKFLOW_PROTOCOL.md`
+- `.workflow-system/PROJECT_PROFILE.yaml`
 - `.workflow-system/install-state.json`
 - `scripts/workflow-*.ts`
 - `templates/**`
 
 这些文件就是 workflow-system 的 runtime / protocol / template 安装面，会直接落在目标项目中。
 
-对 **Codex host**，workflow-system 的隔离 namespace 会同步到：
-
-- `.codex/skills/workflow-system-<skill>/SKILL.md`
-
-这层 sync 通过 `workflow-system-*` 前缀与其他 Codex skill 隔离。
-
 安装阶段会同时预装：
 
 - `.claude/skills/workflow-system-<skill>/SKILL.md`
 - `.codex/skills/workflow-system-<skill>/SKILL.md`
 
+其中 **Codex** 侧的隔离 namespace 位于：
+
+- `.codex/skills/workflow-system-<skill>/SKILL.md`
+
+这层 sync 通过 `workflow-system-*` 前缀与其他 Codex skill 隔离。
+
 ### 让目标项目完成 bootstrap / adoption
 
 `workflow:install` 会把 runtime、模板、协议文档和 bootstrap skills 装进目标项目，并在文件缺失时先 scaffold `AGENTS.md` / `CLAUDE.md` 两份宿主指引文件；但它**不会**自动完成项目事实盘点或治理基线接管。
 
-安装后请在**目标宿主里**调用 bootstrap skill 链：
+安装后请在 **Claude 或 Codex 任一目标宿主里**调用 bootstrap skill 链：
 
 - **新项目**：`/design-baseline-init` -> `/greenfield-init`
 - **已有项目**：`/legacy-inventory` -> `/adopt-existing-project`
@@ -284,11 +286,11 @@ bun run test:registry
 
 ## 与正式规范的关系
 
-这些文档解释治理思想和使用方式；正式字段、协议、模板和校验规则仍以仓库根目录下的规范源为准：
+这些文档解释治理思想和使用方式；正式字段、协议、模板和校验规则仍以仓库中的 `.workflow-system/` 规范源为准：
 
-- [`WORKFLOW_PROTOCOL.md`](../WORKFLOW_PROTOCOL.md)
-- [`FILE_SCHEMAS.md`](../FILE_SCHEMAS.md)
-- [`PROJECT_PROFILE.yaml`](../PROJECT_PROFILE.yaml)
+- [`.workflow-system/WORKFLOW_PROTOCOL.md`](../.workflow-system/WORKFLOW_PROTOCOL.md)
+- [`.workflow-system/FILE_SCHEMAS.md`](../.workflow-system/FILE_SCHEMAS.md)
+- [`.workflow-system/PROJECT_PROFILE.yaml`](../.workflow-system/PROJECT_PROFILE.yaml)
 - [`templates/docs/`](../templates/docs/)
 - [`templates/skills/`](../templates/skills/)
 

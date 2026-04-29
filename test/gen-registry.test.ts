@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
-import { loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
+import { getWorkflowProfilePath, loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const REGISTRY_PATH = path.join(ROOT, 'SKILL_REGISTRY.md');
@@ -194,7 +194,7 @@ describe('gen-registry', () => {
   });
 
   test('registry generation accepts repo-level profile patterns via shared validation', () => {
-    const profile = loadProfile(path.join(ROOT, 'PROJECT_PROFILE.yaml'));
+    const profile = loadProfile(getWorkflowProfilePath(ROOT));
     expect(() => validateProfilePathSemantics(profile)).not.toThrow();
   });
 });

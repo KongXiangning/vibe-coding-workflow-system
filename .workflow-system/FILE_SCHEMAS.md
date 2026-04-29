@@ -1,4 +1,4 @@
-# FILE_SCHEMAS.md
+# .workflow-system/FILE_SCHEMAS.md
 
 本文档定义 workflow 治理体系里各文档工件的最小字段、更新时机和校验原则。
 
@@ -17,17 +17,17 @@
 - 每次更新必须优先追加信息，尽量不要删除历史依据
 - 不明确的内容应显式标记为待确认，而不是静默省略
 - 如果某文档被 skill 持续读写，该文档必须能被独立理解
-- `WORKFLOW_PROTOCOL.md` 与 `FILE_SCHEMAS.md` 是规范源；模板只能承载这里已经定义的结构
+- `.workflow-system/WORKFLOW_PROTOCOL.md` 与 `.workflow-system/FILE_SCHEMAS.md` 是规范源；模板只能承载这里已经定义的结构
 - `templates/**` 负责定义生成骨架，不能偷偷扩展未在规范源登记的新章节或新字段
 - `dist/workflow-system/**` 由规范源、`templates/docs/**`、`templates/skills/**`、`scripts/gen-workflow-docs.ts`、`scripts/gen-workflow-skills.ts`、`scripts/workflow-doc-contracts.ts` 与 `scripts/workflow-runtime.ts` 共同决定；其中 `generated/**` 产物是参考证据，不是独立规范源
 - v26 是在 v25 基线上的增量修复版；规范更新默认按 additive extend 处理，除非显式声明替代旧规则
-- 传播治理公开结构的字段、默认规则和 conformance 测试要求由 `WORKFLOW_PROTOCOL.md` 定义；`FILE_SCHEMAS.md` 只登记这些结构在治理文档中的承载位置和最小文档可审计要求
+- 传播治理公开结构的字段、默认规则和 conformance 测试要求由 `.workflow-system/WORKFLOW_PROTOCOL.md` 定义；`.workflow-system/FILE_SCHEMAS.md` 只登记这些结构在治理文档中的承载位置和最小文档可审计要求
 
 ## 1.1 传播治理公开结构承载位置
 
-本节只登记传播治理公开结构在治理文档中的承载位置。字段级 schema、枚举、gate、错误码、默认 blocker 规则和 conformance 测试要求均以 `WORKFLOW_PROTOCOL.md §18.6` 为唯一来源；本文不重复维护字段或规则。
+本节只登记传播治理公开结构在治理文档中的承载位置。字段级 schema、枚举、gate、错误码、默认 blocker 规则和 conformance 测试要求均以 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 为唯一来源；本文不重复维护字段或规则。
 
-下表的承载位置是概念性审计区域，不要求生成同名字段或子章节；字段级 schema、对象结构、枚举、gate 和错误码均以 `WORKFLOW_PROTOCOL.md §18.6` 为唯一来源。
+下表的承载位置是概念性审计区域，不要求生成同名字段或子章节；字段级 schema、对象结构、枚举、gate 和错误码均以 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 为唯一来源。
 
 | 结构 | 文档承载位置 |
 |---|---|
@@ -48,7 +48,7 @@
 | `migration_plan_requirement` | `CURRENT_TASK.md > layout / behavior / migration / regression` |
 | `implicit_shared_object_detection` | `CURRENT_TASK.md > eligibility / candidate / registry` 与 `CONTRACTS.md > candidate 回写记录` |
 
-占位符语法、类别、来源和保留规则不在本文维护；治理文档模板使用的占位符必须引用 `WORKFLOW_PROTOCOL.md §3`。
+占位符语法、类别、来源和保留规则不在本文维护；治理文档模板使用的占位符必须引用 `.workflow-system/WORKFLOW_PROTOCOL.md §3`。
 
 ---
 
@@ -81,11 +81,11 @@
 
 ### 传播治理记录最小内容
 
-命中传播治理时，`CURRENT_TASK.md` 必须承载或引用 `WORKFLOW_PROTOCOL.md §18.6` 定义的传播治理对象与 conformance evidence。本文只要求存在可审计记录，不重复定义对象字段、默认规则、错误码、gate 或测试断言。
+命中传播治理时，`CURRENT_TASK.md` 必须承载或引用 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 定义的传播治理对象与 conformance evidence。本文只要求存在可审计记录，不重复定义对象字段、默认规则、错误码、gate 或测试断言。
 
 ### 设计约束最小内容
 
-当任务涉及 UI、页面、组件、交互、品牌、视觉、设计系统或实现后视觉 QA 时，`CURRENT_TASK.md` 必须填写 `## 设计约束`。该章节只代表当前任务级设计约束，不替代长期 `DESIGN.md`、`PROJECT_PROFILE.yaml` 或项目基线。
+当任务涉及 UI、页面、组件、交互、品牌、视觉、设计系统或实现后视觉 QA 时，`CURRENT_TASK.md` 必须填写 `## 设计约束`。该章节只代表当前任务级设计约束，不替代长期 `DESIGN.md`、`.workflow-system/PROJECT_PROFILE.yaml` 或项目基线。
 
 - `Design mode`：`none` / `design-system` / `exploration` / `design-to-code` / `visual-qa`
 - `Design source`：`existing DESIGN.md` / `approved mockup` / `user-provided reference` / `current UI` / `none`
@@ -132,8 +132,8 @@
 - `Conditional Files` 中的每一项都必须写明触发条件、审批或证据要求；条件未满足时按禁止修改处理
 - 未列入 `Allowed Files`，且不满足 `Conditional Files` 条件的文件或契约面，默认禁止修改
 - `## 任务信息` 在进入 A3 执行后必须包含任务 ID、任务标题和任务 slug；生成骨架阶段允许保留对应占位符
-- 命中传播治理时，`## 传播治理记录` 必须显式承载或引用 `WORKFLOW_PROTOCOL.md §18.6` 定义的对象、evidence、compatibility result 和 conformance case，而不是只在对话里口头说明
-- `## 传播治理记录` 不得新增、改名、降级或重新解释 `WORKFLOW_PROTOCOL.md §18.6` 已定义的协议对象字段、错误码、gate 或 blocker 语义；需要扩展时先修改协议源。
+- 命中传播治理时，`## 传播治理记录` 必须显式承载或引用 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 定义的对象、evidence、compatibility result 和 conformance case，而不是只在对话里口头说明
+- `## 传播治理记录` 不得新增、改名、降级或重新解释 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 已定义的协议对象字段、错误码、gate 或 blocker 语义；需要扩展时先修改协议源。
 - 至少包含一个当前可执行步骤
 - 回滚点必须可操作，不能只有笼统描述
 
@@ -171,7 +171,7 @@
 
 ### 传播治理补充最小内容
 
-传播治理补充应能引用或呈现 `WORKFLOW_PROTOCOL.md §18.6` 中相关对象的审计结论。以下是审计维度提示，不是字段清单：
+传播治理补充应能引用或呈现 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 中相关对象的审计结论。以下是审计维度提示，不是字段清单：
 
 - candidate 回写记录
 - `LayoutContract`
@@ -270,7 +270,7 @@
 
 - 架构决策与口味决策不能混写
 - `DECISIONS.md` 只记录原因、历史、替代方案和复议条件；不能单独定义当前有效规则
-- 任何会改变当前行为、架构、接口或治理规则的决策，必须同步反映到 `CONTRACTS.md` 或 `PROJECT_PROFILE.yaml` 后才算生效
+- 任何会改变当前行为、架构、接口或治理规则的决策，必须同步反映到 `CONTRACTS.md` 或 `.workflow-system/PROJECT_PROFILE.yaml` 后才算生效
 - 暂缓项必须明确“不做”的边界
 - 否决项必须可用于阻止未来重复提议
 - 已演进 / 已替代项必须指向原决策编号，并记录后继决策或接管该决策的基线 / 里程碑
@@ -440,7 +440,7 @@
 
 ### Gate 与错误码基线最小字段
 
-`BASELINES.md` 只能镜像或引用 `WORKFLOW_PROTOCOL.md` 中已定义的 error code、blocker level、gate mapping、兼容窗口和 removal precondition。它不得新增、改名、降级或重新解释任何错误码、blocker level、merge gate、ship gate 或 `strategy_origin` 语义。
+`BASELINES.md` 只能镜像或引用 `.workflow-system/WORKFLOW_PROTOCOL.md` 中已定义的 error code、blocker level、gate mapping、兼容窗口和 removal precondition。它不得新增、改名、降级或重新解释任何错误码、blocker level、merge gate、ship gate 或 `strategy_origin` 语义。
 
 ### 更新时机
 
@@ -454,7 +454,7 @@
 - 每条基线都必须有生效范围，不能是无边界口号
 - 发布、兼容性、安全、部署至少各有一个可落地条目
 - 性能与可靠性基线必须包含可观察指标或明确验证入口
-- Gate 与错误码基线必须能追溯到 `WORKFLOW_PROTOCOL.md` 的正式定义，并保持 blocker level、merge gate、ship gate 与错误码集合对齐
+- Gate 与错误码基线必须能追溯到 `.workflow-system/WORKFLOW_PROTOCOL.md` 的正式定义，并保持 blocker level、merge gate、ship gate 与错误码集合对齐
 - 基线变更必须追加记录，不能直接抹去旧版本要求
 
 ---
@@ -486,7 +486,7 @@
 - 必须覆盖所有核心治理文档的用途和主要使用时机
 - 必须覆盖标准任务链上的主要 skill
 - 不得重新定义字段结构、错误码、gate 或 blocker 语义
-- 与 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md` 或 skill frontmatter 冲突时，以规范源和 skill frontmatter 为准
+- 与 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md` 或 skill frontmatter 冲突时，以规范源和 skill frontmatter 为准
 
 ---
 

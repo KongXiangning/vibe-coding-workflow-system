@@ -15,14 +15,14 @@ inputs:
   - current_status
   - confirmed_decisions
 reads:
-  - PROJECT_PROFILE.yaml
+  - .workflow-system/PROJECT_PROFILE.yaml
   - CONTRACTS.md
   - STATUS.md
   - DECISIONS.md
 writes:
   - CURRENT_TASK.md
 forbidden_writes:
-  - PROJECT_PROFILE.yaml
+  - .workflow-system/PROJECT_PROFILE.yaml
   - CONTRACTS.md
   - "{{CODE_DIRECTORIES}}"
 must_check:
@@ -91,7 +91,7 @@ task_scope_rules:
   - 未明确允许的文件默认禁止修改
   - 如果范围不清楚，应暂停而非猜测
 source_of_truth_rules:
-  - CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+  - CONTRACTS.md 优先于 .workflow-system/PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
   - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
   - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
 propagation_rules:
@@ -219,7 +219,7 @@ release_modes:
 - 如果范围不清楚，应暂停而非猜测
 
 ### source_of_truth_rules
-- CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+- CONTRACTS.md 优先于 .workflow-system/PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
 - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
 - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
 

@@ -16,7 +16,7 @@ inputs:
   - current_status
 reads:
   - CURRENT_TASK.md
-  - PROJECT_PROFILE.yaml
+  - .workflow-system/PROJECT_PROFILE.yaml
   - CONTRACTS.md
   - DECISIONS.md
   - STATUS.md
@@ -41,7 +41,7 @@ stop_conditions:
   - UI / 视觉任务缺少设计来源、设计验收或用户确认
   - 生产发布缺少回滚方案、health check 或发布证据
   - 存在与既有决策冲突
-  - CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 PROJECT_PROFILE.yaml
+  - CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 .workflow-system/PROJECT_PROFILE.yaml
 output:
   - 修订后的 CURRENT_TASK.md
   - 待确认问题列表
@@ -88,7 +88,7 @@ task_scope_rules:
   - 禁止顺手把下阶段工作塞进当前任务包
 source_of_truth_rules:
   - CONTRACTS.md 是项目层最高约束，CURRENT_TASK.md 不得覆盖
-  - PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
+  - .workflow-system/PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
   - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
 propagation_rules:
   - 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须上浮影响集合
@@ -164,7 +164,7 @@ release_review_rules:
 - UI / 视觉任务缺少设计来源、设计验收或用户确认
 - 生产发布缺少回滚方案、health check 或发布证据
 - 存在与既有决策冲突
-- CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 PROJECT_PROFILE.yaml
+- CURRENT_TASK.md 试图覆盖 CONTRACTS.md 或 .workflow-system/PROJECT_PROFILE.yaml
 
 ## Decision Policy
 
@@ -203,7 +203,7 @@ release_review_rules:
 
 ### source_of_truth_rules
 - CONTRACTS.md 是项目层最高约束，CURRENT_TASK.md 不得覆盖
-- PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
+- .workflow-system/PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
 - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
 
 ### propagation_rules

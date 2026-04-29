@@ -3,6 +3,7 @@ import * as path from 'path';
 import {
   getWorkflowDocPath,
   getWorkflowGeneratedDir,
+  getWorkflowProfilePath,
   loadProfile,
   type JsonObject,
 } from './workflow-core';
@@ -99,7 +100,7 @@ function blockHasMaterializedChildren(content: string, label: string): boolean {
 }
 
 function loadRootProfile(root: string): JsonObject {
-  return loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+  return loadProfile(getWorkflowProfilePath(root));
 }
 
 function resolveDocPath(root: string, profile: JsonObject, file: 'CURRENT_TASK.md' | 'CONTRACTS.md' | 'BASELINES.md', mode: PropagationGovernanceMode): string {

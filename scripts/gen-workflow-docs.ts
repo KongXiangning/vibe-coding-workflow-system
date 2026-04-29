@@ -5,6 +5,7 @@ import * as path from 'path';
 import {
   type JsonValue,
   type WriteOperation,
+  getWorkflowProfilePath,
   readText,
   loadProfile,
   projectPlaceholders,
@@ -25,7 +26,7 @@ import {
 } from './workflow-doc-contracts';
 
 const ROOT = resolveRoot();
-const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
+const PROFILE_PATH = getWorkflowProfilePath(ROOT);
 const VERSION_PATH = path.join(ROOT, 'VERSION');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'docs');
 const DRY_RUN = process.argv.includes('--dry-run');

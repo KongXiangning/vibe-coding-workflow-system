@@ -2,7 +2,15 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { loadProfile } from '../scripts/workflow-core';
+import {
+  getWorkflowProfilePath,
+  getWorkflowProtocolPath,
+  getWorkflowSchemasPath,
+  loadProfile,
+  WORKFLOW_PROFILE_RELATIVE_PATH,
+  WORKFLOW_PROTOCOL_RELATIVE_PATH,
+  WORKFLOW_SCHEMAS_RELATIVE_PATH,
+} from '../scripts/workflow-core';
 import {
   buildHostSyncPlan,
   buildWorkflowHealthReport,
@@ -32,8 +40,10 @@ function writeGeneratedSkill(root: string, name: string, content = '# Skill\n'):
 }
 
 function writeProfile(root: string, primaryHost: string): void {
+  const profilePath = getWorkflowProfilePath(root);
+  fs.mkdirSync(path.dirname(profilePath), { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'PROJECT_PROFILE.yaml'),
+    profilePath,
     [
       'schema_version: 1',
       '',
@@ -98,15 +108,15 @@ describe('workflow-runtime manifest', () => {
     const manifest = getExportManifest(ROOT);
     expect(manifest.contract_version).toBe(1);
     expect(manifest.artifacts.some(artifact => artifact.path === 'scripts/workflow-runtime.ts' && artifact.required)).toBe(true);
-    expect(manifest.artifacts.some(artifact => artifact.path === 'WORKFLOW_PROTOCOL.md' && artifact.category === 'protocol')).toBe(true);
+    expect(manifest.artifacts.some(artifact => artifact.path === WORKFLOW_PROTOCOL_RELATIVE_PATH && artifact.category === 'protocol')).toBe(true);
     expect(manifest.artifacts.some(artifact => artifact.path === 'generated/workflow-docs/**' && artifact.category === 'generated')).toBe(true);
     expect(manifest.artifacts.some(artifact =>
       artifact.path === 'package.json' &&
       artifact.category === 'config' &&
       artifact.description.includes('workflow:* / gen:* / validate:* script contract'),
     )).toBe(true);
-    expect(manifest.source_pipeline.normative_sources.protocol).toEqual(['WORKFLOW_PROTOCOL.md']);
-    expect(manifest.source_pipeline.normative_sources.schemas).toEqual(['FILE_SCHEMAS.md']);
+    expect(manifest.source_pipeline.normative_sources.protocol).toEqual([WORKFLOW_PROTOCOL_RELATIVE_PATH]);
+    expect(manifest.source_pipeline.normative_sources.schemas).toEqual([WORKFLOW_SCHEMAS_RELATIVE_PATH]);
     expect(manifest.source_pipeline.generated_references).toContain('generated/workflow-docs/**');
     expect(manifest.source_pipeline.generated_references).toContain('generated/workflow-skills/**');
     expect(manifest.source_pipeline.bundle_output_root).toBe('dist/workflow-system');
@@ -206,7 +216,7 @@ describe('workflow-runtime manifest', () => {
 
 describe('workflow protocol v26 propagation governance', () => {
   test('protocol defines runtime governance gates for mode, precedence, mutation scope, and propagation', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     expect(protocol).toContain('### 4b.1 Mode Selection Rules');
     expect(protocol).toContain('### 4b.2 Source of Truth Precedence');
     expect(protocol).toContain('### 4b.3 Mutation Scope Rules');
@@ -217,7 +227,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('file schemas require task mutation scope buckets and constrain decisions authority', () => {
-    const schemas = fs.readFileSync(path.join(ROOT, 'FILE_SCHEMAS.md'), 'utf8');
+    const schemas = fs.readFileSync(getWorkflowSchemasPath(ROOT), 'utf8');
     expect(schemas).toContain('Allowed Files');
     expect(schemas).toContain('Forbidden Files');
     expect(schemas).toContain('Conditional Files');
@@ -242,7 +252,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol enumerates the full v26 public interface surface', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     for (const name of [
       'EvidenceRecord',
       'UIAnchorReplacement',
@@ -266,7 +276,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol documents the v26 public interfaces and conditional eligibility schema', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     expect(protocol).toContain('### §18.6 Propagation-governance public interfaces');
     expect(protocol).toContain('- `ContractCompatibilityResult`');
     expect(protocol).toContain('- `MutationEligibilityAssessment`');
@@ -277,7 +287,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol pins the compatibility-result field contract and severity semantics', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     expect(protocol).toContain('contract_compatibility_result:');
     expect(protocol).toContain('default_blocker_level: <warning-only|blocks-merge|blocks-ship>');
     expect(protocol).toContain('over_limit_policy_branch: <recommend_task_split|enforce_compat_layer|enforce_adapter_boundary|hard_stop|none>');
@@ -288,7 +298,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol covers over-limit branches and their blocker outputs', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     expect(protocol).toContain('over_limit_policy:');
     expect(protocol).toContain('`ComplexityAssessment` formalizes the strategy decision');
     expect(protocol).toContain('forced_strategy: <direct-change|recommend_task_split|enforce_compat_layer|enforce_adapter_boundary|hard_stop>');
@@ -299,7 +309,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol covers migration, layout, behavior, and linked-regression blocker branches', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     expect(protocol).toContain('layout break coverage must include sibling reflow, breakpoint drift, specificity override, and stacking-context break');
     expect(protocol).toContain('`MIGRATION_PLAN_REQUIRED_BUT_MISSING`');
     expect(protocol).toContain('`MIGRATION_RUNTIME_STATE_UNDECLARED`');
@@ -309,7 +319,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol documents v26 gate mapping and execution order rules', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     expect(protocol).toContain('#### §18.6.5 Error-code, gate, and execution-order rules');
     expect(protocol).toContain('IMPACT_HARD_STOP_REQUIRED');
     expect(protocol).toContain('MIGRATION_RUNTIME_STATE_UNDECLARED');
@@ -319,7 +329,7 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol formalizes the remaining v26 consumer, registry, and downstream validation rules', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
     expect(protocol).toContain('`direct_consumers_exceeded` must enter `over_limit_policy`; its semantic meaning is "protect the existing direct entrypoints"');
     expect(protocol).toContain('`total_consumers_exceeded` must enter `over_limit_policy`; its semantic meaning is "control the total propagation surface"');
     expect(protocol).toContain('effective_consumers:');
@@ -332,14 +342,14 @@ describe('workflow protocol v26 propagation governance', () => {
   });
 
   test('protocol owns formal schema, default rules, and test requirements for public interfaces', () => {
-    const protocol = fs.readFileSync(path.join(ROOT, 'WORKFLOW_PROTOCOL.md'), 'utf8');
-    const schemas = fs.readFileSync(path.join(ROOT, 'FILE_SCHEMAS.md'), 'utf8');
+    const protocol = fs.readFileSync(getWorkflowProtocolPath(ROOT), 'utf8');
+    const schemas = fs.readFileSync(getWorkflowSchemasPath(ROOT), 'utf8');
     expect(protocol).toContain('every public interface listed in `§18.6` must carry three things in the normative source: a formal schema, default rules, and conformance-test requirements');
     expect(protocol).toContain('#### §18.6.6 Conformance test requirements');
     expect(protocol).toContain('Every propagation-governance conformance case must record:');
     expect(protocol).toContain('- `EntityMutationChecklist`: category coverage across storage / api / dto / event / projection / ui');
     expect(schemas).toContain('## 1.1 传播治理公开结构承载位置');
-    expect(schemas).toContain('字段级 schema、枚举、gate、错误码、默认 blocker 规则和 conformance 测试要求均以 `WORKFLOW_PROTOCOL.md §18.6` 为唯一来源');
+    expect(schemas).toContain('字段级 schema、枚举、gate、错误码、默认 blocker 规则和 conformance 测试要求均以 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 为唯一来源');
     expect(schemas).toContain('| `ContractCompatibilityResult` | `CURRENT_TASK.md > blockers / gate status` |');
     expect(schemas).toContain('| `implicit_shared_object_detection` | `CURRENT_TASK.md > eligibility / candidate / registry` 与 `CONTRACTS.md > candidate 回写记录` |');
   });
@@ -392,7 +402,7 @@ describe('workflow-runtime host detection', () => {
     withTempRoot(root => {
       writeProfile(root, 'claude');
       fs.mkdirSync(path.join(root, '.codex', 'skills'), { recursive: true });
-      const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+      const profile = loadProfile(getWorkflowProfilePath(root));
 
       expect(detectRuntimeHost(root, profile).host).toBe('codex');
       expect(detectRuntimeHost(root, profile, 'factory').host).toBe('factory');
@@ -402,7 +412,7 @@ describe('workflow-runtime host detection', () => {
   test('profile fallback works when no host directory is present', () => {
     withTempRoot(root => {
       writeProfile(root, 'codex');
-      const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+      const profile = loadProfile(getWorkflowProfilePath(root));
       const detected = detectRuntimeHost(root, profile);
       expect(detected.host).toBe('codex');
       expect(detected.source).toBe('profile');
@@ -499,9 +509,11 @@ describe('workflow-runtime health', () => {
     expect(report.components.find(component => component.name === 'protocol')?.status).toBe('passed');
   });
 
-  test('health check fails cleanly when PROJECT_PROFILE.yaml is invalid', () => {
+  test(`health check fails cleanly when ${WORKFLOW_PROFILE_RELATIVE_PATH} is invalid`, () => {
     withTempRoot(root => {
-      fs.writeFileSync(path.join(root, 'PROJECT_PROFILE.yaml'), '[]\n', 'utf8');
+      const profilePath = getWorkflowProfilePath(root);
+      fs.mkdirSync(path.dirname(profilePath), { recursive: true });
+      fs.writeFileSync(profilePath, '[]\n', 'utf8');
       const report = buildWorkflowHealthReport({ root });
       expect(report.ok).toBe(false);
       expect(report.blocked_by).toContain('profile');
@@ -524,7 +536,7 @@ describe('workflow-runtime install', () => {
         expect(report.success).toBe(true);
         expect(report.exit_code).toBe(0);
         expect(fs.existsSync(path.join(targetRoot, 'package.json'))).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, 'PROJECT_PROFILE.yaml'))).toBe(true);
+        expect(fs.existsSync(getWorkflowProfilePath(targetRoot))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'VERSION'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'AGENTS.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(true);
@@ -547,7 +559,7 @@ describe('workflow-runtime install', () => {
         expect(greenfieldInit).not.toContain('当前宿主对应文件');
         expect(greenfieldInit).not.toContain('`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`');
 
-        const profile = loadProfile(path.join(targetRoot, 'PROJECT_PROFILE.yaml'));
+        const profile = loadProfile(getWorkflowProfilePath(targetRoot));
         expect(profile.project?.primary_hosts).toEqual(['claude', 'codex']);
 
         const packageJson = readJson(path.join(targetRoot, 'package.json'));
@@ -765,7 +777,7 @@ describe('workflow-runtime install', () => {
         });
         expect(first.success).toBe(true);
 
-        const profilePath = path.join(targetRoot, 'PROJECT_PROFILE.yaml');
+        const profilePath = getWorkflowProfilePath(targetRoot);
         const profileText = fs.readFileSync(profilePath, 'utf8');
         fs.writeFileSync(
           profilePath,
@@ -798,7 +810,7 @@ describe('workflow-runtime install', () => {
         });
         expect(first.success).toBe(true);
 
-        const profilePath = path.join(targetRoot, 'PROJECT_PROFILE.yaml');
+        const profilePath = getWorkflowProfilePath(targetRoot);
         const profileText = fs.readFileSync(profilePath, 'utf8');
         fs.writeFileSync(
           profilePath,
@@ -812,7 +824,7 @@ describe('workflow-runtime install', () => {
           dryRun: true,
         });
         expect(second.success).toBe(false);
-        expect(second.failures.some(failure => failure.category === 'local_drift' && failure.path === 'PROJECT_PROFILE.yaml')).toBe(true);
+        expect(second.failures.some(failure => failure.category === 'local_drift' && failure.path === WORKFLOW_PROFILE_RELATIVE_PATH)).toBe(true);
       });
     });
   });

@@ -11,7 +11,7 @@ This file defines the execution rules for the workflow skill system.
 Its purpose is narrower than `vibe-coding/vibe-coding-workflow.md`:
 
 - `vibe-coding/vibe-coding-workflow.md` explains the full methodology
-- `WORKFLOW_PROTOCOL.md` defines the concrete rules the generator must follow
+- `.workflow-system/WORKFLOW_PROTOCOL.md` defines the concrete rules the generator must follow
 
 ### Versioning scheme
 
@@ -45,12 +45,12 @@ The workflow skill generator must treat the following inputs as authoritative:
 
 This section applies only to `gen-workflow-skills`; it does not describe the full `dist/workflow-system/**` source pipeline.
 
-1. `PROJECT_PROFILE.yaml`
+1. `.workflow-system/PROJECT_PROFILE.yaml`
 2. `templates/skills/*.SKILL.md.tmpl`
 
 The generator must not infer project facts from chat context alone.
 
-If a required value is missing from `PROJECT_PROFILE.yaml`, generation must fail loudly instead of silently defaulting.
+If a required value is missing from `.workflow-system/PROJECT_PROFILE.yaml`, generation must fail loudly instead of silently defaulting.
 
 Methodology references such as `vibe-coding/vibe-coding-workflow.md` may inform template authoring and review, but they are not direct machine inputs in the current implemented generators.
 
@@ -58,22 +58,22 @@ Methodology references such as `vibe-coding/vibe-coding-workflow.md` may inform 
 
 When multiple sources define the same value, the following precedence applies (highest first):
 
-1. **`WORKFLOW_PROTOCOL.md`** — protocol rules are always authoritative. A generator must not override protocol-defined constraints with project-level or template-level values.
-2. **`PROJECT_PROFILE.yaml`** — project configuration takes precedence over template defaults.
+1. **`.workflow-system/WORKFLOW_PROTOCOL.md`** — protocol rules are always authoritative. A generator must not override protocol-defined constraints with project-level or template-level values.
+2. **`.workflow-system/PROJECT_PROFILE.yaml`** — project configuration takes precedence over template defaults.
 3. **Template defaults** — values embedded in `.tmpl` files are the lowest-priority source.
 
 Conflict resolution rules:
 
-- If `PROJECT_PROFILE.yaml` defines a value that contradicts a protocol rule, the protocol rule wins and the conflict must be logged as a warning.
-- If a template embeds a default that `PROJECT_PROFILE.yaml` also defines, the profile value wins silently.
+- If `.workflow-system/PROJECT_PROFILE.yaml` defines a value that contradicts a protocol rule, the protocol rule wins and the conflict must be logged as a warning.
+- If a template embeds a default that `.workflow-system/PROJECT_PROFILE.yaml` also defines, the profile value wins silently.
 - Chat context, LLM inference, and runtime conversation history are never authoritative for protocol or project values. They may inform task-level placeholders only.
 
 ### 1.2 Workflow-system source pipeline
 
 The workflow-system is defined by a strict source pipeline composed of the following authoritative inputs:
 
-- `WORKFLOW_PROTOCOL.md`
-- `FILE_SCHEMAS.md`
+- `.workflow-system/WORKFLOW_PROTOCOL.md`
+- `.workflow-system/FILE_SCHEMAS.md`
 - `templates/docs/**`
 - `templates/skills/**`
 - `scripts/gen-workflow-docs.ts`
@@ -95,7 +95,7 @@ They are not source inputs and must not be treated as part of the authoritative 
 
 Synchronization rules:
 
-- Templates and tests must not reference a section, field, error-code home, or document structure unless it is first declared in `WORKFLOW_PROTOCOL.md` or `FILE_SCHEMAS.md`; generated outputs may only contain structures rendered from those declared sources.
+- Templates and tests must not reference a section, field, error-code home, or document structure unless it is first declared in `.workflow-system/WORKFLOW_PROTOCOL.md` or `.workflow-system/FILE_SCHEMAS.md`; generated outputs may only contain structures rendered from those declared sources.
 - Templates define render skeletons only. They must not silently supersede normative protocol/schema rules.
 - Generated reference outputs are committed, freshness-checked renders for the source repo. They are exported as audit/reference material, not as target-project-owned live docs or independent normative sources.
 - `workflow:install` may install only the script / protocol / template surfaces into a target project. Generated reference outputs remain bundle-local evidence of what the workflow-system renders in its source repo.
@@ -134,7 +134,7 @@ That separation avoids colliding with the existing gstack build pipeline while t
 
 ## 3. Variable substitution rules
 
-The generator must expand template variables from `PROJECT_PROFILE.yaml` using deterministic mapping.
+The generator must expand template variables from `.workflow-system/PROJECT_PROFILE.yaml` using deterministic mapping.
 
 ### 3.0 Placeholder grammar
 
@@ -156,7 +156,7 @@ Placeholder categories:
 
 | Category | Behavior | Error on unresolved? | Examples |
 |----------|----------|---------------------|----------|
-| Project-level | Must be expanded from `PROJECT_PROFILE.yaml` | Yes — hard fail | `{{PROJECT_NAME}}`, `{{TECH_STACK}}` |
+| Project-level | Must be expanded from `.workflow-system/PROJECT_PROFILE.yaml` | Yes — hard fail | `{{PROJECT_NAME}}`, `{{TECH_STACK}}` |
 | Runtime (task-level) | Must be preserved as literal placeholder text | No — intentionally unresolved | `{{TASK_ID}}`, `{{TASK_SLUG}}` |
 | Docs-specific runtime | Must be preserved as literal placeholder text | No — intentionally unresolved | `{{TASK_TITLE}}`, `{{DATE}}`, `{{AUTHOR}}` |
 | Docs-specific project | Must be expanded | Yes — hard fail | `{{VERSION}}` |
@@ -182,7 +182,7 @@ Complete placeholder table:
 
 ### 3.1 Core project variables
 
-| Template variable | Source in `PROJECT_PROFILE.yaml` |
+| Template variable | Source in `.workflow-system/PROJECT_PROFILE.yaml` |
 |---|---|
 | `{{PROJECT_NAME}}` | `project.name` |
 | `{{PROJECT_TYPE}}` | `project.type` |
@@ -192,7 +192,7 @@ Complete placeholder table:
 
 ### 3.2 Structure variables
 
-| Template variable | Source in `PROJECT_PROFILE.yaml` |
+| Template variable | Source in `.workflow-system/PROJECT_PROFILE.yaml` |
 |---|---|
 | `{{CODE_DIRECTORIES}}` | `paths.source_directories` |
 | `{{FORBIDDEN_PATHS}}` | `boundaries.forbidden_paths` |
@@ -308,7 +308,7 @@ which behaves most like a tooling / workflow system.
 Current implementation:
 
 - the workflow skill generator appends a `## Project-Type Emphasis` section to each rendered skill body
-- that section is derived from `project.type` in `PROJECT_PROFILE.yaml`
+- that section is derived from `project.type` in `.workflow-system/PROJECT_PROFILE.yaml`
 - This protocol revision currently defines emphasis text only for:
   - `frontend-app`
   - `backend-service`
@@ -375,7 +375,7 @@ Mode selection is mandatory and must use repository facts plus the user's curren
 Prohibitions:
 
 - `design-baseline-init`, `greenfield-init`, `legacy-inventory`, and `adopt-existing-project` must not implement feature work.
-- `create-current-task` must not rewrite `PROJECT_PROFILE.yaml`.
+- `create-current-task` must not rewrite `.workflow-system/PROJECT_PROFILE.yaml`.
 - Task-phase skills must not rewrite the `CONTRACTS.md` baseline unless the current task explicitly declares contract evolution as an allowed or conditional mutation.
 - A workflow step must stop and ask the user when multiple modes match and the repository facts do not disambiguate them.
 
@@ -383,13 +383,13 @@ Prohibitions:
 
 Protocol/schema authority is evaluated before project runtime authority:
 
-1. `WORKFLOW_PROTOCOL.md`
-2. `FILE_SCHEMAS.md`
+1. `.workflow-system/WORKFLOW_PROTOCOL.md`
+2. `.workflow-system/FILE_SCHEMAS.md`
 
 Project runtime authority is evaluated in this order:
 
 1. `CONTRACTS.md` — current stable interface, architecture, behavior, and protected-boundary constraints.
-2. `PROJECT_PROFILE.yaml` — long-lived project configuration, workflow paths, validation slots, and architectural defaults.
+2. `.workflow-system/PROJECT_PROFILE.yaml` — long-lived project configuration, workflow paths, validation slots, and architectural defaults.
 3. `DECISIONS.md` — decision history, rationale, rejected alternatives, and review conditions.
 4. `CURRENT_TASK.md` — local task scope and temporary narrowing for the active task.
 5. `STATUS.md` — descriptive project state only.
@@ -399,7 +399,7 @@ Precedence rules:
 - `CURRENT_TASK.md` may narrow the active task scope but must not override `CONTRACTS.md`.
 - `STATUS.md` must not introduce new rules or override any higher-precedence document.
 - `DECISIONS.md` records why a decision was made; it does not define the current effective rule by itself.
-- Any decision that changes current behavior, architecture, API, or governance rules must be reflected in `CONTRACTS.md` or `PROJECT_PROFILE.yaml` before it is treated as active.
+- Any decision that changes current behavior, architecture, API, or governance rules must be reflected in `CONTRACTS.md` or `.workflow-system/PROJECT_PROFILE.yaml` before it is treated as active.
 - When two project runtime documents conflict, the higher-precedence document wins and the conflict must be surfaced instead of silently resolved.
 
 ### 4b.3 Mutation Scope Rules
@@ -600,7 +600,7 @@ Paths appearing in `reads`, `writes`, and `forbidden_writes` must follow these r
 Boundary note:
 
 - this grammar applies only to workflow contract fields: `reads`, `writes`, and `forbidden_writes`
-- other repo-level path and pattern fields in `PROJECT_PROFILE.yaml` may use a separate repo-pattern grammar and are outside this protocol section
+- other repo-level path and pattern fields in `.workflow-system/PROJECT_PROFILE.yaml` may use a separate repo-pattern grammar and are outside this protocol section
 
 ### 7a.1 Path format
 
@@ -616,8 +616,8 @@ The following tokens expand to project-specific path sets at generation time:
 
 | Token | Source | Expands to |
 |-------|--------|-----------|
-| Values from `{{CODE_DIRECTORIES}}` | `paths.source_directories` in `PROJECT_PROFILE.yaml` | One or more directory paths |
-| Values from `{{FORBIDDEN_PATHS}}` | `boundaries.forbidden_paths` in `PROJECT_PROFILE.yaml` | One or more explicit paths or restricted directory patterns |
+| Values from `{{CODE_DIRECTORIES}}` | `paths.source_directories` in `.workflow-system/PROJECT_PROFILE.yaml` | One or more directory paths |
+| Values from `{{FORBIDDEN_PATHS}}` | `boundaries.forbidden_paths` in `.workflow-system/PROJECT_PROFILE.yaml` | One or more explicit paths or restricted directory patterns |
 
 These tokens are expanded during variable substitution (§3). After expansion, the resulting paths must conform to the format rules above.
 
@@ -803,7 +803,7 @@ gen:workflow-skills: generation failed — 2 errors, 1 warning
 
 This protocol revision constrains the workflow skill generator to the following scope:
 
-1. read `PROJECT_PROFILE.yaml`
+1. read `.workflow-system/PROJECT_PROFILE.yaml`
 2. read `templates/skills/*.SKILL.md.tmpl`
 3. expand project-level variables
 4. render output to `generated/workflow-skills/`
@@ -849,7 +849,7 @@ This protocol is considered implemented when all of the following machine-checka
 | # | Condition | Verified by |
 |---|-----------|-------------|
 | 1 | Every required governance doc is generated | `bun run test:workflow-docs` — doc count match |
-| 2 | Every doc satisfies `FILE_SCHEMAS.md` required headings | `bun run test:workflow-docs` — heading validation |
+| 2 | Every doc satisfies `.workflow-system/FILE_SCHEMAS.md` required headings | `bun run test:workflow-docs` — heading validation |
 | 3 | All project-level placeholders are resolved | `bun run test:workflow-docs` — placeholder check |
 | 4 | Only runtime placeholders remain unresolved | `bun run test:workflow-docs` — allowed unresolved check |
 
@@ -872,39 +872,39 @@ The next workflow-system phase extends generation beyond skills into governance 
 The docs generator operates with the following inputs:
 
 1. Runtime configuration and versioning:
-   - `PROJECT_PROFILE.yaml`
+   - `.workflow-system/PROJECT_PROFILE.yaml`
    - `VERSION`
 
 2. Template skeletons:
    - `templates/docs/*.md.tmpl`
 
 3. Normative schema source:
-   - `FILE_SCHEMAS.md`
+   - `.workflow-system/FILE_SCHEMAS.md`
 
-`FILE_SCHEMAS.md` is the single authoritative source for required headings, document structure, and schema constraints.
+`.workflow-system/FILE_SCHEMAS.md` is the single authoritative source for required headings, document structure, and schema constraints.
 
 ---
 
 ### Implementation model
 
-The generator may carry an implementation cache of the structure defined in `FILE_SCHEMAS.md`.
+The generator may carry an implementation cache of the structure defined in `.workflow-system/FILE_SCHEMAS.md`.
 
 This cache:
 
 - exists solely as a runtime optimization and enforcement mechanism
-- must be mechanically and continuously validated against `FILE_SCHEMAS.md`
+- must be mechanically and continuously validated against `.workflow-system/FILE_SCHEMAS.md`
 - must never diverge from the normative specification
 
-Any divergence between the cache and `FILE_SCHEMAS.md` is a protocol-level failure.
+Any divergence between the cache and `.workflow-system/FILE_SCHEMAS.md` is a protocol-level failure.
 
 ---
 
 ### Strict constraints
 
-- The generator must not invent document sections, fields, or structure not defined in `FILE_SCHEMAS.md`.
+- The generator must not invent document sections, fields, or structure not defined in `.workflow-system/FILE_SCHEMAS.md`.
 - Templates must not introduce structure that is not supported by the schema.
 - The implementation cache must not be edited, reviewed, or evolved as an independent contract.
-- All structural changes must originate from `FILE_SCHEMAS.md` / `WORKFLOW_PROTOCOL.md`, and then be propagated to generator code.
+- All structural changes must originate from `.workflow-system/FILE_SCHEMAS.md` / `.workflow-system/WORKFLOW_PROTOCOL.md`, and then be propagated to generator code.
 
 ### 12.2 Docs output model
 
@@ -961,7 +961,7 @@ The docs generator must preserve runtime placeholders in this protocol revision:
 The docs generator must fail loudly if:
 
 - a required docs template is missing
-- a rendered doc is missing required headings from the `FILE_SCHEMAS.md` contract
+- a rendered doc is missing required headings from the `.workflow-system/FILE_SCHEMAS.md` contract
 - a non-runtime placeholder remains unresolved
 - output is only partially written after validation failure
 
@@ -979,7 +979,7 @@ This protocol revision formalizes three propagation-governance homes in the gene
 - `CONTRACTS.md` must include `## 四、传播治理补充` covering candidate writeback records, `LayoutContract`, `BehaviorContract`, frozen-zone constraints, and `UIAnchorReplacement`.
 - `BASELINES.md` must include `## Gate 与错误码基线` covering blocker levels, merge/ship gate behavior, escalation rules, and grouped error-code homes.
 
-These structures are normative extensions of the generated-doc contract. Templates may reorganize prose within those sections, but must preserve the required homes and auditable references defined in `FILE_SCHEMAS.md`; field-level schema remains owned by `WORKFLOW_PROTOCOL.md §18.6`.
+These structures are normative extensions of the generated-doc contract. Templates may reorganize prose within those sections, but must preserve the required homes and auditable references defined in `.workflow-system/FILE_SCHEMAS.md`; field-level schema remains owned by `.workflow-system/WORKFLOW_PROTOCOL.md §18.6`.
 
 ---
 
@@ -992,7 +992,7 @@ The workflow-system phase after docs generation adds a registry generator for hu
 The registry generator must treat the following files as authoritative:
 
 1. `templates/skills/*.SKILL.md.tmpl`
-2. `PROJECT_PROFILE.yaml`
+2. `.workflow-system/PROJECT_PROFILE.yaml`
 
 It must extract metadata from skill frontmatter instead of relying on manually curated summaries.
 
@@ -1047,13 +1047,13 @@ This section governs repository compliance, not generator correctness. A sync fa
 
 The purpose of this model is to prevent dual truth:
 
-- generated docs are committed reference renders of the structure defined by WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md; they are not an independent source of structural truth
+- generated docs are committed reference renders of the structure defined by .workflow-system/WORKFLOW_PROTOCOL.md and .workflow-system/FILE_SCHEMAS.md; they are not an independent source of structural truth
 - live docs remain the authoritative project-truth content record
 - sync behavior must be explicit, classifiable, and reviewable
 
 ### 14.1 Ownership model
 
-Generated docs materialize the following structural contract as rendered artifacts derived from WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md:
+Generated docs materialize the following structural contract as rendered artifacts derived from .workflow-system/WORKFLOW_PROTOCOL.md and .workflow-system/FILE_SCHEMAS.md:
 
 - filename
 - required headings
@@ -1071,12 +1071,12 @@ Live docs own the following runtime or project-specific content:
 Boundary rule:
 
 - live docs may add content inside an existing generated-owned section, but that flexibility does not grant structural ownership over new independent headings or sections
-- heading-level and section-level structure remains part of the structure contract defined by WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md, as rendered through generated docs, even when the live doc adds project-specific content nearby
+- heading-level and section-level structure remains part of the structure contract defined by .workflow-system/WORKFLOW_PROTOCOL.md and .workflow-system/FILE_SCHEMAS.md, as rendered through generated docs, even when the live doc adds project-specific content nearby
 - any extra heading, including a new sub-heading inserted inside an existing generated-owned section, counts as extra heading-level structure rather than ordinary live-owned content
 
 Authority split:
 
-- WORKFLOW_PROTOCOL.md and FILE_SCHEMAS.md are the canonical source of truth for structure
+- .workflow-system/WORKFLOW_PROTOCOL.md and .workflow-system/FILE_SCHEMAS.md are the canonical source of truth for structure
 - generated docs are synchronized reference renders of that structure contract
 - live docs are the canonical source of truth for project truth and runtime content
 
@@ -1143,7 +1143,7 @@ Minimum classification inputs:
 
 - the freshness-checked generated render for that filename, used only as a comparison fixture
 - the live doc for that filename
-- the required heading contract implied by `FILE_SCHEMAS.md`
+- the required heading contract implied by `.workflow-system/FILE_SCHEMAS.md`
 
 Automation must not downgrade an `incompatible` doc to a mergeable state by guesswork.
 
@@ -1204,7 +1204,7 @@ It is a repository-compliance gate, not a workflow-system-integrity gate.
 
 CI behavior:
 
-- a future sync-check command must classify repo-root live docs against the freshness-checked structural contract derived from `WORKFLOW_PROTOCOL.md` and `FILE_SCHEMAS.md`; `generated/workflow-docs/**` may be used only as comparison fixtures after freshness passes.
+- a future sync-check command must classify repo-root live docs against the freshness-checked structural contract derived from `.workflow-system/WORKFLOW_PROTOCOL.md` and `.workflow-system/FILE_SCHEMAS.md`; `generated/workflow-docs/**` may be used only as comparison fixtures after freshness passes.
 - CI passes when each evaluated doc is either `absent` or `structure-compatible`
 - CI blocks merge when any evaluated doc is `structure-drifted but mergeable` or `incompatible and diff-only until confirmed`
 - `orphaned` files must emit warnings unless a stricter host policy overrides that default
@@ -1298,7 +1298,7 @@ Precedence table:
 
 ### §16.4 Validation matrix contract
 
-A target project declares its validation matrix in `PROJECT_PROFILE.yaml` under the `validation` key.
+A target project declares its validation matrix in `.workflow-system/PROJECT_PROFILE.yaml` under the `validation` key.
 
 The validation matrix is a list of named entrypoints with the following required fields:
 
@@ -1408,7 +1408,7 @@ Runtime health reports have four components:
 
 | Component | Check | Failure severity |
 |-----------|-------|-----------------|
-| `profile` | `PROJECT_PROFILE.yaml` exists and parses as valid YAML with required fields | fatal |
+| `profile` | `.workflow-system/PROJECT_PROFILE.yaml` exists and parses as valid YAML with required fields | fatal |
 | `generators` | all three generators (`workflow-skills`, `workflow-docs`, `registry`) are fresh | error |
 | `protocol` | protocol-level validation passes (`validate:protocol`) | error |
 | `host` | detected or specified host is known and paths resolve | warning |
@@ -1452,7 +1452,7 @@ The import contract defines the steps a target project follows during Adoption `
 2. Run `workflow:install --bundle <bundle-dir>` in the target repo to perform Adoption `A1`
 3. Copy workflow-system scripts, protocol/spec sources, templates, and the documented `package.json` contract surface
 4. Merge the minimum `workflow:*`, `gen:*`, and `validate:*` scripts plus required runtime dependencies into the target project's `package.json`
-5. Create or merge the project-specific `PROJECT_PROFILE.yaml`
+5. Create or merge the project-specific `.workflow-system/PROJECT_PROFILE.yaml`
 6. Write `.workflow-system/install-state.json` only after the install transaction succeeds
 7. Install the bootstrap init skills (`design-baseline-init`, `greenfield-init`, `legacy-inventory`, `adopt-existing-project`) into the target host namespace during `workflow:install`
 8. Invoke `design-baseline-init` -> `greenfield-init` for new projects, or `legacy-inventory` -> `adopt-existing-project` for existing repos, in the target host to perform Adoption `A2`
@@ -1506,7 +1506,7 @@ Host detection determines which AI host is active. Detection order:
 1. explicit `--host` CLI flag (highest priority)
 2. `WORKFLOW_HOST` environment variable
 3. presence of host-specific directories in the project root (`.claude/`, `.agents/`, `.factory/`)
-4. `project.primary_hosts[0]` from `PROJECT_PROFILE.yaml`
+4. `project.primary_hosts[0]` from `.workflow-system/PROJECT_PROFILE.yaml`
 5. fallback to `'unknown'`
 
 When host is unknown, the runtime entry reports a warning but does not fail — the core health check is host-agnostic.
@@ -1558,7 +1558,7 @@ Decision records are append-only.
 - candidate backlog items
 - cross-window risks and dependencies
 
-The generated `ROADMAP.md` structure must remain aligned with `FILE_SCHEMAS.md`, and live projects may add content only inside those generated-owned sections per §14.
+The generated `ROADMAP.md` structure must remain aligned with `.workflow-system/FILE_SCHEMAS.md`, and live projects may add content only inside those generated-owned sections per §14.
 
 ### §18.4 Baseline governance rules
 
@@ -1609,7 +1609,7 @@ The propagation-governance surface extends the workflow-system with the followin
 
 Compatibility rules:
 
-- once a structure is declared in WORKFLOW_PROTOCOL.md or FILE_SCHEMAS.md and then referenced by templates or tests, it becomes part of the public workflow-system contract.
+- once a structure is declared in .workflow-system/WORKFLOW_PROTOCOL.md or .workflow-system/FILE_SCHEMAS.md and then referenced by templates or tests, it becomes part of the public workflow-system contract.
 - later revisions should extend these structures additively unless a field or rule is explicitly marked as superseded
 - blocker output must converge into formal `ContractCompatibilityResult` objects rather than informal prose-only warnings
 - v26 is an additive repair revision over v25 rather than a rewrite; prior mainline contract semantics remain in force unless this section explicitly tightens or supersedes them

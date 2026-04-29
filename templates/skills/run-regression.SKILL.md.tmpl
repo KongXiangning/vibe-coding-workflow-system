@@ -18,7 +18,7 @@ inputs:
   - browser_or_session_requirement
 reads:
   - CURRENT_TASK.md
-  - PROJECT_PROFILE.yaml
+  - .workflow-system/PROJECT_PROFILE.yaml
 writes: []
 forbidden_writes:
   - "{{CODE_DIRECTORIES}}"
@@ -79,7 +79,7 @@ notes:
   - 优先复用现有测试，不额外引入新测试体系。
   - 本 skill 保持只读验证；不得修改代码或治理文档。
 test_sources:
-  - PROJECT_PROFILE.yaml 中的测试命令
+  - .workflow-system/PROJECT_PROFILE.yaml 中的测试命令
   - CURRENT_TASK.md 中的回归检查项
   - 当前 diff 影响面
 qa_modes:
@@ -214,7 +214,7 @@ browser_session_policy:
 - benchmark
 
 ### test_sources
-- PROJECT_PROFILE.yaml 中的测试命令
+- .workflow-system/PROJECT_PROFILE.yaml 中的测试命令
 - CURRENT_TASK.md 中的回归检查项
 - 当前 diff 影响面
 

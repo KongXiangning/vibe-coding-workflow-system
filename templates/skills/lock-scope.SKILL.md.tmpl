@@ -15,7 +15,7 @@ inputs:
   - confirmed_decisions
 reads:
   - CURRENT_TASK.md
-  - PROJECT_PROFILE.yaml
+  - .workflow-system/PROJECT_PROFILE.yaml
   - CONTRACTS.md
   - DECISIONS.md
 writes:
@@ -110,7 +110,7 @@ unlock_widening_rules:
   - 必须说明验证方式
   - 必须重新生成 Allowed Files / Forbidden Files / Conditional Files
 source_of_truth_rules:
-  - CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+  - CONTRACTS.md 优先于 .workflow-system/PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
   - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
   - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
 propagation_rules:
@@ -245,7 +245,7 @@ violation_levels:
 - 必须重新生成 Allowed Files / Forbidden Files / Conditional Files
 
 ### source_of_truth_rules
-- CONTRACTS.md 优先于 PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
+- CONTRACTS.md 优先于 .workflow-system/PROJECT_PROFILE.yaml、DECISIONS.md、CURRENT_TASK.md、STATUS.md
 - CURRENT_TASK.md 只能缩小任务范围，不能覆盖 CONTRACTS.md
 - DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
 

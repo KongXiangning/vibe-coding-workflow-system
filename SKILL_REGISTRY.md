@@ -10,7 +10,7 @@
 
 - 本文件面向人类阅读与审查
 - 本文件由 `bun run gen:registry` 自动生成，请勿手工编辑
-- 元数据来源为 `templates/skills/*.SKILL.md.tmpl` frontmatter，并按 `PROJECT_PROFILE.yaml` 解析项目级占位符
+- 元数据来源为 `templates/skills/*.SKILL.md.tmpl` frontmatter，并按 `.workflow-system/PROJECT_PROFILE.yaml` 解析项目级占位符
 - 真实执行协议以 `generated/workflow-skills/*.SKILL.md` 为准
 
 ---
@@ -43,30 +43,30 @@
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `design-baseline-init` | 为新项目完成首版设计基线，包括路线图、架构、领域模型、数据库、接口边界和详细设计草案。 | 当新项目只有产品想法或原始需求，尚未形成架构设计、数据库设计、详细设计或接口边界时。 | `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/docs/`、`README.md`、`package.json` | `ROADMAP.md`、`ARCHITECTURE.md`、`DATABASE.md`、`docs/designs/database-design.md`、`docs/designs/detailed-design.md`、`docs/designs/api-contracts.md`、`docs/designs/domain-model.md`、`BASELINES.md`、`DECISIONS.md` | `greenfield-init` | `ask-user` |
-| `greenfield-init` | 基于已确认设计基线，为新项目建立首版治理基线，包括项目画像、协作约束、契约边界、状态、路线图、基线和决策文档。 | 当项目刚开始，尚未建立治理体系，需要先把项目基线搭起来时。 | `PROJECT_PROFILE.yaml`、`WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/docs/`、`ROADMAP.md`、`ARCHITECTURE.md`、`DATABASE.md`、`docs/designs/`、`BASELINES.md`、`README.md`、`package.json` | `PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md` | `create-current-task` | `ask-user` |
-| `legacy-inventory` | 对老项目做事实盘点、现状固化和风险标注，为 adopt-existing-project 提供可验证输入。 | 当老项目已有代码、文档、数据库或部署线索，但尚未接入 workflow-system 治理时。 | `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/docs/`、`README.md`、`docs/`、`package.json`、`scripts`、`browse/src`、`design/src`、`test`、`browse/test` | `ARCHITECTURE.md`、`DATABASE.md`、`docs/adoption/API_INVENTORY.md`、`docs/adoption/RISK_REGISTER.md`、`docs/adoption/ADOPTION_REPORT.md`、`ROADMAP.md` | `adopt-existing-project` | `ask-user` |
-| `adopt-existing-project` | 消费老项目事实盘点结果，在确认后建立首版治理基线，供后续任务流使用。 | 当老项目已存在，但还没有 workflow 治理工件，或者准备正式接入 workflow 时。 | `PROJECT_PROFILE.yaml`、`WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/docs/`、`ARCHITECTURE.md`、`DATABASE.md`、`docs/adoption/`、`ROADMAP.md`、`BASELINES.md`、`README.md`、`docs/`、`package.json`、`scripts/`、`test/`、`src/` | `PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`、`docs/adoption/ADOPTION_REPORT.md` | `create-current-task` | `ask-user` |
+| `design-baseline-init` | 为新项目完成首版设计基线，包括路线图、架构、领域模型、数据库、接口边界和详细设计草案。 | 当新项目只有产品想法或原始需求，尚未形成架构设计、数据库设计、详细设计或接口边界时。 | `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`、`README.md`、`package.json` | `ROADMAP.md`、`ARCHITECTURE.md`、`DATABASE.md`、`docs/designs/database-design.md`、`docs/designs/detailed-design.md`、`docs/designs/api-contracts.md`、`docs/designs/domain-model.md`、`BASELINES.md`、`DECISIONS.md` | `greenfield-init` | `ask-user` |
+| `greenfield-init` | 基于已确认设计基线，为新项目建立首版治理基线，包括项目画像、协作约束、契约边界、状态、路线图、基线和决策文档。 | 当项目刚开始，尚未建立治理体系，需要先把项目基线搭起来时。 | `.workflow-system/PROJECT_PROFILE.yaml`、`.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`、`ROADMAP.md`、`ARCHITECTURE.md`、`DATABASE.md`、`docs/designs/`、`BASELINES.md`、`README.md`、`package.json` | `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md` | `create-current-task` | `ask-user` |
+| `legacy-inventory` | 对老项目做事实盘点、现状固化和风险标注，为 adopt-existing-project 提供可验证输入。 | 当老项目已有代码、文档、数据库或部署线索，但尚未接入 workflow-system 治理时。 | `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`、`README.md`、`docs/`、`package.json`、`scripts`、`browse/src`、`design/src`、`test`、`browse/test` | `ARCHITECTURE.md`、`DATABASE.md`、`docs/adoption/API_INVENTORY.md`、`docs/adoption/RISK_REGISTER.md`、`docs/adoption/ADOPTION_REPORT.md`、`ROADMAP.md` | `adopt-existing-project` | `ask-user` |
+| `adopt-existing-project` | 消费老项目事实盘点结果，在确认后建立首版治理基线，供后续任务流使用。 | 当老项目已存在，但还没有 workflow 治理工件，或者准备正式接入 workflow 时。 | `.workflow-system/PROJECT_PROFILE.yaml`、`.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`、`ARCHITECTURE.md`、`DATABASE.md`、`docs/adoption/`、`ROADMAP.md`、`BASELINES.md`、`README.md`、`docs/`、`package.json`、`scripts/`、`test/`、`src/` | `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`、`docs/adoption/ADOPTION_REPORT.md` | `create-current-task` | `ask-user` |
 
 ### 3.2 阶段 1：需求进入
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `create-current-task` | 根据用户需求生成可执行的 CURRENT_TASK.md 初稿。 | 当用户提出新需求，且当前没有可直接执行的任务包时。 | `PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `review-current-task` | `ask-user` |
-| `review-current-task` | 审查 CURRENT_TASK.md 初稿并收敛成可执行任务包。 | 当 CURRENT_TASK.md 初稿已经生成，进入实现前。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | `CURRENT_TASK.md` | `lock-scope` | `ask-user` |
+| `create-current-task` | 根据用户需求生成可执行的 CURRENT_TASK.md 初稿。 | 当用户提出新需求，且当前没有可直接执行的任务包时。 | `.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `review-current-task` | `ask-user` |
+| `review-current-task` | 审查 CURRENT_TASK.md 初稿并收敛成可执行任务包。 | 当 CURRENT_TASK.md 初稿已经生成，进入实现前。 | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | `CURRENT_TASK.md` | `lock-scope` | `ask-user` |
 
 ### 3.3 阶段 2：范围锁定
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `lock-scope` | 锁定本轮允许修改与禁止修改的边界。 | 在任何实现动作开始前。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `classify-decisions` | `ask-user` |
+| `lock-scope` | 锁定本轮允许修改与禁止修改的边界。 | 在任何实现动作开始前。 | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `classify-decisions` | `ask-user` |
 
 ### 3.4 阶段 3：方案拆解
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `classify-decisions` | 把任务中的决策分为 Mechanical、Taste、User challenge。 | 开始拆步骤前。 | `CURRENT_TASK.md`、`DECISIONS.md` | `CURRENT_TASK.md` | `decompose-task` | `ask-user` |
-| `decompose-task` | 把任务拆成独立、可验证、低污染的小步骤。 | 完成决策分级后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`DECISIONS.md` | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
+| `decompose-task` | 把任务拆成独立、可验证、低污染的小步骤。 | 完成决策分级后。 | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`、`DECISIONS.md` | `CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
 
 ### 3.5 阶段 4：小步实现
 
@@ -91,7 +91,7 @@
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `run-regression` | 选择合适 QA 模式，运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml` | `[]` | `sync-current-task` | `investigate-root-cause` |
+| `run-regression` | 选择合适 QA 模式，运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml` | `[]` | `sync-current-task` | `investigate-root-cause` |
 
 ### 3.9 阶段 7：状态同步
 
@@ -138,5 +138,5 @@
 下一步可以把本文件继续升级为：
 
 1. 增加每个 skill 的 `must_check`、`stop_conditions` 摘要
-2. 增加和 `FILE_SCHEMAS.md`、`PROJECT_PROFILE.yaml` 的交叉引用
+2. 增加和 `.workflow-system/FILE_SCHEMAS.md`、`.workflow-system/PROJECT_PROFILE.yaml` 的交叉引用
 3. 增加按风险级别或 stage 的细分视图

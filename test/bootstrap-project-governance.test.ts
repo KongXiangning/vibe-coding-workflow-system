@@ -7,12 +7,13 @@ import {
   classifyExistingLiveDoc,
   runProtocolGeneratorChecks,
 } from '../scripts/bootstrap-project-governance';
+import { getWorkflowProfilePath } from '../scripts/workflow-core';
 import { WORKFLOW_DOC_NAMES } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const GENERATED_DOCS_DIR = path.join(ROOT, 'generated', 'workflow-docs');
 const tempRoots: string[] = [];
-const ROOT_PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
+const ROOT_PROFILE_PATH = getWorkflowProfilePath(ROOT);
 
 function createTempTargetRoot(): string {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-bootstrap-'));
@@ -29,7 +30,9 @@ function writeTargetProfile(targetRoot: string, overrides: Record<string, string
   for (const [from, to] of Object.entries(overrides)) {
     content = content.replace(from, to);
   }
-  fs.writeFileSync(path.join(targetRoot, 'PROJECT_PROFILE.yaml'), content, 'utf8');
+  const profilePath = getWorkflowProfilePath(targetRoot);
+  fs.mkdirSync(path.dirname(profilePath), { recursive: true });
+  fs.writeFileSync(profilePath, content, 'utf8');
 }
 
 afterEach(() => {

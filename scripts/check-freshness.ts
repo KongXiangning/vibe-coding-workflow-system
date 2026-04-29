@@ -15,6 +15,7 @@ import * as os from 'os';
 import { spawnSync } from 'child_process';
 import {
   getWorkflowGeneratedDir,
+  getWorkflowProfilePath,
   getWorkflowRegistryPath,
   loadProfile,
   resolveRoot,
@@ -103,19 +104,17 @@ function materializeCommand(command: string[]): string[] {
 
 function copyFreshnessInputs(root: string, tempRoot: string): void {
   const copies = [
-    ['PROJECT_PROFILE.yaml', 'PROJECT_PROFILE.yaml'],
-    ['VERSION', 'VERSION'],
-    [path.join('templates', 'skills'), path.join('templates', 'skills')],
-    [path.join('templates', 'docs'), path.join('templates', 'docs')],
+    [getWorkflowProfilePath(root), getWorkflowProfilePath(tempRoot)],
+    [path.join(root, 'VERSION'), path.join(tempRoot, 'VERSION')],
+    [path.join(root, 'templates', 'skills'), path.join(tempRoot, 'templates', 'skills')],
+    [path.join(root, 'templates', 'docs'), path.join(tempRoot, 'templates', 'docs')],
   ] as const;
 
-  for (const [sourceRelative, targetRelative] of copies) {
-    const source = path.join(root, sourceRelative);
+  for (const [source, target] of copies) {
     if (!fs.existsSync(source)) {
       continue;
     }
 
-    const target = path.join(tempRoot, targetRelative);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.cpSync(source, target, { recursive: true });
   }
@@ -152,7 +151,7 @@ function generateExpectedOutput(root: string, target: FreshnessTarget): Map<stri
 }
 
 function resolveFreshnessOutputDir(root: string, target: FreshnessTarget): string {
-  const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+  const profile = loadProfile(getWorkflowProfilePath(root));
   validateProfilePathSemantics(profile);
   if (target.name === 'workflow-skills') {
     return getWorkflowGeneratedDir(root, profile, 'workflow-skills');

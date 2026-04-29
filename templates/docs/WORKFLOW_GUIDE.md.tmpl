@@ -4,9 +4,9 @@
 
 - 本文件说明 workflow-system 的日常操作顺序：什么时候读哪些治理文档、什么时候调用哪些 skill。
 - 本文件只解释使用方法，不定义字段、章节、错误码或 gate 语义。
-- 详细文档结构以 `FILE_SCHEMAS.md` 为准；skill 的 reads / writes / handoff 以对应 `SKILL.md` 为准。
-- 如果本文件与 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md` 或具体 skill frontmatter 冲突，以规范源和 skill frontmatter 为准。
-- `generated/workflow-skills/**` 与 `generated/workflow-docs/**` 是 source-repo reference render，不是安装到 target project 后的 live runtime artifacts；target repo 会在 install / sync 时按自己的 `PROJECT_PROFILE.yaml` 重新渲染。
+- 详细文档结构以 `.workflow-system/FILE_SCHEMAS.md` 为准；skill 的 reads / writes / handoff 以对应 `SKILL.md` 为准。
+- 如果本文件与 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md` 或具体 skill frontmatter 冲突，以规范源和 skill frontmatter 为准。
+- `generated/workflow-skills/**` 与 `generated/workflow-docs/**` 是 source-repo reference render，不是安装到 target project 后的 live runtime artifacts；target repo 会在 install / sync 时按自己的 `.workflow-system/PROJECT_PROFILE.yaml` 重新渲染。
 
 ## 文档速查
 
@@ -27,11 +27,11 @@
 | 场景 | 使用 skill | 主要读取 | 主要产出 |
 | --- | --- | --- | --- |
 | 新项目设计基线 | `/design-baseline-init` | 原始需求、用户目标、技术栈偏好、交付约束 | `ROADMAP.md`、`ARCHITECTURE.md`、`DATABASE.md`、`docs/designs/**`、`BASELINES.md` / `DECISIONS.md` 草案 |
-| 初始化新项目治理基线 | `/greenfield-init` | 已确认设计基线、用户目标、技术栈偏好、`PROJECT_PROFILE.yaml` scaffold | 首版 `PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md` |
+| 初始化新项目治理基线 | `/greenfield-init` | 已确认设计基线、用户目标、技术栈偏好、`.workflow-system/PROJECT_PROFILE.yaml` scaffold | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md` |
 | 老项目事实盘点 | `/legacy-inventory` | 由 profile / 仓库事实确定的代码目录、README/docs、package scripts、数据库和部署线索 | `ARCHITECTURE.md` 当前事实版、`DATABASE.md`、`docs/adoption/**`、`ROADMAP.md` 缺口草案 |
-| 接管老项目治理基线 | `/adopt-existing-project` | `legacy-inventory` 产物、现有仓库事实、用户确认信息 | 首版 `PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`，必要时更新 `docs/adoption/ADOPTION_REPORT.md` |
-| 创建任务包 | `/create-current-task` | `PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`、用户需求 | `CURRENT_TASK.md` |
-| 审查任务包 | `/review-current-task` | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | 修订后的任务边界、验收、设计约束和风险 |
+| 接管老项目治理基线 | `/adopt-existing-project` | `legacy-inventory` 产物、现有仓库事实、用户确认信息 | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`，必要时更新 `docs/adoption/ADOPTION_REPORT.md` |
+| 创建任务包 | `/create-current-task` | `.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`、用户需求 | `CURRENT_TASK.md` |
+| 审查任务包 | `/review-current-task` | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | 修订后的任务边界、验收、设计约束和风险 |
 | 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | Safety mode、Allowed Files、Forbidden Files、Conditional Files、Dangerous surfaces、Unlock / widening conditions |
 | 分类决策 | `/classify-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | Mechanical / Taste / User challenge 分类 |
 | 拆解步骤 | `/decompose-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 小步实施计划 |
@@ -39,7 +39,7 @@
 | 实现当前步骤 | `/implement-current-step` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码改动、dangerous command gate、验证结果、执行记录 |
 | 审查 diff | `/review-diff` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`，以及当前 diff 上下文 | scope drift / decision drift / safety boundary review / 回归风险 |
 | 验证契约 | `/verify-contracts` | `CONTRACTS.md`、`CURRENT_TASK.md`，以及当前 diff 上下文 | 接口和架构契约检查结果 |
-| 执行回归 | `/run-regression` | `CURRENT_TASK.md`、`PROJECT_PROFILE.yaml`，以及当前验证上下文 | QA mode、Target surface、Checks run、Browser/session requirement、Release evidence、Findings、Pass / fail、Evidence、Handoff |
+| 执行回归 | `/run-regression` | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`，以及当前验证上下文 | QA mode、Target surface、Checks run、Browser/session requirement、Release evidence、Findings、Pass / fail、Evidence、Handoff |
 | 同步任务记录 | `/sync-current-task` | `CURRENT_TASK.md`、本轮执行/验证事实 | 更新后的 `CURRENT_TASK.md` |
 | 同步契约 | `/sync-contracts` | `CURRENT_TASK.md`、`CONTRACTS.md`、本轮稳定边界事实 | 新稳定边界记录 |
 | 同步决策 | `/sync-decisions` | `CURRENT_TASK.md`、`DECISIONS.md`、用户确认事实 | 新确认决策记录 |

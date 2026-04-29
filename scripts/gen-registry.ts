@@ -6,6 +6,7 @@ import {
   type JsonValue,
   type JsonObject,
   RESERVED_FAILURE_TARGETS,
+  getWorkflowProfilePath,
   readText,
   loadProfile,
   normalizeList,
@@ -52,7 +53,7 @@ type StageSection = {
 };
 
 const ROOT = resolveRoot();
-const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
+const PROFILE_PATH = getWorkflowProfilePath(ROOT);
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -249,7 +250,7 @@ function renderRegistry(skills: RegistrySkill[], workflowSkillDir: string): stri
 
 - 本文件面向人类阅读与审查
 - 本文件由 \`bun run gen:registry\` 自动生成，请勿手工编辑
-- 元数据来源为 \`templates/skills/*.SKILL.md.tmpl\` frontmatter，并按 \`PROJECT_PROFILE.yaml\` 解析项目级占位符
+- 元数据来源为 \`templates/skills/*.SKILL.md.tmpl\` frontmatter，并按 \`.workflow-system/PROJECT_PROFILE.yaml\` 解析项目级占位符
 - 真实执行协议以 \`${workflowSkillDir}/*.SKILL.md\` 为准
 
 ---
@@ -293,7 +294,7 @@ ${HIGH_RISK_SKILLS.map(name => `- \`${name}\``).join('\n')}
 下一步可以把本文件继续升级为：
 
 1. 增加每个 skill 的 \`must_check\`、\`stop_conditions\` 摘要
-2. 增加和 \`FILE_SCHEMAS.md\`、\`PROJECT_PROFILE.yaml\` 的交叉引用
+2. 增加和 \`.workflow-system/FILE_SCHEMAS.md\`、\`.workflow-system/PROJECT_PROFILE.yaml\` 的交叉引用
 3. 增加按风险级别或 stage 的细分视图
 `;
 }

@@ -14,9 +14,9 @@ inputs:
   - user_request
   - business_context
 reads:
-  - PROJECT_PROFILE.yaml
-  - WORKFLOW_PROTOCOL.md
-  - FILE_SCHEMAS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - .workflow-system/WORKFLOW_PROTOCOL.md
+  - .workflow-system/FILE_SCHEMAS.md
   - templates/docs/
   - ARCHITECTURE.md
   - DATABASE.md
@@ -30,7 +30,7 @@ reads:
   - test/
   - src/
 writes:
-  - PROJECT_PROFILE.yaml
+  - .workflow-system/PROJECT_PROFILE.yaml
   - AGENTS.md
   - CLAUDE.md
   - ROADMAP.md
@@ -54,7 +54,7 @@ stop_conditions:
   - 关键业务背景缺失且影响治理基线表述
   - 发现多个互相冲突的事实来源但无法判定真值
 output:
-  - 首版 PROJECT_PROFILE.yaml
+  - 首版 .workflow-system/PROJECT_PROFILE.yaml
   - 首版 host 指引文件（同时生成 `AGENTS.md` / `CLAUDE.md`）
   - 首版 ROADMAP.md / CONTRACTS.md / BASELINES.md / STATUS.md / DECISIONS.md
   - 必要时更新 `docs/adoption/ADOPTION_REPORT.md`
@@ -96,11 +96,11 @@ notes:
 
 ## Execution Rules
 
-1. 先读取 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`templates/docs/`，再读取 `legacy-inventory` 产物（如 `ARCHITECTURE.md`、`DATABASE.md`、`docs/adoption/`、`ROADMAP.md`、`BASELINES.md`）和仓库中的现有事实：代码结构、目录布局、README/docs、`package.json` scripts、测试入口、部署/运行线索、已有协作文档。
+1. 先读取 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`，再读取 `legacy-inventory` 产物（如 `ARCHITECTURE.md`、`DATABASE.md`、`docs/adoption/`、`ROADMAP.md`、`BASELINES.md`）和仓库中的现有事实：代码结构、目录布局、README/docs、`package.json` scripts、测试入口、部署/运行线索、已有协作文档。
 2. 把扫描结果拆成两类：  
    - 可被仓库直接证明的事实  
    - 必须由用户补充或确认的事实
-3. 只在确认后按 `FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架写出首版 `PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`；必要时附带 adoption 报告说明证据和未决点。
+3. 只在确认后按 `.workflow-system/FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架写出首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`；必要时附带 adoption 报告说明证据和未决点。
 4. 把已经被代码依赖的 API、数据库字段、公共模块、目录职责和兼容性行为固化到 `CONTRACTS.md`；不要把偶然实现或 unknown consumer 写成稳定契约。
 5. 把 stable / fragile / unknown / deprecated 区域写入 `STATUS.md`；unknown 风险、迁移窗口和重构候选写入 `ROADMAP.md`。
 6. 补录历史决策时允许写 `source: inferred from existing implementation`、`original reason: unknown` 和 `review condition`，不要强行编造原因。

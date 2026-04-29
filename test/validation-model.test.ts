@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as path from 'path';
 import { parse } from 'yaml';
-import { readText } from '../scripts/workflow-core';
+import { getWorkflowProfilePath, readText } from '../scripts/workflow-core';
 import {
   type BlockerLevel,
   type ValidationEntrypoint,
@@ -325,8 +325,8 @@ describe('validation-model', () => {
     expect(report.blocked_gates).toEqual([]);
   });
 
-  test('PROJECT_PROFILE.yaml validation matrix parses successfully', () => {
-    const profileContent = readText(path.join(ROOT, 'PROJECT_PROFILE.yaml'));
+  test('.workflow-system/PROJECT_PROFILE.yaml validation matrix parses successfully', () => {
+    const profileContent = readText(getWorkflowProfilePath(ROOT));
     const profile = parse(profileContent) as Record<string, unknown>;
     const matrixRaw = (profile.validation as Record<string, unknown>)?.matrix;
     expect(Array.isArray(matrixRaw)).toBe(true);

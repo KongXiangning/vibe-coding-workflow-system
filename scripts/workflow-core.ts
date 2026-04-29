@@ -25,6 +25,13 @@ export type JsonObject = { [key: string]: JsonValue };
 export type HandoffRef = { success: string; failure: string };
 export type WriteOperation = { path: string; content: string };
 export type PathField = 'reads' | 'writes' | 'forbidden_writes';
+export const WORKFLOW_SYSTEM_DIRECTORY = '.workflow-system';
+export const WORKFLOW_PROFILE_FILE = 'PROJECT_PROFILE.yaml';
+export const WORKFLOW_PROTOCOL_FILE = 'WORKFLOW_PROTOCOL.md';
+export const WORKFLOW_SCHEMAS_FILE = 'FILE_SCHEMAS.md';
+export const WORKFLOW_PROFILE_RELATIVE_PATH = `${WORKFLOW_SYSTEM_DIRECTORY}/${WORKFLOW_PROFILE_FILE}`;
+export const WORKFLOW_PROTOCOL_RELATIVE_PATH = `${WORKFLOW_SYSTEM_DIRECTORY}/${WORKFLOW_PROTOCOL_FILE}`;
+export const WORKFLOW_SCHEMAS_RELATIVE_PATH = `${WORKFLOW_SYSTEM_DIRECTORY}/${WORKFLOW_SCHEMAS_FILE}`;
 type WriteFs = Pick<
   typeof fs,
   'existsSync' | 'mkdirSync' | 'rmSync' | 'renameSync' | 'writeFileSync'
@@ -120,10 +127,14 @@ export function ensureCleanOutputDir(
 
 // --- Profile ---
 
+function resolveRepoRelativePath(root: string, relativePath: string): string {
+  return path.join(root, ...relativePath.split('/').filter(Boolean));
+}
+
 export function loadProfile(profilePath: string): JsonObject {
   const profile = parse(readText(profilePath)) as JsonObject;
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
-    throw new Error('PROJECT_PROFILE.yaml must parse to a mapping');
+    throw new Error(`${WORKFLOW_PROFILE_RELATIVE_PATH} must parse to a mapping`);
   }
   return profile;
 }
@@ -142,6 +153,18 @@ export function getRequiredPath(obj: JsonObject, dottedPath: string): JsonValue 
   return current;
 }
 
+export function getWorkflowProfilePath(root: string): string {
+  return resolveRepoRelativePath(root, WORKFLOW_PROFILE_RELATIVE_PATH);
+}
+
+export function getWorkflowProtocolPath(root: string): string {
+  return resolveRepoRelativePath(root, WORKFLOW_PROTOCOL_RELATIVE_PATH);
+}
+
+export function getWorkflowSchemasPath(root: string): string {
+  return resolveRepoRelativePath(root, WORKFLOW_SCHEMAS_RELATIVE_PATH);
+}
+
 export function getWorkflowHome(profile: JsonObject): string {
   const paths = profile.paths;
   if (!paths || typeof paths !== 'object' || Array.isArray(paths) || !('workflow_home' in paths)) {
@@ -153,7 +176,7 @@ export function getWorkflowHome(profile: JsonObject): string {
     return '';
   }
   if (typeof rawValue !== 'string') {
-    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: value must be a string');
+    throw new Error(`Invalid path entry in ${WORKFLOW_PROFILE_RELATIVE_PATH}.paths.workflow_home: value must be a string`);
   }
 
   const normalized = normalizePathEntry(rawValue);
@@ -161,19 +184,19 @@ export function getWorkflowHome(profile: JsonObject): string {
     return '';
   }
   if (normalized.length === 0) {
-    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: empty string');
+    throw new Error(`Invalid path entry in ${WORKFLOW_PROFILE_RELATIVE_PATH}.paths.workflow_home: empty string`);
   }
   if (/[\0-\x1F\x7F]/.test(normalized)) {
-    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: control character');
+    throw new Error(`Invalid path entry in ${WORKFLOW_PROFILE_RELATIVE_PATH}.paths.workflow_home: control character`);
   }
   if (normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
-    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: absolute path');
+    throw new Error(`Invalid path entry in ${WORKFLOW_PROFILE_RELATIVE_PATH}.paths.workflow_home: absolute path`);
   }
   if (normalized.includes('..')) {
-    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: parent traversal');
+    throw new Error(`Invalid path entry in ${WORKFLOW_PROFILE_RELATIVE_PATH}.paths.workflow_home: parent traversal`);
   }
   if (normalized.includes('*')) {
-    throw new Error('Invalid path entry in PROJECT_PROFILE.yaml.paths.workflow_home: wildcard');
+    throw new Error(`Invalid path entry in ${WORKFLOW_PROFILE_RELATIVE_PATH}.paths.workflow_home: wildcard`);
   }
 
   return normalized.replace(/\/+$/, '');
@@ -448,7 +471,7 @@ export function validateWriteBoundaryConflicts(obj: JsonObject, context: string)
   }
 }
 
-export function validateProfilePathSemantics(profile: JsonObject, context = 'PROJECT_PROFILE.yaml'): void {
+export function validateProfilePathSemantics(profile: JsonObject, context = WORKFLOW_PROFILE_RELATIVE_PATH): void {
   getWorkflowHome(profile);
 
   validatePathEntries(
@@ -684,7 +707,7 @@ function classifyGeneratorError(generator: string, message: string): { report: E
     };
   }
 
-  if (message.startsWith('Required file not found:') || message.startsWith('PROJECT_PROFILE.yaml must parse')) {
+  if (message.startsWith('Required file not found:') || message.startsWith(`${WORKFLOW_PROFILE_RELATIVE_PATH} must parse`)) {
     return {
       report: {
         generator,

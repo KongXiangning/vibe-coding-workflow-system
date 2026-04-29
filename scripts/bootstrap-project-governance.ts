@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import {
+  getWorkflowProfilePath,
   getRequiredPath,
   getWorkflowDocPath,
   getWorkflowDocRelativePath,
@@ -670,10 +671,10 @@ function buildTaskIdentityPlan(targetRoot: string, profile: JsonObject): Bootstr
 export function buildBootstrapPlan(options: BuildBootstrapPlanOptions = {}): BootstrapPlan {
   const systemRoot = path.resolve(options.systemRoot ?? resolveRoot());
   const targetRoot = path.resolve(options.targetRoot ?? systemRoot);
-  const profilePath = path.join(targetRoot, 'PROJECT_PROFILE.yaml');
+  const profilePath = getWorkflowProfilePath(targetRoot);
   const profile = loadProfile(profilePath);
   validateProfilePathSemantics(profile);
-  const systemProfile = loadProfile(path.join(systemRoot, 'PROJECT_PROFILE.yaml'));
+  const systemProfile = loadProfile(getWorkflowProfilePath(systemRoot));
   validateProfilePathSemantics(systemProfile);
 
   const generatedDocs = loadGeneratedDocs(systemRoot, systemProfile);

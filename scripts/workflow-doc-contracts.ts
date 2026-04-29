@@ -236,7 +236,7 @@ export const WORKFLOW_DOC_REQUIRED_SNIPPETS: Partial<Record<WorkflowDocName, rea
     'Rollback / recovery',
     'Release evidence',
     'workflow-system 不绑定部署平台',
-    '`FILE_SCHEMAS.md`',
+    '`.workflow-system/FILE_SCHEMAS.md`',
     'Allowed Files',
     'Conditional Files',
     '未明确允许的文件默认禁止修改',

@@ -108,8 +108,9 @@ bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <targ
 ```
 
 `workflow:pack` exports a deterministic bundle with `workflow-bundle.json`.
-`workflow:install` performs the A1 import step, copies workflow-managed files, merges
-the documented `package.json` surface, writes `.workflow-system/install-state.json`, and
+`workflow:install` performs the A1 import step, copies workflow-managed files, writes
+the workflow control plane into `.workflow-system/`, merges the documented `package.json`
+surface, writes `.workflow-system/install-state.json`, and
 pre-installs the static bootstrap skills `design-baseline-init`, `greenfield-init`,
 `legacy-inventory`, and `adopt-existing-project` into the isolated
 `workflow-system-*` host namespace. For dual-host setups, install now seeds both

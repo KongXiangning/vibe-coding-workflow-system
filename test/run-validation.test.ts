@@ -16,6 +16,7 @@ import {
   FRESHNESS_TARGETS,
   runFreshnessChecks,
 } from '../scripts/check-freshness';
+import { getWorkflowProfilePath } from '../scripts/workflow-core';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -47,8 +48,14 @@ function copyGeneratedSnapshot(targetRoot: string): void {
   copyDir(sourceRoot, outputRoot);
 }
 
+function writeProfileFile(root: string, content: string): void {
+  const profilePath = getWorkflowProfilePath(root);
+  fs.mkdirSync(path.dirname(profilePath), { recursive: true });
+  fs.writeFileSync(profilePath, content, 'utf8');
+}
+
 describe('run-validation', () => {
-  test('loadMatrixFromProfile loads entrypoints from PROJECT_PROFILE.yaml', () => {
+  test('loadMatrixFromProfile loads entrypoints from .workflow-system/PROJECT_PROFILE.yaml', () => {
     const entrypoints = loadMatrixFromProfile(ROOT);
     expect(entrypoints.length).toBeGreaterThanOrEqual(12);
 
@@ -143,8 +150,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -155,8 +161,7 @@ describe('run-validation', () => {
           '      description: target deploy gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
@@ -193,7 +198,8 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.copyFileSync(path.join(ROOT, 'PROJECT_PROFILE.yaml'), path.join(tempRoot, 'PROJECT_PROFILE.yaml'));
+      fs.mkdirSync(path.dirname(getWorkflowProfilePath(tempRoot)), { recursive: true });
+      fs.copyFileSync(getWorkflowProfilePath(ROOT), getWorkflowProfilePath(tempRoot));
 
       const currentTaskPath = path.join(tempRoot, 'generated', 'workflow-docs', 'CURRENT_TASK.md');
       const broken = fs.readFileSync(currentTaskPath, 'utf8').replace(/^\s*-\s+effective_consumers：\s*$/m, '');
@@ -214,8 +220,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -226,8 +231,7 @@ describe('run-validation', () => {
           '      description: target unit gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
@@ -245,8 +249,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -257,8 +260,7 @@ describe('run-validation', () => {
           '      description: target unit gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       const liveCurrentTask = fs.readFileSync(path.join(ROOT, 'generated', 'workflow-docs', 'CURRENT_TASK.md'), 'utf8')
@@ -287,8 +289,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -299,8 +300,7 @@ describe('run-validation', () => {
           '      description: target unit gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'ROADMAP.md'), { force: true });
@@ -319,8 +319,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -331,8 +330,7 @@ describe('run-validation', () => {
           '      description: target unit gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       fs.writeFileSync(
@@ -385,8 +383,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -404,8 +401,7 @@ describe('run-validation', () => {
           '      description: target security gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       const baselinesPath = path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md');
@@ -431,8 +427,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -450,8 +445,7 @@ describe('run-validation', () => {
           '      description: target deploy gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       const generatedBaselinesPath = path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md');
@@ -521,8 +515,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -533,8 +526,7 @@ describe('run-validation', () => {
           '      description: target deploy gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
@@ -554,8 +546,7 @@ describe('run-validation', () => {
 
     try {
       copyGeneratedSnapshot(tempRoot);
-      fs.writeFileSync(
-        path.join(tempRoot, 'PROJECT_PROFILE.yaml'),
+      writeProfileFile(tempRoot,
         [
           'validation:',
           '  matrix:',
@@ -573,8 +564,7 @@ describe('run-validation', () => {
           '      description: target deploy gate',
           '      phase: A4',
           '      owner: target-project',
-        ].join('\n'),
-        'utf8',
+        ].join('\n')
       );
 
       fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
@@ -626,7 +616,8 @@ describe('check-freshness', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-freshness-stale-'));
 
     try {
-      fs.cpSync(path.join(ROOT, 'PROJECT_PROFILE.yaml'), path.join(tempRoot, 'PROJECT_PROFILE.yaml'));
+      fs.mkdirSync(path.dirname(getWorkflowProfilePath(tempRoot)), { recursive: true });
+      fs.cpSync(getWorkflowProfilePath(ROOT), getWorkflowProfilePath(tempRoot));
       fs.cpSync(path.join(ROOT, 'VERSION'), path.join(tempRoot, 'VERSION'));
       fs.cpSync(path.join(ROOT, 'templates'), path.join(tempRoot, 'templates'), { recursive: true });
       copyGeneratedSnapshot(tempRoot);

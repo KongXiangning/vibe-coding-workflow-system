@@ -34,6 +34,7 @@ import {
   executeWrites,
   resolveRoot,
   runGenerator,
+  WORKFLOW_PROFILE_RELATIVE_PATH,
 } from '../scripts/workflow-core';
 
 describe('workflow-core', () => {
@@ -233,25 +234,25 @@ describe('workflow-core', () => {
 
     test('accepts explicit paths and repo-wide glob patterns', () => {
       expect(() =>
-        validateRepoPatternEntry('SKILL_REGISTRY.md', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+        validateRepoPatternEntry('SKILL_REGISTRY.md', 'paths.generated_artifacts', WORKFLOW_PROFILE_RELATIVE_PATH),
       ).not.toThrow();
       expect(() =>
-        validateRepoPatternEntry('**/SKILL.md', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+        validateRepoPatternEntry('**/SKILL.md', 'paths.generated_artifacts', WORKFLOW_PROFILE_RELATIVE_PATH),
       ).not.toThrow();
       expect(() =>
-        validateRepoPatternEntry('templates/docs/*.md.tmpl', 'governance.current_documents', 'PROJECT_PROFILE.yaml'),
+        validateRepoPatternEntry('templates/docs/*.md.tmpl', 'governance.current_documents', WORKFLOW_PROFILE_RELATIVE_PATH),
       ).not.toThrow();
     });
 
     test('rejects absolute, parent traversal, and unsupported glob syntax', () => {
       expect(() =>
-        validateRepoPatternEntry('/tmp/file', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+        validateRepoPatternEntry('/tmp/file', 'paths.generated_artifacts', WORKFLOW_PROFILE_RELATIVE_PATH),
       ).toThrow(/absolute path/);
       expect(() =>
-        validateRepoPatternEntry('../escape', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+        validateRepoPatternEntry('../escape', 'paths.generated_artifacts', WORKFLOW_PROFILE_RELATIVE_PATH),
       ).toThrow(/parent traversal/);
       expect(() =>
-        validateRepoPatternEntry('{foo,bar}', 'paths.generated_artifacts', 'PROJECT_PROFILE.yaml'),
+        validateRepoPatternEntry('{foo,bar}', 'paths.generated_artifacts', WORKFLOW_PROFILE_RELATIVE_PATH),
       ).toThrow(/unsupported glob syntax/);
     });
 
@@ -289,7 +290,7 @@ describe('workflow-core', () => {
             'boundaries.workflow_owned_paths',
             'governance.current_documents',
           ],
-          'PROJECT_PROFILE.yaml',
+          WORKFLOW_PROFILE_RELATIVE_PATH,
         ),
       ).not.toThrow();
     });

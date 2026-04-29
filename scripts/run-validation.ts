@@ -3,7 +3,7 @@
 /**
  * Validation runner for the workflow-system.
  *
- * Reads the validation matrix from PROJECT_PROFILE.yaml, enforces layer
+ * Reads the validation matrix from .workflow-system/PROJECT_PROFILE.yaml, enforces layer
  * precedence (protocol-first per §16.3), executes bound entrypoints, and
  * produces a structured ValidationReport.
  *
@@ -16,6 +16,7 @@ import { parse } from 'yaml';
 import {
   getWorkflowDocPath,
   getWorkflowGeneratedDir,
+  getWorkflowProfilePath,
   loadProfile,
   readText,
   resolveRoot,
@@ -209,11 +210,11 @@ function skipResult(entrypoint: ValidationEntrypoint, reason: string): Validatio
 }
 
 export function loadMatrixFromProfile(root: string): ValidationEntrypoint[] {
-  const profilePath = path.join(root, 'PROJECT_PROFILE.yaml');
+  const profilePath = getWorkflowProfilePath(root);
   const profile = parse(readText(profilePath)) as Record<string, unknown>;
   const validation = profile.validation as Record<string, unknown> | undefined;
   if (!validation || !Array.isArray(validation.matrix)) {
-    throw new Error('PROJECT_PROFILE.yaml is missing validation.matrix array.');
+    throw new Error('.workflow-system/PROJECT_PROFILE.yaml is missing validation.matrix array.');
   }
   return parseValidationMatrix(validation.matrix).entrypoints;
 }
@@ -223,7 +224,7 @@ function getBoundProjectEntrypoints(entrypoints: readonly ValidationEntrypoint[]
 }
 
 function resolveGovernanceDocPath(root: string, file: LifecycleGovernanceDoc): string {
-  const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+  const profile = loadProfile(getWorkflowProfilePath(root));
   const livePath = getWorkflowDocPath(root, profile, file);
   try {
     readText(livePath);

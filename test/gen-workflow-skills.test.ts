@@ -2,7 +2,14 @@ import { describe, test, expect, beforeAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
-import { loadProfile, pathEntriesOverlap, validatePathEntry, validateProfilePathSemantics } from '../scripts/workflow-core';
+import {
+  getWorkflowProfilePath,
+  loadProfile,
+  pathEntriesOverlap,
+  validatePathEntry,
+  validateProfilePathSemantics,
+  WORKFLOW_PROFILE_RELATIVE_PATH,
+} from '../scripts/workflow-core';
 import { WORKFLOW_DOC_REQUIRED_HEADINGS } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -136,12 +143,12 @@ describe('gen-workflow-skills', () => {
   });
 
   test('profile forbidden paths remain restricted while repo-level patterns stay valid', () => {
-    const profile = loadProfile(path.join(ROOT, 'PROJECT_PROFILE.yaml'));
+    const profile = loadProfile(getWorkflowProfilePath(ROOT));
     expect(() => validateProfilePathSemantics(profile)).not.toThrow();
 
     const forbidden = normalizeList((profile.boundaries as Record<string, unknown>).forbidden_paths);
     for (const entry of forbidden) {
-      expect(() => validatePathEntry(entry, 'forbidden_writes', 'PROJECT_PROFILE.yaml')).not.toThrow();
+      expect(() => validatePathEntry(entry, 'forbidden_writes', WORKFLOW_PROFILE_RELATIVE_PATH)).not.toThrow();
     }
   });
 
@@ -208,10 +215,10 @@ describe('gen-workflow-skills', () => {
       const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, `${skill}.SKILL.md`));
       const reads = normalizeList(frontmatter.reads);
       const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
-      expect(reads).toContain('WORKFLOW_PROTOCOL.md');
-      expect(reads).toContain('FILE_SCHEMAS.md');
+      expect(reads).toContain('.workflow-system/WORKFLOW_PROTOCOL.md');
+      expect(reads).toContain('.workflow-system/FILE_SCHEMAS.md');
       expect(reads).toContain('templates/docs/');
-      expect(content).toContain('FILE_SCHEMAS.md');
+      expect(content).toContain('.workflow-system/FILE_SCHEMAS.md');
       expect(content).toContain('templates/docs/');
     }
 
@@ -227,7 +234,7 @@ describe('gen-workflow-skills', () => {
   test('task intake and review skills enforce mutation scope and precedence gates', () => {
     const createFrontmatter = parseFrontmatter(path.join(OUTPUT_DIR, 'create-current-task.SKILL.md'));
     const createForbidden = normalizeList(createFrontmatter.forbidden_writes);
-    expect(createForbidden).toContain('PROJECT_PROFILE.yaml');
+    expect(createForbidden).toContain('.workflow-system/PROJECT_PROFILE.yaml');
     expect(createForbidden).toContain('CONTRACTS.md');
 
     for (const skill of ['create-current-task', 'review-current-task', 'lock-scope', 'review-diff']) {

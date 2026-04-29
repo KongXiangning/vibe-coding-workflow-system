@@ -7,6 +7,7 @@ import {
   type JsonValue,
   type JsonObject,
   type WriteOperation,
+  getWorkflowProfilePath,
   readText,
   loadProfile,
   getRequiredPath,
@@ -38,7 +39,7 @@ type SkillFile = {
 };
 
 const ROOT = resolveRoot();
-const PROFILE_PATH = path.join(ROOT, 'PROJECT_PROFILE.yaml');
+const PROFILE_PATH = getWorkflowProfilePath(ROOT);
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -95,9 +96,9 @@ const PROJECT_VARIABLE_NOTE =
 const REFERENCE_RENDER_NOTE = [
   '## Reference Render Semantics',
   '',
-  '- This generated file is a source-repo reference render produced from the current `PROJECT_PROFILE.yaml`.',
+  '- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.',
   '- The concrete project values shown here reflect this repository\'s profile, not a universal target-project default.',
-  '- Target projects render workflow skills from their own `PROJECT_PROFILE.yaml` during install / sync.',
+  '- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.',
 ].join('\n');
 
 function renderBody(body: string, replacements: Record<string, JsonValue>, projectType: string): string {
@@ -108,7 +109,7 @@ function renderBody(body: string, replacements: Record<string, JsonValue>, proje
 
   rendered = rendered.replace(
     PROJECT_VARIABLE_NOTE,
-    'This source-repo reference render already expands the current `PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.',
+    'This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.',
   );
 
   const emphasis = PROJECT_TYPE_EMPHASIS[projectType] ?? [];

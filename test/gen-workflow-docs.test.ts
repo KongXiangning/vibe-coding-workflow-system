@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
+import { getWorkflowProfilePath, loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
 import {
   WORKFLOW_DOC_NAMES,
   WORKFLOW_DOC_RUNTIME_PLACEHOLDERS,
@@ -209,7 +209,7 @@ describe('gen-workflow-docs', () => {
   });
 
   test('docs generation accepts repo-level profile patterns via shared validation', () => {
-    const profile = loadProfile(path.join(ROOT, 'PROJECT_PROFILE.yaml'));
+    const profile = loadProfile(getWorkflowProfilePath(ROOT));
     expect(() => validateProfilePathSemantics(profile)).not.toThrow();
   });
 });

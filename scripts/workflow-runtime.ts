@@ -20,6 +20,7 @@ import {
   getWorkflowDocPath,
   getWorkflowDocRelativePath,
   getWorkflowGeneratedDir,
+  getWorkflowProfilePath,
   getRequiredPath,
   loadProfile,
   normalizeList,
@@ -27,6 +28,9 @@ import {
   renderWorkflowDocReferences,
   resolveRoot,
   validateProfilePathSemantics,
+  WORKFLOW_PROFILE_RELATIVE_PATH,
+  WORKFLOW_PROTOCOL_RELATIVE_PATH,
+  WORKFLOW_SCHEMAS_RELATIVE_PATH,
   type JsonObject,
   type WriteOperation,
 } from './workflow-core';
@@ -314,10 +318,10 @@ const EXPORT_ARTIFACTS: readonly ExportArtifact[] = [
   { path: 'scripts/gen-workflow-docs.ts', category: 'script', required: true, description: 'Workflow governance-doc generator.' },
   { path: 'scripts/gen-registry.ts', category: 'script', required: true, description: 'Workflow skill registry generator.' },
   { path: 'scripts/workflow-runtime.ts', category: 'script', required: true, description: 'P10 runtime health, manifest, and host sync entrypoints.' },
-  { path: 'WORKFLOW_PROTOCOL.md', category: 'protocol', required: true, description: 'Authoritative workflow-system protocol, including §17 runtime contract.' },
-  { path: 'FILE_SCHEMAS.md', category: 'protocol', required: true, description: 'Schema contract for workflow docs and related artifacts.' },
+  { path: WORKFLOW_PROTOCOL_RELATIVE_PATH, category: 'protocol', required: true, description: 'Authoritative workflow-system protocol, including §17 runtime contract.' },
+  { path: WORKFLOW_SCHEMAS_RELATIVE_PATH, category: 'protocol', required: true, description: 'Schema contract for workflow docs and related artifacts.' },
   { path: 'package.json', category: 'config', required: true, description: 'Runtime dependency manifest and required workflow:* / gen:* / validate:* script contract.' },
-  { path: 'PROJECT_PROFILE.yaml', category: 'config', required: true, description: 'Project profile declaring hosts, paths, and validation matrix.' },
+  { path: WORKFLOW_PROFILE_RELATIVE_PATH, category: 'config', required: true, description: 'Project profile declaring hosts, paths, and validation matrix.' },
   { path: 'templates/skills/**', category: 'template', required: true, description: 'Workflow skill templates to be rendered in the target project.' },
   { path: 'templates/docs/**', category: 'template', required: true, description: 'Workflow governance-doc templates to be rendered in the target project.' },
   { path: 'generated/workflow-skills/**', category: 'generated', required: false, description: 'Freshness-checked reference workflow skills rendered in the source workflow-system repo.' },
@@ -335,8 +339,8 @@ const EXPORT_ARTIFACTS: readonly ExportArtifact[] = [
 
 const SOURCE_PIPELINE: WorkflowSourcePipeline = {
   normative_sources: {
-    protocol: ['WORKFLOW_PROTOCOL.md'],
-    schemas: ['FILE_SCHEMAS.md'],
+    protocol: [WORKFLOW_PROTOCOL_RELATIVE_PATH],
+    schemas: [WORKFLOW_SCHEMAS_RELATIVE_PATH],
   },
   template_roots: ['templates/skills', 'templates/docs'],
   generated_references: ['generated/workflow-skills/**', 'generated/workflow-docs/**', 'SKILL_REGISTRY.md'],
@@ -564,7 +568,7 @@ function buildBootstrapInitSkillWrites(root: string, bundleDir: string, hosts: r
 }
 
 function readWorkflowProfile(root: string): JsonObject {
-  return loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
+  return loadProfile(getWorkflowProfilePath(root));
 }
 
 export function detectRuntimeHost(
@@ -710,8 +714,8 @@ function computeContentChecksum(content: string): string {
 export function computeSourceTreeHash(root: string, includeTests: boolean): string {
   const included = EXPORT_ARTIFACTS.filter(a => {
     if (!includeTests && a.category === 'test') return false;
-    // config category: only package.json is included; PROJECT_PROFILE.yaml excluded
-    if (a.category === 'config' && a.path === 'PROJECT_PROFILE.yaml') return false;
+    // config category: only package.json is included; profile scaffold is bundled separately
+    if (a.category === 'config' && a.path === WORKFLOW_PROFILE_RELATIVE_PATH) return false;
     return true;
   });
 
@@ -782,6 +786,7 @@ function buildProfileScaffoldTemplate(): JsonObject {
       workflow_owned_paths: [
         'AGENTS.md',
         'CLAUDE.md',
+        '.workflow-system/**',
         'docs/workflow/**',
         'scripts/workflow-core.ts',
         'scripts/repo-path-patterns.ts',
@@ -797,9 +802,6 @@ function buildProfileScaffoldTemplate(): JsonObject {
         'scripts/workflow-runtime.ts',
         'templates/docs/**',
         'templates/skills/**',
-        'WORKFLOW_PROTOCOL.md',
-        'FILE_SCHEMAS.md',
-        'PROJECT_PROFILE.yaml',
       ],
     },
     architecture_rules: [
@@ -810,9 +812,9 @@ function buildProfileScaffoldTemplate(): JsonObject {
     decision_types: ['mechanical', 'taste', 'user_challenge'],
     governance: {
       current_documents: [
-        'PROJECT_PROFILE.yaml',
-        'WORKFLOW_PROTOCOL.md',
-        'FILE_SCHEMAS.md',
+        WORKFLOW_PROFILE_RELATIVE_PATH,
+        WORKFLOW_PROTOCOL_RELATIVE_PATH,
+        WORKFLOW_SCHEMAS_RELATIVE_PATH,
         'docs/workflow/SKILL_REGISTRY.md',
         'docs/workflow/BASELINES.md',
         'docs/workflow/CONTRACTS.md',
@@ -1183,7 +1185,7 @@ function buildHostGuidanceContent(root: string, profile: JsonObject, fileName: '
     '## workflow-system',
     '',
     '- This project uses workflow-system for AI delivery governance.',
-    '- Read `PROJECT_PROFILE.yaml`, `WORKFLOW_PROTOCOL.md`, `FILE_SCHEMAS.md`, and `docs/workflow/WORKFLOW_GUIDE.md` before changing workflow-managed docs.',
+    `- Read \`${WORKFLOW_PROFILE_RELATIVE_PATH}\`, \`${WORKFLOW_PROTOCOL_RELATIVE_PATH}\`, \`${WORKFLOW_SCHEMAS_RELATIVE_PATH}\`, and \`docs/workflow/WORKFLOW_GUIDE.md\` before changing workflow-managed docs.`,
     '- Bootstrap skills are preinstalled in both `.claude/skills/workflow-system-*` and `.codex/skills/workflow-system-*`.',
     '- New project: `/design-baseline-init` -> `/greenfield-init`.',
     '- Existing project: `/legacy-inventory` -> `/adopt-existing-project`.',
@@ -1252,7 +1254,7 @@ function mergeProfileWithBundle(
       fragment: extractProfileFragment(existingProfile),
       failures: missingFields.map(field => ({
         category: 'incompatible_target',
-        path: 'PROJECT_PROFILE.yaml',
+        path: WORKFLOW_PROFILE_RELATIVE_PATH,
         message: `Missing required target profile field: ${field}`,
       })),
     };
@@ -1269,7 +1271,7 @@ function mergeProfileWithBundle(
     if (!deepEqual(current, required)) {
       failures.push({
         category: 'contract_conflict',
-        path: 'PROJECT_PROFILE.yaml',
+        path: WORKFLOW_PROFILE_RELATIVE_PATH,
         message: `Incompatible workflow-owned profile field: ${dottedPath}`,
       });
     }
@@ -1603,7 +1605,7 @@ function writePlannedFiles(
       writeTextFile(planned.path, `${JSON.stringify(packageJson, null, 2)}\n`);
       continue;
     }
-    if (planned.path === path.join(root, 'PROJECT_PROFILE.yaml') && profile) {
+    if (planned.path === getWorkflowProfilePath(root) && profile) {
       writeTextFile(planned.path, stringify(profile).trimEnd() + '\n');
       continue;
     }
@@ -1632,8 +1634,8 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
   const bundle = parseWorkflowBundle(bundleDir);
   verifyBundleIntegrity(bundleDir, bundle);
   const existingInstallState = readInstallState(root);
-  const existingProfile = fs.existsSync(path.join(root, 'PROJECT_PROFILE.yaml'))
-    ? loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'))
+  const existingProfile = fs.existsSync(getWorkflowProfilePath(root))
+    ? loadProfile(getWorkflowProfilePath(root))
     : undefined;
   const failures: PreflightFailure[] = [];
 
@@ -1647,16 +1649,16 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     if (!existingProfile) {
       failures.push({
         category: 'local_drift',
-        path: 'PROJECT_PROFILE.yaml',
-        message: 'Workflow-owned PROJECT_PROFILE.yaml fragment is missing since last install.',
+        path: WORKFLOW_PROFILE_RELATIVE_PATH,
+        message: `Workflow-owned ${WORKFLOW_PROFILE_RELATIVE_PATH} fragment is missing since last install.`,
       });
     } else {
       const currentProfileFragment = extractProfileFragment(existingProfile);
       if (!deepEqual(currentProfileFragment, existingInstallState.project_profile_fragment)) {
         failures.push({
           category: 'local_drift',
-          path: 'PROJECT_PROFILE.yaml',
-          message: 'Workflow-owned PROJECT_PROFILE.yaml fragment was modified locally since last install.',
+          path: WORKFLOW_PROFILE_RELATIVE_PATH,
+          message: `Workflow-owned ${WORKFLOW_PROFILE_RELATIVE_PATH} fragment was modified locally since last install.`,
         });
       }
     }
@@ -1670,7 +1672,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     } catch (error) {
       failures.push({
         category: 'incompatible_target',
-        path: 'PROJECT_PROFILE.yaml',
+        path: WORKFLOW_PROFILE_RELATIVE_PATH,
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1727,7 +1729,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
   }
   if (!existingProfile || !deepEqual(existingProfile, profilePlan.profile)) {
     plannedWrites.push({
-      path: path.join(root, 'PROJECT_PROFILE.yaml'),
+      path: getWorkflowProfilePath(root),
       action: existingProfile ? 'merge' : 'scaffold',
       mode: 'merge-managed',
     });
@@ -1876,7 +1878,7 @@ export function getExportManifest(root?: string): ExportManifest {
 }
 
 function collectGeneratedSkillFiles(root: string): string[] {
-  const profile = fs.existsSync(path.join(root, 'PROJECT_PROFILE.yaml'))
+  const profile = fs.existsSync(getWorkflowProfilePath(root))
     ? readWorkflowProfile(root)
     : {};
   const skillDir = getWorkflowGeneratedDir(root, profile, 'workflow-skills');
@@ -2005,7 +2007,7 @@ export function buildWorkflowHealthReport(
     components.push({
       name: 'profile',
       status: 'passed',
-      message: `Loaded PROJECT_PROFILE.yaml for ${projectName} (${projectType}).`,
+      message: `Loaded ${WORKFLOW_PROFILE_RELATIVE_PATH} for ${projectName} (${projectType}).`,
     });
   } catch (error) {
     components.push({
@@ -2049,12 +2051,12 @@ export function buildWorkflowHealthReport(
     components.push({
       name: 'generators',
       status: 'failed',
-      message: 'Skipped because PROJECT_PROFILE.yaml is invalid.',
+      message: `Skipped because ${WORKFLOW_PROFILE_RELATIVE_PATH} is invalid.`,
     });
     components.push({
       name: 'protocol',
       status: 'failed',
-      message: 'Skipped because PROJECT_PROFILE.yaml is invalid.',
+      message: `Skipped because ${WORKFLOW_PROFILE_RELATIVE_PATH} is invalid.`,
     });
   } else {
     try {
@@ -2232,7 +2234,7 @@ function main(): void {
     return;
   }
 
-  const profile = fs.existsSync(path.join(root, 'PROJECT_PROFILE.yaml'))
+  const profile = fs.existsSync(getWorkflowProfilePath(root))
     ? readWorkflowProfile(root)
     : undefined;
   const detected = detectRuntimeHost(root, profile);

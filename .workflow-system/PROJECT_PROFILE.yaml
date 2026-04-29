@@ -73,8 +73,9 @@ boundaries:
     - "**/SKILL.md"
     - SKILL_REGISTRY.md
   workflow_owned_paths:
-    - PROJECT_PROFILE.yaml
-    - FILE_SCHEMAS.md
+    - .workflow-system/PROJECT_PROFILE.yaml
+    - .workflow-system/WORKFLOW_PROTOCOL.md
+    - .workflow-system/FILE_SCHEMAS.md
     - SKILL_REGISTRY.md
     - templates/docs/**
     - templates/skills/**
@@ -100,9 +101,9 @@ decision_types:
 
 governance:
   current_documents:
-    - PROJECT_PROFILE.yaml
-    - WORKFLOW_PROTOCOL.md
-    - FILE_SCHEMAS.md
+    - .workflow-system/PROJECT_PROFILE.yaml
+    - .workflow-system/WORKFLOW_PROTOCOL.md
+    - .workflow-system/FILE_SCHEMAS.md
     - SKILL_REGISTRY.md
     - docs/repo-path-grammar.md
     - vibe-coding/README.md
@@ -121,7 +122,7 @@ validation:
     - handoff graph closes
     - reads/writes boundaries are non-conflicting
     - all workflow stages are covered
-  # Validation matrix per WORKFLOW_PROTOCOL.md §16.4.
+  # Validation matrix per .workflow-system/WORKFLOW_PROTOCOL.md §16.4.
   # Protocol-level entrypoints are defined by the workflow-system.
   # Project-level entrypoints are declared as slots and bound by the target project during Adoption A4.
   matrix:
