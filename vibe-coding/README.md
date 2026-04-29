@@ -142,16 +142,43 @@ bun run workflow:install --bundle $bundle.FullName --root $target --host codex -
 bun run workflow:install --bundle $bundle.FullName --root $target --host codex
 ```
 
-### 让目标项目完成 adoption，先 dry-run
+安装完成后，以下现象是**预期行为**，不是安装失败：
+
+- `FILE_SCHEMAS.md`
+- `WORKFLOW_PROTOCOL.md`
+- `PROJECT_PROFILE.yaml`
+- `.workflow-system/install-state.json`
+- `scripts/workflow-*.ts`
+- `templates/**`
+
+这些文件就是 workflow-system 的 runtime / protocol / template 安装面，会直接落在目标项目中。
+
+对 **Codex host**，workflow-system 的隔离 namespace 会同步到：
+
+- `.codex/skills/workflow-system-<skill>/SKILL.md`
+
+这层 sync 通过 `workflow-system-*` 前缀与其他 Codex skill 隔离。
+
+### 让目标项目完成 bootstrap / adoption
+
+`workflow:install` 只负责把 runtime、模板、协议文档和 bootstrap skills 装进目标项目；它**不会**自动生成 `AGENTS.md` / `CLAUDE.md`，也不会自动完成项目事实盘点或治理基线接管。
+
+安装后请在**目标宿主里**调用 bootstrap skill 链：
+
+- **新项目**：`/design-baseline-init` -> `/greenfield-init`
+- **已有项目**：`/legacy-inventory` -> `/adopt-existing-project`
+
+其中：
+
+- Codex 宿主最终会由 `greenfield-init` 或 `adopt-existing-project` 生成 `AGENTS.md`
+- Claude 宿主最终会生成 `CLAUDE.md`
+
+完成 bootstrap / adoption 后，在目标项目根目录执行：
 
 ```powershell
-bun run workflow:adopt --root $target --host codex --dry-run --json
-```
-
-确认输出合理后执行：
-
-```powershell
-bun run workflow:adopt --root $target --host codex
+bun install
+bun run gen:all
+bun run workflow:sync --host codex --write
 ```
 
 ### 在目标项目里验证

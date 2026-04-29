@@ -112,7 +112,8 @@ bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <targ
 the documented `package.json` surface, writes `.workflow-system/install-state.json`, and
 pre-installs the static bootstrap skills `design-baseline-init`, `greenfield-init`,
 `legacy-inventory`, and `adopt-existing-project` into the isolated
-`workflow-system-*` host namespace.
+`workflow-system-*` host namespace. For Codex, that namespace now syncs into
+`.codex/skills/workflow-system-*`.
 `design-baseline-init` -> `greenfield-init` and `legacy-inventory` ->
 `adopt-existing-project` are the project-level initialization entrypoints: they
 establish the first governance baseline as skills, not runtime commands.

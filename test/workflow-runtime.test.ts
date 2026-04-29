@@ -128,7 +128,7 @@ describe('workflow-runtime manifest', () => {
       'verify-health',
     ]);
     expect(manifest.import_contract.adopt.steps.find(step => step.name === 'sync-host-runtime')?.command).toContain('--write');
-    expect(manifest.host_compatibility.codex.runtime_root).toBe(path.join('.agents', 'skills'));
+    expect(manifest.host_compatibility.codex.runtime_root).toBe(path.join('.codex', 'skills'));
     expect(manifest.host_compatibility.codex.isolated_prefix).toBe('workflow-system-');
     expect(manifest.verification).toContain('bun run workflow:health');
     expect(manifest.verification).toContain('bun run workflow:sync --host <claude|codex|factory> --write');
@@ -391,7 +391,7 @@ describe('workflow-runtime host detection', () => {
   test('directory marker wins over profile fallback, and explicit host wins over both', () => {
     withTempRoot(root => {
       writeProfile(root, 'claude');
-      fs.mkdirSync(path.join(root, '.agents', 'skills'), { recursive: true });
+      fs.mkdirSync(path.join(root, '.codex', 'skills'), { recursive: true });
       const profile = loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'));
 
       expect(detectRuntimeHost(root, profile).host).toBe('codex');
@@ -414,18 +414,18 @@ describe('workflow-runtime sync', () => {
   test('host sync plan uses isolated workflow-system targets and reports orphaned workflow-system dirs only', () => {
     withTempRoot(root => {
       writeGeneratedSkill(root, 'archive-task');
-      fs.mkdirSync(path.join(root, '.agents', 'skills', 'workflow-system-stale-skill'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.agents', 'skills', 'workflow-system-stale-skill', 'SKILL.md'), '# stale\n', 'utf8');
-      fs.mkdirSync(path.join(root, '.agents', 'skills', 'gstack-existing-skill'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.agents', 'skills', 'gstack-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
+      fs.mkdirSync(path.join(root, '.codex', 'skills', 'workflow-system-stale-skill'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.codex', 'skills', 'workflow-system-stale-skill', 'SKILL.md'), '# stale\n', 'utf8');
+      fs.mkdirSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
       const plan = buildHostSyncPlan(root, 'codex');
       expect(plan.isolated).toBe(true);
       expect(plan.entries).toHaveLength(1);
       expect(path.relative(root, plan.entries[0].target)).toBe(
-        path.join('.agents', 'skills', 'workflow-system-archive-task', 'SKILL.md'),
+        path.join('.codex', 'skills', 'workflow-system-archive-task', 'SKILL.md'),
       );
       expect(plan.planned_prune_targets.map(target => path.relative(root, target))).toEqual([
-        path.join('.agents', 'skills', 'workflow-system-stale-skill'),
+        path.join('.codex', 'skills', 'workflow-system-stale-skill'),
       ]);
     });
   });
@@ -451,23 +451,23 @@ describe('workflow-runtime sync', () => {
   test('syncWorkflowHost prunes orphaned workflow-system dirs while preserving non-workflow namespaces', () => {
     withTempRoot(root => {
       writeGeneratedSkill(root, 'review-diff', '# Review Diff\n');
-      fs.mkdirSync(path.join(root, '.agents', 'skills', 'workflow-system-archive-task'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.agents', 'skills', 'workflow-system-archive-task', 'SKILL.md'), '# stale\n', 'utf8');
-      fs.mkdirSync(path.join(root, '.agents', 'skills', 'gstack-existing-skill'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.agents', 'skills', 'gstack-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
+      fs.mkdirSync(path.join(root, '.codex', 'skills', 'workflow-system-archive-task'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.codex', 'skills', 'workflow-system-archive-task', 'SKILL.md'), '# stale\n', 'utf8');
+      fs.mkdirSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
 
       const result = syncWorkflowHost({ root, host: 'codex', write: true });
       expect(result.synced).toBe(1);
       expect(result.pruned).toBe(1);
       expect(result.planned_prune_targets.map(target => path.relative(root, target))).toEqual([
-        path.join('.agents', 'skills', 'workflow-system-archive-task'),
+        path.join('.codex', 'skills', 'workflow-system-archive-task'),
       ]);
       expect(result.applied_prune_targets.map(target => path.relative(root, target))).toEqual([
-        path.join('.agents', 'skills', 'workflow-system-archive-task'),
+        path.join('.codex', 'skills', 'workflow-system-archive-task'),
       ]);
-      expect(fs.existsSync(path.join(root, '.agents', 'skills', 'workflow-system-archive-task'))).toBe(false);
-      expect(fs.existsSync(path.join(root, '.agents', 'skills', 'workflow-system-review-diff', 'SKILL.md'))).toBe(true);
-      expect(fs.existsSync(path.join(root, '.agents', 'skills', 'gstack-existing-skill', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(root, '.codex', 'skills', 'workflow-system-archive-task'))).toBe(false);
+      expect(fs.existsSync(path.join(root, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill', 'SKILL.md'))).toBe(true);
     });
   });
 
@@ -528,11 +528,11 @@ describe('workflow-runtime install', () => {
         expect(fs.existsSync(path.join(targetRoot, 'VERSION'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'scripts', 'workflow-runtime.ts'))).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
-        const greenfieldInit = fs.readFileSync(path.join(targetRoot, '.agents', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'), 'utf8');
+        expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
+        const greenfieldInit = fs.readFileSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'), 'utf8');
         expect(greenfieldInit).toContain('docs/workflow/CONTRACTS.md');
         expect(greenfieldInit).toContain('docs/workflow/STATUS.md');
         expect(greenfieldInit).toContain('docs/workflow/DECISIONS.md');
@@ -548,19 +548,19 @@ describe('workflow-runtime install', () => {
         expect(installState.managed_files).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              path: '.agents/skills/workflow-system-design-baseline-init/SKILL.md',
+              path: '.codex/skills/workflow-system-design-baseline-init/SKILL.md',
               mode: 'bootstrap-skill-install',
             }),
             expect.objectContaining({
-              path: '.agents/skills/workflow-system-greenfield-init/SKILL.md',
+              path: '.codex/skills/workflow-system-greenfield-init/SKILL.md',
               mode: 'bootstrap-skill-install',
             }),
             expect.objectContaining({
-              path: '.agents/skills/workflow-system-legacy-inventory/SKILL.md',
+              path: '.codex/skills/workflow-system-legacy-inventory/SKILL.md',
               mode: 'bootstrap-skill-install',
             }),
             expect.objectContaining({
-              path: '.agents/skills/workflow-system-adopt-existing-project/SKILL.md',
+              path: '.codex/skills/workflow-system-adopt-existing-project/SKILL.md',
               mode: 'bootstrap-skill-install',
             }),
           ]),
@@ -603,7 +603,7 @@ describe('workflow-runtime install', () => {
     });
   });
 
-  test('installWorkflowBundle fails for CommonJS targets', () => {
+  test('installWorkflowBundle allows CommonJS targets without rewriting package type', () => {
     withTempRoot(bundleOutDir => {
       const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
       withTempRoot(targetRoot => {
@@ -616,13 +616,15 @@ describe('workflow-runtime install', () => {
         const report = installWorkflowBundle({
           bundleDir: packReport.output_directory,
           root: targetRoot,
-          dryRun: true,
         });
 
-        expect(report.success).toBe(false);
-        expect(report.exit_code).toBe(3);
-        expect(report.failures.some(failure => failure.category === 'incompatible_target')).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(false);
+        expect(report.success).toBe(true);
+        expect(report.exit_code).toBe(0);
+        const packageJson = readJson(path.join(targetRoot, 'package.json'));
+        expect(packageJson.type).toBe('commonjs');
+        expect((packageJson.scripts as Record<string, unknown>)['workflow:health']).toBe('bun run scripts/workflow-runtime.ts health');
+        expect((packageJson.dependencies as Record<string, unknown>).yaml).toBeDefined();
+        expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(true);
       });
     });
   });
@@ -683,7 +685,7 @@ describe('workflow-runtime install', () => {
         expect(first.success).toBe(true);
 
         fs.appendFileSync(
-          path.join(targetRoot, '.agents', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'),
+          path.join(targetRoot, '.codex', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'),
           '\n<!-- local drift -->\n',
           'utf8',
         );
@@ -699,7 +701,7 @@ describe('workflow-runtime install', () => {
           second.failures.some(
             failure =>
               failure.category === 'local_drift' &&
-              failure.path === '.agents/skills/workflow-system-design-baseline-init/SKILL.md',
+              failure.path === '.codex/skills/workflow-system-design-baseline-init/SKILL.md',
           ),
         ).toBe(true);
       });

@@ -289,13 +289,13 @@ const BOOTSTRAP_INIT_SKILLS = [
 
 const HOST_SKILL_DIRECTORIES: Record<RuntimeHost, string> = {
   claude: path.join('.claude', 'skills'),
-  codex: path.join('.agents', 'skills'),
+  codex: path.join('.codex', 'skills'),
   factory: path.join('.factory', 'skills'),
 };
 
 const HOST_MARKERS: ReadonlyArray<{ host: RuntimeHost; marker: string }> = [
   { host: 'claude', marker: '.claude' },
-  { host: 'codex', marker: '.agents' },
+  { host: 'codex', marker: '.codex' },
   { host: 'factory', marker: '.factory' },
 ];
 
@@ -616,8 +616,8 @@ function getHostCompatibilityNotes(): Record<RuntimeHost, HostCompatibilityNote>
       isolated_prefix: WORKFLOW_RUNTIME_PREFIX,
       sync_mode: 'copy',
       notes: [
-        'Workflow skills are copied into .agents/skills/workflow-system-<skill>/SKILL.md.',
-        'The sync layer stays separate from .agents/skills/gstack-* artifacts.',
+        'Workflow skills are copied into .codex/skills/workflow-system-<skill>/SKILL.md.',
+        'The sync layer stays isolated by the workflow-system-* prefix inside the Codex runtime root.',
       ],
     },
     factory: {
@@ -1300,15 +1300,6 @@ function buildPackageJsonPlan(
   }
 
   const packageJson = readJsonObject(packagePath);
-  if (packageJson.type !== 'module') {
-    failures.push({
-      category: 'incompatible_target',
-      path: 'package.json',
-      message: 'Target project must already be ESM (`type: module`).',
-    });
-    return { packageJson, fragment: extractPackageJsonFragment(packageJson), failures, writeNeeded: false };
-  }
-
   const currentScripts = ensureObject(packageJson.scripts ?? {}, 'package.json.scripts');
   const currentDependencies = ensureObject(packageJson.dependencies ?? {}, 'package.json.dependencies');
   const currentEngines = ensureObject(packageJson.engines ?? {}, 'package.json.engines');
