@@ -280,6 +280,7 @@ type HostResolution = {
 };
 
 const WORKFLOW_RUNTIME_PREFIX = 'workflow-system-';
+const DEFAULT_BOOTSTRAP_HOSTS: readonly RuntimeHost[] = ['claude', 'codex'];
 const BOOTSTRAP_INIT_SKILLS = [
   'design-baseline-init',
   'greenfield-init',
@@ -534,8 +535,23 @@ function renderBootstrapInitSkillTemplate(content: string, profile: JsonObject):
   return String(renderWorkflowDocReferences(content, profile));
 }
 
-function buildBootstrapInitSkillWrites(root: string, bundleDir: string, host: RuntimeHost, profile: JsonObject): PlannedWrite[] {
-  return BOOTSTRAP_INIT_SKILLS.map(skillName => {
+function getBootstrapHosts(profile?: JsonObject, explicitHost?: RuntimeHost): RuntimeHost[] {
+  const hosts = new Set<RuntimeHost>(DEFAULT_BOOTSTRAP_HOSTS);
+  if (profile) {
+    for (const host of normalizeList(getRequiredPath(profile, 'project.primary_hosts'))) {
+      if (isRuntimeHost(host)) {
+        hosts.add(host);
+      }
+    }
+  }
+  if (explicitHost) {
+    hosts.add(explicitHost);
+  }
+  return [...hosts];
+}
+
+function buildBootstrapInitSkillWrites(root: string, bundleDir: string, hosts: readonly RuntimeHost[], profile: JsonObject): PlannedWrite[] {
+  return hosts.flatMap(host => BOOTSTRAP_INIT_SKILLS.map(skillName => {
     const targetPath = getBootstrapInitSkillTarget(root, host, skillName);
     const templatePath = getBootstrapInitSkillTemplatePath(bundleDir, skillName);
     return {
@@ -544,7 +560,7 @@ function buildBootstrapInitSkillWrites(root: string, bundleDir: string, host: Ru
       mode: 'bootstrap-skill-install',
       content: renderBootstrapInitSkillTemplate(readText(templatePath), profile),
     };
-  });
+  }));
 }
 
 function readWorkflowProfile(root: string): JsonObject {
@@ -765,6 +781,7 @@ function buildProfileScaffoldTemplate(): JsonObject {
       ],
       workflow_owned_paths: [
         'AGENTS.md',
+        'CLAUDE.md',
         'docs/workflow/**',
         'scripts/workflow-core.ts',
         'scripts/repo-path-patterns.ts',
@@ -1138,12 +1155,12 @@ function buildScaffoldPackageJson(root: string, bundle: WorkflowBundle): JsonObj
   };
 }
 
-function renderProfileScaffold(root: string, bundle: WorkflowBundle, host: RuntimeHost, packageJson?: JsonObject): JsonObject {
+function renderProfileScaffold(root: string, bundle: WorkflowBundle, packageJson?: JsonObject): JsonObject {
   const template = deepClone(bundle.profile_scaffold_template);
   const project = ensureObject(template.project, 'profile_scaffold_template.project');
   project.name = deriveProjectSlug(root, packageJson);
   project.slug = deriveProjectSlug(root, packageJson);
-  project.primary_hosts = [host];
+  project.primary_hosts = [...DEFAULT_BOOTSTRAP_HOSTS];
   const validation = ensureObject(template.validation, 'profile_scaffold_template.validation');
   const matrixSeed = Array.isArray(validation.matrix_seed) ? validation.matrix_seed : [];
   validation.matrix = matrixSeed.map(entry => {
@@ -1156,6 +1173,36 @@ function renderProfileScaffold(root: string, bundle: WorkflowBundle, host: Runti
   }) as JsonObject[keyof JsonObject];
   delete validation.matrix_seed;
   return template;
+}
+
+function buildHostGuidanceContent(root: string, profile: JsonObject, fileName: 'AGENTS.md' | 'CLAUDE.md'): string {
+  const projectName = String(getRequiredPath(profile, 'project.name') ?? deriveProjectSlug(root));
+  return [
+    `# ${projectName} workflow-system guidance`,
+    '',
+    '## workflow-system',
+    '',
+    '- This project uses workflow-system for AI delivery governance.',
+    '- Read `PROJECT_PROFILE.yaml`, `WORKFLOW_PROTOCOL.md`, `FILE_SCHEMAS.md`, and `docs/workflow/WORKFLOW_GUIDE.md` before changing workflow-managed docs.',
+    '- Bootstrap skills are preinstalled in both `.claude/skills/workflow-system-*` and `.codex/skills/workflow-system-*`.',
+    '- New project: `/design-baseline-init` -> `/greenfield-init`.',
+    '- Existing project: `/legacy-inventory` -> `/adopt-existing-project`.',
+    '- After bootstrap or workflow template changes, run `bun run gen:all`, `bun run workflow:sync --host claude --write`, `bun run workflow:sync --host codex --write`, and `bun run workflow:health`.',
+    '',
+    `This file was scaffolded during workflow-system install so ${fileName === 'AGENTS.md' ? 'Codex-compatible agents' : 'Claude'} can start from the same governance baseline.`,
+    '',
+  ].join('\n');
+}
+
+function buildHostGuidanceWrites(root: string, profile: JsonObject): PlannedWrite[] {
+  return (['AGENTS.md', 'CLAUDE.md'] as const)
+    .filter(fileName => !fs.existsSync(path.join(root, fileName)))
+    .map(fileName => ({
+      path: path.join(root, fileName),
+      action: 'scaffold' as const,
+      mode: 'scaffold-once',
+      content: buildHostGuidanceContent(root, profile, fileName),
+    }));
 }
 
 function extractProfileFragment(profile: JsonObject): JsonObject {
@@ -1189,11 +1236,10 @@ function mergeValidationMatrix(current: unknown, seeded: unknown): JsonObject[] 
 function mergeProfileWithBundle(
   root: string,
   bundle: WorkflowBundle,
-  host: RuntimeHost,
   existingProfile?: JsonObject,
 ): { profile: JsonObject; fragment: JsonObject; failures: PreflightFailure[] } {
   const failures: PreflightFailure[] = [];
-  const template = renderProfileScaffold(root, bundle, host);
+  const template = renderProfileScaffold(root, bundle);
   if (!existingProfile) {
     const profile = deepClone(template);
     return { profile, fragment: extractProfileFragment(profile), failures };
@@ -1235,7 +1281,11 @@ function mergeProfileWithBundle(
       mergeUniqueStringArray(getDottedValue(merged, dottedPath), getDottedValue(template, dottedPath)),
     );
   }
-  setDottedValue(merged, 'project.primary_hosts', mergeUniqueStringArray(getDottedValue(merged, 'project.primary_hosts'), [host]));
+  setDottedValue(
+    merged,
+    'project.primary_hosts',
+    mergeUniqueStringArray(getDottedValue(merged, 'project.primary_hosts'), DEFAULT_BOOTSTRAP_HOSTS),
+  );
   setDottedValue(
     merged,
     'validation.matrix',
@@ -1456,7 +1506,7 @@ function buildReplaceManagedPlan(
 function buildBootstrapManagedPlan(
   root: string,
   bundleDir: string,
-  host: RuntimeHost,
+  hosts: readonly RuntimeHost[],
   profile: JsonObject,
   installState?: InstallState,
 ): { plannedWrites: PlannedWrite[]; managedFiles: ManagedFileEntry[]; failures: PreflightFailure[] } {
@@ -1464,7 +1514,7 @@ function buildBootstrapManagedPlan(
   const plannedWrites: PlannedWrite[] = [];
   const managedFiles: ManagedFileEntry[] = [];
   const currentStateByPath = new Map((installState?.managed_files ?? []).map(entry => [normalizeRelativePath(entry.path), entry]));
-  const bootstrapWrites = buildBootstrapInitSkillWrites(root, bundleDir, host, profile);
+  const bootstrapWrites = buildBootstrapInitSkillWrites(root, bundleDir, hosts, profile);
   const bootstrapPaths = new Set<string>();
 
   for (const planned of bootstrapWrites) {
@@ -1585,7 +1635,6 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
   const existingProfile = fs.existsSync(path.join(root, 'PROJECT_PROFILE.yaml'))
     ? loadProfile(path.join(root, 'PROJECT_PROFILE.yaml'))
     : undefined;
-  const host = getDefaultHost(root, options.host, existingProfile);
   const failures: PreflightFailure[] = [];
 
   const replaceManagedPlan = buildReplaceManagedPlan(root, bundleDir, bundle, existingInstallState);
@@ -1613,7 +1662,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     }
   }
 
-  const profilePlan = mergeProfileWithBundle(root, bundle, host, existingProfile);
+  const profilePlan = mergeProfileWithBundle(root, bundle, existingProfile);
   failures.push(...profilePlan.failures);
   if (profilePlan.failures.length === 0) {
     try {
@@ -1627,10 +1676,11 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     }
   }
 
+  const bootstrapHosts = getBootstrapHosts(profilePlan.profile, options.host);
   const bootstrapPlan = buildBootstrapManagedPlan(
     root,
     bundleDir,
-    host,
+    bootstrapHosts,
     profilePlan.profile,
     existingInstallState,
   );
@@ -1654,11 +1704,16 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     project_profile_fragment: profilePlan.fragment,
     host_sync_state: {
       ...(existingInstallState?.host_sync_state ?? {}),
-      [host]: existingInstallState?.host_sync_state?.[host] ?? {
-        namespace: 'workflow-system-*',
-        synced_at: null,
-        synced_entries: [],
-      },
+      ...Object.fromEntries(
+        bootstrapHosts.map(host => [
+          host,
+          existingInstallState?.host_sync_state?.[host] ?? {
+            namespace: 'workflow-system-*',
+            synced_at: null,
+            synced_entries: [],
+          },
+        ]),
+      ),
     },
   };
 
@@ -1680,6 +1735,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
   if (versionWriteNeeded) {
     plannedWrites.push({ path: versionPath, action: 'scaffold', mode: 'scaffold-once' });
   }
+  plannedWrites.push(...buildHostGuidanceWrites(root, profilePlan.profile));
   plannedWrites.push(...bootstrapPlan.plannedWrites);
   plannedWrites.push({
     path: path.join(root, '.workflow-system', 'install-state.json'),

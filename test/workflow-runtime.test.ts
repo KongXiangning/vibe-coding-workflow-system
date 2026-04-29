@@ -526,17 +526,29 @@ describe('workflow-runtime install', () => {
         expect(fs.existsSync(path.join(targetRoot, 'package.json'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'PROJECT_PROFILE.yaml'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'VERSION'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'AGENTS.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'scripts', 'workflow-runtime.ts'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
         const greenfieldInit = fs.readFileSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'), 'utf8');
+        expect(greenfieldInit).toContain('AGENTS.md');
+        expect(greenfieldInit).toContain('CLAUDE.md');
         expect(greenfieldInit).toContain('docs/workflow/CONTRACTS.md');
         expect(greenfieldInit).toContain('docs/workflow/STATUS.md');
         expect(greenfieldInit).toContain('docs/workflow/DECISIONS.md');
+        expect(greenfieldInit).not.toContain('当前宿主对应文件');
         expect(greenfieldInit).not.toContain('`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`');
+
+        const profile = loadProfile(path.join(targetRoot, 'PROJECT_PROFILE.yaml'));
+        expect(profile.project?.primary_hosts).toEqual(['claude', 'codex']);
 
         const packageJson = readJson(path.join(targetRoot, 'package.json'));
         expect(packageJson.type).toBe('module');
@@ -547,6 +559,22 @@ describe('workflow-runtime install', () => {
         expect(installState.bundle_id).toBe(packReport.bundle_id);
         expect(installState.managed_files).toEqual(
           expect.arrayContaining([
+            expect.objectContaining({
+              path: '.claude/skills/workflow-system-design-baseline-init/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
+              path: '.claude/skills/workflow-system-greenfield-init/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
+              path: '.claude/skills/workflow-system-legacy-inventory/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
+              path: '.claude/skills/workflow-system-adopt-existing-project/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
             expect.objectContaining({
               path: '.codex/skills/workflow-system-design-baseline-init/SKILL.md',
               mode: 'bootstrap-skill-install',
@@ -774,7 +802,7 @@ describe('workflow-runtime install', () => {
         const profileText = fs.readFileSync(profilePath, 'utf8');
         fs.writeFileSync(
           profilePath,
-          profileText.replace('  primary_hosts:\n    - codex', '  primary_hosts:\n    - codex\n    - factory'),
+          profileText.replace('  primary_hosts:\n    - claude\n    - codex', '  primary_hosts:\n    - claude\n    - codex\n    - factory'),
           'utf8',
         );
 

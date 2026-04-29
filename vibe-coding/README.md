@@ -159,9 +159,14 @@ bun run workflow:install --bundle $bundle.FullName --root $target --host codex
 
 这层 sync 通过 `workflow-system-*` 前缀与其他 Codex skill 隔离。
 
+安装阶段会同时预装：
+
+- `.claude/skills/workflow-system-<skill>/SKILL.md`
+- `.codex/skills/workflow-system-<skill>/SKILL.md`
+
 ### 让目标项目完成 bootstrap / adoption
 
-`workflow:install` 只负责把 runtime、模板、协议文档和 bootstrap skills 装进目标项目；它**不会**自动生成 `AGENTS.md` / `CLAUDE.md`，也不会自动完成项目事实盘点或治理基线接管。
+`workflow:install` 会把 runtime、模板、协议文档和 bootstrap skills 装进目标项目，并在文件缺失时先 scaffold `AGENTS.md` / `CLAUDE.md` 两份宿主指引文件；但它**不会**自动完成项目事实盘点或治理基线接管。
 
 安装后请在**目标宿主里**调用 bootstrap skill 链：
 
@@ -170,14 +175,15 @@ bun run workflow:install --bundle $bundle.FullName --root $target --host codex
 
 其中：
 
-- Codex 宿主最终会由 `greenfield-init` 或 `adopt-existing-project` 生成 `AGENTS.md`
-- Claude 宿主最终会生成 `CLAUDE.md`
+- `workflow:install` 会先 scaffold `AGENTS.md` 与 `CLAUDE.md`
+- `greenfield-init` / `adopt-existing-project` 会再把这两份宿主指引文件补全到可用治理基线
 
 完成 bootstrap / adoption 后，在目标项目根目录执行：
 
 ```powershell
 bun install
 bun run gen:all
+bun run workflow:sync --host claude --write
 bun run workflow:sync --host codex --write
 ```
 

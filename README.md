@@ -112,11 +112,14 @@ bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <targ
 the documented `package.json` surface, writes `.workflow-system/install-state.json`, and
 pre-installs the static bootstrap skills `design-baseline-init`, `greenfield-init`,
 `legacy-inventory`, and `adopt-existing-project` into the isolated
-`workflow-system-*` host namespace. For Codex, that namespace now syncs into
-`.codex/skills/workflow-system-*`.
+`workflow-system-*` host namespace. For dual-host setups, install now seeds both
+`.claude/skills/workflow-system-*` and `.codex/skills/workflow-system-*`, and
+scaffolds initial `CLAUDE.md` / `AGENTS.md` guidance files if they are absent.
 `design-baseline-init` -> `greenfield-init` and `legacy-inventory` ->
 `adopt-existing-project` are the project-level initialization entrypoints: they
-establish the first governance baseline as skills, not runtime commands.
+establish the first governance baseline as skills, not runtime commands, and now
+materialize both `CLAUDE.md` and `AGENTS.md` so Claude / Codex can run in
+parallel against the same workflow baseline.
 After initialization, run `gen:all`, `workflow:sync --write`, and `workflow:health` to render the
 full runtime skill set and verify the target repo.
 

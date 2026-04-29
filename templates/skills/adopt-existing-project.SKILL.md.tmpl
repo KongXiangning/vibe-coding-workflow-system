@@ -55,7 +55,7 @@ stop_conditions:
   - 发现多个互相冲突的事实来源但无法判定真值
 output:
   - 首版 PROJECT_PROFILE.yaml
-  - 首版 host 指引文件（授权路径包含 `AGENTS.md` / `CLAUDE.md`；实际只更新当前宿主对应文件）
+  - 首版 host 指引文件（同时生成 `AGENTS.md` / `CLAUDE.md`）
   - 首版 ROADMAP.md / CONTRACTS.md / BASELINES.md / STATUS.md / DECISIONS.md
   - 必要时更新 `docs/adoption/ADOPTION_REPORT.md`
 handoff:
@@ -100,11 +100,11 @@ notes:
 2. 把扫描结果拆成两类：  
    - 可被仓库直接证明的事实  
    - 必须由用户补充或确认的事实
-3. 只在确认后按 `FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架写出首版 `PROJECT_PROFILE.yaml`、host 指引文件、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`；必要时附带 adoption 报告说明证据和未决点。
+3. 只在确认后按 `FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架写出首版 `PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`；必要时附带 adoption 报告说明证据和未决点。
 4. 把已经被代码依赖的 API、数据库字段、公共模块、目录职责和兼容性行为固化到 `CONTRACTS.md`；不要把偶然实现或 unknown consumer 写成稳定契约。
 5. 把 stable / fragile / unknown / deprecated 区域写入 `STATUS.md`；unknown 风险、迁移窗口和重构候选写入 `ROADMAP.md`。
 6. 补录历史决策时允许写 `source: inferred from existing implementation`、`original reason: unknown` 和 `review condition`，不要强行编造原因。
-7. host 指引文件按当前宿主选择：Codex 使用 `AGENTS.md`，Claude 使用 `CLAUDE.md`；`writes` 里列出的是 host-compatible 授权路径，但实际只更新当前宿主对应文件，不要把 `CLAUDE.md` 当作所有宿主的唯一入口。
+7. 同时生成 `AGENTS.md` 与 `CLAUDE.md`，让 Codex / Claude 可以并行使用同一套 workflow-system；不要再按“当前宿主”二选一。
 8. 不修改业务代码，不把推断写成既定事实，不把“当前实现细节”误升格成长期治理规则。
 
 ## Hard Boundaries
