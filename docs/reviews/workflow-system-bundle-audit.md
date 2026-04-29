@@ -4,7 +4,7 @@ Bundle: `dist/workflow-system/workflow-system-0.14.5.0+ded286c453de`
 
 ## Local Recheck After Fixes
 
-Source: local `bun run gen:all` after the contract fixes and the follow-up reference-render clarification pass.
+Source: local `bun run gen:all` after commit `f73a6e5f` (`Clarify workflow reference renders`).
 
 Legend:
 
@@ -14,6 +14,7 @@ Legend:
 Additional local note:
 
 - The regenerated workflow skills now explicitly label themselves as **source-repo reference renders** and state that target projects re-render them from their own `PROJECT_PROFILE.yaml` during install / sync. This does not change the runtime contract, but it reduces the ambiguity behind the earlier invalid-premise findings.
+- The old sentence `Replace project variables with concrete project-specific values during skill generation.` no longer appears in regenerated `generated/workflow-skills/*.SKILL.md` outputs.
 
 ### 1. `design-baseline-init`
 
@@ -82,7 +83,7 @@ Additional local note:
 **Status:** Invalid premise
 
 1. **Invalid premise.** The rendered `writes` / structure values are source-repo reference renderings, not hardcoded target-project runtime restrictions.
-2. **Invalid premise.** The remaining “Replace project variables...” note appears in the reference output because this repo renders its own profile into `generated/**`.
+2. **Invalid premise.** The old “Replace project variables...” sentence no longer appears; the regenerated output now explicitly labels itself as a source-repo reference render. The remaining repo-specific values are still expected for a source-repo reference output.
 
 ### 11. `review-diff`
 
@@ -160,6 +161,30 @@ Additional local note:
 
 1. **Resolved.** `reads` no longer contains `任务摘要` as a fake path entry.
 2. **Resolved.** The generated body now preserves the `TASK_ID` / `TASK_SLUG` materialization checks in both `Must Check` and `Stop Conditions`.
+
+### Latest rerecheck after `f73a6e5f`
+
+1. `design-baseline-init` — **Resolved**, unchanged from the prior local recheck.
+2. `greenfield-init` — **Resolved**, unchanged from the prior local recheck.
+3. `legacy-inventory` — **Resolved**, unchanged from the prior local recheck.
+4. `adopt-existing-project` — **Resolved**, unchanged from the prior local recheck.
+5. `create-current-task` — **Partially resolved**, unchanged in disposition; the `CONTRACTS.md` fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+6. `review-current-task` — **Partially resolved**, unchanged in disposition; the `PROJECT_PROFILE.yaml` fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+7. `lock-scope` — **Partially resolved**, unchanged in disposition; the `PROJECT_PROFILE.yaml` fix holds, and the repo-specific structure remains correctly documented as a source-repo reference render.
+8. `classify-decisions` — **Partially resolved**, unchanged in disposition; the `DECISIONS.md` write bug stays fixed, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+9. `decompose-task` — **Invalid premise**, unchanged in disposition; the old “Replace project variables...” wording is gone, but the finding still rests on treating a source-repo reference output as an installed target-project skill.
+10. `implement-current-step` — **Invalid premise**, unchanged in disposition; the old “Replace project variables...” wording is gone, and the generated file now self-identifies as a source-repo reference render.
+11. `review-diff` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+12. `verify-contracts` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+13. `run-regression` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+14. `investigate-root-cause` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+15. `sync-current-task` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+16. `sync-status` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+17. `sync-contracts` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+18. `sync-decisions` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+19. `capture-lessons` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+20. `prepare-delivery-summary` — **Partially resolved**, unchanged in disposition; the path-grammar fix holds, and the remaining repo-specific rendering is now explicitly labeled as source-repo-only.
+21. `archive-task` — **Resolved**, unchanged from the prior local recheck.
 
 ## Review Log
 
