@@ -540,12 +540,19 @@ describe('workflow-runtime install', () => {
         expect(fs.existsSync(path.join(targetRoot, 'VERSION'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'AGENTS.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'scripts', 'workflow-runtime.ts'))).toBe(true);
         const agentsGuidance = fs.readFileSync(path.join(targetRoot, 'AGENTS.md'), 'utf8');
         const claudeGuidance = fs.readFileSync(path.join(targetRoot, 'CLAUDE.md'), 'utf8');
+        const bootstrapGuide = fs.readFileSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'), 'utf8');
         expect(agentsGuidance).toContain('/sync-host-guidance');
         expect(claudeGuidance).toContain('/sync-host-guidance');
+        expect(bootstrapGuide).toContain('/legacy-inventory');
+        expect(bootstrapGuide).toContain('/adopt-existing-project');
+        expect(bootstrapGuide).toContain('bun run gen:all');
+        expect(bootstrapGuide).toContain('bun run workflow:sync --host claude --write');
+        expect(bootstrapGuide).toContain('尚未完成 bootstrap / gen / sync');
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
@@ -628,6 +635,7 @@ describe('workflow-runtime install', () => {
         expect(fs.readFileSync(path.join(targetRoot, 'AGENTS.md'), 'utf8')).toBe('# existing agents\n');
         expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(true);
         expect(fs.readFileSync(path.join(targetRoot, 'CLAUDE.md'), 'utf8')).toContain('workflow-system guidance');
+        expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'))).toBe(true);
       });
     });
   });

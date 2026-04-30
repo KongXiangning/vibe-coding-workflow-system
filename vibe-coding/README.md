@@ -176,6 +176,17 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 
 `workflow:install` 会把 runtime、模板、协议文档和 bootstrap skills 装进目标项目，并且只会对**缺失**的 `AGENTS.md` / `CLAUDE.md` 做 scaffold-once；它**不会**覆盖已存在的宿主指引文件，也不会自动完成项目事实盘点或治理基线接管。
 
+为了避免目标项目在 install 后“看不到下一步该做什么”，install 现在还会额外留下一份**最小本地指引**：
+
+- `docs/workflow/WORKFLOW_GUIDE.md`
+
+这份 guide 不等于完整生成产物，但会明确告诉你：
+
+- 该先走哪条 bootstrap 链
+- 什么时候执行 `bun run gen:all`
+- 什么时候执行 `workflow:sync`
+- 为什么 install 后暂时只有 4 个 bootstrap skills
+
 安装后请在 **Claude 或 Codex 任一目标宿主里**调用 bootstrap skill 链：
 
 - **新项目**：`/design-baseline-init` -> `/greenfield-init`
