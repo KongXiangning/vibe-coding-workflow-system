@@ -87,6 +87,7 @@ const WORKFLOW_ORDER = [
   'sync-status',
   'sync-contracts',
   'sync-decisions',
+  'sync-host-guidance',
   'capture-lessons',
   'prepare-delivery-summary',
   'archive-task',

@@ -193,6 +193,8 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('Rollback / recovery');
     expect(guide).toContain('Release evidence');
     expect(guide).toContain('workflow-system 不绑定部署平台');
+    expect(guide).toContain('/sync-host-guidance');
+    expect(guide).toContain('AGENTS.md` / `CLAUDE.md');
   });
 
   test('baseline gate skeleton covers v26 blocker families', () => {

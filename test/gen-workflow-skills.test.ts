@@ -427,4 +427,27 @@ describe('gen-workflow-skills', () => {
     expect(content).toContain('需要登录但 session/cookie 不可用时输出 blocked');
     expect(content).toContain('不得把未验证页面记为通过');
   });
+
+  test('sync-host-guidance keeps AGENTS.md and CLAUDE.md aligned as project-wide host guidance', () => {
+    const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, 'sync-host-guidance.SKILL.md'));
+    const content = fs.readFileSync(path.join(OUTPUT_DIR, 'sync-host-guidance.SKILL.md'), 'utf8');
+    expect(frontmatter.writes).toEqual(['AGENTS.md', 'CLAUDE.md']);
+    expect(frontmatter.reads).toEqual([
+      '.workflow-system/PROJECT_PROFILE.yaml',
+      'AGENTS.md',
+      'CLAUDE.md',
+      'CURRENT_TASK.md',
+      'CONTRACTS.md',
+      'DECISIONS.md',
+      'STATUS.md',
+      'BASELINES.md',
+    ]);
+    expect(String((frontmatter.handoff as Record<string, unknown>).success)).toBe('capture-lessons');
+    expect(content).toContain('宿主指引必须成对更新');
+    expect(content).toContain('不能只改当前宿主');
+    expect(content).toContain('不要出现一边已经更新、另一边继续停在旧规则');
+    expect(content).toContain('# Skill: sync-host-guidance');
+    expect(content).toContain('AGENTS.md 与 CLAUDE.md');
+    expect(content).toContain('项目级长期规则');
+  });
 });

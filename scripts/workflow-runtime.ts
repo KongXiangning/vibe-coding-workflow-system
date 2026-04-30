@@ -815,6 +815,8 @@ function buildProfileScaffoldTemplate(): JsonObject {
         WORKFLOW_PROFILE_RELATIVE_PATH,
         WORKFLOW_PROTOCOL_RELATIVE_PATH,
         WORKFLOW_SCHEMAS_RELATIVE_PATH,
+        'AGENTS.md',
+        'CLAUDE.md',
         'docs/workflow/SKILL_REGISTRY.md',
         'docs/workflow/BASELINES.md',
         'docs/workflow/CONTRACTS.md',
@@ -1190,6 +1192,7 @@ function buildHostGuidanceContent(root: string, profile: JsonObject, fileName: '
     '- New project: `/design-baseline-init` -> `/greenfield-init`.',
     '- Existing project: `/legacy-inventory` -> `/adopt-existing-project`.',
     '- After bootstrap or workflow template changes, run `bun run gen:all`, `bun run workflow:sync --host claude --write`, `bun run workflow:sync --host codex --write`, and `bun run workflow:health`.',
+    '- When project-wide AI collaboration rules, host instructions, or shared workflow commands change later, run `/sync-host-guidance` so `AGENTS.md` and `CLAUDE.md` stay aligned.',
     '',
     `This file was scaffolded during workflow-system install so ${fileName === 'AGENTS.md' ? 'Codex-compatible agents' : 'Claude'} can start from the same governance baseline.`,
     '',
@@ -1862,7 +1865,7 @@ export function getExportManifest(root?: string): ExportManifest {
           },
           {
             name: 'sync-host-runtime',
-            description: 'Copy generated workflow skills into the target host namespace.',
+            description: 'Expand the target host namespace from the 4 preinstalled bootstrap entrypoints into the full generated workflow skill set.',
             command: 'bun run workflow:sync --host <claude|codex|factory> --write',
           },
           {

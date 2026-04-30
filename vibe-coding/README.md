@@ -155,10 +155,16 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 
 这些文件就是 workflow-system 的 runtime / protocol / template 安装面，会直接落在目标项目中。
 
-安装阶段会同时预装：
+安装阶段会同时预装两侧宿主的 **4 个 bootstrap skills**，不是一次性写入全量 workflow skills：
 
-- `.claude/skills/workflow-system-<skill>/SKILL.md`
-- `.codex/skills/workflow-system-<skill>/SKILL.md`
+- `.claude/skills/workflow-system-design-baseline-init/SKILL.md`
+- `.claude/skills/workflow-system-greenfield-init/SKILL.md`
+- `.claude/skills/workflow-system-legacy-inventory/SKILL.md`
+- `.claude/skills/workflow-system-adopt-existing-project/SKILL.md`
+- `.codex/skills/workflow-system-design-baseline-init/SKILL.md`
+- `.codex/skills/workflow-system-greenfield-init/SKILL.md`
+- `.codex/skills/workflow-system-legacy-inventory/SKILL.md`
+- `.codex/skills/workflow-system-adopt-existing-project/SKILL.md`
 
 其中 **Codex** 侧的隔离 namespace 位于：
 
@@ -168,7 +174,7 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 
 ### 让目标项目完成 bootstrap / adoption
 
-`workflow:install` 会把 runtime、模板、协议文档和 bootstrap skills 装进目标项目，并在文件缺失时先 scaffold `AGENTS.md` / `CLAUDE.md` 两份宿主指引文件；但它**不会**自动完成项目事实盘点或治理基线接管。
+`workflow:install` 会把 runtime、模板、协议文档和 bootstrap skills 装进目标项目，并且只会对**缺失**的 `AGENTS.md` / `CLAUDE.md` 做 scaffold-once；它**不会**覆盖已存在的宿主指引文件，也不会自动完成项目事实盘点或治理基线接管。
 
 安装后请在 **Claude 或 Codex 任一目标宿主里**调用 bootstrap skill 链：
 
@@ -177,7 +183,7 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 
 其中：
 
-- `workflow:install` 会先 scaffold `AGENTS.md` 与 `CLAUDE.md`
+- `workflow:install` 只会为缺失的 `AGENTS.md` / `CLAUDE.md` 补首版 scaffold
 - `greenfield-init` / `adopt-existing-project` 会再把这两份宿主指引文件补全到可用治理基线
 
 完成 bootstrap / adoption 后，在目标项目根目录执行：
@@ -188,6 +194,14 @@ bun run gen:all
 bun run workflow:sync --host claude --write
 bun run workflow:sync --host codex --write
 ```
+
+执行完这组命令后，宿主目录会从上面的 4 个 bootstrap skills 扩展成当前目标项目 profile 渲染出的**完整 workflow skill 集**。
+
+如果后续在 vibe coding 过程中修改了项目级 AI 协作约束、统一命令入口或宿主指引，不要只改一个宿主文件。应在目标宿主里执行：
+
+- `/sync-host-guidance`
+
+让 `AGENTS.md` 与 `CLAUDE.md` 保持同一治理基线。
 
 ### 在目标项目里验证
 

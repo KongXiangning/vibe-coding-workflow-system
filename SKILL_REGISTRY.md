@@ -27,7 +27,7 @@
 | 阶段 4/6：异常处理 | `investigate-root-cause` |
 | 阶段 5：范围复核 | `review-diff` → `verify-contracts` |
 | 阶段 6：回归验证 | `run-regression` |
-| 阶段 7：状态同步 | `sync-current-task` → `sync-status` → `sync-contracts` → `sync-decisions` → `capture-lessons` |
+| 阶段 7：状态同步 | `sync-current-task` → `sync-status` → `sync-contracts` → `sync-decisions` → `sync-host-guidance` → `capture-lessons` |
 | 阶段 8：交付沉淀 | `prepare-delivery-summary` → `archive-task` |
 
 失败分支：
@@ -100,7 +100,8 @@
 | `sync-current-task` | 回写 CURRENT_TASK.md 的执行状态、验证结果和剩余问题。 | 每轮实现与验证完成后。 | `CURRENT_TASK.md` | `CURRENT_TASK.md` | `sync-status` | `ask-user` |
 | `sync-status` | 更新 STATUS.md，反映当前项目整体进度和稳定状态。 | 任务阶段完成或状态发生变化时。 | `STATUS.md`、`CURRENT_TASK.md` | `STATUS.md` | `sync-contracts` | `ask-user` |
 | `sync-contracts` | 将新形成的稳定接口或架构边界写入 CONTRACTS.md。 | 本轮任务新增了稳定接口、稳定结构或稳定架构规则时。 | `CONTRACTS.md`、`CURRENT_TASK.md` | `CONTRACTS.md` | `sync-decisions` | `ask-user` |
-| `sync-decisions` | 把本轮已确认的决策写入 DECISIONS.md。 | 本轮实现明确形成了新的架构决策、口味决策、暂缓项或否决项时。 | `DECISIONS.md`、`CURRENT_TASK.md` | `DECISIONS.md` | `capture-lessons` | `ask-user` |
+| `sync-decisions` | 把本轮已确认的决策写入 DECISIONS.md。 | 本轮实现明确形成了新的架构决策、口味决策、暂缓项或否决项时。 | `DECISIONS.md`、`CURRENT_TASK.md` | `DECISIONS.md` | `sync-host-guidance` | `ask-user` |
+| `sync-host-guidance` | 同步 AGENTS.md 与 CLAUDE.md，确保 Claude / Codex 两侧宿主都读取同一套已确认的项目级协作约束、命令入口和 workflow 指引。 | 项目级协作约束、统一命令入口、宿主说明或 workflow 指引发生变化时。 | `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md`、`BASELINES.md` | `AGENTS.md`、`CLAUDE.md` | `capture-lessons` | `ask-user` |
 | `capture-lessons` | 把本轮踩坑经验和稳定协作方式沉淀到 LESSONS.md。 | 任务收尾、踩坑后复盘，或发现新的高价值协作经验时。 | `LESSONS.md`、`CURRENT_TASK.md` | `LESSONS.md` | `prepare-delivery-summary` | `ask-user` |
 
 ### 3.10 阶段 8：交付沉淀

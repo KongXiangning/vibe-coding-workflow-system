@@ -528,6 +528,7 @@ design-baseline-init -> greenfield-init | legacy-inventory -> adopt-existing-pro
   -> sync-status
   -> sync-contracts
   -> sync-decisions
+  -> sync-host-guidance
   -> capture-lessons
   -> prepare-delivery-summary
   -> archive-task

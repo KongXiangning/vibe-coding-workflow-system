@@ -104,6 +104,8 @@ governance:
     - .workflow-system/PROJECT_PROFILE.yaml
     - .workflow-system/WORKFLOW_PROTOCOL.md
     - .workflow-system/FILE_SCHEMAS.md
+    - AGENTS.md
+    - CLAUDE.md
     - SKILL_REGISTRY.md
     - docs/repo-path-grammar.md
     - vibe-coding/README.md

@@ -43,6 +43,7 @@
 | 同步任务记录 | `/sync-current-task` | `CURRENT_TASK.md`、本轮执行/验证事实 | 更新后的 `CURRENT_TASK.md` |
 | 同步契约 | `/sync-contracts` | `CURRENT_TASK.md`、`CONTRACTS.md`、本轮稳定边界事实 | 新稳定边界记录 |
 | 同步决策 | `/sync-decisions` | `CURRENT_TASK.md`、`DECISIONS.md`、用户确认事实 | 新确认决策记录 |
+| 同步宿主指引 | `/sync-host-guidance` | `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、以及已确认项目级约束 | 更新后的 `AGENTS.md` / `CLAUDE.md` |
 | 同步状态 | `/sync-status` | `CURRENT_TASK.md`、`STATUS.md`、验证事实 | 更新后的项目状态 |
 | 交付摘要 | `/prepare-delivery-summary` | `CURRENT_TASK.md`、`STATUS.md`、验证/同步事实 | 交付摘要内容，不自动写文件 |
 | 捕获经验 | `/capture-lessons` | `CURRENT_TASK.md`、`LESSONS.md`、验证/复盘事实 | `LESSONS.md` 更新建议 |
@@ -59,7 +60,7 @@
 6. 用 `/decompose-task` 拆成一次只做一个当前步骤的小步计划。
 7. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
 8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
-9. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` 同步治理事实。
+9. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` / `/sync-host-guidance` 同步治理事实。
 10. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
 
 ## 按场景选择
@@ -100,6 +101,7 @@
 | 只允许报告问题，不允许修复 | `/run-regression`（`report-only`） |
 | 需要验证登录态页面或权限流 | `/run-regression`（`authenticated-browser`，先确认 session/cookie 可用） |
 | 有 baseline、截图或历史报告需要前后对比 | `/run-regression`（`regression-baseline`） |
+| 项目级 AI 协作规则、统一命令入口或宿主说明变了 | `/sync-host-guidance` |
 | 任务完成但状态文档未同步 | `/sync-current-task` → `/sync-status` |
 | 任务可以交付 | `/prepare-delivery-summary` → `/archive-task` |
 
