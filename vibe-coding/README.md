@@ -155,13 +155,15 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 
 这些文件就是 workflow-system 的 runtime / protocol / template 安装面，会直接落在目标项目中。
 
-安装阶段会同时预装两侧宿主的 **4 个 bootstrap skills**，不是一次性写入全量 workflow skills：
+安装阶段会同时预装两侧宿主的 **5 个 bootstrap skills**，不是一次性写入全量 workflow skills：
 
 - `.claude/skills/workflow-system-design-baseline-init/SKILL.md`
+- `.claude/skills/workflow-system-realign-workflow-assets/SKILL.md`
 - `.claude/skills/workflow-system-greenfield-init/SKILL.md`
 - `.claude/skills/workflow-system-legacy-inventory/SKILL.md`
 - `.claude/skills/workflow-system-adopt-existing-project/SKILL.md`
 - `.codex/skills/workflow-system-design-baseline-init/SKILL.md`
+- `.codex/skills/workflow-system-realign-workflow-assets/SKILL.md`
 - `.codex/skills/workflow-system-greenfield-init/SKILL.md`
 - `.codex/skills/workflow-system-legacy-inventory/SKILL.md`
 - `.codex/skills/workflow-system-adopt-existing-project/SKILL.md`
@@ -185,12 +187,15 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 - 该先走哪条 bootstrap 链
 - 什么时候执行 `bun run gen:all`
 - 什么时候执行 `workflow:sync`
-- 为什么 install 后暂时只有 4 个 bootstrap skills
+- 为什么 install 后暂时只有 5 个 bootstrap skills
 
 安装后请在 **Claude 或 Codex 任一目标宿主里**调用 bootstrap skill 链：
 
 - **新项目**：`/design-baseline-init` -> `/greenfield-init`
+- **如果目标项目里已经有旧路径或混排的 workflow 资产**：先执行 `/realign-workflow-assets`，再继续下一步
 - **已有项目**：`/legacy-inventory` -> `/adopt-existing-project`
+
+其中 `realign-workflow-assets` 的职责不是重新初始化项目，而是把已经存在的 workflow 文档、runtime skills、`AGENTS.md` / `CLAUDE.md` 和 `.workflow-system/PROJECT_PROFILE.yaml` 对齐到当前 layout 规范，避免“文档位置搬了，但 skill 还按旧路径找”的漂移。
 
 其中：
 
@@ -206,7 +211,7 @@ bun run workflow:sync --host claude --write
 bun run workflow:sync --host codex --write
 ```
 
-执行完这组命令后，宿主目录会从上面的 4 个 bootstrap skills 扩展成当前目标项目 profile 渲染出的**完整 workflow skill 集**。
+执行完这组命令后，宿主目录会从上面的 5 个 bootstrap skills 扩展成当前目标项目 profile 渲染出的**完整 workflow skill 集**。
 
 如果后续在 vibe coding 过程中修改了项目级 AI 协作约束、统一命令入口或宿主指引，不要只改一个宿主文件。应在目标宿主里执行：
 
