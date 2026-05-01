@@ -1,0 +1,239 @@
+---
+name: investigate-root-cause
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Investigate root cause before fixing and propose the smallest viable repair
+  path.
+purpose: |
+  先做根因定位，再提出最小修复建议。
+stage: 阶段 4/6：实现或验证异常
+trigger: |
+  测试失败、验证失败或实现过程中出现异常时。
+inputs:
+  - failing_behavior
+  - error_output
+  - current_diff
+  - current_task
+reads:
+  - docs/workflow/CURRENT_TASK.md
+writes:
+  - docs/workflow/CURRENT_TASK.md
+forbidden_writes:
+  - .git/**
+  - node_modules/**
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+must_check:
+  - 复现路径是否明确
+  - 根因是否与当前改动直接相关
+  - 是否存在更小修复面
+stop_conditions:
+  - 连续多次定位仍不收敛
+  - 根因判断需要额外产品决策
+  - 问题实际来自范围外系统
+output:
+  - Symptom
+  - Reproduction
+  - Root cause hypothesis
+  - Evidence
+  - Minimal fix path
+  - Regression check
+  - 根因判断
+  - 最小修复建议
+  - 需要额外确认的点
+handoff:
+  success: implement-current-step
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动做日志、调用链和差异比对。
+  taste: 不要把修复策略包装成唯一正确方案。
+  user_challenge: 当修复需要改变产品行为时必须停下确认。
+verification:
+  - 原始失败场景已重新验证
+  - Root cause hypothesis 有证据支持
+  - 根因有证据支持
+  - 最小修复面已识别
+  - 没有直接跳到大范围修复
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /implement-current-step
+  - /run-regression
+notes:
+  - 调查优先于修复。
+allowed_change_types:
+  - 调查记录
+  - 最小必要验证性修改
+disallowed_patterns:
+  - 未验证 root cause hypothesis 直接修复
+  - 未定位根因直接修复
+  - 大范围猜测式改动
+failure_policy:
+  - 若三个 root cause hypothesis 仍不收敛，应停止继续猜测并请求人工判断
+regression_expectation:
+  - 重新进入实现前要明确修复只覆盖当前 bug
+  - 修复后必须复验原始失败场景
+---
+
+# Skill: investigate-root-cause
+
+## Purpose
+
+先做根因定位，再提出最小修复建议。
+
+## Trigger
+
+测试失败、验证失败或实现过程中出现异常时。
+
+## Inputs
+
+- failing_behavior
+- error_output
+- current_diff
+- current_task
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 复现路径是否明确
+- 根因是否与当前改动直接相关
+- 是否存在更小修复面
+
+## Stop Conditions
+
+- 连续多次定位仍不收敛
+- 根因判断需要额外产品决策
+- 问题实际来自范围外系统
+
+## Decision Policy
+
+- `mechanical`: 可以自动做日志、调用链和差异比对。
+- `taste`: 不要把修复策略包装成唯一正确方案。
+- `user_challenge`: 当修复需要改变产品行为时必须停下确认。
+
+## Verification
+
+- 原始失败场景已重新验证
+- Root cause hypothesis 有证据支持
+- 根因有证据支持
+- 最小修复面已识别
+- 没有直接跳到大范围修复
+
+## Extension Fields
+
+### allowed_change_types
+- 调查记录
+- 最小必要验证性修改
+
+### disallowed_patterns
+- 未验证 root cause hypothesis 直接修复
+- 未定位根因直接修复
+- 大范围猜测式改动
+
+### failure_policy
+- 若三个 root cause hypothesis 仍不收敛，应停止继续猜测并请求人工判断
+
+### regression_expectation
+- 重新进入实现前要明确修复只覆盖当前 bug
+- 修复后必须复验原始失败场景
+
+## Investigation Loop
+
+1. Collect the symptom: copy the error output, failing assertion, stack trace, user-visible behavior, and any known reproduction steps.
+2. Establish reproduction: prove whether the failure is deterministic. If it cannot be reproduced, gather more evidence before proposing a fix.
+3. Trace the path: follow the code path, data flow, state transitions, recent diff, and relevant logs from the symptom back toward likely causes.
+4. State one `Root cause hypothesis`: write a specific, testable claim explaining what is wrong and why it produces the symptom.
+5. Verify that hypothesis before fixing: use a targeted test, log, assertion, debugger output, or minimal reproduction to confirm or reject it.
+6. If the hypothesis is rejected, record the evidence and form the next hypothesis. Do not patch symptoms between hypotheses.
+7. If three hypotheses fail, stop and hand off to `handoff.failure` with the tested hypotheses and evidence.
+8. After the root cause is verified, identify the smallest viable fix path and the regression check that proves the original failure is fixed.
+
+## Root Cause Repair Rules
+
+- 未验证 root cause hypothesis 前不得修复。
+- 一次只验证一个假设，不得同时尝试多个修复方向。
+- 修复必须针对已证明的根因，而不是隐藏报错、扩大兜底或绕过失败路径。
+- 如果根因或最小修复路径超出 `docs/workflow/CURRENT_TASK.md` 的允许范围，停止并回到 `/lock-scope` 或 `handoff.failure`。
+- 如果修复需要改变产品行为、接口契约或架构边界，按 `user_challenge` 停下确认。
+- 修复后必须复验原始失败场景，并说明回归检查如何覆盖该 bug。
+
+## Debug Report Template
+
+```md
+Bug 调查报告：
+- Symptom:
+- Reproduction:
+- Root cause hypothesis:
+- Evidence:
+- Minimal fix path:
+- Regression check:
+- Remaining risk:
+```
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Complete the Investigation Loop before proposing or applying a fix.
+5. Respect `forbidden_writes` and current task boundaries.
+6. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+7. Produce the artifact(s) described in `output`.
+8. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 调查优先于修复。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

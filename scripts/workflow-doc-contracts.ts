@@ -1,6 +1,7 @@
 export const WORKFLOW_DOC_NAMES = [
   'BASELINES.md',
   'CONTRACTS.md',
+  'DOCUMENT_CATALOG.md',
   'CURRENT_TASK.md',
   'DECISIONS.md',
   'LESSONS.md',
@@ -28,6 +29,7 @@ export const WORKFLOW_DOC_REQUIRED_HEADINGS: Record<WorkflowDocName, readonly st
     '## 基线变更记录',
   ],
   'CONTRACTS.md': ['## 使用规则', '## 一、接口契约', '## 二、架构契约', '## 三、变更规则', '## 四、传播治理补充'],
+  'DOCUMENT_CATALOG.md': ['## 使用规则', '## 目录分类规则', '## 文档总览', '## 使用建议'],
   'CURRENT_TASK.md': [
     '## 任务信息',
     '## 背景与上下文',
@@ -99,6 +101,7 @@ export const WORKFLOW_DOC_REQUIRED_HEADINGS: Record<WorkflowDocName, readonly st
   ],
   'WORKFLOW_GUIDE.md': [
     '## 使用规则',
+    '## 目录分类规则',
     '## 文档速查',
     '## Skill 速查',
     '## 标准任务流程',
@@ -154,6 +157,15 @@ export const WORKFLOW_DOC_REQUIRED_SNIPPETS: Partial<Record<WorkflowDocName, rea
     '### API change downstream validation',
     '### frozen zone / UI anchor migration',
   ],
+  'DOCUMENT_CATALOG.md': [
+    'docs/workflow/',
+    'docs/designs/',
+    'docs/adoption/',
+    '| `docs/workflow/WORKFLOW_GUIDE.md` |',
+    '| `docs/designs/architecture.md` |',
+    '| `docs/adoption/ADOPTION_REPORT.md` |',
+    'git log -1 --format=%cI -- docs/workflow/DOCUMENT_CATALOG.md',
+  ],
   'CURRENT_TASK.md': [
     '## 设计约束',
     '- Design mode:',
@@ -202,7 +214,11 @@ export const WORKFLOW_DOC_REQUIRED_SNIPPETS: Partial<Record<WorkflowDocName, rea
     '- 明确不做：',
   ],
   'WORKFLOW_GUIDE.md': [
-    '| `CURRENT_TASK.md` |',
+    'docs/workflow/',
+    'docs/designs/',
+    'docs/adoption/',
+    '`docs/workflow/DOCUMENT_CATALOG.md`',
+    '| `docs/workflow/CURRENT_TASK.md` |',
     '| `/create-current-task` |',
     '| `/lock-scope` |',
     '| `/implement-current-step` |',

@@ -2,8 +2,9 @@
 name: design-baseline-init
 preamble-tier: 1
 version: 0.1.0
-description: |
-  Produce the first design baseline for a brand-new project before governance is frozen.
+description: >
+  Produce the first design baseline for a brand-new project before governance is
+  frozen.
 purpose: |
   为新项目完成首版设计基线，包括路线图、架构、领域模型、数据库、接口边界和详细设计草案。
 stage: 初始化
@@ -23,17 +24,17 @@ reads:
   - README.md
   - package.json
 writes:
-  - ROADMAP.md
+  - docs/workflow/ROADMAP.md
   - docs/designs/architecture.md
   - docs/designs/database.md
   - docs/designs/detailed-design.md
   - docs/designs/api-contracts.md
   - docs/designs/domain-model.md
-  - BASELINES.md
-  - DECISIONS.md
+  - docs/workflow/BASELINES.md
+  - docs/workflow/DECISIONS.md
 forbidden_writes:
-  - CURRENT_TASK.md
-  - CONTRACTS.md
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
   - src/**
   - test/**
   - scripts/**
@@ -47,13 +48,13 @@ stop_conditions:
   - 架构、数据库或交付方式存在多个高影响备选方案且未确认
   - 关键设计取舍无法从用户输入或现有约束中判断
 output:
-  - ROADMAP.md 初稿
+  - docs/workflow/ROADMAP.md 初稿
   - docs/designs/architecture.md 初稿
   - docs/designs/database.md 草案
   - docs/designs/detailed-design.md
   - docs/designs/api-contracts.md
   - docs/designs/domain-model.md
-  - BASELINES.md / DECISIONS.md 草案
+  - docs/workflow/BASELINES.md / docs/workflow/DECISIONS.md 草案
 handoff:
   success: greenfield-init
   failure: ask-user
@@ -63,7 +64,7 @@ decision_policy:
   user_challenge: 不得把未确认的产品定位、核心架构、数据模型或发布策略写成既定事实。
 verification:
   - 设计文档能解释第一轮实现应从哪里开始
-  - 未确认项保留为待确认问题，没有写入 CONTRACTS.md
+  - 未确认项保留为待确认问题，没有写入 docs/workflow/CONTRACTS.md
   - 输出足以让 greenfield-init 固化已确认治理基线
 allowed-tools:
   - Read
@@ -74,7 +75,7 @@ allowed-tools:
   - AskUserQuestion
 notes:
   - 这是新项目设计基线 skill，不直接开始实现功能。
-  - 设计草案不能替代 CONTRACTS.md；只有经确认的内容才交给 greenfield-init 固化。
+  - 设计草案不能替代 docs/workflow/CONTRACTS.md；只有经确认的内容才交给 greenfield-init 固化。
   - 完成后下一步通常是 greenfield-init，而不是 create-current-task。
 ---
 
@@ -91,24 +92,36 @@ notes:
 ## Execution Rules
 
 1. 先澄清目标用户、核心场景、非目标、成功标准、技术栈偏好和交付约束。
-2. 先产出设计基线，不创建 `CURRENT_TASK.md`，不写业务代码。
-3. `ROADMAP.md` 记录版本窗口、里程碑、当前阶段目标和明确不做的范围。
+2. 先产出设计基线，不创建 `docs/workflow/CURRENT_TASK.md`，不写业务代码。
+3. `docs/workflow/ROADMAP.md` 记录版本窗口、里程碑、当前阶段目标和明确不做的范围。
 4. `docs/designs/architecture.md` 描述目标架构、模块职责、依赖方向、运行时边界和关键数据流。
 5. `docs/designs/database.md` 作为数据库设计 home，描述领域对象、表结构、迁移约束、数据生命周期和不可破坏字段。
-6. `docs/designs/api-contracts.md` 描述 API / DTO / Event / Module contracts 草案；不要把草案写入 `CONTRACTS.md`。
+6. `docs/designs/api-contracts.md` 描述 API / DTO / Event / Module contracts 草案；不要把草案写入 `docs/workflow/CONTRACTS.md`。
 7. `docs/designs/detailed-design.md` 描述关键流程、状态机、错误路径、权限、异步任务和边界条件。
 8. `docs/designs/domain-model.md` 描述核心实体、关系、状态和业务不变量。
-9. `BASELINES.md` 和 `DECISIONS.md` 如被创建，只能写草案或待确认项；正式固化由 `greenfield-init` 完成。
+9. `docs/workflow/BASELINES.md` 和 `docs/workflow/DECISIONS.md` 如被创建，只能写草案或待确认项；正式固化由 `greenfield-init` 完成。
 10. 所有未确认设计取舍必须标为待确认，不得写成稳定事实。
 
 ## Hard Boundaries
 
 - 不写业务代码。
-- 不创建 `CURRENT_TASK.md`。
-- 不修改 `CONTRACTS.md`。
+- 不创建 `docs/workflow/CURRENT_TASK.md`。
+- 不修改 `docs/workflow/CONTRACTS.md`。
 - 不把设计草案伪装成稳定契约。
 
 ## Handoff
 
 - 成功：`greenfield-init`
 - 失败：`ask-user`
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

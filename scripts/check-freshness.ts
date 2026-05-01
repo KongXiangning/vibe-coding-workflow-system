@@ -49,19 +49,19 @@ export const FRESHNESS_TARGETS: readonly FreshnessTarget[] = [
   {
     name: 'workflow-skills',
     generatorCommand: ['run', 'scripts/gen-workflow-skills.ts', '--dry-run'],
-    outputDir: 'generated/workflow-skills',
+    outputDir: 'docs/workflow/generated/workflow-skills',
     filePattern: '.SKILL.md',
   },
   {
     name: 'workflow-docs',
     generatorCommand: ['run', 'scripts/gen-workflow-docs.ts', '--dry-run'],
-    outputDir: 'generated/workflow-docs',
+    outputDir: 'docs/workflow/generated/workflow-docs',
     filePattern: '.md',
   },
   {
     name: 'registry',
     generatorCommand: ['run', 'scripts/gen-registry.ts', '--dry-run'],
-    outputDir: '.',
+    outputDir: 'docs/workflow',
     filePattern: 'SKILL_REGISTRY.md',
   },
 ];

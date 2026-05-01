@@ -16,14 +16,34 @@ import {
   FRESHNESS_TARGETS,
   runFreshnessChecks,
 } from '../scripts/check-freshness';
-import { getWorkflowProfilePath } from '../scripts/workflow-core';
+import {
+  getWorkflowDocPath,
+  getWorkflowGeneratedDir,
+  getWorkflowProfilePath,
+  getWorkflowRegistryPath,
+  loadProfile,
+} from '../scripts/workflow-core';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const PROFILE = loadProfile(getWorkflowProfilePath(ROOT));
+
+function generatedDocsDir(root: string): string {
+  return getWorkflowGeneratedDir(root, PROFILE, 'workflow-docs');
+}
+
+function generatedSkillsDir(root: string): string {
+  return getWorkflowGeneratedDir(root, PROFILE, 'workflow-skills');
+}
+
+function workflowDocPath(root: string, file: string): string {
+  return getWorkflowDocPath(root, PROFILE, file);
+}
+
+function registryPath(root: string): string {
+  return getWorkflowRegistryPath(root, PROFILE);
+}
 
 function copyGeneratedSnapshot(targetRoot: string): void {
-  const sourceRoot = path.join(ROOT, 'generated');
-  const outputRoot = path.join(targetRoot, 'generated');
-
   const copyDir = (sourceDir: string, destinationDir: string): void => {
     fs.mkdirSync(destinationDir, { recursive: true });
     for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
@@ -45,13 +65,26 @@ function copyGeneratedSnapshot(targetRoot: string): void {
     }
   };
 
-  copyDir(sourceRoot, outputRoot);
+  copyDir(generatedDocsDir(ROOT), generatedDocsDir(targetRoot));
+  copyDir(generatedSkillsDir(ROOT), generatedSkillsDir(targetRoot));
+
+  fs.mkdirSync(path.dirname(registryPath(targetRoot)), { recursive: true });
+  fs.copyFileSync(registryPath(ROOT), registryPath(targetRoot));
 }
 
 function writeProfileFile(root: string, content: string): void {
   const profilePath = getWorkflowProfilePath(root);
   fs.mkdirSync(path.dirname(profilePath), { recursive: true });
-  fs.writeFileSync(profilePath, content, 'utf8');
+  fs.writeFileSync(
+    profilePath,
+    [
+      'paths:',
+      '  workflow_home: docs/workflow',
+      '',
+      content,
+    ].join('\n'),
+    'utf8',
+  );
 }
 
 describe('run-validation', () => {
@@ -164,7 +197,7 @@ describe('run-validation', () => {
         ].join('\n')
       );
 
-      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
+      fs.rmSync(path.join(generatedDocsDir(tempRoot), 'BASELINES.md'), { force: true });
 
       const report = runValidation({
         root: tempRoot,
@@ -201,7 +234,7 @@ describe('run-validation', () => {
       fs.mkdirSync(path.dirname(getWorkflowProfilePath(tempRoot)), { recursive: true });
       fs.copyFileSync(getWorkflowProfilePath(ROOT), getWorkflowProfilePath(tempRoot));
 
-      const currentTaskPath = path.join(tempRoot, 'generated', 'workflow-docs', 'CURRENT_TASK.md');
+      const currentTaskPath = path.join(generatedDocsDir(tempRoot), 'CURRENT_TASK.md');
       const broken = fs.readFileSync(currentTaskPath, 'utf8').replace(/^\s*-\s+effective_consumers：\s*$/m, '');
       fs.writeFileSync(currentTaskPath, broken, 'utf8');
 
@@ -263,14 +296,15 @@ describe('run-validation', () => {
         ].join('\n')
       );
 
-      const liveCurrentTask = fs.readFileSync(path.join(ROOT, 'generated', 'workflow-docs', 'CURRENT_TASK.md'), 'utf8')
+      const liveCurrentTask = fs.readFileSync(path.join(generatedDocsDir(ROOT), 'CURRENT_TASK.md'), 'utf8')
         .replace(/^\s*-\s+common\.object_kind：\s*$/m, '  - common.object_kind：api')
         .replace(/^\s*-\s+threshold_trigger：\s*$/m, '  - threshold_trigger：direct_consumers_exceeded')
         .replace(/^\s*-\s+selected_branch：\s*$/m, '  - selected_branch：hard_stop')
         .replace(/^\s*-\s+when_pending_prerequisites\.assessment_status：\s*$/m, '  - when_pending_prerequisites.assessment_status：pending-prerequisites')
         .replace(/^\s*-\s+when_completed\.eligibility：\s*$/m, '  - when_completed.eligibility：directly-mutable');
 
-      fs.writeFileSync(path.join(tempRoot, 'CURRENT_TASK.md'), liveCurrentTask, 'utf8');
+      fs.mkdirSync(path.dirname(workflowDocPath(tempRoot, 'CURRENT_TASK.md')), { recursive: true });
+      fs.writeFileSync(workflowDocPath(tempRoot, 'CURRENT_TASK.md'), liveCurrentTask, 'utf8');
 
       const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
       const failure = report.project_results.find(result => result.entrypoint === 'propagation-governance-home');
@@ -303,7 +337,7 @@ describe('run-validation', () => {
         ].join('\n')
       );
 
-      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'ROADMAP.md'), { force: true });
+      fs.rmSync(path.join(generatedDocsDir(tempRoot), 'ROADMAP.md'), { force: true });
 
       const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
       expect(report.project_results[0]?.entrypoint).toBe('roadmap-governance-home');
@@ -334,7 +368,7 @@ describe('run-validation', () => {
       );
 
       fs.writeFileSync(
-        path.join(tempRoot, 'DECISIONS.md'),
+        workflowDocPath(tempRoot, 'DECISIONS.md'),
         [
           '# DECISIONS.md',
           '',
@@ -404,7 +438,7 @@ describe('run-validation', () => {
         ].join('\n')
       );
 
-      const baselinesPath = path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md');
+      const baselinesPath = path.join(generatedDocsDir(tempRoot), 'BASELINES.md');
       const baselines = fs.readFileSync(baselinesPath, 'utf8').replace('### SEC-001:', '### NOTE-001:');
       fs.writeFileSync(baselinesPath, baselines, 'utf8');
 
@@ -448,14 +482,14 @@ describe('run-validation', () => {
         ].join('\n')
       );
 
-      const generatedBaselinesPath = path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md');
+      const generatedBaselinesPath = path.join(generatedDocsDir(tempRoot), 'BASELINES.md');
       const generatedBaselines = fs
         .readFileSync(generatedBaselinesPath, 'utf8')
         .replace('### DEP-001:', '### NOTE-001:');
       fs.writeFileSync(generatedBaselinesPath, generatedBaselines, 'utf8');
 
       fs.writeFileSync(
-        path.join(tempRoot, 'BASELINES.md'),
+        workflowDocPath(tempRoot, 'BASELINES.md'),
         [
           '# BASELINES.md',
           '',
@@ -529,7 +563,7 @@ describe('run-validation', () => {
         ].join('\n')
       );
 
-      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
+      fs.rmSync(path.join(generatedDocsDir(tempRoot), 'BASELINES.md'), { force: true });
 
       const report = runValidation({ root: tempRoot, layer: 'project', dryRun: true });
       expect(report.protocol_results).toHaveLength(0);
@@ -567,7 +601,7 @@ describe('run-validation', () => {
         ].join('\n')
       );
 
-      fs.rmSync(path.join(tempRoot, 'generated', 'workflow-docs', 'BASELINES.md'), { force: true });
+      fs.rmSync(path.join(generatedDocsDir(tempRoot), 'BASELINES.md'), { force: true });
 
       const report = runValidation({ root: tempRoot, dryRun: true });
       expect(report.protocol_results.map(result => result.entrypoint)).toContain('workflow-docs-validation');
@@ -621,9 +655,7 @@ describe('check-freshness', () => {
       fs.cpSync(path.join(ROOT, 'VERSION'), path.join(tempRoot, 'VERSION'));
       fs.cpSync(path.join(ROOT, 'templates'), path.join(tempRoot, 'templates'), { recursive: true });
       copyGeneratedSnapshot(tempRoot);
-      fs.cpSync(path.join(ROOT, 'SKILL_REGISTRY.md'), path.join(tempRoot, 'SKILL_REGISTRY.md'));
-
-      const staleFile = path.join(tempRoot, 'generated', 'workflow-docs', 'STATUS.md');
+      const staleFile = path.join(generatedDocsDir(tempRoot), 'STATUS.md');
       fs.writeFileSync(staleFile, `${fs.readFileSync(staleFile, 'utf8')}\nSTALE TEST MARKER\n`, 'utf8');
 
       const target = FRESHNESS_TARGETS.find(item => item.name === 'workflow-docs');

@@ -302,7 +302,7 @@ describe('workflow-core', () => {
         paths: {
           documentation_files: ['README.md', 'docs/*.md'],
           existing_skill_template_patterns: ['*/SKILL.md.tmpl', 'SKILL.md.tmpl'],
-          generated_artifacts: ['**/SKILL.md', 'generated/workflow-docs/**'],
+          generated_artifacts: ['**/SKILL.md', 'docs/workflow/generated/workflow-docs/**'],
         },
         boundaries: {
           forbidden_paths: ['.git/**', 'node_modules/**'],

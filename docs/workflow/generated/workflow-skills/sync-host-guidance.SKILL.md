@@ -1,0 +1,191 @@
+---
+name: sync-host-guidance
+preamble-tier: 2
+version: 0.1.0
+description: >
+  Sync AGENTS.md and CLAUDE.md so both hosts follow the same confirmed workflow
+  rules and project-wide guidance.
+purpose: >
+  同步 AGENTS.md 与 CLAUDE.md，确保 Claude / Codex 两侧宿主都读取同一套已确认的项目级协作约束、命令入口和
+  workflow 指引。
+stage: 阶段 7：状态同步
+trigger: |
+  项目级协作约束、统一命令入口、宿主说明或 workflow 指引发生变化时。
+inputs:
+  - host_guidance_files
+  - project_profile
+  - current_task
+  - confirmed_global_constraints
+  - synced_governance_docs
+reads:
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - AGENTS.md
+  - CLAUDE.md
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+  - docs/workflow/STATUS.md
+  - docs/workflow/BASELINES.md
+writes:
+  - AGENTS.md
+  - CLAUDE.md
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+must_check:
+  - 哪些变化属于项目级长期规则，而不是本轮任务临时说明
+  - AGENTS.md 与 CLAUDE.md 是否保持同一治理基线，只保留必要的宿主称谓差异
+  - 统一命令入口、验证方式、禁区和 workflow 使用顺序是否与已确认治理文档一致
+  - 是否需要把新的宿主说明、AI 协作约束或禁止事项同步到两个文件
+stop_conditions:
+  - 全局约束尚未确认
+  - 当前变化仍是任务级临时说明
+  - AGENTS.md / CLAUDE.md 与其他治理文档冲突且无法判定真值
+output:
+  - 更新后的 AGENTS.md
+  - 更新后的 CLAUDE.md
+handoff:
+  success: capture-lessons
+  failure: ask-user
+decision_policy:
+  mechanical: 可以同步两个宿主文件中的公共 workflow 指引、统一命令和结构。
+  taste: 保留项目既有语气，不要把宿主说明改成模板腔。
+  user_challenge: 不得把未确认的任务级临时约定升级成项目级全局规则。
+verification:
+  - AGENTS.md 与 CLAUDE.md 对项目级规则的描述一致
+  - 宿主差异只体现在必要的称谓或宿主入口说明
+  - 命令、路径和 workflow 入口与已确认治理文档一致
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /sync-status
+  - /sync-contracts
+  - /sync-decisions
+notes:
+  - 这是持续同步宿主指引的 skill，不替代初始化阶段的 scaffold / bootstrap。
+  - 如果 AGENTS.md 或 CLAUDE.md 缺失，应根据已确认治理文档补回，而不是只更新当前宿主。
+sync_rules:
+  - 项目级 workflow 规则变化后同步
+  - 宿主指引必须成对更新，不能只改当前宿主
+host_guidance_categories:
+  - workflow bootstrap / task flow
+  - project-wide command entrypoints
+  - AI collaboration constraints and forbidden zones
+  - deploy / release / verification guidance when confirmed
+---
+
+# Skill: sync-host-guidance
+
+## Purpose
+
+同步 AGENTS.md 与 CLAUDE.md，确保 Claude / Codex 两侧宿主都读取同一套已确认的项目级协作约束、命令入口和 workflow 指引。
+
+## Trigger
+
+项目级协作约束、统一命令入口、宿主说明或 workflow 指引发生变化时。
+
+## Inputs
+
+- host_guidance_files
+- project_profile
+- current_task
+- confirmed_global_constraints
+- synced_governance_docs
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. Treat `.workflow-system/PROJECT_PROFILE.yaml` plus the already-synced governance docs as the source of truth for project-wide host guidance.
+
+## Must Check
+
+- 哪些变化属于项目级长期规则，而不是本轮任务临时说明
+- AGENTS.md 与 CLAUDE.md 是否保持同一治理基线，只保留必要的宿主称谓差异
+- 统一命令入口、验证方式、禁区和 workflow 使用顺序是否与已确认治理文档一致
+- 是否需要把新的宿主说明、AI 协作约束或禁止事项同步到两个文件
+
+## Stop Conditions
+
+- 全局约束尚未确认
+- 当前变化仍是任务级临时说明
+- AGENTS.md / CLAUDE.md 与其他治理文档冲突且无法判定真值
+
+## Decision Policy
+
+- `mechanical`: 可以同步两个宿主文件中的公共 workflow 指引、统一命令和结构。
+- `taste`: 保留项目既有语气，不要把宿主说明改成模板腔。
+- `user_challenge`: 不得把未确认的任务级临时约定升级成项目级全局规则。
+
+## Verification
+
+- AGENTS.md 与 CLAUDE.md 对项目级规则的描述一致
+- 宿主差异只体现在必要的称谓或宿主入口说明
+- 命令、路径和 workflow 入口与已确认治理文档一致
+
+## Extension Fields
+
+### sync_rules
+- 项目级 workflow 规则变化后同步
+- 宿主指引必须成对更新，不能只改当前宿主
+
+### host_guidance_categories
+- workflow bootstrap / task flow
+- project-wide command entrypoints
+- AI collaboration constraints and forbidden zones
+- deploy / release / verification guidance when confirmed
+
+## Execution Protocol
+
+1. 先读取 `.workflow-system/PROJECT_PROFILE.yaml`、`docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/STATUS.md`、`docs/workflow/BASELINES.md`，再读取现有 `AGENTS.md` / `CLAUDE.md`。
+2. 只同步**项目级长期规则**：workflow 入口、统一命令、禁区、验证入口、宿主协作方式。不要把本轮任务临时说明、一次性 workaround 或未确认猜测写入宿主指引。
+3. 同时更新 `AGENTS.md` 与 `CLAUDE.md`。两者应共享同一治理基线，只允许保留必要的宿主称谓差异；不要出现一边已经更新、另一边继续停在旧规则。
+4. 若其中一个文件缺失，按已确认治理文档补回该文件，再继续成对同步；不要因为当前宿主只有一个文件就跳过另一边。
+5. 如果发现现有宿主指引与已确认治理文档冲突，先列出冲突事实并按 `handoff.failure` 停下，不要擅自选择一个版本覆盖另一个。
+6. 不修改业务代码，不重写项目战略，不把任务级实现细节升级成项目级长期约束。
+
+## Hard Boundaries
+
+- 不修改 `scripts, browse/src, design/src, test, browse/test`。
+- 不把 `docs/workflow/CURRENT_TASK.md` 中的临时执行说明直接复制成长期宿主规则。
+- 不只更新单侧宿主文件。
+- 不得静默改变项目级 AI 协作约束、验证入口或禁止事项的含义。
+
+## Handoff
+
+- 成功：`capture-lessons`
+- 失败：`ask-user`
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

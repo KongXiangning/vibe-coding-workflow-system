@@ -1,0 +1,367 @@
+---
+name: review-diff
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Review the current diff for scope drift, decision drift, and obvious
+  regression risk.
+purpose: |
+  审查当前 diff 是否越界、是否偏离任务意图。
+stage: 阶段 5：范围复核
+trigger: |
+  每完成一个实现步骤后。
+inputs:
+  - current_diff
+  - current_task
+  - contracts
+  - decisions
+reads:
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+writes: []
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+must_check:
+  - diff 是否只触碰 Allowed Files
+  - diff 是否触碰 Forbidden Files
+  - diff 触碰 Conditional Files 时条件和证据是否成立
+  - 是否顺手做了无关改动
+  - 是否覆盖既有决策
+  - 是否遗漏 Change Propagation Check
+  - 是否通过 safety boundary review
+  - 是否存在 unauthorized scope widening
+  - 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
+  - 是否触碰 CI/CD / deploy config / monitoring / benchmark config 且未授权
+  - UI / 视觉 diff 是否通过 design drift review
+stop_conditions:
+  - 发现高风险越界
+  - 发现未授权文件出现在 diff 中
+  - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
+  - 发现 dangerous command / deployment / database surfaces 未授权或未记录
+  - 发现 CI/CD、deploy config、monitoring、benchmark config 未授权变更
+  - 发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论
+  - 发现明显决策漂移
+  - 发现 docs/workflow/CURRENT_TASK.md 试图覆盖 docs/workflow/CONTRACTS.md
+  - 当前 diff 无法映射到任务目标
+output:
+  - 边界审查结论
+  - 越界与回归风险列表
+handoff:
+  success: verify-contracts
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动做范围和文件级差异检查。
+  taste: 不要把个人偏好包装成审查问题。
+  user_challenge: 发现意图偏移时必须明确上浮。
+verification:
+  - 已对照任务范围和决策执行审查
+  - 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
+  - 已执行 safety boundary review
+  - 已检查 unauthorized scope widening
+  - 已检查 dangerous command / deployment / database surfaces
+  - 已检查 CI/CD / deploy config / monitoring / benchmark config
+  - 已执行 design drift review
+  - 已检查公共 API、schema、DTO、event、共享逻辑和 docs/workflow/CONTRACTS.md 锁定项的传播影响
+  - 已输出 clean 或问题列表
+  - 没有直接修改代码
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /implement-current-step
+notes:
+  - 这是只读审查 skill。
+contract_layers:
+  - 接口契约
+  - 架构契约
+scope_sources:
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+mutation_scope_buckets:
+  - Allowed Files
+  - Forbidden Files
+  - Conditional Files
+source_of_truth_rules:
+  - docs/workflow/CONTRACTS.md 优先于
+    .workflow-system/PROJECT_PROFILE.yaml、docs/workflow/DECISIONS.md、docs/workflow/CURRENT_TASK.md、docs/workflow/STATUS.md
+  - docs/workflow/CURRENT_TASK.md 只能缩小任务范围，不能覆盖 docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须列影响集合
+  - 必须声明兼容策略：backward-compatible、breaking 或 unknown
+  - 必须核对 docs/workflow/CONTRACTS.md、docs/workflow/DECISIONS.md 和回归检查项是否同步
+diff_filters:
+  - 当前 step 相关文件
+  - 授权范围外文件
+  - 无关格式化噪音
+violation_levels:
+  - "minor: 边缘杂质"
+  - "major: 非授权改动"
+  - "critical: 决策或边界漂移"
+test_sources:
+  - docs/workflow/CURRENT_TASK.md 的回归检查项
+smoke_checks:
+  - 必要时补充建议验证点
+pass_criteria:
+  - 要么 clean，要么给出明确问题清单
+failure_policy:
+  - 发现严重问题时停止继续推进并交给 ask-user
+safety_boundary_review:
+  - unauthorized scope widening
+  - forbidden file mutation
+  - unsatisfied conditional file mutation
+  - dangerous command changes
+  - deployment changes
+  - CI/CD changes
+  - deploy config changes
+  - monitoring changes
+  - benchmark config changes
+  - database changes
+unlock_widening_review:
+  - docs/workflow/CURRENT_TASK.md 是否记录扩大范围理由
+  - docs/workflow/CURRENT_TASK.md 是否记录影响文件
+  - docs/workflow/CURRENT_TASK.md 是否记录风险
+  - docs/workflow/CURRENT_TASK.md 是否记录验证方式
+  - Allowed Files / Forbidden Files / Conditional Files 是否重新生成
+design_drift_review:
+  - unauthorized visual change
+  - AI slop
+  - responsive gap
+  - missing interaction state
+  - missing accessibility check
+  - visual conclusion without evidence
+---
+
+# Skill: review-diff
+
+## Purpose
+
+审查当前 diff 是否越界、是否偏离任务意图。
+
+## Trigger
+
+每完成一个实现步骤后。
+
+## Inputs
+
+- current_diff
+- current_task
+- contracts
+- decisions
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- diff 是否只触碰 Allowed Files
+- diff 是否触碰 Forbidden Files
+- diff 触碰 Conditional Files 时条件和证据是否成立
+- 是否顺手做了无关改动
+- 是否覆盖既有决策
+- 是否遗漏 Change Propagation Check
+- 是否通过 safety boundary review
+- 是否存在 unauthorized scope widening
+- 是否触碰 dangerous command / deployment / database surfaces 且未记录安全处理
+- 是否触碰 CI/CD / deploy config / monitoring / benchmark config 且未授权
+- UI / 视觉 diff 是否通过 design drift review
+
+## Stop Conditions
+
+- 发现高风险越界
+- 发现未授权文件出现在 diff 中
+- 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
+- 发现 dangerous command / deployment / database surfaces 未授权或未记录
+- 发现 CI/CD、deploy config、monitoring、benchmark config 未授权变更
+- 发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论
+- 发现明显决策漂移
+- 发现 docs/workflow/CURRENT_TASK.md 试图覆盖 docs/workflow/CONTRACTS.md
+- 当前 diff 无法映射到任务目标
+
+## Decision Policy
+
+- `mechanical`: 可以自动做范围和文件级差异检查。
+- `taste`: 不要把个人偏好包装成审查问题。
+- `user_challenge`: 发现意图偏移时必须明确上浮。
+
+## Verification
+
+- 已对照任务范围和决策执行审查
+- 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
+- 已执行 safety boundary review
+- 已检查 unauthorized scope widening
+- 已检查 dangerous command / deployment / database surfaces
+- 已检查 CI/CD / deploy config / monitoring / benchmark config
+- 已执行 design drift review
+- 已检查公共 API、schema、DTO、event、共享逻辑和 docs/workflow/CONTRACTS.md 锁定项的传播影响
+- 已输出 clean 或问题列表
+- 没有直接修改代码
+
+## Extension Fields
+
+### contract_layers
+- 接口契约
+- 架构契约
+
+### scope_sources
+- docs/workflow/CURRENT_TASK.md
+- docs/workflow/CONTRACTS.md
+- docs/workflow/DECISIONS.md
+
+### mutation_scope_buckets
+- Allowed Files
+- Forbidden Files
+- Conditional Files
+
+### source_of_truth_rules
+- docs/workflow/CONTRACTS.md 优先于 .workflow-system/PROJECT_PROFILE.yaml、docs/workflow/DECISIONS.md、docs/workflow/CURRENT_TASK.md、docs/workflow/STATUS.md
+- docs/workflow/CURRENT_TASK.md 只能缩小任务范围，不能覆盖 docs/workflow/CONTRACTS.md
+- docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须列影响集合
+- 必须声明兼容策略：backward-compatible、breaking 或 unknown
+- 必须核对 docs/workflow/CONTRACTS.md、docs/workflow/DECISIONS.md 和回归检查项是否同步
+
+### diff_filters
+- 当前 step 相关文件
+- 授权范围外文件
+- 无关格式化噪音
+
+### violation_levels
+- minor: 边缘杂质
+- major: 非授权改动
+- critical: 决策或边界漂移
+
+### test_sources
+- docs/workflow/CURRENT_TASK.md 的回归检查项
+
+### smoke_checks
+- 必要时补充建议验证点
+
+### pass_criteria
+- 要么 clean，要么给出明确问题清单
+
+### failure_policy
+- 发现严重问题时停止继续推进并交给 ask-user
+
+### safety_boundary_review
+- unauthorized scope widening
+- forbidden file mutation
+- unsatisfied conditional file mutation
+- dangerous command changes
+- deployment changes
+- CI/CD changes
+- deploy config changes
+- monitoring changes
+- benchmark config changes
+- database changes
+
+### unlock_widening_review
+- docs/workflow/CURRENT_TASK.md 是否记录扩大范围理由
+- docs/workflow/CURRENT_TASK.md 是否记录影响文件
+- docs/workflow/CURRENT_TASK.md 是否记录风险
+- docs/workflow/CURRENT_TASK.md 是否记录验证方式
+- Allowed Files / Forbidden Files / Conditional Files 是否重新生成
+
+### design_drift_review
+- unauthorized visual change
+- AI slop
+- responsive gap
+- missing interaction state
+- missing accessibility check
+- visual conclusion without evidence
+
+## Safety Boundary Review
+
+`/review-diff` 必须做 safety boundary review，而不只是看代码是否能编译。重点检查：
+
+- diff 是否包含 unauthorized scope widening。
+- diff 是否触碰 Forbidden Files。
+- diff 是否触碰 Conditional Files 但没有满足条件或证据。
+- diff 是否出现 dangerous command 相关脚本、CI、部署或数据库变更。
+- diff 是否出现 CI/CD、deploy config、monitoring、benchmark config 的未授权变更。
+- diff 是否绕过 `/lock-scope` 的 unlock / widening 流程。
+
+发现 Forbidden Files、未满足 Conditional Files、未记录的范围扩大、危险命令、deployment 或 database surfaces 时，标记为 blocker。
+
+## Design Drift Review
+
+UI / 视觉 diff 必须做 design drift review。重点检查：
+
+- Design mode、Design source、Design acceptance、Design evidence 是否支持当前视觉变化
+- 是否出现未授权视觉变化
+- 是否引入 AI slop 模式
+- 是否存在响应式缺口
+- 是否遗漏 hover、focus、loading、empty、error 等状态
+- 是否缺少可访问性检查
+- 是否没有截图、mockup、人工验收或 browser-backed smoke 证据
+
+发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论时，标记为 blocker 或上浮风险。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是只读审查 skill。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

@@ -359,7 +359,7 @@ The workflow-system is incubated inside `gstack`, but its ownership model is int
 
 ### Artifact ownership split
 
-- **Standalone-owned after extraction:** the workflow-system protocol and schema (`WORKFLOW_PROTOCOL.md`, `FILE_SCHEMAS.md`), generators and runtime contracts under `scripts/workflow-*.ts`, workflow templates under `templates/docs/**` and `templates/skills/**`, generated reference artifacts under `generated/workflow-docs/**` and `generated/workflow-skills/**`, and the tests that prove those contracts.
+- **Standalone-owned after extraction:** the workflow-system protocol and schema (`WORKFLOW_PROTOCOL.md`, `FILE_SCHEMAS.md`), generators and runtime contracts under `scripts/workflow-*.ts`, workflow templates under `templates/docs/**` and `templates/skills/**`, generated reference artifacts under `docs/workflow/generated/workflow-docs/**` and `docs/workflow/generated/workflow-skills/**`, and the tests that prove those contracts.
 - **Incubation-local to gstack:** `docs/plans/**`, gstack-specific browse/review/QA skills, repo-specific CI or release wiring that is not part of the workflow-system import contract, and any host-only operational conventions.
 - **Target-project-owned after adoption:** repo-root live governance docs, project validation bindings, deploy/release automation, secrets, environment procedures, and any project-specific docs or skills introduced after Adoption `A5`.
 

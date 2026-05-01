@@ -31,6 +31,7 @@ runtime:
     - bun run dev:skill
 
 paths:
+  workflow_home: docs/workflow
   source_directories:
     - scripts
     - browse/src
@@ -41,6 +42,9 @@ paths:
   documentation_files:
     - README.md
     - ARCHITECTURE.md
+    - docs/workflow/*.md
+    - docs/designs/*.md
+    - docs/adoption/*.md
     - docs/repo-path-grammar.md
     - vibe-coding/README.md
     - vibe-coding/vibe-coding-workflow.md
@@ -58,8 +62,9 @@ paths:
     - browse/dist/**
     - design/dist/**
     - "**/SKILL.md"
-    - SKILL_REGISTRY.md
-    - generated/workflow-docs/**
+    - docs/workflow/SKILL_REGISTRY.md
+    - docs/workflow/generated/workflow-docs/**
+    - docs/workflow/generated/workflow-skills/**
 
 boundaries:
   # Workflow restricted grammar: these values feed `{{FORBIDDEN_PATHS}}` in workflow templates.
@@ -71,12 +76,14 @@ boundaries:
     - browse/dist/**
     - design/dist/**
     - "**/SKILL.md"
-    - SKILL_REGISTRY.md
+    - docs/workflow/SKILL_REGISTRY.md
+    - docs/workflow/generated/workflow-docs/**
+    - docs/workflow/generated/workflow-skills/**
   workflow_owned_paths:
     - .workflow-system/PROJECT_PROFILE.yaml
     - .workflow-system/WORKFLOW_PROTOCOL.md
     - .workflow-system/FILE_SCHEMAS.md
-    - SKILL_REGISTRY.md
+    - docs/workflow/**
     - templates/docs/**
     - templates/skills/**
   human_review_required:
@@ -106,7 +113,7 @@ governance:
     - .workflow-system/FILE_SCHEMAS.md
     - AGENTS.md
     - CLAUDE.md
-    - SKILL_REGISTRY.md
+    - docs/workflow/*.md
     - docs/repo-path-grammar.md
     - vibe-coding/README.md
     - vibe-coding/vibe-coding-workflow.md

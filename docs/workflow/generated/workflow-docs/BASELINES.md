@@ -1,0 +1,173 @@
+# docs/workflow/BASELINES.md
+
+## 使用规则
+
+- 本文件定义发布、兼容性、安全、部署和非功能要求的最低基线
+- 基线是可版本化的约束，不是一次性检查清单
+- 基线变化时追加新记录并标注生效版本 / 窗口，不直接抹掉旧约束
+
+## 版本治理概览
+
+- 当前版本：0.14.5.0
+- 项目：gstack
+- 项目类型：ai-engineering-workflow
+- 主要技术栈：TypeScript, Markdown, Shell
+- 关联验证入口：bun test, bun run skill:check, bun run test:audit
+
+## 发布基线
+
+### REL-001: 待补充发布基线
+
+- 状态：candidate
+- 生效版本 / 窗口：
+- 发布前必须满足：
+- 阻塞级别：
+- 证据 / 验证入口：
+- release readiness gate：
+- 例外处理：
+
+## 兼容性基线
+
+### COMP-001: 待补充兼容性基线
+
+- 状态：candidate
+- 生效版本 / 范围：
+- 兼容对象：
+- 不可破坏项：
+- 验证入口 / 观察指标：
+- 升级 / 迁移说明：
+
+## 安全基线
+
+### SEC-001: 待补充安全基线
+
+- 状态：candidate
+- 生效版本 / 范围：
+- 最低要求：
+- 禁止项：
+- 验证入口 / 审查方式：
+- 例外审批：
+
+## 部署基线
+
+### DEP-001: 待补充部署基线
+
+- 状态：candidate
+- 生效版本 / 环境：
+- 部署前检查：
+- 发布步骤 / 回滚要求：
+- health endpoint：
+- production URL：
+- deploy status source：
+- 观测与告警：
+- canary window：
+- 失败后的默认动作：
+
+## 性能与可靠性基线
+
+### NFR-001: 待补充非功能基线
+
+- 状态：candidate
+- 生效版本 / 范围：
+- 指标：
+- 目标阈值：
+- performance regression threshold：
+- baseline source：
+- 观测周期：
+- 验证入口：
+- 例外处理：
+
+## Gate 与错误码基线
+
+### GATE-001: 传播治理默认 gate
+
+- 状态：candidate
+- 生效版本 / 范围：
+- blocker level：
+- 适用错误码：
+- merge gate：
+- ship gate：
+- 升级条件：
+- 相关 strategy_origin / branch 语义：
+- 兼容窗口 / removal precondition：
+- 证据归档位置：
+
+### GATE-002: P0 前置 gap 错误码
+
+- 状态：candidate
+- 封闭集合：
+  - `IMPACT_LOCKED_HIT_GAP_UNRESOLVED`
+  - `REGISTRY_FRESHNESS_STALE_LOCKED_HIT`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 release / ship critical path 时升级 `blocks-ship`
+- 升级条件：eligibility 未收敛且 blocker 属于前置 gap
+- 相关 strategy_origin / branch 语义：`locked_hit_gap`
+
+### GATE-003: P1 直接变更不允许错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `IMPACT_HARD_STOP_REQUIRED`
+  - `INCOMPATIBLE_MUTATION_CONFLICT`
+  - `MUTATION_NOT_ELIGIBLE`
+  - `COMPAT_ADAPTER_BOUNDARY_MISSING`
+  - `COMPAT_LAYER_REQUIRED_BUT_MISSING`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 release / ship critical path 或 ship compatibility baseline 时升级 `blocks-ship`
+- 升级条件：兼容路径缺失或 eligibility 已完成收敛为不允许
+- 相关 strategy_origin / branch 语义：`hard_stop|enforce_adapter_boundary|enforce_compat_layer`
+
+### GATE-004: P2 迁移缺失错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `MIGRATION_PLAN_REQUIRED_BUT_MISSING`
+  - `MIGRATION_PLAN_INCOMPLETE`
+  - `MIGRATION_PHASE_ORDER_INVALID`
+  - `MIGRATION_RUNTIME_STATE_UNDECLARED`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：迁移窗口相关场景升级 `blocks-ship`
+- 升级条件：扩边继续推进但缺少正式迁移计划
+- 相关 strategy_origin / branch 语义：`recommend_task_split`
+
+### GATE-005: P3 contract 破坏错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `LAYOUT_CONTRACT_BREAK`
+  - `BEHAVIOR_CONTRACT_BREAK`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 frozen UI region、locked anchor、critical interaction path、release-critical behavior contract 时升级 `blocks-ship`
+- 升级条件：layout / behavior contract 已被破坏
+- 相关 strategy_origin / branch 语义：`significant_divergence`
+
+### GATE-006: P4 链式风险升级错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `LINKED_REGRESSION_EARLY_STOP`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：命中 release / ship critical path 时升级 `blocks-ship`
+- 升级条件：同一回归链进入早停阈值
+- 相关 strategy_origin / branch 语义：`none`
+
+### GATE-007: 兼容窗口与移除前提错误码
+
+- 状态：candidate
+- 适用错误码：
+  - `COMPAT_WINDOW_VIOLATION`
+  - `COMPAT_REMOVAL_PRECONDITION_UNMET`
+- blocker level：blocks-merge
+- merge gate：blocks-merge
+- ship gate：发布 / deploy gate 升级 `blocks-ship`
+- 升级条件：兼容窗口未结束或 removal precondition 未满足
+- 相关 strategy_origin / branch 语义：`none`
+
+## 基线变更记录
+
+- {{DATE}}：初始化 baseline 模板

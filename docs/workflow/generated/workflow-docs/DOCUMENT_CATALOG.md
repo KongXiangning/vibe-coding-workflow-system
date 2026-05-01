@@ -1,0 +1,53 @@
+# docs/workflow/DOCUMENT_CATALOG.md
+
+## 使用规则
+
+- 本文件是 workflow-system 的文档目录入口，用来说明哪些文档属于治理、设计基线、老项目接管，以及它们应该放在哪个目录。
+- 本文件由 `bun run gen:workflow-docs` 自动生成，请勿手工编辑。
+- 为保持生成稳定，本文件不内嵌 wall-clock 生成时间或文件系统 mtime；统一记录生成批次，并提供查询最后修改时间的标准方式。
+- 真实 live runtime 路径以 `.workflow-system/PROJECT_PROFILE.yaml` 的 `paths.workflow_home` 和各 skill 的 `reads` / `writes` 为准。
+
+## 目录分类规则
+
+| 目录 | 分类依据 | 说明 |
+| --- | --- | --- |
+| 根目录 | 宿主入口与系统控制文件 | 仅保留 `README.md`、`AGENTS.md`、`CLAUDE.md`、`.workflow-system/**` 等必须从根读取的入口 |
+| `docs/workflow/` | workflow 治理文档与 generated reference render | 放治理文档、目录索引、registry，以及 `generated/workflow-docs/**` / `generated/workflow-skills/**` |
+| `docs/designs/` | 新项目设计基线 | 放设计基线、领域模型、接口草案、详细设计等 greenfield 文档 |
+| `docs/adoption/` | 老项目事实盘点与接管材料 | 放 legacy inventory、风险登记、API 盘点和 adoption 报告 |
+
+## 文档总览
+
+| 路径 | 分类 | 作用 | 生成/维护方式 | 生成批次 | 最后修改时间查询 |
+| --- | --- | --- | --- | --- | --- |
+| `docs/workflow/DOCUMENT_CATALOG.md` | workflow-catalog | 文档目录协议与快速查表入口 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/DOCUMENT_CATALOG.md` |
+| `docs/workflow/WORKFLOW_GUIDE.md` | workflow-governance | 日常 workflow 使用说明 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/WORKFLOW_GUIDE.md` |
+| `docs/workflow/ROADMAP.md` | workflow-governance | 版本窗口、阶段计划与风险 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/ROADMAP.md` |
+| `docs/workflow/STATUS.md` | workflow-governance | 项目状态、稳定面和检查点 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/STATUS.md` |
+| `docs/workflow/CONTRACTS.md` | workflow-governance | 稳定接口、架构边界与传播治理补充 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/CONTRACTS.md` |
+| `docs/workflow/DECISIONS.md` | workflow-governance | 已确认架构/口味/暂缓/否决决策 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/DECISIONS.md` |
+| `docs/workflow/BASELINES.md` | workflow-governance | 发布、兼容、安全、部署、性能基线 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/BASELINES.md` |
+| `docs/workflow/CURRENT_TASK.md` | workflow-governance | 当前任务包、范围和验证记录 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/CURRENT_TASK.md` |
+| `docs/workflow/LESSONS.md` | workflow-governance | 可复用经验与踩坑记录 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/LESSONS.md` |
+| `docs/workflow/TASK_SUMMARY.md` | workflow-governance | 交付摘要模板 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/TASK_SUMMARY.md` |
+| `docs/workflow/TASK_ARCHIVE.md` | workflow-governance | 任务归档模板 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/TASK_ARCHIVE.md` |
+| `docs/workflow/SKILL_REGISTRY.md` | workflow-registry | 全部 workflow skill 的 stage / IO / handoff 总览 | `gen:registry` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/SKILL_REGISTRY.md` |
+| `docs/workflow/generated/workflow-docs/**` | workflow-reference | source-repo governance docs reference render | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/generated/workflow-docs` |
+| `docs/workflow/generated/workflow-skills/**` | workflow-reference | source-repo skill reference render | `gen:workflow-skills` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/generated/workflow-skills` |
+| `docs/designs/architecture.md` | design-baseline | 新项目目标架构、边界与数据流 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/architecture.md` |
+| `docs/designs/database.md` | design-baseline | 新项目数据库设计与生命周期约束 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/database.md` |
+| `docs/designs/domain-model.md` | design-baseline | 核心实体、关系和业务不变量 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/domain-model.md` |
+| `docs/designs/api-contracts.md` | design-baseline | API / DTO / Event / Module contract 草案 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/api-contracts.md` |
+| `docs/designs/detailed-design.md` | design-baseline | 关键流程、状态机、错误路径和边界条件 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/detailed-design.md` |
+| `docs/adoption/architecture-inventory.md` | adoption-inventory | 老项目当前架构事实版盘点 | `legacy-inventory` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/adoption/architecture-inventory.md` |
+| `docs/adoption/database-inventory.md` | adoption-inventory | 老项目当前数据库事实版盘点 | `legacy-inventory` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/adoption/database-inventory.md` |
+| `docs/adoption/API_INVENTORY.md` | adoption-inventory | 真实 API、消费者与兼容承诺盘点 | `legacy-inventory` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/adoption/API_INVENTORY.md` |
+| `docs/adoption/RISK_REGISTER.md` | adoption-inventory | stable / fragile / unknown / deprecated 风险登记 | `legacy-inventory` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/adoption/RISK_REGISTER.md` |
+| `docs/adoption/ADOPTION_REPORT.md` | adoption-inventory | 证据、推断、冲突与接管建议汇总 | `legacy-inventory` 与 `adopt-existing-project` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/adoption/ADOPTION_REPORT.md` |
+
+## 使用建议
+
+1. 不确定文档位置时，先读本文件，再读 `docs/workflow/WORKFLOW_GUIDE.md`。
+2. 需要 live governance 内容时，优先读 `docs/workflow/*.md`，不要把 `docs/workflow/generated/**` 当作目标项目的 live runtime docs。
+3. 需要 source-repo reference render 时，读取 `docs/workflow/generated/workflow-docs/**` 和 `docs/workflow/generated/workflow-skills/**`。
+4. 需要设计基线时读 `docs/designs/**`；需要老项目接管事实时读 `docs/adoption/**`。

@@ -2,8 +2,9 @@
 name: greenfield-init
 preamble-tier: 1
 version: 0.1.0
-description: |
-  Initialize workflow governance for a brand-new project before any task package exists.
+description: >
+  Initialize workflow governance for a brand-new project before any task package
+  exists.
 purpose: |
   基于已确认设计基线，为新项目建立首版治理基线，包括项目画像、协作约束、契约边界、状态、路线图、基线和决策文档。
 stage: 初始化
@@ -20,24 +21,28 @@ reads:
   - .workflow-system/WORKFLOW_PROTOCOL.md
   - .workflow-system/FILE_SCHEMAS.md
   - templates/docs/
-  - ROADMAP.md
+  - docs/workflow/ROADMAP.md
   - docs/designs/architecture.md
   - docs/designs/database.md
   - docs/designs/
-  - BASELINES.md
+  - docs/workflow/BASELINES.md
   - README.md
   - package.json
 writes:
   - .workflow-system/PROJECT_PROFILE.yaml
   - AGENTS.md
   - CLAUDE.md
-  - ROADMAP.md
-  - CONTRACTS.md
-  - BASELINES.md
-  - STATUS.md
-  - DECISIONS.md
+  - docs/workflow/ROADMAP.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/BASELINES.md
+  - docs/workflow/STATUS.md
+  - docs/workflow/DECISIONS.md
 forbidden_writes:
-  - "{{CODE_DIRECTORIES}}"
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
 must_check:
   - 项目目标、目标用户和成功标准是否明确
   - 技术栈、测试方式、部署方式和禁区是否明确
@@ -52,7 +57,9 @@ stop_conditions:
 output:
   - 首版 .workflow-system/PROJECT_PROFILE.yaml
   - 首版 host 指引文件（同时生成 `AGENTS.md` / `CLAUDE.md`）
-  - 首版 ROADMAP.md / CONTRACTS.md / BASELINES.md / STATUS.md / DECISIONS.md
+  - 首版 docs/workflow/ROADMAP.md / docs/workflow/CONTRACTS.md /
+    docs/workflow/BASELINES.md / docs/workflow/STATUS.md /
+    docs/workflow/DECISIONS.md
 handoff:
   success: create-current-task
   failure: ask-user
@@ -62,9 +69,11 @@ decision_policy:
   user_challenge: 不得静默替用户做高层产品定位、核心架构或范围取舍。
 verification:
   - .workflow-system/PROJECT_PROFILE.yaml 具备后续技能渲染所需的核心字段
-  - "`AGENTS.md`、`CLAUDE.md`、ROADMAP.md、CONTRACTS.md、BASELINES.md、STATUS.md、DECISIONS.md 已建立首版骨架"
-  - 已确认接口、模块和数据约束已固化到 CONTRACTS.md
-  - 架构取舍和否决方案已记录到 DECISIONS.md
+  - "`AGENTS.md`、`CLAUDE.md`、docs/workflow/ROADMAP.md、docs/workflow/CONTRACTS.m\
+    d、docs/workflow/BASELINES.md、docs/workflow/STATUS.md、docs/workflow/DECISION\
+    S.md 已建立首版骨架"
+  - 已确认接口、模块和数据约束已固化到 docs/workflow/CONTRACTS.md
+  - 架构取舍和否决方案已记录到 docs/workflow/DECISIONS.md
   - 未把未确认假设写成既定事实
 allowed-tools:
   - Read
@@ -91,10 +100,10 @@ notes:
 
 ## Execution Rules
 
-1. 先读取已有 scaffold（如 `.workflow-system/PROJECT_PROFILE.yaml`、`README.md`、`package.json`）、设计基线（如 `ROADMAP.md`、`docs/designs/architecture.md`、`docs/designs/database.md`、`docs/designs/`、`BASELINES.md`）以及 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`；如果项目文件不存在，就把缺失视为待建立事实，而不是错误。
+1. 先读取已有 scaffold（如 `.workflow-system/PROJECT_PROFILE.yaml`、`README.md`、`package.json`）、设计基线（如 `docs/workflow/ROADMAP.md`、`docs/designs/architecture.md`、`docs/designs/database.md`、`docs/designs/`、`docs/workflow/BASELINES.md`）以及 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`；如果项目文件不存在，就把缺失视为待建立事实，而不是错误。
 2. 复杂新项目若缺少架构、数据库、接口或详细设计基线，先停止并要求进入 `design-baseline-init`，不要在本 skill 中现场推导完整设计。
-3. 按 `.workflow-system/FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架建立首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`。
-4. 只把已确认设计固化为治理基线：稳定接口、模块边界和数据约束写入 `CONTRACTS.md`；版本窗口和当前阶段写入 `ROADMAP.md`；发布、兼容、安全、部署、性能要求写入 `BASELINES.md`；架构取舍、替代方案和否决方案写入 `DECISIONS.md`。
+3. 按 `.workflow-system/FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架建立首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`。
+4. 只把已确认设计固化为治理基线：稳定接口、模块边界和数据约束写入 `docs/workflow/CONTRACTS.md`；版本窗口和当前阶段写入 `docs/workflow/ROADMAP.md`；发布、兼容、安全、部署、性能要求写入 `docs/workflow/BASELINES.md`；架构取舍、替代方案和否决方案写入 `docs/workflow/DECISIONS.md`。
 5. 同时生成 `AGENTS.md` 与 `CLAUDE.md`，让 Codex / Claude 可以并行使用同一套 workflow-system；不要再按“当前宿主”二选一。
 6. 任何高层产品定位、技术选型、部署策略、测试策略、目录规划，只能写入**已确认事实**；未确认项必须显式列为待确认，而不是暗自决定。
 7. 输出结果必须能让后续 `/create-current-task` 在不重复问项目级问题的前提下工作。
@@ -110,3 +119,15 @@ notes:
 
 - 成功：`create-current-task`
 - 失败：`ask-user`
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

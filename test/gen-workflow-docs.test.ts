@@ -1,7 +1,12 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getWorkflowProfilePath, loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
+import {
+  getWorkflowGeneratedDir,
+  getWorkflowProfilePath,
+  loadProfile,
+  validateProfilePathSemantics,
+} from '../scripts/workflow-core';
 import {
   WORKFLOW_DOC_NAMES,
   WORKFLOW_DOC_RUNTIME_PLACEHOLDERS,
@@ -9,7 +14,8 @@ import {
 } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-docs');
+const PROFILE = loadProfile(getWorkflowProfilePath(ROOT));
+const OUTPUT_DIR = getWorkflowGeneratedDir(ROOT, PROFILE, 'workflow-docs');
 
 function generatedDocsFiles(): string[] {
   if (!fs.existsSync(OUTPUT_DIR)) {
@@ -195,6 +201,15 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('workflow-system 不绑定部署平台');
     expect(guide).toContain('/sync-host-guidance');
     expect(guide).toContain('AGENTS.md` / `CLAUDE.md');
+  });
+
+  test('document catalog codifies directory classification and lookup guidance', () => {
+    const catalog = fs.readFileSync(path.join(OUTPUT_DIR, 'DOCUMENT_CATALOG.md'), 'utf8');
+    expect(catalog).toContain('docs/workflow/');
+    expect(catalog).toContain('docs/designs/');
+    expect(catalog).toContain('docs/adoption/');
+    expect(catalog).toContain('git log -1 --format=%cI -- <path>');
+    expect(catalog).toContain('docs/workflow/SKILL_REGISTRY.md');
   });
 
   test('baseline gate skeleton covers v26 blocker families', () => {

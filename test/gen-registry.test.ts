@@ -2,12 +2,19 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
-import { getWorkflowProfilePath, loadProfile, validateProfilePathSemantics } from '../scripts/workflow-core';
+import {
+  getWorkflowGeneratedDir,
+  getWorkflowProfilePath,
+  getWorkflowRegistryPath,
+  loadProfile,
+  validateProfilePathSemantics,
+} from '../scripts/workflow-core';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const REGISTRY_PATH = path.join(ROOT, 'SKILL_REGISTRY.md');
+const PROFILE = loadProfile(getWorkflowProfilePath(ROOT));
+const REGISTRY_PATH = getWorkflowRegistryPath(ROOT, PROFILE);
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
-const GENERATED_SKILLS_DIR = path.join(ROOT, 'generated', 'workflow-skills');
+const GENERATED_SKILLS_DIR = getWorkflowGeneratedDir(ROOT, PROFILE, 'workflow-skills');
 
 const EXPECTED_SECTIONS = [
   { heading: '### 3.1 初始化', stage: '初始化' },

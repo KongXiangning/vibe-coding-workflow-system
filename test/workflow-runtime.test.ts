@@ -3,8 +3,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
+  getWorkflowGeneratedRelativeDir,
   getWorkflowProfilePath,
   getWorkflowProtocolPath,
+  getWorkflowRegistryRelativePath,
   getWorkflowSchemasPath,
   loadProfile,
   WORKFLOW_PROFILE_RELATIVE_PATH,
@@ -23,6 +25,10 @@ import {
 } from '../scripts/workflow-runtime';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const PROFILE = loadProfile(getWorkflowProfilePath(ROOT));
+const GENERATED_DOCS_DIR = getWorkflowGeneratedRelativeDir(PROFILE, 'workflow-docs');
+const GENERATED_SKILLS_DIR = getWorkflowGeneratedRelativeDir(PROFILE, 'workflow-skills');
+const REGISTRY_PATH = getWorkflowRegistryRelativePath(PROFILE);
 
 function withTempRoot(run: (root: string) => void): void {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-runtime-'));
@@ -34,7 +40,7 @@ function withTempRoot(run: (root: string) => void): void {
 }
 
 function writeGeneratedSkill(root: string, name: string, content = '# Skill\n'): void {
-  const skillDir = path.join(root, 'generated', 'workflow-skills');
+  const skillDir = path.join(root, ...GENERATED_SKILLS_DIR.split('/'));
   fs.mkdirSync(skillDir, { recursive: true });
   fs.writeFileSync(path.join(skillDir, `${name}.SKILL.md`), content, 'utf8');
 }
@@ -47,13 +53,16 @@ function writeProfile(root: string, primaryHost: string): void {
     [
       'schema_version: 1',
       '',
-      'project:',
-      '  name: temp-project',
-      '  type: sample',
-      '  primary_hosts:',
-      `    - ${primaryHost}`,
-      '',
-    ].join('\n'),
+        'project:',
+        '  name: temp-project',
+        '  type: sample',
+        '  primary_hosts:',
+        `    - ${primaryHost}`,
+        '',
+        'paths:',
+        '  workflow_home: docs/workflow',
+        '',
+      ].join('\n'),
     'utf8',
   );
 }
@@ -109,7 +118,7 @@ describe('workflow-runtime manifest', () => {
     expect(manifest.contract_version).toBe(1);
     expect(manifest.artifacts.some(artifact => artifact.path === 'scripts/workflow-runtime.ts' && artifact.required)).toBe(true);
     expect(manifest.artifacts.some(artifact => artifact.path === WORKFLOW_PROTOCOL_RELATIVE_PATH && artifact.category === 'protocol')).toBe(true);
-    expect(manifest.artifacts.some(artifact => artifact.path === 'generated/workflow-docs/**' && artifact.category === 'generated')).toBe(true);
+    expect(manifest.artifacts.some(artifact => artifact.path === `${GENERATED_DOCS_DIR}/**` && artifact.category === 'generated')).toBe(true);
     expect(manifest.artifacts.some(artifact =>
       artifact.path === 'package.json' &&
       artifact.category === 'config' &&
@@ -117,8 +126,8 @@ describe('workflow-runtime manifest', () => {
     )).toBe(true);
     expect(manifest.source_pipeline.normative_sources.protocol).toEqual([WORKFLOW_PROTOCOL_RELATIVE_PATH]);
     expect(manifest.source_pipeline.normative_sources.schemas).toEqual([WORKFLOW_SCHEMAS_RELATIVE_PATH]);
-    expect(manifest.source_pipeline.generated_references).toContain('generated/workflow-docs/**');
-    expect(manifest.source_pipeline.generated_references).toContain('generated/workflow-skills/**');
+    expect(manifest.source_pipeline.generated_references).toContain(`${GENERATED_DOCS_DIR}/**`);
+    expect(manifest.source_pipeline.generated_references).toContain(`${GENERATED_SKILLS_DIR}/**`);
     expect(manifest.source_pipeline.bundle_output_root).toBe('dist/workflow-system');
     expect(manifest.package_json_contract.type).toBe('module');
     expect(manifest.package_json_contract.engines.bun).toBe('>=1.0.0');
@@ -375,13 +384,13 @@ describe('workflow-runtime pack', () => {
         (withTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('test/')),
       ).toBe(true);
       expect(
-        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('generated/workflow-docs/')),
+        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith(`${GENERATED_DOCS_DIR}/`)),
       ).toBe(true);
       expect(
-        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith('generated/workflow-skills/')),
+        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path).startsWith(`${GENERATED_SKILLS_DIR}/`)),
       ).toBe(true);
       expect(
-        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path) === 'SKILL_REGISTRY.md'),
+        (withoutTestsBundle.artifacts as Array<Record<string, unknown>>).some(artifact => String(artifact.path) === REGISTRY_PATH),
       ).toBe(true);
     });
   });

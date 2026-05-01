@@ -1,0 +1,207 @@
+---
+name: decompose-task
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Decompose the task into small, independently verifiable steps with minimal
+  cross-module contamination.
+purpose: |
+  把任务拆成独立、可验证、低污染的小步骤。
+stage: 阶段 3：方案拆解
+trigger: |
+  完成决策分级后。
+inputs:
+  - current_task
+  - decision_classification
+  - project_profile
+reads:
+  - docs/workflow/CURRENT_TASK.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - docs/workflow/DECISIONS.md
+writes:
+  - docs/workflow/CURRENT_TASK.md
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+must_check:
+  - 每步是否有明确输入输出
+  - 每步是否可独立验证
+  - UI / 视觉任务是否按 Design mode 拆出设计步骤
+  - 是否避免同一轮混合多类改动
+stop_conditions:
+  - 步骤拆分后仍需要同时改太多模块
+  - 当前步骤仍包含未确认决策
+  - UI 任务把 design exploration、design implementation、visual QA 混成同一步
+output:
+  - 步骤清单
+  - 建议执行顺序
+handoff:
+  success: implement-current-step
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动优化步骤顺序和拆分层次。
+  taste: 不要擅自插入体验类步骤作为默认必须项。
+  user_challenge: 不得把需要用户确认的方向塞进执行步骤。
+verification:
+  - 执行记录中已有可单步执行的步骤
+  - 每一步都能独立验证
+  - UI / 视觉任务已分离 design exploration、design implementation、visual QA
+  - 当前步骤数量与复杂度匹配任务风险
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /classify-decisions
+notes:
+  - 拆解结果应直接服务后续 implement-current-step。
+required_sections:
+  - 执行记录
+acceptance_rules:
+  - 每步结束都要可验证
+  - 每步只服务当前子目标
+step_granularity:
+  - 一步一验
+  - 避免同一轮同时修改太多模块
+  - 优先按数据/服务/UI 顺序拆分
+design_step_rules:
+  - Design mode 由 docs/workflow/CURRENT_TASK.md 提供，本 skill 只消费，不重新选择
+  - exploration 先产出多方案或明确跳过理由
+  - design implementation 只实现已确认设计
+  - visual QA 必须独立于实现步骤
+---
+
+# Skill: decompose-task
+
+## Purpose
+
+把任务拆成独立、可验证、低污染的小步骤。
+
+## Trigger
+
+完成决策分级后。
+
+## Inputs
+
+- current_task
+- decision_classification
+- project_profile
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 每步是否有明确输入输出
+- 每步是否可独立验证
+- UI / 视觉任务是否按 Design mode 拆出设计步骤
+- 是否避免同一轮混合多类改动
+
+## Stop Conditions
+
+- 步骤拆分后仍需要同时改太多模块
+- 当前步骤仍包含未确认决策
+- UI 任务把 design exploration、design implementation、visual QA 混成同一步
+
+## Decision Policy
+
+- `mechanical`: 可以自动优化步骤顺序和拆分层次。
+- `taste`: 不要擅自插入体验类步骤作为默认必须项。
+- `user_challenge`: 不得把需要用户确认的方向塞进执行步骤。
+
+## Verification
+
+- 执行记录中已有可单步执行的步骤
+- 每一步都能独立验证
+- UI / 视觉任务已分离 design exploration、design implementation、visual QA
+- 当前步骤数量与复杂度匹配任务风险
+
+## Extension Fields
+
+### required_sections
+- 执行记录
+
+### acceptance_rules
+- 每步结束都要可验证
+- 每步只服务当前子目标
+
+### step_granularity
+- 一步一验
+- 避免同一轮同时修改太多模块
+- 优先按数据/服务/UI 顺序拆分
+
+### design_step_rules
+- Design mode 由 docs/workflow/CURRENT_TASK.md 提供，本 skill 只消费，不重新选择
+- exploration 先产出多方案或明确跳过理由
+- design implementation 只实现已确认设计
+- visual QA 必须独立于实现步骤
+
+## Design Step Decomposition
+
+UI / 视觉任务必须按 `Design mode` 拆分，不得把方向选择、实现和视觉审查混成一步：
+
+- Design source 提供设计来源
+- Design acceptance 决定每步验收
+- Design evidence 决定视觉 QA 证据
+- design exploration：多方案探索、用户参考或明确跳过理由
+- design implementation：基于已确认设计的实现步骤
+- visual QA：实现后的截图、browser-backed smoke、anti-slop、响应式和可访问性检查
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 拆解结果应直接服务后续 implement-current-step。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

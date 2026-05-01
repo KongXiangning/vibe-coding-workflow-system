@@ -11,7 +11,7 @@ jobs:
         run: bun run gen:registry
       - name: Verify workflow registry is fresh
         run: |
-          git diff --exit-code -- SKILL_REGISTRY.md || {
-            echo "SKILL_REGISTRY.md is stale. Run: bun run gen:registry"
+          git diff --exit-code -- docs/workflow/SKILL_REGISTRY.md || {
+            echo "docs/workflow/SKILL_REGISTRY.md is stale. Run: bun run gen:registry"
             exit 1
           }

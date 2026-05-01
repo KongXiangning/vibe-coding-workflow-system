@@ -1,0 +1,329 @@
+---
+name: lock-scope
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Lock the allowed and forbidden modification scope before any implementation
+  begins.
+purpose: |
+  锁定本轮允许修改与禁止修改的边界。
+stage: 阶段 2：范围锁定
+trigger: |
+  在任何实现动作开始前。
+inputs:
+  - current_task
+  - contracts
+  - confirmed_decisions
+reads:
+  - docs/workflow/CURRENT_TASK.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+writes:
+  - docs/workflow/CURRENT_TASK.md
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+  - db/**
+must_check:
+  - Allowed Files 是否足够小
+  - Forbidden Files 是否清楚
+  - Conditional Files 是否包含触发条件和证据要求
+  - Safety mode 是否匹配任务风险
+  - 高风险任务是否选择 guarded 或说明不用 guarded 的理由
+  - 生产、部署、回滚、CI/CD、监控配置、性能基线变更是否选择 guarded 或说明例外
+  - Dangerous surfaces 是否已识别
+  - scope unlock / widening 是否包含理由、影响文件、风险和验证方式
+  - 锁定契约是否已识别
+  - 是否触发 Change Propagation Check
+  - 决策越界是否可见
+stop_conditions:
+  - 需要改范围外文件
+  - 需要解除或扩大范围但未重新生成 Allowed Files / Forbidden Files / Conditional Files
+  - 需要触碰 docs/workflow/CONTRACTS.md 中的锁定边界
+  - 需要覆盖 docs/workflow/DECISIONS.md 中已确认的决策
+output:
+  - 范围锁定结论
+  - Safety mode
+  - docs/workflow/CURRENT_TASK.md 中补充的 Allowed Files / Forbidden Files /
+    Conditional Files
+  - Dangerous surfaces
+  - Unlock / widening conditions
+handoff:
+  success: classify-decisions
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动整理和合并边界清单。
+  taste: 不要用主观偏好扩大或缩小修改范围。
+  user_challenge: 发现必须越界时必须停下，不能静默继续。
+verification:
+  - Allowed Files、Forbidden Files、Conditional Files 都已显式记录
+  - Safety mode 已显式记录
+  - Dangerous surfaces 已核对
+  - Unlock / widening conditions 已写明，或明确本轮不允许扩大范围
+  - 涉及的锁定契约已列出
+  - 没有把范围外工作混入当前任务
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /review-current-task
+notes:
+  - 范围锁定结果应该回写到 docs/workflow/CURRENT_TASK.md，而不是只留在回复中。
+  - 未明确允许的文件默认禁止修改。
+contract_layers:
+  - 接口契约
+  - 架构契约
+scope_sources:
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+mutation_scope_buckets:
+  - Allowed Files
+  - Forbidden Files
+  - Conditional Files
+safety_modes:
+  - normal
+  - careful
+  - frozen-scope
+  - guarded
+dangerous_surfaces:
+  - production
+  - database
+  - permissions
+  - authentication
+  - payments
+  - deployment
+  - rollback
+  - CI/CD
+  - monitoring config
+  - performance baseline
+  - bulk delete
+  - migration
+  - force push
+  - history rewrite
+unlock_widening_rules:
+  - 必须写明原因
+  - 必须列出影响文件
+  - 必须说明风险
+  - 必须说明验证方式
+  - 必须重新生成 Allowed Files / Forbidden Files / Conditional Files
+source_of_truth_rules:
+  - docs/workflow/CONTRACTS.md 优先于
+    .workflow-system/PROJECT_PROFILE.yaml、docs/workflow/DECISIONS.md、docs/workflow/CURRENT_TASK.md、docs/workflow/STATUS.md
+  - docs/workflow/CURRENT_TASK.md 只能缩小任务范围，不能覆盖 docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须列影响集合
+  - 必须声明兼容策略和回归检查项
+diff_filters:
+  - 仅允许后续审查当前授权目录
+  - 发现范围外文件即视为越界
+violation_levels:
+  - "minor: 可解释的边缘越界"
+  - "major: 非授权代码改动"
+  - "critical: 破坏锁定契约或已确认决策"
+---
+
+# Skill: lock-scope
+
+## Purpose
+
+锁定本轮允许修改与禁止修改的边界。
+
+## Trigger
+
+在任何实现动作开始前。
+
+## Inputs
+
+- current_task
+- contracts
+- confirmed_decisions
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- Allowed Files 是否足够小
+- Forbidden Files 是否清楚
+- Conditional Files 是否包含触发条件和证据要求
+- Safety mode 是否匹配任务风险
+- 高风险任务是否选择 guarded 或说明不用 guarded 的理由
+- 生产、部署、回滚、CI/CD、监控配置、性能基线变更是否选择 guarded 或说明例外
+- Dangerous surfaces 是否已识别
+- scope unlock / widening 是否包含理由、影响文件、风险和验证方式
+- 锁定契约是否已识别
+- 是否触发 Change Propagation Check
+- 决策越界是否可见
+
+## Stop Conditions
+
+- 需要改范围外文件
+- 需要解除或扩大范围但未重新生成 Allowed Files / Forbidden Files / Conditional Files
+- 需要触碰 docs/workflow/CONTRACTS.md 中的锁定边界
+- 需要覆盖 docs/workflow/DECISIONS.md 中已确认的决策
+
+## Decision Policy
+
+- `mechanical`: 可以自动整理和合并边界清单。
+- `taste`: 不要用主观偏好扩大或缩小修改范围。
+- `user_challenge`: 发现必须越界时必须停下，不能静默继续。
+
+## Verification
+
+- Allowed Files、Forbidden Files、Conditional Files 都已显式记录
+- Safety mode 已显式记录
+- Dangerous surfaces 已核对
+- Unlock / widening conditions 已写明，或明确本轮不允许扩大范围
+- 涉及的锁定契约已列出
+- 没有把范围外工作混入当前任务
+
+## Extension Fields
+
+### contract_layers
+- 接口契约
+- 架构契约
+
+### scope_sources
+- docs/workflow/CURRENT_TASK.md
+- docs/workflow/CONTRACTS.md
+- docs/workflow/DECISIONS.md
+
+### mutation_scope_buckets
+- Allowed Files
+- Forbidden Files
+- Conditional Files
+
+### safety_modes
+- normal
+- careful
+- frozen-scope
+- guarded
+
+### dangerous_surfaces
+- production
+- database
+- permissions
+- authentication
+- payments
+- deployment
+- rollback
+- CI/CD
+- monitoring config
+- performance baseline
+- bulk delete
+- migration
+- force push
+- history rewrite
+
+### unlock_widening_rules
+- 必须写明原因
+- 必须列出影响文件
+- 必须说明风险
+- 必须说明验证方式
+- 必须重新生成 Allowed Files / Forbidden Files / Conditional Files
+
+### source_of_truth_rules
+- docs/workflow/CONTRACTS.md 优先于 .workflow-system/PROJECT_PROFILE.yaml、docs/workflow/DECISIONS.md、docs/workflow/CURRENT_TASK.md、docs/workflow/STATUS.md
+- docs/workflow/CURRENT_TASK.md 只能缩小任务范围，不能覆盖 docs/workflow/CONTRACTS.md
+- docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须列影响集合
+- 必须声明兼容策略和回归检查项
+
+### diff_filters
+- 仅允许后续审查当前授权目录
+- 发现范围外文件即视为越界
+
+### violation_levels
+- minor: 可解释的边缘越界
+- major: 非授权代码改动
+- critical: 破坏锁定契约或已确认决策
+
+## Safety Mode Selection
+
+`/freeze` 在 workflow-system 中落地为 `docs/workflow/CURRENT_TASK.md` 的任务级 mutation scope，`/careful` 落地为危险操作前置确认，`/guard` 是二者组合，`/unfreeze` 是范围扩大流程而不是随手解除限制。
+
+- `normal`: 普通低风险任务，仍必须声明 Allowed Files / Forbidden Files / Conditional Files。
+- `careful`: 可能需要危险命令或高影响操作，但文件范围不需要强冻结。
+- `frozen-scope`: 只允许修改一个模块或一组明确文件；未明确允许即禁止。
+- `guarded`: 生产、数据库、权限、认证、支付、部署、回滚、CI/CD、监控配置、性能基线、迁移、批量删除、force push、历史重写等高风险任务；必须同时锁定范围并要求危险命令 gate。
+
+## Scope Unlock / Widening Rules
+
+解除或扩大范围必须回到 `/lock-scope`，不能在实现中直接越界。写回 `docs/workflow/CURRENT_TASK.md` 时必须包含：
+
+- Safety mode
+- Allowed Files
+- Forbidden Files
+- Conditional Files
+- Dangerous surfaces
+- Unlock / widening conditions
+
+`Unlock / widening conditions` 至少说明原因、影响文件、风险、验证方式，并重新生成 Allowed Files / Forbidden Files / Conditional Files。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 范围锁定结果应该回写到 docs/workflow/CURRENT_TASK.md，而不是只留在回复中。
+- 未明确允许的文件默认禁止修改。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

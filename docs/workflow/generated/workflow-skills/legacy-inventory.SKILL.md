@@ -20,18 +20,26 @@ reads:
   - README.md
   - docs/
   - package.json
-  - "{{CODE_DIRECTORIES}}"
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
 writes:
   - docs/adoption/architecture-inventory.md
   - docs/adoption/database-inventory.md
   - docs/adoption/API_INVENTORY.md
   - docs/adoption/RISK_REGISTER.md
   - docs/adoption/ADOPTION_REPORT.md
-  - ROADMAP.md
+  - docs/workflow/ROADMAP.md
 forbidden_writes:
-  - "{{CODE_DIRECTORIES}}"
-  - CURRENT_TASK.md
-  - CONTRACTS.md
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
 must_check:
   - 哪些事实能被代码、配置、数据库或文档直接证明
   - 哪些 API、数据库字段、模块和行为已经被依赖
@@ -47,7 +55,7 @@ output:
   - docs/adoption/API_INVENTORY.md
   - docs/adoption/RISK_REGISTER.md
   - docs/adoption/ADOPTION_REPORT.md
-  - ROADMAP.md 治理缺口 / 迁移窗口草案
+  - docs/workflow/ROADMAP.md 治理缺口 / 迁移窗口草案
 handoff:
   success: adopt-existing-project
   failure: ask-user
@@ -70,7 +78,9 @@ notes:
   - 这是老项目盘点 skill，不改业务代码。
   - 目标是固化现状，不是假装重新设计。
   - 完成后下一步通常是 adopt-existing-project。
-  - "`reads` / `forbidden_writes` 中列出的代码目录来自项目 profile 的 source-directories 渲染结果；在 source-repo reference output 中会展开为当前仓库目录，不代表所有 target repo 共享同一套目录结构。"
+  - "`reads` / `forbidden_writes` 中列出的代码目录来自项目 profile 的 source-directories
+    渲染结果；在 source-repo reference output 中会展开为当前仓库目录，不代表所有 target repo
+    共享同一套目录结构。"
 ---
 
 # Skill: legacy-inventory
@@ -92,14 +102,14 @@ notes:
 5. `docs/adoption/API_INVENTORY.md` 记录真实 API、消费者、兼容性承诺和 unknown consumer。
 6. `docs/adoption/RISK_REGISTER.md` 按 stable / fragile / unknown / deprecated 标记模块、接口、数据和流程。
 7. `docs/adoption/ADOPTION_REPORT.md` 汇总证据、推断、冲突来源、待确认问题和建议固化项。
-8. `ROADMAP.md` 只记录治理缺口、迁移计划和重构窗口草案，不把重构当作已批准任务。
-9. 不创建 `CURRENT_TASK.md`，不修改业务代码，不把 inferred / unknown 写成 confirmed。
+8. `docs/workflow/ROADMAP.md` 只记录治理缺口、迁移计划和重构窗口草案，不把重构当作已批准任务。
+9. 不创建 `docs/workflow/CURRENT_TASK.md`，不修改业务代码，不把 inferred / unknown 写成 confirmed。
 
 ## Hard Boundaries
 
 - 不修改项目代码目录下的业务或执行逻辑。
-- 不创建 `CURRENT_TASK.md`。
-- 不修改 `CONTRACTS.md`。
+- 不创建 `docs/workflow/CURRENT_TASK.md`。
+- 不修改 `docs/workflow/CONTRACTS.md`。
 - 不重新设计老项目。
 - 不把猜测、默认值或单次偶然现象写成项目事实。
 
@@ -107,3 +117,15 @@ notes:
 
 - 成功：`adopt-existing-project`
 - 失败：`ask-user`
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

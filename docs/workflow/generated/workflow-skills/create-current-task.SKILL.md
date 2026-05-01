@@ -1,0 +1,332 @@
+---
+name: create-current-task
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Generate the first draft of docs/workflow/CURRENT_TASK.md from the user
+  request and current project state.
+purpose: |
+  根据用户需求生成可执行的 docs/workflow/CURRENT_TASK.md 初稿。
+stage: 阶段 1：需求进入
+trigger: |
+  当用户提出新需求，且当前没有可直接执行的任务包时。
+inputs:
+  - user_request
+  - project_profile
+  - current_status
+  - confirmed_decisions
+reads:
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/STATUS.md
+  - docs/workflow/DECISIONS.md
+writes:
+  - docs/workflow/CURRENT_TASK.md
+forbidden_writes:
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - docs/workflow/CONTRACTS.md
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+must_check:
+  - 任务目标是否明确
+  - 验收标准是否可验证
+  - UI / 页面 / 组件 / 交互 / 品牌 / 视觉任务是否需要生成设计约束
+  - 发布 / 部署 / 生产 / 性能 / 可靠性任务是否需要生成发布后验证
+  - Allowed Files、Forbidden Files、Conditional Files 是否明确
+  - 是否触发 Change Propagation Check
+  - 回滚点是否存在
+stop_conditions:
+  - 需求本身模糊
+  - 任务边界无法确定
+  - 涉及已确认决策但未说明
+output:
+  - docs/workflow/CURRENT_TASK.md 初稿
+  - UI / 视觉任务的设计约束
+  - 发布 / 部署 / 性能任务的发布后验证
+handoff:
+  success: review-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动补全文档结构和字段顺序。
+  taste: 不要自动假设体验类验收标准，需显式暴露。
+  user_challenge: 不得擅自改写任务目标或缩小用户原始需求。
+verification:
+  - docs/workflow/CURRENT_TASK.md 包含所有必填章节
+  - docs/workflow/CURRENT_TASK.md 的任务信息包含任务 ID、任务标题、任务 slug 字段
+  - UI / 视觉任务包含 Design mode、Design source、Design acceptance、Design
+    evidence、Design open decisions
+  - 发布 / 部署 / 性能任务包含 Release mode、Deploy source、Target environment、Health
+    checks、Canary window、Performance baseline、Rollback / recovery、Release
+    evidence
+  - Allowed Files、Forbidden Files、Conditional Files 明确
+  - 至少包含一个可执行的当前步骤
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - greenfield-init
+  - adopt-existing-project
+notes:
+  - 这是任务包创建 skill，不进入实现。
+  - 项目级初始化由专用初始化 skill 承担，而不是命令层入口。
+  - 任务标识字段必须保留在 docs/workflow/CURRENT_TASK.md 中；bootstrap planning 不得伪造其具体值。
+required_sections:
+  - 任务信息
+  - 背景与上下文
+  - 验收标准
+  - 允许修改范围
+  - 禁止修改范围
+  - 受影响的契约
+  - 已确认决策
+  - 待确认问题
+  - 传播治理记录
+  - 实施步骤
+  - 回归检查项
+  - 回滚点
+  - 执行记录
+task_scope_rules:
+  - 范围要小到可单步执行
+  - 必须写明 Allowed Files
+  - 必须写明 Forbidden Files
+  - 必须写明 Conditional Files 及触发条件
+  - 未明确允许的文件默认禁止修改
+  - 如果范围不清楚，应暂停而非猜测
+source_of_truth_rules:
+  - docs/workflow/CONTRACTS.md 优先于
+    .workflow-system/PROJECT_PROFILE.yaml、docs/workflow/DECISIONS.md、docs/workflow/CURRENT_TASK.md、docs/workflow/STATUS.md
+  - docs/workflow/CURRENT_TASK.md 只能缩小任务范围，不能覆盖 docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须列影响集合
+  - 必须声明兼容策略：backward-compatible、breaking 或 unknown
+  - 必须列出需要更新的 docs/workflow/CONTRACTS.md、docs/workflow/DECISIONS.md 和回归检查项
+acceptance_rules:
+  - 必须可验证
+  - 必须避免空泛措辞
+  - 必须说明旧功能不能坏什么
+design_constraint_rules:
+  - 设计约束只对当前任务生效，不替代长期 DESIGN.md 或项目基线
+  - DESIGN.md 只能作为 optional source，不加入 required reads
+  - 没有 DESIGN.md、mockup、截图或参考链接时，UI 任务必须进入 design-system 或 exploration，不能直接实现
+design_modes:
+  - none
+  - design-system
+  - exploration
+  - design-to-code
+  - visual-qa
+release_verification_rules:
+  - 发布后验证只对当前任务生效，不替代长期 docs/workflow/BASELINES.md
+  - workflow-system 不执行真实 merge、push、deploy 或监控轮询
+  - 没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline
+    时，必须输出 blocked risk
+release_modes:
+  - none
+  - release-readiness
+  - deploy-verification
+  - canary
+  - benchmark
+---
+
+# Skill: create-current-task
+
+## Purpose
+
+根据用户需求生成可执行的 docs/workflow/CURRENT_TASK.md 初稿。
+
+## Trigger
+
+当用户提出新需求，且当前没有可直接执行的任务包时。
+
+## Inputs
+
+- user_request
+- project_profile
+- current_status
+- confirmed_decisions
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 任务目标是否明确
+- 验收标准是否可验证
+- UI / 页面 / 组件 / 交互 / 品牌 / 视觉任务是否需要生成设计约束
+- 发布 / 部署 / 生产 / 性能 / 可靠性任务是否需要生成发布后验证
+- Allowed Files、Forbidden Files、Conditional Files 是否明确
+- 是否触发 Change Propagation Check
+- 回滚点是否存在
+
+## Stop Conditions
+
+- 需求本身模糊
+- 任务边界无法确定
+- 涉及已确认决策但未说明
+
+## Decision Policy
+
+- `mechanical`: 可以自动补全文档结构和字段顺序。
+- `taste`: 不要自动假设体验类验收标准，需显式暴露。
+- `user_challenge`: 不得擅自改写任务目标或缩小用户原始需求。
+
+## Verification
+
+- docs/workflow/CURRENT_TASK.md 包含所有必填章节
+- UI / 视觉任务包含 Design mode、Design source、Design acceptance、Design evidence、Design open decisions
+- 发布 / 部署 / 性能任务包含 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence
+- Allowed Files、Forbidden Files、Conditional Files 明确
+- 至少包含一个可执行的当前步骤
+
+## Extension Fields
+
+### required_sections
+- 任务信息
+- 背景与上下文
+- 验收标准
+- 允许修改范围
+- 禁止修改范围
+- 受影响的契约
+- 已确认决策
+- 待确认问题
+- 传播治理记录
+- 实施步骤
+- 回归检查项
+- 回滚点
+- 执行记录
+
+### task_scope_rules
+- 范围要小到可单步执行
+- 必须写明 Allowed Files
+- 必须写明 Forbidden Files
+- 必须写明 Conditional Files 及触发条件
+- 未明确允许的文件默认禁止修改
+- 如果范围不清楚，应暂停而非猜测
+
+### source_of_truth_rules
+- docs/workflow/CONTRACTS.md 优先于 .workflow-system/PROJECT_PROFILE.yaml、docs/workflow/DECISIONS.md、docs/workflow/CURRENT_TASK.md、docs/workflow/STATUS.md
+- docs/workflow/CURRENT_TASK.md 只能缩小任务范围，不能覆盖 docs/workflow/CONTRACTS.md
+- docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须列影响集合
+- 必须声明兼容策略：backward-compatible、breaking 或 unknown
+- 必须列出需要更新的 docs/workflow/CONTRACTS.md、docs/workflow/DECISIONS.md 和回归检查项
+
+### acceptance_rules
+- 必须可验证
+- 必须避免空泛措辞
+- 必须说明旧功能不能坏什么
+
+### design_constraint_rules
+- 设计约束只对当前任务生效，不替代长期 DESIGN.md 或项目基线
+- DESIGN.md 只能作为 optional source，不加入 required reads
+- 没有 DESIGN.md、mockup、截图或参考链接时，UI 任务必须进入 design-system 或 exploration，不能直接实现
+
+### design_modes
+- none
+- design-system
+- exploration
+- design-to-code
+- visual-qa
+
+### release_verification_rules
+- 发布后验证只对当前任务生效，不替代长期 docs/workflow/BASELINES.md
+- workflow-system 不执行真实 merge、push、deploy 或监控轮询
+- 没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须输出 blocked risk
+
+### release_modes
+- none
+- release-readiness
+- deploy-verification
+- canary
+- benchmark
+
+## Design Constraint Intake
+
+当任务涉及 UI、页面、组件、交互、品牌、视觉或设计系统时，`docs/workflow/CURRENT_TASK.md` 必须生成 `## 设计约束`。最小字段为：
+
+- Design mode
+- Design source
+- Design acceptance
+- Design evidence
+- Design open decisions
+
+`Design mode` 只能选择 `none`、`design-system`、`exploration`、`design-to-code`、`visual-qa`。没有 `DESIGN.md`、mockup、截图或参考链接时，UI 任务必须进入 `design-system` 或 `exploration`，不能直接实现。
+
+## Release Verification Intake
+
+当任务涉及发布、部署、生产验证、canary、性能基线或上线后观察时，`docs/workflow/CURRENT_TASK.md` 必须生成 `## 发布后验证`。最小字段为：
+
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+
+`Release mode` 只能选择 `none`、`release-readiness`、`deploy-verification`、`canary`、`benchmark`。缺少 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须记录 blocked risk，不能把任务标记为已稳定。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是任务包创建 skill，不进入实现。
+- 项目级初始化由专用初始化 skill 承担，而不是命令层入口。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

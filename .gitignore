@@ -20,4 +20,9 @@ extension/.auth.json
 !.env.example
 supabase/.temp/
 generated/
+!docs/workflow/generated/
+!docs/workflow/generated/workflow-docs/
+!docs/workflow/generated/workflow-docs/**
+!docs/workflow/generated/workflow-skills/
+!docs/workflow/generated/workflow-skills/**
 dist/

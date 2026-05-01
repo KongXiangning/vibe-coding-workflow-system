@@ -1,0 +1,296 @@
+---
+name: review-current-task
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Review and refine docs/workflow/CURRENT_TASK.md so it becomes executable,
+  bounded, and auditable.
+purpose: |
+  审查 docs/workflow/CURRENT_TASK.md 初稿并收敛成可执行任务包。
+stage: 阶段 1：需求进入
+trigger: |
+  当 docs/workflow/CURRENT_TASK.md 初稿已经生成，进入实现前。
+inputs:
+  - current_task_draft
+  - contracts
+  - confirmed_decisions
+  - current_status
+reads:
+  - docs/workflow/CURRENT_TASK.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+  - docs/workflow/STATUS.md
+writes:
+  - docs/workflow/CURRENT_TASK.md
+forbidden_writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+  - db/**
+must_check:
+  - 验收标准是否足够具体
+  - UI / 视觉任务的 Design mode、Design source、Design acceptance 是否清楚
+  - Design open decisions 是否包含未确认口味决策
+  - 发布 / 部署任务的 Release mode、Deploy source、Target environment、Health
+    checks、Rollback / recovery 是否清楚
+  - Allowed Files、Forbidden Files、Conditional Files 是否完整
+  - 是否存在 docs/workflow/CURRENT_TASK.md 覆盖 docs/workflow/CONTRACTS.md 的冲突
+  - 是否遗漏关键契约
+  - 是否触发 Change Propagation Check
+  - 是否存在未分类决策
+stop_conditions:
+  - 任务包仍包含多个不相干目标
+  - 存在关键口味决策未确认
+  - UI / 视觉任务缺少设计来源、设计验收或用户确认
+  - 生产发布缺少回滚方案、health check 或发布证据
+  - 存在与既有决策冲突
+  - docs/workflow/CURRENT_TASK.md 试图覆盖 docs/workflow/CONTRACTS.md 或
+    .workflow-system/PROJECT_PROFILE.yaml
+output:
+  - 修订后的 docs/workflow/CURRENT_TASK.md
+  - 待确认问题列表
+handoff:
+  success: lock-scope
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动收敛格式、重复项和明显冗余。
+  taste: 不得替用户替换未确认的交互或展示决策。
+  user_challenge: 不得绕过已确认架构或产品方向。
+verification:
+  - 任务包只剩一个主目标
+  - source-of-truth precedence 冲突已处理或上浮
+  - UI / 视觉任务的 Design mode、Design source、Design acceptance、Design evidence 已审查
+  - 发布 / 部署任务的 Release mode、Deploy source、Target environment、Health
+    checks、Rollback / recovery、Release evidence 已审查
+  - Allowed Files、Forbidden Files、Conditional Files 已收敛
+  - 所有高风险未决项已上浮
+  - 当前任务可进入范围锁定
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /create-current-task
+notes:
+  - 这是收敛 skill，不应该创造新需求。
+required_sections:
+  - 任务信息
+  - 验收标准
+  - 允许修改范围
+  - 禁止修改范围
+  - 已确认决策
+  - 待确认问题
+  - 传播治理记录
+task_scope_rules:
+  - 范围过宽时必须收缩
+  - Allowed Files 必须只列本任务确需修改的文件或目录
+  - Forbidden Files 必须列出高风险和明确禁止触碰的文件或契约面
+  - Conditional Files 必须列触发条件和证据要求
+  - 未明确允许的文件默认禁止修改
+  - 禁止顺手把下阶段工作塞进当前任务包
+source_of_truth_rules:
+  - docs/workflow/CONTRACTS.md 是项目层最高约束，docs/workflow/CURRENT_TASK.md 不得覆盖
+  - .workflow-system/PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
+  - docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+propagation_rules:
+  - 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须上浮影响集合
+  - 兼容策略为 breaking 或 unknown 时不得直接进入实现
+acceptance_rules:
+  - 每条验收标准都应可验证
+  - 口味问题要与技术问题分开
+design_review_rules:
+  - 后续 skill 只消费 Design mode，不重新选择 Design mode
+  - 未确认口味决策不得进入实现
+  - DESIGN.md 只能作为 optional source，不加入 required reads
+release_review_rules:
+  - 后续 skill 只消费 Release mode，不重新选择 Release mode
+  - 生产发布缺少 Rollback / recovery 时不得进入实现或交付
+  - docs/workflow/BASELINES.md 是长期发布 / 部署 / 性能可靠性基线
+---
+
+# Skill: review-current-task
+
+## Purpose
+
+审查 docs/workflow/CURRENT_TASK.md 初稿并收敛成可执行任务包。
+
+## Trigger
+
+当 docs/workflow/CURRENT_TASK.md 初稿已经生成，进入实现前。
+
+## Inputs
+
+- current_task_draft
+- contracts
+- confirmed_decisions
+- current_status
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 验收标准是否足够具体
+- UI / 视觉任务的 Design mode、Design source、Design acceptance 是否清楚
+- Design open decisions 是否包含未确认口味决策
+- 发布 / 部署任务的 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery 是否清楚
+- Allowed Files、Forbidden Files、Conditional Files 是否完整
+- 是否存在 docs/workflow/CURRENT_TASK.md 覆盖 docs/workflow/CONTRACTS.md 的冲突
+- 是否遗漏关键契约
+- 是否触发 Change Propagation Check
+- 是否存在未分类决策
+
+## Stop Conditions
+
+- 任务包仍包含多个不相干目标
+- 存在关键口味决策未确认
+- UI / 视觉任务缺少设计来源、设计验收或用户确认
+- 生产发布缺少回滚方案、health check 或发布证据
+- 存在与既有决策冲突
+- docs/workflow/CURRENT_TASK.md 试图覆盖 docs/workflow/CONTRACTS.md 或 .workflow-system/PROJECT_PROFILE.yaml
+
+## Decision Policy
+
+- `mechanical`: 可以自动收敛格式、重复项和明显冗余。
+- `taste`: 不得替用户替换未确认的交互或展示决策。
+- `user_challenge`: 不得绕过已确认架构或产品方向。
+
+## Verification
+
+- 任务包只剩一个主目标
+- source-of-truth precedence 冲突已处理或上浮
+- UI / 视觉任务的 Design mode、Design source、Design acceptance、Design evidence 已审查
+- 发布 / 部署任务的 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 已审查
+- Allowed Files、Forbidden Files、Conditional Files 已收敛
+- 所有高风险未决项已上浮
+- 当前任务可进入范围锁定
+
+## Extension Fields
+
+### required_sections
+- 任务信息
+- 验收标准
+- 允许修改范围
+- 禁止修改范围
+- 已确认决策
+- 待确认问题
+- 传播治理记录
+
+### task_scope_rules
+- 范围过宽时必须收缩
+- Allowed Files 必须只列本任务确需修改的文件或目录
+- Forbidden Files 必须列出高风险和明确禁止触碰的文件或契约面
+- Conditional Files 必须列触发条件和证据要求
+- 未明确允许的文件默认禁止修改
+- 禁止顺手把下阶段工作塞进当前任务包
+
+### source_of_truth_rules
+- docs/workflow/CONTRACTS.md 是项目层最高约束，docs/workflow/CURRENT_TASK.md 不得覆盖
+- .workflow-system/PROJECT_PROFILE.yaml 是长期设定，任务包不得静默重写
+- docs/workflow/DECISIONS.md 只记录原因和历史，不单独定义当前有效规则
+
+### propagation_rules
+- 触碰公共 API、schema、DTO、event、共享逻辑或 docs/workflow/CONTRACTS.md 锁定项时必须上浮影响集合
+- 兼容策略为 breaking 或 unknown 时不得直接进入实现
+
+### acceptance_rules
+- 每条验收标准都应可验证
+- 口味问题要与技术问题分开
+
+### design_review_rules
+- 后续 skill 只消费 Design mode，不重新选择 Design mode
+- 未确认口味决策不得进入实现
+- DESIGN.md 只能作为 optional source，不加入 required reads
+
+### release_review_rules
+- 后续 skill 只消费 Release mode，不重新选择 Release mode
+- 生产发布缺少 Rollback / recovery 时不得进入实现或交付
+- docs/workflow/BASELINES.md 是长期发布 / 部署 / 性能可靠性基线
+
+## Design Constraint Review
+
+UI / 视觉任务必须审查 `## 设计约束`：
+
+- Design mode
+- Design source
+- Design acceptance
+- Design evidence
+- Design open decisions
+
+未确认口味决策不得进入实现。若没有 `DESIGN.md`、mockup、截图或参考链接，任务必须进入 `design-system` 或 `exploration`，不能直接实现。
+
+## Release Verification Review
+
+发布 / 部署 / 性能任务必须审查 `## 发布后验证`：
+
+- Release mode
+- Deploy source
+- Target environment
+- Health checks
+- Canary window
+- Performance baseline
+- Rollback / recovery
+- Release evidence
+
+生产发布缺少回滚方案、health check 或发布证据时，不得进入实现或交付。workflow-system 不执行真实 merge、push、deploy 或监控轮询；这些动作只能由宿主、CI/CD 或项目工具执行，并作为证据写回任务。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是收敛 skill，不应该创造新需求。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

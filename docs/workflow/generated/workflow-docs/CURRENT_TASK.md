@@ -1,0 +1,245 @@
+# docs/workflow/CURRENT_TASK.md
+
+## 任务信息
+
+- 项目：gstack
+- 项目类型：ai-engineering-workflow
+- 任务 ID：{{TASK_ID}}
+- 任务标题：{{TASK_TITLE}}
+- 任务 slug：{{TASK_SLUG}}
+- 当前状态：draft
+- 创建时间：{{DATE}}
+
+## 背景与上下文
+
+- 用户原始需求：
+- 问题陈述：
+- 最小可接受结果：
+- 关联需求 / issue：
+
+## 验收标准
+
+- [ ] 至少一条可直接验证的结果标准
+- [ ] 至少一条“不允许破坏什么”的回归标准
+
+## 设计约束
+
+- Design mode: none
+- Design source: none
+- Design acceptance:
+- Design evidence:
+- Design open decisions:
+
+## 发布后验证
+
+- Release mode: none
+- Deploy source: none
+- Target environment: unknown
+- Health checks:
+- Canary window:
+- Performance baseline:
+- Rollback / recovery:
+- Release evidence:
+
+## 允许修改范围
+
+- 
+
+## 禁止修改范围
+
+- .git/**, node_modules/**
+
+## 受影响的契约
+
+- 
+
+## 已确认决策
+
+- 
+
+## 待确认问题
+
+- 
+
+## 传播治理记录
+
+### change_start_set
+
+- 对象路径：
+- 对象类型：
+- 变更起点语义：
+
+### discovery evidence
+
+- `EvidenceRecord`：
+  - mechanism：
+  - query_or_entrypoint：
+  - scope：
+  - result_summary：
+  - confidence：
+  - gaps：
+
+### aggregation / complexity
+
+- `evidence_diff_threshold`：
+  - absolute_diff：3
+  - relative_diff_ratio：0.5
+- `EvidenceAggregation`：
+  - aggregation_strategy：union
+  - candidate_impact_set：
+  - significant_divergence：
+  - divergence_reason：
+  - unresolved_gaps：
+  - aggregated_confidence：
+- `over_limit_policy`：
+  - threshold_trigger：
+  - selected_branch：
+  - rationale：
+  - direct_consumers_semantics：保护旧入口 / wrapper / compat path
+  - total_candidate_consumers_semantics：控制全传播面 / migration window
+- `ComplexityAssessment`：
+  - propagation_depth：
+  - direct_consumers：
+  - total_candidate_consumers：
+  - cross_boundary_hops：
+  - exceeded_metrics：
+  - threshold_status：
+  - forced_strategy：
+
+### eligibility / candidate / registry
+
+- `MutationEligibilityAssessment`：
+  - common.object_path：
+  - common.object_kind：
+  - common.explicit_contract_state：
+  - common.discovered_direct_consumers：
+  - common.cross_boundary：
+  - common.critical_path_hit：
+  - common.locked_hit_chain：
+  - common.registry_freshness：
+  - common.rationale：
+  - when_pending_prerequisites.assessment_status：
+  - when_pending_prerequisites.blocking_gaps：
+  - when_completed.assessment_status：
+  - when_completed.eligibility：
+- `implicit_shared_object_detection`：
+  - object_path：
+  - object_kind：
+  - direct_consumers：
+  - cross_boundary：
+  - critical_path_hit：
+  - locked_hit_chain：
+  - proposed_contract_state：
+  - writeback_required：
+- `RegistryFreshnessReport`：
+  - object_path：
+  - registry_consumers：
+  - discovered_consumers：
+  - effective_consumers：
+  - freshness：
+  - reconciliation：
+  - divergence_summary：
+- `EntityMutationChecklist`：
+  - entity_name：
+  - covered_categories：
+  - unresolved_categories：
+  - gap_resolution：
+    - category：
+    - handling：
+    - blocker_error_code：
+- same-file wrapper / compat decision：
+  - stable_source_object：
+  - successor_wrapper_or_compat_object：
+  - preserved_direct_entrypoints：
+  - decision_rationale：
+
+### layout / behavior / migration / regression
+
+- `LayoutContract`：
+  - container_path：
+  - machine_anchor：
+  - layout_model：
+  - locked_properties：
+  - locked_relations：
+  - cascade_sources：
+  - sibling_reflow_sensitive：
+  - insertion_guard：
+    - mode：
+    - protected_siblings：
+  - breakpoint_contracts：
+  - stacking_context：
+  - side_effect_scope：
+- `BehaviorContract`：
+  - object_path：
+  - assertions：
+  - verification：
+- API downstream validation：
+  - hook：
+  - store：
+  - page：
+  - widget：
+  - form：
+  - table：
+  - detail view：
+- `migration_plan_requirement`：
+  - required：
+  - trigger_reason：
+- `StagedMigrationPlan`：
+  - migration_id：
+  - phases：
+  - runtime_state：
+  - dependencies：
+  - verification：
+  - exit_criteria：
+- `LinkedRegressionRecord`：
+  - regression_chain_id：
+  - current_issue：
+  - prior_fix_refs：
+  - window_scope：
+  - window_size：
+  - count_basis：
+  - linked_components：
+  - shared_objects：
+  - relation：
+  - escalation：
+
+### blockers / gate status
+
+- 当前执行步骤：
+- 已完成 discovery：
+- 剩余 blocker：
+- `ContractCompatibilityResult`：
+  - error_code：
+  - object_path：
+  - severity：
+  - default_blocker_level：
+  - evidence：
+  - strategy_origin.over_limit_policy_branch：
+  - strategy_origin.divergence_state：
+  - branch_gate_mapping.merge_gate：
+  - branch_gate_mapping.ship_gate：
+  - branch_gate_mapping.rationale：
+  - suggested_resolution：
+
+### conformance / verification cases
+
+- 输入场景：
+- discovery evidence：
+- 期望 `ContractCompatibilityResult`：
+- 期望 gate / severity / `strategy_origin`：
+
+## 实施步骤
+
+- [ ] 步骤 1：
+
+## 回归检查项
+
+- [ ] 
+
+## 回滚点
+
+- 
+
+## 执行记录
+
+- {{DATE}}：创建任务包初稿

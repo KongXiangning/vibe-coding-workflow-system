@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'yaml';
 import {
+  getWorkflowDocRelativePath,
+  getWorkflowGeneratedDir,
   getWorkflowProfilePath,
   loadProfile,
   pathEntriesOverlap,
@@ -13,8 +15,14 @@ import {
 import { WORKFLOW_DOC_REQUIRED_HEADINGS } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const OUTPUT_DIR = path.join(ROOT, 'generated', 'workflow-skills');
 const TEMPLATE_DIR = path.join(ROOT, 'templates', 'skills');
+const PROFILE = loadProfile(getWorkflowProfilePath(ROOT));
+const OUTPUT_DIR = getWorkflowGeneratedDir(ROOT, PROFILE, 'workflow-skills');
+const CURRENT_TASK_DOC = getWorkflowDocRelativePath(PROFILE, 'CURRENT_TASK.md');
+const CONTRACTS_DOC = getWorkflowDocRelativePath(PROFILE, 'CONTRACTS.md');
+const DECISIONS_DOC = getWorkflowDocRelativePath(PROFILE, 'DECISIONS.md');
+const STATUS_DOC = getWorkflowDocRelativePath(PROFILE, 'STATUS.md');
+const BASELINES_DOC = getWorkflowDocRelativePath(PROFILE, 'BASELINES.md');
 
 const REQUIRED_FIELDS = [
   'name',
@@ -180,12 +188,12 @@ describe('gen-workflow-skills', () => {
     const frontmatter = parseFrontmatter(archiveTaskPath);
     expect(normalizeList(frontmatter.writes)).toContain('TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md');
     expect(normalizeList(frontmatter.stop_conditions)).toContain(
-      'CURRENT_TASK.md 中的任务 ID 或任务 slug 仍为占位符或缺失',
+      `${CURRENT_TASK_DOC} 中的任务 ID 或任务 slug 仍为占位符或缺失`,
     );
 
     const content = fs.readFileSync(archiveTaskPath, 'utf8');
     expect(content).toContain('TASK-{{TASK_ID}}-{{TASK_SLUG}}.md');
-    expect(content).toContain('任务标识必须从 CURRENT_TASK.md 的任务信息读取');
+    expect(content).toContain(`任务标识必须从 ${CURRENT_TASK_DOC} 的任务信息读取`);
   });
 
   test('create-current-task aligns its required sections with the CURRENT_TASK schema contract', () => {
@@ -235,7 +243,7 @@ describe('gen-workflow-skills', () => {
     const createFrontmatter = parseFrontmatter(path.join(OUTPUT_DIR, 'create-current-task.SKILL.md'));
     const createForbidden = normalizeList(createFrontmatter.forbidden_writes);
     expect(createForbidden).toContain('.workflow-system/PROJECT_PROFILE.yaml');
-    expect(createForbidden).toContain('CONTRACTS.md');
+    expect(createForbidden).toContain(CONTRACTS_DOC);
 
     for (const skill of ['create-current-task', 'review-current-task', 'lock-scope', 'review-diff']) {
       const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
@@ -248,7 +256,7 @@ describe('gen-workflow-skills', () => {
 
     const reviewTask = fs.readFileSync(path.join(OUTPUT_DIR, 'review-current-task.SKILL.md'), 'utf8');
     expect(reviewTask).toContain('source-of-truth precedence');
-    expect(reviewTask).toContain('CONTRACTS.md 是项目层最高约束，CURRENT_TASK.md 不得覆盖');
+    expect(reviewTask).toContain(`${CONTRACTS_DOC} 是项目层最高约束，${CURRENT_TASK_DOC} 不得覆盖`);
 
     const lockScope = fs.readFileSync(path.join(OUTPUT_DIR, 'lock-scope.SKILL.md'), 'utf8');
     expect(lockScope).toContain('未明确允许的文件默认禁止修改');
@@ -436,11 +444,11 @@ describe('gen-workflow-skills', () => {
       '.workflow-system/PROJECT_PROFILE.yaml',
       'AGENTS.md',
       'CLAUDE.md',
-      'CURRENT_TASK.md',
-      'CONTRACTS.md',
-      'DECISIONS.md',
-      'STATUS.md',
-      'BASELINES.md',
+      CURRENT_TASK_DOC,
+      CONTRACTS_DOC,
+      DECISIONS_DOC,
+      STATUS_DOC,
+      BASELINES_DOC,
     ]);
     expect(String((frontmatter.handoff as Record<string, unknown>).success)).toBe('capture-lessons');
     expect(content).toContain('宿主指引必须成对更新');
@@ -449,5 +457,15 @@ describe('gen-workflow-skills', () => {
     expect(content).toContain('# Skill: sync-host-guidance');
     expect(content).toContain('AGENTS.md 与 CLAUDE.md');
     expect(content).toContain('项目级长期规则');
+  });
+
+  test('bootstrap design and adoption skills use docs-only classified paths', () => {
+    const designBaseline = parseFrontmatter(path.join(OUTPUT_DIR, 'design-baseline-init.SKILL.md'));
+    const legacyInventory = parseFrontmatter(path.join(OUTPUT_DIR, 'legacy-inventory.SKILL.md'));
+
+    expect(normalizeList(designBaseline.writes)).toContain('docs/designs/architecture.md');
+    expect(normalizeList(designBaseline.writes)).toContain('docs/designs/database.md');
+    expect(normalizeList(legacyInventory.writes)).toContain('docs/adoption/architecture-inventory.md');
+    expect(normalizeList(legacyInventory.writes)).toContain('docs/adoption/database-inventory.md');
   });
 });

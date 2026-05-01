@@ -9,6 +9,7 @@ import {
   readText,
   loadProfile,
   projectPlaceholders,
+  renderWorkflowDocReferences,
   stringifyInline,
   validateProfilePathSemantics,
   validateUnresolvedPlaceholders,
@@ -71,7 +72,7 @@ function main(): void {
   for (const file of templateFiles) {
     const inputPath = path.join(TEMPLATE_DIR, file);
     const outputName = file.replace(/\.tmpl$/, '');
-    const content = renderTemplate(readText(inputPath), replacements);
+    const content = String(renderWorkflowDocReferences(renderTemplate(readText(inputPath), replacements), profile));
 
     validateRequiredHeadings(outputName, content);
     validateUnresolvedPlaceholders(outputName, content, WORKFLOW_DOC_RUNTIME_PLACEHOLDERS);

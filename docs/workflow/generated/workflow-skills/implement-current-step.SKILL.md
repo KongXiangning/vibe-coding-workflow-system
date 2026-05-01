@@ -1,0 +1,306 @@
+---
+name: implement-current-step
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Implement only the current step from docs/workflow/CURRENT_TASK.md and refuse
+  opportunistic scope expansion.
+purpose: |
+  只实现 docs/workflow/CURRENT_TASK.md 中当前步骤，禁止顺手扩散。
+stage: 阶段 4：小步实现
+trigger: |
+  进入具体编码实现时。
+inputs:
+  - current_task_current_step
+  - contracts
+  - confirmed_decisions
+  - lessons
+reads:
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+  - docs/workflow/LESSONS.md
+writes:
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+  - docs/workflow/CURRENT_TASK.md
+forbidden_writes:
+  - .git/**
+  - node_modules/**
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+must_check:
+  - 是否只执行当前步骤
+  - 是否只改允许范围内的文件
+  - UI / 视觉实现是否只采用已确认设计约束
+  - 是否遵守既有决策与 lessons
+  - 是否触发 dangerous command gate
+stop_conditions:
+  - 需要修改范围外文件
+  - 需要静默更换字体、颜色、布局、动效或品牌语气
+  - 命令目标超出 Allowed Files 或命中 Forbidden Files
+  - dangerous command 未说明命令、风险、目标、回滚/恢复方式并获得确认
+  - 需要破坏锁定契约
+  - 实现依赖未确认的 Taste / User challenge 决策
+output:
+  - 代码改动
+  - 修改文件列表
+  - 本步验证结果
+  - docs/workflow/CURRENT_TASK.md 更新
+handoff:
+  success: review-diff
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动选择低风险实现细节与局部重构内联形式。
+  taste: 样式、文案、交互布局等不得静默决定。
+  user_challenge: 不得绕过锁定架构、接口和用户已定方向。
+verification:
+  - 修改文件全部在授权范围内
+  - UI / 视觉实现未偏离 Design mode、Design source、Design acceptance
+  - 没有在未通过 dangerous command gate 的情况下执行危险命令
+  - 当前步骤有最小验证结果
+  - docs/workflow/CURRENT_TASK.md 执行记录已更新
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /decompose-task
+notes:
+  - 这是唯一允许改业务代码的主要实现 skill。
+allowed_change_types:
+  - 新增
+  - 局部修改
+  - 最小必要删除
+disallowed_patterns:
+  - 顺手重构
+  - 顺手补 unrelated bug
+  - 未经授权扩大范围
+  - 静默更换设计方向
+design_implementation_rules:
+  - 只能实现已确认设计
+  - 不得静默更换字体
+  - 不得静默更换颜色
+  - 不得静默更换布局
+  - 不得静默更换动效
+  - 不得静默更换品牌语气
+  - 设计方向变化必须回到 review-current-task 或决策确认
+dangerous_command_gate:
+  - recursive delete
+  - database destructive operation
+  - force push
+  - hard reset
+  - bulk move/delete
+  - production deploy/delete
+  - container/cluster destructive operation
+dangerous_command_required_fields:
+  - command
+  - risk
+  - target
+  - rollback/recovery
+  - scope check
+  - confirmation
+step_limit:
+  - 一次只允许完成一个当前步骤
+regression_expectation:
+  - 完成后至少提供最小验证结果
+  - 不得把未验证步骤标记为完成
+---
+
+# Skill: implement-current-step
+
+## Purpose
+
+只实现 docs/workflow/CURRENT_TASK.md 中当前步骤，禁止顺手扩散。
+
+## Trigger
+
+进入具体编码实现时。
+
+## Inputs
+
+- current_task_current_step
+- contracts
+- confirmed_decisions
+- lessons
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- 是否只执行当前步骤
+- 是否只改允许范围内的文件
+- UI / 视觉实现是否只采用已确认设计约束
+- 是否遵守既有决策与 lessons
+- 是否触发 dangerous command gate
+
+## Stop Conditions
+
+- 需要修改范围外文件
+- 需要静默更换字体、颜色、布局、动效或品牌语气
+- 命令目标超出 Allowed Files 或命中 Forbidden Files
+- dangerous command 未说明命令、风险、目标、回滚/恢复方式并获得确认
+- 需要破坏锁定契约
+- 实现依赖未确认的 Taste / User challenge 决策
+
+## Decision Policy
+
+- `mechanical`: 可以自动选择低风险实现细节与局部重构内联形式。
+- `taste`: 样式、文案、交互布局等不得静默决定。
+- `user_challenge`: 不得绕过锁定架构、接口和用户已定方向。
+
+## Verification
+
+- 修改文件全部在授权范围内
+- UI / 视觉实现未偏离 Design mode、Design source、Design acceptance
+- 没有在未通过 dangerous command gate 的情况下执行危险命令
+- 当前步骤有最小验证结果
+- docs/workflow/CURRENT_TASK.md 执行记录已更新
+
+## Extension Fields
+
+### allowed_change_types
+- 新增
+- 局部修改
+- 最小必要删除
+
+### disallowed_patterns
+- 顺手重构
+- 顺手补 unrelated bug
+- 未经授权扩大范围
+- 静默更换设计方向
+
+### design_implementation_rules
+- 只能实现已确认设计
+- 不得静默更换字体
+- 不得静默更换颜色
+- 不得静默更换布局
+- 不得静默更换动效
+- 不得静默更换品牌语气
+- 设计方向变化必须回到 review-current-task 或决策确认
+
+### dangerous_command_gate
+- recursive delete
+- database destructive operation
+- force push
+- hard reset
+- bulk move/delete
+- production deploy/delete
+- container/cluster destructive operation
+
+### dangerous_command_required_fields
+- command
+- risk
+- target
+- rollback/recovery
+- scope check
+- confirmation
+
+### step_limit
+- 一次只允许完成一个当前步骤
+
+### regression_expectation
+- 完成后至少提供最小验证结果
+- 不得把未验证步骤标记为完成
+
+## Dangerous Command Gate
+
+`/careful` 在 workflow-system 中不是 shell 拦截器，而是实现阶段的 dangerous command gate。命令可能造成数据丢失、历史重写、生产资源删除或大范围文件变更时，先停下。
+
+高风险命令包括但不限于：
+
+- recursive delete，例如 `rm -rf`
+- database destructive operation，例如 `DROP TABLE`、`DROP DATABASE`、`TRUNCATE`
+- force push，例如 `git push --force`
+- hard reset，例如 `git reset --hard`
+- 批量移动或删除
+- 生产部署、生产删除或生产资源变更
+- 容器或集群破坏性操作，例如 `kubectl delete`、`docker rm -f`、`docker system prune`
+
+执行前必须输出：
+
+- command
+- risk
+- target
+- rollback/recovery
+- scope check
+- confirmation
+
+普通构建产物清理可以记录为低风险，但仍不得越过 `docs/workflow/CURRENT_TASK.md` 的 Allowed Files / Forbidden Files / Conditional Files。
+
+## Design Implementation Gate
+
+UI / 视觉实现只能实现已确认设计。不得静默更换字体、颜色、布局、动效、品牌语气或整体视觉方向。
+
+执行前核对：
+
+- Design mode
+- Design source
+- Design acceptance
+- Design evidence
+- Design open decisions
+
+如果实现需要改变设计方向，停止当前实现，回到 `/review-current-task` 或决策确认。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是唯一允许改业务代码的主要实现 skill。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

@@ -2,8 +2,9 @@
 name: adopt-existing-project
 preamble-tier: 1
 version: 0.1.0
-description: |
-  Scan an existing repository, extract confirmed facts, and establish the first workflow governance baseline.
+description: >
+  Scan an existing repository, extract confirmed facts, and establish the first
+  workflow governance baseline.
 purpose: |
   消费老项目事实盘点结果，在确认后建立首版治理基线，供后续任务流使用。
 stage: 初始化
@@ -21,8 +22,8 @@ reads:
   - docs/adoption/architecture-inventory.md
   - docs/adoption/database-inventory.md
   - docs/adoption/
-  - ROADMAP.md
-  - BASELINES.md
+  - docs/workflow/ROADMAP.md
+  - docs/workflow/BASELINES.md
   - README.md
   - docs/
   - package.json
@@ -33,11 +34,11 @@ writes:
   - .workflow-system/PROJECT_PROFILE.yaml
   - AGENTS.md
   - CLAUDE.md
-  - ROADMAP.md
-  - CONTRACTS.md
-  - BASELINES.md
-  - STATUS.md
-  - DECISIONS.md
+  - docs/workflow/ROADMAP.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/BASELINES.md
+  - docs/workflow/STATUS.md
+  - docs/workflow/DECISIONS.md
   - docs/adoption/ADOPTION_REPORT.md
 forbidden_writes:
   - src/**
@@ -56,7 +57,9 @@ stop_conditions:
 output:
   - 首版 .workflow-system/PROJECT_PROFILE.yaml
   - 首版 host 指引文件（同时生成 `AGENTS.md` / `CLAUDE.md`）
-  - 首版 ROADMAP.md / CONTRACTS.md / BASELINES.md / STATUS.md / DECISIONS.md
+  - 首版 docs/workflow/ROADMAP.md / docs/workflow/CONTRACTS.md /
+    docs/workflow/BASELINES.md / docs/workflow/STATUS.md /
+    docs/workflow/DECISIONS.md
   - 必要时更新 `docs/adoption/ADOPTION_REPORT.md`
 handoff:
   success: create-current-task
@@ -68,7 +71,7 @@ decision_policy:
 verification:
   - 所有写入治理文档的关键事实都有代码、配置或文档证据
   - 未确认项被显式标记，而不是被静默固化
-  - unknown 风险已进入 STATUS.md 或 ROADMAP.md
+  - unknown 风险已进入 docs/workflow/STATUS.md 或 docs/workflow/ROADMAP.md
   - inferred 历史决策已标明 source、original reason 和 review condition
   - 项目基线足以支撑后续 create-current-task / review-current-task
 allowed-tools:
@@ -96,13 +99,13 @@ notes:
 
 ## Execution Rules
 
-1. 先读取 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`，再读取 `legacy-inventory` 产物（如 `docs/adoption/architecture-inventory.md`、`docs/adoption/database-inventory.md`、`docs/adoption/`、`ROADMAP.md`、`BASELINES.md`）和仓库中的现有事实：代码结构、目录布局、README/docs、`package.json` scripts、测试入口、部署/运行线索、已有协作文档。
+1. 先读取 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md`、`templates/docs/`，再读取 `legacy-inventory` 产物（如 `docs/adoption/architecture-inventory.md`、`docs/adoption/database-inventory.md`、`docs/adoption/`、`docs/workflow/ROADMAP.md`、`docs/workflow/BASELINES.md`）和仓库中的现有事实：代码结构、目录布局、README/docs、`package.json` scripts、测试入口、部署/运行线索、已有协作文档。
 2. 把扫描结果拆成两类：  
    - 可被仓库直接证明的事实  
    - 必须由用户补充或确认的事实
-3. 只在确认后按 `.workflow-system/FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架写出首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`；必要时附带 adoption 报告说明证据和未决点。
-4. 把已经被代码依赖的 API、数据库字段、公共模块、目录职责和兼容性行为固化到 `CONTRACTS.md`；不要把偶然实现或 unknown consumer 写成稳定契约。
-5. 把 stable / fragile / unknown / deprecated 区域写入 `STATUS.md`；unknown 风险、迁移窗口和重构候选写入 `ROADMAP.md`。
+3. 只在确认后按 `.workflow-system/FILE_SCHEMAS.md` 与 `templates/docs/` 的章节骨架写出首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`；必要时附带 adoption 报告说明证据和未决点。
+4. 把已经被代码依赖的 API、数据库字段、公共模块、目录职责和兼容性行为固化到 `docs/workflow/CONTRACTS.md`；不要把偶然实现或 unknown consumer 写成稳定契约。
+5. 把 stable / fragile / unknown / deprecated 区域写入 `docs/workflow/STATUS.md`；unknown 风险、迁移窗口和重构候选写入 `docs/workflow/ROADMAP.md`。
 6. 补录历史决策时允许写 `source: inferred from existing implementation`、`original reason: unknown` 和 `review condition`，不要强行编造原因。
 7. 同时生成 `AGENTS.md` 与 `CLAUDE.md`，让 Codex / Claude 可以并行使用同一套 workflow-system；不要再按“当前宿主”二选一。
 8. 不修改业务代码，不把推断写成既定事实，不把“当前实现细节”误升格成长期治理规则。
@@ -118,3 +121,15 @@ notes:
 
 - 成功：`create-current-task`
 - 失败：`ask-user`
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.
