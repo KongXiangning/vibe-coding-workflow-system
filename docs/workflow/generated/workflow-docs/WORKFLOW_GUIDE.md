@@ -37,6 +37,7 @@
 | 场景 | 使用 skill | 主要读取 | 主要产出 |
 | --- | --- | --- | --- |
 | 新项目设计基线 | `/design-baseline-init` | 原始需求、用户目标、技术栈偏好、交付约束 | `docs/workflow/ROADMAP.md`、`docs/designs/architecture.md`、`docs/designs/database.md`、`docs/designs/**`、`docs/workflow/BASELINES.md` / `docs/workflow/DECISIONS.md` 草案 |
+| 对齐已有 workflow 资产 | `/realign-workflow-assets` | 当前 `.workflow-system/PROJECT_PROFILE.yaml`、已有 `docs/workflow/**` / `docs/designs/**` / `docs/adoption/**`、legacy root docs、runtime skill 目录、`AGENTS.md` / `CLAUDE.md` | 整理后的 workflow 文档目录、同步后的 runtime skills、更新后的 `AGENTS.md` / `CLAUDE.md` / `.workflow-system/PROJECT_PROFILE.yaml` |
 | 初始化新项目治理基线 | `/greenfield-init` | 已确认设计基线、用户目标、技术栈偏好、`.workflow-system/PROJECT_PROFILE.yaml` scaffold | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md` |
 | 老项目事实盘点 | `/legacy-inventory` | 由 profile / 仓库事实确定的代码目录、README/docs、package scripts、数据库和部署线索 | `docs/adoption/architecture-inventory.md`、`docs/adoption/database-inventory.md`、`docs/adoption/**`、`docs/workflow/ROADMAP.md` 缺口草案 |
 | 接管老项目治理基线 | `/adopt-existing-project` | `legacy-inventory` 产物、现有仓库事实、用户确认信息 | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`，必要时更新 `docs/adoption/ADOPTION_REPORT.md` |
@@ -61,7 +62,7 @@
 
 ## 标准任务流程
 
-0. 初始化完成后进入日常任务链路：新项目先走 `/design-baseline-init` → `/greenfield-init`，老项目先走 `/legacy-inventory` → `/adopt-existing-project`。
+0. 初始化完成后进入日常任务链路：新项目先走 `/design-baseline-init`；如果目标项目里已经有旧路径或旧版 workflow 资产，先插入 `/realign-workflow-assets`，再进入 `/greenfield-init`。老项目先走 `/legacy-inventory` → `/adopt-existing-project`。
 1. 先读 `docs/workflow/DOCUMENT_CATALOG.md` 确认文档目录协议，再读 `docs/workflow/STATUS.md` / `docs/workflow/ROADMAP.md`，确认当前任务是否处在正确窗口。
 2. 用 `/create-current-task` 创建 `docs/workflow/CURRENT_TASK.md`。
 3. 用 `/review-current-task` 收敛目标、验收、风险和范围。
@@ -78,6 +79,8 @@
 | 场景 | 推荐入口 |
 | --- | --- |
 | 新项目只有产品想法，尚无架构/数据库/详细设计 | `/design-baseline-init` → `/greenfield-init` |
+| 已跑过 `design-baseline-init`，但项目里还残留旧路径 workflow 资产 | `/realign-workflow-assets` → `/greenfield-init` |
+| workflow-system 升级后，需要把现有技能和文档重排到当前规范 | `/realign-workflow-assets` |
 | 空仓库或无实现但已有确认设计基线 | `/greenfield-init` |
 | 已有代码但无 workflow 治理基线，尚未完成事实盘点 | `/legacy-inventory` → `/adopt-existing-project` |
 | 已有代码且已完成事实盘点 | `/adopt-existing-project` |

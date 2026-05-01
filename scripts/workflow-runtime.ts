@@ -287,6 +287,7 @@ const WORKFLOW_RUNTIME_PREFIX = 'workflow-system-';
 const DEFAULT_BOOTSTRAP_HOSTS: readonly RuntimeHost[] = ['claude', 'codex'];
 const BOOTSTRAP_INIT_SKILLS = [
   'design-baseline-init',
+  'realign-workflow-assets',
   'greenfield-init',
   'legacy-inventory',
   'adopt-existing-project',
@@ -350,7 +351,7 @@ const SOURCE_PIPELINE: WorkflowSourcePipeline = {
 
 const POST_INSTALL_COMMANDS = [
   'bun install',
-  'Invoke /design-baseline-init -> /greenfield-init for new projects, or /legacy-inventory -> /adopt-existing-project for existing repos.',
+  'Invoke /design-baseline-init -> /realign-workflow-assets -> /greenfield-init when a new project already contains workflow assets that need migration, or /legacy-inventory -> /adopt-existing-project for existing repos.',
   'bun run gen:all',
   'bun run workflow:sync --host <claude|codex|factory> --write',
   'bun run workflow:health',
@@ -1190,7 +1191,7 @@ function buildHostGuidanceContent(root: string, profile: JsonObject, fileName: '
     '- This project uses workflow-system for AI delivery governance.',
     `- Read \`${WORKFLOW_PROFILE_RELATIVE_PATH}\`, \`${WORKFLOW_PROTOCOL_RELATIVE_PATH}\`, \`${WORKFLOW_SCHEMAS_RELATIVE_PATH}\`, and \`docs/workflow/WORKFLOW_GUIDE.md\` before changing workflow-managed docs.`,
     '- Bootstrap skills are preinstalled in both `.claude/skills/workflow-system-*` and `.codex/skills/workflow-system-*`.',
-    '- New project: `/design-baseline-init` -> `/greenfield-init`.',
+    '- New project: `/design-baseline-init` -> `/greenfield-init`, and insert `/realign-workflow-assets` first if the repo already contains old workflow assets.',
     '- Existing project: `/legacy-inventory` -> `/adopt-existing-project`.',
     '- After bootstrap or workflow template changes, run `bun run gen:all`, `bun run workflow:sync --host claude --write`, `bun run workflow:sync --host codex --write`, and `bun run workflow:health`.',
     '- When project-wide AI collaboration rules, host instructions, or shared workflow commands change later, run `/sync-host-guidance` so `AGENTS.md` and `CLAUDE.md` stay aligned.',
@@ -1209,7 +1210,7 @@ function buildBootstrapWorkflowGuideContent(root: string, profile: JsonObject): 
     '',
     '## 当前状态',
     '',
-    '- workflow-system runtime、模板、协议文档和 4 个 bootstrap skills 已安装到当前项目。',
+    '- workflow-system runtime、模板、协议文档和 5 个 bootstrap skills 已安装到当前项目。',
     '- 这一步还没有生成完整的 `docs/workflow/generated/**` 和全量宿主 skills。',
     '- 如果项目里已有 `AGENTS.md` / `CLAUDE.md`，install 也不会覆盖它们，所以这份 guide 是 install 后的保底入口。',
     '',
@@ -1218,6 +1219,7 @@ function buildBootstrapWorkflowGuideContent(root: string, profile: JsonObject): 
     '根据项目类型，在目标宿主里先调用 bootstrap skill 链：',
     '',
     '- 新项目：`/design-baseline-init` -> `/greenfield-init`',
+    '- 如果新项目或已接管项目里还残留旧路径 workflow 资产：先执行 `/realign-workflow-assets`，再继续下一步',
     '- 老项目：`/legacy-inventory` -> `/adopt-existing-project`',
     '',
     '## 然后做什么',
@@ -1237,10 +1239,12 @@ function buildBootstrapWorkflowGuideContent(root: string, profile: JsonObject): 
     '## 已预装的 bootstrap skills',
     '',
     '- `.claude/skills/workflow-system-design-baseline-init/SKILL.md`',
+    '- `.claude/skills/workflow-system-realign-workflow-assets/SKILL.md`',
     '- `.claude/skills/workflow-system-greenfield-init/SKILL.md`',
     '- `.claude/skills/workflow-system-legacy-inventory/SKILL.md`',
     '- `.claude/skills/workflow-system-adopt-existing-project/SKILL.md`',
     '- `.codex/skills/workflow-system-design-baseline-init/SKILL.md`',
+    '- `.codex/skills/workflow-system-realign-workflow-assets/SKILL.md`',
     '- `.codex/skills/workflow-system-greenfield-init/SKILL.md`',
     '- `.codex/skills/workflow-system-legacy-inventory/SKILL.md`',
     '- `.codex/skills/workflow-system-adopt-existing-project/SKILL.md`',
@@ -1920,7 +1924,7 @@ export function getExportManifest(root?: string): ExportManifest {
         steps: [
           {
             name: 'invoke-bootstrap-skill',
-            description: 'Invoke the installed bootstrap skill entrypoint: design-baseline-init -> greenfield-init for new projects, legacy-inventory -> adopt-existing-project for existing repos.',
+            description: 'Invoke the installed bootstrap skill entrypoint: design-baseline-init -> realign-workflow-assets -> greenfield-init when workflow assets need migration, or legacy-inventory -> adopt-existing-project for existing repos.',
           },
         ],
       },

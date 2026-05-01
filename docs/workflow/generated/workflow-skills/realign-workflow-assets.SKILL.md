@@ -1,0 +1,257 @@
+---
+name: realign-workflow-assets
+preamble-tier: 1
+version: 0.1.0
+description: >
+  Reconcile existing workflow-managed skills and docs with the current layout
+  contract without wiping the target project.
+purpose: >
+  在不清空 target project 的前提下，按当前 workflow 规范重排已有 runtime skills、generated
+  docs、host guidance 和 project profile。
+stage: 初始化
+trigger: >
+  当目标项目已经跑过 `design-baseline-init`、已经安装过旧版 workflow-system，或仓库里同时存在旧路径和新路径的
+  workflow 资产时。
+inputs:
+  - target_repository
+  - current_workflow_assets
+  - project_profile
+  - host_runtime_roots
+  - confirmed_layout_rules
+reads:
+  - .workflow-system/WORKFLOW_PROTOCOL.md
+  - .workflow-system/FILE_SCHEMAS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - templates/docs/
+  - templates/skills/
+  - docs/workflow/DOCUMENT_CATALOG.md
+  - docs/workflow/
+  - docs/designs/
+  - docs/adoption/
+  - AGENTS.md
+  - CLAUDE.md
+  - SKILL_REGISTRY.md
+  - generated/workflow-docs/**
+  - generated/workflow-skills/**
+  - ARCHITECTURE.md
+  - DATABASE.md
+  - ./ROADMAP.md
+  - ./CONTRACTS.md
+  - ./BASELINES.md
+  - ./STATUS.md
+  - ./DECISIONS.md
+  - ./CURRENT_TASK.md
+  - .claude/skills/
+  - .codex/skills/
+  - .factory/skills/
+  - package.json
+writes:
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - AGENTS.md
+  - CLAUDE.md
+  - docs/workflow/
+  - docs/designs/
+  - docs/adoption/
+  - SKILL_REGISTRY.md
+  - generated/workflow-docs/**
+  - generated/workflow-skills/**
+  - ARCHITECTURE.md
+  - DATABASE.md
+  - ./ROADMAP.md
+  - ./CONTRACTS.md
+  - ./BASELINES.md
+  - ./STATUS.md
+  - ./DECISIONS.md
+  - ./CURRENT_TASK.md
+  - .claude/skills/**
+  - .codex/skills/**
+  - .factory/skills/**
+forbidden_writes:
+  - package.json
+  - scripts/**
+  - scripts
+  - browse/src
+  - design/src
+  - test
+  - browse/test
+must_check:
+  - 现有资产里哪些是 workflow 管理文件，哪些是用户手写或宿主原生 skill
+  - 哪些文件应该新增、替换、搬迁、保留或删除，且每一项都有明确理由
+  - 旧路径与新路径同时存在时，内容是否一致，是否需要用户确认覆盖或合并
+  - host runtime 目录里是否只清理 `workflow-system-` 前缀 skill，绝不误删原生 skill
+stop_conditions:
+  - 无法判定某个文件是 workflow 管理资产还是用户手写资产
+  - 需要删除旧文件、覆盖分叉文档或 prune live runtime skills，但用户尚未确认
+  - .workflow-system/PROJECT_PROFILE.yaml、host guidance 与现有治理文档相互冲突，无法判断谁是事实源
+output:
+  - 对账后的 workflow 资产清单
+  - 更新后的 `.workflow-system/PROJECT_PROFILE.yaml`
+  - 更新后的 `AGENTS.md` / `CLAUDE.md`
+  - 整理后的 `docs/workflow/`、`docs/designs/`、`docs/adoption/`
+  - 已同步或已计划同步的 runtime skills
+handoff:
+  success: greenfield-init
+  failure: ask-user
+decision_policy:
+  mechanical: 可以按当前目录分类规则搬迁、重渲染和同步 workflow 管理资产。
+  taste: 用户手写说明、项目语气和人工补充文档不应被模板腔覆盖。
+  user_challenge: 不得静默删除旧资产、覆盖分叉文档、或把宿主原生 skill 当成 workflow 垃圾文件一起清理。
+verification:
+  - 所有 workflow 管理文档都落到 `docs/workflow/`、`docs/designs/`、`docs/adoption/` 的正确分类目录
+  - runtime skill prune 只影响 `workflow-system-` 前缀目录
+  - AGENTS.md、CLAUDE.md 与 .workflow-system/PROJECT_PROFILE.yaml 对同一套规则达成一致
+  - 如仍存在需要人工决定的差异，明确列出而不是静默跳过
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+notes:
+  - 这是迁移 / 重排 skill，不替代 `greenfield-init` 或 `adopt-existing-project` 的治理初始化职责。
+  - 可以复用 `bun run gen:all` 与 `bun run workflow:sync --host ... --write`，但入口必须由
+    skill 主导，而不是让用户自己猜该跑哪些脚本。
+  - 如果治理基线已经齐全，完成后可以直接进入 `create-current-task`；`greenfield-init` 是默认成功
+    handoff，不是唯一后续动作。
+asset_groups:
+  - workflow governance docs
+  - design baseline docs
+  - adoption docs
+  - host guidance
+  - runtime skills
+migration_rules:
+  - 先做资产盘点和 add / replace / move / delete 计划，再执行写入
+  - 优先搬迁或重渲染 workflow 管理文档，不做 silent delete
+  - 删除或 prune 前必须确认该目标是 workflow 管理资产
+  - host runtime 同步后只允许删除 `workflow-system-` 前缀 orphan skills
+runtime_sync_commands:
+  - bun run gen:all
+  - bun run workflow:sync --host claude --write
+  - bun run workflow:sync --host codex --write
+  - bun run workflow:sync --host factory --write
+---
+
+# Skill: realign-workflow-assets
+
+## Purpose
+
+在不清空 target project 的前提下，按当前 workflow 规范重排已有 runtime skills、generated docs、host guidance 和 project profile。
+
+## Trigger
+
+当目标项目已经跑过 `design-baseline-init`、已经安装过旧版 workflow-system，或仓库里同时存在旧路径和新路径的 workflow 资产时。
+
+## Inputs
+
+- target_repository
+- current_workflow_assets
+- project_profile
+- host_runtime_roots
+- confirmed_layout_rules
+
+## Project Variables
+
+### core
+- gstack
+- ai-engineering-workflow
+- TypeScript, Markdown, Shell
+
+### structure
+- scripts, browse/src, design/src, test, browse/test
+- .git/**, node_modules/**
+- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+
+### execution
+- bun test, bun run skill:check, bun run test:audit
+- mechanical, taste, user_challenge
+
+## Required Reads
+
+1. 先读取 frontmatter `reads` 中列出的规范源、当前 profile、现有 docs 与 runtime skill 目录，再判断是否执行迁移。
+2. 不只看新路径，也要检查 legacy 位置，例如 `ARCHITECTURE.md`、`DATABASE.md`、`SKILL_REGISTRY.md`、`generated/workflow-docs/**`、`generated/workflow-skills/**`，以及 repo root 下旧的 `./ROADMAP.md` / `./CONTRACTS.md` / `./STATUS.md` / `./DECISIONS.md` / `./BASELINES.md` / `./CURRENT_TASK.md`。
+3. 任何缺失文件都先判断是“本来就不存在”还是“应该存在但漂移了”，不要直接覆盖。
+
+## Must Check
+
+- 现有资产里哪些是 workflow 管理文件，哪些是用户手写或宿主原生 skill
+- 哪些文件应该新增、替换、搬迁、保留或删除，且每一项都有明确理由
+- 旧路径与新路径同时存在时，内容是否一致，是否需要用户确认覆盖或合并
+- host runtime 目录里是否只清理 `workflow-system-` 前缀 skill，绝不误删原生 skill
+
+## Stop Conditions
+
+- 无法判定某个文件是 workflow 管理资产还是用户手写资产
+- 需要删除旧文件、覆盖分叉文档或 prune live runtime skills，但用户尚未确认
+- `.workflow-system/PROJECT_PROFILE.yaml`、host guidance 与现有治理文档相互冲突，无法判断谁是事实源
+
+## Decision Policy
+
+- `mechanical`: 可以按当前目录分类规则搬迁、重渲染和同步 workflow 管理资产。
+- `taste`: 用户手写说明、项目语气和人工补充文档不应被模板腔覆盖。
+- `user_challenge`: 不得静默删除旧资产、覆盖分叉文档、或把宿主原生 skill 当成 workflow 垃圾文件一起清理。
+
+## Verification
+
+- 所有 workflow 管理文档都落到 `docs/workflow/`、`docs/designs/`、`docs/adoption/` 的正确分类目录
+- runtime skill prune 只影响 `workflow-system-` 前缀目录
+- `AGENTS.md`、`CLAUDE.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 对同一套规则达成一致
+- 如仍存在需要人工决定的差异，明确列出而不是静默跳过
+
+## Extension Fields
+
+### asset_groups
+- workflow governance docs
+- design baseline docs
+- adoption docs
+- host guidance
+- runtime skills
+
+### migration_rules
+- 先做资产盘点和 add / replace / move / delete 计划，再执行写入
+- 优先搬迁或重渲染 workflow 管理文档，不做 silent delete
+- 删除或 prune 前必须确认该目标是 workflow 管理资产
+- host runtime 同步后只允许删除 `workflow-system-` 前缀 orphan skills
+
+### runtime_sync_commands
+- bun run gen:all
+- bun run workflow:sync --host claude --write
+- bun run workflow:sync --host codex --write
+- bun run workflow:sync --host factory --write
+
+## Execution Protocol
+
+1. 先做一张资产对账表，按 `add / replace / move / keep / delete` 五类列出当前项目的 workflow 资产，不要边看边改。
+2. 目标目录分类以 `docs/workflow/DOCUMENT_CATALOG.md` 为准：治理文档进 `docs/workflow/`，设计基线进 `docs/designs/`，老项目盘点进 `docs/adoption/`。根目录只保留宿主入口与系统控制文件。
+3. 如果同时发现旧路径和新路径文件，先比较内容。内容相同则可以安全归并；内容分叉则按 `handoff.failure` 停下，让用户决定覆盖、合并还是保留双份。
+4. runtime skill 整理优先复用 `bun run workflow:sync --host ... --write`。这一步只允许 prune `workflow-system-` 前缀 orphan 目录，绝不删除宿主自己的原生 skill。
+5. 需要重渲染 generated docs 或 generated skills 时，先执行 `bun run gen:all`，再同步宿主 runtime。不要手改 generated reference render。
+6. `AGENTS.md`、`CLAUDE.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 视为一个整体。只改其中一个会让宿主行为漂移，所以必须一起检查、一起更新。
+7. 这是 workflow 资产重排，不是业务实现。不要修改 `package.json`、`scripts/**` 或 `scripts, browse/src, design/src, test, browse/test` 下的业务代码。
+8. 完成后给出清晰结果：哪些资产新增、哪些替换、哪些移动、哪些删除、哪些差异还需要人工决策。
+
+## Hard Boundaries
+
+- 不修改 `package.json`。
+- 不修改 `scripts/**`。
+- 不修改 `scripts, browse/src, design/src, test, browse/test`。
+- 不静默删除 live docs 或 live runtime skills。
+- 不把宿主原生 skill 误判为 workflow-system 垃圾文件。
+
+## Handoff
+
+- 成功：`greenfield-init`
+- 失败：`ask-user`
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

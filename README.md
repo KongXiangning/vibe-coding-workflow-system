@@ -101,7 +101,7 @@ bun run workflow:pack --json
 bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex --dry-run --json
 bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <target-repo> --host codex
 (cd <target-repo> && bun install)
-(invoke `/design-baseline-init` -> `/greenfield-init` for new projects, or `/legacy-inventory` -> `/adopt-existing-project` for existing repos, in the target host)
+(invoke `/design-baseline-init` -> `/greenfield-init` for new projects, insert `/realign-workflow-assets` first if the target repo already contains old workflow assets, or `/legacy-inventory` -> `/adopt-existing-project` for existing repos, in the target host)
 (cd <target-repo> && bun run gen:all)
 (cd <target-repo> && bun run workflow:sync --host codex --write)
 (cd <target-repo> && bun run workflow:health)
@@ -111,15 +111,16 @@ bun run workflow:install --bundle dist/workflow-system/<bundle-dir> --root <targ
 `workflow:install` performs the A1 import step, copies workflow-managed files, writes
 the workflow control plane into `.workflow-system/`, merges the documented `package.json`
 surface, writes `.workflow-system/install-state.json`, and
-pre-installs the static bootstrap skills `design-baseline-init`, `greenfield-init`,
-`legacy-inventory`, and `adopt-existing-project` into the isolated
+pre-installs the static bootstrap skills `design-baseline-init`, `realign-workflow-assets`,
+`greenfield-init`, `legacy-inventory`, and `adopt-existing-project` into the isolated
 `workflow-system-*` host namespace. For dual-host setups, install now seeds both
 `.claude/skills/workflow-system-*` and `.codex/skills/workflow-system-*`, and
 scaffolds initial `CLAUDE.md` / `AGENTS.md` guidance files if they are absent.
-`design-baseline-init` -> `greenfield-init` and `legacy-inventory` ->
-`adopt-existing-project` are the project-level initialization entrypoints: they
-establish the first governance baseline as skills, not runtime commands, and now
-materialize both `CLAUDE.md` and `AGENTS.md` so Claude / Codex can run in
+`design-baseline-init` -> `greenfield-init`, optional `realign-workflow-assets` for
+layout migration, and `legacy-inventory` -> `adopt-existing-project` are the
+project-level initialization entrypoints: they establish the first governance
+baseline as skills, not runtime commands, and now materialize both `CLAUDE.md`
+and `AGENTS.md` so Claude / Codex can run in
 parallel against the same workflow baseline.
 After initialization, run `gen:all`, `workflow:sync --write`, and `workflow:health` to render the
 full runtime skill set and verify the target repo.
@@ -129,7 +130,8 @@ install and sync operate on the current working directory.
 
 Recommended flow: run `workflow:install`, install the target repo dependencies with
 `bun install`, invoke `/design-baseline-init` -> `/greenfield-init` for new projects,
-or `/legacy-inventory` -> `/adopt-existing-project` for existing repos, then run
+insert `/realign-workflow-assets` before the next step if the repo already contains
+old workflow assets, or `/legacy-inventory` -> `/adopt-existing-project` for existing repos, then run
 `gen:all`, `workflow:sync --write`, and `workflow:health`. Inspect install failures first; they
 are reported as `frozen_path`, `local_drift`, `contract_conflict`, or
 `incompatible_target`.

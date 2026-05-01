@@ -143,11 +143,12 @@ describe('gen-registry', () => {
 
     expect(initSkills).toEqual([
       'design-baseline-init',
+      'realign-workflow-assets',
       'greenfield-init',
       'legacy-inventory',
       'adopt-existing-project',
     ]);
-    expect(content).toContain('| 初始化 | `design-baseline-init` → `greenfield-init` / `legacy-inventory` → `adopt-existing-project` |');
+    expect(content).toContain('| 初始化 | `design-baseline-init` → `realign-workflow-assets` → `greenfield-init` / `legacy-inventory` → `adopt-existing-project` |');
   });
 
   test('every skill row has the expected 7 registry columns', () => {

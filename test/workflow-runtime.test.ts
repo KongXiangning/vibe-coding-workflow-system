@@ -556,17 +556,22 @@ describe('workflow-runtime install', () => {
         const claudeGuidance = fs.readFileSync(path.join(targetRoot, 'CLAUDE.md'), 'utf8');
         const bootstrapGuide = fs.readFileSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'), 'utf8');
         expect(agentsGuidance).toContain('/sync-host-guidance');
+        expect(agentsGuidance).toContain('/realign-workflow-assets');
         expect(claudeGuidance).toContain('/sync-host-guidance');
+        expect(claudeGuidance).toContain('/realign-workflow-assets');
         expect(bootstrapGuide).toContain('/legacy-inventory');
         expect(bootstrapGuide).toContain('/adopt-existing-project');
+        expect(bootstrapGuide).toContain('/realign-workflow-assets');
         expect(bootstrapGuide).toContain('bun run gen:all');
         expect(bootstrapGuide).toContain('bun run workflow:sync --host claude --write');
         expect(bootstrapGuide).toContain('尚未完成 bootstrap / gen / sync');
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-realign-workflow-assets', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-realign-workflow-assets', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-legacy-inventory', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
@@ -596,6 +601,10 @@ describe('workflow-runtime install', () => {
               mode: 'bootstrap-skill-install',
             }),
             expect.objectContaining({
+              path: '.claude/skills/workflow-system-realign-workflow-assets/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
               path: '.claude/skills/workflow-system-greenfield-init/SKILL.md',
               mode: 'bootstrap-skill-install',
             }),
@@ -609,6 +618,10 @@ describe('workflow-runtime install', () => {
             }),
             expect.objectContaining({
               path: '.codex/skills/workflow-system-design-baseline-init/SKILL.md',
+              mode: 'bootstrap-skill-install',
+            }),
+            expect.objectContaining({
+              path: '.codex/skills/workflow-system-realign-workflow-assets/SKILL.md',
               mode: 'bootstrap-skill-install',
             }),
             expect.objectContaining({

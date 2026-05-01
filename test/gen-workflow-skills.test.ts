@@ -216,6 +216,7 @@ describe('gen-workflow-skills', () => {
   test('bootstrap init skills read schema sources before writing governance docs', () => {
     for (const skill of [
       'design-baseline-init',
+      'realign-workflow-assets',
       'greenfield-init',
       'legacy-inventory',
       'adopt-existing-project',
@@ -233,6 +234,20 @@ describe('gen-workflow-skills', () => {
     const designBaseline = parseFrontmatter(path.join(OUTPUT_DIR, 'design-baseline-init.SKILL.md'));
     const designHandoff = designBaseline.handoff as Record<string, unknown>;
     expect(designHandoff.success).toBe('greenfield-init');
+
+    const realign = parseFrontmatter(path.join(OUTPUT_DIR, 'realign-workflow-assets.SKILL.md'));
+    const realignReads = normalizeList(realign.reads);
+    const realignWrites = normalizeList(realign.writes);
+    const realignHandoff = realign.handoff as Record<string, unknown>;
+    const realignContent = fs.readFileSync(path.join(OUTPUT_DIR, 'realign-workflow-assets.SKILL.md'), 'utf8');
+    expect(realignHandoff.success).toBe('greenfield-init');
+    expect(realignReads).toContain('.workflow-system/PROJECT_PROFILE.yaml');
+    expect(realignReads).toContain('docs/workflow/DOCUMENT_CATALOG.md');
+    expect(realignReads).toContain('generated/workflow-docs/**');
+    expect(realignWrites).toContain('.claude/skills/**');
+    expect(realignWrites).toContain('.codex/skills/**');
+    expect(realignContent).toContain('`workflow-system-` 前缀');
+    expect(realignContent).toContain('不静默删除 live docs 或 live runtime skills');
 
     const legacyInventory = parseFrontmatter(path.join(OUTPUT_DIR, 'legacy-inventory.SKILL.md'));
     const legacyHandoff = legacyInventory.handoff as Record<string, unknown>;

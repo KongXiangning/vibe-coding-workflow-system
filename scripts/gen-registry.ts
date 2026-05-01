@@ -70,6 +70,7 @@ const HIGH_RISK_SKILLS = [
 ];
 const WORKFLOW_ORDER = [
   'design-baseline-init',
+  'realign-workflow-assets',
   'greenfield-init',
   'legacy-inventory',
   'adopt-existing-project',
@@ -230,7 +231,7 @@ function renderRegistry(skills: RegistrySkill[], workflowSkillDir: string): stri
   const summaryRows = STAGE_SECTIONS.map(section => {
     const stageSkills = grouped.get(section.stage) ?? [];
     if (section.stage === '初始化') {
-      return `| ${section.summaryLabel} | \`design-baseline-init\` → \`greenfield-init\` / \`legacy-inventory\` → \`adopt-existing-project\` |`;
+      return `| ${section.summaryLabel} | \`design-baseline-init\` → \`realign-workflow-assets\` → \`greenfield-init\` / \`legacy-inventory\` → \`adopt-existing-project\` |`;
     }
     return `| ${section.summaryLabel} | ${formatSkillRefs(stageSkills.map(skill => skill.name))} |`;
   });

@@ -203,6 +203,13 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('AGENTS.md` / `CLAUDE.md');
   });
 
+  test('workflow guide documents workflow asset realignment entrypoint', () => {
+    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
+    expect(guide).toContain('/realign-workflow-assets');
+    expect(guide).toContain('旧路径 workflow 资产');
+    expect(guide).toContain('legacy root docs');
+  });
+
   test('document catalog codifies directory classification and lookup guidance', () => {
     const catalog = fs.readFileSync(path.join(OUTPUT_DIR, 'DOCUMENT_CATALOG.md'), 'utf8');
     expect(catalog).toContain('docs/workflow/');
