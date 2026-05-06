@@ -432,11 +432,12 @@ describe('workflow-runtime host detection', () => {
 describe('workflow-runtime sync', () => {
   test('host sync plan uses isolated workflow-system targets and reports orphaned workflow-system dirs only', () => {
     withTempRoot(root => {
+      writeProfile(root, 'codex');
       writeGeneratedSkill(root, 'archive-task');
       fs.mkdirSync(path.join(root, '.codex', 'skills', 'workflow-system-stale-skill'), { recursive: true });
       fs.writeFileSync(path.join(root, '.codex', 'skills', 'workflow-system-stale-skill', 'SKILL.md'), '# stale\n', 'utf8');
-      fs.mkdirSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
+      fs.mkdirSync(path.join(root, '.codex', 'skills', 'native-existing-skill'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.codex', 'skills', 'native-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
       const plan = buildHostSyncPlan(root, 'codex');
       expect(plan.isolated).toBe(true);
       expect(plan.entries).toHaveLength(1);
@@ -451,6 +452,7 @@ describe('workflow-runtime sync', () => {
 
   test('syncWorkflowHost copies generated skills into host namespace', () => {
     withTempRoot(root => {
+      writeProfile(root, 'claude');
       writeGeneratedSkill(root, 'archive-task', '# Archive Task\n');
       writeGeneratedSkill(root, 'review-diff', '# Review Diff\n');
 
@@ -469,11 +471,12 @@ describe('workflow-runtime sync', () => {
 
   test('syncWorkflowHost prunes orphaned workflow-system dirs while preserving non-workflow namespaces', () => {
     withTempRoot(root => {
+      writeProfile(root, 'codex');
       writeGeneratedSkill(root, 'review-diff', '# Review Diff\n');
       fs.mkdirSync(path.join(root, '.codex', 'skills', 'workflow-system-archive-task'), { recursive: true });
       fs.writeFileSync(path.join(root, '.codex', 'skills', 'workflow-system-archive-task', 'SKILL.md'), '# stale\n', 'utf8');
-      fs.mkdirSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
+      fs.mkdirSync(path.join(root, '.codex', 'skills', 'native-existing-skill'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.codex', 'skills', 'native-existing-skill', 'SKILL.md'), '# native\n', 'utf8');
 
       const result = syncWorkflowHost({ root, host: 'codex', write: true });
       expect(result.synced).toBe(1);
@@ -486,12 +489,13 @@ describe('workflow-runtime sync', () => {
       ]);
       expect(fs.existsSync(path.join(root, '.codex', 'skills', 'workflow-system-archive-task'))).toBe(false);
       expect(fs.existsSync(path.join(root, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'))).toBe(true);
-      expect(fs.existsSync(path.join(root, '.codex', 'skills', 'gstack-existing-skill', 'SKILL.md'))).toBe(true);
+      expect(fs.existsSync(path.join(root, '.codex', 'skills', 'native-existing-skill', 'SKILL.md'))).toBe(true);
     });
   });
 
   test('dry-run sync reports orphaned workflow-system dirs without deleting them', () => {
     withTempRoot(root => {
+      writeProfile(root, 'factory');
       writeGeneratedSkill(root, 'review-diff', '# Review Diff\n');
       fs.mkdirSync(path.join(root, '.factory', 'skills', 'workflow-system-archive-task'), { recursive: true });
       fs.writeFileSync(path.join(root, '.factory', 'skills', 'workflow-system-archive-task', 'SKILL.md'), '# stale\n', 'utf8');

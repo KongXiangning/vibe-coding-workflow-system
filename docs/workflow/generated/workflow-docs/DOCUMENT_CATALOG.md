@@ -20,20 +20,20 @@
 
 | 路径 | 分类 | 作用 | 生成/维护方式 | 生成批次 | 最后修改时间查询 |
 | --- | --- | --- | --- | --- | --- |
-| `docs/workflow/DOCUMENT_CATALOG.md` | workflow-catalog | 文档目录协议与快速查表入口 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/DOCUMENT_CATALOG.md` |
-| `docs/workflow/WORKFLOW_GUIDE.md` | workflow-governance | 日常 workflow 使用说明 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/WORKFLOW_GUIDE.md` |
-| `docs/workflow/ROADMAP.md` | workflow-governance | 版本窗口、阶段计划与风险 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/ROADMAP.md` |
-| `docs/workflow/STATUS.md` | workflow-governance | 项目状态、稳定面和检查点 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/STATUS.md` |
-| `docs/workflow/CONTRACTS.md` | workflow-governance | 稳定接口、架构边界与传播治理补充 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/CONTRACTS.md` |
-| `docs/workflow/DECISIONS.md` | workflow-governance | 已确认架构/口味/暂缓/否决决策 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/DECISIONS.md` |
-| `docs/workflow/BASELINES.md` | workflow-governance | 发布、兼容、安全、部署、性能基线 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/BASELINES.md` |
-| `docs/workflow/CURRENT_TASK.md` | workflow-governance | 当前任务包、范围和验证记录 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/CURRENT_TASK.md` |
-| `docs/workflow/LESSONS.md` | workflow-governance | 可复用经验与踩坑记录 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/LESSONS.md` |
-| `docs/workflow/TASK_SUMMARY.md` | workflow-governance | 交付摘要模板 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/TASK_SUMMARY.md` |
-| `docs/workflow/TASK_ARCHIVE.md` | workflow-governance | 任务归档模板 | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/TASK_ARCHIVE.md` |
-| `docs/workflow/SKILL_REGISTRY.md` | workflow-registry | 全部 workflow skill 的 stage / IO / handoff 总览 | `gen:registry` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/SKILL_REGISTRY.md` |
-| `docs/workflow/generated/workflow-docs/**` | workflow-reference | source-repo governance docs reference render | `gen:workflow-docs` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/generated/workflow-docs` |
-| `docs/workflow/generated/workflow-skills/**` | workflow-reference | source-repo skill reference render | `gen:workflow-skills` 生成 | `v0.14.5.0` | `git log -1 --format=%cI -- docs/workflow/generated/workflow-skills` |
+| `docs/workflow/DOCUMENT_CATALOG.md` | workflow-catalog | 文档目录协议与快速查表入口 | `gen:workflow-docs` 生成 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/DOCUMENT_CATALOG.md` |
+| `docs/workflow/WORKFLOW_GUIDE.md` | workflow-governance | 日常 workflow 使用说明 | `gen:workflow-docs` 生成 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/WORKFLOW_GUIDE.md` |
+| `docs/workflow/ROADMAP.md` | workflow-governance | 版本窗口、阶段计划与风险 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/ROADMAP.md` |
+| `docs/workflow/STATUS.md` | workflow-governance | 项目状态、稳定面和检查点 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/STATUS.md` |
+| `docs/workflow/CONTRACTS.md` | workflow-governance | 稳定接口、架构边界与传播治理补充 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/CONTRACTS.md` |
+| `docs/workflow/DECISIONS.md` | workflow-governance | 已确认架构/口味/暂缓/否决决策 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/DECISIONS.md` |
+| `docs/workflow/BASELINES.md` | workflow-governance | 发布、兼容、安全、部署、性能基线 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/BASELINES.md` |
+| `docs/workflow/CURRENT_TASK.md` | workflow-governance | 当前任务包、范围和验证记录 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/CURRENT_TASK.md` |
+| `docs/workflow/LESSONS.md` | workflow-governance | 可复用经验与踩坑记录 | `gen:workflow-docs` 骨架 + runtime 内容 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/LESSONS.md` |
+| `docs/workflow/TASK_SUMMARY.md` | workflow-governance | 交付摘要模板 | `gen:workflow-docs` 生成 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/TASK_SUMMARY.md` |
+| `docs/workflow/TASK_ARCHIVE.md` | workflow-governance | 任务归档模板 | `gen:workflow-docs` 生成 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/TASK_ARCHIVE.md` |
+| `docs/workflow/SKILL_REGISTRY.md` | workflow-registry | 全部 workflow skill 的 stage / IO / handoff 总览 | `gen:registry` 生成 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/SKILL_REGISTRY.md` |
+| `docs/workflow/generated/workflow-docs/**` | workflow-reference | source-repo governance docs reference render | `gen:workflow-docs` 生成 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/generated/workflow-docs` |
+| `docs/workflow/generated/workflow-skills/**` | workflow-reference | source-repo skill reference render | `gen:workflow-skills` 生成 | `v0.14.5` | `git log -1 --format=%cI -- docs/workflow/generated/workflow-skills` |
 | `docs/designs/architecture.md` | design-baseline | 新项目目标架构、边界与数据流 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/architecture.md` |
 | `docs/designs/database.md` | design-baseline | 新项目数据库设计与生命周期约束 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/database.md` |
 | `docs/designs/domain-model.md` | design-baseline | 核心实体、关系和业务不变量 | `design-baseline-init` 生成/更新 | runtime skill output | `git log -1 --format=%cI -- docs/designs/domain-model.md` |

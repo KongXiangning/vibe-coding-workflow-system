@@ -2,7 +2,7 @@
 
 ## 任务元数据
 
-- 项目：gstack
+- 项目：vibe-coding-workflow-system
 - 任务 ID：{{TASK_ID}}
 - 任务标题：{{TASK_TITLE}}
 - 任务 slug：{{TASK_SLUG}}

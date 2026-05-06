@@ -70,10 +70,7 @@ forbidden_writes:
   - package.json
   - scripts/**
   - scripts
-  - browse/src
-  - design/src
   - test
-  - browse/test
 must_check:
   - 现有资产里哪些是 workflow 管理文件，哪些是用户手写或宿主原生 skill
   - 哪些文件应该新增、替换、搬迁、保留或删除，且每一项都有明确理由
@@ -154,17 +151,17 @@ runtime_sync_commands:
 ## Project Variables
 
 ### core
-- gstack
+- vibe-coding-workflow-system
 - ai-engineering-workflow
-- TypeScript, Markdown, Shell
+- TypeScript, Markdown
 
 ### structure
-- scripts, browse/src, design/src, test, browse/test
-- .git/**, node_modules/**
-- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+- scripts, test
+- .git/**, node_modules/**, dist/**
+- Keep workflow-system automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Treat templates/docs/ as workflow governance doc template sources., Do not hand-edit generated reference outputs under docs/workflow/generated/** or docs/workflow/SKILL_REGISTRY.md., Keep gstack references as methodology or historical comparison material unless a task explicitly targets gstack integration., Prefer Bun/TypeScript for generation, validation, packaging, and runtime sync tooling.
 
 ### execution
-- bun test, bun run skill:check, bun run test:audit
+- bun run test:workflow-all, bun run validate:protocol, bun run validate:freshness
 - mechanical, taste, user_challenge
 
 ## Required Reads
@@ -228,14 +225,14 @@ runtime_sync_commands:
 4. runtime skill 整理优先复用 `bun run workflow:sync --host ... --write`。这一步只允许 prune `workflow-system-` 前缀 orphan 目录，绝不删除宿主自己的原生 skill。
 5. 需要重渲染 generated docs 或 generated skills 时，先执行 `bun run gen:all`，再同步宿主 runtime。不要手改 generated reference render。
 6. `AGENTS.md`、`CLAUDE.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 视为一个整体。只改其中一个会让宿主行为漂移，所以必须一起检查、一起更新。
-7. 这是 workflow 资产重排，不是业务实现。不要修改 `package.json`、`scripts/**` 或 `scripts, browse/src, design/src, test, browse/test` 下的业务代码。
+7. 这是 workflow 资产重排，不是业务实现。不要修改 `package.json`、`scripts/**` 或 `scripts, test` 下的业务代码。
 8. 完成后给出清晰结果：哪些资产新增、哪些替换、哪些移动、哪些删除、哪些差异还需要人工决策。
 
 ## Hard Boundaries
 
 - 不修改 `package.json`。
 - 不修改 `scripts/**`。
-- 不修改 `scripts, browse/src, design/src, test, browse/test`。
+- 不修改 `scripts, test`。
 - 不静默删除 live docs 或 live runtime skills。
 - 不把宿主原生 skill 误判为 workflow-system 垃圾文件。
 

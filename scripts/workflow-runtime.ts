@@ -629,7 +629,7 @@ function getHostCompatibilityNotes(): Record<RuntimeHost, HostCompatibilityNote>
       sync_mode: 'copy',
       notes: [
         'Workflow skills are copied into .claude/skills/workflow-system-<skill>/SKILL.md.',
-        'This namespace is separate from native gstack runtime outputs.',
+        'This namespace is separate from native host runtime outputs.',
       ],
     },
     codex: {
@@ -647,7 +647,7 @@ function getHostCompatibilityNotes(): Record<RuntimeHost, HostCompatibilityNote>
       sync_mode: 'copy',
       notes: [
         'Factory is supported through the same isolated copy-based sync model.',
-        'Workflow runtime outputs remain outside the native gstack namespace.',
+        'Workflow runtime outputs remain outside the native host namespace.',
       ],
     },
   };

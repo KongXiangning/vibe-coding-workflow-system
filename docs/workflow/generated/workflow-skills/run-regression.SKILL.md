@@ -23,10 +23,7 @@ reads:
 writes: []
 forbidden_writes:
   - scripts
-  - browse/src
-  - design/src
   - test
-  - browse/test
   - docs/workflow/CURRENT_TASK.md
   - docs/workflow/STATUS.md
 must_check:
@@ -151,17 +148,17 @@ browser_session_policy:
 ## Project Variables
 
 ### core
-- gstack
+- vibe-coding-workflow-system
 - ai-engineering-workflow
-- TypeScript, Markdown, Shell
+- TypeScript, Markdown
 
 ### structure
-- scripts, browse/src, design/src, test, browse/test
-- .git/**, node_modules/**
-- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+- scripts, test
+- .git/**, node_modules/**, dist/**
+- Keep workflow-system automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Treat templates/docs/ as workflow governance doc template sources., Do not hand-edit generated reference outputs under docs/workflow/generated/** or docs/workflow/SKILL_REGISTRY.md., Keep gstack references as methodology or historical comparison material unless a task explicitly targets gstack integration., Prefer Bun/TypeScript for generation, validation, packaging, and runtime sync tooling.
 
 ### execution
-- bun test, bun run skill:check, bun run test:audit
+- bun run test:workflow-all, bun run validate:protocol, bun run validate:freshness
 - mechanical, taste, user_challenge
 
 ## Required Reads

@@ -45,7 +45,7 @@
 
 ### 🔒 依赖方向
 
-- scripts, browse/src, design/src, test, browse/test
+- scripts, test
 
 ### 🔒 分层规则
 

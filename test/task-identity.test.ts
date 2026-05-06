@@ -35,7 +35,7 @@ describe('task-identity', () => {
       '',
       '## 任务信息',
       '',
-      '- 项目：gstack',
+      '- 项目：vibe-coding-workflow-system',
       '- 任务 ID：007',
       '- 任务标题：Implement task identity',
       '- 任务 slug：implement-task-identity',

@@ -31,10 +31,7 @@ writes:
   - CLAUDE.md
 forbidden_writes:
   - scripts
-  - browse/src
-  - design/src
   - test
-  - browse/test
 must_check:
   - 哪些变化属于项目级长期规则，而不是本轮任务临时说明
   - AGENTS.md 与 CLAUDE.md 是否保持同一治理基线，只保留必要的宿主称谓差异
@@ -101,17 +98,17 @@ host_guidance_categories:
 ## Project Variables
 
 ### core
-- gstack
+- vibe-coding-workflow-system
 - ai-engineering-workflow
-- TypeScript, Markdown, Shell
+- TypeScript, Markdown
 
 ### structure
-- scripts, browse/src, design/src, test, browse/test
-- .git/**, node_modules/**
-- Keep repository-wide automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Do not hand-edit generated outputs in dist/ or generated SKILL.md files., Preserve the subsystem split between browse/, design/, scripts/, and docs., Prefer Bun/TypeScript for new generation and validation tooling.
+- scripts, test
+- .git/**, node_modules/**, dist/**
+- Keep workflow-system automation and generators in scripts/., Treat templates/skills/ as workflow skill template sources, not runtime outputs., Treat templates/docs/ as workflow governance doc template sources., Do not hand-edit generated reference outputs under docs/workflow/generated/** or docs/workflow/SKILL_REGISTRY.md., Keep gstack references as methodology or historical comparison material unless a task explicitly targets gstack integration., Prefer Bun/TypeScript for generation, validation, packaging, and runtime sync tooling.
 
 ### execution
-- bun test, bun run skill:check, bun run test:audit
+- bun run test:workflow-all, bun run validate:protocol, bun run validate:freshness
 - mechanical, taste, user_challenge
 
 ## Required Reads
@@ -168,7 +165,7 @@ host_guidance_categories:
 
 ## Hard Boundaries
 
-- 不修改 `scripts, browse/src, design/src, test, browse/test`。
+- 不修改 `scripts, test`。
 - 不把 `docs/workflow/CURRENT_TASK.md` 中的临时执行说明直接复制成长期宿主规则。
 - 不只更新单侧宿主文件。
 - 不得静默改变项目级 AI 协作约束、验证入口或禁止事项的含义。

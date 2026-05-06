@@ -128,7 +128,7 @@ This output root is intentionally separated from:
 - host runtime install locations
 - `templates/skills/*.SKILL.md.tmpl`
 
-That separation avoids colliding with the existing gstack build pipeline while the workflow skill system is still under development.
+That separation avoids colliding with repo-native skill pipelines while the workflow skill system is installed or developed alongside other AI tooling.
 
 ---
 
@@ -297,7 +297,7 @@ Must emphasize:
 - host compatibility
 - documentation synchronization
 
-The current repo (`gstack`) should be treated as:
+The source repo (`vibe-coding-workflow-system`) should be treated as:
 
 ```text
 ai-engineering-workflow
@@ -815,7 +815,7 @@ The workflow skill generator scope excludes the following:
 
 - generate docs templates
 - install generated skills into runtime host directories
-- auto-edit existing gstack `SKILL.md` outputs
+- auto-edit existing repo-native `SKILL.md` outputs
 - auto-discover task-level values like `TASK_ID`
 
 ---
@@ -834,7 +834,7 @@ This protocol is considered implemented when all of the following machine-checka
 | 4 | No skill has `writes` / `forbidden_writes` overlap (§7.3) | `bun run test:workflow-skills` — boundary check |
 | 5 | All 10 stage groups are covered (§4a) | `bun run test:workflow-skills` — stage coverage |
 | 6 | All project-level placeholders are resolved; only runtime placeholders remain | `bun run test:workflow-skills` — placeholder check |
-| 7 | Output is isolated from native gstack `*/SKILL.md` artifacts | Output path is `docs/workflow/generated/workflow-skills/` — structural guarantee |
+| 7 | Output is isolated from repo-native `*/SKILL.md` artifacts | Output path is `docs/workflow/generated/workflow-skills/` — structural guarantee |
 
 ### 11.2 Registry generator (`gen:registry`)
 
@@ -1482,25 +1482,25 @@ Public runtime interface notes:
 Host-specific sync maps generated workflow artifacts to the path conventions of each supported AI host. The sync layer handles:
 
 - path resolution (where generated SKILL.md files and docs go)
-- host directory structure (`.claude/skills/`, `.agents/skills/`, `.factory/skills/`)
-- isolation from native gstack skill outputs
+- host directory structure (`.claude/skills/`, `.codex/skills/`, `.factory/skills/`)
+- isolation from native host skill outputs
 
 Supported hosts and their conventions:
 
 | Host | Skill output directory | Sync mechanism |
 |------|----------------------|----------------|
 | `claude` | `.claude/skills/workflow-system-*` | copy |
-| `codex` | `.agents/skills/workflow-system-*` | copy |
+| `codex` | `.codex/skills/workflow-system-*` | copy |
 | `factory` | `.factory/skills/workflow-system-*` | copy |
 
 Constraints on host sync:
 
-- host sync must not overwrite native gstack SKILL.md artifacts
+- host sync must not overwrite native host SKILL.md artifacts
 - host sync must not rewrite protocol semantics
 - host sync failures must not corrupt generated outputs or live docs
 - target projects consume the sync logic defined here; they do not reimplement it locally
 - `workflow:sync --write` must converge the host namespace to the current generated workflow skill set by pruning orphaned `workflow-system-*` directories within the selected host runtime root
-- orphan pruning must be limited to the isolated `workflow-system-*` namespace and must never touch native `gstack-*` or other non-workflow host artifacts
+- orphan pruning must be limited to the isolated `workflow-system-*` namespace and must never touch native or other non-workflow host artifacts
 - sync reporting must distinguish planned prune targets from successfully applied prune targets so dry-run and applied results are not conflated
 
 ### §17.5 Host detection
@@ -1519,10 +1519,10 @@ When host is unknown, the runtime entry reports a warning but does not fail — 
 
 Runtime integration must satisfy the following isolation guarantees:
 
-- workflow-system runtime outputs are separate from native gstack runtime outputs
+- workflow-system runtime outputs are separate from native host runtime outputs
 - workflow-system generated skills use isolated `workflow-system-*` namespaces, not the native skill namespace
 - runtime integration failures do not cascade to generators or protocol validation
-- a target project that imports the workflow-system does not acquire native gstack skills or dependencies
+- a target project that imports the workflow-system does not acquire unrelated host-native skills or dependencies
 
 ## 18. Long-term versioned governance
 

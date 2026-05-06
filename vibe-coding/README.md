@@ -7,7 +7,7 @@
 1. [`vibe-coding-methodology.md`](./vibe-coding-methodology.md)
    - 总入口。解释为什么大型 AI 辅助开发需要边界、任务、状态和决策治理。
 2. [`vibe-coding-workflow.md`](./vibe-coding-workflow.md)
-   - 执行流程。把一次需求从进入、拆解、实现、复核到交付沉淀串起来。
+   - 执行流程。先说明“源码仓库 -> 目标项目 -> 日常 8 阶段”的完整链路，再把一次需求从进入、拆解、实现、复核到交付沉淀串起来。
 3. [`vibe-coding-quality-system.md`](./vibe-coding-quality-system.md)
    - 质量体系。聚焦契约锁定、范围锁定、状态追踪、回归验证和失控诊断。
 
@@ -21,6 +21,23 @@
 | 准备让 AI 开始做一个需求 | [`vibe-coding-workflow.md`](./vibe-coding-workflow.md) | 把需求拆成“进入 → 锁范围 → 实现 → 复核 → 同步”的任务链 |
 | 项目已经变大，担心误改稳定功能 | [`vibe-coding-quality-system.md`](./vibe-coding-quality-system.md) | 建立契约锁定、范围锁定和回归检查 |
 | 要改 workflow-system 的协议、模板或生成器 | `.workflow-system/` 正式规范 | 以 [`.workflow-system/WORKFLOW_PROTOCOL.md`](../.workflow-system/WORKFLOW_PROTOCOL.md)、[`.workflow-system/FILE_SCHEMAS.md`](../.workflow-system/FILE_SCHEMAS.md) 和 `templates/**` 为准 |
+
+### 当前仓库里的流程入口
+
+如果你正在维护这个源码仓库，而不是只在某个目标项目里执行任务，推荐按这个顺序理解 workflow：
+
+1. 先看 [`vibe-coding-workflow.md`](./vibe-coding-workflow.md) 的 **2.1 从当前源码仓库到目标项目的落地链路**，明确 source repo、target repo 和日常任务循环分别负责什么。
+2. 再看同文档的 **2.2 8 个阶段分别读什么、产出什么**，先抓住主流程，而不是直接陷进长段说明。
+3. 然后再读 **四、标准工作流**，理解每个阶段的目标、边界和停机点。
+4. 真正修改协议、模板、生成器或 runtime 时，再回到 [`.workflow-system/WORKFLOW_PROTOCOL.md`](../.workflow-system/WORKFLOW_PROTOCOL.md)、[`.workflow-system/FILE_SCHEMAS.md`](../.workflow-system/FILE_SCHEMAS.md)、`templates/**` 和根目录 `README.md` 的 install / sync / adoption 入口。
+
+### 质量体系的阅读入口
+
+如果你当前最关心的是“怎么防止 AI 把项目改乱”，建议按这个顺序读质量体系：
+
+1. 先看 [`vibe-coding-quality-system.md`](./vibe-coding-quality-system.md) 的 **五层防线速查表**，快速定位自己缺的是哪一层控制。
+2. 再跳到与你当前问题最相关的那一层，例如“担心误改稳定接口”就看 **第一层：契约锁定**，“担心反复猜修”就看 **第五层：失控停止机制**。
+3. 真正要落地时，再看同文档里的 **质量控制的最短落地顺序**、**推荐的六个配套文件** 和 **推荐工作流**。
 
 ### 最小使用流程
 
@@ -108,7 +125,7 @@ workflow-system 的治理产出物分工如下。这里说明使用入口和更�
 
 ### 打包 workflow-system
 
-在 gstack 仓库根目录执行：
+在 `vibe-coding-workflow-system` 仓库根目录执行：
 
 ```powershell
 bun run workflow:pack --json
@@ -234,7 +251,7 @@ bun run validate:all
 bun run validate:protocol
 ```
 
-### 在 gstack 仓库里验证模板和生成器
+### 在 workflow-system 源仓库里验证模板和生成器
 
 ```powershell
 bun run gen:workflow-skills --dry-run

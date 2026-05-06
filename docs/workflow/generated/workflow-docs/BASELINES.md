@@ -8,11 +8,11 @@
 
 ## 版本治理概览
 
-- 当前版本：0.14.5.0
-- 项目：gstack
+- 当前版本：0.14.5
+- 项目：vibe-coding-workflow-system
 - 项目类型：ai-engineering-workflow
-- 主要技术栈：TypeScript, Markdown, Shell
-- 关联验证入口：bun test, bun run skill:check, bun run test:audit
+- 主要技术栈：TypeScript, Markdown
+- 关联验证入口：bun run test:workflow-all, bun run validate:protocol, bun run validate:freshness
 
 ## 发布基线
 

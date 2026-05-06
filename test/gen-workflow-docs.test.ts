@@ -215,7 +215,7 @@ describe('gen-workflow-docs', () => {
     expect(catalog).toContain('docs/workflow/');
     expect(catalog).toContain('docs/designs/');
     expect(catalog).toContain('docs/adoption/');
-    expect(catalog).toContain('git log -1 --format=%cI -- <path>');
+    expect(catalog).toContain('git log -1 --format=%cI -- docs/workflow/DOCUMENT_CATALOG.md');
     expect(catalog).toContain('docs/workflow/SKILL_REGISTRY.md');
   });
 

@@ -7,11 +7,11 @@ import {
   classifyExistingLiveDoc,
   runProtocolGeneratorChecks,
 } from '../scripts/bootstrap-project-governance';
-import { getWorkflowProfilePath } from '../scripts/workflow-core';
+import { getWorkflowDocPath, getWorkflowGeneratedDir, getWorkflowProfilePath, loadProfile } from '../scripts/workflow-core';
 import { WORKFLOW_DOC_NAMES } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const GENERATED_DOCS_DIR = path.join(ROOT, 'generated', 'workflow-docs');
+const GENERATED_DOCS_DIR = getWorkflowGeneratedDir(ROOT, loadProfile(getWorkflowProfilePath(ROOT)), 'workflow-docs');
 const tempRoots: string[] = [];
 const ROOT_PROFILE_PATH = getWorkflowProfilePath(ROOT);
 
@@ -86,8 +86,9 @@ describe('bootstrap-project-governance', () => {
 
   test('classifies reorder-only drift as merge-safe after review', () => {
     const generated = readGeneratedDoc('CONTRACTS.md');
+    const generatedTitle = generated.split('\n')[0];
     const live = [
-      '# CONTRACTS.md',
+      generatedTitle,
       '',
       '## 二、架构契约',
       '',
@@ -128,12 +129,14 @@ describe('bootstrap-project-governance', () => {
   test('builds per-file sync actions and blocked states without writing live docs', () => {
     const targetRoot = createTempTargetRoot();
     writeTargetProfile(targetRoot);
+    const targetProfile = loadProfile(getWorkflowProfilePath(targetRoot));
+    fs.mkdirSync(path.dirname(getWorkflowDocPath(targetRoot, targetProfile, 'CONTRACTS.md')), { recursive: true });
     fs.writeFileSync(
-      path.join(targetRoot, 'CONTRACTS.md'),
+      getWorkflowDocPath(targetRoot, targetProfile, 'CONTRACTS.md'),
       `${readGeneratedDoc('CONTRACTS.md')}\n\n### 额外小节\n\n- manual drift\n`,
       'utf8',
     );
-    fs.writeFileSync(path.join(targetRoot, 'STATUS.md'), readGeneratedDoc('STATUS.md'), 'utf8');
+    fs.writeFileSync(getWorkflowDocPath(targetRoot, targetProfile, 'STATUS.md'), readGeneratedDoc('STATUS.md'), 'utf8');
 
     const plan = buildBootstrapPlan({
       systemRoot: ROOT,
@@ -141,8 +144,8 @@ describe('bootstrap-project-governance', () => {
       runGeneratorChecks: false,
     });
 
-    const contractsPlan = plan.governed_docs.find(doc => doc.file === 'CONTRACTS.md');
-    const statusPlan = plan.governed_docs.find(doc => doc.file === 'STATUS.md');
+    const contractsPlan = plan.governed_docs.find(doc => doc.doc_name === 'CONTRACTS.md');
+    const statusPlan = plan.governed_docs.find(doc => doc.doc_name === 'STATUS.md');
 
     expect(contractsPlan?.planned_action).toBe('propose-diff only');
     expect(contractsPlan?.execution_state).toBe('blocked');
@@ -158,14 +161,16 @@ describe('bootstrap-project-governance', () => {
   test('reports materialized task identity from CURRENT_TASK.md without writing archive files', () => {
     const targetRoot = createTempTargetRoot();
     writeTargetProfile(targetRoot);
+    const currentTaskPath = getWorkflowDocPath(targetRoot, loadProfile(getWorkflowProfilePath(targetRoot)), 'CURRENT_TASK.md');
+    fs.mkdirSync(path.dirname(currentTaskPath), { recursive: true });
     fs.writeFileSync(
-      path.join(targetRoot, 'CURRENT_TASK.md'),
+      currentTaskPath,
       [
         '# CURRENT_TASK.md',
         '',
         '## 任务信息',
         '',
-        '- 项目：gstack',
+        '- 项目：vibe-coding-workflow-system',
         '- 项目类型：ai-engineering-workflow',
         '- 任务 ID：007',
         '- 任务标题：Implement task identity',
@@ -195,14 +200,16 @@ describe('bootstrap-project-governance', () => {
   test('reports placeholder-preserved task identity without materializing archive naming', () => {
     const targetRoot = createTempTargetRoot();
     writeTargetProfile(targetRoot);
+    const currentTaskPath = getWorkflowDocPath(targetRoot, loadProfile(getWorkflowProfilePath(targetRoot)), 'CURRENT_TASK.md');
+    fs.mkdirSync(path.dirname(currentTaskPath), { recursive: true });
     fs.writeFileSync(
-      path.join(targetRoot, 'CURRENT_TASK.md'),
+      currentTaskPath,
       [
         '# CURRENT_TASK.md',
         '',
         '## 任务信息',
         '',
-        '- 项目：gstack',
+        '- 项目：vibe-coding-workflow-system',
         '- 项目类型：ai-engineering-workflow',
         '- 任务 ID：{{TASK_ID}}',
         '- 任务标题：{{TASK_TITLE}}',
@@ -242,8 +249,8 @@ describe('bootstrap-project-governance', () => {
   test('reads the target project profile instead of the system profile', () => {
     const targetRoot = createTempTargetRoot();
     writeTargetProfile(targetRoot, {
-      'name: gstack': 'name: target-sandbox',
-      'slug: gstack': 'slug: target-sandbox',
+      'name: vibe-coding-workflow-system': 'name: target-sandbox',
+      'slug: vibe-coding-workflow-system': 'slug: target-sandbox',
     });
 
     const plan = buildBootstrapPlan({

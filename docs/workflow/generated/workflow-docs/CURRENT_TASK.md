@@ -2,7 +2,7 @@
 
 ## 任务信息
 
-- 项目：gstack
+- 项目：vibe-coding-workflow-system
 - 项目类型：ai-engineering-workflow
 - 任务 ID：{{TASK_ID}}
 - 任务标题：{{TASK_TITLE}}
@@ -47,7 +47,7 @@
 
 ## 禁止修改范围
 
-- .git/**, node_modules/**
+- .git/**, node_modules/**, dist/**
 
 ## 受影响的契约
 

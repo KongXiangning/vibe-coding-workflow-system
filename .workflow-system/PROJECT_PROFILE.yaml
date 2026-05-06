@@ -1,12 +1,13 @@
 schema_version: 1
 
 project:
-  name: gstack
-  slug: gstack
+  name: vibe-coding-workflow-system
+  slug: vibe-coding-workflow-system
   type: ai-engineering-workflow
   summary: >
-    AI engineering workflow framework built around Markdown skills, a persistent
-    Chromium daemon, and Bun/TypeScript tooling for host-specific skill generation.
+    Standalone Vibe Coding workflow-system source repository for governance
+    protocols, templates, generators, runtime install/sync tooling, and
+    source-repo reference renders.
   primary_hosts:
     - claude
     - codex
@@ -16,36 +17,31 @@ runtime:
   languages:
     - TypeScript
     - Markdown
-    - Shell
   package_manager: bun
   module_system: esm
   build_commands:
-    - bun run build
+    - bun run gen:all
   test_commands:
-    - bun test
-    - bun run skill:check
-    - bun run test:audit
+    - bun run test:workflow-all
+    - bun run validate:protocol
+    - bun run validate:freshness
   dev_commands:
-    - bun run dev
-    - bun run server
-    - bun run dev:skill
+    - bun run workflow:health
+    - bun run workflow:manifest --json
+    - bun run workflow:pack
 
 paths:
   workflow_home: docs/workflow
   source_directories:
     - scripts
-    - browse/src
-    - design/src
     - test
-    - browse/test
   # Repo-level pattern grammar: documentation inventory uses explicit paths and limited glob support.
   documentation_files:
     - README.md
-    - ARCHITECTURE.md
+    - AGENTS.md
+    - CLAUDE.md
     - docs/workflow/*.md
-    - docs/designs/*.md
-    - docs/adoption/*.md
-    - docs/repo-path-grammar.md
+    - docs/workflow/generated/workflow-docs/*.md
     - vibe-coding/README.md
     - vibe-coding/vibe-coding-workflow.md
     - vibe-coding/vibe-coding-methodology.md
@@ -59,26 +55,25 @@ paths:
     - "SKILL.md.tmpl"
   # Repo-level pattern grammar: used for generated artifact discovery, not workflow writes.
   generated_artifacts:
-    - browse/dist/**
-    - design/dist/**
     - "**/SKILL.md"
     - docs/workflow/SKILL_REGISTRY.md
     - docs/workflow/generated/workflow-docs/**
     - docs/workflow/generated/workflow-skills/**
+    - dist/workflow-system/**
 
 boundaries:
   # Workflow restricted grammar: these values feed `{{FORBIDDEN_PATHS}}` in workflow templates.
   forbidden_paths:
     - .git/**
     - node_modules/**
+    - dist/**
   # Repo-level pattern grammar: generated file ownership/discovery rules.
   generated_only_paths:
-    - browse/dist/**
-    - design/dist/**
     - "**/SKILL.md"
     - docs/workflow/SKILL_REGISTRY.md
     - docs/workflow/generated/workflow-docs/**
     - docs/workflow/generated/workflow-skills/**
+    - dist/workflow-system/**
   workflow_owned_paths:
     - .workflow-system/PROJECT_PROFILE.yaml
     - .workflow-system/WORKFLOW_PROTOCOL.md
@@ -86,20 +81,24 @@ boundaries:
     - docs/workflow/**
     - templates/docs/**
     - templates/skills/**
+    - scripts/**
+    - test/**
   human_review_required:
     - README.md
-    - ARCHITECTURE.md
+    - AGENTS.md
+    - CLAUDE.md
     - vibe-coding/README.md
     - vibe-coding/vibe-coding-workflow.md
     - vibe-coding/vibe-coding-methodology.md
     - vibe-coding/vibe-coding-quality-system.md
 
 architecture_rules:
-  - Keep repository-wide automation and generators in scripts/.
+  - Keep workflow-system automation and generators in scripts/.
   - Treat templates/skills/ as workflow skill template sources, not runtime outputs.
-  - Do not hand-edit generated outputs in dist/ or generated SKILL.md files.
-  - Preserve the subsystem split between browse/, design/, scripts/, and docs.
-  - Prefer Bun/TypeScript for new generation and validation tooling.
+  - Treat templates/docs/ as workflow governance doc template sources.
+  - Do not hand-edit generated reference outputs under docs/workflow/generated/** or docs/workflow/SKILL_REGISTRY.md.
+  - Keep gstack references as methodology or historical comparison material unless a task explicitly targets gstack integration.
+  - Prefer Bun/TypeScript for generation, validation, packaging, and runtime sync tooling.
 
 decision_types:
   - mechanical
@@ -113,8 +112,9 @@ governance:
     - .workflow-system/FILE_SCHEMAS.md
     - AGENTS.md
     - CLAUDE.md
+    - README.md
     - docs/workflow/*.md
-    - docs/repo-path-grammar.md
+    - docs/workflow/generated/workflow-docs/*.md
     - vibe-coding/README.md
     - vibe-coding/vibe-coding-workflow.md
     - vibe-coding/vibe-coding-methodology.md
@@ -125,8 +125,9 @@ governance:
 
 validation:
   preferred_checks:
-    - bun test
-    - bun run skill:check
+    - bun run test:workflow-all
+    - bun run validate:protocol
+    - bun run validate:freshness
   required_for_generator_work:
     - handoff graph closes
     - reads/writes boundaries are non-conflicting

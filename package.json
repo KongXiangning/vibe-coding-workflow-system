@@ -1,53 +1,18 @@
 {
-  "name": "gstack",
-  "version": "0.14.5.0",
-  "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
-  "license": "MIT",
+  "name": "vibe-coding-workflow-system",
+  "version": "0.14.5",
   "type": "module",
-  "bin": {
-    "browse": "./browse/dist/browse"
+  "private": true,
+  "description": "Portable workflow-system for Vibe Coding project governance.",
+  "engines": {
+    "bun": ">=1.0.0"
   },
   "scripts": {
-    "build": "bun run scripts/build.ts",
-    "dev:design": "bun run design/src/cli.ts",
-    "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
     "gen:workflow-docs": "bun run scripts/gen-workflow-docs.ts",
     "gen:workflow-skills": "bun run scripts/gen-workflow-skills.ts",
     "gen:registry": "bun run scripts/gen-registry.ts",
     "gen:all": "bun run gen:workflow-skills && bun run gen:workflow-docs && bun run gen:registry",
     "bootstrap:project-governance": "bun run scripts/bootstrap-project-governance.ts --dry-run",
-    "dev": "bun run browse/src/cli.ts",
-    "server": "bun run browse/src/server.ts",
-    "test": "bun test browse/test/ test/ --ignore 'test/skill-e2e-*.test.ts' --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts --ignore test/codex-e2e.test.ts --ignore test/gemini-e2e.test.ts",
-    "test:evals": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:e2e": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:e2e:all": "EVALS=1 EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:gate": "EVALS=1 EVALS_TIER=gate bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:periodic": "EVALS=1 EVALS_TIER=periodic EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
-    "test:codex": "EVALS=1 bun test test/codex-e2e.test.ts",
-    "test:codex:all": "EVALS=1 EVALS_ALL=1 bun test test/codex-e2e.test.ts",
-    "test:gemini": "EVALS=1 bun test test/gemini-e2e.test.ts",
-    "test:gemini:all": "EVALS=1 EVALS_ALL=1 bun test test/gemini-e2e.test.ts",
-    "skill:check": "bun run scripts/skill-check.ts",
-    "dev:skill": "bun run scripts/dev-skill.ts",
-    "start": "bun run browse/src/server.ts",
-    "eval:list": "bun run scripts/eval-list.ts",
-    "eval:compare": "bun run scripts/eval-compare.ts",
-    "eval:summary": "bun run scripts/eval-summary.ts",
-    "eval:watch": "bun run scripts/eval-watch.ts",
-    "eval:select": "bun run scripts/eval-select.ts",
-    "analytics": "bun run scripts/analytics.ts",
-    "test:audit": "bun test test/audit-compliance.test.ts",
-    "test:workflow-docs": "bun run gen:workflow-docs --dry-run && bun test test/gen-workflow-docs.test.ts",
-    "test:workflow-skills": "bun run gen:workflow-skills --dry-run && bun test test/gen-workflow-skills.test.ts",
-    "test:registry": "bun run gen:registry --dry-run && bun test test/gen-registry.test.ts",
-    "test:bootstrap-governance": "bun test test/bootstrap-project-governance.test.ts",
-    "test:task-identity": "bun test test/task-identity.test.ts",
-    "test:validation-model": "bun test test/validation-model.test.ts",
-    "test:run-validation": "bun test test/run-validation.test.ts",
-    "test:workflow-runtime": "bun test test/workflow-runtime.test.ts",
-    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry && bun run test:bootstrap-governance && bun run test:task-identity && bun run test:validation-model && bun run test:run-validation && bun run test:workflow-runtime",
     "validate:protocol": "bun run scripts/run-validation.ts --layer=protocol",
     "validate:all": "bun run scripts/run-validation.ts",
     "validate:freshness": "bun run scripts/check-freshness.ts",
@@ -55,28 +20,19 @@
     "workflow:manifest": "bun run scripts/workflow-runtime.ts manifest",
     "workflow:sync": "bun run scripts/workflow-runtime.ts sync",
     "workflow:pack": "bun run scripts/workflow-runtime.ts pack",
-    "workflow:install": "bun run scripts/workflow-runtime.ts install"
+    "workflow:install": "bun run scripts/workflow-runtime.ts install",
+    "test:workflow-skills": "bun run gen:workflow-skills --dry-run && bun test test/gen-workflow-skills.test.ts",
+    "test:workflow-docs": "bun run gen:workflow-docs --dry-run && bun test test/gen-workflow-docs.test.ts",
+    "test:registry": "bun run gen:registry --dry-run && bun test test/gen-registry.test.ts",
+    "test:bootstrap-governance": "bun test test/bootstrap-project-governance.test.ts",
+    "test:task-identity": "bun test test/task-identity.test.ts",
+    "test:validation-model": "bun test test/validation-model.test.ts",
+    "test:run-validation": "bun test test/run-validation.test.ts",
+    "test:workflow-runtime": "bun test test/workflow-runtime.test.ts",
+    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry && bun test test/bootstrap-project-governance.test.ts test/task-identity.test.ts test/validation-model.test.ts test/run-validation.test.ts test/workflow-core.test.ts test/workflow-runtime.test.ts",
+    "test": "bun run test:workflow-all"
   },
   "dependencies": {
-    "diff": "^7.0.0",
-    "playwright": "^1.58.2",
-    "puppeteer-core": "^24.40.0",
     "yaml": "^2.8.3"
-  },
-  "engines": {
-    "bun": ">=1.0.0"
-  },
-  "keywords": [
-    "browser",
-    "automation",
-    "playwright",
-    "headless",
-    "cli",
-    "claude",
-    "ai-agent",
-    "devtools"
-  ],
-  "devDependencies": {
-    "@anthropic-ai/sdk": "^0.78.0"
   }
 }

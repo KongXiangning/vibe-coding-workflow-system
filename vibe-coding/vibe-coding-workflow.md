@@ -2,7 +2,7 @@
 
 这份工作流基于两份文档整理而成：
 
-- [`gstack-analysis.md`](../gstack-analysis.md)：提供了 gstack 的完整流程框架
+- 历史 gstack 分析材料：提供了 gstack 的完整流程框架
 - [`vibe-coding-quality-system.md`](./vibe-coding-quality-system.md)：提供了适合个人开发者的质量控制体系
 
 目标是把 gstack 的“规划 → 审查 → QA → 交付 → 复盘”主线，结合个人 vibe coding 的高速度开发方式，变成一套更轻、更稳、更适合大项目长期推进的流程。
@@ -61,6 +61,46 @@ document-release / learn / retro
 ```
 
 但对于个人项目，不需要每次都完整跑一遍重流程。更适合的是“主流程固定、执行深度按任务大小调整”。
+
+### 2.1 从当前源码仓库到目标项目的落地链路
+
+在 `vibe-coding-workflow-system` 这个源码仓库里，workflow 不只是“8 个阶段做一个需求”，还包括一条更完整的落地链路：
+
+```text
+源码仓库维护 protocol / schema / templates / scripts
+    ↓
+workflow:pack 打包出可安装 bundle
+    ↓
+workflow:install 导入目标项目
+    ↓
+目标项目执行 bootstrap / adoption
+    ↓
+gen:all + workflow:sync + workflow:health
+    ↓
+进入下面的 8 阶段日常任务循环
+```
+
+可以把它理解成两层流程：
+
+1. **源码仓库层**：负责维护规范源、模板源、生成器、runtime install/sync 能力。
+2. **目标项目层**：负责真正执行“需求进入 → 范围锁定 → 方案拆解 → 小步实现 → 范围复核 → 回归验证 → 状态同步 → 交付沉淀”。
+
+如果你是在当前仓库里工作，优先关心的是前一层；如果你是在被安装的目标项目里工作，优先关心的是后一层。
+
+### 2.2 8 个阶段分别读什么、产出什么
+
+下面这张表把“阶段目标、主要读取、主要产出”放在一起，方便你先抓主线，再读后面的细节说明：
+
+| 阶段 | 主要目标 | 主要读取 | 主要产出 |
+| --- | --- | --- | --- |
+| 需求进入 | 把需求变成可执行任务包 | `STATUS.md`、`DECISIONS.md`、用户需求 | `CURRENT_TASK.md` 初版 |
+| 范围锁定 | 明确允许/禁止修改范围与稳定边界 | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | 允许/禁止范围、契约约束、危险面说明 |
+| 方案拆解 | 把任务拆成可独立验证的小步 | `CURRENT_TASK.md`、`DECISIONS.md` | 当前步骤列表、决策分类 |
+| 小步实现 | 一次只完成一个明确子任务 | 当前步骤、契约边界、决策边界 | 代码改动、执行记录 |
+| 范围复核 | 确认 diff 没有越界和破坏契约 | 当前 diff、`CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | scope / contract / decision review 结论 |
+| 回归验证 | 证明新改动没有带崩旧能力 | 测试入口、关键路径、回归检查项 | 测试/验证结果、剩余风险 |
+| 状态同步 | 把事实写回治理工件，而不是只留在聊天里 | `CURRENT_TASK.md`、`STATUS.md`、相关治理文档 | 更新后的状态、契约、决策、经验 |
+| 交付沉淀 | 把“做完”变成“可继续推进” | 当前任务事实、验证结果、状态更新 | 交付摘要、任务归档、下一轮入口 |
 
 ---
 
@@ -389,7 +429,7 @@ Skill 应表达清楚治理职责、执行边界和交接意图。正式 metadat
 - 能独立验证
 - 不需要同时改太多模块
 
-把步骤写回 `CURRENT_TASK.md` 的执行记录区：
+把步骤写回 `CURRENT_TASK.md` 的执行记录区，例如：
 
 ```md
 ## 执行记录

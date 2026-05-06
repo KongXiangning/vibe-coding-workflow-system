@@ -39,10 +39,7 @@ writes:
   - docs/workflow/DECISIONS.md
 forbidden_writes:
   - scripts
-  - browse/src
-  - design/src
   - test
-  - browse/test
 must_check:
   - 项目目标、目标用户和成功标准是否明确
   - 技术栈、测试方式、部署方式和禁区是否明确

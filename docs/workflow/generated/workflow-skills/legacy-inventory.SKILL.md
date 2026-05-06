@@ -21,10 +21,7 @@ reads:
   - docs/
   - package.json
   - scripts
-  - browse/src
-  - design/src
   - test
-  - browse/test
 writes:
   - docs/adoption/architecture-inventory.md
   - docs/adoption/database-inventory.md
@@ -34,10 +31,7 @@ writes:
   - docs/workflow/ROADMAP.md
 forbidden_writes:
   - scripts
-  - browse/src
-  - design/src
   - test
-  - browse/test
   - docs/workflow/CURRENT_TASK.md
   - docs/workflow/CONTRACTS.md
 must_check:
