@@ -31,6 +31,8 @@ import {
   validateRequiredFields,
   extractHandoff,
   validateHandoff,
+  extractConditionalHandoff,
+  validateConditionalHandoff,
   executeWrites,
   resolveRoot,
   runGenerator,
@@ -420,104 +422,183 @@ describe('workflow-core', () => {
     });
   });
 
+  // --- extractConditionalHandoff ---
+
+  describe('extractConditionalHandoff', () => {
+    test('returns null when the field is missing', () => {
+      expect(extractConditionalHandoff({}, 'test.md')).toBeNull();
+    });
+
+    test('trims route and target values', () => {
+      const fm: JsonObject = {
+        conditional_handoff: {
+          ' clean ': ' next-skill ',
+        },
+      };
+      expect(extractConditionalHandoff(fm, 'test.md')).toEqual({
+        clean: 'next-skill',
+      });
+    });
+
+    test('throws on non-object conditional_handoff values', () => {
+      expect(() =>
+        extractConditionalHandoff({ conditional_handoff: ['clean', 'next-skill'] }, 'test.md'),
+      ).toThrow(/Invalid conditional_handoff structure/);
+      expect(() =>
+        extractConditionalHandoff({ conditional_handoff: 'next-skill' }, 'test.md'),
+      ).toThrow(/Invalid conditional_handoff structure/);
+    });
+
+    test('throws on empty route or target after trimming', () => {
+      expect(() =>
+        extractConditionalHandoff(
+          { conditional_handoff: { '   ': 'next-skill' } },
+          'test.md',
+        ),
+      ).toThrow(/Incomplete conditional_handoff structure/);
+      expect(() =>
+        extractConditionalHandoff(
+          { conditional_handoff: { clean: '   ' } },
+          'test.md',
+        ),
+      ).toThrow(/Incomplete conditional_handoff structure/);
+    });
+
+    test('throws on duplicate routes after trimming', () => {
+      expect(() =>
+        extractConditionalHandoff(
+          {
+            conditional_handoff: {
+              clean: 'skill-a',
+              ' clean ': 'skill-b',
+            },
+          },
+          'test.md',
+        ),
+      ).toThrow(/Duplicate conditional_handoff route "clean" in test\.md/);
+    });
+
+    test('accepts open-set route names that overlap with Object prototype keys', () => {
+      const fm: JsonObject = {
+        conditional_handoff: {
+          toString: 'skill-a',
+        },
+      };
+      expect(extractConditionalHandoff(fm, 'test.md')).toEqual({
+        toString: 'skill-a',
+      });
+    });
+  });
+
+  // --- validateConditionalHandoff ---
+
+  describe('validateConditionalHandoff', () => {
+    const knownNames = new Set(['skill-a', 'skill-b']);
+
+    test('passes with known generated skill targets', () => {
+      expect(() =>
+        validateConditionalHandoff({ clean: 'skill-a' }, knownNames, 'test.md'),
+      ).not.toThrow();
+    });
+
+    test('passes with reserved manual node ask-user', () => {
+      expect(() =>
+        validateConditionalHandoff({ blocked: 'ask-user' }, knownNames, 'test.md'),
+      ).not.toThrow();
+    });
+
+    test('throws on unknown targets', () => {
+      expect(() =>
+        validateConditionalHandoff({ clean: 'missing' }, knownNames, 'test.md'),
+      ).toThrow(/Invalid conditional_handoff\.clean "missing" in test\.md/);
+    });
+  });
+
   // --- runGenerator ---
+
+  function captureGeneratorFailure(message: string) {
+    const originalError = console.error;
+    const originalExit = process.exit;
+    const errors: string[] = [];
+    let exitCode: number | undefined;
+
+    console.error = (entry?: unknown) => {
+      errors.push(String(entry));
+    };
+    process.exit = ((code?: number) => {
+      exitCode = Number(code ?? 0);
+      throw new Error(`EXIT_${exitCode}`);
+    }) as typeof process.exit;
+
+    try {
+      expect(() =>
+        runGenerator('gen:workflow-skills', () => {
+          throw new Error(message);
+        }),
+      ).toThrow(/EXIT_2/);
+    } finally {
+      console.error = originalError;
+      process.exit = originalExit;
+    }
+
+    return {
+      payload: JSON.parse(errors[0] as string),
+      errors,
+      exitCode,
+    };
+  }
 
   describe('runGenerator', () => {
     test('emits structured JSON error and summary line on failure', () => {
-      const originalError = console.error;
-      const originalExit = process.exit;
-      const errors: string[] = [];
-      let exitCode: number | undefined;
+      const { payload, errors, exitCode } = captureGeneratorFailure(
+        'Invalid handoff.success "missing" in test.md',
+      );
 
-      console.error = (message?: unknown) => {
-        errors.push(String(message));
-      };
-      process.exit = ((code?: number) => {
-        exitCode = Number(code ?? 0);
-        throw new Error(`EXIT_${exitCode}`);
-      }) as typeof process.exit;
-
-      try {
-        expect(() =>
-          runGenerator('gen:workflow-skills', () => {
-            throw new Error('Invalid handoff.success "missing" in test.md');
-          }),
-        ).toThrow(/EXIT_2/);
-
-        expect(errors.length).toBe(2);
-        expect(() => JSON.parse(errors[0] as string)).not.toThrow();
-        const payload = JSON.parse(errors[0] as string);
-        expect(payload.generator).toBe('gen:workflow-skills');
-        expect(payload.severity).toBe('error');
-        expect(payload.code).toBe('HANDOFF_001');
-        expect(errors[1]).toBe('gen:workflow-skills: generation failed - 1 errors, 0 warnings');
-        expect(exitCode).toBe(2);
-      } finally {
-        console.error = originalError;
-        process.exit = originalExit;
-      }
+      expect(errors.length).toBe(2);
+      expect(payload.generator).toBe('gen:workflow-skills');
+      expect(payload.severity).toBe('error');
+      expect(payload.code).toBe('HANDOFF_001');
+      expect(errors[1]).toBe('gen:workflow-skills: generation failed - 1 errors, 0 warnings');
+      expect(exitCode).toBe(2);
     });
 
     test('classifies invalid stage values as STAGE_002', () => {
-      const originalError = console.error;
-      const originalExit = process.exit;
-      const errors: string[] = [];
-      let exitCode: number | undefined;
-
-      console.error = (message?: unknown) => {
-        errors.push(String(message));
-      };
-      process.exit = ((code?: number) => {
-        exitCode = Number(code ?? 0);
-        throw new Error(`EXIT_${exitCode}`);
-      }) as typeof process.exit;
-
-      try {
-        expect(() =>
-          runGenerator('gen:workflow-skills', () => {
-            throw new Error('Invalid stage value: typo-stage');
-          }),
-        ).toThrow(/EXIT_2/);
-
-        const payload = JSON.parse(errors[0] as string);
-        expect(payload.code).toBe('STAGE_002');
-        expect(payload.message).toBe('Invalid stage value');
-        expect(exitCode).toBe(2);
-      } finally {
-        console.error = originalError;
-        process.exit = originalExit;
-      }
+      const { payload, exitCode } = captureGeneratorFailure('Invalid stage value: typo-stage');
+      expect(payload.code).toBe('STAGE_002');
+      expect(payload.message).toBe('Invalid stage value');
+      expect(exitCode).toBe(2);
     });
 
     test('classifies invalid path entries as PATH_001', () => {
-      const originalError = console.error;
-      const originalExit = process.exit;
-      const errors: string[] = [];
-      let exitCode: number | undefined;
+      const { payload, exitCode } = captureGeneratorFailure(
+        'Invalid path entry in test.md.writes: "*.ts" (unsupported wildcard pattern)',
+      );
+      expect(payload.code).toBe('PATH_001');
+      expect(payload.message).toBe('Invalid path entry');
+      expect(exitCode).toBe(2);
+    });
 
-      console.error = (message?: unknown) => {
-        errors.push(String(message));
-      };
-      process.exit = ((code?: number) => {
-        exitCode = Number(code ?? 0);
-        throw new Error(`EXIT_${exitCode}`);
-      }) as typeof process.exit;
+    test('classifies invalid conditional_handoff structure as HANDOFF_003 on conditional_handoff', () => {
+      const { payload } = captureGeneratorFailure('Invalid conditional_handoff structure in test.md');
+      expect(payload.code).toBe('HANDOFF_003');
+      expect(payload.message).toBe('Invalid conditional handoff structure');
+      expect(payload.field).toBe('conditional_handoff');
+    });
 
-      try {
-        expect(() =>
-          runGenerator('gen:workflow-skills', () => {
-            throw new Error('Invalid path entry in test.md.writes: "*.ts" (unsupported wildcard pattern)');
-          }),
-        ).toThrow(/EXIT_2/);
+    test('classifies incomplete conditional_handoff structure as HANDOFF_003 on conditional_handoff', () => {
+      const { payload } = captureGeneratorFailure('Incomplete conditional_handoff structure in test.md');
+      expect(payload.code).toBe('HANDOFF_003');
+      expect(payload.message).toBe('Invalid conditional handoff structure');
+      expect(payload.field).toBe('conditional_handoff');
+    });
 
-        const payload = JSON.parse(errors[0] as string);
-        expect(payload.code).toBe('PATH_001');
-        expect(payload.message).toBe('Invalid path entry');
-        expect(exitCode).toBe(2);
-      } finally {
-        console.error = originalError;
-        process.exit = originalExit;
-      }
+    test('classifies invalid conditional_handoff target as HANDOFF_003 on the route field', () => {
+      const { payload } = captureGeneratorFailure(
+        'Invalid conditional_handoff.clean "missing" in test.md',
+      );
+      expect(payload.code).toBe('HANDOFF_003');
+      expect(payload.message).toBe('Invalid conditional handoff target');
+      expect(payload.field).toBe('conditional_handoff.clean');
     });
   });
 

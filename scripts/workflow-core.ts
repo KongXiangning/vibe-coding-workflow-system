@@ -23,6 +23,7 @@ export type { RepoPatternField } from './repo-path-patterns';
 export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 export type HandoffRef = { success: string; failure: string };
+export type ConditionalHandoffRef = Record<string, string>;
 export type WriteOperation = { path: string; content: string };
 export type PathField = 'reads' | 'writes' | 'forbidden_writes';
 export const WORKFLOW_SYSTEM_DIRECTORY = '.workflow-system';
@@ -526,6 +527,50 @@ export function validateHandoff(
   }
 }
 
+export function extractConditionalHandoff(
+  frontmatter: JsonObject,
+  filePath: string,
+): ConditionalHandoffRef | null {
+  const value = frontmatter.conditional_handoff;
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Invalid conditional_handoff structure in ${filePath}`);
+  }
+
+  const routes: ConditionalHandoffRef = {};
+  for (const [route, target] of Object.entries(value as JsonObject)) {
+    const normalizedRoute = route.trim();
+    const normalizedTarget = String(target ?? '').trim();
+    if (!normalizedRoute || !normalizedTarget) {
+      throw new Error(`Incomplete conditional_handoff structure in ${filePath}`);
+    }
+    if (Object.hasOwn(routes, normalizedRoute)) {
+      throw new Error(`Duplicate conditional_handoff route "${normalizedRoute}" in ${filePath}`);
+    }
+    routes[normalizedRoute] = normalizedTarget;
+  }
+
+  return routes;
+}
+
+export function validateConditionalHandoff(
+  conditionalHandoff: ConditionalHandoffRef | null,
+  knownNames: Set<string>,
+  context: string,
+): void {
+  if (!conditionalHandoff) {
+    return;
+  }
+
+  for (const [route, target] of Object.entries(conditionalHandoff)) {
+    if (!knownNames.has(target) && !RESERVED_FAILURE_TARGETS.has(target)) {
+      throw new Error(`Invalid conditional_handoff.${route} "${target}" in ${context}`);
+    }
+  }
+}
+
 export function validateUnresolvedPlaceholders(
   label: string,
   content: string,
@@ -602,13 +647,30 @@ function classifyGeneratorError(generator: string, message: string): { report: E
     message.startsWith('Invalid handoff structure') ||
     message.startsWith('Incomplete handoff structure')
   ) {
-    const isHandoff = message.includes('handoff');
     return {
       report: {
         generator,
         severity: 'error',
-        code: isHandoff ? 'HANDOFF_001' : 'SCHEMA_002',
-        message: isHandoff ? 'Invalid handoff structure' : 'Invalid metadata structure',
+        code: message.includes('handoff') ? 'HANDOFF_001' : 'SCHEMA_002',
+        message: message.includes('handoff') ? 'Invalid handoff structure' : 'Invalid metadata structure',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (
+    message.startsWith('Invalid conditional_handoff structure') ||
+    message.startsWith('Incomplete conditional_handoff structure') ||
+    message.startsWith('Duplicate conditional_handoff route')
+  ) {
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'HANDOFF_003',
+        message: 'Invalid conditional handoff structure',
+        field: 'conditional_handoff',
         details: message,
       },
       exitCode: 2,
@@ -623,6 +685,23 @@ function classifyGeneratorError(generator: string, message: string): { report: E
         code: 'HANDOFF_001',
         message: 'Invalid handoff target',
         field: message.includes('handoff.success') ? 'handoff.success' : 'handoff.failure',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
+  if (message.startsWith('Invalid conditional_handoff.')) {
+    const route = message
+      .slice('Invalid conditional_handoff.'.length)
+      .split(' "')[0];
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'HANDOFF_003',
+        message: 'Invalid conditional handoff target',
+        field: `conditional_handoff.${route}`,
         details: message,
       },
       exitCode: 2,
