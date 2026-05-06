@@ -49,6 +49,7 @@
 | 调查根因 | `/investigate-root-cause` | `docs/workflow/CURRENT_TASK.md`、代码和日志线索 | Symptom、Reproduction、Root cause hypothesis、Evidence、Minimal fix path、Regression check |
 | 实现当前步骤 | `/implement-current-step` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md` | 代码改动、dangerous command gate、验证结果、执行记录 |
 | 审查 diff | `/review-diff` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`，以及当前 diff 上下文 | scope drift / decision drift / safety boundary review / 回归风险 |
+| 同步审查问题 | `/sync-review-findings` | `docs/workflow/CURRENT_TASK.md`、结构化 review findings | `docs/workflow/CURRENT_TASK.md > 审查问题队列` |
 | 验证契约 | `/verify-contracts` | `docs/workflow/CONTRACTS.md`、`docs/workflow/CURRENT_TASK.md`，以及当前 diff 上下文 | 接口和架构契约检查结果 |
 | 执行回归 | `/run-regression` | `docs/workflow/CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`，以及当前验证上下文 | QA mode、Target surface、Checks run、Browser/session requirement、Release evidence、Findings、Pass / fail、Evidence、Handoff |
 | 同步任务记录 | `/sync-current-task` | `docs/workflow/CURRENT_TASK.md`、本轮执行/验证事实 | 更新后的 `docs/workflow/CURRENT_TASK.md` |
@@ -70,7 +71,7 @@
 5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
 6. 用 `/decompose-task` 拆成一次只做一个当前步骤的小步计划。
 7. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `docs/workflow/CURRENT_TASK.md`。
-8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
+8. 每步后用 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核；只读审查发现当前 Allowed Files 内可修的 implementation findings 时，先用 `/sync-review-findings` 写入 `docs/workflow/CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
 9. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` / `/sync-host-guidance` 同步治理事实。
 10. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
 
@@ -107,6 +108,7 @@
 | 连续修复没有收敛 | `/investigate-root-cause` |
 | 问题可能来自范围外系统或架构边界 | `/investigate-root-cause` |
 | 代码已经改完，需要检查是否越界 | `/review-diff` |
+| 审查发现的问题需要进入修复队列 | `/sync-review-findings` → `/implement-current-step` |
 | 担心破坏稳定接口或架构边界 | `/verify-contracts` |
 | 需要证明本轮没回归 | `/run-regression`（默认 `diff-aware`） |
 | 小任务或低风险改动只需快速验证 | `/run-regression`（`quick-smoke`） |
@@ -135,6 +137,7 @@
 - `docs/workflow/CURRENT_TASK.md` 不能覆盖 `docs/workflow/CONTRACTS.md`；`docs/workflow/DECISIONS.md` 只记录原因和历史，不单独定义当前有效规则。
 - 如果实现依赖 Taste 或 User challenge 决策，先通过 `/classify-decisions` 暴露并确认。
 - 如果 diff 已经越界，先用 `/review-diff` 标记越界文件，再决定回滚、拆任务或扩大范围。
+- `/review-diff` 或 `/review-implementation` 输出的 mechanical implementation findings 先用 `/sync-review-findings` 写入 `docs/workflow/CURRENT_TASK.md > 审查问题队列`，再修复。
 - `/run-regression` 是只读验证入口；`report-only` 模式只输出问题和证据，不进入实现或修复。
 - 需要登录但 session/cookie 不可用时，验证结论必须标记为 blocked，不得把未验证页面记为通过。
 - workflow-system 不绑定具体 browse daemon；如果项目有浏览器工具或宿主支持浏览器能力，应执行 browser-backed smoke，否则记录人工验证项或 blocked risk。
@@ -151,6 +154,7 @@
 - 发布结论有 CI、deploy log、health check、截图、监控链接、manual note 或 blocked reason 支撑。
 - `docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/STATUS.md` 中需要同步的事实已同步。
 - 回归检查项已有执行结果。
+- 审查问题队列中的 open finding 已修复、延期或上浮说明。
 - QA mode、Target surface、Checks run、Browser/session requirement、Findings、Pass / fail、Evidence、Handoff 已说明。
 - 交付摘要已能说明目标、结果、范围、验证和剩余风险。
 - 可复用经验已写入或建议写入 `docs/workflow/LESSONS.md`。

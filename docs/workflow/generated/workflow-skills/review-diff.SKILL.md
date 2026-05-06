@@ -51,9 +51,16 @@ stop_conditions:
 output:
   - 边界审查结论
   - 越界与回归风险列表
+  - 结构化 review findings
 handoff:
   success: verify-contracts
   failure: ask-user
+conditional_handoff:
+  clean: verify-contracts
+  mechanical_implementation: sync-review-findings
+  scope_widening: lock-scope
+  product_contract_architecture: ask-user
+  unknown_root_cause: investigate-root-cause
 decision_policy:
   mechanical: 可以自动做范围和文件级差异检查。
   taste: 不要把个人偏好包装成审查问题。
@@ -79,6 +86,11 @@ benefits-from:
   - /implement-current-step
 notes:
   - 这是只读审查 skill。
+finding_handoff:
+  mechanical_implementation: sync-review-findings
+  scope_widening: lock-scope
+  product_contract_architecture: ask-user
+  unknown_root_cause: investigate-root-cause
 contract_layers:
   - 接口契约
   - 架构契约
@@ -227,6 +239,19 @@ design_drift_review:
 
 ## Extension Fields
 
+### conditional_handoff
+- clean: verify-contracts
+- mechanical_implementation: sync-review-findings
+- scope_widening: lock-scope
+- product_contract_architecture: ask-user
+- unknown_root_cause: investigate-root-cause
+
+### finding_handoff
+- mechanical_implementation: sync-review-findings
+- scope_widening: lock-scope
+- product_contract_architecture: ask-user
+- unknown_root_cause: investigate-root-cause
+
 ### contract_layers
 - 接口契约
 - 架构契约
@@ -327,15 +352,25 @@ UI / 视觉 diff 必须做 design drift review。重点检查：
 
 发现未授权视觉变化、AI slop、响应式缺口、状态遗漏或无证据视觉结论时，标记为 blocker 或上浮风险。
 
+## Review Finding Handoff
+
+`conditional_handoff` 是 `/review-diff` 的规范结构化路由。`handoff.success` 只适用于 clean review；发现 implementation findings 或 blocker 时，必须按 `conditional_handoff` / `finding_handoff` 分流。`/review-diff` 保持只读，不写 `docs/workflow/CURRENT_TASK.md`。如果发现 implementation findings，输出结构化 findings 并按类型分流：
+
+- 当前 Allowed Files 内可修的 mechanical implementation finding：交给 `/sync-review-findings`，先写入 `docs/workflow/CURRENT_TASK.md > 审查问题队列`，再进入 `/implement-current-step`。
+- 需要扩大范围：交给 `/lock-scope`。
+- 需要改变产品行为、契约、架构或设计方向：交给 `/ask-user`。
+- 根因不明：交给 `/investigate-root-cause`。
+
 ## Execution Protocol
 
 1. Restate the goal in one sentence.
 2. Read all files listed in `reads`.
 3. Check `must_check` items before acting.
 4. Respect `forbidden_writes` and current task boundaries.
-5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
-6. Produce the artifact(s) described in `output`.
-7. Hand off to `handoff.success` when the skill completes normally.
+5. Classify the result using `conditional_handoff` before choosing the next skill.
+6. If any `stop_conditions` match and no `conditional_handoff` route applies, stop and hand off to `handoff.failure`.
+7. Produce the artifact(s) described in `output`.
+8. Hand off according to `conditional_handoff`; use `handoff.success` only for the `clean` route.
 
 ## Output Contract
 

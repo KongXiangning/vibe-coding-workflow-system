@@ -23,7 +23,9 @@ import {
   validateRuntimeSkillStages,
   validateRequiredFields,
   extractHandoff,
+  extractConditionalHandoff,
   validateHandoff,
+  validateConditionalHandoff,
   resolveRoot,
   getWorkflowGeneratedDir,
   ensureCleanOutputDir,
@@ -183,7 +185,9 @@ function main(): void {
     validateRequiredFields(renderedFrontmatter, REQUIRED_FIELDS, template.filePath);
     validateWrites(renderedFile);
     const handoff = extractHandoff(renderedFrontmatter, template.filePath);
+    const conditionalHandoff = extractConditionalHandoff(renderedFrontmatter, template.filePath);
     validateHandoff(handoff, knownNames, template.filePath);
+    validateConditionalHandoff(conditionalHandoff, knownNames, template.filePath);
 
     const outputPath = path.join(outputDir, `${template.name}.SKILL.md`);
     const content = formatSkill(renderedFrontmatter, renderedBody);

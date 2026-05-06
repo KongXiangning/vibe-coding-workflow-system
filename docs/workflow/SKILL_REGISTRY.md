@@ -25,7 +25,7 @@
 | 阶段 3：方案拆解 | `classify-decisions` → `decompose-task` |
 | 阶段 4：小步实现 | `implement-current-step` |
 | 阶段 4/6：异常处理 | `investigate-root-cause` |
-| 阶段 5：范围复核 | `review-diff` → `verify-contracts` |
+| 阶段 5：范围复核 | `review-diff` → `verify-contracts`；findings detour: `review-diff` / `review-implementation` → `sync-review-findings` → `implement-current-step` |
 | 阶段 6：回归验证 | `run-regression` |
 | 阶段 7：状态同步 | `sync-current-task` → `sync-status` → `sync-contracts` → `sync-decisions` → `sync-host-guidance` → `capture-lessons` |
 | 阶段 8：交付沉淀 | `prepare-delivery-summary` → `archive-task` |
@@ -86,6 +86,7 @@
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `review-diff` | 审查当前 diff 是否越界、是否偏离任务意图。 | 每完成一个实现步骤后。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md` | `[]` | `verify-contracts` | `ask-user` |
+| `sync-review-findings` | 将 review-diff / review-implementation 发现的实现问题写入 docs/workflow/CURRENT_TASK.md 的审查问题队列，作为下一轮修复输入。 | 只读审查输出 P1 / P2 / P3 implementation findings，且这些 finding 需要在进入修复前持久记录时。 | `docs/workflow/CURRENT_TASK.md` | `docs/workflow/CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
 | `verify-contracts` | 专门核查接口契约和架构契约是否被破坏。 | diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时。 | `docs/workflow/CONTRACTS.md`、`docs/workflow/CURRENT_TASK.md` | `[]` | `run-regression` | `ask-user` |
 
 ### 3.8 阶段 6：回归验证
@@ -120,6 +121,7 @@
 
 - `implement-current-step`
 - `review-diff`
+- `sync-review-findings`
 - `verify-contracts`
 - `run-regression`
 - `sync-contracts`

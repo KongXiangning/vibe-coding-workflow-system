@@ -12,6 +12,7 @@ trigger: |
   进入具体编码实现时。
 inputs:
   - current_task_current_step
+  - review_findings_queue
   - contracts
   - confirmed_decisions
   - lessons
@@ -32,6 +33,7 @@ forbidden_writes:
   - docs/workflow/DECISIONS.md
 must_check:
   - 是否只执行当前步骤
+  - 是否存在需要优先处理的审查问题队列
   - 是否只改允许范围内的文件
   - UI / 视觉实现是否只采用已确认设计约束
   - 是否遵守既有决策与 lessons
@@ -71,6 +73,7 @@ allowed-tools:
   - AskUserQuestion
 benefits-from:
   - /decompose-task
+  - /sync-review-findings
 notes:
   - 这是唯一允许改业务代码的主要实现 skill。
 allowed_change_types:
@@ -110,6 +113,11 @@ step_limit:
 regression_expectation:
   - 完成后至少提供最小验证结果
   - 不得把未验证步骤标记为完成
+review_finding_intake:
+  - 如果 docs/workflow/CURRENT_TASK.md 的审查问题队列存在 open finding，先按 severity
+    和当前步骤相关性处理
+  - 修复 finding 时不得跳过 Allowed Files / Forbidden Files / Conditional Files
+  - 修复后将 finding 标记为 resolved、deferred 或 needs-user，并保留验证结果
 ---
 
 # Skill: implement-current-step
@@ -125,6 +133,7 @@ regression_expectation:
 ## Inputs
 
 - current_task_current_step
+- review_findings_queue
 - contracts
 - confirmed_decisions
 - lessons
@@ -154,6 +163,7 @@ regression_expectation:
 ## Must Check
 
 - 是否只执行当前步骤
+- 是否存在需要优先处理的审查问题队列
 - 是否只改允许范围内的文件
 - UI / 视觉实现是否只采用已确认设计约束
 - 是否遵守既有决策与 lessons
@@ -228,6 +238,11 @@ regression_expectation:
 - 完成后至少提供最小验证结果
 - 不得把未验证步骤标记为完成
 
+### review_finding_intake
+- 如果 docs/workflow/CURRENT_TASK.md 的审查问题队列存在 open finding，先按 severity 和当前步骤相关性处理
+- 修复 finding 时不得跳过 Allowed Files / Forbidden Files / Conditional Files
+- 修复后将 finding 标记为 resolved、deferred 或 needs-user，并保留验证结果
+
 ## Dangerous Command Gate
 
 `/careful` 在 workflow-system 中不是 shell 拦截器，而是实现阶段的 dangerous command gate。命令可能造成数据丢失、历史重写、生产资源删除或大范围文件变更时，先停下。
@@ -266,6 +281,16 @@ UI / 视觉实现只能实现已确认设计。不得静默更换字体、颜色
 - Design open decisions
 
 如果实现需要改变设计方向，停止当前实现，回到 `/review-current-task` 或决策确认。
+
+## Review Finding Intake
+
+当 `/implement-current-step` 来自 `/sync-review-findings` 时，先读取 `docs/workflow/CURRENT_TASK.md > 审查问题队列`：
+
+- 优先处理 P1 / P2，P3 只在当前步骤范围内处理。
+- 只修 `Status: open` 且 `Handoff: implement-current-step` 的 finding。
+- 修复时不得扩大范围；需要扩大范围时停止并回到 `/lock-scope`。
+- 修复完成后，把 finding 标记为 `resolved`，并在执行记录中写明验证结果。
+- 无法在当前范围内修复时标记为 `deferred` 或 `needs-user`，不得静默丢弃。
 
 ## Execution Protocol
 

@@ -92,6 +92,11 @@ describe('gen-workflow-docs', () => {
     expect(currentTask).toContain('- Performance baseline:');
     expect(currentTask).toContain('- Rollback / recovery:');
     expect(currentTask).toContain('- Release evidence:');
+    expect(currentTask).toContain('## 审查问题队列');
+    expect(currentTask).toContain('Finding ID：');
+    expect(currentTask).toContain('- Failure scenario：');
+    expect(currentTask).toContain('- Minimal fix direction：');
+    expect(currentTask).toContain('- Required test：');
     expect(currentTask).toContain('## 传播治理记录');
     expect(currentTask).toContain('- `MutationEligibilityAssessment`：');
     expect(currentTask).toContain('- `ContractCompatibilityResult`：');

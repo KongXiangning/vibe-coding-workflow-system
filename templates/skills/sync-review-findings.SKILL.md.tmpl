@@ -1,0 +1,206 @@
+---
+name: sync-review-findings
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Persist structured implementation review findings into CURRENT_TASK.md before the next fix pass.
+purpose: |
+  将 review-diff / review-implementation 发现的实现问题写入 CURRENT_TASK.md 的审查问题队列，作为下一轮修复输入。
+stage: 阶段 5：范围复核
+trigger: |
+  只读审查输出 P1 / P2 / P3 implementation findings，且这些 finding 需要在进入修复前持久记录时。
+inputs:
+  - current_task
+  - structured_review_findings
+  - finding_source
+reads:
+  - CURRENT_TASK.md
+writes:
+  - CURRENT_TASK.md
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - "{{FORBIDDEN_PATHS}}"
+  - CONTRACTS.md
+  - DECISIONS.md
+must_check:
+  - findings 是否来自只读审查输出
+  - 每条 finding 是否包含 severity、file / symbol、failure scenario、minimal fix direction、required test
+  - finding 是否能映射到当前任务允许范围
+  - 是否需要扩大范围、修改契约或确认产品行为
+  - 是否存在根因未明的 finding
+stop_conditions:
+  - finding 缺少可执行定位或失败场景
+  - finding 与当前任务目标无法建立关系
+output:
+  - 更新后的 CURRENT_TASK.md 审查问题队列
+handoff:
+  success: implement-current-step
+  failure: ask-user
+conditional_handoff:
+  queued_fixable_findings: implement-current-step
+  scope_widening: lock-scope
+  product_contract_architecture: ask-user
+  unknown_root_cause: investigate-root-cause
+  invalid_finding_input: ask-user
+decision_policy:
+  mechanical: 可以把结构化 finding 规范化写入 CURRENT_TASK.md，不改变其含义。
+  taste: 不得把个人偏好补写成 review finding。
+  user_challenge: 涉及产品、契约、架构或范围扩大时必须上浮确认。
+verification:
+  - CURRENT_TASK.md 已记录每条待修 finding
+  - 每条 finding 保留 severity、定位、失败场景、最小修复方向和验证要求
+  - 越界、契约、架构或产品问题没有被伪装成 mechanical fix
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /review-diff
+  - /review-implementation
+notes:
+  - 本 skill 只同步审查发现，不修代码。
+finding_queue_fields:
+  - Finding ID
+  - Severity
+  - Source
+  - Status
+  - File / symbol
+  - Failure scenario
+  - Minimal fix direction
+  - Required test
+  - Handoff
+finding_statuses:
+  - open
+  - in-progress
+  - resolved
+  - deferred
+  - needs-user
+finding_handoff_rules:
+  - 当前 Allowed Files 内的 mechanical implementation finding 写入队列后交给 implement-current-step
+  - 需要扩大范围的 finding 不写成可修队列，交给 lock-scope
+  - 需要改产品、契约、架构或设计方向的 finding 交给 ask-user
+  - 根因不明的 finding 交给 investigate-root-cause
+---
+
+# Skill: sync-review-findings
+
+## Purpose
+
+将 review-diff / review-implementation 发现的实现问题写入 CURRENT_TASK.md 的审查问题队列，作为下一轮修复输入。
+
+## Trigger
+
+只读审查输出 P1 / P2 / P3 implementation findings，且这些 finding 需要在进入修复前持久记录时。
+
+## Inputs
+
+- current_task
+- structured_review_findings
+- finding_source
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+
+## Must Check
+
+- findings 是否来自只读审查输出
+- 每条 finding 是否包含 severity、file / symbol、failure scenario、minimal fix direction、required test
+- finding 是否能映射到当前任务允许范围
+- 是否需要扩大范围、修改契约或确认产品行为
+- 是否存在根因未明的 finding
+
+## Stop Conditions
+
+- finding 缺少可执行定位或失败场景
+- finding 与当前任务目标无法建立关系
+
+## Decision Policy
+
+- `mechanical`: 可以把结构化 finding 规范化写入 CURRENT_TASK.md，不改变其含义。
+- `taste`: 不得把个人偏好补写成 review finding。
+- `user_challenge`: 涉及产品、契约、架构或范围扩大时必须上浮确认。
+
+## Verification
+
+- CURRENT_TASK.md 已记录每条待修 finding
+- 每条 finding 保留 severity、定位、失败场景、最小修复方向和验证要求
+- 越界、契约、架构或产品问题没有被伪装成 mechanical fix
+
+## Extension Fields
+
+### conditional_handoff
+- queued_fixable_findings: implement-current-step
+- scope_widening: lock-scope
+- product_contract_architecture: ask-user
+- unknown_root_cause: investigate-root-cause
+- invalid_finding_input: ask-user
+
+### finding_queue_fields
+- Finding ID
+- Severity
+- Source
+- Status
+- File / symbol
+- Failure scenario
+- Minimal fix direction
+- Required test
+- Handoff
+
+### finding_statuses
+- open
+- in-progress
+- resolved
+- deferred
+- needs-user
+
+### finding_handoff_rules
+- 当前 Allowed Files 内的 mechanical implementation finding 写入队列后交给 implement-current-step
+- 需要扩大范围的 finding 不写成可修队列，交给 lock-scope
+- 需要改产品、契约、架构或设计方向的 finding 交给 ask-user
+- 根因不明的 finding 交给 investigate-root-cause
+
+## Finding Sync Protocol
+
+1. Read `CURRENT_TASK.md`.
+2. Normalize each incoming finding without changing its meaning.
+3. Write only to `CURRENT_TASK.md > 审查问题队列`.
+4. Preserve the source skill name, severity, location, failure scenario, minimal fix direction, and required test.
+5. Mark new actionable items as `open`.
+6. Classify each finding with `conditional_handoff`; only `queued_fixable_findings` may enter the queue for code fix.
+7. If a finding requires scope widening, product confirmation, contract change, architecture change, or root-cause investigation, stop and hand off according to `conditional_handoff` / `finding_handoff_rules`.
+8. Use `handoff.success` only after fixable findings are persisted to the queue.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 本 skill 只同步审查发现，不修代码。
+- `conditional_handoff` 是本 skill 的规范结构化路由；`handoff.failure` 只用于无效或不可落地的 finding 输入。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

@@ -1,9 +1,9 @@
 # Workflow Protocol
 
 ```yaml
-Protocol-Version: 0.3.0
+Protocol-Version: 0.4.0
 Status: Formal Spec
-Last-Updated: 2026-04-22
+Last-Updated: 2026-05-06
 ```
 
 This file defines the execution rules for the workflow skill system.
@@ -121,6 +121,7 @@ Examples:
 - `docs/workflow/generated/workflow-skills/create-current-task.SKILL.md`
 - `docs/workflow/generated/workflow-skills/implement-current-step.SKILL.md`
 - `docs/workflow/generated/workflow-skills/review-diff.SKILL.md`
+- `docs/workflow/generated/workflow-skills/sync-review-findings.SKILL.md`
 
 This output root is intentionally separated from:
 
@@ -476,6 +477,7 @@ These fields are part of the skill protocol and must appear in every skill templ
 | `stop_conditions` | `string[]` | Yes | Non-empty array. Conditions that must halt the skill. |
 | `output` | `string` | Yes | Non-empty. Describes the skill's output artifact or action. |
 | `handoff` | `object` | Yes | Must have exactly two keys: `success` (string) and `failure` (string). See §6 for validation rules. |
+| `conditional_handoff` | `object` | No | Optional route map for condition-specific next-step targets. Keys are route labels; values are skill targets or reserved manual nodes allowed by §6. |
 | `decision_policy` | `string` | Yes | Non-empty. Describes the skill's decision-making authority. |
 | `verification` | `string` | Yes | Non-empty. Describes how to verify the skill completed correctly. |
 
@@ -483,6 +485,8 @@ Notes:
 
 - All `string[]` fields are YAML sequences. A single-element list must still use sequence syntax.
 - The `handoff` object must not contain additional keys beyond `success` and `failure`.
+- `conditional_handoff`, when present, is a separate optional frontmatter field; it must not be encoded as extra keys inside `handoff`.
+- `conditional_handoff` route labels are protocol-local identifiers for branch classification. The current implementation validates only that each mapped target is valid; it does not impose a closed enum on route names.
 - Fields not listed above may appear in templates but are not validated by the protocol. Generators must not silently drop unknown fields.
 
 ---
@@ -502,6 +506,11 @@ The generator must validate the full handoff graph after rendering all skills.
 - another generated workflow skill
 - the reserved manual interaction node `ask-user`
 
+`conditional_handoff.<route>` may point to:
+
+- another generated workflow skill
+- the reserved manual interaction node `ask-user`
+
 ### 6.2 Invalid targets
 
 Generation must fail if a handoff points to:
@@ -509,6 +518,8 @@ Generation must fail if a handoff points to:
 - a missing skill
 - an empty value
 - a target outside the allowed set above
+
+The same invalid-target rule applies to every declared `conditional_handoff.<route>`.
 
 ### 6.3 Required chain coverage
 
@@ -540,6 +551,14 @@ Plus the failure detour:
 ```text
 run-regression -> investigate-root-cause -> implement-current-step
 ```
+
+Plus the review-finding persistence detour:
+
+```text
+review-diff | review-implementation -> sync-review-findings -> implement-current-step
+```
+
+`review-implementation` is a supported source label for externally hosted implementation review output. It is not required to exist as a generated workflow skill in this protocol revision. The generated workflow-system skill for persistence is `sync-review-findings`.
 
 ---
 
@@ -585,13 +604,35 @@ Current implementation:
 The following skills are designated non-code-writing in the current templates and generated outputs:
 
 - `review-diff`
+- `sync-review-findings`
 - `verify-contracts`
 - `run-regression`
 
 Current implementation:
 
-- this requirement is currently realized by template convention and generated output review (`writes: []`)
+- this requirement is currently realized by template convention and generated output review (`writes: []` for read-only review / verification skills; `writes: [CURRENT_TASK.md]` for `sync-review-findings`)
 - the generator does not yet infer which paths are "code paths" and does not apply additional semantic enforcement beyond the explicit `writes` declarations
+
+### 7.5 Review finding persistence
+
+Implementation review findings must not depend only on conversational memory once they become actionable fix input.
+
+Canonical flow:
+
+```text
+read-only review -> sync-review-findings -> implement-current-step
+```
+
+Rules:
+
+- `review-diff` and external `review-implementation` outputs remain read-only and must not write `CURRENT_TASK.md`.
+- `sync-review-findings` is the only generated workflow skill dedicated to persisting structured review findings into `CURRENT_TASK.md > 审查问题队列`.
+- `sync-review-findings` may write only `CURRENT_TASK.md`.
+- Each persisted finding must retain severity, file / symbol, failure scenario, minimal fix direction, required test, status, source, and handoff target.
+- Only mechanical implementation findings inside the current Allowed Files may be queued for `/implement-current-step`.
+- Findings that require scope widening must return to `/lock-scope`.
+- Findings that require product behavior, contract, architecture, or design-direction changes must go to `/ask-user`.
+- Findings with unclear root cause must go to `/investigate-root-cause`.
 
 ---
 
@@ -772,7 +813,7 @@ Each error is a JSON object on a single line of stderr:
 | Prefix | Category | Examples |
 |--------|----------|---------|
 | `SCHEMA_` | Missing or invalid metadata structure | `SCHEMA_001` missing required field, `SCHEMA_002` invalid metadata structure |
-| `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid target or structure |
+| `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid `handoff` target or structure, `HANDOFF_003` invalid `conditional_handoff` target |
 | `PLACEHOLDER_` | Placeholder resolution errors | `PLACEHOLDER_001` unresolved placeholder |
 | `STAGE_` | Stage coverage errors | `STAGE_001` missing required stage coverage, `STAGE_002` invalid stage value |
 | `PATH_` | Path grammar violations | `PATH_001` invalid path entry |
@@ -782,7 +823,7 @@ Each error is a JSON object on a single line of stderr:
 
 Current implementation:
 
-- `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `PLACEHOLDER_001`, `STAGE_001`, `STAGE_002`, `PATH_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
+- `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `HANDOFF_003`, `PLACEHOLDER_001`, `STAGE_001`, `STAGE_002`, `PATH_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
 - `SYNC_` and additional suffixes such as `HANDOFF_002`, `PLACEHOLDER_002`, or `WRITE_002` remain namespace reservations at the protocol layer unless and until execution code emits them
 
 ### 9b.3 Human-readable summary
@@ -830,7 +871,7 @@ This protocol is considered implemented when all of the following machine-checka
 |---|-----------|-------------|
 | 1 | Generated skill count equals template count | `bun run test:workflow-skills` — assertion: count match |
 | 2 | Every generated skill has all 13 required schema fields (§5.3) | `bun run test:workflow-skills` — schema field check |
-| 3 | Every `handoff.success` and `handoff.failure` target is valid (§6) | `bun run test:workflow-skills` — handoff validation |
+| 3 | Every `handoff.success` / `handoff.failure` target is valid, and every declared `conditional_handoff.<route>` target is valid (§6) | `bun run test:workflow-skills` — handoff validation |
 | 4 | No skill has `writes` / `forbidden_writes` overlap (§7.3) | `bun run test:workflow-skills` — boundary check |
 | 5 | All 10 stage groups are covered (§4a) | `bun run test:workflow-skills` — stage coverage |
 | 6 | All project-level placeholders are resolved; only runtime placeholders remain | `bun run test:workflow-skills` — placeholder check |

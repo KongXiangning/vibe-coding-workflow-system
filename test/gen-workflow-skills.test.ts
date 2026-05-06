@@ -124,6 +124,29 @@ describe('gen-workflow-skills', () => {
     }
   });
 
+  test('every conditional handoff target is valid when declared', () => {
+    const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.SKILL.md'));
+    const names = new Set<string>();
+
+    for (const file of files) {
+      const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, file));
+      names.add(String(frontmatter.name));
+    }
+
+    for (const file of files) {
+      const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, file));
+      const conditional = frontmatter.conditional_handoff as Record<string, unknown> | undefined;
+      if (!conditional) {
+        continue;
+      }
+
+      for (const target of Object.values(conditional)) {
+        const normalized = String(target);
+        expect(normalized === 'ask-user' || names.has(normalized)).toBe(true);
+      }
+    }
+  });
+
   test('no generated skill has writes/forbidden_writes conflicts', () => {
     const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.SKILL.md'));
     for (const file of files) {
@@ -279,6 +302,58 @@ describe('gen-workflow-skills', () => {
     const reviewDiff = fs.readFileSync(path.join(OUTPUT_DIR, 'review-diff.SKILL.md'), 'utf8');
     expect(reviewDiff).toContain('发现未授权文件出现在 diff 中');
     expect(reviewDiff).toContain('Change Propagation Check');
+    expect(reviewDiff).toContain('sync-review-findings');
+  });
+
+  test('review findings are persisted through a dedicated sync skill before fix implementation', () => {
+    const syncFindingsPath = path.join(OUTPUT_DIR, 'sync-review-findings.SKILL.md');
+    expect(fs.existsSync(syncFindingsPath)).toBe(true);
+
+    const frontmatter = parseFrontmatter(syncFindingsPath);
+    const handoff = frontmatter.handoff as Record<string, unknown>;
+    const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
+    expect(normalizeList(frontmatter.reads)).toContain(CURRENT_TASK_DOC);
+    expect(normalizeList(frontmatter.writes)).toEqual([CURRENT_TASK_DOC]);
+    expect(normalizeList(frontmatter.forbidden_writes)).toContain(CONTRACTS_DOC);
+    expect(handoff.success).toBe('implement-current-step');
+    expect(conditionalHandoff.queued_fixable_findings).toBe('implement-current-step');
+    expect(conditionalHandoff.scope_widening).toBe('lock-scope');
+    expect(conditionalHandoff.product_contract_architecture).toBe('ask-user');
+    expect(conditionalHandoff.unknown_root_cause).toBe('investigate-root-cause');
+    expect(conditionalHandoff.invalid_finding_input).toBe('ask-user');
+
+    const syncFindings = fs.readFileSync(syncFindingsPath, 'utf8');
+    expect(syncFindings).toContain('conditional_handoff');
+    expect(syncFindings).toContain('审查问题队列');
+    expect(syncFindings).toContain('Failure scenario');
+    expect(syncFindings).toContain('Minimal fix direction');
+    expect(syncFindings).toContain('Required test');
+    expect(syncFindings).toContain('review-implementation');
+
+    const implementStep = fs.readFileSync(path.join(OUTPUT_DIR, 'implement-current-step.SKILL.md'), 'utf8');
+    expect(implementStep).toContain('Review Finding Intake');
+    expect(implementStep).toContain('Status: open');
+    expect(implementStep).toContain('resolved');
+  });
+
+  test('review routing stays machine-readable for clean and finding detours', () => {
+    const reviewDiffPath = path.join(OUTPUT_DIR, 'review-diff.SKILL.md');
+    const frontmatter = parseFrontmatter(reviewDiffPath);
+    const handoff = frontmatter.handoff as Record<string, unknown>;
+    const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
+
+    expect(handoff.success).toBe('verify-contracts');
+    expect(handoff.failure).toBe('ask-user');
+    expect(conditionalHandoff.clean).toBe('verify-contracts');
+    expect(conditionalHandoff.mechanical_implementation).toBe('sync-review-findings');
+    expect(conditionalHandoff.scope_widening).toBe('lock-scope');
+    expect(conditionalHandoff.product_contract_architecture).toBe('ask-user');
+    expect(conditionalHandoff.unknown_root_cause).toBe('investigate-root-cause');
+
+    const reviewDiff = fs.readFileSync(reviewDiffPath, 'utf8');
+    expect(reviewDiff).toContain('conditional_handoff');
+    expect(reviewDiff).toContain('handoff.success` 只适用于 clean review');
+    expect(reviewDiff).toContain('Classify the result using `conditional_handoff` before choosing the next skill.');
   });
 
   test('safety boundary skills are integrated without adding native safety skill names', () => {
