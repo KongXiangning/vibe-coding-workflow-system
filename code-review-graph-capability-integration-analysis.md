@@ -47,6 +47,47 @@
 - `code-review-graph` 擅长回答：**应该看哪里、可能影响什么、哪里风险高**
 - `workflow-system` 擅长回答：**这次允许改什么、哪些不能改、改完如何同步治理与归档**
 
+### 4. `code-review-graph` CLI 生命周期
+
+CLI 是图谱生命周期和 MCP 暴露面的运维入口，不应被 workflow-system 直接内置为核心 runtime。
+
+典型使用顺序：
+
+1. **安装 / 注册**
+   - `code-review-graph install`
+   - 自动检测支持的平台，写入 MCP server 配置，并按平台安装 hooks / skills / guidance。
+   - 职责边界：这是目标项目本地的一次性 provider 安装动作，不是 workflow-system adoption 流程。
+
+2. **首次构建**
+   - `code-review-graph build`
+   - 解析目标仓库，生成 `.code-review-graph/graph.db`。
+   - 职责边界：负责生成结构图谱；workflow-system 只消费结果，不接管 graph DB schema。
+
+3. **增量更新**
+   - `code-review-graph update`
+   - 根据 VCS 变化重新解析变更文件和依赖方。
+   - hooks 常用 `code-review-graph update --skip-flows` 做轻量刷新，避免每次编辑都跑完整 flow / community 后处理。
+
+4. **新鲜度检查**
+   - `code-review-graph status`
+   - 查看 files / nodes / edges / languages / last updated 等统计。
+   - workflow-system 未来如果接入，只应把它作为 provider 可用性和 freshness evidence，而不是协议级成功条件。
+
+5. **持续刷新**
+   - `code-review-graph watch`
+   - 单仓库文件变更监听，适合编辑期持续维护图谱。
+   - `code-review-graph daemon start|stop|status`
+   - 多仓库 watch 管理，适合同时维护多个项目。
+
+6. **命令行审查**
+   - `code-review-graph detect-changes`
+   - 提供风险评分、测试缺口和影响摘要，适合 pre-commit 或人工快速检查。
+
+7. **MCP 服务**
+   - `code-review-graph serve`
+   - 向 AI 客户端暴露 MCP tools / prompts。
+   - AI 真正消费图谱通常发生在任务执行期：先 `get_minimal_context`，再按任务进入 `detect_changes`、`query_graph`、`get_affected_flows` 或 `get_architecture_overview`。
+
 ## 二、值得接入 workflow-system 的 5 项核心能力
 
 ## 1. graph-first context acquisition
@@ -92,8 +133,8 @@
 
 ### 具体设计点
 
-1. **给 `CURRENT_TASK.md` 增加“影响证据”区块**
-   建议承载抽象信息：
+1. **未来若实现，优先复用 `CURRENT_TASK.md > 传播治理记录` 承载影响证据**
+   当前阶段不改模板；进入实现前应先确认 `.workflow-system/WORKFLOW_PROTOCOL.md` / `.workflow-system/FILE_SCHEMAS.md` 已允许对应承载方式。建议先映射为抽象 evidence，而不是新增 provider-specific 区块：
    - 变更起点
    - 影响对象
    - 受影响契约
@@ -101,18 +142,20 @@
    - 风险级别
    - 证据来源
    - 可信度 / 局限性
+   - 可对应 `EvidenceRecord` / `EvidenceAggregation` / `ContractCompatibilityResult`
 
 2. **给 review / regression / verify-contracts 技能增加“先收集影响证据，再做判断”的步骤**
    - 先拿影响面
    - 再判断是否越过 contract
    - 再决定测试和回归范围
 
-3. **让 `sync-current-task` 支持写回影响证据**
+3. **让 `sync-current-task` 未来支持写回抽象传播证据**
    - 把运行中确认过的传播信息沉淀回任务包，而不是只留在对话里。
+   - 如果需要新增字段、章节或错误码，必须先扩展 protocol/schema，再改模板和 skill。
 
 ### 最适合落点
 
-- `templates/docs/CURRENT_TASK.md.tmpl`
+- `CURRENT_TASK.md > 传播治理记录`（优先复用现有承载面）
 - `templates/skills/review-*.SKILL.md.tmpl`
 - `templates/skills/verify-contracts.SKILL.md.tmpl`
 - `templates/skills/sync-current-task.SKILL.md.tmpl`
@@ -121,6 +164,7 @@
 
 - 影响证据只能作为强证据来源之一，不能代替人工判断。
 - 应允许写明 `false positive`、`unknown`、`limited coverage`。
+- 不应把 `code-review-graph` 的原始 JSON 字段直接升级为 workflow-system 协议字段。
 
 ## 3. risk-based regression targeting
 
@@ -130,25 +174,27 @@
 
 ### 具体设计点
 
-1. **给 `CURRENT_TASK.md` 增加“回归优先级”区块**
+1. **未来若实现，优先把回归优先级写入现有任务传播 / 回归记录**
    例如：
    - 必测路径
    - 高风险路径
    - 可选扩展验证
    - 当前测试缺口
+   - 对应 evidence / compatibility result / regression checklist，而不是直接复制 provider-specific 返回结构
 
 2. **让 `run-regression` 支持图谱增强模式**
    - 有 graph 能力时，用 affected flows / tests_for / detect changes 缩小回归范围。
    - 无 graph 能力时，回退到现有测试策略。
 
-3. **让 `BASELINES.md` 区分“必须过的门”和“建议优先验证的门”**
+3. **只有在 protocol/schema 扩展后，才考虑让 `BASELINES.md` 增加长期 gate 表达**
    - gate 仍由项目绑定
    - 风险分析帮助决定验证先后顺序
+   - 当前阶段只应把 graph 输出作为本轮任务的回归优先级 evidence，不应改写长期 baseline
 
 ### 最适合落点
 
-- `templates/docs/CURRENT_TASK.md.tmpl`
-- `templates/docs/BASELINES.md.tmpl`
+- `CURRENT_TASK.md > 传播治理记录` / `CURRENT_TASK.md > 回归检查项`
+- `.workflow-system/WORKFLOW_PROTOCOL.md` / `.workflow-system/FILE_SCHEMAS.md`（仅当需要新增长期结构时）
 - `templates/skills/run-regression.SKILL.md.tmpl`
 - `templates/skills/debug-and-fix-current-task.SKILL.md.tmpl`
 
@@ -156,6 +202,7 @@
 
 - 不能把“graph 没提示到”误当成“无需回归”。
 - 对不成熟语言支持的项目，图谱建议权重应降低。
+- `BASELINES.md` 不应承载单个 provider 的临时风险建议；长期 gate 变化必须先有规范源定义。
 
 ## 4. graph-assisted legacy inventory / adoption
 
@@ -246,6 +293,17 @@
 
 `code-review-graph` 只是这些能力的一个 provider。
 
+## 1.1 protocol / schema 前置边界
+
+当前需求阶段只做分析，不改 `.workflow-system/**`、`templates/**`、`scripts/**`，因此所有接入落点都应理解为未来设计候选，而不是当前可直接修改的文件清单。
+
+未来若进入实现，应遵守：
+
+1. 优先复用 `CURRENT_TASK.md > 传播治理记录`、`EvidenceRecord`、`EvidenceAggregation`、`ContractCompatibilityResult` 等已存在的传播治理承载面。
+2. graph provider 原始字段只能作为 evidence source，不得直接成为 workflow-system 协议字段。
+3. 如果确实需要新增章节、字段、错误码、gate 或 baseline 语义，先扩展 `.workflow-system/WORKFLOW_PROTOCOL.md` 和 `.workflow-system/FILE_SCHEMAS.md`，再改模板、skill 和生成器。
+4. host guidance 可以先描述“优先调用图谱工具”的行为建议；protocol blocker 只能建立在规范源已经声明的抽象能力上。
+
 ## 2. 应做成可选增强，不做强依赖
 
 不建议：
@@ -266,7 +324,7 @@
 
 1. `PROJECT_PROFILE.yaml` 的可选分析能力声明
 2. host guidance 的 graph-aware 分流规则
-3. `CURRENT_TASK.md` 的影响证据 / 回归优先级区块
+3. 基于现有 `CURRENT_TASK.md > 传播治理记录` 的影响证据 / 回归优先级写回设计
 4. `legacy-inventory` / `run-regression` / `review-diff` 的图谱增强步骤
 
 ## 第二批再做

@@ -24,7 +24,7 @@
 
 1. 通过 `_get_store()` 打开 graph store
 2. 自动解析 `repo_root`
-3. 在必要时回退到 git 变化检测
+3. 在必要时使用 VCS-aware 变化检测（Git / SVN；个别快速探测路径仍偏 Git）
 4. 调用下层 `GraphStore` / `changes.py` / `flows.py` / `communities.py`
 5. 返回 `status + summary + payload`
 
@@ -135,7 +135,7 @@ build_or_update_graph(
 
 1. `postprocess="full"` 会牵涉 flows / communities，比较重
 2. 没变化时会提前返回，不做额外工作
-3. 增量更新依赖 git 变化检测
+3. 增量更新依赖 VCS-aware 变化检测，源码层支持 Git / SVN 分流
 
 ### 对 workflow-system 的意义
 
@@ -143,16 +143,89 @@ build_or_update_graph(
 
 ## 1.2 `list_graph_stats`
 
-本轮未下钻到完整实现，但从 skill 和 prompt 使用方式看，它承担的是：
+### MCP 暴露层
 
-- 图是否已建
-- 节点 / 边 / 文件数量
-- 技术概览
+- `code_review_graph/main.py`
+- MCP 名字：`list_graph_stats_tool`
+
+### MCP 签名
+
+```python
+list_graph_stats_tool(
+    repo_root: str | None = None,
+)
+```
+
+### wrapper 行为
+
+1. 通过 `_resolve_repo_root(repo_root)` 解析目标仓库根目录
+2. 直接转调 `tools/query.py:list_graph_stats(...)`
+3. wrapper 本身不做业务加工、不做异常包装
+
+### 真实实现层
+
+- `code_review_graph/tools/query.py`
+
+### 真实执行路径
+
+1. `_get_store(repo_root)` 打开 graph store
+2. `store.get_stats()` 聚合图谱统计
+3. 通过 `EmbeddingStore(get_db_path(root))` 读取 embedding 数量
+4. 拼接面向人读的 `summary`
+5. 返回结构化统计字段
+6. `finally` 中关闭 `GraphStore` 和 `EmbeddingStore`
+
+### 下层关键实现
+
+`GraphStore.get_stats()` 位于 `code_review_graph/graph.py`，主要查询：
+
+- `nodes` 总数
+- `edges` 总数
+- `nodes_by_kind`
+- `edges_by_kind`
+- 去重后的 `languages`
+- `kind = 'File'` 的文件节点数量
+- metadata 中的 `last_updated`
+
+### 输出形状
+
+返回字段包括：
+
+- `status`
+- `summary`
+- `total_nodes`
+- `total_edges`
+- `nodes_by_kind`
+- `edges_by_kind`
+- `languages`
+- `files_count`
+- `last_updated`
+- `embeddings_count`
+
+### 空图 / 未充分构建时的行为
+
+- 如果 graph DB 存在但还没有解析出节点，`get_stats()` 仍会返回 `status="ok"`。
+- 空图通常表现为 `total_nodes=0`、`total_edges=0`、`files_count=0`、`languages=[]`、`last_updated=None`，summary 中显示 `Last updated: never`。
+- 这意味着 `status="ok"` 只代表 provider 可打开统计面，不代表图谱已经有可用代码知识。
+
+### 失败行为
+
+- `_get_store()` 会先校验 `repo_root`，目录不存在或不像项目根会抛错。
+- `list_graph_stats()` 不捕获异常；数据库 schema 损坏、SQLite 查询失败或 embedding store 初始化失败会向 MCP 层冒泡。
+- 因此 workflow-system 未来调用它时，不能只看 `status`，还要把工具调用失败视为 provider unavailable / graph unavailable。
+
+### 注意点
+
+1. 它是 provider 可用性和新鲜度探测工具，不是代码理解工具。
+2. `last_updated` 能辅助判断图谱是否陈旧，但它不是严格 freshness gate。
+3. `embeddings_count` 只能说明 embedding 覆盖情况，不能代表结构图谱是否完整。
+4. 空图也可能返回 `ok`，所以必须结合节点数、边数、文件数判断是否可用。
 
 对 workflow-system 来说，它主要用于：
 
 - session 开始前探测 provider 是否可用
 - `legacy-inventory` 的快速概览
+- `build_or_update_graph` 前后验证图谱是否真正生成 / 更新
 
 ---
 
@@ -177,7 +250,7 @@ get_minimal_context(
 
 1. `_get_store(repo_root)`
 2. `store.get_stats()` 拿基本统计
-3. 如果有变化文件或 git 工作树有变化：
+3. 如果显式传入变化文件，或 Git 工作树快速探测发现变化：
    - 调 `analyze_changes(...)`
    - 计算 `risk_score`
    - 提取 `top_affected`
@@ -341,7 +414,7 @@ get_affected_flows_func(
 ### wrapper 逻辑
 
 1. `_get_store(repo_root)`
-2. 未给 `changed_files` 时，先 git diff，再 staged/unstaged fallback
+2. 未给 `changed_files` 时，先通过 VCS-aware `get_changed_files(...)` 检测变化（Git / SVN），再回退到工作区 / 工作副本状态
 3. 把相对路径转绝对路径
 4. 调 `_get_affected_flows(store, abs_files)`
 5. 返回排序后的 affected flows
@@ -560,7 +633,6 @@ get_architecture_overview_func(
 
 这份文件已经达到“第一批接入前置的源码级梳理”标准，但还没有继续下钻：
 
-- `list_graph_stats` 的完整实现
 - `GraphStore` 具体 SQL 层
 - `get_review_context` 的深层输出策略
 - `semantic_search_nodes` 的混合搜索实现
