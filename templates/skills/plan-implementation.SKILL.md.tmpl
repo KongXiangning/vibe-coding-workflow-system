@@ -1,0 +1,249 @@
+---
+name: plan-implementation
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Analyze the current task and produce an implementation plan covering architecture impact, technical approach, alternatives, risks, and validation strategy before step decomposition.
+purpose: |
+  针对 CURRENT_TASK.md 分析接下来要实现的架构、技术路线和方案，并形成可拆解的实现计划。
+stage: 阶段 3：方案拆解
+trigger: |
+  完成决策分级后、拆解实施步骤前。
+inputs:
+  - current_task
+  - decision_classification
+  - contracts
+  - decisions
+  - lessons
+  - project_profile
+reads:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+  - LESSONS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+writes:
+  - CURRENT_TASK.md
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - CONTRACTS.md
+  - DECISIONS.md
+  - LESSONS.md
+must_check:
+  - 当前任务目标、验收和 Allowed Files 是否足以支撑实现方案
+  - 涉及哪些架构边界、接口契约、数据结构、状态流或调用链
+  - 是否存在多个候选技术方案及其取舍
+  - 哪些方案决策属于 Mechanical、Taste 或 User challenge
+  - 最小可行实现路径是否清晰
+  - 关键风险、兼容性影响、回滚方式和验证策略是否明确
+  - 是否需要补充测试、smoke、browser-backed evidence 或 release evidence
+stop_conditions:
+  - 目标、验收或范围不足以形成实现方案
+  - 方案需要修改 Forbidden Files 或扩大 Allowed Files
+  - 候选方案涉及 Taste 或 User challenge 但尚未确认
+  - 方案会改变产品行为、接口契约、数据结构或架构边界但未获确认
+  - 无法确定最小可行实现路径或验证策略
+output:
+  - Implementation plan
+  - Architecture impact
+  - Technical approach
+  - Alternatives and tradeoffs
+  - Risk and compatibility analysis
+  - Validation strategy
+  - Open decisions
+handoff:
+  success: decompose-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动选择最小兼容技术路径、补充实现顺序和验证策略。
+  taste: 影响体验、交互、文案、视觉或产品口味的方案选择必须显式暴露。
+  user_challenge: 改变用户已确认方向、行为、契约或架构边界时必须停下确认。
+verification:
+  - CURRENT_TASK.md 中已有实现方案或方案分析记录
+  - 已说明架构影响、技术路径、候选方案和取舍
+  - 已说明最小实现路径和验证策略
+  - 已列出未确认 Taste / User challenge 决策
+  - 没有修改代码或长期治理文档
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /classify-decisions
+notes:
+  - 本 skill 只把当前任务内的实现方案写入 CURRENT_TASK.md；长期有效决策必须由 sync-decisions 在用户确认后沉淀。
+  - 本 skill 不拆步骤，步骤拆解交给 decompose-task。
+required_sections:
+  - 实现方案
+planning_dimensions:
+  - architecture_impact
+  - technical_approach
+  - data_and_state_flow
+  - alternatives_and_tradeoffs
+  - compatibility
+  - risk_and_rollback
+  - validation_strategy
+implementation_plan_rules:
+  - 只基于 CURRENT_TASK.md、CONTRACTS.md、DECISIONS.md、LESSONS.md 和项目 profile 形成当前任务方案
+  - 不把长期决策直接写入 DECISIONS.md
+  - 不把稳定契约直接写入 CONTRACTS.md
+  - 不把步骤拆解混进方案设计；步骤拆解交给 decompose-task
+  - 如果方案需要扩大 scope，停止并回到 lock-scope
+---
+
+# Skill: plan-implementation
+
+## Purpose
+
+针对 CURRENT_TASK.md 分析接下来要实现的架构、技术路线和方案，并形成可拆解的实现计划。
+
+## Trigger
+
+完成决策分级后、拆解实施步骤前。
+
+## Inputs
+
+- current_task
+- decision_classification
+- contracts
+- decisions
+- lessons
+- project_profile
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for current goal, acceptance, scope, and constraints.
+
+## Must Check
+
+- 当前任务目标、验收和 Allowed Files 是否足以支撑实现方案
+- 涉及哪些架构边界、接口契约、数据结构、状态流或调用链
+- 是否存在多个候选技术方案及其取舍
+- 哪些方案决策属于 Mechanical、Taste 或 User challenge
+- 最小可行实现路径是否清晰
+- 关键风险、兼容性影响、回滚方式和验证策略是否明确
+- 是否需要补充测试、smoke、browser-backed evidence 或 release evidence
+
+## Stop Conditions
+
+- 目标、验收或范围不足以形成实现方案
+- 方案需要修改 Forbidden Files 或扩大 Allowed Files
+- 候选方案涉及 Taste 或 User challenge 但尚未确认
+- 方案会改变产品行为、接口契约、数据结构或架构边界但未获确认
+- 无法确定最小可行实现路径或验证策略
+
+## Decision Policy
+
+- `mechanical`: 可以自动选择最小兼容技术路径、补充实现顺序和验证策略。
+- `taste`: 影响体验、交互、文案、视觉或产品口味的方案选择必须显式暴露。
+- `user_challenge`: 改变用户已确认方向、行为、契约或架构边界时必须停下确认。
+
+## Verification
+
+- CURRENT_TASK.md 中已有实现方案或方案分析记录
+- 已说明架构影响、技术路径、候选方案和取舍
+- 已说明最小实现路径和验证策略
+- 已列出未确认 Taste / User challenge 决策
+- 没有修改代码或长期治理文档
+
+## Extension Fields
+
+### required_sections
+- 实现方案
+
+### planning_dimensions
+- architecture_impact
+- technical_approach
+- data_and_state_flow
+- alternatives_and_tradeoffs
+- compatibility
+- risk_and_rollback
+- validation_strategy
+
+### implementation_plan_rules
+- 只基于 CURRENT_TASK.md、CONTRACTS.md、DECISIONS.md、LESSONS.md 和项目 profile 形成当前任务方案
+- 不把长期决策直接写入 DECISIONS.md
+- 不把稳定契约直接写入 CONTRACTS.md
+- 不把步骤拆解混进方案设计；步骤拆解交给 decompose-task
+- 如果方案需要扩大 scope，停止并回到 lock-scope
+
+## Implementation Planning
+
+`/plan-implementation` 负责把“要做什么”转成“准备用什么方案做”。它不写代码，也不拆具体步骤。
+
+输出必须覆盖：
+
+- Architecture impact：受影响的模块、边界、接口、数据结构、状态流、调用链。
+- Technical approach：推荐技术路径、最小可行实现方式、为什么符合当前 scope。
+- Alternatives and tradeoffs：候选方案、放弃原因、是否涉及 Taste / User challenge。
+- Compatibility：旧行为、旧参数、旧返回结构、旧数据、旧客户端是否保持可用。
+- Risk and rollback：主要失败模式、回滚方式、危险面。
+- Validation strategy：需要哪些测试、smoke、browser evidence、release evidence 或 blocked reason。
+
+## Plan Record Template
+
+```md
+Implementation Plan:
+- Goal:
+- Architecture impact:
+- Technical approach:
+- Alternatives considered:
+- Data / state flow:
+- Compatibility:
+- Risks and rollback:
+- Validation strategy:
+- Open decisions:
+- Handoff:
+```
+
+## Execution Protocol
+
+1. Restate the current task goal in one sentence.
+2. Read all files listed in `reads`.
+3. Use Bash only for read-only discovery, script/test discovery, and fact verification.
+4. Check `must_check` items before acting.
+5. Respect `forbidden_writes` and current task boundaries.
+6. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+7. Write the implementation plan into `CURRENT_TASK.md` under `## 实现方案`.
+8. Produce the artifact(s) described in `output`.
+9. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Do not modify code from this skill.
+- Do not write `CONTRACTS.md`, `DECISIONS.md`, or `LESSONS.md` directly from this skill.
+- Bash is read-only in this skill; do not use it to modify code, governance docs, or run destructive commands.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 本 skill 只把当前任务内的实现方案写入 CURRENT_TASK.md；长期有效决策必须由 sync-decisions 在用户确认后沉淀。
+- 本 skill 不拆步骤，步骤拆解交给 decompose-task。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

@@ -49,12 +49,11 @@ stop_conditions:
 output:
   - 边界审查结论
   - 越界与回归风险列表
-  - 结构化 review findings
 handoff:
-  success: verify-contracts
+  success: review-implementation
   failure: ask-user
 conditional_handoff:
-  clean: verify-contracts
+  clean: review-implementation
   mechanical_implementation: sync-review-findings
   scope_widening: lock-scope
   product_contract_architecture: ask-user
@@ -237,7 +236,7 @@ design_drift_review:
 ## Extension Fields
 
 ### conditional_handoff
-- clean: verify-contracts
+- clean: review-implementation
 - mechanical_implementation: sync-review-findings
 - scope_widening: lock-scope
 - product_contract_architecture: ask-user

@@ -149,8 +149,8 @@ describe('workflow-runtime manifest', () => {
     expect(manifest.import_contract.adopt.steps.find(step => step.name === 'sync-host-runtime')?.command).toContain('--write');
     expect(manifest.host_compatibility.codex.runtime_root).toBe(path.join('.codex', 'skills'));
     expect(manifest.host_compatibility.codex.isolated_prefix).toBe('workflow-system-');
-    expect(manifest.verification).toContain('bun run workflow:health');
-    expect(manifest.verification).toContain('bun run workflow:sync --host <claude|codex|factory> --write');
+    expect(manifest.verification).toContain('bun run workflow:health --root <target-repo>');
+    expect(manifest.verification).toContain('bun run workflow:sync --root <target-repo> --host <claude|codex|factory> --write');
   });
 
   test('export manifest fails when package.json type is not module', () => {
@@ -567,7 +567,7 @@ describe('workflow-runtime install', () => {
         expect(bootstrapGuide).toContain('/adopt-existing-project');
         expect(bootstrapGuide).toContain('/realign-workflow-assets');
         expect(bootstrapGuide).toContain('bun run gen:all');
-        expect(bootstrapGuide).toContain('bun run workflow:sync --host claude --write');
+        expect(bootstrapGuide).toContain('bun run workflow:sync --root $target --host claude --write');
         expect(bootstrapGuide).toContain('尚未完成 bootstrap / gen / sync');
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-realign-workflow-assets', 'SKILL.md'))).toBe(true);

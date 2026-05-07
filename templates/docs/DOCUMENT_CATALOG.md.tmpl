@@ -6,6 +6,7 @@
 - 本文件由 `bun run gen:workflow-docs` 自动生成，请勿手工编辑。
 - 为保持生成稳定，本文件不内嵌 wall-clock 生成时间或文件系统 mtime；统一记录生成批次，并提供查询最后修改时间的标准方式。
 - 真实 live runtime 路径以 `.workflow-system/PROJECT_PROFILE.yaml` 的 `paths.workflow_home` 和各 skill 的 `reads` / `writes` 为准。
+- 通用最后修改时间查询命令：`git log -1 --format=%cI -- <path>`。
 
 ## 目录分类规则
 

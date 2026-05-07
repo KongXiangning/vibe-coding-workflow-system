@@ -33,6 +33,7 @@ forbidden_writes:
   - scripts
   - test
 must_check:
+  - 是否存在项目级宿主指引变化；没有则输出 no-op 并继续 handoff
   - 哪些变化属于项目级长期规则，而不是本轮任务临时说明
   - AGENTS.md 与 CLAUDE.md 是否保持同一治理基线，只保留必要的宿主称谓差异
   - 统一命令入口、验证方式、禁区和 workflow 使用顺序是否与已确认治理文档一致
@@ -44,6 +45,7 @@ stop_conditions:
 output:
   - 更新后的 AGENTS.md
   - 更新后的 CLAUDE.md
+  - 无宿主指引变化时的 no-op 结论
 handoff:
   success: capture-lessons
   failure: ask-user
@@ -52,7 +54,7 @@ decision_policy:
   taste: 保留项目既有语气，不要把宿主说明改成模板腔。
   user_challenge: 不得把未确认的任务级临时约定升级成项目级全局规则。
 verification:
-  - AGENTS.md 与 CLAUDE.md 对项目级规则的描述一致
+  - AGENTS.md 与 CLAUDE.md 对项目级规则的描述一致；无宿主指引变化时已 no-op
   - 宿主差异只体现在必要的称谓或宿主入口说明
   - 命令、路径和 workflow 入口与已确认治理文档一致
 allowed-tools:
@@ -69,6 +71,7 @@ notes:
   - 如果 AGENTS.md 或 CLAUDE.md 缺失，应根据已确认治理文档补回，而不是只更新当前宿主。
 sync_rules:
   - 项目级 workflow 规则变化后同步
+  - 没有项目级宿主指引变化时输出 no-op 并继续交给 capture-lessons
   - 宿主指引必须成对更新，不能只改当前宿主
 host_guidance_categories:
   - workflow bootstrap / task flow
@@ -119,6 +122,7 @@ host_guidance_categories:
 
 ## Must Check
 
+- 是否存在项目级宿主指引变化；没有则输出 no-op 并继续 handoff
 - 哪些变化属于项目级长期规则，而不是本轮任务临时说明
 - AGENTS.md 与 CLAUDE.md 是否保持同一治理基线，只保留必要的宿主称谓差异
 - 统一命令入口、验证方式、禁区和 workflow 使用顺序是否与已确认治理文档一致
@@ -138,7 +142,7 @@ host_guidance_categories:
 
 ## Verification
 
-- AGENTS.md 与 CLAUDE.md 对项目级规则的描述一致
+- AGENTS.md 与 CLAUDE.md 对项目级规则的描述一致；无宿主指引变化时已 no-op
 - 宿主差异只体现在必要的称谓或宿主入口说明
 - 命令、路径和 workflow 入口与已确认治理文档一致
 
@@ -146,6 +150,7 @@ host_guidance_categories:
 
 ### sync_rules
 - 项目级 workflow 规则变化后同步
+- 没有项目级宿主指引变化时输出 no-op 并继续交给 capture-lessons
 - 宿主指引必须成对更新，不能只改当前宿主
 
 ### host_guidance_categories

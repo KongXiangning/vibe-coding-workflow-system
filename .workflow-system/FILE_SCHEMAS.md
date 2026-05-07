@@ -68,7 +68,7 @@
 - `## 受影响的契约`
 - `## 已确认决策`
 - `## 待确认问题`
-- `## 审查问题队列`
+- `## 实现方案`
 - `## 传播治理记录`
 - `## 实施步骤`
 - `## 回归检查项`
@@ -79,6 +79,24 @@
 
 - `## 设计约束`：UI / 视觉 / 交互任务必须填写；非 UI 任务可保留默认 `Design mode: none`
 - `## 发布后验证`：发布、部署、生产验证、canary、性能基线或上线后观察任务必须填写；其他任务可保留默认 `Release mode: none`
+
+### 实现方案最小内容
+
+`## 实现方案` 承载当前任务内的实现分析和计划基线，由 `/plan-implementation` 写入，供 `/decompose-task` 拆解步骤使用。该章节只描述本轮任务的可执行方案，不替代长期 `CONTRACTS.md`、`DECISIONS.md` 或 `LESSONS.md`。
+
+最小字段：
+
+- `Goal:`
+- `Architecture impact:`
+- `Technical approach:`
+- `Alternatives considered:`
+- `Data / state flow:`
+- `Compatibility:`
+- `Risks and rollback:`
+- `Validation strategy:`
+- `Open decisions:`
+
+长期有效的产品、架构、接口、兼容或治理决策必须通过 `/sync-decisions`、`/sync-contracts` 或 `/capture-lessons` 沉淀；`CURRENT_TASK.md > 实现方案` 不能单独定义长期事实源。
 
 ### 传播治理记录最小内容
 
@@ -111,24 +129,6 @@
 
 `BASELINES.md` 是长期发布 / 部署 / 性能可靠性基线；`CURRENT_TASK.md > 发布后验证` 只承载本轮验证计划和结果。没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须输出 blocked risk，不能把任务标记为已稳定。
 
-### 审查问题队列最小内容
-
-当只读审查 skill 输出需要修复的 implementation findings 时，`CURRENT_TASK.md` 必须通过 `## 审查问题队列` 持久记录这些 findings，再进入下一轮 `/implement-current-step`。
-
-每条 finding 至少包含：
-
-- `Finding ID`
-- `Severity`
-- `Source`
-- `Status`
-- `File / symbol`
-- `Failure scenario`
-- `Minimal fix direction`
-- `Required test`
-- `Handoff`
-
-只允许把当前 Allowed Files 内可修的 mechanical implementation findings 写成修复队列。需要扩大范围、修改产品行为、改变契约 / 架构 / 设计方向，或根因不明的 finding，必须转交 `/lock-scope`、`/ask-user` 或 `/investigate-root-cause`，不得伪装成可直接修复项。
-
 ### 更新时机
 
 - 新需求进入时创建
@@ -145,8 +145,6 @@
 - 发布、部署、生产验证、canary、性能基线或上线后观察任务必须显式填写 `## 发布后验证`
 - `## 发布后验证` 中的 `Release mode`、`Deploy source`、`Target environment`、`Health checks`、`Canary window`、`Performance baseline`、`Rollback / recovery`、`Release evidence` 必须可审计
 - 生产发布缺少回滚方案、health check 或发布证据时，不得写成 stable
-- 审查发现的问题进入修复前必须写入 `## 审查问题队列`
-- `## 审查问题队列` 中每条 finding 必须保留 severity、定位、失败场景、最小修复方向和验证要求
 - 允许/禁止修改范围必须明确到目录、文件或契约层
 - `## 允许修改范围` 必须显式包含 `Allowed Files` 与 `Conditional Files`
 - `## 禁止修改范围` 必须显式包含 `Forbidden Files`

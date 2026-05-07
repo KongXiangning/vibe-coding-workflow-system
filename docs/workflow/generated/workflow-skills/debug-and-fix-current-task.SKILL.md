@@ -1,0 +1,111 @@
+---
+name: debug-and-fix-current-task
+preamble-tier: 2
+version: 0.2.0
+description: >
+  Orchestrate root-cause investigation, minimal repair, review, and regression
+  for a current bug task.
+purpose: |
+  针对当前 bug 任务先调查根因，再执行最小修复并完成审查和回归验证。
+stage: 阶段 4/6：实现或验证异常
+trigger: |
+  测试失败、回归失败、实现异常或用户要求自动调查并修复当前 bug 时。
+inputs:
+  - failing_behavior
+  - error_output
+  - current_task
+  - current_diff
+reads:
+  - docs/workflow/CURRENT_TASK.md
+  - docs/workflow/CONTRACTS.md
+  - docs/workflow/DECISIONS.md
+  - docs/workflow/LESSONS.md
+writes: []
+forbidden_writes:
+  - scripts
+  - test
+  - docs/workflow/CURRENT_TASK.md
+must_check:
+  - 是否已有 docs/workflow/CURRENT_TASK.md；没有则应先 create-current-task
+  - 失败现象和复现路径是否足够进入 investigate-root-cause
+  - 根因确认后是否已有最小修复方案、架构影响和验证策略
+  - 当前范围是否允许最小修复路径
+  - 修复后是否复验原始失败场景
+stop_conditions:
+  - docs/workflow/CURRENT_TASK.md 缺失
+  - 三个 root cause hypothesis 仍不收敛
+  - 根因或最小修复路径超出当前范围
+  - 修复需要改变产品行为、接口契约或架构边界
+  - 回归验证失败且需要人工判断
+output:
+  - Debug and fix sequence
+  - Root cause summary
+  - Minimal fix and validation result
+  - Stop point or remaining risk
+handoff:
+  success: investigate-root-cause
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动推进根因调查、最小修复和验证链。
+  taste: 不把修复策略包装成唯一正确方案。
+  user_challenge: 需要改变行为、契约或范围时必须停下确认。
+verification:
+  - 已先调查根因再修复
+  - 已复验原始失败场景
+  - 已进入完整审查验证链
+  - 没有直接修改代码或治理文档
+allowed-tools:
+  - Read
+  - AskUserQuestion
+benefits-from:
+  - /investigate-root-cause
+  - /run-regression
+notes:
+  - 没有 docs/workflow/CURRENT_TASK.md 时，不应直接调试；先创建 bug 调查任务包。
+orchestration_sequence:
+  - investigate-root-cause
+  - plan-implementation
+  - decompose-task
+  - implement-current-step
+  - review-diff
+  - review-implementation
+  - verify-contracts
+  - run-regression
+---
+
+# Skill: debug-and-fix-current-task
+
+## Purpose
+
+针对当前 bug 任务先调查根因，再执行最小修复并完成审查和回归验证。
+
+## Orchestration Sequence
+
+```text
+/investigate-root-cause
+-> /plan-implementation
+-> /decompose-task
+-> /implement-current-step
+-> /review-diff
+-> /review-implementation
+-> /verify-contracts
+-> /run-regression
+```
+
+## Rules
+
+- 未验证 root cause hypothesis 前不得修复。
+- 如果没有 `docs/workflow/CURRENT_TASK.md`，先走 `/create-current-task` 建立 bug 调查任务包。
+- 如果根因指向范围外文件，停止并回到 `/lock-scope` 或开新任务。
+
+## Reference Render Semantics
+
+- This generated file is a source-repo reference render produced from the current `.workflow-system/PROJECT_PROFILE.yaml`.
+- The concrete project values shown here reflect this repository's profile, not a universal target-project default.
+- Target projects render workflow skills from their own `.workflow-system/PROJECT_PROFILE.yaml` during install / sync.
+
+## Project-Type Emphasis
+
+- Emphasize script boundaries, generated artifact discipline, and host compatibility.
+- Bias validation toward generator correctness, workflow closure, and documentation sync.
+- Treat accidental interference with existing generation pipelines as a critical risk.

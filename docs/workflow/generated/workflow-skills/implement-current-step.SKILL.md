@@ -12,7 +12,6 @@ trigger: |
   进入具体编码实现时。
 inputs:
   - current_task_current_step
-  - review_findings_queue
   - contracts
   - confirmed_decisions
   - lessons
@@ -133,7 +132,6 @@ review_finding_intake:
 ## Inputs
 
 - current_task_current_step
-- review_findings_queue
 - contracts
 - confirmed_decisions
 - lessons
@@ -289,8 +287,7 @@ UI / 视觉实现只能实现已确认设计。不得静默更换字体、颜色
 - 优先处理 P1 / P2，P3 只在当前步骤范围内处理。
 - 只修 `Status: open` 且 `Handoff: implement-current-step` 的 finding。
 - 修复时不得扩大范围；需要扩大范围时停止并回到 `/lock-scope`。
-- 修复完成后，把 finding 标记为 `resolved`，并在执行记录中写明验证结果。
-- 无法在当前范围内修复时标记为 `deferred` 或 `needs-user`，不得静默丢弃。
+- 修复后把 finding 标记为 `resolved`、`deferred` 或 `needs-user`，并记录验证结果。
 
 ## Execution Protocol
 

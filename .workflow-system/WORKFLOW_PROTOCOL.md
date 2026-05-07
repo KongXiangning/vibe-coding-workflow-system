@@ -1,9 +1,9 @@
 # Workflow Protocol
 
 ```yaml
-Protocol-Version: 0.4.0
+Protocol-Version: 0.3.0
 Status: Formal Spec
-Last-Updated: 2026-05-06
+Last-Updated: 2026-04-22
 ```
 
 This file defines the execution rules for the workflow skill system.
@@ -129,7 +129,7 @@ This output root is intentionally separated from:
 - host runtime install locations
 - `templates/skills/*.SKILL.md.tmpl`
 
-That separation avoids colliding with repo-native skill pipelines while the workflow skill system is installed or developed alongside other AI tooling.
+That separation avoids colliding with the existing gstack build pipeline while the workflow skill system is still under development.
 
 ---
 
@@ -298,7 +298,7 @@ Must emphasize:
 - host compatibility
 - documentation synchronization
 
-The source repo (`vibe-coding-workflow-system`) should be treated as:
+The current repo (`gstack`) should be treated as:
 
 ```text
 ai-engineering-workflow
@@ -329,10 +329,10 @@ The workflow system defines exactly 10 stage groups. Generators must validate th
 | `init` | 初始化 | Project governance initialization | Setup |
 | `phase-1-intake` | 阶段 1：需求进入 | Task creation and intake | Planning |
 | `phase-2-scope-lock` | 阶段 2：范围锁定 | Scope review and lock | Planning |
-| `phase-3-decomposition` | 阶段 3：方案拆解 | Decision classification and task decomposition | Planning |
+| `phase-3-decomposition` | 阶段 3：方案拆解 | Decision classification, implementation planning, and task decomposition | Planning |
 | `phase-4-implementation` | 阶段 4：小步实现 | Step-by-step implementation | Execution |
 | `phase-4-6-exception` | 阶段 4/6：实现或验证异常 | Exception handling during implementation or regression | Execution |
-| `phase-5-scope-review` | 阶段 5：范围复核 | Review diff and verify contracts | Review |
+| `phase-5-scope-review` | 阶段 5：范围复核 | Review diff, implementation quality, and contracts | Review |
 | `phase-6-regression` | 阶段 6：回归验证 | Regression verification | Review |
 | `phase-7-sync` | 阶段 7：状态同步 | Sync task, status, contracts, decisions | Sync |
 | `phase-8-delivery` | 阶段 8：交付沉淀 | Capture lessons, prepare summary, archive | Delivery |
@@ -477,7 +477,6 @@ These fields are part of the skill protocol and must appear in every skill templ
 | `stop_conditions` | `string[]` | Yes | Non-empty array. Conditions that must halt the skill. |
 | `output` | `string` | Yes | Non-empty. Describes the skill's output artifact or action. |
 | `handoff` | `object` | Yes | Must have exactly two keys: `success` (string) and `failure` (string). See §6 for validation rules. |
-| `conditional_handoff` | `object` | No | Optional route map for condition-specific next-step targets. Keys are route labels; values are skill targets or reserved manual nodes allowed by §6. |
 | `decision_policy` | `string` | Yes | Non-empty. Describes the skill's decision-making authority. |
 | `verification` | `string` | Yes | Non-empty. Describes how to verify the skill completed correctly. |
 
@@ -485,8 +484,6 @@ Notes:
 
 - All `string[]` fields are YAML sequences. A single-element list must still use sequence syntax.
 - The `handoff` object must not contain additional keys beyond `success` and `failure`.
-- `conditional_handoff`, when present, is a separate optional frontmatter field; it must not be encoded as extra keys inside `handoff`.
-- `conditional_handoff` route labels are protocol-local identifiers for branch classification. The current implementation validates only that each mapped target is valid; it does not impose a closed enum on route names.
 - Fields not listed above may appear in templates but are not validated by the protocol. Generators must not silently drop unknown fields.
 
 ---
@@ -506,11 +503,6 @@ The generator must validate the full handoff graph after rendering all skills.
 - another generated workflow skill
 - the reserved manual interaction node `ask-user`
 
-`conditional_handoff.<route>` may point to:
-
-- another generated workflow skill
-- the reserved manual interaction node `ask-user`
-
 ### 6.2 Invalid targets
 
 Generation must fail if a handoff points to:
@@ -518,8 +510,6 @@ Generation must fail if a handoff points to:
 - a missing skill
 - an empty value
 - a target outside the allowed set above
-
-The same invalid-target rule applies to every declared `conditional_handoff.<route>`.
 
 ### 6.3 Required chain coverage
 
@@ -531,9 +521,11 @@ design-baseline-init -> realign-workflow-assets? -> greenfield-init | legacy-inv
   -> review-current-task
   -> lock-scope
   -> classify-decisions
+  -> plan-implementation
   -> decompose-task
   -> implement-current-step
   -> review-diff
+  -> review-implementation
   -> verify-contracts
   -> run-regression
   -> sync-current-task
@@ -549,8 +541,10 @@ design-baseline-init -> realign-workflow-assets? -> greenfield-init | legacy-inv
 Plus the failure detour:
 
 ```text
-run-regression -> investigate-root-cause -> implement-current-step
+run-regression -> investigate-root-cause -> plan-implementation -> decompose-task -> implement-current-step
 ```
+
+- `investigate-root-cause` is a current-task failure detour, not a new bug intake command. If the user asks to register, record, or create a new bug, the workflow must route to `create-current-task` and must not hand off toward implementation unless the user later authorizes implementation.
 
 Plus the review-finding persistence detour:
 
@@ -558,7 +552,21 @@ Plus the review-finding persistence detour:
 review-diff | review-implementation -> sync-review-findings -> implement-current-step
 ```
 
-`review-implementation` is a supported source label for externally hosted implementation review output. It is not required to exist as a generated workflow skill in this protocol revision. The generated workflow-system skill for persistence is `sync-review-findings`.
+`review-implementation` is both a generated workflow skill and a supported source label for implementation review output. Mechanical implementation findings must be persisted by `sync-review-findings` before returning to implementation.
+
+Plus orchestration entrypoints that sequence existing workflow skills without replacing their read/write boundaries:
+
+```text
+execute-current-task -> review-current-task -> lock-scope -> classify-decisions -> plan-implementation -> decompose-task -> implement-current-step -> review-diff -> review-implementation -> verify-contracts -> run-regression
+continue-current-step -> implement-current-step -> review-diff -> review-implementation -> verify-contracts -> run-regression -> sync-current-task
+debug-and-fix-current-task -> investigate-root-cause -> plan-implementation -> decompose-task -> implement-current-step -> review-diff -> review-implementation -> verify-contracts -> run-regression
+review-current-diff -> review-diff -> review-implementation -> verify-contracts -> run-regression(report-only terminal report)
+close-current-task -> sync-current-task -> sync-status -> sync-contracts(no-op allowed) -> sync-decisions(no-op allowed) -> sync-host-guidance(no-op allowed) -> capture-lessons(no-op allowed) -> prepare-delivery-summary -> archive-task
+```
+
+- Orchestration entrypoints may define `child_overrides` for a child skill when the parent flow must constrain an otherwise normal handoff. `/review-current-diff` must override `/run-regression` with `qa_mode=report-only`, `terminal=true`, and suppressed success/failure handoffs.
+- `/review-diff` and `/review-implementation` must separate current-scope mechanical findings from findings that require human confirmation. The skill must classify findings by `conditional_handoff` before falling back to `handoff.failure`. Mechanical implementation findings within Allowed Files must hand off to `sync-review-findings`; user challenge, contract or architecture changes, and scope widening must stop at `ask-user` or `lock-scope`.
+- Every major or critical `/review-implementation` finding must include concrete evidence: `file_or_symbol`, `failing_scenario`, `why_current_implementation_fails`, `minimal_fix_direction`, and `required_test_or_smoke_evidence`.
 
 ---
 
@@ -604,13 +612,19 @@ Current implementation:
 The following skills are designated non-code-writing in the current templates and generated outputs:
 
 - `review-diff`
+- `review-implementation`
 - `sync-review-findings`
 - `verify-contracts`
 - `run-regression`
+- `execute-current-task`
+- `continue-current-step`
+- `debug-and-fix-current-task`
+- `review-current-diff`
+- `close-current-task`
 
 Current implementation:
 
-- this requirement is currently realized by template convention and generated output review (`writes: []` for read-only review / verification skills; `writes: [CURRENT_TASK.md]` for `sync-review-findings`)
+- this requirement is currently realized by template convention and generated output review (`writes: []` for read-only review / verification / orchestration skills; `writes: [CURRENT_TASK.md]` for `sync-review-findings`)
 - the generator does not yet infer which paths are "code paths" and does not apply additional semantic enforcement beyond the explicit `writes` declarations
 
 ### 7.5 Review finding persistence
@@ -625,7 +639,7 @@ read-only review -> sync-review-findings -> implement-current-step
 
 Rules:
 
-- `review-diff` and external `review-implementation` outputs remain read-only and must not write `CURRENT_TASK.md`.
+- `review-diff` and `review-implementation` outputs remain read-only and must not write `CURRENT_TASK.md`.
 - `sync-review-findings` is the only generated workflow skill dedicated to persisting structured review findings into `CURRENT_TASK.md > 审查问题队列`.
 - `sync-review-findings` may write only `CURRENT_TASK.md`.
 - Each persisted finding must retain severity, file / symbol, failure scenario, minimal fix direction, required test, status, source, and handoff target.
@@ -813,7 +827,7 @@ Each error is a JSON object on a single line of stderr:
 | Prefix | Category | Examples |
 |--------|----------|---------|
 | `SCHEMA_` | Missing or invalid metadata structure | `SCHEMA_001` missing required field, `SCHEMA_002` invalid metadata structure |
-| `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid `handoff` target or structure, `HANDOFF_003` invalid `conditional_handoff` target |
+| `HANDOFF_` | Handoff graph errors | `HANDOFF_001` invalid target or structure |
 | `PLACEHOLDER_` | Placeholder resolution errors | `PLACEHOLDER_001` unresolved placeholder |
 | `STAGE_` | Stage coverage errors | `STAGE_001` missing required stage coverage, `STAGE_002` invalid stage value |
 | `PATH_` | Path grammar violations | `PATH_001` invalid path entry |
@@ -823,7 +837,7 @@ Each error is a JSON object on a single line of stderr:
 
 Current implementation:
 
-- `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `HANDOFF_003`, `PLACEHOLDER_001`, `STAGE_001`, `STAGE_002`, `PATH_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
+- `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `PLACEHOLDER_001`, `STAGE_001`, `STAGE_002`, `PATH_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
 - `SYNC_` and additional suffixes such as `HANDOFF_002`, `PLACEHOLDER_002`, or `WRITE_002` remain namespace reservations at the protocol layer unless and until execution code emits them
 
 ### 9b.3 Human-readable summary
@@ -856,7 +870,7 @@ The workflow skill generator scope excludes the following:
 
 - generate docs templates
 - install generated skills into runtime host directories
-- auto-edit existing repo-native `SKILL.md` outputs
+- auto-edit existing gstack `SKILL.md` outputs
 - auto-discover task-level values like `TASK_ID`
 
 ---
@@ -871,11 +885,11 @@ This protocol is considered implemented when all of the following machine-checka
 |---|-----------|-------------|
 | 1 | Generated skill count equals template count | `bun run test:workflow-skills` — assertion: count match |
 | 2 | Every generated skill has all 13 required schema fields (§5.3) | `bun run test:workflow-skills` — schema field check |
-| 3 | Every `handoff.success` / `handoff.failure` target is valid, and every declared `conditional_handoff.<route>` target is valid (§6) | `bun run test:workflow-skills` — handoff validation |
+| 3 | Every `handoff.success` and `handoff.failure` target is valid (§6) | `bun run test:workflow-skills` — handoff validation |
 | 4 | No skill has `writes` / `forbidden_writes` overlap (§7.3) | `bun run test:workflow-skills` — boundary check |
 | 5 | All 10 stage groups are covered (§4a) | `bun run test:workflow-skills` — stage coverage |
 | 6 | All project-level placeholders are resolved; only runtime placeholders remain | `bun run test:workflow-skills` — placeholder check |
-| 7 | Output is isolated from repo-native `*/SKILL.md` artifacts | Output path is `docs/workflow/generated/workflow-skills/` — structural guarantee |
+| 7 | Output is isolated from native gstack `*/SKILL.md` artifacts | Output path is `docs/workflow/generated/workflow-skills/` — structural guarantee |
 
 ### 11.2 Registry generator (`gen:registry`)
 
@@ -1523,25 +1537,25 @@ Public runtime interface notes:
 Host-specific sync maps generated workflow artifacts to the path conventions of each supported AI host. The sync layer handles:
 
 - path resolution (where generated SKILL.md files and docs go)
-- host directory structure (`.claude/skills/`, `.codex/skills/`, `.factory/skills/`)
-- isolation from native host skill outputs
+- host directory structure (`.claude/skills/`, `.agents/skills/`, `.factory/skills/`)
+- isolation from native gstack skill outputs
 
 Supported hosts and their conventions:
 
 | Host | Skill output directory | Sync mechanism |
 |------|----------------------|----------------|
 | `claude` | `.claude/skills/workflow-system-*` | copy |
-| `codex` | `.codex/skills/workflow-system-*` | copy |
+| `codex` | `.agents/skills/workflow-system-*` | copy |
 | `factory` | `.factory/skills/workflow-system-*` | copy |
 
 Constraints on host sync:
 
-- host sync must not overwrite native host SKILL.md artifacts
+- host sync must not overwrite native gstack SKILL.md artifacts
 - host sync must not rewrite protocol semantics
 - host sync failures must not corrupt generated outputs or live docs
 - target projects consume the sync logic defined here; they do not reimplement it locally
 - `workflow:sync --write` must converge the host namespace to the current generated workflow skill set by pruning orphaned `workflow-system-*` directories within the selected host runtime root
-- orphan pruning must be limited to the isolated `workflow-system-*` namespace and must never touch native or other non-workflow host artifacts
+- orphan pruning must be limited to the isolated `workflow-system-*` namespace and must never touch native `gstack-*` or other non-workflow host artifacts
 - sync reporting must distinguish planned prune targets from successfully applied prune targets so dry-run and applied results are not conflated
 
 ### §17.5 Host detection
@@ -1560,10 +1574,10 @@ When host is unknown, the runtime entry reports a warning but does not fail — 
 
 Runtime integration must satisfy the following isolation guarantees:
 
-- workflow-system runtime outputs are separate from native host runtime outputs
+- workflow-system runtime outputs are separate from native gstack runtime outputs
 - workflow-system generated skills use isolated `workflow-system-*` namespaces, not the native skill namespace
 - runtime integration failures do not cascade to generators or protocol validation
-- a target project that imports the workflow-system does not acquire unrelated host-native skills or dependencies
+- a target project that imports the workflow-system does not acquire native gstack skills or dependencies
 
 ## 18. Long-term versioned governance
 

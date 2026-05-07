@@ -23,9 +23,8 @@ import {
   validateRuntimeSkillStages,
   validateRequiredFields,
   extractHandoff,
-  extractConditionalHandoff,
   validateHandoff,
-  validateConditionalHandoff,
+  RESERVED_FAILURE_TARGETS,
   resolveRoot,
   getWorkflowGeneratedDir,
   ensureCleanOutputDir,
@@ -63,6 +62,14 @@ const REQUIRED_FIELDS = [
 ] as const;
 
 const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
+const REQUIRED_IMPLEMENTATION_FINDING_EVIDENCE = new Set([
+  'file_or_symbol',
+  'failing_scenario',
+  'why_current_implementation_fails',
+  'severity',
+  'minimal_fix_direction',
+  'required_test_or_smoke_evidence',
+]);
 
 const PROJECT_TYPE_EMPHASIS: Record<string, string[]> = {
   'frontend-app': [
@@ -128,6 +135,117 @@ function validateWrites(skill: SkillFile): void {
   validateWriteBoundaryConflicts(skill.frontmatter, skill.filePath);
 }
 
+function requireMapping(value: JsonValue | undefined, field: string, context: string): JsonObject | null {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Invalid ${field} structure in ${context}: expected mapping`);
+  }
+  return value;
+}
+
+function requireString(value: JsonValue | undefined, field: string, context: string): string | null {
+  if (value == null) return null;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`Invalid ${field} in ${context}: expected non-empty string`);
+  }
+  return value.trim();
+}
+
+function isValidHandoffTarget(target: string, knownNames: Set<string>): boolean {
+  return knownNames.has(target) || RESERVED_FAILURE_TARGETS.has(target);
+}
+
+function validateConditionalHandoff(skill: SkillFile, knownNames: Set<string>): void {
+  const mapping = requireMapping(skill.frontmatter.conditional_handoff, 'conditional_handoff', skill.filePath);
+  if (!mapping) return;
+
+  for (const [condition, rawTarget] of Object.entries(mapping)) {
+    const target = requireString(rawTarget, `conditional_handoff.${condition}`, skill.filePath);
+    if (!target || !isValidHandoffTarget(target, knownNames)) {
+      throw new Error(`Invalid conditional_handoff target "${target}" in ${skill.filePath}`);
+    }
+  }
+}
+
+function validateChildOverrides(skill: SkillFile, skillsByName: Map<string, SkillFile>, knownNames: Set<string>): void {
+  const overrides = requireMapping(skill.frontmatter.child_overrides, 'child_overrides', skill.filePath);
+  if (!overrides) return;
+
+  for (const [childName, rawOverride] of Object.entries(overrides)) {
+    if (!knownNames.has(childName)) {
+      throw new Error(`Invalid child_overrides child "${childName}" in ${skill.filePath}`);
+    }
+
+    const override = requireMapping(rawOverride, `child_overrides.${childName}`, skill.filePath);
+    if (!override) {
+      throw new Error(`Invalid child_overrides.${childName} in ${skill.filePath}`);
+    }
+
+    const child = skillsByName.get(childName);
+    if (!child) {
+      throw new Error(`Missing child skill "${childName}" for ${skill.filePath}`);
+    }
+    const childHandoff = extractHandoff(child.frontmatter, child.filePath);
+
+    const suppressedSuccess = requireString(
+      override.suppress_success_handoff,
+      `child_overrides.${childName}.suppress_success_handoff`,
+      skill.filePath,
+    );
+    if (suppressedSuccess && suppressedSuccess !== childHandoff.success) {
+      throw new Error(
+        `Invalid child_overrides.${childName}.suppress_success_handoff "${suppressedSuccess}" in ${skill.filePath}: expected "${childHandoff.success}"`,
+      );
+    }
+
+    const suppressedFailure = requireString(
+      override.suppress_failure_handoff,
+      `child_overrides.${childName}.suppress_failure_handoff`,
+      skill.filePath,
+    );
+    if (
+      suppressedFailure &&
+      suppressedFailure !== childHandoff.failure
+    ) {
+      throw new Error(
+        `Invalid child_overrides.${childName}.suppress_failure_handoff "${suppressedFailure}" in ${skill.filePath}: expected "${childHandoff.failure}"`,
+      );
+    }
+
+    if ('terminal' in override && typeof override.terminal !== 'boolean') {
+      throw new Error(`Invalid child_overrides.${childName}.terminal in ${skill.filePath}: expected boolean`);
+    }
+
+    if ('qa_mode' in override && typeof override.qa_mode !== 'string') {
+      throw new Error(`Invalid child_overrides.${childName}.qa_mode in ${skill.filePath}: expected string`);
+    }
+  }
+}
+
+function validateFindingEvidence(skill: SkillFile): void {
+  const rawEvidence = skill.frontmatter.finding_evidence_required;
+  if (rawEvidence == null) return;
+  if (!Array.isArray(rawEvidence)) {
+    throw new Error(`Invalid finding_evidence_required in ${skill.filePath}: expected list`);
+  }
+
+  const actual = new Set(rawEvidence.map(item => String(item)));
+  for (const required of REQUIRED_IMPLEMENTATION_FINDING_EVIDENCE) {
+    if (!actual.has(required)) {
+      throw new Error(`Missing finding_evidence_required "${required}" in ${skill.filePath}`);
+    }
+  }
+}
+
+function validateWorkflowExtensionFields(skills: SkillFile[], knownNames: Set<string>): void {
+  const skillsByName = new Map(skills.map(skill => [skill.name, skill]));
+  for (const skill of skills) {
+    validateConditionalHandoff(skill, knownNames);
+    validateChildOverrides(skill, skillsByName, knownNames);
+    validateFindingEvidence(skill);
+  }
+}
+
 function formatSkill(frontmatter: JsonObject, body: string): string {
   return `---\n${stringify(frontmatter).trimEnd()}\n---\n\n${body.trimStart()}`;
 }
@@ -185,9 +303,7 @@ function main(): void {
     validateRequiredFields(renderedFrontmatter, REQUIRED_FIELDS, template.filePath);
     validateWrites(renderedFile);
     const handoff = extractHandoff(renderedFrontmatter, template.filePath);
-    const conditionalHandoff = extractConditionalHandoff(renderedFrontmatter, template.filePath);
     validateHandoff(handoff, knownNames, template.filePath);
-    validateConditionalHandoff(conditionalHandoff, knownNames, template.filePath);
 
     const outputPath = path.join(outputDir, `${template.name}.SKILL.md`);
     const content = formatSkill(renderedFrontmatter, renderedBody);
@@ -197,6 +313,7 @@ function main(): void {
     pendingWrites.push({ path: outputPath, content });
   }
 
+  validateWorkflowExtensionFields(renderedSkills, knownNames);
   validateRuntimeSkillStages(renderedSkills.map(skill => String(skill.frontmatter.stage)));
 
   // Phase 2: Write all files only after all validations pass

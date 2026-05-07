@@ -342,9 +342,9 @@ describe('gen-workflow-skills', () => {
     const handoff = frontmatter.handoff as Record<string, unknown>;
     const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
 
-    expect(handoff.success).toBe('verify-contracts');
+    expect(handoff.success).toBe('review-implementation');
     expect(handoff.failure).toBe('ask-user');
-    expect(conditionalHandoff.clean).toBe('verify-contracts');
+    expect(conditionalHandoff.clean).toBe('review-implementation');
     expect(conditionalHandoff.mechanical_implementation).toBe('sync-review-findings');
     expect(conditionalHandoff.scope_widening).toBe('lock-scope');
     expect(conditionalHandoff.product_contract_architecture).toBe('ask-user');

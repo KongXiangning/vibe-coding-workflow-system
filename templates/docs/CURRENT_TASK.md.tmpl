@@ -61,13 +61,25 @@
 
 - 
 
+## 实现方案
+
+- Goal:
+- Architecture impact:
+- Technical approach:
+- Alternatives considered:
+- Data / state flow:
+- Compatibility:
+- Risks and rollback:
+- Validation strategy:
+- Open decisions:
+
 ## 审查问题队列
 
 - 当前来源：
-- [ ] Finding ID：
+- Finding ID：
   - Severity：
   - Source：
-  - Status：open
+  - Status：
   - File / symbol：
   - Failure scenario：
   - Minimal fix direction：

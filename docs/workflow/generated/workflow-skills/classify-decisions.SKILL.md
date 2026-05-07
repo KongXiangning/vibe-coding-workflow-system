@@ -33,7 +33,7 @@ output:
   - 决策分类结果
   - 待确认的 Taste / User challenge 项
 handoff:
-  success: decompose-task
+  success: plan-implementation
   failure: ask-user
 decision_policy:
   mechanical: 可自动整理和分类已有明确决策。
@@ -51,7 +51,7 @@ allowed-tools:
 benefits-from:
   - /lock-scope
 notes:
-  - 这是治理 skill，不是设计替代品。
+  - 这是治理 skill，不是设计替代品；实现方案分析交给 plan-implementation。
 decision_policy_rules:
   - Mechanical 可自动决定
   - Taste 需要暴露给用户
@@ -146,7 +146,7 @@ decision_policy_rules:
 
 ## Notes
 
-- 这是治理 skill，不是设计替代品。
+- 这是治理 skill，不是设计替代品；实现方案分析交给 plan-implementation。
 - This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
 - This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
 

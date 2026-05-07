@@ -174,6 +174,8 @@ type ParsedCliArgs = {
   dryRun: boolean;
   outDir?: string;
   includeTests: boolean;
+  repairBootstrapDrift: boolean;
+  replaceManagedDrift: boolean;
 };
 
 export type BundleArtifact = {
@@ -275,6 +277,8 @@ export type InstallOptions = {
   root?: string;
   host?: RuntimeHost;
   dryRun?: boolean;
+  repairBootstrapDrift?: boolean;
+  replaceManagedDrift?: boolean;
 };
 
 type HostResolution = {
@@ -350,18 +354,17 @@ const SOURCE_PIPELINE: WorkflowSourcePipeline = {
 };
 
 const POST_INSTALL_COMMANDS = [
-  'bun install',
   'Invoke /design-baseline-init -> /realign-workflow-assets -> /greenfield-init when a new project already contains workflow assets that need migration, or /legacy-inventory -> /adopt-existing-project for existing repos.',
-  'bun run gen:all',
-  'bun run workflow:sync --host <claude|codex|factory> --write',
-  'bun run workflow:health',
+  'From the workflow-system source repo: WORKFLOW_SYSTEM_ROOT=<target-repo> bun run gen:all',
+  'From the workflow-system source repo: bun run workflow:sync --root <target-repo> --host <claude|codex|factory> --write',
+  'From the workflow-system source repo: bun run workflow:health --root <target-repo>',
 ];
 
 const VERIFICATION_COMMANDS = [
   'bun run validate:protocol',
   'bun run workflow:manifest --json',
-  'bun run workflow:health',
-  'bun run workflow:sync --host <claude|codex|factory> --write',
+  'bun run workflow:health --root <target-repo>',
+  'bun run workflow:sync --root <target-repo> --host <claude|codex|factory> --write',
 ];
 
 const REQUIRED_PACKAGE_SCRIPTS = [
@@ -380,7 +383,7 @@ const REQUIRED_PACKAGE_SCRIPTS = [
   'workflow:install',
 ] as const;
 
-const EXACT_MATCH_PROFILE_PATHS = ['runtime.package_manager', 'runtime.module_system'] as const;
+const EXACT_MATCH_PROFILE_PATHS = [] as const;
 const SUPERSET_PROFILE_PATHS = [
   'paths.workflow_template_directories',
   'paths.generated_artifacts',
@@ -493,7 +496,9 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
         flag === '--host' ||
         flag === '--root' ||
         flag === '--bundle' ||
-      flag === '--dry-run' ||
+        flag === '--dry-run' ||
+        flag === '--repair-bootstrap-drift' ||
+        flag === '--replace-managed-drift' ||
       flag === '--out-dir' ||
         flag === '--include-tests' ||
         flag.startsWith('--host=') ||
@@ -521,6 +526,8 @@ export function parseRuntimeCliArgs(argv: string[]): ParsedCliArgs {
     dryRun: flags.includes('--dry-run'),
     outDir,
     includeTests: flags.includes('--include-tests'),
+    repairBootstrapDrift: flags.includes('--repair-bootstrap-drift'),
+    replaceManagedDrift: flags.includes('--replace-managed-drift'),
   };
 }
 
@@ -629,7 +636,7 @@ function getHostCompatibilityNotes(): Record<RuntimeHost, HostCompatibilityNote>
       sync_mode: 'copy',
       notes: [
         'Workflow skills are copied into .claude/skills/workflow-system-<skill>/SKILL.md.',
-        'This namespace is separate from native host runtime outputs.',
+        'This namespace is separate from native gstack runtime outputs.',
       ],
     },
     codex: {
@@ -647,7 +654,7 @@ function getHostCompatibilityNotes(): Record<RuntimeHost, HostCompatibilityNote>
       sync_mode: 'copy',
       notes: [
         'Factory is supported through the same isolated copy-based sync model.',
-        'Workflow runtime outputs remain outside the native host namespace.',
+        'Workflow runtime outputs remain outside the native gstack namespace.',
       ],
     },
   };
@@ -1193,7 +1200,7 @@ function buildHostGuidanceContent(root: string, profile: JsonObject, fileName: '
     '- Bootstrap skills are preinstalled in both `.claude/skills/workflow-system-*` and `.codex/skills/workflow-system-*`.',
     '- New project: `/design-baseline-init` -> `/greenfield-init`, and insert `/realign-workflow-assets` first if the repo already contains old workflow assets.',
     '- Existing project: `/legacy-inventory` -> `/adopt-existing-project`.',
-    '- After bootstrap or workflow template changes, run `bun run gen:all`, `bun run workflow:sync --host claude --write`, `bun run workflow:sync --host codex --write`, and `bun run workflow:health`.',
+    '- After bootstrap or workflow template changes, run generation from the workflow-system source repo with `WORKFLOW_SYSTEM_ROOT=<target-repo>`, then run `workflow:sync --root <target-repo>` and `workflow:health --root <target-repo>`.',
     '- When project-wide AI collaboration rules, host instructions, or shared workflow commands change later, run `/sync-host-guidance` so `AGENTS.md` and `CLAUDE.md` stay aligned.',
     '',
     `This file was scaffolded during workflow-system install so ${fileName === 'AGENTS.md' ? 'Codex-compatible agents' : 'Claude'} can start from the same governance baseline.`,
@@ -1224,14 +1231,16 @@ function buildBootstrapWorkflowGuideContent(root: string, profile: JsonObject): 
     '',
     '## 然后做什么',
     '',
-    '完成 bootstrap / adoption 后，在目标项目根目录执行：',
+    '完成 bootstrap / adoption 后，回到 workflow-system 源仓库执行，不要为了 workflow-system 迁移在目标项目里跑 `bun install`：',
     '',
     '```powershell',
-    'bun install',
+    '$target = "<target-repo>"',
+    '$env:WORKFLOW_SYSTEM_ROOT = $target',
     'bun run gen:all',
-    'bun run workflow:sync --host claude --write',
-    'bun run workflow:sync --host codex --write',
-    'bun run workflow:health',
+    '$env:WORKFLOW_SYSTEM_ROOT = $null',
+    'bun run workflow:sync --root $target --host claude --write',
+    'bun run workflow:sync --root $target --host codex --write',
+    'bun run workflow:health --root $target',
     '```',
     '',
     '执行完这组命令后，项目里会出现完整的 `docs/workflow/` 生成产物和全量 workflow skills。',
@@ -1287,10 +1296,27 @@ function extractProfileFragment(profile: JsonObject): JsonObject {
   for (const dottedPath of [...EXACT_MATCH_PROFILE_PATHS, ...SUPERSET_PROFILE_PATHS, ...ADDITIVE_PROFILE_PATHS]) {
     const value = getDottedValue(profile, dottedPath);
     if (value !== undefined) {
-      setDottedValue(fragment, dottedPath, deepClone(value));
+      if (dottedPath === 'validation.matrix' && Array.isArray(value)) {
+        setDottedValue(
+          fragment,
+          dottedPath,
+          value.filter(entry =>
+            entry &&
+            typeof entry === 'object' &&
+            !Array.isArray(entry) &&
+            String((entry as Record<string, unknown>).owner ?? '') === 'workflow-system',
+          ).map(entry => deepClone(entry as JsonObject)),
+        );
+      } else {
+        setDottedValue(fragment, dottedPath, deepClone(value));
+      }
     }
   }
   return fragment;
+}
+
+function normalizeInstalledProfileFragment(fragment: JsonObject): JsonObject {
+  return extractProfileFragment(fragment);
 }
 
 function checkProfileCompleteness(profile: JsonObject): string[] {
@@ -1510,6 +1536,7 @@ function buildReplaceManagedPlan(
   bundleDir: string,
   bundle: WorkflowBundle,
   installState?: InstallState,
+  options: { replaceManagedDrift?: boolean } = {},
 ): { plannedWrites: PlannedWrite[]; managedFiles: ManagedFileEntry[]; failures: PreflightFailure[] } {
   const failures: PreflightFailure[] = [];
   const plannedWrites: PlannedWrite[] = [];
@@ -1528,7 +1555,7 @@ function buildReplaceManagedPlan(
       path: relativePath,
       mode: 'replace-managed',
       bundle_checksum: artifact.checksum,
-      installed_checksum: currentExists ? currentChecksum! : artifact.checksum,
+      installed_checksum: artifact.checksum,
     });
 
     if (!installState) {
@@ -1545,10 +1572,21 @@ function buildReplaceManagedPlan(
     }
 
     if (currentExists && stateEntry && currentChecksum !== stateEntry.installed_checksum) {
-      failures.push({
-        category: 'local_drift',
-        path: relativePath,
-        message: 'Managed file was modified locally since last install.',
+      if (currentChecksum === artifact.checksum) {
+        continue;
+      }
+      if (!options.replaceManagedDrift) {
+        failures.push({
+          category: 'local_drift',
+          path: relativePath,
+          message: 'Managed file was modified locally since last install. Re-run with --replace-managed-drift only after confirming workflow-system managed files may be replaced from the bundle.',
+        });
+        continue;
+      }
+      plannedWrites.push({
+        path: targetPath,
+        action: 'overwrite',
+        mode: 'replace-managed',
       });
       continue;
     }
@@ -1563,15 +1601,20 @@ function buildReplaceManagedPlan(
   }
 
   for (const prior of installState?.managed_files ?? []) {
+    if (prior.mode !== 'replace-managed') {
+      continue;
+    }
     if (!bundlePaths.has(normalizeRelativePath(prior.path))) {
       const targetPath = path.join(root, prior.path.replace(/\//g, path.sep));
       if (fs.existsSync(targetPath) && computeFileChecksum(targetPath) !== prior.installed_checksum) {
-        failures.push({
-          category: 'local_drift',
-          path: prior.path,
-          message: 'Managed file slated for prune was modified locally since last install.',
-        });
-        continue;
+        if (!options.replaceManagedDrift) {
+          failures.push({
+            category: 'local_drift',
+            path: prior.path,
+            message: 'Managed file slated for prune was modified locally since last install. Re-run with --replace-managed-drift only after confirming workflow-system managed files may be pruned.',
+          });
+          continue;
+        }
       }
       plannedWrites.push({ path: targetPath, action: 'delete', mode: 'replace-managed' });
     }
@@ -1586,6 +1629,7 @@ function buildBootstrapManagedPlan(
   hosts: readonly RuntimeHost[],
   profile: JsonObject,
   installState?: InstallState,
+  options: { repairBootstrapDrift?: boolean } = {},
 ): { plannedWrites: PlannedWrite[]; managedFiles: ManagedFileEntry[]; failures: PreflightFailure[] } {
   const failures: PreflightFailure[] = [];
   const plannedWrites: PlannedWrite[] = [];
@@ -1606,7 +1650,7 @@ function buildBootstrapManagedPlan(
       path: relativePath,
       mode: 'bootstrap-skill-install',
       bundle_checksum: expectedChecksum,
-      installed_checksum: currentExists ? currentChecksum! : expectedChecksum,
+      installed_checksum: expectedChecksum,
     });
 
     if (!installState) {
@@ -1623,10 +1667,20 @@ function buildBootstrapManagedPlan(
     }
 
     if (currentExists && stateEntry && currentChecksum !== stateEntry.installed_checksum) {
-      failures.push({
-        category: 'local_drift',
-        path: relativePath,
-        message: 'Bootstrap skill was modified locally since last install.',
+      if (currentChecksum === expectedChecksum) {
+        continue;
+      }
+      if (!options.repairBootstrapDrift) {
+        failures.push({
+          category: 'local_drift',
+          path: relativePath,
+          message: 'Bootstrap skill was modified locally since last install. Re-run with --repair-bootstrap-drift to replace workflow-system bootstrap skills only.',
+        });
+        continue;
+      }
+      plannedWrites.push({
+        ...planned,
+        action: 'overwrite',
       });
       continue;
     }
@@ -1645,12 +1699,14 @@ function buildBootstrapManagedPlan(
     }
     const targetPath = path.join(root, prior.path.replace(/\//g, path.sep));
     if (fs.existsSync(targetPath) && computeFileChecksum(targetPath) !== prior.installed_checksum) {
-      failures.push({
-        category: 'local_drift',
-        path: prior.path,
-        message: 'Bootstrap skill slated for prune was modified locally since last install.',
-      });
-      continue;
+      if (!options.repairBootstrapDrift) {
+        failures.push({
+          category: 'local_drift',
+          path: prior.path,
+          message: 'Bootstrap skill slated for prune was modified locally since last install. Re-run with --repair-bootstrap-drift to prune workflow-system bootstrap skills only.',
+        });
+        continue;
+      }
     }
     plannedWrites.push({ path: targetPath, action: 'delete', mode: 'bootstrap-skill-install' });
   }
@@ -1714,7 +1770,13 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     : undefined;
   const failures: PreflightFailure[] = [];
 
-  const replaceManagedPlan = buildReplaceManagedPlan(root, bundleDir, bundle, existingInstallState);
+  const replaceManagedPlan = buildReplaceManagedPlan(
+    root,
+    bundleDir,
+    bundle,
+    existingInstallState,
+    { replaceManagedDrift: options.replaceManagedDrift },
+  );
   failures.push(...replaceManagedPlan.failures);
 
   const packagePlan = buildPackageJsonPlan(root, bundle, existingInstallState);
@@ -1729,7 +1791,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
       });
     } else {
       const currentProfileFragment = extractProfileFragment(existingProfile);
-      if (!deepEqual(currentProfileFragment, existingInstallState.project_profile_fragment)) {
+      if (!deepEqual(currentProfileFragment, normalizeInstalledProfileFragment(existingInstallState.project_profile_fragment))) {
         failures.push({
           category: 'local_drift',
           path: WORKFLOW_PROFILE_RELATIVE_PATH,
@@ -1760,6 +1822,7 @@ export function installWorkflowBundle(options: InstallOptions): InstallReport {
     bootstrapHosts,
     profilePlan.profile,
     existingInstallState,
+    { repairBootstrapDrift: options.repairBootstrapDrift },
   );
   failures.push(...bootstrapPlan.failures);
 
@@ -1912,11 +1975,6 @@ export function getExportManifest(root?: string): ExportManifest {
             name: 'package-json-integration',
             description: 'Merge the minimum package.json contract required for workflow:* / gen:* / validate:* scripts and runtime dependencies.',
           },
-          {
-            name: 'install-dependencies',
-            description: 'Install runtime dependencies declared by the imported workflow-system package.json contract.',
-            command: 'bun install',
-          },
         ],
       },
       init: {
@@ -1933,18 +1991,18 @@ export function getExportManifest(root?: string): ExportManifest {
         steps: [
           {
             name: 'generate-outputs',
-            description: 'After the init skill writes the project baseline, render the workflow skills, docs, and registry through the imported package.json script contract inside the target project.',
-            command: 'bun run gen:all',
+            description: 'After the init skill writes the project baseline, render the workflow skills, docs, and registry from the workflow-system source repo against the target root.',
+            command: 'WORKFLOW_SYSTEM_ROOT=<target-repo> bun run gen:all',
           },
           {
             name: 'sync-host-runtime',
-            description: 'Expand the target host namespace from the 4 preinstalled bootstrap entrypoints into the full generated workflow skill set.',
-            command: 'bun run workflow:sync --host <claude|codex|factory> --write',
+            description: 'Expand the target host namespace from the preinstalled bootstrap entrypoints into the full generated workflow skill set.',
+            command: 'bun run workflow:sync --root <target-repo> --host <claude|codex|factory> --write',
           },
           {
             name: 'verify-health',
-            description: 'Run repo-local health checks through the imported package.json script contract after host sync.',
-            command: 'bun run workflow:health',
+            description: 'Run workflow health checks from the workflow-system source repo against the target root after host sync.',
+            command: 'bun run workflow:health --root <target-repo>',
           },
         ],
       },
@@ -2299,6 +2357,8 @@ function main(): void {
       root: args.root ?? process.cwd(),
       host: args.host,
       dryRun: args.dryRun,
+      repairBootstrapDrift: args.repairBootstrapDrift,
+      replaceManagedDrift: args.replaceManagedDrift,
     });
     writeCliReport(args.json ? JSON.stringify(report, null, 2) : formatInstallReport(report), {
       json: args.json,

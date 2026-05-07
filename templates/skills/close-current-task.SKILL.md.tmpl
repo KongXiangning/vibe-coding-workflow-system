@@ -1,0 +1,108 @@
+---
+name: close-current-task
+preamble-tier: 2
+version: 0.2.0
+description: |
+  Orchestrate current-task closure: sync records, capture lessons, prepare summary, and archive.
+purpose: |
+  在实现和验证完成后，按顺序同步任务、状态、契约、决策、宿主指引、经验、交付摘要和归档。
+stage: 阶段 8：交付沉淀
+trigger: |
+  当前任务实现、审查和验证完成，用户要求收尾、交付或归档时。
+inputs:
+  - current_task
+  - verification_results
+  - delivery_facts
+reads:
+  - CURRENT_TASK.md
+  - STATUS.md
+  - CONTRACTS.md
+  - DECISIONS.md
+  - LESSONS.md
+writes: []
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+must_check:
+  - CURRENT_TASK.md 的验收标准是否已满足或明确剩余风险
+  - 回归检查项是否已有结果
+  - 是否有新稳定边界需要 sync-contracts
+  - 是否有新确认决策需要 sync-decisions
+  - 是否有宿主指引变化需要 sync-host-guidance
+  - 是否有可复用经验需要 capture-lessons
+stop_conditions:
+  - 验证未完成却试图归档
+  - 剩余 blocker 未处理或未记录
+  - TASK_ID、TASK_TITLE 或 TASK_SLUG 缺失
+  - 需要同步契约、决策或状态但事实不明确
+output:
+  - Closure sequence
+  - Synced governance facts
+  - Delivery summary
+  - Archive handoff
+handoff:
+  success: sync-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动同步已验证事实和生成交付摘要结构。
+  taste: 不美化失败、风险或未完成事项。
+  user_challenge: 归档前存在 blocker 或事实不明确时必须停下确认。
+verification:
+  - 已先同步 CURRENT_TASK.md 和 STATUS.md
+  - 已按需处理 CONTRACTS.md、DECISIONS.md、host guidance 和 LESSONS.md
+  - 已准备交付摘要并进入归档
+  - 没有直接修改代码或治理文档
+allowed-tools:
+  - Read
+  - AskUserQuestion
+benefits-from:
+  - /run-regression
+  - /sync-current-task
+notes:
+  - 这是任务收尾编排入口，底层同步 skill 决定具体写入。
+orchestration_sequence:
+  - sync-current-task
+  - sync-status
+  - sync-contracts
+  - sync-decisions
+  - sync-host-guidance
+  - capture-lessons
+  - prepare-delivery-summary
+  - archive-task
+optional_steps:
+  - sync-contracts: 仅当形成新稳定接口、结构或架构边界时执行
+  - sync-decisions: 仅当有新确认决策时执行
+  - sync-host-guidance: 仅当项目级宿主指引变化时执行
+  - capture-lessons: 仅当有可复用经验或重复踩坑时执行
+---
+
+# Skill: close-current-task
+
+## Purpose
+
+在实现和验证完成后，按顺序同步任务、状态、契约、决策、宿主指引、经验、交付摘要和归档。
+
+## Orchestration Sequence
+
+```text
+/sync-current-task
+-> /sync-status
+-> /sync-contracts
+-> /sync-decisions
+-> /sync-host-guidance
+-> /capture-lessons
+-> /prepare-delivery-summary
+-> /archive-task
+```
+
+## Optional Steps
+
+- `/sync-contracts`：只有形成新稳定接口、结构或架构边界时执行。
+- `/sync-decisions`：只有产生新确认决策时执行。
+- `/sync-host-guidance`：只有项目级宿主指引变化时执行。
+- `/capture-lessons`：只有有可复用经验或重复踩坑时执行。
+
+## Rules
+
+- 验证未完成或仍有 blocker 时不得归档。
+- 归档前必须确认任务 ID、任务标题和任务 slug 已物化。
+- 交付摘要必须保留剩余风险，不得只写成功结论。

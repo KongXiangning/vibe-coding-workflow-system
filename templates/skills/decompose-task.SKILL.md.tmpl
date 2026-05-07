@@ -8,25 +8,29 @@ purpose: |
   把任务拆成独立、可验证、低污染的小步骤。
 stage: 阶段 3：方案拆解
 trigger: |
-  完成决策分级后。
+  完成实现方案分析后。
 inputs:
   - current_task
   - decision_classification
+  - implementation_plan
   - project_profile
 reads:
   - CURRENT_TASK.md
   - .workflow-system/PROJECT_PROFILE.yaml
   - DECISIONS.md
+  - CONTRACTS.md
 writes:
   - CURRENT_TASK.md
 forbidden_writes:
   - "{{CODE_DIRECTORIES}}"
 must_check:
+  - CURRENT_TASK.md 是否已有实现方案、架构影响、技术路线和验证策略
   - 每步是否有明确输入输出
   - 每步是否可独立验证
   - UI / 视觉任务是否按 Design mode 拆出设计步骤
   - 是否避免同一轮混合多类改动
 stop_conditions:
+  - 缺少实现方案或方案仍有未确认技术取舍
   - 步骤拆分后仍需要同时改太多模块
   - 当前步骤仍包含未确认决策
   - UI 任务把 design exploration、design implementation、visual QA 混成同一步
@@ -51,9 +55,9 @@ allowed-tools:
   - Edit
   - AskUserQuestion
 benefits-from:
-  - /classify-decisions
+  - /plan-implementation
 notes:
-  - 拆解结果应直接服务后续 implement-current-step。
+  - 拆解结果应基于 plan-implementation 的实现方案，并直接服务后续 implement-current-step。
 required_sections:
   - 执行记录
 acceptance_rules:
@@ -78,12 +82,13 @@ design_step_rules:
 
 ## Trigger
 
-完成决策分级后。
+完成实现方案分析后。
 
 ## Inputs
 
 - current_task
 - decision_classification
+- implementation_plan
 - project_profile
 
 ## Project Variables
@@ -110,6 +115,7 @@ design_step_rules:
 
 ## Must Check
 
+- CURRENT_TASK.md 是否已有实现方案、架构影响、技术路线和验证策略
 - 每步是否有明确输入输出
 - 每步是否可独立验证
 - UI / 视觉任务是否按 Design mode 拆出设计步骤
@@ -117,6 +123,7 @@ design_step_rules:
 
 ## Stop Conditions
 
+- 缺少实现方案或方案仍有未确认技术取舍
 - 步骤拆分后仍需要同时改太多模块
 - 当前步骤仍包含未确认决策
 - UI 任务把 design exploration、design implementation、visual QA 混成同一步
@@ -185,6 +192,6 @@ UI / 视觉任务必须按 `Design mode` 拆分，不得把方向选择、实现
 
 ## Notes
 
-- 拆解结果应直接服务后续 implement-current-step。
+- 拆解结果应基于 plan-implementation 的实现方案，并直接服务后续 implement-current-step。
 - This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
 - Replace project variables with concrete project-specific values during skill generation.

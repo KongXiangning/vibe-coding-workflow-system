@@ -91,8 +91,10 @@
 1. `/lock-scope`：实现前锁定允许/禁止范围。
 2. `/implement-current-step`：只做当前步骤，不扩大任务。
 3. `/review-diff`：实现后检查实际 diff 是否越界。
-4. `/verify-contracts`：检查稳定接口、架构边界、目录职责是否被破坏。
-5. `/run-regression`：按 `CURRENT_TASK.md` 的回归检查项验证。
+4. `/review-implementation`：检查实现是否真正满足目标、逻辑是否正确、边界和异常路径是否鲁棒、测试是否充分。
+5. `/sync-review-findings`：只读审查发现当前 Allowed Files 内可修的 mechanical implementation findings 时，先写入 `CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。
+6. `/verify-contracts`：检查稳定接口、架构边界、目录职责是否被破坏。
+7. `/run-regression`：按 `CURRENT_TASK.md` 的回归检查项验证。
 
 ## 产出物怎么用
 
@@ -116,7 +118,7 @@ workflow-system 的治理产出物分工如下。这里说明使用入口和更�
 1. 先看 `STATUS.md` / `ROADMAP.md` 判断当前项目状态和任务是否处在正确窗口。
 2. 用 `CURRENT_TASK.md` 固定本轮目标、允许/禁止范围、验收标准和回归检查项。
 3. 实现前对照 `CONTRACTS.md` / `DECISIONS.md`，确认不会破坏稳定边界或已确认决策。
-4. 实现后运行 `/review-diff`、`/verify-contracts`、`/run-regression` 做范围、契约和回归复核。
+4. 实现后运行 `/review-diff`、`/review-implementation`、`/verify-contracts`、`/run-regression` 做范围、实现质量、契约和回归复核；只读审查发现当前 Allowed Files 内可修的 mechanical implementation findings 时，先用 `/sync-review-findings` 写入 `CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。
 5. 结束时同步 `STATUS.md`，必要时更新 `LESSONS.md`，用 `/prepare-delivery-summary` 输出交付摘要，再由 `/archive-task` 归档到 `TASKS/TASK-...`。
 
 ## 常用命令模版
@@ -157,6 +159,29 @@ bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --js
 
 ```powershell
 bun run workflow:install --bundle $bundle.FullName --root $target
+```
+
+如果目标项目**已经安装过 workflow-system 并且完成过初始化 / adoption**，不要删除 `.workflow-system/`、`docs/workflow/`、`.claude/skills/`、`.codex/skills/` 后重新安装。先用 install preflight 判断是否只是 workflow-system 管理面漂移：
+
+```powershell
+bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --json
+```
+
+如果 dry-run 失败类别是 `local_drift`，并且你确认差异只发生在 workflow-system 管理文件上，可以改用修复漂移参数重新 dry-run：
+
+```powershell
+bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --json --replace-managed-drift --repair-bootstrap-drift
+```
+
+这两个参数只放开对应管理面的覆盖 / 删除，不会重做项目事实盘点，也不会覆盖已存在的 `AGENTS.md` / `CLAUDE.md`：
+
+- `--replace-managed-drift`：允许用 bundle 替换或裁剪 workflow-system 的核心管理文件，例如 `.workflow-system/FILE_SCHEMAS.md`、`.workflow-system/WORKFLOW_PROTOCOL.md`、runtime scripts、`templates/**` 等由上次 install-state 记录为 `replace-managed` 的文件。只在确认这些文件可以回到 bundle 版本时使用。
+- `--repair-bootstrap-drift`：允许重新渲染或裁剪 install 阶段预装的 bootstrap skills，例如 `.claude/skills/workflow-system-*/SKILL.md` 和 `.codex/skills/workflow-system-*/SKILL.md` 中的 5 个 bootstrap skill。它只修 bootstrap skill 安装面，不代表重新初始化目标项目。
+
+确认带参数 dry-run 输出的 planned writes / deletes 都符合预期，并且没有 `frozen_path`、`contract_conflict` 或 `incompatible_target` 后，再执行真实修复：
+
+```powershell
+bun run workflow:install --bundle $bundle.FullName --root $target --replace-managed-drift --repair-bootstrap-drift
 ```
 
 `workflow:install` 现在默认按双宿主 bootstrap 语义执行，因此 install 阶段不需要再显式传 `--host codex`。
@@ -202,8 +227,8 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 这份 guide 不等于完整生成产物，但会明确告诉你：
 
 - 该先走哪条 bootstrap 链
-- 什么时候执行 `bun run gen:all`
-- 什么时候执行 `workflow:sync`
+- 什么时候回到 workflow-system 源仓库执行 `bun run gen:all`
+- 什么时候从 workflow-system 源仓库执行 `workflow:sync --root <target-repo>`
 - 为什么 install 后暂时只有 5 个 bootstrap skills
 
 安装后请在 **Claude 或 Codex 任一目标宿主里**调用 bootstrap skill 链：
@@ -219,13 +244,18 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 - `workflow:install` 只会为缺失的 `AGENTS.md` / `CLAUDE.md` 补首版 scaffold
 - `greenfield-init` / `adopt-existing-project` 会再把这两份宿主指引文件补全到可用治理基线
 
-完成 bootstrap / adoption 后，在目标项目根目录执行：
+完成 bootstrap / adoption 后，回到 **workflow-system 源仓库根目录** 执行。目标项目只提供 `.workflow-system/PROJECT_PROFILE.yaml` 和治理事实；不要为了 workflow-system 迁移在目标项目里执行 `bun install`、`bun run gen:all` 或 `workflow:sync`。
 
 ```powershell
-bun install
+$target = "E:\coding\github\your-project"
+
+$env:WORKFLOW_SYSTEM_ROOT = $target
 bun run gen:all
-bun run workflow:sync --host claude --write
-bun run workflow:sync --host codex --write
+$env:WORKFLOW_SYSTEM_ROOT = $null
+
+bun run workflow:sync --root $target --host claude --write
+bun run workflow:sync --root $target --host codex --write
+bun run workflow:health --root $target
 ```
 
 执行完这组命令后，宿主目录会从上面的 5 个 bootstrap skills 扩展成当前目标项目 profile 渲染出的**完整 workflow skill 集**。
@@ -236,16 +266,15 @@ bun run workflow:sync --host codex --write
 
 让 `AGENTS.md` 与 `CLAUDE.md` 保持同一治理基线。
 
-### 在目标项目里验证
+### 从 workflow-system 源仓库验证目标项目
 
-进入目标项目根目录后执行：
+目标项目完成 bootstrap / adoption、生成和 sync 后，在 workflow-system 源仓库根目录执行：
 
 ```powershell
-bun run workflow:health
-bun run validate:all
+bun run workflow:health --root $target
 ```
 
-如果只验证 workflow-system 协议层：
+如果只验证 workflow-system 源仓库协议层：
 
 ```powershell
 bun run validate:protocol

@@ -104,7 +104,8 @@ allowed-tools:
   - AskUserQuestion
 notes:
   - 这是迁移 / 重排 skill，不替代 `greenfield-init` 或 `adopt-existing-project` 的治理初始化职责。
-  - 可以复用 `bun run gen:all` 与 `bun run workflow:sync --host ... --write`，但入口必须由 skill 主导，而不是让用户自己猜该跑哪些脚本。
+  - 可以复用 workflow-system 源仓库里的 `bun run gen:all` 与 `bun run workflow:sync --root ... --host ... --write`，但入口必须由 skill 主导，而不是让用户自己猜该跑哪些脚本。
+  - 不要为了 workflow-system 迁移在 target project 内执行 `bun install`；如需重渲染，回到 workflow-system 源仓库设置 `WORKFLOW_SYSTEM_ROOT=<target-repo>` 后运行生成器。
   - 如果治理基线已经齐全，完成后可以直接进入 `create-current-task`；`greenfield-init` 是默认成功 handoff，不是唯一后续动作。
 asset_groups:
   - workflow governance docs
@@ -118,10 +119,11 @@ migration_rules:
   - 删除或 prune 前必须确认该目标是 workflow 管理资产
   - host runtime 同步后只允许删除 `workflow-system-` 前缀 orphan skills
 runtime_sync_commands:
-  - bun run gen:all
-  - bun run workflow:sync --host claude --write
-  - bun run workflow:sync --host codex --write
-  - bun run workflow:sync --host factory --write
+  - WORKFLOW_SYSTEM_ROOT=<target-repo> bun run gen:all
+  - bun run workflow:sync --root <target-repo> --host claude --write
+  - bun run workflow:sync --root <target-repo> --host codex --write
+  - bun run workflow:sync --root <target-repo> --host factory --write
+  - bun run workflow:health --root <target-repo>
 ---
 
 # Skill: realign-workflow-assets
@@ -206,18 +208,19 @@ runtime_sync_commands:
 - host runtime 同步后只允许删除 `workflow-system-` 前缀 orphan skills
 
 ### runtime_sync_commands
-- bun run gen:all
-- bun run workflow:sync --host claude --write
-- bun run workflow:sync --host codex --write
-- bun run workflow:sync --host factory --write
+- WORKFLOW_SYSTEM_ROOT=<target-repo> bun run gen:all
+- bun run workflow:sync --root <target-repo> --host claude --write
+- bun run workflow:sync --root <target-repo> --host codex --write
+- bun run workflow:sync --root <target-repo> --host factory --write
+- bun run workflow:health --root <target-repo>
 
 ## Execution Protocol
 
 1. 先做一张资产对账表，按 `add / replace / move / keep / delete` 五类列出当前项目的 workflow 资产，不要边看边改。
 2. 目标目录分类以 `docs/workflow/DOCUMENT_CATALOG.md` 为准：治理文档进 `docs/workflow/`，设计基线进 `docs/designs/`，老项目盘点进 `docs/adoption/`。根目录只保留宿主入口与系统控制文件。
 3. 如果同时发现旧路径和新路径文件，先比较内容。内容相同则可以安全归并；内容分叉则按 `handoff.failure` 停下，让用户决定覆盖、合并还是保留双份。
-4. runtime skill 整理优先复用 `bun run workflow:sync --host ... --write`。这一步只允许 prune `workflow-system-` 前缀 orphan 目录，绝不删除宿主自己的原生 skill。
-5. 需要重渲染 generated docs 或 generated skills 时，先执行 `bun run gen:all`，再同步宿主 runtime。不要手改 generated reference render。
+4. runtime skill 整理优先复用 workflow-system 源仓库里的 `bun run workflow:sync --root <target-repo> --host ... --write`。这一步只允许 prune `workflow-system-` 前缀 orphan 目录，绝不删除宿主自己的原生 skill。
+5. 需要重渲染 generated docs 或 generated skills 时，回到 workflow-system 源仓库，设置 `WORKFLOW_SYSTEM_ROOT=<target-repo>` 后执行 `bun run gen:all`，再用 `--root <target-repo>` 同步宿主 runtime。不要在 target project 内为了 workflow-system 迁移执行 `bun install`，也不要手改 generated reference render。
 6. `AGENTS.md`、`CLAUDE.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 视为一个整体。只改其中一个会让宿主行为漂移，所以必须一起检查、一起更新。
 7. 这是 workflow 资产重排，不是业务实现。不要修改 `package.json`、`scripts/**` 或 `{{CODE_DIRECTORIES}}` 下的业务代码。
 8. 完成后给出清晰结果：哪些资产新增、哪些替换、哪些移动、哪些删除、哪些差异还需要人工决策。

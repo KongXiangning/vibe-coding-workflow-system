@@ -1,0 +1,115 @@
+---
+name: review-current-diff
+preamble-tier: 2
+version: 0.2.0
+description: |
+  Orchestrate report-only review of the current diff without implementing fixes.
+purpose: |
+  只审查当前 diff，不修复；输出范围、实现质量、契约和回归验证风险。
+stage: 阶段 5：范围复核
+trigger: |
+  用户要求 review、只报告问题、不要改代码，或准备合并前需要审查当前 diff 时。
+inputs:
+  - current_diff
+  - current_task
+  - contracts
+  - decisions
+reads:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+  - LESSONS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+writes: []
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+  - STATUS.md
+must_check:
+  - review-diff 是否检查越界和 scope drift
+  - review-implementation 是否检查实现合理性和鲁棒性
+  - verify-contracts 是否检查契约风险
+  - run-regression 是否显式使用 report-only
+  - report-only 结果是否停在审查报告，不继续进入 sync-current-task、investigate-root-cause 或 implement-current-step
+stop_conditions:
+  - 缺少当前 diff 或 CURRENT_TASK.md
+  - 发现 blocker 但用户要求继续自动修复
+  - run-regression 需要登录态、生产环境或外部资源但不可用
+  - run-regression 未能以 report-only 模式执行
+output:
+  - Review-only report
+  - Scope findings
+  - Implementation findings
+  - Contract findings
+  - Regression findings
+  - Ship readiness risk
+handoff:
+  success: review-diff
+  failure: ask-user
+child_overrides:
+  run-regression:
+    qa_mode: report-only
+    terminal: true
+    suppress_success_handoff: sync-current-task
+    suppress_failure_handoff: investigate-root-cause
+decision_policy:
+  mechanical: 可以自动执行只读审查和验证。
+  taste: 不输出纯风格偏好作为阻塞问题。
+  user_challenge: 用户要求只审查时不得进入实现或修复。
+verification:
+  - 已保持只读
+  - 已覆盖范围、实现质量、契约和回归四层
+  - 已明确 findings 是否阻塞
+  - run-regression 以 report-only 模式结束，未继续 handoff 到修复或同步链
+  - 没有直接修改代码或治理文档
+allowed-tools:
+  - Read
+  - AskUserQuestion
+benefits-from:
+  - /review-diff
+  - /review-implementation
+notes:
+  - 这是只读审查编排入口，发现问题也不进入 implement-current-step。
+  - report-only 流程中，run-regression 的 success / failure handoff 都应被视为 terminal report，不继续自动跟随。
+orchestration_sequence:
+  - review-diff
+  - review-implementation
+  - verify-contracts
+  - run-regression(report-only)
+orchestration_constraints:
+  - run-regression must receive qa_mode=report-only
+  - report-only run-regression result is terminal
+  - suppress run-regression success handoff to sync-current-task
+  - suppress run-regression failure handoff to investigate-root-cause
+---
+
+# Skill: review-current-diff
+
+## Purpose
+
+只审查当前 diff，不修复；输出范围、实现质量、契约和回归验证风险。
+
+## Orchestration Sequence
+
+```text
+/review-diff
+-> /review-implementation
+-> /verify-contracts
+-> /run-regression(report-only)
+```
+
+## Rules
+
+- 严格只读，不进入 `/implement-current-step`。
+- 发现问题只输出证据、严重程度和是否阻塞。
+- `run-regression` 必须使用 report-only；报告完成后停止，不继续跟随 `/run-regression` 的 normal success / failure handoff。
+- 即使 `/run-regression` 发现失败，也只输出 report-only findings，不自动进入 `/investigate-root-cause`。
+
+## Child Overrides
+
+- 调用 `/run-regression` 时必须显式传入或声明 `qa_mode=report-only`。
+- `/run-regression` 的 report-only 结果是 terminal report。
+- report-only pass 不继续 handoff 到 `/sync-current-task`。
+- report-only fail 不继续 handoff 到 `/investigate-root-cause`。

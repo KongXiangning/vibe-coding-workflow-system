@@ -22,14 +22,16 @@ writes:
 forbidden_writes:
   - "{{CODE_DIRECTORIES}}"
 must_check:
+  - 是否存在本轮新增稳定边界；没有则输出 no-op 并继续 handoff
   - 是否真的已经稳定
   - 应该写入接口层还是架构层
   - 是否会限制后续仍需迭代的内容
 stop_conditions:
-  - 边界尚未稳定
+  - 边界尚未稳定却试图写入 CONTRACTS.md
   - 需要修改现有锁定契约才能解释这次改动
 output:
   - CONTRACTS.md 更新建议或实际更新
+  - 无新增稳定边界时的 no-op 结论
 handoff:
   success: sync-decisions
   failure: ask-user
@@ -38,7 +40,7 @@ decision_policy:
   taste: 不要因为写起来方便就提前锁死临时接口。
   user_challenge: 放宽或重写既有锁定契约必须停下确认。
 verification:
-  - 只有稳定边界被写入 CONTRACTS.md
+  - 只有稳定边界被写入 CONTRACTS.md；无稳定边界时已 no-op
   - 接口层与架构层分类正确
   - 未错误锁死临时实现
 allowed-tools:
@@ -52,6 +54,7 @@ notes:
   - 契约记录的是稳定边界，不是当前所有实现细节。
 sync_rules:
   - 新增稳定边界后同步
+  - 没有新增稳定边界时输出 no-op 并继续交给 sync-decisions
   - 不要提前锁定临时设计
 stability_threshold:
   - 需经过当前任务验证并确认短期不会继续频繁改动
@@ -101,13 +104,14 @@ contract_layers:
 
 ## Must Check
 
+- 是否存在本轮新增稳定边界；没有则输出 no-op 并继续 handoff
 - 是否真的已经稳定
 - 应该写入接口层还是架构层
 - 是否会限制后续仍需迭代的内容
 
 ## Stop Conditions
 
-- 边界尚未稳定
+- 边界尚未稳定却试图写入 CONTRACTS.md
 - 需要修改现有锁定契约才能解释这次改动
 
 ## Decision Policy
@@ -118,7 +122,7 @@ contract_layers:
 
 ## Verification
 
-- 只有稳定边界被写入 CONTRACTS.md
+- 只有稳定边界被写入 CONTRACTS.md；无稳定边界时已 no-op
 - 接口层与架构层分类正确
 - 未错误锁死临时实现
 
@@ -126,6 +130,7 @@ contract_layers:
 
 ### sync_rules
 - 新增稳定边界后同步
+- 没有新增稳定边界时输出 no-op 并继续交给 sync-decisions
 - 不要提前锁定临时设计
 
 ### stability_threshold

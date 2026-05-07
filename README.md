@@ -67,29 +67,28 @@ bun run workflow:install --bundle $bundle.FullName --root $target
 
 Install writes the workflow runtime, templates, protocol files, and the bootstrap skill set into the target repo. It also scaffolds `AGENTS.md`, `CLAUDE.md`, and `docs/workflow/WORKFLOW_GUIDE.md` only when they are missing.
 
-If you need to run workflow commands against another repo without changing directories, keep using `WORKFLOW_SYSTEM_ROOT` to point at the target root.
+Generation and runtime sync are driven from this workflow-system source repo. Use `WORKFLOW_SYSTEM_ROOT` and `--root <target-repo>` when commands need to render or inspect a target project.
 
 ## Bootstrap and Adoption Flow
 
-After `workflow:install`, continue inside the target project:
-
-```powershell
-bun install
-```
-
-Then use the bootstrap skill chain in the target host:
+After `workflow:install`, use the bootstrap skill chain in the target host:
 
 - New project: `/design-baseline-init` -> `/greenfield-init`
 - New project with existing workflow assets to realign first: `/realign-workflow-assets` -> `/greenfield-init`
 - Existing project: `/legacy-inventory` -> `/adopt-existing-project`
 
-After bootstrap or adoption, render and sync the full workflow runtime:
+After bootstrap or adoption, return to this workflow-system source repo to render and sync the full workflow runtime. Do not run `bun install`, `bun run gen:all`, or `workflow:sync` inside the target repo just to migrate workflow-system.
 
 ```powershell
+$target = "E:\coding\github\your-project"
+
+$env:WORKFLOW_SYSTEM_ROOT = $target
 bun run gen:all
-bun run workflow:sync --host claude --write
-bun run workflow:sync --host codex --write
-bun run workflow:health
+$env:WORKFLOW_SYSTEM_ROOT = $null
+
+bun run workflow:sync --root $target --host claude --write
+bun run workflow:sync --root $target --host codex --write
+bun run workflow:health --root $target
 ```
 
 `workflow:install` preinstalls only the bootstrap skills. The full workflow skill set is rendered after `gen:all` and expanded into the host runtime by `workflow:sync`.

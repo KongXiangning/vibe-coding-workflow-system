@@ -24,14 +24,16 @@ forbidden_writes:
   - scripts
   - test
 must_check:
+  - 是否存在可复用经验；没有则输出 no-op 并继续 handoff
   - 经验是否可复用
   - 是否能直接帮助下一轮避免同类错误
   - 是否足够具体
 stop_conditions:
-  - 经验仍然只是猜测
-  - 没有足够事实支撑
+  - 经验仍然只是猜测却试图写入 docs/workflow/LESSONS.md
+  - 没有足够事实支撑却试图写入 docs/workflow/LESSONS.md
 output:
   - 新增或更新后的 lessons 条目
+  - 无可复用经验时的 no-op 结论
 handoff:
   success: prepare-delivery-summary
   failure: ask-user
@@ -40,7 +42,7 @@ decision_policy:
   taste: 不要写空泛口号。
   user_challenge: 没有事实支撑的推断不能当作长期经验写入。
 verification:
-  - 新增经验具体可复用
+  - 新增经验具体可复用；无可复用经验时已 no-op
   - 无重复或空泛条目
   - 至少覆盖问题、原因、后续建议三部分
 allowed-tools:
@@ -54,6 +56,7 @@ notes:
   - docs/workflow/LESSONS.md 要能被下一轮直接消费。
 sync_rules:
   - 收尾或踩坑后同步
+  - 没有可复用经验时输出 no-op 并继续交给 prepare-delivery-summary
   - 优先记录可复用经验
 lesson_capture_rules:
   - 边界误改
@@ -103,14 +106,15 @@ lesson_capture_rules:
 
 ## Must Check
 
+- 是否存在可复用经验；没有则输出 no-op 并继续 handoff
 - 经验是否可复用
 - 是否能直接帮助下一轮避免同类错误
 - 是否足够具体
 
 ## Stop Conditions
 
-- 经验仍然只是猜测
-- 没有足够事实支撑
+- 经验仍然只是猜测却试图写入 docs/workflow/LESSONS.md
+- 没有足够事实支撑却试图写入 docs/workflow/LESSONS.md
 
 ## Decision Policy
 
@@ -120,7 +124,7 @@ lesson_capture_rules:
 
 ## Verification
 
-- 新增经验具体可复用
+- 新增经验具体可复用；无可复用经验时已 no-op
 - 无重复或空泛条目
 - 至少覆盖问题、原因、后续建议三部分
 
@@ -128,6 +132,7 @@ lesson_capture_rules:
 
 ### sync_rules
 - 收尾或踩坑后同步
+- 没有可复用经验时输出 no-op 并继续交给 prepare-delivery-summary
 - 优先记录可复用经验
 
 ### lesson_capture_rules

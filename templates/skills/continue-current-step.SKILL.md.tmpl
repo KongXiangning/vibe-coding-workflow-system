@@ -1,0 +1,88 @@
+---
+name: continue-current-step
+preamble-tier: 2
+version: 0.2.0
+description: |
+  Orchestrate one already-scoped implementation step through review and regression.
+purpose: |
+  执行已锁定范围内的当前实施步骤，并自动进入范围审查、实现质量审查、契约验证和回归验证。
+stage: 阶段 4：小步实现
+trigger: |
+  CURRENT_TASK.md 已完成范围锁定和步骤拆解，用户要求继续当前 step 时。
+inputs:
+  - current_task
+  - current_step
+  - current_diff
+reads:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+  - LESSONS.md
+writes: []
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - CURRENT_TASK.md
+must_check:
+  - 当前步骤是否明确且可执行
+  - Allowed Files / Forbidden Files / Conditional Files 是否已锁定
+  - 当前步骤是否不需要新增用户决策
+  - 实现后是否必须进入完整审查链
+stop_conditions:
+  - 当前步骤缺失或不清楚
+  - 需要扩大范围或触碰 Forbidden Files
+  - 需要改变产品行为、接口契约或架构边界
+  - review-diff、review-implementation、verify-contracts 或 run-regression 失败
+output:
+  - Step execution sequence
+  - Review and regression result
+  - Stop point or next step
+handoff:
+  success: implement-current-step
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动执行已授权的当前步骤并进入审查验证链。
+  taste: 不自动处理未确认的口味或产品方向。
+  user_challenge: 步骤需要越界或改变行为时必须停下确认。
+verification:
+  - 已按当前步骤执行
+  - 已进入 review-diff / review-implementation / verify-contracts / run-regression
+  - 没有直接修改代码或治理文档
+allowed-tools:
+  - Read
+  - AskUserQuestion
+benefits-from:
+  - /decompose-task
+  - /lock-scope
+notes:
+  - 这是最高频的单步编排入口。
+orchestration_sequence:
+  - implement-current-step
+  - review-diff
+  - review-implementation
+  - verify-contracts
+  - run-regression
+  - sync-current-task
+---
+
+# Skill: continue-current-step
+
+## Purpose
+
+执行已锁定范围内的当前实施步骤，并自动进入范围审查、实现质量审查、契约验证和回归验证。
+
+## Orchestration Sequence
+
+```text
+/implement-current-step
+-> /review-diff
+-> /review-implementation
+-> /verify-contracts
+-> /run-regression
+-> /sync-current-task
+```
+
+## Rules
+
+- 只适用于当前任务已锁范围、已拆步骤的场景。
+- 如果实现需要扩大范围，停止并回到 `/lock-scope`。
+- 如果验证失败且根因不明确，交给 `/investigate-root-cause`。

@@ -8,7 +8,7 @@ purpose: |
   先做根因定位，再提出最小修复建议。
 stage: 阶段 4/6：实现或验证异常
 trigger: |
-  测试失败、验证失败或实现过程中出现异常时。
+  当前任务的测试失败、验证失败或实现过程中出现异常时；不是新 bug 登记入口。
 inputs:
   - failing_behavior
   - error_output
@@ -40,8 +40,12 @@ output:
   - 最小修复建议
   - 需要额外确认的点
 handoff:
-  success: implement-current-step
+  success: plan-implementation
   failure: ask-user
+conditional_handoff:
+  new_bug_registration: create-current-task
+  report_only_investigation: ask-user
+  verified_current_task_root_cause: plan-implementation
 decision_policy:
   mechanical: 可以自动做日志、调用链和差异比对。
   taste: 不要把修复策略包装成唯一正确方案。
@@ -65,17 +69,24 @@ benefits-from:
   - /run-regression
 notes:
   - 调查优先于修复。
+  - 用户要求登记、记录、新建 bug 时，必须转到 create-current-task，不得进入 implement-current-step。
 allowed_change_types:
   - 调查记录
   - 最小必要验证性修改
+intent_routing_rules:
+  - 用户意图是登记、记录、创建新 bug 任务时，handoff 到 create-current-task
+  - 用户明确只调查、只报告、不要修复时，输出调查报告并 handoff 到 ask-user
+  - 只有问题属于当前 CURRENT_TASK.md 的实现或验证异常，且根因已验证，才 handoff 到 plan-implementation
+  - 如果 CURRENT_TASK.md 缺失，或当前任务不是该 bug 的任务包，先 handoff 到 create-current-task
 disallowed_patterns:
   - 未验证 root cause hypothesis 直接修复
   - 未定位根因直接修复
+  - 将新 bug 登记请求直接当成修复授权
   - 大范围猜测式改动
 failure_policy:
   - 若三个 root cause hypothesis 仍不收敛，应停止继续猜测并请求人工判断
 regression_expectation:
-  - 重新进入实现前要明确修复只覆盖当前 bug
+  - 重新进入实现前要通过 plan-implementation 明确修复只覆盖当前 bug
   - 修复后必须复验原始失败场景
 ---
 
@@ -87,7 +98,7 @@ regression_expectation:
 
 ## Trigger
 
-测试失败、验证失败或实现过程中出现异常时。
+当前任务的测试失败、验证失败或实现过程中出现异常时；不是新 bug 登记入口。
 
 ## Inputs
 
@@ -114,9 +125,11 @@ regression_expectation:
 
 ## Required Reads
 
-1. Read every file listed in frontmatter `reads` before making any decision.
-2. If a required file is missing, follow `handoff.failure` instead of guessing.
-3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+1. Classify user intent by `intent_routing_rules` before required reads.
+2. If the user is registering, recording, or creating a new bug task, hand off to `/create-current-task` and stop; `CURRENT_TASK.md` is not required for that path.
+3. Only after the request is confirmed as current-task investigation, read every file listed in frontmatter `reads`.
+4. If `CURRENT_TASK.md` is missing during current-task investigation, hand off to `/create-current-task` instead of guessing.
+5. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
 
 ## Must Check
 
@@ -150,20 +163,31 @@ regression_expectation:
 - 调查记录
 - 最小必要验证性修改
 
+### intent_routing_rules
+- 用户意图是登记、记录、创建新 bug 任务时，handoff 到 create-current-task
+- 用户明确只调查、只报告、不要修复时，输出调查报告并 handoff 到 ask-user
+- 只有问题属于当前 CURRENT_TASK.md 的实现或验证异常，且根因已验证，才 handoff 到 plan-implementation
+- 如果 CURRENT_TASK.md 缺失，或当前任务不是该 bug 的任务包，先 handoff 到 create-current-task
+
 ### disallowed_patterns
 - 未验证 root cause hypothesis 直接修复
 - 未定位根因直接修复
+- 将新 bug 登记请求直接当成修复授权
 - 大范围猜测式改动
 
 ### failure_policy
 - 若三个 root cause hypothesis 仍不收敛，应停止继续猜测并请求人工判断
 
 ### regression_expectation
-- 重新进入实现前要明确修复只覆盖当前 bug
+- 重新进入实现前要通过 plan-implementation 明确修复只覆盖当前 bug
 - 修复后必须复验原始失败场景
 
 ## Investigation Loop
 
+0. Classify intent before investigation:
+   - If the user asks to register, record, or create a new bug task, do not inspect or modify code; hand off to `/create-current-task`.
+   - If the user asks only to investigate or report, produce the debug report and stop at `/ask-user`.
+   - Continue this loop only when the bug belongs to the current `CURRENT_TASK.md` implementation or validation failure.
 1. Collect the symptom: copy the error output, failing assertion, stack trace, user-visible behavior, and any known reproduction steps.
 2. Establish reproduction: prove whether the failure is deterministic. If it cannot be reproduced, gather more evidence before proposing a fix.
 3. Trace the path: follow the code path, data flow, state transitions, recent diff, and relevant logs from the symptom back toward likely causes.
@@ -175,6 +199,8 @@ regression_expectation:
 
 ## Root Cause Repair Rules
 
+- `/investigate-root-cause` does not authorize code repair by itself for a newly reported bug.
+- 新 bug 先生成或更新 `CURRENT_TASK.md` 任务包，再由用户或编排入口决定是否进入实现。
 - 未验证 root cause hypothesis 前不得修复。
 - 一次只验证一个假设，不得同时尝试多个修复方向。
 - 修复必须针对已证明的根因，而不是隐藏报错、扩大兜底或绕过失败路径。
@@ -198,13 +224,17 @@ Bug 调查报告：
 ## Execution Protocol
 
 1. Restate the goal in one sentence.
-2. Read all files listed in `reads`.
-3. Check `must_check` items before acting.
-4. Complete the Investigation Loop before proposing or applying a fix.
-5. Respect `forbidden_writes` and current task boundaries.
-6. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
-7. Produce the artifact(s) described in `output`.
-8. Hand off to `handoff.success` when the skill completes normally.
+2. Classify intent by `intent_routing_rules` before required reads or implementation inspection.
+3. If this is new bug registration, hand off to `/create-current-task` and stop.
+4. If this is report-only investigation, output the debug report, hand off to `/ask-user`, and stop.
+5. Read all files listed in `reads` only after confirming this is current-task investigation.
+6. If `CURRENT_TASK.md` is missing during current-task investigation, hand off to `/create-current-task` and stop.
+7. Check `must_check` items before acting.
+8. Complete the Investigation Loop before proposing or applying a fix.
+9. Respect `forbidden_writes` and current task boundaries.
+10. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+11. Produce the artifact(s) described in `output`.
+12. Hand off to `handoff.success` only for a verified root cause inside the current task scope.
 
 ## Output Contract
 

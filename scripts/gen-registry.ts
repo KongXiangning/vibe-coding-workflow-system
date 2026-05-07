@@ -60,9 +60,16 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const REQUIRED_FIELDS = ['name', 'purpose', 'stage', 'trigger', 'reads', 'writes', 'handoff'] as const;
 const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
 const HIGH_RISK_SKILLS = [
+  'execute-current-task',
+  'continue-current-step',
+  'debug-and-fix-current-task',
+  'review-current-diff',
+  'close-current-task',
   'implement-current-step',
   'review-diff',
   'sync-review-findings',
+  'plan-implementation',
+  'review-implementation',
   'verify-contracts',
   'run-regression',
   'sync-contracts',
@@ -75,14 +82,20 @@ const WORKFLOW_ORDER = [
   'greenfield-init',
   'legacy-inventory',
   'adopt-existing-project',
+  'execute-current-task',
   'create-current-task',
   'review-current-task',
   'lock-scope',
   'classify-decisions',
+  'plan-implementation',
   'decompose-task',
+  'continue-current-step',
   'implement-current-step',
+  'debug-and-fix-current-task',
   'investigate-root-cause',
+  'review-current-diff',
   'review-diff',
+  'review-implementation',
   'sync-review-findings',
   'verify-contracts',
   'run-regression',
@@ -91,6 +104,7 @@ const WORKFLOW_ORDER = [
   'sync-contracts',
   'sync-decisions',
   'sync-host-guidance',
+  'close-current-task',
   'capture-lessons',
   'prepare-delivery-summary',
   'archive-task',
@@ -236,7 +250,7 @@ function renderRegistry(skills: RegistrySkill[], workflowSkillDir: string): stri
       return `| ${section.summaryLabel} | \`design-baseline-init\` → \`realign-workflow-assets\` → \`greenfield-init\` / \`legacy-inventory\` → \`adopt-existing-project\` |`;
     }
     if (section.stage === '阶段 5：范围复核') {
-      return `| ${section.summaryLabel} | \`review-diff\` → \`verify-contracts\`；findings detour: \`review-diff\` / \`review-implementation\` → \`sync-review-findings\` → \`implement-current-step\` |`;
+      return `| ${section.summaryLabel} | \`review-diff\` → \`review-implementation\` → \`verify-contracts\`；findings detour: \`review-diff\` / \`review-implementation\` → \`sync-review-findings\` → \`implement-current-step\` |`;
     }
     return `| ${section.summaryLabel} | ${formatSkillRefs(stageSkills.map(skill => skill.name))} |`;
   });

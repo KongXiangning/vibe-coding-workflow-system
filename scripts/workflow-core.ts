@@ -531,39 +531,35 @@ export function extractConditionalHandoff(
   frontmatter: JsonObject,
   filePath: string,
 ): ConditionalHandoffRef | null {
-  const value = frontmatter.conditional_handoff;
-  if (value == null) {
+  const conditionalHandoff = frontmatter.conditional_handoff;
+  if (conditionalHandoff == null) {
     return null;
   }
-  if (typeof value !== 'object' || Array.isArray(value)) {
+  if (typeof conditionalHandoff !== 'object' || Array.isArray(conditionalHandoff)) {
     throw new Error(`Invalid conditional_handoff structure in ${filePath}`);
   }
 
   const routes: ConditionalHandoffRef = {};
-  for (const [route, target] of Object.entries(value as JsonObject)) {
-    const normalizedRoute = route.trim();
-    const normalizedTarget = String(target ?? '').trim();
-    if (!normalizedRoute || !normalizedTarget) {
+  for (const [rawRoute, rawTarget] of Object.entries(conditionalHandoff)) {
+    const route = rawRoute.trim();
+    const target = typeof rawTarget === 'string' ? rawTarget.trim() : '';
+    if (!route || !target) {
       throw new Error(`Incomplete conditional_handoff structure in ${filePath}`);
     }
-    if (Object.hasOwn(routes, normalizedRoute)) {
-      throw new Error(`Duplicate conditional_handoff route "${normalizedRoute}" in ${filePath}`);
+    if (Object.prototype.hasOwnProperty.call(routes, route)) {
+      throw new Error(`Duplicate conditional_handoff route "${route}" in ${filePath}`);
     }
-    routes[normalizedRoute] = normalizedTarget;
+    routes[route] = target;
   }
 
   return routes;
 }
 
 export function validateConditionalHandoff(
-  conditionalHandoff: ConditionalHandoffRef | null,
+  conditionalHandoff: ConditionalHandoffRef,
   knownNames: Set<string>,
   context: string,
 ): void {
-  if (!conditionalHandoff) {
-    return;
-  }
-
   for (const [route, target] of Object.entries(conditionalHandoff)) {
     if (!knownNames.has(target) && !RESERVED_FAILURE_TARGETS.has(target)) {
       throw new Error(`Invalid conditional_handoff.${route} "${target}" in ${context}`);
@@ -647,12 +643,13 @@ function classifyGeneratorError(generator: string, message: string): { report: E
     message.startsWith('Invalid handoff structure') ||
     message.startsWith('Incomplete handoff structure')
   ) {
+    const isHandoff = message.includes('handoff');
     return {
       report: {
         generator,
         severity: 'error',
-        code: message.includes('handoff') ? 'HANDOFF_001' : 'SCHEMA_002',
-        message: message.includes('handoff') ? 'Invalid handoff structure' : 'Invalid metadata structure',
+        code: isHandoff ? 'HANDOFF_001' : 'SCHEMA_002',
+        message: isHandoff ? 'Invalid handoff structure' : 'Invalid metadata structure',
         details: message,
       },
       exitCode: 2,
@@ -661,8 +658,7 @@ function classifyGeneratorError(generator: string, message: string): { report: E
 
   if (
     message.startsWith('Invalid conditional_handoff structure') ||
-    message.startsWith('Incomplete conditional_handoff structure') ||
-    message.startsWith('Duplicate conditional_handoff route')
+    message.startsWith('Incomplete conditional_handoff structure')
   ) {
     return {
       report: {
@@ -677,6 +673,21 @@ function classifyGeneratorError(generator: string, message: string): { report: E
     };
   }
 
+  if (message.startsWith('Invalid conditional_handoff.')) {
+    const fieldMatch = message.match(/^Invalid (conditional_handoff\.[^ ]+)/);
+    return {
+      report: {
+        generator,
+        severity: 'error',
+        code: 'HANDOFF_003',
+        message: 'Invalid conditional handoff target',
+        field: fieldMatch?.[1] ?? 'conditional_handoff',
+        details: message,
+      },
+      exitCode: 2,
+    };
+  }
+
   if (message.startsWith('Invalid handoff.success') || message.startsWith('Invalid handoff.failure')) {
     return {
       report: {
@@ -685,23 +696,6 @@ function classifyGeneratorError(generator: string, message: string): { report: E
         code: 'HANDOFF_001',
         message: 'Invalid handoff target',
         field: message.includes('handoff.success') ? 'handoff.success' : 'handoff.failure',
-        details: message,
-      },
-      exitCode: 2,
-    };
-  }
-
-  if (message.startsWith('Invalid conditional_handoff.')) {
-    const route = message
-      .slice('Invalid conditional_handoff.'.length)
-      .split(' "')[0];
-    return {
-      report: {
-        generator,
-        severity: 'error',
-        code: 'HANDOFF_003',
-        message: 'Invalid conditional handoff target',
-        field: `conditional_handoff.${route}`,
         details: message,
       },
       exitCode: 2,

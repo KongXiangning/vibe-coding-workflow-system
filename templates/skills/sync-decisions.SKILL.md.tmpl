@@ -22,14 +22,16 @@ writes:
 forbidden_writes:
   - "{{CODE_DIRECTORIES}}"
 must_check:
+  - 是否存在本轮新确认决策；没有则输出 no-op 并继续 handoff
   - 决策属于哪一类
   - 为什么做这个选择
   - AI 是否被禁止自行更改该项
 stop_conditions:
-  - 决策尚未获得明确确认
+  - 决策尚未获得明确确认却试图写入 DECISIONS.md
   - 当前选择与既有已确认决策冲突
 output:
   - DECISIONS.md 更新
+  - 无新确认决策时的 no-op 结论
 handoff:
   success: sync-host-guidance
   failure: ask-user
@@ -38,7 +40,7 @@ decision_policy:
   taste: 口味决策必须保留用户判断痕迹。
   user_challenge: 不得替用户捏造未确认决策。
 verification:
-  - 新增决策已正确分类
+  - 新增决策已正确分类；无新确认决策时已 no-op
   - 每条记录都有 why 与约束
   - 没有覆盖历史决策而不留痕迹
 allowed-tools:
@@ -52,6 +54,7 @@ notes:
   - DECISIONS.md 记录的是决策，不是临时想法。
 sync_rules:
   - 出现已确认决策时同步
+  - 没有新确认决策时输出 no-op 并继续交给 sync-host-guidance
   - 暂缓项和否决项也要记录
 decision_record_policy:
   - 只记录明确拍板的决策
@@ -99,13 +102,14 @@ decision_record_policy:
 
 ## Must Check
 
+- 是否存在本轮新确认决策；没有则输出 no-op 并继续 handoff
 - 决策属于哪一类
 - 为什么做这个选择
 - AI 是否被禁止自行更改该项
 
 ## Stop Conditions
 
-- 决策尚未获得明确确认
+- 决策尚未获得明确确认却试图写入 DECISIONS.md
 - 当前选择与既有已确认决策冲突
 
 ## Decision Policy
@@ -116,7 +120,7 @@ decision_record_policy:
 
 ## Verification
 
-- 新增决策已正确分类
+- 新增决策已正确分类；无新确认决策时已 no-op
 - 每条记录都有 why 与约束
 - 没有覆盖历史决策而不留痕迹
 
@@ -124,6 +128,7 @@ decision_record_policy:
 
 ### sync_rules
 - 出现已确认决策时同步
+- 没有新确认决策时输出 no-op 并继续交给 sync-host-guidance
 - 暂缓项和否决项也要记录
 
 ### decision_record_policy
