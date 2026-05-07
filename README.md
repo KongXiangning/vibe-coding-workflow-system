@@ -65,6 +65,20 @@ If the dry-run report is clean, apply the install:
 bun run workflow:install --bundle $bundle.FullName --root $target
 ```
 
+For a target repo that already installed workflow-system and completed bootstrap or adoption, do not delete `.workflow-system/`, `docs/workflow/`, `.claude/skills/`, or `.codex/skills/` and reinstall from scratch. If the normal dry-run reports `local_drift`, first confirm the drift is limited to workflow-system managed files, then dry-run the repair flags:
+
+```powershell
+bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --json --replace-managed-drift --repair-bootstrap-drift
+```
+
+`--replace-managed-drift` allows install to replace or prune install-state entries marked `replace-managed`, such as protocol/schema files, runtime scripts, and templates. `--repair-bootstrap-drift` allows install to re-render or prune install-state entries marked `bootstrap-skill-install`, which are the preinstalled bootstrap skills. These flags do not reinitialize target project facts, do not overwrite existing `AGENTS.md` / `CLAUDE.md`, and do not redo inventory or adoption.
+
+After reviewing the planned writes and deletes, apply the drift repair:
+
+```powershell
+bun run workflow:install --bundle $bundle.FullName --root $target --replace-managed-drift --repair-bootstrap-drift
+```
+
 Install writes the workflow runtime, templates, protocol files, and the bootstrap skill set into the target repo. It also scaffolds `AGENTS.md`, `CLAUDE.md`, and `docs/workflow/WORKFLOW_GUIDE.md` only when they are missing.
 
 Generation and runtime sync are driven from this workflow-system source repo. Use `WORKFLOW_SYSTEM_ROOT` and `--root <target-repo>` when commands need to render or inspect a target project.

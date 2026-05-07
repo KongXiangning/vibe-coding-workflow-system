@@ -771,6 +771,36 @@ describe('workflow-runtime install', () => {
     });
   });
 
+  test('installWorkflowBundle repairs modified replace-managed files when explicitly allowed', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        fs.appendFileSync(path.join(targetRoot, 'scripts', 'workflow-core.ts'), '\n// local drift\n', 'utf8');
+
+        const repair = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+          replaceManagedDrift: true,
+        });
+
+        expect(repair.success).toBe(true);
+        expect(repair.failures).toEqual([]);
+        expect(repair.planned_writes).toContainEqual({
+          path: 'scripts/workflow-core.ts',
+          action: 'overwrite',
+          mode: 'replace-managed',
+        });
+      });
+    });
+  });
+
   test('installWorkflowBundle reports local drift for modified bootstrap init skills', () => {
     withTempRoot(bundleOutDir => {
       const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
@@ -801,6 +831,40 @@ describe('workflow-runtime install', () => {
               failure.path === '.codex/skills/workflow-system-design-baseline-init/SKILL.md',
           ),
         ).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle repairs modified bootstrap init skills when explicitly allowed', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        fs.appendFileSync(
+          path.join(targetRoot, '.codex', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'),
+          '\n<!-- local drift -->\n',
+          'utf8',
+        );
+
+        const repair = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+          repairBootstrapDrift: true,
+        });
+
+        expect(repair.success).toBe(true);
+        expect(repair.failures).toEqual([]);
+        expect(repair.planned_writes).toContainEqual({
+          path: '.codex/skills/workflow-system-design-baseline-init/SKILL.md',
+          action: 'overwrite',
+          mode: 'bootstrap-skill-install',
+        });
       });
     });
   });
@@ -853,6 +917,48 @@ describe('workflow-runtime install', () => {
         });
         expect(second.success).toBe(false);
         expect(second.failures.some(failure => failure.category === 'frozen_path')).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle drift repair flags do not repair merge-managed fragments', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        const packagePath = path.join(targetRoot, 'package.json');
+        const packageJson = readJson(packagePath);
+        (packageJson.scripts as Record<string, unknown>)['workflow:health'] = 'echo drift';
+        fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+
+        const profilePath = getWorkflowProfilePath(targetRoot);
+        const profileText = fs.readFileSync(profilePath, 'utf8');
+        fs.writeFileSync(
+          profilePath,
+          profileText.replace('  primary_hosts:\n    - claude\n    - codex', '  primary_hosts:\n    - claude\n    - codex\n    - factory'),
+          'utf8',
+        );
+
+        const repair = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          dryRun: true,
+          replaceManagedDrift: true,
+          repairBootstrapDrift: true,
+        });
+
+        expect(repair.success).toBe(false);
+        expect(repair.failures).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ category: 'local_drift', path: 'package.json' }),
+            expect.objectContaining({ category: 'local_drift', path: WORKFLOW_PROFILE_RELATIVE_PATH }),
+          ]),
+        );
       });
     });
   });

@@ -1530,6 +1530,10 @@ Public runtime interface notes:
 - `workflow:install --root <target-repo>` and `workflow:sync --root <target-repo>` operate on the explicit target repo; when `--root` is omitted they operate on the current working directory
 - the recommended operator flow is `--dry-run --json` first, then a second run without `--dry-run` to apply
 - install failures must report explicit categories so the operator can distinguish `frozen_path`, `local_drift`, `contract_conflict`, and `incompatible_target`
+- when an already-installed target reports `local_drift`, `workflow:install --replace-managed-drift` may replace or prune only install-state entries whose mode is `replace-managed`
+- when an already-installed target reports bootstrap skill drift, `workflow:install --repair-bootstrap-drift` may re-render or prune only install-state entries whose mode is `bootstrap-skill-install`
+- these drift repair flags must not reinitialize target-owned project facts, redo inventory/adoption, overwrite existing scaffold-once host guidance files, or bypass `frozen_path`, `contract_conflict`, or `incompatible_target` failures
+- `package.json` and `.workflow-system/PROJECT_PROFILE.yaml` drift remain merge-managed contract failures and must not be silently repaired by `--replace-managed-drift` or `--repair-bootstrap-drift`
 - post-init mechanical steps must preserve explicit failure reporting for generator, health, and host-sync failures
 
 ### §17.4 Host-specific sync
