@@ -566,9 +566,13 @@ describe('workflow-runtime install', () => {
         expect(bootstrapGuide).toContain('/legacy-inventory');
         expect(bootstrapGuide).toContain('/adopt-existing-project');
         expect(bootstrapGuide).toContain('/realign-workflow-assets');
-        expect(bootstrapGuide).toContain('bun run gen:all');
-        expect(bootstrapGuide).toContain('bun run workflow:sync --root $target --host claude --write');
-        expect(bootstrapGuide).toContain('尚未完成 bootstrap / gen / sync');
+        expect(bootstrapGuide).toContain('## 新需求流程');
+        expect(bootstrapGuide).toContain('## 新 Bug 流程');
+        expect(bootstrapGuide).toContain('/execute-current-task');
+        expect(bootstrapGuide).toContain('/plan-implementation');
+        expect(bootstrapGuide).toContain('/review-implementation');
+        expect(bootstrapGuide).toContain('/sync-review-findings');
+        expect(bootstrapGuide).not.toContain('尚未完成 bootstrap / gen / sync');
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-design-baseline-init', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-realign-workflow-assets', 'SKILL.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.claude', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'))).toBe(true);
@@ -662,6 +666,76 @@ describe('workflow-runtime install', () => {
         expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(true);
         expect(fs.readFileSync(path.join(targetRoot, 'CLAUDE.md'), 'utf8')).toContain('workflow-system guidance');
         expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'))).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle repairs legacy minimal workflow guide scaffold', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const guidePath = path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md');
+        fs.mkdirSync(path.dirname(guidePath), { recursive: true });
+        fs.writeFileSync(
+          guidePath,
+          '# WORKFLOW_GUIDE.md\n\n本文件是 demo 在 **workflow-system 刚安装完成、但尚未完成 bootstrap / gen / sync** 时的最小本地指引。\n',
+          'utf8',
+        );
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+
+        expect(report.success).toBe(true);
+        const guide = fs.readFileSync(guidePath, 'utf8');
+        expect(guide).toContain('## Skill 速查');
+        expect(guide).toContain('## 新需求流程');
+        expect(guide).toContain('## 新 Bug 流程');
+        expect(guide).not.toContain('最小本地指引');
+      });
+    });
+  });
+
+  test('installWorkflowBundle preserves custom workflow guide scaffold', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const guidePath = path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md');
+        fs.mkdirSync(path.dirname(guidePath), { recursive: true });
+        fs.writeFileSync(guidePath, '# custom workflow guide\n', 'utf8');
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+
+        expect(report.success).toBe(true);
+        expect(fs.readFileSync(guidePath, 'utf8')).toBe('# custom workflow guide\n');
+      });
+    });
+  });
+
+  test('installWorkflowBundle replaces existing workflow guide when managed drift repair is explicit', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const guidePath = path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md');
+        fs.mkdirSync(path.dirname(guidePath), { recursive: true });
+        fs.writeFileSync(guidePath, '# custom workflow guide\n', 'utf8');
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          replaceManagedDrift: true,
+        });
+
+        expect(report.success).toBe(true);
+        const guide = fs.readFileSync(guidePath, 'utf8');
+        expect(guide).toContain('## Skill 速查');
+        expect(guide).toContain('## 新需求流程');
+        expect(guide).toContain('## 新 Bug 流程');
+        expect(guide).not.toBe('# custom workflow guide\n');
       });
     });
   });
@@ -1012,6 +1086,13 @@ describe('workflow-runtime CLI routing', () => {
     expect(sync.root).toBe('/tmp/target');
     expect(sync.host).toBe('codex');
     expect(sync.write).toBe(true);
+  });
+
+  test('parseRuntimeCliArgs rejects flags without values', () => {
+    expect(() => parseRuntimeCliArgs(['install', '--bundle', '--root', '/tmp/target'])).toThrow(
+      /--bundle requires a value/,
+    );
+    expect(() => parseRuntimeCliArgs(['install', '--bundle='])).toThrow(/--bundle requires a value/);
   });
 
   test('install command fails with actionable runtime errors when prerequisites are missing', () => {
