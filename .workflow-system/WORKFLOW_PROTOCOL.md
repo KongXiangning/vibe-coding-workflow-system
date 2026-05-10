@@ -440,6 +440,28 @@ When triggered, the task must record:
 
 If the impact set cannot be established with sufficient evidence, the task must stop before implementation and route through `ask-user` or the appropriate investigation step.
 
+### 4b.5 Diff Review Target
+
+Review skills must not assume that the reviewable diff is limited to uncommitted working-tree changes.
+
+Canonical rule:
+
+- every review / verification skill that consumes `current_diff` must first establish a concrete `diff_review_target`
+- `diff_review_target` may be a working-tree diff, staged diff, explicit commit range, task-base-to-HEAD range, checkpoint-to-HEAD range, or user-supplied patch
+- if the task has checkpoint commits, review must compare against the recorded task base or last reviewed checkpoint instead of silently falling back to `git diff`
+- if no diff target can be established, the review must stop rather than producing a scope conclusion from an empty or partial diff
+
+Checkpoint commits are allowed during a long `CURRENT_TASK.md` cycle. They are a recovery and audit mechanism, not a signal that the task is complete.
+
+When a checkpoint commit is created before the task is closed:
+
+1. record the checkpoint commit or ref in `CURRENT_TASK.md > 回滚点` or execution records
+2. keep the active task open until `/close-current-task` archives it
+3. run `/review-diff`, `/review-implementation`, `/verify-contracts`, and `/run-regression` against the declared `diff_review_target`
+4. report the exact diff source in review output, for example `git diff --cached`, `git diff <task-base>..HEAD`, or an attached patch
+
+The default `git diff` / `git diff --cached` fallback is valid only when there are no recorded task checkpoints and the intended review target is the current uncommitted change set.
+
 ---
 
 ## 5. Skill template contract

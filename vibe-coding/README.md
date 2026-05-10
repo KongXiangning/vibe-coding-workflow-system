@@ -47,7 +47,7 @@
 2. 明确允许修改范围，最好具体到目录或文件。
 3. 明确禁止修改范围，包括稳定模块、共享层、数据库、配置、已上线 API 等。
 4. 要求 AI 如果必须越界，先停下来说明原因，不要直接修改。
-5. 完成后用 `git diff --stat` 和实际改动文件对照允许范围，发现越界就回滚或单独开任务。
+5. 完成后用明确的 diff target 和实际改动文件对照允许范围；小任务通常是 `git diff --stat` / `git diff --cached --stat`，长任务可以是 `git diff <task-base>..HEAD --stat` 或 checkpoint range。发现越界就回滚或单独开任务。
 
 可直接复制给 AI 的任务边界示例：
 
@@ -90,7 +90,7 @@
 
 1. `/lock-scope`：实现前锁定允许/禁止范围。
 2. `/implement-current-step`：只做当前步骤，不扩大任务。
-3. `/review-diff`：实现后检查实际 diff 是否越界。
+3. `/review-diff`：实现后先声明 diff review target，再检查实际 diff 是否越界。长任务可以审查 checkpoint commit range，不要求所有改动一直保持未提交。
 4. `/review-implementation`：检查实现是否真正满足目标、逻辑是否正确、边界和异常路径是否鲁棒、测试是否充分。
 5. `/sync-review-findings`：只读审查发现当前 Allowed Files 内可修的 mechanical implementation findings 时，先写入 `CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。
 6. `/verify-contracts`：检查稳定接口、架构边界、目录职责是否被破坏。
@@ -118,7 +118,7 @@ workflow-system 的治理产出物分工如下。这里说明使用入口和更�
 1. 先看 `STATUS.md` / `ROADMAP.md` 判断当前项目状态和任务是否处在正确窗口。
 2. 用 `CURRENT_TASK.md` 固定本轮目标、允许/禁止范围、验收标准和回归检查项。
 3. 实现前对照 `CONTRACTS.md` / `DECISIONS.md`，确认不会破坏稳定边界或已确认决策。
-4. 实现后运行 `/review-diff`、`/review-implementation`、`/verify-contracts`、`/run-regression` 做范围、实现质量、契约和回归复核；只读审查发现当前 Allowed Files 内可修的 mechanical implementation findings 时，先用 `/sync-review-findings` 写入 `CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。
+4. 实现后运行 `/review-diff`、`/review-implementation`、`/verify-contracts`、`/run-regression` 做范围、实现质量、契约和回归复核；这些步骤必须沿用同一个 diff review target。长任务允许做 checkpoint commit，但要把 task base / checkpoint / review range 记到 `CURRENT_TASK.md > 回滚点` 或执行记录，避免提交后只看空的工作区 diff。只读审查发现当前 Allowed Files 内可修的 mechanical implementation findings 时，先用 `/sync-review-findings` 写入 `CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。
 5. 结束时同步 `STATUS.md`，必要时更新 `LESSONS.md`，用 `/prepare-delivery-summary` 输出交付摘要，再由 `/archive-task` 归档到 `TASKS/TASK-...`。
 
 ## 常用命令模版

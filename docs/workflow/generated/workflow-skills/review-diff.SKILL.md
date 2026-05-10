@@ -12,6 +12,7 @@ trigger: |
   每完成一个实现步骤后。
 inputs:
   - current_diff
+  - diff_review_target
   - current_task
   - contracts
   - decisions
@@ -27,6 +28,7 @@ forbidden_writes:
   - docs/workflow/CONTRACTS.md
   - docs/workflow/DECISIONS.md
 must_check:
+  - diff review target 是否明确，且没有因 checkpoint commit 导致 diff 失真
   - diff 是否只触碰 Allowed Files
   - diff 是否触碰 Forbidden Files
   - diff 触碰 Conditional Files 时条件和证据是否成立
@@ -39,6 +41,7 @@ must_check:
   - 是否触碰 CI/CD / deploy config / monitoring / benchmark config 且未授权
   - UI / 视觉 diff 是否通过 design drift review
 stop_conditions:
+  - 缺少可审查 diff target，或当前 diff 为空但任务仍有未审查 checkpoint / commit range
   - 发现高风险越界
   - 发现未授权文件出现在 diff 中
   - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
@@ -65,6 +68,7 @@ decision_policy:
   taste: 不要把个人偏好包装成审查问题。
   user_challenge: 发现意图偏移时必须明确上浮。
 verification:
+  - 已声明本次审查使用的 diff review target
   - 已对照任务范围和决策执行审查
   - 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
   - 已执行 safety boundary review
@@ -111,6 +115,7 @@ propagation_rules:
   - 必须声明兼容策略：backward-compatible、breaking 或 unknown
   - 必须核对 docs/workflow/CONTRACTS.md、docs/workflow/DECISIONS.md 和回归检查项是否同步
 diff_filters:
+  - 明确的 diff review target
   - 当前 step 相关文件
   - 授权范围外文件
   - 无关格式化噪音
@@ -165,6 +170,7 @@ design_drift_review:
 ## Inputs
 
 - current_diff
+- diff_review_target
 - current_task
 - contracts
 - decisions
@@ -191,8 +197,29 @@ design_drift_review:
 2. If a required file is missing, follow `handoff.failure` instead of guessing.
 3. When `docs/workflow/CURRENT_TASK.md` exists, treat it as the source of truth for scope.
 
+## Diff Review Target
+
+`/review-diff` must establish and report the concrete `diff_review_target` before judging scope drift.
+
+Accepted targets:
+
+- Working tree: `git diff` plus `git diff --cached` when the task has no checkpoint commits.
+- Staged only: `git diff --cached` when the user explicitly asks to review staged changes.
+- Commit range: `git diff <base>..<head>` for committed checkpoint work.
+- Task range: `git diff <task-start-base>..HEAD` when `docs/workflow/CURRENT_TASK.md > 回滚点` records a task base.
+- Checkpoint range: `git diff <last-reviewed-checkpoint>..HEAD` for incremental review after a checkpoint was already reviewed.
+- User-supplied patch: an attached or pasted diff with an explicit source.
+
+Rules:
+
+- Do not treat an empty working tree as a clean review if `docs/workflow/CURRENT_TASK.md` or conversation context records checkpoint commits that have not been reviewed.
+- Long tasks may create checkpoint commits before `/close-current-task`; review must compare against the declared base/range instead of requiring all work to remain uncommitted.
+- If multiple plausible targets exist, surface the ambiguity and stop before making a scope conclusion.
+- The review output must include the exact diff source used.
+
 ## Must Check
 
+- diff review target 是否明确，且没有因 checkpoint commit 导致 diff 失真
 - diff 是否只触碰 Allowed Files
 - diff 是否触碰 Forbidden Files
 - diff 触碰 Conditional Files 时条件和证据是否成立
@@ -207,6 +234,7 @@ design_drift_review:
 
 ## Stop Conditions
 
+- 缺少可审查 diff target，或当前 diff 为空但任务仍有未审查 checkpoint / commit range
 - 发现高风险越界
 - 发现未授权文件出现在 diff 中
 - 发现 Forbidden Files、未满足 Conditional Files 或 unauthorized scope widening
@@ -225,6 +253,7 @@ design_drift_review:
 
 ## Verification
 
+- 已声明本次审查使用的 diff review target
 - 已对照任务范围和决策执行审查
 - 已按 Allowed Files / Forbidden Files / Conditional Files 审查 diff
 - 已执行 safety boundary review
@@ -276,6 +305,7 @@ design_drift_review:
 - 必须核对 docs/workflow/CONTRACTS.md、docs/workflow/DECISIONS.md 和回归检查项是否同步
 
 ### diff_filters
+- 明确的 diff review target
 - 当前 step 相关文件
 - 授权范围外文件
 - 无关格式化噪音
@@ -364,12 +394,13 @@ UI / 视觉 diff 必须做 design drift review。重点检查：
 
 1. Restate the goal in one sentence.
 2. Read all files listed in `reads`.
-3. Check `must_check` items before acting.
-4. Respect `forbidden_writes` and current task boundaries.
-5. Classify the result using `conditional_handoff` before choosing the next skill.
-6. If any `stop_conditions` match and no `conditional_handoff` route applies, stop and hand off to `handoff.failure`.
-7. Produce the artifact(s) described in `output`.
-8. Hand off according to `conditional_handoff`; use `handoff.success` only for the `clean` route.
+3. Establish and report `diff_review_target`.
+4. Check `must_check` items before acting.
+5. Respect `forbidden_writes` and current task boundaries.
+6. Classify the result using `conditional_handoff` before choosing the next skill.
+7. If any `stop_conditions` match and no `conditional_handoff` route applies, stop and hand off to `handoff.failure`.
+8. Produce the artifact(s) described in `output`.
+9. Hand off according to `conditional_handoff`; use `handoff.success` only for the `clean` route.
 
 ## Output Contract
 

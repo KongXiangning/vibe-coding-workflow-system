@@ -53,10 +53,10 @@
 | 调查根因 | `/investigate-root-cause` | `docs/workflow/CURRENT_TASK.md`、代码和日志线索 | Symptom、Reproduction、Root cause hypothesis、Evidence、Minimal fix path、Regression check |
 | 实现当前步骤 | `/implement-current-step` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md` | 代码改动、dangerous command gate、验证结果、执行记录 |
 | 只读审查编排 | `/review-current-diff` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md`、`.workflow-system/PROJECT_PROFILE.yaml` | review-diff → review-implementation → verify-contracts → run-regression(report-only) |
-| 审查 diff | `/review-diff` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`，以及当前 diff 上下文 | scope drift / decision drift / safety boundary review / 回归风险 |
-| 审查实现质量 | `/review-implementation` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md`，以及当前 diff 和实现上下文 | Goal fit、Correctness、Edge cases、Robustness、Compatibility、Test adequacy、Remaining risks |
+| 审查 diff | `/review-diff` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`，以及明确的 diff review target | scope drift / decision drift / safety boundary review / 回归风险 |
+| 审查实现质量 | `/review-implementation` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md`，以及同一 diff review target 和实现上下文 | Goal fit、Correctness、Edge cases、Robustness、Compatibility、Test adequacy、Remaining risks |
 | 同步审查问题 | `/sync-review-findings` | `docs/workflow/CURRENT_TASK.md`、结构化 review findings | `docs/workflow/CURRENT_TASK.md > 审查问题队列` |
-| 验证契约 | `/verify-contracts` | `docs/workflow/CONTRACTS.md`、`docs/workflow/CURRENT_TASK.md`，以及当前 diff 上下文 | 接口和架构契约检查结果 |
+| 验证契约 | `/verify-contracts` | `docs/workflow/CONTRACTS.md`、`docs/workflow/CURRENT_TASK.md`，以及同一 diff review target | 接口和架构契约检查结果 |
 | 执行回归 | `/run-regression` | `docs/workflow/CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`，以及当前验证上下文 | QA mode、Target surface、Checks run、Browser/session requirement、Release evidence、Findings、Pass / fail、Evidence、Handoff |
 | 收尾当前任务编排 | `/close-current-task` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/STATUS.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md` | sync-current-task → sync-status → optional sync → capture-lessons → prepare-delivery-summary → archive-task |
 | 同步任务记录 | `/sync-current-task` | `docs/workflow/CURRENT_TASK.md`、本轮执行/验证事实 | 更新后的 `docs/workflow/CURRENT_TASK.md` |
@@ -79,7 +79,7 @@
 6. 用 `/plan-implementation` 分析架构影响、技术路线、候选方案、风险、兼容性和验证策略，并写回 `docs/workflow/CURRENT_TASK.md`。
 7. 用 `/decompose-task` 把确认后的方案拆成一次只做一个当前步骤的小步计划。
 8. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `docs/workflow/CURRENT_TASK.md`。
-9. 每步后用 `/review-diff`、`/review-implementation`、`/verify-contracts`、`/run-regression` 做范围、实现质量、契约和回归复核；只读审查发现当前 Allowed Files 内可修的 implementation findings 时，先用 `/sync-review-findings` 写入 `docs/workflow/CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。`/review-implementation` 必须检查实现是否满足目标、逻辑是否正确、边界条件和异常路径是否鲁棒、兼容性是否保持、测试是否覆盖原始问题和关键边界路径；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
+9. 每步后用 `/review-diff`、`/review-implementation`、`/verify-contracts`、`/run-regression` 做范围、实现质量、契约和回归复核；先声明本轮 `diff_review_target`，可以是未提交 diff、staged diff、commit range、task-base-to-HEAD、checkpoint-to-HEAD 或用户提供的 patch。长任务允许在流程未关闭前创建 checkpoint commit，但必须把 task base / checkpoint / review target 记录到 `docs/workflow/CURRENT_TASK.md > 回滚点` 或执行记录，后续 review 不得因工作区为空而漏审已提交改动。只读审查发现当前 Allowed Files 内可修的 implementation findings 时，先用 `/sync-review-findings` 写入 `docs/workflow/CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。`/review-implementation` 必须检查实现是否满足目标、逻辑是否正确、边界条件和异常路径是否鲁棒、兼容性是否保持、测试是否覆盖原始问题和关键边界路径；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
 10. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` / `/sync-host-guidance` 同步治理事实。
 11. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
 
@@ -161,6 +161,7 @@ flowchart TD
 - 需要扩大 `Allowed Files`、触碰 `Forbidden Files`、改变产品行为、接口契约、数据结构或架构边界时，必须停下确认。
 - `report-only` 流程发现问题也不进入 `/implement-current-step`；`/review-current-diff` 必须用 child override 明确 `/run-regression` 的 `qa_mode=report-only` 且结果为 terminal report，不继续 handoff 到同步或修复链。
 - `/review-diff` 或 `/review-implementation` 的 current-scope mechanical findings 必须先交给 `/sync-review-findings`，由它写入 `docs/workflow/CURRENT_TASK.md > 审查问题队列`，然后才能回到 `/implement-current-step`；涉及 User challenge、行为/契约/架构改变或扩大 scope 的 finding 必须停到 `/ask-user` 或 `/lock-scope`。
+- `/review-diff`、`/review-implementation`、`/verify-contracts` 和 diff-aware `/run-regression` 必须沿用同一个 `diff_review_target`；如果存在 checkpoint commit，不能默认只看 `git diff`。
 - `/review-implementation` 的 `major` / `critical` finding 必须包含 file_or_symbol、failing_scenario、why_current_implementation_fails、minimal_fix_direction 和 required_test_or_smoke_evidence。
 - 收尾流程中的 `/sync-contracts`、`/sync-decisions`、`/sync-host-guidance`、`/capture-lessons` 支持 no-op pass-through；没有对应事实时输出 no-op 并继续下一步。
 
@@ -177,7 +178,7 @@ flowchart TD
 | 5 | `/plan-implementation` | 分析架构影响、技术路线、候选方案、风险和验证策略 | `docs/workflow/CURRENT_TASK.md` | 方案影响、技术取舍或验证策略不清时需要 |
 | 6 | `/decompose-task` | 把确认后的方案拆成小步骤 | `docs/workflow/CURRENT_TASK.md` | 步骤边界不清时需要 |
 | 7 | `/implement-current-step` | 只实现当前步骤 | 代码文件、`docs/workflow/CURRENT_TASK.md` | 触碰 forbidden / dangerous surface 需要 |
-| 8 | `/review-diff` | 检查是否越界、scope drift、decision drift | 通常只读 | 发现越界时需要 |
+| 8 | `/review-diff` | 检查明确 diff review target 是否越界、scope drift、decision drift | 通常只读 | diff target 不明确或发现越界时需要 |
 | 9 | `/review-implementation` | 检查实现合理性、鲁棒性、边界条件、测试充分性 | 通常只读 | 重大实现问题或扩大 scope 需要 |
 | 10 | `/verify-contracts` | 检查接口、数据、架构契约是否受影响 | 通常只读 | 契约变化需要 |
 | 11 | `/run-regression` | 执行测试 / smoke / QA mode 验证 | 通常只读 | 验证 blocked 或失败时需要 |
@@ -201,7 +202,7 @@ flowchart TD
 | 5 | `/plan-implementation` | 基于 root cause 分析最小修复方案、架构影响、兼容性和验证策略 | `docs/workflow/CURRENT_TASK.md` | 修复方案、技术取舍或验证策略不清时需要 |
 | 6 | `/decompose-task` | 把修复方案拆成可执行小步骤 | `docs/workflow/CURRENT_TASK.md` | 步骤或验证边界不清时需要 |
 | 7 | `/implement-current-step` | 执行最小修复 | 代码文件、`docs/workflow/CURRENT_TASK.md` | 危险操作、越界修改需要 |
-| 8 | `/review-diff` | 检查修复是否超出 bug 范围 | 通常只读 | 发现 scope drift 时需要 |
+| 8 | `/review-diff` | 检查明确 diff review target 是否超出 bug 范围 | 通常只读 | diff target 不明确或发现 scope drift 时需要 |
 | 9 | `/review-implementation` | 检查修复是否真的解决根因，是否鲁棒 | 通常只读 | 修复方案不可靠时需要 |
 | 10 | `/verify-contracts` | 检查修复是否破坏契约或兼容性 | 通常只读 | 契约 / 兼容变化需要 |
 | 11 | `/run-regression` | 复验原始失败场景和相关回归 | 通常只读 | 验证失败时进入调查 |
@@ -248,6 +249,7 @@ flowchart TD
 | 当前任务内连续修复没有收敛 | `/investigate-root-cause` |
 | 当前任务问题可能来自范围外系统或架构边界 | `/investigate-root-cause` |
 | 代码已经改完，需要检查是否越界 | `/review-diff` |
+| 长任务已经做了 checkpoint commit，需要继续审查 | 在 `docs/workflow/CURRENT_TASK.md > 回滚点` 记录 task base / checkpoint，然后用 `/review-diff` 审查 `git diff <base>..HEAD` 或 `git diff <last-reviewed-checkpoint>..HEAD` |
 | 代码已经改完，需要检查实现是否合理、鲁棒、测试是否充分 | `/review-implementation` |
 | 审查发现的问题需要进入修复队列 | `/sync-review-findings` → `/implement-current-step` |
 | 代码已经改完，只想完整审查且不修复 | `/review-current-diff` |
@@ -281,6 +283,7 @@ flowchart TD
 - `docs/workflow/CURRENT_TASK.md` 不能覆盖 `docs/workflow/CONTRACTS.md`；`docs/workflow/DECISIONS.md` 只记录原因和历史，不单独定义当前有效规则。
 - 如果实现依赖 Taste 或 User challenge 决策，先通过 `/classify-decisions` 暴露并确认。
 - 如果 diff 已经越界，先用 `/review-diff` 标记越界文件，再决定回滚、拆任务或扩大范围。
+- 长任务可以用 checkpoint commit 做可回退记录；checkpoint 不等于任务完成，后续审查必须使用记录的 commit range / checkpoint range，不能只看当前未提交 diff。
 - `/run-regression` 是只读验证入口；`report-only` 模式只输出问题和证据，不进入实现或修复。
 - 需要登录但 session/cookie 不可用时，验证结论必须标记为 blocked，不得把未验证页面记为通过。
 - workflow-system 不绑定具体 browse daemon；如果项目有浏览器工具或宿主支持浏览器能力，应执行 browser-backed smoke，否则记录人工验证项或 blocked risk。

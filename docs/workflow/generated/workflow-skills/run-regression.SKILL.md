@@ -12,6 +12,7 @@ trigger: |
   通过范围复核后。
 inputs:
   - current_task
+  - diff_review_target
   - project_profile
   - test_commands
   - smoke_check_list
@@ -28,6 +29,7 @@ forbidden_writes:
   - docs/workflow/STATUS.md
 must_check:
   - QA mode 是否匹配任务风险和验证目标
+  - diff-aware / report-only 验证是否沿用前序 review 的 diff review target
   - report-only 模式是否明确声明为 terminal report，不继续 handoff
   - 先跑与当前改动直接相关的测试
   - 核心稳定功能是否仍正常
@@ -64,6 +66,7 @@ decision_policy:
   user_challenge: 关键验证失败时不得自称通过。
 verification:
   - QA mode selection 已说明
+  - 已声明 diff-aware / report-only 验证使用的 diff review target
   - 已运行相关测试或完成最小 smoke check
   - UI / 交互相关任务已说明是否执行 browser-backed smoke
   - UI / 视觉任务已说明 visual QA、browser-backed smoke 或 blocked reason
@@ -85,7 +88,7 @@ notes:
 test_sources:
   - .workflow-system/PROJECT_PROFILE.yaml 中的测试命令
   - docs/workflow/CURRENT_TASK.md 中的回归检查项
-  - 当前 diff 影响面
+  - diff review target 影响面
 qa_modes:
   - diff-aware
   - quick-smoke
@@ -147,6 +150,7 @@ browser_session_policy:
 ## Inputs
 
 - current_task
+- diff_review_target
 - project_profile
 - test_commands
 - smoke_check_list
@@ -178,6 +182,7 @@ browser_session_policy:
 ## Must Check
 
 - QA mode 是否匹配任务风险和验证目标
+- diff-aware / report-only 验证是否沿用前序 review 的 diff review target
 - 先跑与当前改动直接相关的测试
 - 核心稳定功能是否仍正常
 - 最小 smoke check 是否完成
@@ -202,6 +207,7 @@ browser_session_policy:
 ## Verification
 
 - QA mode selection 已说明
+- 已声明 diff-aware / report-only 验证使用的 diff review target
 - 已运行相关测试或完成最小 smoke check
 - UI / 交互相关任务已说明是否执行 browser-backed smoke
 - UI / 视觉任务已说明 visual QA、browser-backed smoke 或 blocked reason
@@ -228,7 +234,7 @@ browser_session_policy:
 ### test_sources
 - .workflow-system/PROJECT_PROFILE.yaml 中的测试命令
 - docs/workflow/CURRENT_TASK.md 中的回归检查项
-- 当前 diff 影响面
+- diff review target 影响面
 
 ### smoke_checks
 - 关键页面可打开
@@ -271,7 +277,7 @@ browser_session_policy:
 
 ## QA Mode Selection
 
-- `diff-aware`：默认模式。基于 `docs/workflow/CURRENT_TASK.md`、当前 diff 和回归检查项验证受影响路径。
+- `diff-aware`：默认模式。基于 `docs/workflow/CURRENT_TASK.md`、`diff_review_target` 和回归检查项验证受影响路径。
 - `quick-smoke`：用于小任务或低风险改动。运行相关测试、关键入口和最小 smoke check。
 - `full-qa`：用于大任务、UI / 交互改动、高传播面改动。系统性检查核心路径、状态、控制台错误和关键用户流程。
 - `report-only`：只输出问题、证据和风险；不修复、不更新治理文档、不进入实现。

@@ -155,6 +155,7 @@
 - `## 传播治理记录` 不得新增、改名、降级或重新解释 `.workflow-system/WORKFLOW_PROTOCOL.md §18.6` 已定义的协议对象字段、错误码、gate 或 blocker 语义；需要扩展时先修改协议源。
 - 至少包含一个当前可执行步骤
 - 回滚点必须可操作，不能只有笼统描述
+- 长任务允许创建 checkpoint commit 作为回滚和审计点；如果存在 checkpoint，`## 回滚点` 必须能看出任务起始基线、最近已审查 checkpoint 或当前 diff review target，避免 `/review-diff` 误用空的工作区 diff
 
 ---
 

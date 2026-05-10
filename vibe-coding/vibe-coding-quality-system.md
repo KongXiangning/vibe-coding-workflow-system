@@ -48,7 +48,7 @@
 
 1. 先建 `CONTRACTS.md` 和 `STATUS.md`，锁稳定边界、标真实项目状态。
 2. 每轮任务都用 `CURRENT_TASK.md` 固定目标、范围、回归和回滚点。
-3. 每次实现后固定做 `git diff --stat`、契约检查和最小回归验证。
+3. 每次实现后固定做明确 diff target 的范围复核、契约检查和最小回归验证；短任务可用 `git diff --stat`，长任务可用 task base / checkpoint commit range。
 4. 一旦进入连续猜修或高传播面风险，立即停下来做诊断，不要继续盲改。
 
 ### 五层防线速查表

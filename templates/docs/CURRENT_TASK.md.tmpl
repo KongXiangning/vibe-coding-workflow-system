@@ -264,6 +264,9 @@
 ## 回滚点
 
 - 
+- Task start base：
+- Last reviewed checkpoint：
+- Current diff review target：
 
 ## 执行记录
 

@@ -11,6 +11,7 @@ trigger: |
   用户要求 review、只报告问题、不要改代码，或准备合并前需要审查当前 diff 时。
 inputs:
   - current_diff
+  - diff_review_target
   - current_task
   - contracts
   - decisions
@@ -28,13 +29,14 @@ forbidden_writes:
   - DECISIONS.md
   - STATUS.md
 must_check:
+  - diff review target 是否明确，尤其是 staged diff、未提交 diff、commit range 或 checkpoint range
   - review-diff 是否检查越界和 scope drift
   - review-implementation 是否检查实现合理性和鲁棒性
   - verify-contracts 是否检查契约风险
   - run-regression 是否显式使用 report-only
   - report-only 结果是否停在审查报告，不继续进入 sync-current-task、investigate-root-cause 或 implement-current-step
 stop_conditions:
-  - 缺少当前 diff 或 CURRENT_TASK.md
+  - 缺少当前 diff target 或 CURRENT_TASK.md
   - 发现 blocker 但用户要求继续自动修复
   - run-regression 需要登录态、生产环境或外部资源但不可用
   - run-regression 未能以 report-only 模式执行
@@ -60,6 +62,7 @@ decision_policy:
   user_challenge: 用户要求只审查时不得进入实现或修复。
 verification:
   - 已保持只读
+  - 已声明 report-only 审查使用的 diff review target
   - 已覆盖范围、实现质量、契约和回归四层
   - 已明确 findings 是否阻塞
   - run-regression 以 report-only 模式结束，未继续 handoff 到修复或同步链
@@ -103,6 +106,8 @@ orchestration_constraints:
 ## Rules
 
 - 严格只读，不进入 `/implement-current-step`。
+- 先声明本次 report-only 审查的 `diff_review_target`：未提交 diff、staged diff、commit range、checkpoint range 或用户提供的 patch。
+- 已提交 checkpoint 也可以审查；不得因为工作区为空就判定没有 diff。
 - 发现问题只输出证据、严重程度和是否阻塞。
 - `run-regression` 必须使用 report-only；报告完成后停止，不继续跟随 `/run-regression` 的 normal success / failure handoff。
 - 即使 `/run-regression` 发现失败，也只输出 report-only findings，不自动进入 `/investigate-root-cause`。

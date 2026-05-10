@@ -13,6 +13,7 @@ inputs:
   - current_task
   - current_step
   - current_diff
+  - diff_review_target
 reads:
   - CURRENT_TASK.md
   - CONTRACTS.md
@@ -27,6 +28,7 @@ must_check:
   - Allowed Files / Forbidden Files / Conditional Files 是否已锁定
   - 当前步骤是否不需要新增用户决策
   - 实现后是否必须进入完整审查链
+  - diff_review_target 是否已声明，或可由 CURRENT_TASK.md 回滚点 / checkpoint 记录明确推导
 stop_conditions:
   - 当前步骤缺失或不清楚
   - 需要扩大范围或触碰 Forbidden Files
@@ -45,6 +47,7 @@ decision_policy:
   user_challenge: 步骤需要越界或改变行为时必须停下确认。
 verification:
   - 已按当前步骤执行
+  - 已声明 review / verify / regression 链路使用的 diff_review_target
   - 已进入 review-diff / review-implementation / verify-contracts / run-regression
   - 没有直接修改代码或治理文档
 allowed-tools:
@@ -62,6 +65,10 @@ orchestration_sequence:
   - verify-contracts
   - run-regression
   - sync-current-task
+orchestration_constraints:
+  - review-diff、review-implementation、verify-contracts 和 diff-aware run-regression 必须沿用同一个 diff_review_target
+  - 如果 CURRENT_TASK.md 记录了 checkpoint commit，不得让子流程退回只看 git diff / git diff --cached
+  - diff_review_target 不明确时，进入 review-diff 前必须停下并要求明确
 ---
 
 # Skill: continue-current-step
@@ -84,5 +91,7 @@ orchestration_sequence:
 ## Rules
 
 - 只适用于当前任务已锁范围、已拆步骤的场景。
+- 进入 `/review-diff` 前必须明确 `diff_review_target`；长任务 checkpoint 后应使用 `git diff <task-base>..HEAD` 或 `git diff <last-reviewed-checkpoint>..HEAD`。
+- `/review-diff`、`/review-implementation`、`/verify-contracts` 和 diff-aware `/run-regression` 必须沿用同一个 `diff_review_target`。
 - 如果实现需要扩大范围，停止并回到 `/lock-scope`。
 - 如果验证失败且根因不明确，交给 `/investigate-root-cause`。

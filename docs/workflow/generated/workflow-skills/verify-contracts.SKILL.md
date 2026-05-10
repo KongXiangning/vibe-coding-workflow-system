@@ -12,6 +12,7 @@ trigger: |
   diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时。
 inputs:
   - current_diff
+  - diff_review_target
   - contracts
   - current_task
 reads:
@@ -23,6 +24,7 @@ forbidden_writes:
   - test
   - docs/workflow/CONTRACTS.md
 must_check:
+  - diff review target 是否与前序 review 使用的目标一致
   - 接口签名与返回结构
   - 稳定导出与表结构
   - 依赖方向、状态流、目录职责、DTO 语义
@@ -40,6 +42,7 @@ decision_policy:
   taste: 不要把风格类建议当作契约问题。
   user_challenge: 发现必须放宽契约时必须停下并请求确认。
 verification:
+  - 已声明并沿用前序 review 的 diff review target
   - 接口层与架构层都已检查
   - 已明确标注是否破坏锁定契约
   - 没有静默放宽边界
@@ -84,6 +87,7 @@ diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时�
 ## Inputs
 
 - current_diff
+- diff_review_target
 - contracts
 - current_task
 
@@ -111,6 +115,7 @@ diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时�
 
 ## Must Check
 
+- diff review target 是否与前序 review 使用的目标一致
 - 接口签名与返回结构
 - 稳定导出与表结构
 - 依赖方向、状态流、目录职责、DTO 语义
@@ -128,6 +133,7 @@ diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时�
 
 ## Verification
 
+- 已声明并沿用前序 review 的 diff review target
 - 接口层与架构层都已检查
 - 已明确标注是否破坏锁定契约
 - 没有静默放宽边界

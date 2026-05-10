@@ -11,6 +11,7 @@ trigger: |
   review-diff 通过后、进入契约验证前。
 inputs:
   - current_diff
+  - diff_review_target
   - current_task
   - contracts
   - decisions
@@ -28,6 +29,7 @@ forbidden_writes:
   - DECISIONS.md
   - LESSONS.md
 must_check:
+  - diff review target 是否与 review-diff 使用的目标一致
   - 实现是否满足 CURRENT_TASK.md 的验收目标
   - 代码路径、数据流、状态流和调用顺序是否正确
   - 空值、缺字段、旧客户端、异常响应、超时和重复调用是否处理
@@ -62,6 +64,7 @@ decision_policy:
   taste: 风格建议必须能说明维护性或风险收益，不能只表达个人偏好。
   user_challenge: 发现需要改变产品行为、接口契约或架构边界时必须停下确认。
 verification:
+  - 已声明并沿用 review-diff 的 diff review target
   - 已检查实现是否满足验收目标
   - 已检查逻辑正确性、边界条件和异常路径
   - 已检查兼容性与最小改动原则
@@ -90,6 +93,7 @@ quality_dimensions:
   - test_adequacy
   - maintainability
 implementation_review_rules:
+  - 必须沿用 `/review-diff` 已声明的 diff review target；不得在 checkpoint commit 后退回只看未提交工作区。
   - 审查当前 diff 中实际实现的行为，而不只审查文件范围。
   - 优先寻找会导致生产失败、数据错乱、兼容破坏或测试假阳性的缺陷。
   - 不把单纯风格偏好升级为 blocker；只有可解释的正确性、鲁棒性、兼容性或维护风险才列为问题。
@@ -130,6 +134,7 @@ review-diff 通过后、进入契约验证前。
 ## Inputs
 
 - current_diff
+- diff_review_target
 - current_task
 - contracts
 - decisions
@@ -159,6 +164,7 @@ review-diff 通过后、进入契约验证前。
 
 ## Must Check
 
+- diff review target 是否与 review-diff 使用的目标一致
 - 实现是否满足 CURRENT_TASK.md 的验收目标
 - 代码路径、数据流、状态流和调用顺序是否正确
 - 空值、缺字段、旧客户端、异常响应、超时和重复调用是否处理
@@ -185,6 +191,7 @@ review-diff 通过后、进入契约验证前。
 
 ## Verification
 
+- 已声明并沿用 review-diff 的 diff review target
 - 已检查实现是否满足验收目标
 - 已检查逻辑正确性、边界条件和异常路径
 - 已检查兼容性与最小改动原则
@@ -205,6 +212,7 @@ review-diff 通过后、进入契约验证前。
 - maintainability
 
 ### implementation_review_rules
+- 必须沿用 `/review-diff` 已声明的 diff review target；不得在 checkpoint commit 后退回只看未提交工作区。
 - 审查当前 diff 中实际实现的行为，而不只审查文件范围。
 - 优先寻找会导致生产失败、数据错乱、兼容破坏或测试假阳性的缺陷。
 - 不把单纯风格偏好升级为 blocker；只有可解释的正确性、鲁棒性、兼容性或维护风险才列为问题。
@@ -293,16 +301,17 @@ Implementation Review:
 
 1. Restate the goal in one sentence.
 2. Read all files listed in `reads`.
-3. Inspect the current diff and the implementation files affected by the diff.
-4. Check `must_check` items before acting.
-5. Respect `forbidden_writes` and current task boundaries.
-6. If findings exist, classify them by `conditional_handoff` before using `handoff.failure`.
-7. Mechanical implementation findings within Allowed Files hand off to `/sync-review-findings`.
-8. User challenge, contract, architecture, or product behavior findings hand off to `/ask-user`.
-9. Scope widening findings hand off to `/lock-scope`.
-10. If a stop condition does not match a `conditional_handoff` category, stop and hand off to `handoff.failure`.
-11. Produce the artifact(s) described in `output`.
-12. Hand off to `handoff.success` when the skill completes normally.
+3. Confirm the same `diff_review_target` used by `/review-diff`.
+4. Inspect the current diff and the implementation files affected by the diff.
+5. Check `must_check` items before acting.
+6. Respect `forbidden_writes` and current task boundaries.
+7. If findings exist, classify them by `conditional_handoff` before using `handoff.failure`.
+8. Mechanical implementation findings within Allowed Files hand off to `/sync-review-findings`.
+9. User challenge, contract, architecture, or product behavior findings hand off to `/ask-user`.
+10. Scope widening findings hand off to `/lock-scope`.
+11. If a stop condition does not match a `conditional_handoff` category, stop and hand off to `handoff.failure`.
+12. Produce the artifact(s) described in `output`.
+13. Hand off to `handoff.success` when the skill completes normally.
 
 ## Output Contract
 
