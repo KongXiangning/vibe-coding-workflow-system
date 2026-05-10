@@ -32,7 +32,7 @@ must_check:
   - 发布 / 部署 / 生产 / 性能 / 可靠性任务是否需要生成发布后验证
   - Allowed Files、Forbidden Files、Conditional Files 是否明确
   - 是否触发 Change Propagation Check
-  - 回滚点是否存在
+  - 回滚点是否存在，并包含 Task start base、Last reviewed checkpoint、Current diff review target 三字段
 stop_conditions:
   - 需求本身模糊
   - 任务边界无法确定
@@ -54,6 +54,7 @@ verification:
   - UI / 视觉任务包含 Design mode、Design source、Design acceptance、Design evidence、Design open decisions
   - 发布 / 部署 / 性能任务包含 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence
   - Allowed Files、Forbidden Files、Conditional Files 明确
+  - 回滚点包含 Task start base、Last reviewed checkpoint、Current diff review target 三字段；未知值必须显式写 unknown / not-yet-created / to-be-established，不得省略
   - 至少包含一个可执行的当前步骤
 allowed-tools:
   - Read
@@ -100,6 +101,13 @@ propagation_rules:
   - 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
   - 必须声明兼容策略：backward-compatible、breaking 或 unknown
   - 必须列出需要更新的 CONTRACTS.md、DECISIONS.md 和回归检查项
+rollback_point_rules:
+  - 回滚点必须包含 Task start base
+  - 回滚点必须包含 Last reviewed checkpoint
+  - 回滚点必须包含 Current diff review target
+  - 新任务创建时若尚无 checkpoint，Last reviewed checkpoint 写 not-yet-created
+  - 如果 task base 暂时无法确定，Task start base 写 unknown 并交给 review-current-task 上浮或补齐
+  - Current diff review target 必须给出初始策略：working-tree、staged、task-base-to-HEAD、checkpoint-to-HEAD、user-supplied-patch 或 to-be-established
 acceptance_rules:
   - 必须可验证
   - 必须避免空泛措辞
@@ -173,7 +181,7 @@ release_modes:
 - 发布 / 部署 / 生产 / 性能 / 可靠性任务是否需要生成发布后验证
 - Allowed Files、Forbidden Files、Conditional Files 是否明确
 - 是否触发 Change Propagation Check
-- 回滚点是否存在
+- 回滚点是否存在，并包含 Task start base、Last reviewed checkpoint、Current diff review target 三字段
 
 ## Stop Conditions
 
@@ -190,6 +198,7 @@ release_modes:
 ## Verification
 
 - CURRENT_TASK.md 包含所有必填章节
+- CURRENT_TASK.md 的回滚点包含 Task start base、Last reviewed checkpoint、Current diff review target 三字段；未知值必须显式写 unknown / not-yet-created / to-be-established，不得省略
 - UI / 视觉任务包含 Design mode、Design source、Design acceptance、Design evidence、Design open decisions
 - 发布 / 部署 / 性能任务包含 Release mode、Deploy source、Target environment、Health checks、Canary window、Performance baseline、Rollback / recovery、Release evidence
 - Allowed Files、Forbidden Files、Conditional Files 明确
@@ -231,6 +240,14 @@ release_modes:
 - 触碰公共 API、schema、DTO、event、共享逻辑或 CONTRACTS.md 锁定项时必须列影响集合
 - 必须声明兼容策略：backward-compatible、breaking 或 unknown
 - 必须列出需要更新的 CONTRACTS.md、DECISIONS.md 和回归检查项
+
+### rollback_point_rules
+- 回滚点必须包含 Task start base
+- 回滚点必须包含 Last reviewed checkpoint
+- 回滚点必须包含 Current diff review target
+- 新任务创建时若尚无 checkpoint，Last reviewed checkpoint 写 not-yet-created
+- 如果 task base 暂时无法确定，Task start base 写 unknown 并交给 review-current-task 上浮或补齐
+- Current diff review target 必须给出初始策略：working-tree、staged、task-base-to-HEAD、checkpoint-to-HEAD、user-supplied-patch 或 to-be-established
 
 ### acceptance_rules
 - 必须可验证

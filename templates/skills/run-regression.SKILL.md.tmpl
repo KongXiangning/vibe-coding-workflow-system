@@ -37,6 +37,7 @@ must_check:
   - 发布 / 部署 / canary / benchmark 任务是否输出 Release evidence 或 blocked reason
   - 认证态验证需要 session/cookie 时是否已明确可用性
 stop_conditions:
+  - diff-aware 或 report-only 模式下 diff_review_target 缺失、不明确，或无法证明与前序 review 使用的目标一致
   - 关键测试失败
   - 验证结果与任务目标冲突
   - 现有测试缺失但无法完成人工检查
@@ -120,6 +121,7 @@ pass_criteria:
   - 关键 smoke check 无阻断问题
   - 需要登录的验证已确认 session/cookie 可用，或已标记 blocked
 failure_policy:
+  - diff-aware 或 report-only 模式下缺少明确 diff_review_target 时停止，不进入 sync-current-task 或 investigate-root-cause
   - 测试失败时进入 investigate-root-cause，而不是直接大改代码
   - report-only 模式只报告问题和证据，不进入实现或修复
   - report-only 模式覆盖 normal handoff；无论 pass / fail，输出报告后停止
@@ -189,6 +191,7 @@ browser_session_policy:
 
 ## Stop Conditions
 
+- diff-aware 或 report-only 模式下 diff_review_target 缺失、不明确，或无法证明与前序 review 使用的目标一致
 - 关键测试失败
 - 验证结果与任务目标冲突
 - 现有测试缺失但无法完成人工检查
@@ -257,6 +260,7 @@ browser_session_policy:
 - 需要登录的验证已确认 session/cookie 可用，或已标记 blocked
 
 ### failure_policy
+- diff-aware 或 report-only 模式下缺少明确 diff_review_target 时停止，不进入 sync-current-task 或 investigate-root-cause
 - 测试失败时进入 investigate-root-cause，而不是直接大改代码
 - report-only 模式只报告问题和证据，不进入实现或修复
 - report-only 模式覆盖 normal handoff；无论 pass / fail，输出报告后停止

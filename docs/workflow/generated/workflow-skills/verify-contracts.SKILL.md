@@ -29,6 +29,7 @@ must_check:
   - 稳定导出与表结构
   - 依赖方向、状态流、目录职责、DTO 语义
 stop_conditions:
+  - diff_review_target 缺失、不明确，或无法证明与前序 review 使用的目标一致
   - 发现锁定契约已被破坏
   - 发现需要修改 docs/workflow/CONTRACTS.md 才能解释当前改动
 output:
@@ -56,6 +57,8 @@ benefits-from:
   - /review-diff
 notes:
   - 如果契约需要调整，应回到人工决策，而不是在此 skill 中放宽。
+  - 如果未经过 `/review-diff` 或无法确认同一 diff_review_target，必须停止并要求先运行 `/review-diff`
+    或明确 target。
 contract_layers:
   - 接口契约
   - 架构契约
@@ -122,6 +125,7 @@ diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时�
 
 ## Stop Conditions
 
+- diff_review_target 缺失、不明确，或无法证明与前序 review 使用的目标一致
 - 发现锁定契约已被破坏
 - 发现需要修改 docs/workflow/CONTRACTS.md 才能解释当前改动
 
@@ -182,6 +186,7 @@ diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时�
 ## Notes
 
 - 如果契约需要调整，应回到人工决策，而不是在此 skill 中放宽。
+- 如果未经过 `/review-diff` 或无法确认同一 diff_review_target，必须停止并要求先运行 `/review-diff` 或明确 target。
 - This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
 - This source-repo reference render already expands the current `.workflow-system/PROJECT_PROFILE.yaml`; target projects re-render these values during install / sync.
 

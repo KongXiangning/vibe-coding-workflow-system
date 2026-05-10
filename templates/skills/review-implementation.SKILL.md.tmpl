@@ -39,6 +39,7 @@ must_check:
   - 测试是否覆盖原始问题、正常路径和关键边界路径
   - 实现位置、命名和局部复杂度是否符合现有代码风格
 stop_conditions:
+  - diff_review_target 缺失、不明确，或无法证明与 review-diff 使用的目标一致
   - 发现实现不能可靠满足验收目标
   - 发现关键边界条件未处理且可能导致真实失败
   - 发现兼容性破坏但任务未授权
@@ -94,6 +95,7 @@ quality_dimensions:
   - maintainability
 implementation_review_rules:
   - 必须沿用 `/review-diff` 已声明的 diff review target；不得在 checkpoint commit 后退回只看未提交工作区。
+  - 如果未经过 `/review-diff` 或无法确认同一 diff_review_target，必须停止并要求先运行 `/review-diff` 或明确 target。
   - 审查当前 diff 中实际实现的行为，而不只审查文件范围。
   - 优先寻找会导致生产失败、数据错乱、兼容破坏或测试假阳性的缺陷。
   - 不把单纯风格偏好升级为 blocker；只有可解释的正确性、鲁棒性、兼容性或维护风险才列为问题。
@@ -176,6 +178,7 @@ review-diff 通过后、进入契约验证前。
 
 ## Stop Conditions
 
+- diff_review_target 缺失、不明确，或无法证明与 review-diff 使用的目标一致
 - 发现实现不能可靠满足验收目标
 - 发现关键边界条件未处理且可能导致真实失败
 - 发现兼容性破坏但任务未授权
@@ -213,6 +216,7 @@ review-diff 通过后、进入契约验证前。
 
 ### implementation_review_rules
 - 必须沿用 `/review-diff` 已声明的 diff review target；不得在 checkpoint commit 后退回只看未提交工作区。
+- 如果未经过 `/review-diff` 或无法确认同一 diff_review_target，必须停止并要求先运行 `/review-diff` 或明确 target。
 - 审查当前 diff 中实际实现的行为，而不只审查文件范围。
 - 优先寻找会导致生产失败、数据错乱、兼容破坏或测试假阳性的缺陷。
 - 不把单纯风格偏好升级为 blocker；只有可解释的正确性、鲁棒性、兼容性或维护风险才列为问题。
