@@ -37,12 +37,15 @@ must_check:
   - 最小可行实现路径是否清晰
   - 关键风险、兼容性影响、回滚方式和验证策略是否明确
   - 是否需要补充测试、smoke、browser-backed evidence 或 release evidence
+  - 技术路线是否依赖第三方 library / framework / SDK / API / CLI tool / cloud service 的 current behavior，是否需要触发 External Documentation Gate
 stop_conditions:
   - 目标、验收或范围不足以形成实现方案
   - 方案需要修改 Forbidden Files 或扩大 Allowed Files
   - 候选方案涉及 Taste 或 User challenge 但尚未确认
   - 方案会改变产品行为、接口契约、数据结构或架构边界但未获确认
   - 无法确定最小可行实现路径或验证策略
+  - ctx7 evidence 暴露多个会改变架构、产品行为、依赖版本、长期维护路径或用户已确认方向的候选方案但尚未确认
+  - External Documentation Gate 已触发但无法取得 current docs evidence，且受影响判断是当前技术路线的前置条件
 output:
   - Implementation plan
   - Architecture impact
@@ -51,6 +54,7 @@ output:
   - Risk and compatibility analysis
   - Validation strategy
   - Open decisions
+  - External docs evidence 或 blocked reason
 handoff:
   success: decompose-task
   failure: ask-user
@@ -63,6 +67,7 @@ verification:
   - 已说明架构影响、技术路径、候选方案和取舍
   - 已说明最小实现路径和验证策略
   - 已列出未确认 Taste / User challenge 决策
+  - 若触发 External Documentation Gate，已记录 current docs evidence；若只能记录 blocked reason，未继续决定依赖第三方 current behavior 的技术路线
   - 没有修改代码或长期治理文档
 allowed-tools:
   - Read
@@ -145,6 +150,7 @@ implementation_plan_rules:
 - 最小可行实现路径是否清晰
 - 关键风险、兼容性影响、回滚方式和验证策略是否明确
 - 是否需要补充测试、smoke、browser-backed evidence 或 release evidence
+- 技术路线是否依赖第三方 library / framework / SDK / API / CLI tool / cloud service 的 current behavior，是否需要触发 External Documentation Gate
 
 ## Stop Conditions
 
@@ -153,6 +159,8 @@ implementation_plan_rules:
 - 候选方案涉及 Taste 或 User challenge 但尚未确认
 - 方案会改变产品行为、接口契约、数据结构或架构边界但未获确认
 - 无法确定最小可行实现路径或验证策略
+- ctx7 evidence 暴露多个会改变架构、产品行为、依赖版本、长期维护路径或用户已确认方向的候选方案但尚未确认
+- External Documentation Gate 已触发但无法取得 current docs evidence，且受影响判断是当前技术路线的前置条件
 
 ## Decision Policy
 
@@ -166,6 +174,7 @@ implementation_plan_rules:
 - 已说明架构影响、技术路径、候选方案和取舍
 - 已说明最小实现路径和验证策略
 - 已列出未确认 Taste / User challenge 决策
+- 若触发 External Documentation Gate，已记录 current docs evidence；若只能记录 blocked reason，未继续决定依赖第三方 current behavior 的技术路线
 - 没有修改代码或长期治理文档
 
 ## Extension Fields
@@ -188,6 +197,43 @@ implementation_plan_rules:
 - 不把稳定契约直接写入 CONTRACTS.md
 - 不把步骤拆解混进方案设计；步骤拆解交给 decompose-task
 - 如果方案需要扩大 scope，停止并回到 lock-scope
+
+## External Documentation Gate
+
+`/plan-implementation` 在形成技术方案前必须判断技术路线是否依赖第三方 library、framework、SDK、API、CLI tool 或 cloud service 的 current behavior。
+
+触发条件：
+
+- 方案需要选择或验证第三方 API / SDK / CLI / config / cloud service 的当前用法。
+- 技术路线依赖某第三方参数、返回结构、配置字段、命令 flag、版本约束或 breaking-change 行为。
+- 需要判断某写法当前是否仍受支持、是否 deprecated、是否有官方替代写法。
+- 候选方案之间的差异来自第三方当前能力或限制。
+
+调用优先级：
+
+1. 优先使用 ctx7 MCP。
+2. MCP 不可用时，使用可确认会获取 current docs 的 ctx7 / docs skill。
+3. MCP 和可用 skill 都不可用，且宿主允许 shell / CLI 时，使用 `ctx7` CLI。
+4. 全部不可用时，记录 blocked reason；不得用训练数据默默替代 current docs 判断。
+
+失败处理：
+
+- 若 gate 已触发但无法取得 current docs evidence，不得继续决定依赖第三方 current behavior 的技术路线。
+- blocked reason 必须写明已尝试通道、失败类型、受影响技术判断和 handoff。失败类型包括未安装、不可用、无权限、命令不存在、认证失败、quota、DNS / network、返回结果不可信或宿主禁止 shell / CLI。
+- 只有当受影响判断不是当前方案前置条件，或项目内已有稳定 wrapper / 已锁定契约足以覆盖当前判断时，才可继续；继续时必须写明 no-block reason。
+- 若 blocked reason 影响当前技术路线成立性，停止并 handoff 到 `ask-user`；不得把未验证候选方案交给 `decompose-task`。
+
+证据写入：
+
+- 把 docs source、查询对象、关键结论、适用版本或适用范围写入 `CURRENT_TASK.md > 实现方案`。
+- 若未触发 gate，说明 no-op 原因，例如“不涉及第三方 current behavior”或“仅使用项目内既有稳定 wrapper”。
+- 若 gate 不可用，按失败处理规则写明 blocked reason、受影响技术判断和是否阻塞当前方案。
+
+回问规则：
+
+- 纯 mechanical 的文档验证和项目既有技术栈用法可以自动取证并形成方案。
+- 如果 ctx7 evidence 暴露多个会改变架构边界、产品行为、依赖版本、长期维护路径或用户已确认方向的候选方案，必须以 plan 形式回问用户确认。
+- 未确认前不得把这些候选方案塞进实现步骤；handoff 到 `ask-user`。
 
 ## Implementation Planning
 

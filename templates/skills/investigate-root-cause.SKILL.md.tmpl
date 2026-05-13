@@ -25,15 +25,19 @@ must_check:
   - 复现路径是否明确
   - 根因是否与当前改动直接相关
   - 是否存在更小修复面
+  - 是否存在第三方 library / framework / SDK / API / CLI tool / cloud service current behavior 相关 root cause hypothesis，是否需要触发 External Documentation Gate
 stop_conditions:
   - 连续多次定位仍不收敛
   - 根因判断需要额外产品决策
   - 问题实际来自范围外系统
+  - External Documentation Gate 已触发但无法取得 current docs evidence，且第三方 current behavior 是当前 root cause hypothesis 的关键判断依据
+  - ctx7 evidence 否定当前 root cause hypothesis，且没有新的可验证假设
 output:
   - Symptom
   - Reproduction
   - Root cause hypothesis
   - Evidence
+  - External docs evidence、no-op reason 或 blocked reason
   - Minimal fix path
   - Regression check
   - 根因判断
@@ -53,6 +57,7 @@ decision_policy:
 verification:
   - 原始失败场景已重新验证
   - Root cause hypothesis 有证据支持
+  - 若触发 External Documentation Gate，current docs evidence 已写入 debug evidence；若只能记录 blocked reason，未把未验证的第三方 current behavior 当作根因
   - 根因有证据支持
   - 最小修复面已识别
   - 没有直接跳到大范围修复
@@ -88,6 +93,10 @@ failure_policy:
 regression_expectation:
   - 重新进入实现前要通过 plan-implementation 明确修复只覆盖当前 bug
   - 修复后必须复验原始失败场景
+external_documentation_gate:
+  - 只有第三方行为相关 root cause hypothesis 需要验证时才查 ctx7
+  - 共享调用优先级：ctx7 MCP -> 可确认 current docs 的 ctx7 / docs skill -> ctx7 CLI -> blocked reason
+  - ctx7 evidence 只能支持或否定 hypothesis，不能替代 symptom、reproduction、日志、diff 或最小复现
 ---
 
 # Skill: investigate-root-cause
@@ -182,6 +191,11 @@ regression_expectation:
 - 重新进入实现前要通过 plan-implementation 明确修复只覆盖当前 bug
 - 修复后必须复验原始失败场景
 
+### external_documentation_gate
+- 只有第三方行为相关 root cause hypothesis 需要验证时才查 ctx7
+- 共享调用优先级：ctx7 MCP -> 可确认 current docs 的 ctx7 / docs skill -> ctx7 CLI -> blocked reason
+- ctx7 evidence 只能支持或否定 hypothesis，不能替代 symptom、reproduction、日志、diff 或最小复现
+
 ## Investigation Loop
 
 0. Classify intent before investigation:
@@ -196,6 +210,45 @@ regression_expectation:
 6. If the hypothesis is rejected, record the evidence and form the next hypothesis. Do not patch symptoms between hypotheses.
 7. If three hypotheses fail, stop and hand off to `handoff.failure` with the tested hypotheses and evidence.
 8. After the root cause is verified, identify the smallest viable fix path and the regression check that proves the original failure is fixed.
+
+## External Documentation Gate
+
+`/investigate-root-cause` 必须先收集 symptom、reproduction、日志、diff 或最小复现，再判断是否需要用 ctx7 验证第三方 current behavior。文档查询不能替代复现，也不能单独构成 root cause。
+
+触发条件：
+
+- 当前 `Root cause hypothesis` 明确依赖第三方 library / framework / SDK / API / CLI tool / cloud service 的 current behavior。
+- 失败现象可能由第三方参数、返回结构、配置字段、命令 flag、认证 / 权限、版本约束或 breaking-change 行为造成。
+- 本地复现、日志、错误输出或测试失败已经把可疑路径收敛到第三方 current behavior。
+- 需要判断某第三方行为当前是否仍受支持、是否 deprecated、是否有官方替代写法。
+
+不触发条件：
+
+- 还没有 symptom 或 reproduction，只有泛泛猜测。
+- 失败明显来自项目内业务逻辑、状态流、数据转换或最近 diff。
+- 只是登记新 bug、记录现象或要求 report-only 调查。
+- 第三方用法已有项目内稳定 wrapper 或锁定契约覆盖，且当前 hypothesis 不质疑该 wrapper / 契约。
+
+调用优先级：
+
+1. 优先使用 ctx7 MCP。
+2. MCP 不可用时，使用可确认会获取 current docs 的 ctx7 / docs skill。
+3. MCP 和可用 skill 都不可用，且宿主允许 shell / CLI 时，使用 `ctx7` CLI。
+4. 全部不可用时，记录 blocked reason；不得用训练数据默默替代 current docs 判断。
+
+失败处理：
+
+- 若 gate 已触发但无法取得 current docs evidence，不得把未验证的第三方 current behavior 当作 root cause。
+- blocked reason 必须写明已尝试通道、失败类型、受影响 hypothesis 和 handoff。失败类型包括未安装、不可用、无权限、命令不存在、认证失败、quota、DNS / network、返回结果不可信或宿主禁止 shell / CLI。
+- 只有当第三方 current behavior 不是当前 hypothesis 的关键判断依据，或本地证据已足以否定 / 支持根因时，才可继续；继续时必须写明 no-block reason。
+- 若 blocked reason 阻塞根因判断，停止并 handoff 到 `ask-user`，附上已验证 symptom、reproduction、已排除 hypothesis 和缺失的 current docs evidence。
+
+证据写入：
+
+- 把 docs source、查询对象、关键结论、适用版本或适用范围写入 Debug Report 的 `Evidence` / `debug evidence`。
+- 证据必须和 symptom、reproduction、root cause hypothesis 形成链条：文档结论只能支持或否定已提出的 hypothesis。
+- 若未触发 gate，说明 no-op reason，例如“不涉及第三方 current behavior”或“尚未形成第三方行为 hypothesis”。
+- 若 gate 不可用，按失败处理规则写明 blocked reason、受影响 hypothesis 和是否阻塞当前调查。
 
 ## Root Cause Repair Rules
 

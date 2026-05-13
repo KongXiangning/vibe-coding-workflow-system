@@ -42,6 +42,17 @@
 - 替代方案：给 source repo 改用另一套 workflow home；不采用，因为 workflow home 已由协议/profile 固定为 `docs/workflow`。
 - 验证方式：review docs placement during adoption and task close.
 
+### AD-004: 核心实现与审查 skill 使用条件性 External Documentation Gate
+
+- 状态：accepted
+- 背景：`plan-implementation`、`implement-current-step`、`investigate-root-cause`、`review-implementation` 是最容易因第三方 library / framework / SDK / API / CLI tool / cloud service current behavior 过期而产生方案、实现、根因或评审错误的核心 skill。
+- 决策：仅这 4 个核心 skill 在本轮接入同名 `External Documentation Gate`。gate 只在第三方 current behavior 会影响方案、实现正确性、根因判断或评审结论时触发；调用优先级固定为 ctx7 MCP -> 可确认 current docs 的 ctx7 / docs skill -> `ctx7` CLI -> blocked reason。
+- 原因：把 current docs 取证放在真正依赖外部行为的环节，避免对纯内部任务强制查询，同时防止用训练数据默默替代当前第三方文档判断。
+- 约束：AI 不得静默扩大到所有 workflow skill；不得把 `create-current-task` 改造成 ctx7 主查询入口；不得在 gate 触发且无法取得 current docs evidence 时继续做依赖第三方 current behavior 的关键判断。
+- 影响范围：`templates/skills/plan-implementation.SKILL.md.tmpl`, `templates/skills/implement-current-step.SKILL.md.tmpl`, `templates/skills/investigate-root-cause.SKILL.md.tmpl`, `templates/skills/review-implementation.SKILL.md.tmpl`, `docs/workflow/generated/workflow-skills/**`, `test/gen-workflow-skills.test.ts`
+- 替代方案：只在宿主指引中要求 ctx7；接入所有 skill；把 `create-current-task` 作为主查询入口。均不采用。
+- 验证方式：`bun run gen:workflow-skills --dry-run`; `bun run gen:registry --dry-run`; `bun run test:workflow-skills`; `bun run validate:protocol`; `bun run validate:freshness`.
+
 ## 🎨 口味决策
 
 ### TD-001: 中文治理文档风格
@@ -65,6 +76,15 @@
 - 暂缓原因：需要单独任务评估协议、错误分类、runtime 接入点和测试范围。
 - 触发复议条件：准备修改 `workflow:install` root validation，或发现维护者再次尝试 self-install。
 - 明确不做范围：本轮不实现 guard，不修改 runtime 脚本。
+
+### DEFER-002: External docs evidence 协议化
+
+- 状态：deferred
+- 背景：任务 `001` 已在 4 个核心 skill 模板中稳定落地 `External Documentation Gate`，但 evidence 当前只写入实现方案、执行记录、debug evidence 或 review finding / clean 结论。
+- 当前结论：本轮不在 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md` 或 `templates/docs/CURRENT_TASK.md.tmpl` 中新增标准 evidence 字段或章节。
+- 暂缓原因：当前需求可由模板级行为规则覆盖；提前 schema 化会扩大协议、任务包结构和生成文档变更面。
+- 触发复议条件：多个任务复用后证明需要机器可读 evidence 字段，或审查 / 归档流程需要稳定读取 external docs evidence。
+- 明确不做范围：本轮不新增 `CURRENT_TASK.md` 标准章节，不改协议/schema，不把 evidence 结构提升为持久 DTO。
 
 ## 🔁 已演进 / 已替代
 

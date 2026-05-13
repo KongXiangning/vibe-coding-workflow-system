@@ -26,6 +26,19 @@ Source repo governance boundaries:
 - This source repo may self-sync host skills with `workflow:sync --root . --host <host> --write`, but must not self-install with `workflow:install --root .`.
 - Project-level validation slots owned by `target-project` stay unbound in this source repo; source repo quality checks use the commands below.
 
+Workflow external documentation gate:
+
+- `plan-implementation`, `implement-current-step`, `investigate-root-cause`, and `review-implementation` must each keep an explicit `External Documentation Gate`.
+- Trigger the gate only when third-party library, framework, SDK, API, CLI tool, or cloud service current behavior affects the plan, implementation correctness, root-cause hypothesis, or review conclusion.
+- Use this fallback order: ctx7 MCP -> a ctx7/docs skill that confirms current docs lookup -> `ctx7` CLI -> blocked reason.
+- Do not silently use training data as a substitute for current docs when the gate is required.
+- Do not make `create-current-task` the primary ctx7 lookup entrypoint; it may only record that later external-doc evidence is needed.
+
+File mutation guard:
+
+- Before modifying files, check for `FREEZE_REGISTRY.md`, `.workflow-system/FREEZE_REGISTRY.md`, and header markers such as `@frozen` or `DO NOT MODIFY`.
+- If a target file is frozen, stop and report the reason instead of editing it.
+
 Common checks:
 
 ```powershell

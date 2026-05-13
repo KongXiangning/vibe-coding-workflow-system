@@ -24,6 +24,13 @@ const DECISIONS_DOC = getWorkflowDocRelativePath(PROFILE, 'DECISIONS.md');
 const STATUS_DOC = getWorkflowDocRelativePath(PROFILE, 'STATUS.md');
 const BASELINES_DOC = getWorkflowDocRelativePath(PROFILE, 'BASELINES.md');
 
+const EXTERNAL_DOCUMENTATION_GATE_SKILLS = [
+  'plan-implementation.SKILL.md',
+  'implement-current-step.SKILL.md',
+  'investigate-root-cause.SKILL.md',
+  'review-implementation.SKILL.md',
+] as const;
+
 const REQUIRED_FIELDS = [
   'name',
   'purpose',
@@ -92,6 +99,18 @@ describe('gen-workflow-skills', () => {
       .sort();
 
     expect(generatedFiles).toEqual(templateFiles);
+  });
+
+  test('core implementation and review skills keep the external documentation gate', () => {
+    for (const file of EXTERNAL_DOCUMENTATION_GATE_SKILLS) {
+      const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
+      expect(content).toContain('## External Documentation Gate');
+      expect(content).toContain('优先使用 ctx7 MCP');
+      expect(content).toContain('可确认会获取 current docs 的 ctx7 / docs skill');
+      expect(content).toContain('`ctx7` CLI');
+      expect(content).toContain('blocked reason');
+      expect(content).toContain('不得用训练数据默默替代 current docs 判断');
+    }
   });
 
   test('every generated workflow skill has required schema fields', () => {

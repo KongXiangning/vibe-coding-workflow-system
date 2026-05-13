@@ -148,6 +148,16 @@
     - target project must use external or isolated root
   - verification：manual command review now; future `guard-target-root` tests if implemented
 
+- 对象路径：core skill External Documentation Gate
+  - assertions：
+    - `plan-implementation`、`implement-current-step`、`investigate-root-cause`、`review-implementation` 必须显式声明同名 `External Documentation Gate`。
+    - gate 只在第三方 library / framework / SDK / API / CLI tool / cloud service 的 current behavior 会影响方案、实现、根因判断或评审结论时触发。
+    - 共享调用优先级必须保持为：ctx7 MCP -> 可确认 current docs 的 ctx7 / docs skill -> `ctx7` CLI -> blocked reason。
+    - 全部取证通道不可用时必须记录 blocked reason，不得用训练数据默默替代 current docs 判断。
+    - `plan-implementation` 的 evidence 落点是实现方案；`implement-current-step` 的 evidence 落点是执行记录或本步验证记录；`investigate-root-cause` 的 evidence 落点是 debug evidence / 调查报告；`review-implementation` 的 evidence 落点是 finding 或 clean 结论。
+    - `create-current-task` 不作为 ctx7 主查询入口；任务创建最多记录后续需要外部文档 evidence。
+  - verification：`bun run gen:workflow-skills --dry-run`、`bun run gen:registry --dry-run`、`bun run test:workflow-skills`、`bun run validate:protocol`、`bun run validate:freshness`
+
 ### compat path / wrapper rules
 
 - stable source object：`workflow:install`

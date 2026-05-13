@@ -38,6 +38,7 @@ must_check:
   - 旧调用方式、旧参数和旧返回结构是否保持兼容或已记录为变更
   - 测试是否覆盖原始问题、正常路径和关键边界路径
   - 实现位置、命名和局部复杂度是否符合现有代码风格
+  - diff 中是否存在第三方 library / framework / SDK / API / CLI tool / cloud service 用法需要用 External Documentation Gate 验证 current behavior
 stop_conditions:
   - diff_review_target 缺失、不明确，或无法证明与 review-diff 使用的目标一致
   - 发现实现不能可靠满足验收目标
@@ -46,12 +47,14 @@ stop_conditions:
   - 发现测试只覆盖 happy path 且无法证明原始 bug 已修复
   - 发现修复依赖隐藏错误、吞掉异常或绕过失败路径
   - 发现需要改变产品行为、接口契约或架构边界才能继续
+  - External Documentation Gate 已触发但无法取得 current docs evidence，且第三方 current behavior 是 finding 或 clean 结论的关键判断依据
 output:
   - 实现质量审查结论
   - Correctness / robustness findings
   - Edge case and compatibility findings
   - Test adequacy findings
   - Remaining implementation risks
+  - External docs evidence、no-op reason 或 blocked reason
 handoff:
   success: verify-contracts
   failure: ask-user
@@ -70,6 +73,7 @@ verification:
   - 已检查逻辑正确性、边界条件和异常路径
   - 已检查兼容性与最小改动原则
   - 已检查测试是否覆盖原始问题和关键边界路径
+  - 若触发 External Documentation Gate，已把 current docs evidence 写入 finding 或 clean 结论；若只能记录 blocked reason，未把第三方 current behavior 用法标记为 clean
   - 已输出 clean 或按严重程度排序的问题列表
   - 没有直接修改代码
 allowed-tools:
@@ -121,6 +125,10 @@ pass_criteria:
   - 实现目标、主要路径和关键边界路径均有证据支持
   - 无 critical / major 实现质量问题
   - 测试或 smoke 计划足以证明原始问题和关键边界行为
+external_documentation_gate:
+  - diff 中第三方 API / 配置 / CLI / cloud service 用法需要审查时才查 ctx7
+  - 共享调用优先级：ctx7 MCP -> 可确认 current docs 的 ctx7 / docs skill -> ctx7 CLI -> blocked reason
+  - ctx7 evidence 写入 finding 或 clean 结论；不得把未验证的第三方 current behavior 当作 clean 依据
 ---
 
 # Skill: review-implementation
@@ -175,6 +183,7 @@ review-diff 通过后、进入契约验证前。
 - 旧调用方式、旧参数和旧返回结构是否保持兼容或已记录为变更
 - 测试是否覆盖原始问题、正常路径和关键边界路径
 - 实现位置、命名和局部复杂度是否符合现有代码风格
+- diff 中是否存在第三方 library / framework / SDK / API / CLI tool / cloud service 用法需要用 External Documentation Gate 验证 current behavior
 
 ## Stop Conditions
 
@@ -185,6 +194,7 @@ review-diff 通过后、进入契约验证前。
 - 发现测试只覆盖 happy path 且无法证明原始 bug 已修复
 - 发现修复依赖隐藏错误、吞掉异常或绕过失败路径
 - 发现需要改变产品行为、接口契约或架构边界才能继续
+- External Documentation Gate 已触发但无法取得 current docs evidence，且第三方 current behavior 是 finding 或 clean 结论的关键判断依据
 
 ## Decision Policy
 
@@ -199,6 +209,7 @@ review-diff 通过后、进入契约验证前。
 - 已检查逻辑正确性、边界条件和异常路径
 - 已检查兼容性与最小改动原则
 - 已检查测试是否覆盖原始问题和关键边界路径
+- 若触发 External Documentation Gate，已把 current docs evidence 写入 finding 或 clean 结论；若只能记录 blocked reason，未把第三方 current behavior 用法标记为 clean
 - 已输出 clean 或按严重程度排序的问题列表
 - 没有直接修改代码
 
@@ -247,6 +258,11 @@ review-diff 通过后、进入契约验证前。
 - 无 critical / major 实现质量问题
 - 测试或 smoke 计划足以证明原始问题和关键边界行为
 
+### external_documentation_gate
+- diff 中第三方 API / 配置 / CLI / cloud service 用法需要审查时才查 ctx7
+- 共享调用优先级：ctx7 MCP -> 可确认 current docs 的 ctx7 / docs skill -> ctx7 CLI -> blocked reason
+- ctx7 evidence 写入 finding 或 clean 结论；不得把未验证的第三方 current behavior 当作 clean 依据
+
 ## Implementation Quality Review
 
 `/review-implementation` 关注代码改动本身是否成立，而不是重复 `/review-diff` 的范围审查或 `/verify-contracts` 的契约审查。
@@ -261,6 +277,44 @@ review-diff 通过后、进入契约验证前。
 - Compatibility：旧调用方式、旧参数、旧返回结构是否保持可用。
 - Test adequacy：测试是否覆盖原始 bug、正常路径和关键边界路径。
 - Maintainability：命名、职责位置、局部复杂度是否符合现有代码风格。
+
+## External Documentation Gate
+
+`/review-implementation` 在审查 diff 时必须判断是否存在第三方 library、framework、SDK、API、CLI tool 或 cloud service 的 current behavior 用法需要验证。该 gate 只用于验证评审结论，不授权直接修改代码。
+
+触发条件：
+
+- diff 新增、扩展或质疑第三方 API / SDK / CLI / config / cloud service 用法。
+- finding 或 clean 结论依赖第三方参数、返回结构、配置字段、命令 flag、认证 / 权限、版本约束或 breaking-change 行为。
+- 测试失败、类型不匹配、运行失败或 review 疑点可能来自第三方 current behavior。
+- 需要判断某第三方写法当前是否仍受支持、是否 deprecated、是否有官方替代写法。
+
+不触发条件：
+
+- diff 只修改项目内业务逻辑、文档措辞、类型整理或局部重构，不依赖第三方 current behavior。
+- 第三方用法已有项目内稳定 wrapper 或已锁定契约覆盖，且当前 review 不质疑该 wrapper / 契约。
+- 已有 `CURRENT_TASK.md` evidence 足以覆盖当前 diff 中的 API、参数、配置、CLI 用法、返回结构或版本约束。
+
+调用优先级：
+
+1. 优先使用 ctx7 MCP。
+2. MCP 不可用时，使用可确认会获取 current docs 的 ctx7 / docs skill。
+3. MCP 和可用 skill 都不可用，且宿主允许 shell / CLI 时，使用 `ctx7` CLI。
+4. 全部不可用时，记录 blocked reason；不得用训练数据默默替代 current docs 判断。
+
+失败处理：
+
+- 若 gate 已触发但无法取得 current docs evidence，不得把第三方 current behavior 用法标记为 clean，也不得把未经验证的第三方 current behavior 作为 finding 的唯一依据。
+- blocked reason 必须写明已尝试通道、失败类型、受影响评审判断和 handoff。失败类型包括未安装、不可用、无权限、命令不存在、认证失败、quota、DNS / network、返回结果不可信或宿主禁止 shell / CLI。
+- 只有当第三方 current behavior 不是当前 finding / clean 结论的关键判断依据，或项目内稳定 wrapper / 已锁定契约足以覆盖当前判断时，才可继续；继续时必须写明 no-block reason。
+- 若 blocked reason 阻塞实现质量判断，输出 remaining risk 并 handoff 到 `ask-user`，不得给出 clean 结论。
+
+证据写入：
+
+- 若确认 finding，把 docs source、查询对象、关键结论、适用版本或适用范围写入 finding evidence。
+- 若确认 clean，把 current docs evidence 写入 clean 结论，说明为什么当前第三方用法成立。
+- 若未触发 gate，说明 no-op reason，例如“不涉及第三方 current behavior”“已有 evidence 覆盖当前 diff”或“仅使用项目内稳定 wrapper”。
+- 若 gate 不可用，按失败处理规则写明 blocked reason、受影响评审判断和是否阻塞当前 review。
 
 ## Finding Evidence
 
