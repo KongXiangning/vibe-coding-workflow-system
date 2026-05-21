@@ -5,6 +5,7 @@ import * as path from 'path';
 import {
   executeEntrypoint,
   loadMatrixFromProfile,
+  resolveEntrypointExecutionContext,
   runValidation,
 } from '../scripts/run-validation';
 import {
@@ -128,6 +129,25 @@ describe('run-validation', () => {
     const result = executeEntrypoint(entry, ROOT);
     expect(result.status).toBe('failed');
     expect(result.error).toBeDefined();
+  });
+
+  test('workflow-system protocol entrypoints run from source root against target root', () => {
+    const targetRoot = path.join(os.tmpdir(), 'workflow-target');
+    const execution = resolveEntrypointExecutionContext(
+      {
+        name: 'workflow-skills-validation',
+        layer: 'protocol',
+        command: 'bun run gen:workflow-skills --dry-run',
+        blocker_level: 'blocks-generator',
+        description: 'Validate workflow skill templates.',
+        phase: 'P9',
+        owner: 'workflow-system',
+      },
+      targetRoot,
+    );
+
+    expect(execution.cwd).toBe(ROOT);
+    expect(execution.env?.WORKFLOW_SYSTEM_ROOT).toBe(targetRoot);
   });
 
   test('dry-run mode skips all execution', () => {

@@ -65,6 +65,11 @@ type GovernanceHomeCheck = {
   validateContent: (content: string, entrypoints: readonly ValidationEntrypoint[]) => void;
 };
 
+type EntrypointExecutionContext = {
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+};
+
 // --- CLI ---
 
 function parseCliArgs(argv: string[]): RunValidationCliArgs {
@@ -150,6 +155,8 @@ const GOVERNANCE_HOME_CHECKS: readonly GovernanceHomeCheck[] = [
   },
 ] as const;
 
+const WORKFLOW_SYSTEM_SOURCE_ROOT = path.resolve(import.meta.dir, '..');
+
 function shouldRun(entrypoint: ValidationEntrypoint, maxBlockerLevel?: BlockerLevel): boolean {
   if (!maxBlockerLevel) return true;
   return BLOCKER_SEVERITY[entrypoint.blocker_level] >= BLOCKER_SEVERITY[maxBlockerLevel];
@@ -158,11 +165,13 @@ function shouldRun(entrypoint: ValidationEntrypoint, maxBlockerLevel?: BlockerLe
 export function executeEntrypoint(
   entrypoint: ValidationEntrypoint,
   cwd: string,
+  env?: NodeJS.ProcessEnv,
 ): ValidationResult {
   const parts = entrypoint.command.split(/\s+/);
   const result = spawnSync(parts[0], parts.slice(1), {
     cwd,
     encoding: 'utf8',
+    env: env ?? process.env,
     stdio: 'pipe',
     shell: true,
   });
@@ -197,6 +206,23 @@ export function executeEntrypoint(
     status: 'passed',
     output,
   };
+}
+
+export function resolveEntrypointExecutionContext(
+  entrypoint: ValidationEntrypoint,
+  root: string,
+): EntrypointExecutionContext {
+  if (entrypoint.layer === 'protocol' && entrypoint.owner === 'workflow-system') {
+    return {
+      cwd: WORKFLOW_SYSTEM_SOURCE_ROOT,
+      env: {
+        ...process.env,
+        WORKFLOW_SYSTEM_ROOT: root,
+      },
+    };
+  }
+
+  return { cwd: root };
 }
 
 function skipResult(entrypoint: ValidationEntrypoint, reason: string): ValidationResult {
@@ -332,7 +358,8 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
       protocolResults.push(skipResult(entry, 'dry-run mode'));
       continue;
     }
-    protocolResults.push(executeEntrypoint(entry, root));
+    const execution = resolveEntrypointExecutionContext(entry, root);
+    protocolResults.push(executeEntrypoint(entry, execution.cwd, execution.env));
   }
 
   if (options.layer !== 'project') {
@@ -405,7 +432,8 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
       projectResults.push(skipResult(entry, 'dry-run mode'));
       continue;
     }
-    projectResults.push(executeEntrypoint(entry, root));
+    const execution = resolveEntrypointExecutionContext(entry, root);
+    projectResults.push(executeEntrypoint(entry, execution.cwd, execution.env));
   }
 
   return buildValidationReport(protocolResults, projectResults);
