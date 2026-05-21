@@ -17,6 +17,7 @@
 - [x] source repo self-use 不走 self-install 的边界已进入 adoption 基线。
 - [x] `docs/workflow/` 治理管理面与 source repo 产品 / 业务文档目录边界已进入 adoption 基线。
 - [x] 任务 `001` / `ctx7-skill-gate`：4 个核心 workflow skill 已接入条件性 `External Documentation Gate`；`plan-implementation`、`implement-current-step`、`investigate-root-cause`、`review-implementation` 模板及对应 generated reference outputs 已同步，回归通过。
+- [x] 任务 `002` / `supersede-current-task-skill`：`supersede-current-task` 已加入 workflow skill 模板集；registry 顺序、高风险审计列表、`WORKFLOW_GUIDE` 路由、聚焦测试与 generated reference outputs 已同步，`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness` 通过。
 
 ## 🔨 正在开发
 
@@ -45,12 +46,13 @@
 
 ## 🔜 下一检查点
 
-- 继续任务 `001`：准备交付总结、必要的契约 / 决策同步判断，并进入任务关闭流程。
+- 继续任务 `002`：判断是否需要同步 `STATUS.md` 之外的治理资产（如 `CONTRACTS.md` / `DECISIONS.md` 无新增），准备交付总结并进入任务关闭流程。
 - 若要实现 target root guard，先开独立任务并锁定 `scripts/**`、`test/**`、协议和基线影响范围。
 - adoption 后运行 `bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。
 
 ## 最近更新记录
 
+- 2026-05-22：任务 `002` / `supersede-current-task-skill` 已完成模板、registry、guide、聚焦测试、generated outputs 和最终复核；`review-diff`、`review-implementation`、`verify-contracts` 结论为 clean，`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness` 通过。Release mode 为 none，发布后状态不适用。
 - 2026-05-13：任务 `001` / `ctx7-skill-gate` 已完成步骤 9-11 并通过回归；`bun run gen:workflow-skills --dry-run`、`bun run gen:registry --dry-run`、`bun run test:workflow-skills`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run test:workflow-all`、`bun run workflow:health --root .` 均通过。Release mode 为 none，发布后状态不适用。
 - 2026-05-13：任务 `001` / `ctx7-skill-gate` 已完成四个目标模板的 `External Documentation Gate` 接入，并完成四模板一致性检查与最小生成测试；当时进入步骤 9-11 的生成 / registry dry-run、generated reference 确认和任务级回归，后续已完成。
 - 2026-05-12：任务 `001` / `ctx7-skill-gate` 进入开发中；`plan-implementation` 模板已加入 `External Documentation Gate`，并完成 `RI-001` 失败处理修复。局部验证通过：`gen:workflow-skills --dry-run`、`gen:registry --dry-run`、`test:workflow-skills`、`validate:protocol`、`validate:freshness`。

@@ -43,6 +43,7 @@
 | 接管老项目治理基线 | `/adopt-existing-project` | `legacy-inventory` 产物、现有仓库事实、用户确认信息 | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`ROADMAP.md`、`CONTRACTS.md`、`BASELINES.md`、`STATUS.md`、`DECISIONS.md`，必要时更新 `docs/adoption/ADOPTION_REPORT.md` |
 | 执行当前任务编排 | `/execute-current-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | 自动进入 review-current-task → lock-scope → classify-decisions → plan-implementation → decompose-task → implement/review/regression 链 |
 | 创建任务包 | `/create-current-task` | `.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`、用户需求 | `CURRENT_TASK.md` |
+| 替代失效任务包 | `/supersede-current-task` | 旧 `CURRENT_TASK.md`、`STATUS.md`、`DECISIONS.md`、`CONTRACTS.md` | 当未完成任务包发生 scope invalidation 时，保留旧任务状态、未完成项和 partial diff 归属，并把新任务包送回 `review-current-task` |
 | 审查任务包 | `/review-current-task` | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | 修订后的任务边界、验收、设计约束和风险 |
 | 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | Safety mode、Allowed Files、Forbidden Files、Conditional Files、Dangerous surfaces、Unlock / widening conditions |
 | 分类决策 | `/classify-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | Mechanical / Taste / User challenge 分类 |
@@ -73,6 +74,7 @@
 0. 初始化完成后进入日常任务链路：新项目先走 `/design-baseline-init`；如果目标项目里已经有旧路径或旧版 workflow 资产，先插入 `/realign-workflow-assets`，再进入 `/greenfield-init`。老项目先走 `/legacy-inventory` → `/adopt-existing-project`。需要重新生成 / sync 时，从 workflow-system 源仓库用 `WORKFLOW_SYSTEM_ROOT=<target-repo>` 和 `--root <target-repo>` 驱动目标项目，不要为了 workflow-system 迁移在目标项目里执行 `bun install`。
 1. 先读 `DOCUMENT_CATALOG.md` 确认文档目录协议，再读 `STATUS.md` / `ROADMAP.md`，确认当前任务是否处在正确窗口。
 2. 用 `/create-current-task` 创建 `CURRENT_TASK.md`。
+   - 如果未完成的 `CURRENT_TASK.md` 在实现、审查或回归中发现目标、范围锁或验收标准已经失效，先用 `/supersede-current-task` 替代任务包，再重新进入 `/review-current-task` → `/lock-scope` → `/plan-implementation`；不得直接继续 `/implement-current-step`。
 3. 用 `/review-current-task` 收敛目标、验收、风险和范围。
 4. 用 `/lock-scope` 明确 Safety mode、`Allowed Files`、`Forbidden Files`、`Conditional Files`、Dangerous surfaces 和受影响契约。
 5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
@@ -269,6 +271,7 @@ flowchart TD
 
 - 如果实现需要修改 `CURRENT_TASK.md` 的 `Allowed Files` / `Conditional Files` 之外的文件，停止当前实现并回到 `/lock-scope`。
 - 未明确允许的文件默认禁止修改。
+- 如果当前未完成任务包的目标、范围锁或验收标准已经失效，这不是普通补步骤；应先用 `/supersede-current-task` 替代任务包，并回到 `/review-current-task` → `/lock-scope` → `/plan-implementation`，不得直接进入实现。
 - `/review-diff` 或 `/review-implementation` 输出的 mechanical implementation findings 先用 `/sync-review-findings` 写入 `CURRENT_TASK.md > 审查问题队列`，再修复。
 - workflow-system 不依赖 native hook；即使没有 shell 拦截器或 session-level freeze，也必须按 Safety mode、mutation scope 和 dangerous command gate 执行。
 - workflow-system 不绑定具体设计生成工具、comparison board、Pretext 或 browse daemon；`DESIGN.md` 只能作为 optional source，不加入 required reads。

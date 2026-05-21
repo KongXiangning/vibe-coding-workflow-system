@@ -134,6 +134,34 @@ describe('gen-registry', () => {
     expect(rows.map(row => row.name).sort()).toEqual(expectedSkillNames());
   });
 
+  test('supersede-current-task is registered with the expected stage and handoff', () => {
+    const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
+    const rows = parseRegistryRows(content);
+    const row = rows.find(entry => entry.name === 'supersede-current-task');
+
+    expect(row).toBeDefined();
+    expect(row?.stage).toBe('阶段 1：需求进入');
+    expect(row?.handoffSuccess).toBe('review-current-task');
+    expect(row?.handoffFailure).toBe('ask-user');
+  });
+
+  test('supersede-current-task stays between create-current-task and review-current-task', () => {
+    const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
+    const stageOneNames = parseRegistryRows(content)
+      .filter(row => row.stage === '阶段 1：需求进入')
+      .map(row => row.name);
+
+    expect(stageOneNames.indexOf('create-current-task')).toBeLessThan(
+      stageOneNames.indexOf('supersede-current-task'),
+    );
+    expect(stageOneNames.indexOf('supersede-current-task')).toBeLessThan(
+      stageOneNames.indexOf('review-current-task'),
+    );
+    expect(content).toContain(
+      '| 阶段 1：需求进入 | `execute-current-task` → `create-current-task` → `supersede-current-task` → `review-current-task` |',
+    );
+  });
+
   test('initialization stage preserves the two-step bootstrap ordering', () => {
     const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
     const rows = parseRegistryRows(content);
@@ -192,6 +220,13 @@ describe('gen-registry', () => {
       expect(row.handoffSuccess).toBe(skill!.handoffSuccess);
       expect(row.handoffFailure).toBe(skill!.handoffFailure);
     }
+  });
+
+  test('supersede-current-task is listed as a high-risk registry skill', () => {
+    const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
+    const highRiskSection = content.slice(content.indexOf('## 4. 高风险 / 重点审计 skill'));
+
+    expect(highRiskSection).toContain('- `supersede-current-task`');
   });
 
   test('only task placeholders remain unresolved', () => {

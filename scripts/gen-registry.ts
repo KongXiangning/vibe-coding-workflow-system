@@ -61,6 +61,7 @@ const REQUIRED_FIELDS = ['name', 'purpose', 'stage', 'trigger', 'reads', 'writes
 const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
 const HIGH_RISK_SKILLS = [
   'execute-current-task',
+  'supersede-current-task',
   'continue-current-step',
   'debug-and-fix-current-task',
   'review-current-diff',
@@ -84,6 +85,7 @@ const WORKFLOW_ORDER = [
   'adopt-existing-project',
   'execute-current-task',
   'create-current-task',
+  'supersede-current-task',
   'review-current-task',
   'lock-scope',
   'classify-decisions',

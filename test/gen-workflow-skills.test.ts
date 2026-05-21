@@ -324,6 +324,48 @@ describe('gen-workflow-skills', () => {
     expect(reviewDiff).toContain('sync-review-findings');
   });
 
+  test('supersede-current-task preserves task replacement governance semantics', () => {
+    const supersedePath = path.join(OUTPUT_DIR, 'supersede-current-task.SKILL.md');
+    expect(fs.existsSync(supersedePath)).toBe(true);
+
+    const frontmatter = parseFrontmatter(supersedePath);
+    const reads = normalizeList(frontmatter.reads);
+    const writes = normalizeList(frontmatter.writes);
+    const forbidden = normalizeList(frontmatter.forbidden_writes);
+    const stopConditions = normalizeList(frontmatter.stop_conditions);
+    const statusMarkers = normalizeList(frontmatter.supersede_status_markers);
+    const invalidationSignals = normalizeList(frontmatter.scope_invalidation_signals);
+    const nonTriggerCases = normalizeList(frontmatter.non_trigger_cases);
+    const replacementRules = normalizeList(frontmatter.replacement_rules);
+    const handoff = frontmatter.handoff as Record<string, unknown>;
+    const content = fs.readFileSync(supersedePath, 'utf8');
+
+    expect(String(frontmatter.name)).toBe('supersede-current-task');
+    expect(String(frontmatter.stage)).toBe('阶段 1：需求进入');
+    expect(reads).toEqual([CURRENT_TASK_DOC, STATUS_DOC, DECISIONS_DOC, CONTRACTS_DOC]);
+    expect(writes).toEqual([CURRENT_TASK_DOC]);
+    expect(forbidden).toContain(STATUS_DOC);
+    expect(forbidden).toContain(DECISIONS_DOC);
+    expect(forbidden).toContain(CONTRACTS_DOC);
+    expect(handoff.success).toBe('review-current-task');
+    expect(handoff.failure).toBe('ask-user');
+    expect(statusMarkers).toEqual(['superseded', 'blocked_by_replan']);
+    expect(invalidationSignals).toContain('原任务目标已失效');
+    expect(invalidationSignals).toContain(
+      '原任务 Allowed Files / Conditional Files / Forbidden Files 已不足以安全覆盖所需修改',
+    );
+    expect(nonTriggerCases).toContain('只是在既有 Allowed Files 内补充实现步骤');
+    expect(nonTriggerCases).toContain('只是在既有范围内修复 open finding');
+    expect(stopConditions).toContain('需要直接跳过 review-current-task / lock-scope 进入实现');
+    expect(replacementRules).toContain('必须把当前 handoff 设为 review-current-task');
+    expect(replacementRules).toContain('review-current-task 之后必须重新进入 lock-scope 和 plan-implementation');
+    expect(content).toContain('## Scope Invalidation Test');
+    expect(content).toContain('## Partial Diff Ownership Rules');
+    expect(content).toContain('## Handoff Discipline');
+    expect(content).toContain('只用于“继续沿旧任务包执行已经不安全”的情况');
+    expect(content).toContain(`不得把替代后的 \`${CURRENT_TASK_DOC}\` 直接交给 \`/implement-current-step\``);
+  });
+
   test('review findings are persisted through a dedicated sync skill before fix implementation', () => {
     const syncFindingsPath = path.join(OUTPUT_DIR, 'sync-review-findings.SKILL.md');
     expect(fs.existsSync(syncFindingsPath)).toBe(true);

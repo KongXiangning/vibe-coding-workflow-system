@@ -215,6 +215,16 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('legacy root docs');
   });
 
+  test('workflow guide documents supersede-current-task routing', () => {
+    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
+    expect(guide).toContain('/supersede-current-task');
+    expect(guide).toContain('scope invalidation');
+    expect(guide).toContain('/review-current-task');
+    expect(guide).toContain('/lock-scope');
+    expect(guide).toContain('/plan-implementation');
+    expect(guide).toContain('不得直接继续 `/implement-current-step`');
+  });
+
   test('document catalog codifies directory classification and lookup guidance', () => {
     const catalog = fs.readFileSync(path.join(OUTPUT_DIR, 'DOCUMENT_CATALOG.md'), 'utf8');
     expect(catalog).toContain('docs/workflow/');

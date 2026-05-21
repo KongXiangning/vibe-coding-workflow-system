@@ -1,0 +1,270 @@
+---
+name: supersede-current-task
+preamble-tier: 2
+version: 0.2.0
+description: |
+  Replace the active unfinished CURRENT_TASK.md package when scope invalidation makes the old task package unsafe to continue.
+purpose: |
+  当未完成的当前任务因目标、范围锁或验收标准失效而不能继续时，用新任务包安全替代旧任务包。
+stage: 阶段 1：需求进入
+trigger: |
+  CURRENT_TASK.md 尚未完成，但执行中发现原任务目标、范围锁或验收标准失效，必须替代当前任务包时。
+inputs:
+  - current_task
+  - invalidation_evidence
+  - current_status
+  - confirmed_decisions
+reads:
+  - CURRENT_TASK.md
+  - STATUS.md
+  - DECISIONS.md
+  - CONTRACTS.md
+writes:
+  - CURRENT_TASK.md
+forbidden_writes:
+  - STATUS.md
+  - DECISIONS.md
+  - CONTRACTS.md
+  - "{{CODE_DIRECTORIES}}"
+must_check:
+  - 是否真的发生 scope invalidation，而不是普通新增步骤、局部修订或审查问题修复
+  - 旧任务是否仍未完成且未归档
+  - 原任务失效的是目标、范围锁还是验收标准，证据是否明确
+  - 旧任务的 findings、未完成项和 partial diff ownership 是否已保留
+  - 是否重新定义 Allowed Files、Conditional Files、Forbidden Files
+  - 成功路径是否回到 review-current-task，而不是直接实现
+stop_conditions:
+  - 原任务只需补充步骤或小范围修订，无需 supersede
+  - 新任务目标或替代边界仍不明确
+  - 需要修改 STATUS.md、DECISIONS.md、CONTRACTS.md 或范围外文件
+  - 旧任务已完成、已归档，或不存在可替代的活动任务包
+  - 需要直接跳过 review-current-task / lock-scope 进入实现
+  - 替代方案依赖未确认的 Taste / User challenge 决策
+output:
+  - 重写后的 CURRENT_TASK.md 替代任务包
+  - 旧任务 supersede 记录
+  - 保留的 findings、未完成项和 partial diff ownership 归属说明
+  - 新的 Allowed Files / Conditional Files / Forbidden Files
+handoff:
+  success: review-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动整理 supersede 记录、替代任务包结构和证据顺序。
+  taste: 不得借 supersede 静默改写设计方向、文案口味或体验标准。
+  user_challenge: 不得绕过已确认架构、锁定契约或用户已定方向；需要新方向时必须先上浮。
+verification:
+  - CURRENT_TASK.md 已保留旧任务失效原因、未完成项和 partial diff ownership
+  - CURRENT_TASK.md 已重新定义 Allowed Files、Conditional Files、Forbidden Files
+  - 替代任务包的当前 handoff 为 review-current-task
+  - 成功路径明确要求后续重新进入 lock-scope 和 plan-implementation
+  - 未修改 STATUS.md、DECISIONS.md、CONTRACTS.md 或代码目录
+allowed-tools:
+  - Read
+  - Grep
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /implement-current-step
+  - /execute-current-task
+notes:
+  - 这是治理状态转换 skill，不是实现规划 skill。
+  - supersede 的目标是阻止旧冻结任务包被非法续命，而不是替旧任务补几步继续做。
+supersede_status_markers:
+  - superseded
+  - blocked_by_replan
+scope_invalidation_signals:
+  - 原任务目标已失效
+  - 原任务 Allowed Files / Conditional Files / Forbidden Files 已不足以安全覆盖所需修改
+  - 原任务验收标准已被新事实、已确认决策或锁定契约否定
+non_trigger_cases:
+  - 只是在既有 Allowed Files 内补充实现步骤
+  - 只是在既有范围内修复 open finding
+  - 只需同步执行记录、验证结果或局部实现偏差
+preservation_rules:
+  - 保留旧任务标题、slug、当前状态和失效原因摘要
+  - 保留旧任务 open findings、未完成步骤和回滚上下文
+  - 保留 partial diff ownership，说明哪些既有变更可复用、哪些必须停止或回滚
+replacement_rules:
+  - 必须重写 CURRENT_TASK.md，而不是在旧任务包上继续追加实现步骤
+  - 必须明确把旧任务标记为 superseded 或 blocked_by_replan
+  - 必须重新定义 Allowed Files、Conditional Files、Forbidden Files
+  - 必须把当前 handoff 设为 review-current-task
+  - review-current-task 之后必须重新进入 lock-scope 和 plan-implementation
+---
+
+# Skill: supersede-current-task
+
+## Purpose
+
+当未完成的当前任务因目标、范围锁或验收标准失效而不能继续时，用新任务包安全替代旧任务包。
+
+## Trigger
+
+CURRENT_TASK.md 尚未完成，但执行中发现原任务目标、范围锁或验收标准失效，必须替代当前任务包时。
+
+## Inputs
+
+- current_task
+- invalidation_evidence
+- current_status
+- confirmed_decisions
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for the active task package.
+
+## Must Check
+
+- 是否真的发生 scope invalidation，而不是普通新增步骤、局部修订或审查问题修复
+- 旧任务是否仍未完成且未归档
+- 原任务失效的是目标、范围锁还是验收标准，证据是否明确
+- 旧任务的 findings、未完成项和 partial diff ownership 是否已保留
+- 是否重新定义 Allowed Files、Conditional Files、Forbidden Files
+- 成功路径是否回到 review-current-task，而不是直接实现
+
+## Stop Conditions
+
+- 原任务只需补充步骤或小范围修订，无需 supersede
+- 新任务目标或替代边界仍不明确
+- 需要修改 STATUS.md、DECISIONS.md、CONTRACTS.md 或范围外文件
+- 旧任务已完成、已归档，或不存在可替代的活动任务包
+- 需要直接跳过 review-current-task / lock-scope 进入实现
+- 替代方案依赖未确认的 Taste / User challenge 决策
+
+## Decision Policy
+
+- `mechanical`: 可以自动整理 supersede 记录、替代任务包结构和证据顺序。
+- `taste`: 不得借 supersede 静默改写设计方向、文案口味或体验标准。
+- `user_challenge`: 不得绕过已确认架构、锁定契约或用户已定方向；需要新方向时必须先上浮。
+
+## Verification
+
+- CURRENT_TASK.md 已保留旧任务失效原因、未完成项和 partial diff ownership
+- CURRENT_TASK.md 已重新定义 Allowed Files、Conditional Files、Forbidden Files
+- 替代任务包的当前 handoff 为 review-current-task
+- 成功路径明确要求后续重新进入 lock-scope 和 plan-implementation
+- 未修改 STATUS.md、DECISIONS.md、CONTRACTS.md 或代码目录
+
+## Extension Fields
+
+### supersede_status_markers
+- superseded
+- blocked_by_replan
+
+### scope_invalidation_signals
+- 原任务目标已失效
+- 原任务 Allowed Files / Conditional Files / Forbidden Files 已不足以安全覆盖所需修改
+- 原任务验收标准已被新事实、已确认决策或锁定契约否定
+
+### non_trigger_cases
+- 只是在既有 Allowed Files 内补充实现步骤
+- 只是在既有范围内修复 open finding
+- 只需同步执行记录、验证结果或局部实现偏差
+
+### preservation_rules
+- 保留旧任务标题、slug、当前状态和失效原因摘要
+- 保留旧任务 open findings、未完成步骤和回滚上下文
+- 保留 partial diff ownership，说明哪些既有变更可复用、哪些必须停止或回滚
+
+### replacement_rules
+- 必须重写 CURRENT_TASK.md，而不是在旧任务包上继续追加实现步骤
+- 必须明确把旧任务标记为 superseded 或 blocked_by_replan
+- 必须重新定义 Allowed Files、Conditional Files、Forbidden Files
+- 必须把当前 handoff 设为 review-current-task
+- review-current-task 之后必须重新进入 lock-scope 和 plan-implementation
+
+## Scope Invalidation Test
+
+`supersede-current-task` 只用于“继续沿旧任务包执行已经不安全”的情况，不用于普通扩步：
+
+- **触发 supersede**：
+  - 原任务目标已经被新事实推翻，继续实现会产生错误产物。
+  - 原任务范围锁已经失效，必要修改面超出原 Allowed Files / Conditional Files，且不是一次局部 widening 可以安全解决。
+  - 原任务验收标准已经被已确认决策、锁定契约或当前仓库事实否定。
+- **不得触发 supersede**：
+  - 只是发现还缺一个实现步骤、一个测试或一条执行记录。
+  - 只是需要在既有 Allowed Files 内修复 open finding 或局部 bug。
+  - 只是实现顺序需要调整，但任务目标、范围锁和验收标准仍成立。
+
+如果仍可通过 `/sync-current-task`、`/lock-scope` 或普通实现步骤解决，就不要切到 `supersede-current-task`。
+
+## Replacement Requirements
+
+重写 `CURRENT_TASK.md` 前，必须先保留旧任务包的关键治理事实：
+
+- 旧任务为何失效，证据来自哪里。
+- 旧任务当前状态应记为 `superseded` 或 `blocked_by_replan`。
+- 哪些 findings、未完成项、回滚点和执行记录需要保留到新任务包。
+- 现有 partial diff 的归属：可复用、待回滚、或必须停止继续扩散。
+
+新任务包必须重新给出：
+
+- 任务目标与背景
+- Allowed Files / Conditional Files / Forbidden Files
+- 实现方案与验证策略
+- 新的实施步骤
+- 当前 handoff：`review-current-task`
+
+## Partial Diff Ownership Rules
+
+替代任务不能把旧 diff 变成无主状态：
+
+- 若旧 diff 仍可服务新任务，必须在替代任务包中明确其归属和后续验证方式。
+- 若旧 diff 与新任务冲突，必须在 `CURRENT_TASK.md` 中记录停止继续扩散、回滚或另行处理的要求。
+- 不得因为重写任务包而抹掉旧 diff 的来源、风险或验证责任。
+
+## Handoff Discipline
+
+`supersede-current-task` 成功后，下一步必须回到：
+
+```text
+/review-current-task
+-> /lock-scope
+-> /plan-implementation
+```
+
+不得把替代后的 `CURRENT_TASK.md` 直接交给 `/implement-current-step`。新的任务包必须先重新收敛、重新锁定范围、重新确认实现方案。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 这是治理状态转换 skill，不是实现规划 skill。
+- supersede 的目标是阻止旧冻结任务包被非法续命，而不是替旧任务补几步继续做。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.
