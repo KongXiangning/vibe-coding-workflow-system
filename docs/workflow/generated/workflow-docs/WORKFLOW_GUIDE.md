@@ -228,6 +228,7 @@ flowchart TD
 | 当前任务已锁范围并拆好步骤，只想继续下一步 | `/continue-current-step` |
 | 新需求进入 | `/create-current-task` |
 | 登记或记录一个新 bug，尚未授权修复 | `/create-current-task` |
+| 当前未完成任务的目标、范围锁或验收标准已经失效 | `/supersede-current-task` → `/review-current-task` → `/lock-scope` → `/plan-implementation` |
 | 任务范围太大或不清楚 | `/review-current-task` → `/lock-scope` |
 | 需要多个模块联动 | `/classify-decisions` → `/plan-implementation` → `/decompose-task` |
 | 从零建立设计系统或视觉方向 | `/create-current-task` → `/review-current-task`，在 `设计约束` 中选择 `design-system` |

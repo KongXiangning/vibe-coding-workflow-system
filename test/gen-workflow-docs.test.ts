@@ -219,6 +219,7 @@ describe('gen-workflow-docs', () => {
     const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
     expect(guide).toContain('/supersede-current-task');
     expect(guide).toContain('scope invalidation');
+    expect(guide).toContain('当前未完成任务的目标、范围锁或验收标准已经失效');
     expect(guide).toContain('/review-current-task');
     expect(guide).toContain('/lock-scope');
     expect(guide).toContain('/plan-implementation');
