@@ -94,7 +94,9 @@
 - `scripts/bootstrap-project-governance.ts` 中的 `BootstrapTaskIdentityPlan.archive_path_pattern` 当前是 **TypeScript 字面量类型 + 单一路径值**，不是可平滑扩展的普通字符串字段。
 - 由于本任务正式引入 suspended package path，就不能只在运行时多加几个路径值，而必须同步升级 `BootstrapTaskIdentityPlan` 的导出类型形状。
 - 本任务必须把它从“单一 archive pattern”提升为**`artifact_paths` 映射型 schema-backed 结构**，统一表达多种 artifact path。
-- 这属于破坏性类型变更，必须在 `.workflow-system/FILE_SCHEMAS.md` 先定义结构，再同步 `bootstrap-project-governance.ts`、相关 tests 和所有消费方。
+- 这属于 source-repo governance output contract 的破坏性类型变更，必须在 `.workflow-system/FILE_SCHEMAS.md` 先定义结构，再同步 `bootstrap-project-governance.ts`、相关 tests 和所有消费方。
+- 本任务还必须显式评估其对 `workflow:health`、install / manifest / bootstrap 报告等消费面的影响；但本任务不修改 `scripts/workflow-runtime.ts`，不 bump runtime manifest / install / health report schema。
+- 若评估发现必须改变 runtime report / manifest / install contract，立即停止并单独起后续任务，不在任务 003 中顺手扩面。
 
 ### 4. 先定义幂等与失败恢复，再定义 interrupt / resume 行为
 
@@ -158,10 +160,10 @@
 ```text
 active -> paused_pending_closure
 active -> paused_blocked
-paused_pending_closure -> active   (resume + mandatory review gate)
-paused_blocked -> active           (resume + mandatory review gate)
+paused_pending_closure -> active   (resume + review gate metadata required; gate enforcement deferred to task 004)
+paused_blocked -> active           (resume + review gate metadata required; gate enforcement deferred to task 004)
 active -> interrupted
-interrupted -> active              (resume + mandatory review gate)
+interrupted -> active              (resume + review gate metadata required; gate enforcement deferred to task 004)
 active -> archived
 ```
 
@@ -170,8 +172,8 @@ active -> archived
 ```text
 paused_* -> archived
 interrupted -> archived
-paused_* -> active                 (without explicit resume metadata, i.e. rehydration_status != ready_for_resume OR ownership_state != recovery_only)
-interrupted -> active              (without explicit checkpoint / recovery metadata, i.e. rehydration_status != ready_for_resume OR ownership_state != recovery_only)
+paused_* -> active                 (without full resume metadata, i.e. rehydration_status != ready_for_resume OR ownership_state != recovery_only OR resume_requires_review != true OR resume_review_reasons is empty / out-of-set)
+interrupted -> active              (without full checkpoint / recovery metadata, i.e. missing interrupted evidence fields OR rehydration_status != ready_for_resume OR ownership_state != recovery_only OR resume_requires_review != true OR resume_review_reasons is empty / out-of-set)
 archived -> active
 ```
 
@@ -195,7 +197,8 @@ v1 要求：
 
 - `resume_review_reasons` 使用上述**闭合集合**，不得在实现阶段临时发明新 reason。
 - 同一 package 内的 `resume_review_reasons` 必须去重并保持稳定顺序，便于 AI 做确定性比较和测试断言。
-- `resume_requires_review: false` 时，`resume_review_reasons` 必须为空数组；不得出现语义冲突状态。
+- v1 所有 suspended -> active 的恢复路径都必须满足 `resume_requires_review: true`，不保留 `false` 分支。
+- `resume_review_reasons` 必须为非空数组，且每一项都来自上述闭合集合；不得出现空 gate 或语义冲突状态。
 
 ## 工件与路径契约（第一阶段）
 
@@ -253,6 +256,7 @@ v1 要求：
 
 - `TaskIdentityStatus` 保持现有职责，只做 identity 完整性 / 物化状态判断
 - 不得把 `active`、`paused_*`、`interrupted`、`archived` 叠加到 `TaskIdentityStatus`
+- `CURRENT_TASK.md` v1 不新增 `lifecycle_state` 字段；live active ownership 判定复用 `## 任务信息` 中既有 `当前状态` 字段
 - `scripts/task-identity.ts` 必须新增独立的 `TaskLifecycleState = 'active' | 'paused_pending_closure' | 'paused_blocked' | 'interrupted' | 'archived'`
 - `scripts/task-identity.ts` 必须新增独立的 `TaskArtifactKind = 'archive' | 'paused' | 'interrupted'`
 - 路径解析必须新增独立函数 `getTaskArtifactPath(taskId, taskSlug, kind)`
@@ -288,7 +292,8 @@ v1 要求：
 - 只有同时满足以下条件的 suspended package 才是可恢复输入：
   - `rehydration_status = ready_for_resume`
   - `ownership_state = recovery_only`
-  - `resume_requires_review` 与 `resume_review_reasons` 自洽
+  - `resume_requires_review = true`
+  - `resume_review_reasons` 为非空数组，且每一项都来自闭合集合
 
 `paused_pending_closure` 无额外必填字段（公共字段已足够）。
 
@@ -304,6 +309,8 @@ v1 要求：
 - dirty attribution
 - environment state
 - recovery strategy
+
+对 `artifact_kind = interrupted` 的 package，以上字段不是仅供审计记录；它们全部存在且非空，是其进入 `rehydration_status = ready_for_resume` 的前置条件。
 
 ## 幂等与失败恢复要求（第一阶段）
 
@@ -343,15 +350,24 @@ v1 固定为：
 
 v1 固定规则：
 
-- `docs/workflow/CURRENT_TASK.md` 始终是 live active ownership 的唯一 source of truth。
+- `docs/workflow/CURRENT_TASK.md` 始终是 live active ownership 判定的唯一 source of truth；suspended package 不能覆盖它。
 - suspended package 无论位于 `TASKS/paused/**` 还是 `TASKS/interrupted/**`，都只能作为 recovery evidence / resume source，不能单独取得 active ownership。
 - 当同一 `TASK_ID` 同时存在 live `CURRENT_TASK.md` 与 suspended package 时：
-  - `CURRENT_TASK.md` 决定当前是否 active
+  - `CURRENT_TASK.md` 决定当前是否仍持有 active ownership
   - suspended package 只用于恢复和审计
 - 只有当 suspended package 标记为 `ready_for_resume`，且 `CURRENT_TASK.md` 已不再声明该 `TASK_ID` 为 active owner 时，才允许把它作为恢复来源。
-  - **active ownership 判定机制**：`CURRENT_TASK.md` 文件存在且其 `TASK_ID` 头部字段与候选恢复 package 的 `TASK_ID` 相同，即视为 active owner。`CURRENT_TASK.md` 不存在、或其 `TASK_ID` 不匹配，则视为不再声明 active。`CURRENT_TASK.md` v1 无需单独添加 `lifecycle_state` 字段；文件存在 + TASK_ID 匹配即代表 active。
+  - **active ownership 判定机制（不新增字段）**：
+    - 只复用 `CURRENT_TASK.md > ## 任务信息` 中既有 `当前状态` 字段，不新增 `lifecycle_state` 到 `CURRENT_TASK.md`。
+    - `CURRENT_TASK.md` 文件存在、其 `TASK_ID` 头部字段与候选恢复 package 的 `TASK_ID` 相同，且 `当前状态` 属于 v1 明确定义的 active/live allowlist 时，才视为 active owner。
+    - v1 active/live allowlist 必须在 `.workflow-system/FILE_SCHEMAS.md` 中基于既有 `当前状态` 字段登记；至少要显式决定 `draft`、`active` 等 live task package 状态是否持有 active ownership。
+    - `archived`、`superseded`、`replaced`、`blocked_by_replan`、`paused_pending_closure`、`paused_blocked`、`interrupted` 不得视为 active owner。
+    - `当前状态` 缺失、为空、无法解析或不在 allowlist / denylist 中时，一律 `fail-closed`，不得自动 resume。
 
 ## 本任务必须覆盖的代码面
+
+以下脚本变更全部发生在 workflow-system source repo，由 source repo 侧的治理命令（如 `workflow:install`、`workflow:sync`、`workflow:health` 等）驱动。
+
+本任务不要求 target project 自行运行 bun 生成链，也不把 workflow-system 的治理脚本能力下放为目标项目的日常业务依赖。
 
 ### 协议 / schema
 
@@ -363,13 +379,15 @@ v1 固定规则：
 - `scripts/task-identity.ts`
 - `scripts/bootstrap-project-governance.ts`
 - `scripts/workflow-doc-contracts.ts`
+- `scripts/run-validation.ts`
 
 必须覆盖的具体变更：
 
-- `BootstrapTaskIdentityPlan` 的导出类型形状升级，不再只允许单一 `archive_path_pattern`
+- `BootstrapTaskIdentityPlan` 的导出类型形状升级，不再只允许单一 `archive_path_pattern`；并补充 source-repo governance output impact assessment
 - `task-identity.ts` 中 identity completeness 与 lifecycle state 分离建模
 - 新增独立的 artifact kind / path resolver，而不是复用 `TaskIdentityStatus`
 - `FILE_SCHEMAS.md` 必须把 `resume_review_reasons`、`rehydration_status`、`ownership_state` 定义为可校验的闭合集合，而不是开放字符串
+- `run-validation.ts` 必须正式接入 suspended package 校验入口，使 `validate:protocol` 或对应 validation flow 能证明非法 suspended package 会被拦住；不得只停留在 helper 单元测试
 
 ### 对应测试
 
@@ -380,7 +398,7 @@ v1 固定规则：
   - artifact path resolver 能稳定区分 `archive` / `paused` / `interrupted`
   - `resume_review_reasons` 非闭合集合值时校验失败
   - `write_incomplete` package 不能被当作可恢复输入
-  - live `CURRENT_TASK.md` 与 suspended package 并存时，active ownership 以 `CURRENT_TASK.md` 为准
+  - live `CURRENT_TASK.md` 与 suspended package 并存时，active ownership 以 `CURRENT_TASK.md` 的既有 `当前状态` allowlist 判定为准
 
 ## 修改范围修订
 
@@ -391,9 +409,10 @@ v1 固定规则：
 - `scripts/task-identity.ts`
 - `scripts/bootstrap-project-governance.ts`
 - `scripts/workflow-doc-contracts.ts`
+- `scripts/run-validation.ts`
 - `test/task-identity.test.ts`
 - `test/bootstrap-project-governance.test.ts`
-- `test/run-validation.test.ts`（本任务正式引入 suspended package schema，需补校验断言）
+- `test/run-validation.test.ts`（本任务正式接入 suspended package 校验入口，需补 validation flow 断言）
 
 ### Conditional Files
 
@@ -409,6 +428,7 @@ v1 固定规则：
 - `docs/workflow/generated/**`
 - `vibe-coding/**`
 - `scripts/workflow-runtime.ts`（若协议 / schema 证明必须参与，须单独起后续任务，不在本任务中顺手扩面）
+- `test/workflow-runtime.test.ts`（若 runtime manifest / health / install report contract 必须变更，须单独起后续任务）
 - `.workflow-system/PROJECT_PROFILE.yaml`
 - `docs/workflow/BACKLOG.md`
 
@@ -419,10 +439,12 @@ v1 固定规则：
 - `FILE_SCHEMAS` 明确 lifecycle state、resume review gate、suspended package 的承载位置和最小字段，并把 `resume_review_reasons`、`rehydration_status`、`ownership_state` 定义为闭合集合
 - `task-identity.ts` 中 `TaskIdentityStatus` 继续只表达 identity completeness，不承担 lifecycle 语义
 - `task-identity.ts` 不再只暴露单一 archive path 解析语义；必须新增独立的 `TaskArtifactKind` 与统一 artifact path resolver，以支持 archive / paused / interrupted 三类 artifact path
-- `bootstrap-project-governance.ts` 不再把 task artifact path contract 仅表达为单一 archive pattern；`BootstrapTaskIdentityPlan` 必须升级为可表达多 artifact path 的导出类型
-- `workflow-doc-contracts.ts` 和相关校验 / 测试能识别新引入的 suspended package 结构，并把它作为 task artifact 校验入口，而不是 workflow governance artifact catalog 条目
-- suspended package 只有在 `rehydration_status = ready_for_resume` 且 `ownership_state = recovery_only` 时才可作为恢复输入
-- live / suspended 并存时，`docs/workflow/CURRENT_TASK.md` 始终是 active ownership 的唯一 source of truth
+- `bootstrap-project-governance.ts` 不再把 task artifact path contract 仅表达为单一 archive pattern；`BootstrapTaskIdentityPlan` 必须升级为可表达多 artifact path 的导出类型，并显式记录对 source-repo governance output 的影响评估；若评估发现必须改变 runtime manifest / install / health report contract，则停止并拆后续任务
+- `workflow-doc-contracts.ts` 和相关校验 / 测试能识别并校验新引入的 suspended package 路径与结构
+- `run-validation.ts` 正式接入 suspended package 校验入口，`test/run-validation.test.ts` 必须证明非法 suspended package 会在 validation flow 中失败，而不是只证明 helper 可用
+- suspended package 只有在 `rehydration_status = ready_for_resume`、`ownership_state = recovery_only`、`resume_requires_review = true`，且 `resume_review_reasons` 为非空闭合集合时才可作为恢复输入
+- 若 `artifact_kind = interrupted`，还必须具备 checkpoint evidence、dirty attribution、environment state、recovery strategy，才可进入可恢复状态
+- live / suspended 并存时，`docs/workflow/CURRENT_TASK.md` 的既有 `当前状态` allowlist 是 active ownership 的唯一 live 判定来源
 - 不新增 lifecycle runtime skill 模板
 - 不新增 inbox / backlog artifact
 - 不扩面修改 `templates/docs/DOCUMENT_CATALOG.md.tmpl` 或 `docs/workflow/DOCUMENT_CATALOG.md`
@@ -465,12 +487,17 @@ v1 固定规则：
   - 恢复后的 `docs/workflow/CURRENT_TASK.md` 也必须回写同名字段，作为 active task 的当前 gate 信号。
   - 两侧字段语义必须一致；若不一致，以恢复后 `CURRENT_TASK.md` 为 live execution source of truth，suspended package 作为 historical evidence。
 - **双活与恢复输入采用固定 source-of-truth / marker 规则**
-  - `docs/workflow/CURRENT_TASK.md` 始终是 active ownership 的唯一 source of truth。
-  - suspended package 只有在 `rehydration_status = ready_for_resume` 且 `ownership_state = recovery_only` 时才可作为恢复输入。
+  - `docs/workflow/CURRENT_TASK.md` 的既有 `当前状态` allowlist 是 active ownership 的唯一 live 判定来源；本任务不新增 `CURRENT_TASK.md` lifecycle 字段。
+  - suspended package 只有在 `rehydration_status = ready_for_resume`、`ownership_state = recovery_only`、`resume_requires_review = true`，且 `resume_review_reasons` 为非空闭合集合时才可作为恢复输入。
+  - 若 `artifact_kind = interrupted`，还必须具备 checkpoint evidence、dirty attribution、environment state、recovery strategy，才可进入可恢复状态。
   - 对 `write_incomplete` 或任何 marker 不自洽的 package，一律 `fail-closed`，不得自动 resume。
 - **`workflow-doc-contracts.ts` 将 suspended package 视为 task artifact，而不是 workflow governance artifact**
-  - 它需要提供对 suspended package 结构和路径契约的识别 / 校验入口。
+  - 它需要提供对 suspended package 结构和路径契约的识别 / 校验能力，并由相关测试覆盖。
+  - 本任务正式把该能力接入 `run-validation.ts` 的 validation flow，并用 `test/run-validation.test.ts` 覆盖非法 package fail-closed。
   - 它不应因此把每个 suspended package 提升为 governance catalog 中的常驻文档对象。
+- **runtime manifest / install / health report contract 不在本任务中变更**
+  - 本任务只做 source-repo governance output impact assessment。
+  - 若评估结果要求修改 `scripts/workflow-runtime.ts` 或 `test/workflow-runtime.test.ts`，必须停止并单独起后续任务。
 - **v1 不扩面 `DOCUMENT_CATALOG`**
   - `templates/docs/DOCUMENT_CATALOG.md.tmpl` 与 `docs/workflow/DOCUMENT_CATALOG.md` 在本任务中保持不变。
   - 若后续任务要把 suspended package 纳入 catalog，必须单独起任务处理 catalog contract、生成链和 freshness 影响。
