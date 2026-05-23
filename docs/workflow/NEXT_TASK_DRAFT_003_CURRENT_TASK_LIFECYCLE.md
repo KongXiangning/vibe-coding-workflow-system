@@ -6,77 +6,156 @@
 - 当前状态：draft_for_review
 - 不接管当前 `CURRENT_TASK.md`。
 - 不代表任务 003 已开始实施。
-- 本稿已按 P0 / P1 审核意见修订：先定义生命周期状态机和持久化身份契约，再实现 lifecycle skills。
+- 本稿已按审核问题清单重构：把原“大一统 lifecycle 改造任务”收窄为**第一阶段协议契约任务**。
 
 ## 任务信息
 
 - 任务 ID：003
-- 任务标题：补齐 CURRENT_TASK 生命周期状态机与异常流转治理
-- 任务 slug：current-task-lifecycle-transitions
+- 任务标题：补齐 CURRENT_TASK 暂停 / 中断 / 恢复协议与工件契约（第一阶段）
+- 任务 slug：current-task-suspend-resume-contract-foundation
 - 建议初始 handoff：`create-current-task`
 
 ## 任务目标
 
-建立 `CURRENT_TASK lifecycle transition protocol`，把真实开发中 `CURRENT_TASK.md` 的暂停、中断、恢复、范围内修订、替代、外部 blocker、旁路发现等场景制度化。
+建立 `CURRENT_TASK suspend / interrupt / resume protocol` 的第一阶段规范基础，使 workflow-system 先稳定回答以下问题：
 
-本任务不是单纯新增几个 skill。第一目标是补齐协议级事实：
+- 哪些是生命周期状态，哪些只是动作或工件类型。
+- `CURRENT_TASK.md` 作为唯一 live task identity 来源时，暂停 / 中断工件如何与既有 archive contract 共存。
+- pause / interrupt / resume 的路径、最小字段、幂等、失败恢复与双活防护如何定义。
 
-- 定义正式任务生命周期状态机。
-- 对齐现有 task identity / archive contract。
-- 定义 paused / interrupted / inbox 的持久化模型。
-- 再基于协议更新 workflow skill、模板、`WORKFLOW_GUIDE`、方法论文档、测试和 generated outputs。
+**本任务不直接实现 lifecycle runtime skills。**  
+本任务先补齐协议、schema、路径解析与校验基础，后续再做 skill、routing、guide 和 generated outputs。
+
+## 范围收窄结论
+
+根据审核结论，原草案有 4 个问题必须先收窄：
+
+1. `TASKS/paused/**`、`TASKS/interrupted/**`、`TASKS/inbox/**` 与现有 `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md` 归档契约冲突。
+2. 原草案把 `backlog_item` 混入生命周期状态集合，并把 `capture` 写成状态迁移源，混淆了状态、动作与工件。
+3. 原草案试图同时引入 protocol、schema、skill、routing、guide、generated、tests，范围过大，`lock-scope` 会失去意义。
+4. 原草案中的 `active_review_required` 在 handoff 上与普通恢复路径无差异，AI 无法稳定消费。
+
+因此本任务只处理：
+
+- 协议层状态定义
+- schema 承载位置
+- task artifact path contract
+- bootstrap / validator / tests 对新契约的识别
+
+以下内容全部移到后续任务：
+
+- `pause-current-task` / `resume-paused-task` / `interrupt-current-task` / `resume-interrupted-task` 模板实现
+- `capture-work-item`
+- `external-root-cause-intake`
+- `investigate-root-cause` ownership routing
+- `WORKFLOW_GUIDE`、`vibe-coding/**`、generated outputs、registry 扩面同步
 
 ## P0 前置原则
 
-### 1. 先定义状态机，再实现 skill
+### 1. 先协议 / schema，再 runtime skill
 
-不能先让各 skill 自行定义生命周期规则。状态机必须先进入规范源：
+生命周期规则必须先进入规范源：
 
 - `.workflow-system/WORKFLOW_PROTOCOL.md`
 - `.workflow-system/FILE_SCHEMAS.md`
 
-模板只能承载已在规范源登记的结构，不能偷偷扩展新状态、新字段或新目录语义。
+在规范源未声明前，`templates/**`、`scripts/**`、tests、generated outputs 都不得自行扩展新状态、新字段或新目录语义。
 
-### 2. 生命周期状态集合
+### 2. 区分状态、动作与工件类型
 
-建议第一版定义以下状态：
+本任务明确三类概念不能混写：
+
+- **生命周期状态**：任务当前所处的协议状态
+- **动作 / transition**：pause / interrupt / resume 这类触发迁移的行为
+- **工件类型**：active live package、suspended package、archive package
+
+因此：
+
+- `capture` 不是状态。
+- `backlog_item` 不是 `CURRENT_TASK` 生命周期状态。
+- inbox / backlog 工件不在本任务范围内。
+
+### 3. 先统一路径解析契约，再落 suspended 目录
+
+现有 contract 只正式定义了：
+
+- `CURRENT_TASK.md`：唯一 live task identity 来源
+- `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`：最终 archive 路径
+
+如果要引入：
+
+- `TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md`
+- `TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md`
+
+则必须先把 `scripts/task-identity.ts` 从单一 `archive path` 解析器提升为统一的 `task artifact path resolver`，并同步 bootstrap / validator / tests。
+
+### 4. 先定义幂等与失败恢复，再定义 interrupt / resume 行为
+
+本任务必须先定义：
+
+- partial write 时如何恢复
+- 如何避免同一 `TASK_ID` 同时出现 live active 与 suspended 双活
+- 重复 pause / interrupt / resume 时是 no-op 还是 fail-closed
+- 哪些 recovery marker 必须写入工件
+
+在这些规则未稳定前，不得落地 runtime skill。
+
+### 5. 先决定 review gate 的表达方式，再决定 skill handoff
+
+原草案的 `active_review_required` 没有独立消费面。  
+本任务改为：
+
+- **不把 `active_review_required` 作为 v1 生命周期状态**
+- 改为定义一个显式的 **resume review gate**
+
+即：
+
+- 恢复后的任务重新回到 `active`
+- 但必须携带 `resume_requires_review` / `resume_review_reasons`
+- 后续 runtime task 再决定由 `review-current-task` 扩展消费，还是新增专用 review skill
+
+## 生命周期模型（第一阶段）
+
+### 1. 生命周期状态集合 v1
+
+第一阶段只定义以下状态：
 
 - `active`
-  - 当前唯一活跃任务，身份来源为 `CURRENT_TASK.md`。
+  - 当前唯一活跃任务，身份来源为 `CURRENT_TASK.md`
 - `paused_pending_closure`
-  - 实现基本完成，但测试、人工复核、小尾巴未收口。
+  - 实现基本完成，但仍有验证、人工复核或小尾巴未收口
 - `paused_blocked`
-  - 当前任务本身没错，但被外部 blocker 卡住。
+  - 任务方向本身未失效，但被外部 blocker 卡住
 - `interrupted`
-  - 被更高优先级任务插队，中断前必须有 checkpoint evidence。
-- `active_review_required`
-  - 从 paused / interrupted 恢复后，发现 base drift、checkpoint drift、diff target 过期或假设变化，不能直接继续实现，必须先 review / lock / plan。
-- `superseded`
-  - 原任务包失效，被后继任务替代。
+  - 被更高优先级任务插入；中断前必须记录 checkpoint evidence 和环境恢复策略
 - `archived`
-  - 完成后的终态归档。
+  - 完成后的终态 archive package
+
+### 2. 明确不纳入 v1 生命周期状态的概念
+
+以下概念在本任务中**不**进入状态集合：
+
 - `backlog_item`
-  - 与当前任务无关的新需求、新灵感、新 bug、技术债，只记录，不改变 `CURRENT_TASK.md`。
+- `capture`
+- `active_review_required`
 
-### 3. 合法迁移矩阵
+对应处理方式：
 
-第一版允许：
+- backlog / inbox：作为后续独立工件类型处理，不属于 `CURRENT_TASK` 生命周期状态
+- review-required：作为恢复后的 gate 字段，而不是状态
+
+### 3. 合法迁移矩阵 v1
+
+允许：
 
 ```text
 active -> paused_pending_closure
 active -> paused_blocked
-paused_pending_closure -> active
-paused_blocked -> active
-paused_pending_closure -> active_review_required
-paused_blocked -> active_review_required
+paused_pending_closure -> active   (resume + mandatory review gate)
+paused_blocked -> active           (resume + mandatory review gate)
 active -> interrupted
-interrupted -> active
-interrupted -> active_review_required
-active -> superseded
-paused_pending_closure -> superseded
-paused_blocked -> superseded
+interrupted -> active              (resume + mandatory review gate)
 active -> archived
-capture -> backlog_item
 ```
 
 默认禁止：
@@ -84,290 +163,207 @@ capture -> backlog_item
 ```text
 paused_* -> archived
 interrupted -> archived
-backlog_item -> active
-superseded -> active
+paused_* -> active                 (without explicit resume metadata)
+interrupted -> active              (without explicit checkpoint / recovery metadata)
 archived -> active
 ```
 
-如果 backlog / inbox 项要变成 active task，必须通过 `create-current-task` 或明确恢复流程生成正式 `CURRENT_TASK.md`，不能直接把 backlog item 当任务包执行。
+### 4. review gate v1
 
-### 4. TASK_ID 与归档规则
+恢复不是直接续做。  
+本任务要求规范源定义恢复后的强制 gate，而不是单独引入新状态：
+
+- `resume_requires_review: true`
+- `resume_review_reasons: [...]`
+
+最少覆盖：
+
+- `base_drift`
+- `checkpoint_drift`
+- `diff_review_target_changed`
+- `environment_recovery_pending`
+- `assumption_changed`
+
+## 工件与路径契约（第一阶段）
+
+### 1. 工件类型
+
+第一阶段只定义三类 task artifact：
+
+- **active live package**
+  - `docs/workflow/CURRENT_TASK.md`
+- **suspended package**
+  - `paused` 或 `interrupted`
+- **archive package**
+  - `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`
+
+本任务**不定义** inbox / backlog artifact。
+
+### 2. 路径契约
+
+既有 archive contract 继续保留：
+
+- `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`
+
+如果本任务决定正式引入 suspended package，则必须同时落地统一路径解析契约，至少支持：
+
+- `archive -> TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`
+- `paused -> TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md`
+- `interrupted -> TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md`
+
+要求：
+
+- 不允许只在文档里声明 `TASKS/paused/**`、`TASKS/interrupted/**`，却继续让脚本层只认 archive path
+- `bootstrap-project-governance.ts` 不得继续只暴露单一 `archive_path_pattern`
+- 相关 tests 必须同步验证 path kind 与文件名规则
+
+### 3. TASK_ID / TASK_SLUG 规则
 
 必须对齐现有 contract：
 
-- `CURRENT_TASK.md` 是 active task identity 来源。
-- `TASK_ID` / `TASK_SLUG` 一旦 materialized，不可变。
-- 最终完成归档路径仍为 `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`。
+- `CURRENT_TASK.md` 仍是 active task identity 唯一 live 来源
+- `TASK_ID` / `TASK_SLUG` 一旦 materialized，不可变
+- pause / interrupt / resume 不改变 `TASK_ID`
+- archive filename 仍从 materialized live identity 推导
 
-新增规则建议：
+### 4. suspended package 最小要求
 
-- pause / interrupt / resume 不改变 `TASK_ID`。
-- supersede 默认创建新的 `TASK_ID`，并在 predecessor / successor 中记录关系。
-- paused / interrupted 文件是 suspended task package，不是最终 archive。
-- archived 与 paused / interrupted 不应为同一 `TASK_ID` 同时存在；archive 是终态。
-- 恢复时采用 rehydrate：从 suspended package 生成新的 `CURRENT_TASK.md`，但必须保留恢复来源和迁移记录。
+如果本任务引入 suspended package schema，最少应登记：
 
-### 5. 持久化模型
+- task identity
+- artifact kind：`paused` / `interrupted`
+- lifecycle state
+- suspension reason
+- `Task start base`
+- `Last reviewed checkpoint`
+- `Current diff review target`
+- `resume_requires_review`
+- `resume_review_reasons`
+- `rehydration_status`
 
-建议默认采用：
+`interrupted` 额外最少要求：
 
-- `docs/workflow/CURRENT_TASK.md`
-  - 只保留唯一 active task。
-- `TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md`
-  - 保存 paused task package。
-- `TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md`
-  - 保存 interrupted task package。
-- `TASKS/inbox/ITEM-<date>-<slug>.md`
-  - 保存旁路发现。
-
-暂不默认新增 `docs/workflow/BACKLOG.md`，因为它会触碰 `WORKFLOW_DOC_NAMES`、文档目录 contract、生成校验和 catalog。`BACKLOG.md` 可作为替代方案，但必须在 `review-current-task` / `lock-scope` 中明确选择并扩大范围。
-
-恢复策略：
-
-- `resume-paused-task` / `resume-interrupted-task` 读取 suspended package。
-- 恢复后写入新的 `CURRENT_TASK.md`。
-- 原 suspended 文件必须保留恢复记录或标记为 resolved / rehydrated；具体字段由 `FILE_SCHEMAS` 定义。
-- 恢复后不得直接进入 `implement-current-step`，至少进入 `review-current-task`。
-
-## 能力集合
-
-### pause-current-task
-
-负责：
-
-```text
-active -> paused_pending_closure
-active -> paused_blocked
-```
-
-必须记录：
-
-- pause reason
-- pause state
-- resume step
-- remaining acceptance
-- failed checks
-- blocker status
-- Task start base
-- Last reviewed checkpoint
-- Current diff review target
-- environment state, if relevant
-
-### resume-paused-task
-
-只处理 `TASKS/paused/**`。
-
-必须检查：
-
-- task start base
-- last checkpoint
-- diff review target
-- base drift
-- checkpoint drift
-- failed checks
-- remaining acceptance
-- blocker resolution status
-
-如果发现 drift：
-
-```text
-paused_* -> active_review_required
-handoff: review-current-task
-```
-
-如果无 drift：
-
-```text
-paused_* -> active
-handoff: review-current-task
-```
-
-仍不得直接进入 `implement-current-step`。
-
-### interrupt-current-task
-
-负责：
-
-```text
-active -> interrupted
-```
-
-不能默认自动 commit。必须建立 checkpoint evidence，允许形式包括：
-
-- checkpoint commit
-- staged patch
-- branch
-- worktree
-- manual diff attribution
-
-如果无法安全 checkpoint，必须停止并上浮，不得继续切换任务。
-
-数据库 / 外部环境必须选择 recovery strategy：
-
-- `rollback`
-- `forward-safe recovery`
-- `isolate new worktree / new database`
-- `blocked until manual recovery`
-
-没有 evidence 时，不得把环境状态标记为 clean。
-
-### resume-interrupted-task
-
-只处理 `TASKS/interrupted/**`。
-
-必须读取：
-
-- checkpoint commit or patch
-- branch / worktree
+- checkpoint evidence
 - dirty attribution
-- database / environment state
-- merge / rebase plan
-- current base drift
+- environment state
+- recovery strategy
 
-恢复后：
+`paused_blocked` 额外最少要求：
 
-```text
-interrupted -> active_review_required
-handoff: review-current-task
-```
+- blocker status
+- remaining acceptance
+- failed checks
 
-不直接实现。
+## 幂等与失败恢复要求（第一阶段）
 
-### amend-current-task-scope
+本任务必须先把以下协议规则写清楚：
 
-只允许目标不变的小范围扩展。
+### 1. partial write 防护
 
-硬 stop condition：
+不能允许以下未定义中间态长期存在：
 
-- 改变任务目标：走 `supersede-current-task`。
-- 触碰 `Forbidden Files`：回 `lock-scope` 或 `supersede-current-task`。
-- 改变公共契约 / schema / 架构边界：先 `plan-implementation` / `review-current-task`，不能直接 amend。
+- `CURRENT_TASK.md` 仍声明 active，但同一 `TASK_ID` 的 suspended package 已写出
+- suspended package 已写出，但没有 `rehydration_status` / recovery marker
+- 恢复后重新生成了 `CURRENT_TASK.md`，但旧 suspended package 没有 resolved / rehydrated 记录
 
-成功后至少回到：
+### 2. 幂等规则
 
-```text
-review-current-task -> lock-scope
-```
+至少要定义：
 
-### supersede-current-task / supersede-paused-task
+- 对已 `paused_*` 的任务再次执行 pause：no-op 或 fail-closed，必须固定
+- 对已 `interrupted` 的任务再次执行 interrupt：no-op 或 fail-closed，必须固定
+- 对无 suspended package 的任务执行 resume：fail-closed
+- 对已 `archived` 的任务执行 resume：fail-closed
 
-- `supersede-current-task` 处理 active task。
-- `supersede-paused-task` 处理 suspended paused task，避免让 `supersede-current-task` 跨 source 猜测。
+### 3. 双活防护
 
-默认规则：
+协议必须回答：
 
-- supersede 创建新 `TASK_ID`。
-- 旧任务记录 predecessor status = `superseded`。
-- 新任务记录 predecessor / successor relation。
-- 旧 partial diff 必须分类：`keep` / `quarantine` / `revert` / `extract`。
+- 如何判定某 `TASK_ID` 仍由 live `CURRENT_TASK.md` 持有 active ownership
+- 如何判定 suspended package 只是恢复来源，而不是第二个 active task
+- 出现 live + suspended 并存时，哪个文件是 source of truth，哪个只是 recovery evidence
 
-### external-root-cause-intake
+## 本任务必须覆盖的代码面
 
-只做 ownership 分流，不调查 root cause。
-
-ownership matrix：
-
-- `current`
-- `paused`
-- `interrupted`
-- `external`
-- `unknown`
-
-行为：
-
-- `current` -> `investigate-root-cause`
-- `paused` / `interrupted` / `external` / `unknown` -> 记录当前 blocker，必要时 pause 当前任务，创建 root-cause task 草案
-
-### capture-work-item
-
-处理旁路发现：
-
-- 新需求
-- 新灵感
-- 新 bug
-- 技术债
-
-写入：
-
-- `TASKS/inbox/**`
-
-不修改 `CURRENT_TASK.md`，不进入实现。
-
-## 既有规则调整
-
-### investigate-root-cause
-
-不是从零收紧，而是 ownership-aware 增量收紧。
-
-现有 current-task-only 语义保留，新增 ownership matrix：
-
-- 只有 `ownership=current` 时，`investigate-root-cause` 才调查并写入当前 `CURRENT_TASK.md`。
-- `ownership=paused/interrupted/external/unknown` 时，先走 `external-root-cause-intake`。
-
-需要同步：
-
-- `run-regression` failure handoff
-- `sync-review-findings` unknown_root_cause handoff
-- `debug-and-fix-current-task` 编排说明
-- `WORKFLOW_GUIDE` bug 流程
-- `WORKFLOW_PROTOCOL` failure detour
-
-### create-current-task
-
-不要把 rollback point baseline 当新能力重做。
-
-应表述为：
-
-- lifecycle transition 必须复用现有 `Task start base` / `Last reviewed checkpoint` / `Current diff review target`。
-- 新增的是 dirty attribution 和 environment state 如何接入 lifecycle transition。
-
-写入 `CURRENT_TASK.md` 前：
-
-- 记录 `Task start base`。
-- 工作区必须 clean，或 dirty diff 必须显式归属。
-- `CURRENT_TASK.md` 自身变更属于新任务治理文件变更。
-
-## 修改范围修订
-
-Allowed / Conditional 需要扩大，至少纳入：
+### 协议 / schema
 
 - `.workflow-system/WORKFLOW_PROTOCOL.md`
 - `.workflow-system/FILE_SCHEMAS.md`
-- `scripts/workflow-doc-contracts.ts`
-- `scripts/bootstrap-project-governance.ts`
+
+### 路径与 bootstrap / validator
+
 - `scripts/task-identity.ts`
+- `scripts/bootstrap-project-governance.ts`
+- `scripts/workflow-doc-contracts.ts`
+
+### 对应测试
+
 - `test/task-identity.test.ts`
-- `test/bootstrap-governance*.ts`
-- `templates/docs/DOCUMENT_CATALOG.md.tmpl`
-- `templates/docs/WORKFLOW_GUIDE.md.tmpl`
+- `test/bootstrap-project-governance.test.ts`
+- 必要的 validator / generator tests
+
+## 明确不在本任务范围
+
+以下内容全部排除：
+
 - `templates/skills/**`
+- `templates/docs/WORKFLOW_GUIDE.md.tmpl`
 - `scripts/gen-registry.ts`
-- `test/gen-*.test.ts`
-- `vibe-coding/**`
-- `docs/workflow/CURRENT_TASK.md`
-
-Conditional:
-
-- `docs/workflow/generated/**`
 - `docs/workflow/SKILL_REGISTRY.md`
-- `TASKS/paused/**`
-- `TASKS/interrupted/**`
-- `TASKS/inbox/**`
+- `docs/workflow/generated/**`
+- `vibe-coding/**`
+- `capture-work-item`
+- `external-root-cause-intake`
+- `investigate-root-cause` ownership routing
+- `docs/workflow/BACKLOG.md`
+- `.workflow-system/PROJECT_PROFILE.yaml`
+- `scripts/workflow-runtime.ts`
 
-`docs/workflow/BACKLOG.md` 不作为默认方案；只有明确选择 workflow doc 级 backlog 时才允许，并同步 `workflow-doc-contracts`、catalog、schema、tests。
+如协议 / schema 证明 `scripts/workflow-runtime.ts` 必须参与，必须单独起后续任务，不在本任务中顺手扩面。
+
+## 修改范围修订
+
+### Allowed Files
+
+- `.workflow-system/WORKFLOW_PROTOCOL.md`
+- `.workflow-system/FILE_SCHEMAS.md`
+- `scripts/task-identity.ts`
+- `scripts/bootstrap-project-governance.ts`
+- `scripts/workflow-doc-contracts.ts`
+- `test/task-identity.test.ts`
+- `test/bootstrap-project-governance.test.ts`
+- 与上述脚本直接相关的少量校验测试
+
+### Conditional Files
+
+- `test/run-validation.test.ts`
+  - 仅当新增 suspended package 校验语义时允许修改
+- `templates/docs/DOCUMENT_CATALOG.md.tmpl`
+  - 仅当 `workflow-doc-contracts` 明确要求 catalog 出现 suspended package reference 时允许修改
+- `docs/workflow/DOCUMENT_CATALOG.md`
+  - 仅在模板变更并重新生成时允许修改
+
+### Forbidden Files
+
+- `templates/skills/**`
+- `templates/docs/WORKFLOW_GUIDE.md.tmpl`
+- `docs/workflow/SKILL_REGISTRY.md`
+- `docs/workflow/generated/**`
+- `vibe-coding/**`
+- `scripts/workflow-runtime.ts`
+- `.workflow-system/PROJECT_PROFILE.yaml`
+- `docs/workflow/BACKLOG.md`
 
 ## 建议验收标准
 
-- `WORKFLOW_PROTOCOL` 定义 lifecycle states、合法迁移、非法迁移、终态、幂等和失败恢复规则。
-- `FILE_SCHEMAS` 定义 lifecycle 状态字段和 suspended / inbox 工件最小结构。
-- task identity contract 明确 pause / interrupt / resume 不改变 `TASK_ID`，supersede 默认创建新 `TASK_ID`。
-- paused / interrupted / inbox 的持久化位置与 archive contract 不冲突。
-- `resume-paused-task` 检查 base drift、checkpoint drift、diff review target，而不是直接继续收口。
-- `resume-interrupted-task` 独立处理 branch / worktree / checkpoint / merge plan。
-- `investigate-root-cause` 增加 ownership matrix，并同步所有旧路由。
-- lifecycle skills 进入 registry / generated outputs。
-- `WORKFLOW_GUIDE` 和 `vibe-coding/**` 同步说明状态流转原则和反例。
-- 测试覆盖状态机、持久化路径、identity 规则、skill handoff、guide routing。
+- `WORKFLOW_PROTOCOL` 明确定义 v1 生命周期状态集合，并明确 `backlog_item`、`capture`、`active_review_required` 不属于该集合
+- `WORKFLOW_PROTOCOL` 定义合法迁移、禁止迁移、幂等规则、partial failure 与双活防护规则
+- `FILE_SCHEMAS` 明确 lifecycle state、resume review gate、suspended package 的承载位置和最小字段
+- `task-identity.ts` 不再只暴露单一 archive path 解析语义；若引入 suspended package，必须有统一 artifact path resolver
+- `bootstrap-project-governance.ts` 不再把 task artifact path contract 仅表达为单一 archive pattern
+- `workflow-doc-contracts.ts` 和相关校验 / 测试能识别新引入的 suspended package 结构；若本任务最终不引入 suspended path，则必须显式写成 deferred，而不是半定义
+- 不新增 lifecycle runtime skill 模板
+- 不新增 inbox / backlog artifact
 - 回归通过：
   - `bun run gen:all`
   - `bun run test:workflow-all`
@@ -376,28 +372,42 @@ Conditional:
 
 ## 建议实施顺序
 
-1. 协议层：定义状态机、identity 延续、持久化路径。
-2. schema 层：定义 paused / interrupted / inbox 工件最小字段。
-3. contract / bootstrap / task identity：同步路径、清单、测试。
-4. skill 层：新增和调整 lifecycle skills。
-5. routing 层：调整 investigate / regression / review finding / debug 编排。
-6. guide / methodology：同步用户流程和方法论原则。
-7. registry / generated：运行生成器。
-8. tests / validation：跑全量回归。
+1. 协议层：定义生命周期状态、review gate、禁止迁移、幂等与失败恢复。
+2. schema 层：定义 `CURRENT_TASK.md` 与 suspended package 的承载位置与最小字段。
+3. 路径层：把单一 archive path 提升为 task artifact path contract。
+4. bootstrap / validator：同步 path contract 与结构校验。
+5. tests / validation：补测试并跑回归。
+6. 记录 follow-up task，显式把 runtime skill 与 routing 改造延后。
+
+## 后续任务建议
+
+本任务完成后，再拆出后续任务：
+
+1. **任务 004：lifecycle runtime skills**
+   - 新增 `pause-current-task` / `resume-paused-task` / `interrupt-current-task` / `resume-interrupted-task`
+   - 把 resume review gate 正式接入 handoff
+2. **任务 005：ownership-aware root cause routing**
+   - `external-root-cause-intake`
+   - `investigate-root-cause`、`run-regression`、`sync-review-findings` 路由更新
+3. **任务 006：capture-work-item / inbox artifact**
+   - 独立定义 inbox identity、path contract、schema 与文档目录影响
 
 ## 待确认问题
 
-- `TASKS/inbox/**` 是否作为旁路发现默认持久化位置；当前建议采用，避免新增 `docs/workflow/BACKLOG.md` 带来的 workflow doc contract 扩张。
-- `supersede-paused-task` 是否必须独立 skill；当前建议独立，降低 AI source 混淆。
-- 是否允许本任务修改 `scripts/workflow-runtime.ts` 或 `.workflow-system/PROJECT_PROFILE.yaml`；当前建议不允许，除非协议 / schema 证明 runtime 或 profile path contract 必须参与。
-- 恢复后 suspended 文件是保留 `rehydrated` 标记，还是迁移到 resolved 子目录；当前建议先在原文件记录 `rehydrated` 状态，避免引入更多目录。
+- suspended package 的统一路径解析接口命名是什么；当前建议使用 task artifact kind，而不是继续沿用 archive-only 命名
+- `resume review gate` 的字段是只写在 suspended package，还是恢复后的 `CURRENT_TASK.md` 也要回写；当前建议两边都可审计
+- `workflow-doc-contracts.ts` 是否把 suspended package 视为 workflow governance artifact；当前建议视为 task artifact，并提供单独校验入口
+- `templates/docs/DOCUMENT_CATALOG.md.tmpl` 是否必须列出 suspended package 路径；当前建议只有在 contract 层正式纳入 catalog 时才扩面
 
 ## 当前草案结论
 
-任务 003 的第一步不应是“新增 lifecycle skill”，而应是：
+任务 003 不再定义为“新增一组 lifecycle skills”，而应定义为：
 
 ```text
-定义 CURRENT_TASK lifecycle state machine + persistence identity contract。
+先补齐 CURRENT_TASK suspend / interrupt / resume protocol
++ schema carrying locations
++ task artifact path contract
++ idempotency / failure recovery rules
 ```
 
-只有这两个协议事实稳定后，才能实现各个 skill。
+只有这层契约站稳后，后续 runtime skill 与 routing 才值得实现。
