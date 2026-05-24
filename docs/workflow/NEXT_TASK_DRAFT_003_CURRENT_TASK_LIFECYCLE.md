@@ -185,13 +185,27 @@ archived -> active
 - `resume_requires_review: true`
 - `resume_review_reasons: [...]`
 
-最少覆盖：
+`resume_review_reasons` v1 闭合集合固定如下；实现和测试必须按表格顺序做去重与稳定排序：
 
-- `base_drift`
-- `checkpoint_drift`
-- `diff_review_target_changed`
-- `environment_recovery_pending`
-- `assumption_changed`
+| reason | 中文释义 |
+|---|---|
+| `base_drift` | 任务起始基线、目标分支或当前 HEAD 与暂停 / 中断时记录不一致，恢复前需要重新确认 diff 范围和适用性。 |
+| `checkpoint_drift` | 最近已审查 checkpoint 缺失、不可达、被替换，或 checkpoint 之后存在未审查改动，恢复前需要重新确认审查起点。 |
+| `diff_review_target_changed` | 当前 diff review target 与 suspended package 记录不一致，恢复前需要重新声明并复核审查目标。 |
+| `environment_recovery_pending` | 本地环境、依赖、服务、凭据、设备、浏览器会话或运行前置条件尚需恢复或确认。 |
+| `assumption_changed` | 暂停 / 中断时成立的需求、约束、设计、契约、外部条件或用户假设发生变化，需要重新确认。 |
+| `validation_pending` | 任务实现基本完成但验证尚未完成，恢复后必须先补齐测试、smoke check 或协议验证。 |
+| `manual_review_pending` | 任务仍等待人工复核、用户确认、审查结论或 taste / user-challenge 决策，不得直接续做实现。 |
+| `remaining_acceptance_pending` | 仍有验收标准、小尾巴、交付清单或剩余 acceptance 未关闭，恢复后必须先复核剩余项。 |
+| `blocker_recheck_required` | 阻塞项曾导致暂停，恢复前必须重新确认 blocker 是否解除、替代方案是否成立或是否仍需 fail-closed。 |
+| `dirty_attribution_pending` | 中断时存在未提交、未归属或混合来源 diff，需要先确认哪些改动属于原任务、插入任务或恢复任务。 |
+| `recovery_strategy_review_required` | 中断 package 记录了恢复策略，但策略尚需复核、执行顺序确认或与当前仓库状态重新对齐。 |
+
+场景映射要求：
+
+- `paused_pending_closure` 必须至少使用 `validation_pending`、`manual_review_pending`、`remaining_acceptance_pending` 中的一项；存在 drift / environment / assumption 场景时，只能追加对应 reason，不得替代 closure 类 reason。
+- `paused_blocked` 至少应使用 `blocker_recheck_required`，并按实际情况追加 `environment_recovery_pending`、`manual_review_pending` 或其他适用 reason。
+- `interrupted` 至少应使用 `checkpoint_drift`、`diff_review_target_changed`、`dirty_attribution_pending`、`environment_recovery_pending`、`recovery_strategy_review_required` 中与中断证据匹配的一项。
 
 v1 要求：
 
@@ -242,15 +256,19 @@ v1 要求：
 - pause / interrupt / resume 不改变 `TASK_ID`
 - archive filename 仍从 materialized live identity 推导
 
-### 3.1 identity completeness 与 lifecycle state 必须拆分
+### 3.1 identity completeness、lifecycle state 与 ownership status 必须拆分
 
-本任务必须显式区分两个不同维度，禁止混用：
+本任务必须显式区分三个不同维度，禁止混用：
 
 - **Task identity completeness**
   - 对应 `scripts/task-identity.ts` 中现有 `TaskIdentityStatus`
   - 只表示 `TASK_ID` / `TASK_TITLE` / `TASK_SLUG` 是否 `materialized`、`placeholder-preserved` 或 `incomplete`
 - **Task lifecycle state**
   - 表示任务当前处于 `active`、`paused_pending_closure`、`paused_blocked`、`interrupted`、`archived`
+- **Current task ownership status**
+  - 对应 `CURRENT_TASK.md > ## 任务信息 > 当前状态`
+  - 只用于判断 live `CURRENT_TASK.md` 是否持有 active ownership
+  - 不属于 `TaskLifecycleState`；例如 `draft` 可以持有 active ownership，但不是 lifecycle state
 
 因此本任务必须落地以下规则：
 
@@ -258,6 +276,8 @@ v1 要求：
 - 不得把 `active`、`paused_*`、`interrupted`、`archived` 叠加到 `TaskIdentityStatus`
 - `CURRENT_TASK.md` v1 不新增 `lifecycle_state` 字段；live active ownership 判定复用 `## 任务信息` 中既有 `当前状态` 字段
 - `scripts/task-identity.ts` 必须新增独立的 `TaskLifecycleState = 'active' | 'paused_pending_closure' | 'paused_blocked' | 'interrupted' | 'archived'`
+- `scripts/task-identity.ts` 必须新增独立的 `CurrentTaskOwnershipStatus = 'draft' | 'active' | 'archived' | 'superseded' | 'replaced' | 'blocked_by_replan' | 'paused_pending_closure' | 'paused_blocked' | 'interrupted'`
+- `CurrentTaskOwnershipStatus` 的 v1 active/live allowlist 固定为 `draft`、`active`；denylist 固定为 `archived`、`superseded`、`replaced`、`blocked_by_replan`、`paused_pending_closure`、`paused_blocked`、`interrupted`；`当前状态` 缺失、为空或未知时一律 `fail-closed`
 - `scripts/task-identity.ts` 必须新增独立的 `TaskArtifactKind = 'archive' | 'paused' | 'interrupted'`
 - 路径解析必须新增独立函数 `getTaskArtifactPath(taskId, taskSlug, kind)`
 - 现有 `getTaskArchivePath()` 可以保留为 archive-only wrapper，但不得继续承担全部 artifact path contract
@@ -293,15 +313,16 @@ v1 要求：
   - `rehydration_status = ready_for_resume`
   - `ownership_state = recovery_only`
   - `resume_requires_review = true`
-  - `resume_review_reasons` 为非空数组，且每一项都来自闭合集合
+  - `resume_review_reasons` 为非空数组，每一项都来自闭合集合，并满足对应 lifecycle state 的场景映射约束
 
-`paused_pending_closure` 无额外必填字段（公共字段已足够）。
+`paused_pending_closure` 不新增额外字段，但不是无额外约束；它必须在公共字段 `resume_review_reasons` 中至少包含 `validation_pending`、`manual_review_pending`、`remaining_acceptance_pending` 中的一项，drift / environment / assumption reason 只能追加，不能替代 closure 类 reason。
 
 `paused_blocked` 额外最少要求：
 
-- blocker status
-- remaining acceptance
-- failed checks
+- `blocker_status`
+- `blocking_evidence`
+- `remaining_acceptance`
+- `failed_checks` 仅当 blocker 来源于测试、smoke check、协议验证或其他 validation failure 时必填；外部 blocker、人工等待、凭据 / 环境不可用不得伪造 failed checks，应在 `blocking_evidence` 中记录证据和复核入口
 
 `interrupted` 额外最少要求：
 
@@ -359,7 +380,7 @@ v1 固定规则：
   - **active ownership 判定机制（不新增字段）**：
     - 只复用 `CURRENT_TASK.md > ## 任务信息` 中既有 `当前状态` 字段，不新增 `lifecycle_state` 到 `CURRENT_TASK.md`。
     - `CURRENT_TASK.md` 文件存在、其 `TASK_ID` 头部字段与候选恢复 package 的 `TASK_ID` 相同，且 `当前状态` 属于 v1 明确定义的 active/live allowlist 时，才视为 active owner。
-    - v1 active/live allowlist 必须在 `.workflow-system/FILE_SCHEMAS.md` 中基于既有 `当前状态` 字段登记；至少要显式决定 `draft`、`active` 等 live task package 状态是否持有 active ownership。
+    - v1 active/live allowlist 必须在 `.workflow-system/FILE_SCHEMAS.md` 中基于既有 `当前状态` 字段登记，并固定为 `draft`、`active`。
     - `archived`、`superseded`、`replaced`、`blocked_by_replan`、`paused_pending_closure`、`paused_blocked`、`interrupted` 不得视为 active owner。
     - `当前状态` 缺失、为空、无法解析或不在 allowlist / denylist 中时，一律 `fail-closed`，不得自动 resume。
 
@@ -384,10 +405,10 @@ v1 固定规则：
 必须覆盖的具体变更：
 
 - `BootstrapTaskIdentityPlan` 的导出类型形状升级，不再只允许单一 `archive_path_pattern`；并补充 source-repo governance output impact assessment
-- `task-identity.ts` 中 identity completeness 与 lifecycle state 分离建模
+- `task-identity.ts` 中 identity completeness、lifecycle state 与 current task ownership status 分离建模
 - 新增独立的 artifact kind / path resolver，而不是复用 `TaskIdentityStatus`
 - `FILE_SCHEMAS.md` 必须把 `resume_review_reasons`、`rehydration_status`、`ownership_state` 定义为可校验的闭合集合，而不是开放字符串
-- `run-validation.ts` 必须正式接入 suspended package 校验入口，使 `validate:protocol` 或对应 validation flow 能证明非法 suspended package 会被拦住；不得只停留在 helper 单元测试
+- `run-validation.ts` 必须以 protocol-level synthesized check 正式接入 suspended package 校验入口，entrypoint 名称固定为 `suspended-task-package-validation`，blocker level 固定为 `blocks-merge`；该 check 扫描 workflow home 下的 `TASKS/paused/**` 与 `TASKS/interrupted/**`，目录不存在或无 package 时通过，存在非法 suspended package 时必须在 `validate:protocol` 中失败；不得只停留在 helper 单元测试或 project-layer validation slot
 
 ### 对应测试
 
@@ -397,8 +418,13 @@ v1 固定规则：
 - 至少补齐以下断言：
   - artifact path resolver 能稳定区分 `archive` / `paused` / `interrupted`
   - `resume_review_reasons` 非闭合集合值时校验失败
+  - `paused_pending_closure` 缺少 `validation_pending`、`manual_review_pending`、`remaining_acceptance_pending` 任一 closure 类 reason 时校验失败，即使已填写 drift / environment / assumption reason
+  - `paused_blocked` 缺少 `blocker_recheck_required` 或 `blocking_evidence` 时校验失败；仅当 blocker 来源于 validation failure 时才要求 `failed_checks`
+  - `interrupted` 缺少与中断证据匹配的 `checkpoint_drift`、`diff_review_target_changed`、`dirty_attribution_pending`、`environment_recovery_pending` 或 `recovery_strategy_review_required` reason 时校验失败
   - `write_incomplete` package 不能被当作可恢复输入
+  - `CurrentTaskOwnershipStatus` 对 `draft`、`active` 判定为 active owner；对 denylist 状态判定为非 active owner；对缺失、空值、未知状态一律 `fail-closed`
   - live `CURRENT_TASK.md` 与 suspended package 并存时，active ownership 以 `CURRENT_TASK.md` 的既有 `当前状态` allowlist 判定为准
+  - `test/run-validation.test.ts` 必须覆盖无 suspended package 时 `suspended-task-package-validation` 通过、非法 suspended package 触发同名 entrypoint 失败、非法 `paused_blocked` 缺 `blocker_recheck_required` 或 `blocking_evidence` 时在 validation flow 中失败
 
 ## 修改范围修订
 
@@ -437,14 +463,14 @@ v1 固定规则：
 - `WORKFLOW_PROTOCOL` 明确定义 v1 生命周期状态集合，并明确 `backlog_item`、`capture`、`active_review_required` 不属于该集合
 - `WORKFLOW_PROTOCOL` 定义合法迁移、禁止迁移、固定 `fail-closed` 幂等规则、partial failure 恢复标记与双活防护规则
 - `FILE_SCHEMAS` 明确 lifecycle state、resume review gate、suspended package 的承载位置和最小字段，并把 `resume_review_reasons`、`rehydration_status`、`ownership_state` 定义为闭合集合
-- `task-identity.ts` 中 `TaskIdentityStatus` 继续只表达 identity completeness，不承担 lifecycle 语义
+- `task-identity.ts` 中 `TaskIdentityStatus` 继续只表达 identity completeness，不承担 lifecycle 或 active ownership 语义
 - `task-identity.ts` 不再只暴露单一 archive path 解析语义；必须新增独立的 `TaskArtifactKind` 与统一 artifact path resolver，以支持 archive / paused / interrupted 三类 artifact path
 - `bootstrap-project-governance.ts` 不再把 task artifact path contract 仅表达为单一 archive pattern；`BootstrapTaskIdentityPlan` 必须升级为可表达多 artifact path 的导出类型，并显式记录对 source-repo governance output 的影响评估；若评估发现必须改变 runtime manifest / install / health report contract，则停止并拆后续任务
 - `workflow-doc-contracts.ts` 和相关校验 / 测试能识别并校验新引入的 suspended package 路径与结构
-- `run-validation.ts` 正式接入 suspended package 校验入口，`test/run-validation.test.ts` 必须证明非法 suspended package 会在 validation flow 中失败，而不是只证明 helper 可用
+- `run-validation.ts` 通过 protocol-level synthesized check `suspended-task-package-validation` 正式接入 suspended package 校验入口，blocker level 为 `blocks-merge`；`test/run-validation.test.ts` 必须证明无 package 时通过、非法 package 会在 validation flow 中失败，而不是只证明 helper 可用
 - suspended package 只有在 `rehydration_status = ready_for_resume`、`ownership_state = recovery_only`、`resume_requires_review = true`，且 `resume_review_reasons` 为非空闭合集合时才可作为恢复输入
 - 若 `artifact_kind = interrupted`，还必须具备 checkpoint evidence、dirty attribution、environment state、recovery strategy，才可进入可恢复状态
-- live / suspended 并存时，`docs/workflow/CURRENT_TASK.md` 的既有 `当前状态` allowlist 是 active ownership 的唯一 live 判定来源
+- live / suspended 并存时，`docs/workflow/CURRENT_TASK.md` 的既有 `当前状态` allowlist 是 active ownership 的唯一 live 判定来源；v1 allowlist 固定为 `draft`、`active`
 - 不新增 lifecycle runtime skill 模板
 - 不新增 inbox / backlog artifact
 - 不扩面修改 `templates/docs/DOCUMENT_CATALOG.md.tmpl` 或 `docs/workflow/DOCUMENT_CATALOG.md`
@@ -487,13 +513,13 @@ v1 固定规则：
   - 恢复后的 `docs/workflow/CURRENT_TASK.md` 也必须回写同名字段，作为 active task 的当前 gate 信号。
   - 两侧字段语义必须一致；若不一致，以恢复后 `CURRENT_TASK.md` 为 live execution source of truth，suspended package 作为 historical evidence。
 - **双活与恢复输入采用固定 source-of-truth / marker 规则**
-  - `docs/workflow/CURRENT_TASK.md` 的既有 `当前状态` allowlist 是 active ownership 的唯一 live 判定来源；本任务不新增 `CURRENT_TASK.md` lifecycle 字段。
+  - `docs/workflow/CURRENT_TASK.md` 的既有 `当前状态` allowlist 是 active ownership 的唯一 live 判定来源；本任务不新增 `CURRENT_TASK.md` lifecycle 字段；v1 allowlist 固定为 `draft`、`active`。
   - suspended package 只有在 `rehydration_status = ready_for_resume`、`ownership_state = recovery_only`、`resume_requires_review = true`，且 `resume_review_reasons` 为非空闭合集合时才可作为恢复输入。
   - 若 `artifact_kind = interrupted`，还必须具备 checkpoint evidence、dirty attribution、environment state、recovery strategy，才可进入可恢复状态。
   - 对 `write_incomplete` 或任何 marker 不自洽的 package，一律 `fail-closed`，不得自动 resume。
 - **`workflow-doc-contracts.ts` 将 suspended package 视为 task artifact，而不是 workflow governance artifact**
   - 它需要提供对 suspended package 结构和路径契约的识别 / 校验能力，并由相关测试覆盖。
-  - 本任务正式把该能力接入 `run-validation.ts` 的 validation flow，并用 `test/run-validation.test.ts` 覆盖非法 package fail-closed。
+  - 本任务正式把该能力接入 `run-validation.ts` 的 protocol-level synthesized check `suspended-task-package-validation`，并用 `test/run-validation.test.ts` 覆盖无 package 通过与非法 package fail-closed。
   - 它不应因此把每个 suspended package 提升为 governance catalog 中的常驻文档对象。
 - **runtime manifest / install / health report contract 不在本任务中变更**
   - 本任务只做 source-repo governance output impact assessment。
