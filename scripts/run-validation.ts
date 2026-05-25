@@ -10,6 +10,7 @@
  * Implements WORKFLOW_PROTOCOL.md §16.
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { parse } from 'yaml';
@@ -23,6 +24,8 @@ import {
 } from './workflow-core';
 import { validatePropagationGovernanceDocs } from './propagation-governance';
 import {
+  parseSuspendedTaskArtifactPath,
+  validateSuspendedTaskPackage,
   validateBaselineCoverageForBoundSlots,
   validateLifecycleGovernanceDoc,
   type LifecycleGovernanceDoc,
@@ -68,6 +71,11 @@ type GovernanceHomeCheck = {
 type EntrypointExecutionContext = {
   cwd: string;
   env?: NodeJS.ProcessEnv;
+};
+
+type SuspendedTaskPackageCheck = {
+  entrypoint: 'suspended-task-package-validation';
+  blocker_level: 'blocks-merge';
 };
 
 // --- CLI ---
@@ -156,6 +164,10 @@ const GOVERNANCE_HOME_CHECKS: readonly GovernanceHomeCheck[] = [
 ] as const;
 
 const WORKFLOW_SYSTEM_SOURCE_ROOT = path.resolve(import.meta.dir, '..');
+const SUSPENDED_TASK_PACKAGE_CHECK: SuspendedTaskPackageCheck = {
+  entrypoint: 'suspended-task-package-validation',
+  blocker_level: 'blocks-merge',
+};
 
 function shouldRun(entrypoint: ValidationEntrypoint, maxBlockerLevel?: BlockerLevel): boolean {
   if (!maxBlockerLevel) return true;
@@ -309,6 +321,53 @@ function buildPropagationGovernanceFailure(
   };
 }
 
+function listFilesRecursively(rootDir: string): string[] {
+  if (!fs.existsSync(rootDir)) {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+    const absolutePath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFilesRecursively(absolutePath));
+      continue;
+    }
+    if (entry.isFile()) {
+      files.push(absolutePath);
+    }
+  }
+  return files;
+}
+
+function validateSuspendedTaskArtifacts(root: string): void {
+  const artifactFiles = [
+    ...listFilesRecursively(path.join(root, 'TASKS', 'paused')),
+    ...listFilesRecursively(path.join(root, 'TASKS', 'interrupted')),
+  ];
+
+  for (const filePath of artifactFiles) {
+    const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+    if (parseSuspendedTaskArtifactPath(relativePath) === null) {
+      throw new Error(
+        `Stray suspended artifact detected at ${relativePath}; expected only TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md or TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md.`,
+      );
+    }
+
+    validateSuspendedTaskPackage(relativePath, readText(filePath));
+  }
+}
+
+function buildSuspendedTaskPackageFailure(error: Error): ValidationResult {
+  return {
+    entrypoint: SUSPENDED_TASK_PACKAGE_CHECK.entrypoint,
+    layer: 'protocol',
+    blocker_level: SUSPENDED_TASK_PACKAGE_CHECK.blocker_level,
+    status: 'failed',
+    error: error.message,
+  };
+}
+
 function validateProjectGovernanceHomes(root: string, entrypoints: ValidationEntrypoint[]): ValidationResult[] {
   if (getBoundProjectEntrypoints(entrypoints).length === 0) {
     return [];
@@ -363,6 +422,27 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
   }
 
   if (options.layer !== 'project') {
+    if (shouldRun(
+      {
+        name: SUSPENDED_TASK_PACKAGE_CHECK.entrypoint,
+        layer: 'protocol',
+        command: '',
+        blocker_level: SUSPENDED_TASK_PACKAGE_CHECK.blocker_level,
+        description: 'Validate suspended task packages and stray artifact paths.',
+        phase: 'P9',
+        owner: 'workflow-system',
+      },
+      options.maxBlockerLevel,
+    )) {
+      try {
+        validateSuspendedTaskArtifacts(root);
+      } catch (error) {
+        protocolResults.push(
+          buildSuspendedTaskPackageFailure(error instanceof Error ? error : new Error(String(error))),
+        );
+      }
+    }
+
     try {
       validatePropagationGovernanceDocs(root, 'protocol');
     } catch (error) {

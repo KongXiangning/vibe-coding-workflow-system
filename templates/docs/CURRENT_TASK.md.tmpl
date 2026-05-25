@@ -8,6 +8,9 @@
 - 任务标题：{{TASK_TITLE}}
 - 任务 slug：{{TASK_SLUG}}
 - 当前状态：draft
+- 生命周期状态：active
+- 恢复需审查：false
+- 恢复审查原因：
 - 创建时间：{{DATE}}
 
 ## 背景与上下文

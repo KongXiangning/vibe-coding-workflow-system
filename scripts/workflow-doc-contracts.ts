@@ -1,3 +1,17 @@
+import {
+  getTaskArtifactPath,
+  normalizeResumeReviewReasons,
+  parseBooleanField,
+  parseTaskLifecycleState,
+  type ResumeReviewReason,
+  type TaskArtifactKind,
+  type TaskLifecycleState,
+  validateCurrentTaskResumeGate,
+  validateTaskId,
+  validateTaskSlug,
+  validateTaskTitle,
+} from './task-identity';
+
 export const WORKFLOW_DOC_NAMES = [
   'BASELINES.md',
   'CONTRACTS.md',
@@ -397,6 +411,75 @@ export const WORKFLOW_DOC_RUNTIME_PLACEHOLDERS = new Set([
   '{{AUTHOR}}',
 ]);
 
+export type SuspendedTaskArtifactKind = Extract<TaskArtifactKind, 'paused' | 'interrupted'>;
+export type SuspendedTaskPackageRehydrationStatus = 'write_incomplete' | 'ready_for_resume' | 'rehydrated';
+export type SuspendedTaskPackageOwnershipState = 'recovery_only' | 'rehydrated';
+
+export type SuspendedTaskArtifactPath = {
+  relativePath: string;
+  kind: SuspendedTaskArtifactKind;
+  taskId: string;
+  taskSlug: string;
+};
+
+export type SuspendedTaskPackageContract = SuspendedTaskArtifactPath & {
+  taskTitle: string;
+  artifactKind: SuspendedTaskArtifactKind;
+  lifecycleState: TaskLifecycleState;
+  suspensionReason: string;
+  taskStartBase: string;
+  lastReviewedCheckpoint: string;
+  currentDiffReviewTarget: string;
+  resumeRequiresReview: boolean;
+  resumeReviewReasons: ResumeReviewReason[];
+  rehydrationStatus: SuspendedTaskPackageRehydrationStatus;
+  ownershipState: SuspendedTaskPackageOwnershipState;
+  blockerStatus?: string;
+  blockingEvidence?: string;
+  remainingAcceptance?: string;
+  failedChecks?: string[];
+  checkpointEvidence?: string;
+  dirtyAttribution?: string;
+  environmentState?: string;
+  recoveryStrategy?: string;
+  rawFields: Record<string, string>;
+};
+
+export const SUSPENDED_TASK_ARTIFACT_PATH_TEMPLATES: Record<SuspendedTaskArtifactKind, string> = {
+  paused: 'TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md',
+  interrupted: 'TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md',
+};
+
+export const SUSPENDED_TASK_PACKAGE_REQUIRED_FIELDS = [
+  'task_id',
+  'task_title',
+  'task_slug',
+  'artifact_kind',
+  'lifecycle_state',
+  'suspension_reason',
+  'task_start_base',
+  'last_reviewed_checkpoint',
+  'current_diff_review_target',
+  'resume_requires_review',
+  'resume_review_reasons',
+  'rehydration_status',
+  'ownership_state',
+] as const;
+
+const SUSPENDED_TASK_ARTIFACT_PATH_PATTERNS: Record<SuspendedTaskArtifactKind, RegExp> = {
+  paused: /^TASKS\/paused\/TASK-([0-9]{3,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/,
+  interrupted: /^TASKS\/interrupted\/TASK-([0-9]{3,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/,
+};
+const SUSPENDED_TASK_PACKAGE_REHYDRATION_STATUSES = new Set<SuspendedTaskPackageRehydrationStatus>([
+  'write_incomplete',
+  'ready_for_resume',
+  'rehydrated',
+]);
+const SUSPENDED_TASK_PACKAGE_OWNERSHIP_STATES = new Set<SuspendedTaskPackageOwnershipState>([
+  'recovery_only',
+  'rehydrated',
+]);
+
 export type MarkdownHeading = {
   level: number;
   text: string;
@@ -419,6 +502,286 @@ export function parseMarkdownHeadings(content: string): MarkdownHeading[] {
   }
 
   return headings;
+}
+
+function normalizeRelativePath(filePath: string): string {
+  return filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function extractArtifactFields(content: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^\s*(?:-\s*)?([a-z_]+)\s*:\s*(.*?)\s*$/.exec(line);
+    if (!match) {
+      continue;
+    }
+    fields[match[1]] = match[2].trim();
+  }
+
+  return fields;
+}
+
+function getRequiredArtifactField(
+  fields: Record<string, string>,
+  field: (typeof SUSPENDED_TASK_PACKAGE_REQUIRED_FIELDS)[number],
+  relativePath: string,
+): string {
+  const value = fields[field];
+  if (!value) {
+    throw new Error(`Suspended task package missing required field "${field}" in ${relativePath}.`);
+  }
+  return value;
+}
+
+function getOptionalArtifactField(fields: Record<string, string>, field: string): string | undefined {
+  const value = fields[field];
+  return value && value.length > 0 ? value : undefined;
+}
+
+function parseClosedFieldValue<T extends string>(value: string, allowedValues: Set<T>, field: string, relativePath: string): T {
+  if (!allowedValues.has(value as T)) {
+    throw new Error(
+      `Suspended task package field "${field}" in ${relativePath} must use one of: ${[...allowedValues].join(', ')}.`,
+    );
+  }
+  return value as T;
+}
+
+function parseCommaSeparatedList(value: string | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function ensureNonEmptyOptionalField(fields: Record<string, string>, field: string, relativePath: string): string {
+  const value = getOptionalArtifactField(fields, field);
+  if (!value) {
+    throw new Error(`Suspended task package missing required field "${field}" in ${relativePath}.`);
+  }
+  return value;
+}
+
+function assertSuspendedLifecycleMatchesArtifactKind(
+  kind: SuspendedTaskArtifactKind,
+  lifecycleState: TaskLifecycleState,
+  relativePath: string,
+): void {
+  if (kind === 'paused' && !['paused_pending_closure', 'paused_blocked'].includes(lifecycleState)) {
+    throw new Error(
+      `Suspended task package ${relativePath} must use lifecycle_state paused_pending_closure or paused_blocked when artifact_kind=paused.`,
+    );
+  }
+
+  if (kind === 'interrupted' && lifecycleState !== 'interrupted') {
+    throw new Error(
+      `Suspended task package ${relativePath} must use lifecycle_state interrupted when artifact_kind=interrupted.`,
+    );
+  }
+}
+
+function requiresFailedChecks(blockerStatus: string | undefined, blockingEvidence: string | undefined): boolean {
+  const source = `${blockerStatus ?? ''} ${blockingEvidence ?? ''}`;
+  return /(validation|test|smoke|protocol)/i.test(source);
+}
+
+function assertArtifactStatusConsistency(
+  rehydrationStatus: SuspendedTaskPackageRehydrationStatus,
+  ownershipState: SuspendedTaskPackageOwnershipState,
+  resumeRequiresReview: boolean,
+  relativePath: string,
+): void {
+  if (rehydrationStatus === 'write_incomplete' && ownershipState !== 'recovery_only') {
+    throw new Error(
+      `Suspended task package ${relativePath} must keep ownership_state=recovery_only when rehydration_status=write_incomplete.`,
+    );
+  }
+
+  if (rehydrationStatus === 'ready_for_resume') {
+    if (ownershipState !== 'recovery_only') {
+      throw new Error(
+        `Suspended task package ${relativePath} must use ownership_state=recovery_only when rehydration_status=ready_for_resume.`,
+      );
+    }
+    if (!resumeRequiresReview) {
+      throw new Error(
+        `Suspended task package ${relativePath} must use resume_requires_review=true when rehydration_status=ready_for_resume.`,
+      );
+    }
+  }
+
+  if (rehydrationStatus === 'rehydrated' && ownershipState !== 'rehydrated') {
+    throw new Error(
+      `Suspended task package ${relativePath} must use ownership_state=rehydrated when rehydration_status=rehydrated.`,
+    );
+  }
+}
+
+export function parseSuspendedTaskArtifactPath(filePath: string): SuspendedTaskArtifactPath | null {
+  const relativePath = normalizeRelativePath(filePath);
+
+  for (const [kind, pattern] of Object.entries(SUSPENDED_TASK_ARTIFACT_PATH_PATTERNS) as [
+    SuspendedTaskArtifactKind,
+    RegExp,
+  ][]) {
+    const match = pattern.exec(relativePath);
+    if (!match) {
+      continue;
+    }
+
+    return {
+      relativePath,
+      kind,
+      taskId: match[1],
+      taskSlug: match[2],
+    };
+  }
+
+  return null;
+}
+
+export function validateSuspendedTaskArtifactPath(filePath: string): SuspendedTaskArtifactPath {
+  const parsed = parseSuspendedTaskArtifactPath(filePath);
+  if (!parsed) {
+    throw new Error(
+      `Suspended task artifact path must match ${SUSPENDED_TASK_ARTIFACT_PATH_TEMPLATES.paused} or ${SUSPENDED_TASK_ARTIFACT_PATH_TEMPLATES.interrupted}. Got: ${normalizeRelativePath(filePath)}`,
+    );
+  }
+  return parsed;
+}
+
+export function validateSuspendedTaskPackage(filePath: string, content: string): SuspendedTaskPackageContract {
+  const artifactPath = validateSuspendedTaskArtifactPath(filePath);
+  const fields = extractArtifactFields(content);
+
+  const taskId = getRequiredArtifactField(fields, 'task_id', artifactPath.relativePath);
+  const taskTitle = getRequiredArtifactField(fields, 'task_title', artifactPath.relativePath);
+  const taskSlug = getRequiredArtifactField(fields, 'task_slug', artifactPath.relativePath);
+  const artifactKind = getRequiredArtifactField(fields, 'artifact_kind', artifactPath.relativePath);
+  const lifecycleStateValue = getRequiredArtifactField(fields, 'lifecycle_state', artifactPath.relativePath);
+  const suspensionReason = getRequiredArtifactField(fields, 'suspension_reason', artifactPath.relativePath);
+  const taskStartBase = getRequiredArtifactField(fields, 'task_start_base', artifactPath.relativePath);
+  const lastReviewedCheckpoint = getRequiredArtifactField(fields, 'last_reviewed_checkpoint', artifactPath.relativePath);
+  const currentDiffReviewTarget = getRequiredArtifactField(fields, 'current_diff_review_target', artifactPath.relativePath);
+  const resumeRequiresReviewValue = getRequiredArtifactField(fields, 'resume_requires_review', artifactPath.relativePath);
+  const resumeReviewReasonsValue = getRequiredArtifactField(fields, 'resume_review_reasons', artifactPath.relativePath);
+  const rehydrationStatusValue = getRequiredArtifactField(fields, 'rehydration_status', artifactPath.relativePath);
+  const ownershipStateValue = getRequiredArtifactField(fields, 'ownership_state', artifactPath.relativePath);
+
+  validateTaskId(taskId);
+  validateTaskTitle(taskTitle);
+  validateTaskSlug(taskSlug);
+
+  if (taskId !== artifactPath.taskId || taskSlug !== artifactPath.taskSlug) {
+    throw new Error(
+      `Suspended task package identity fields in ${artifactPath.relativePath} must match its path-derived TASK_ID/TASK_SLUG.`,
+    );
+  }
+
+  const parsedArtifactKind = parseClosedFieldValue(
+    artifactKind,
+    new Set<SuspendedTaskArtifactKind>(['paused', 'interrupted']),
+    'artifact_kind',
+    artifactPath.relativePath,
+  );
+  if (parsedArtifactKind !== artifactPath.kind) {
+    throw new Error(
+      `Suspended task package ${artifactPath.relativePath} must keep artifact_kind=${artifactPath.kind} to match its path contract.`,
+    );
+  }
+
+  const lifecycleState = parseTaskLifecycleState(lifecycleStateValue);
+  assertSuspendedLifecycleMatchesArtifactKind(parsedArtifactKind, lifecycleState, artifactPath.relativePath);
+
+  const resumeRequiresReview = parseBooleanField(resumeRequiresReviewValue, 'resume_requires_review');
+  const { resumeReviewReasons } = validateCurrentTaskResumeGate(
+    lifecycleState,
+    resumeRequiresReview,
+    resumeReviewReasonsValue,
+  );
+
+  const rehydrationStatus = parseClosedFieldValue(
+    rehydrationStatusValue,
+    SUSPENDED_TASK_PACKAGE_REHYDRATION_STATUSES,
+    'rehydration_status',
+    artifactPath.relativePath,
+  );
+  const ownershipState = parseClosedFieldValue(
+    ownershipStateValue,
+    SUSPENDED_TASK_PACKAGE_OWNERSHIP_STATES,
+    'ownership_state',
+    artifactPath.relativePath,
+  );
+  assertArtifactStatusConsistency(
+    rehydrationStatus,
+    ownershipState,
+    resumeRequiresReview,
+    artifactPath.relativePath,
+  );
+
+  const blockerStatus = getOptionalArtifactField(fields, 'blocker_status');
+  const blockingEvidence = getOptionalArtifactField(fields, 'blocking_evidence');
+  const remainingAcceptance = getOptionalArtifactField(fields, 'remaining_acceptance');
+  const failedChecks = parseCommaSeparatedList(getOptionalArtifactField(fields, 'failed_checks'));
+  const checkpointEvidence = getOptionalArtifactField(fields, 'checkpoint_evidence');
+  const dirtyAttribution = getOptionalArtifactField(fields, 'dirty_attribution');
+  const environmentState = getOptionalArtifactField(fields, 'environment_state');
+  const recoveryStrategy = getOptionalArtifactField(fields, 'recovery_strategy');
+
+  if (lifecycleState === 'paused_blocked') {
+    ensureNonEmptyOptionalField(fields, 'blocker_status', artifactPath.relativePath);
+    ensureNonEmptyOptionalField(fields, 'blocking_evidence', artifactPath.relativePath);
+    ensureNonEmptyOptionalField(fields, 'remaining_acceptance', artifactPath.relativePath);
+    if (requiresFailedChecks(blockerStatus, blockingEvidence) && (!failedChecks || failedChecks.length === 0)) {
+      throw new Error(
+        `Suspended task package ${artifactPath.relativePath} must record failed_checks when paused_blocked evidence indicates a validation failure.`,
+      );
+    }
+  }
+
+  if (parsedArtifactKind === 'interrupted') {
+    ensureNonEmptyOptionalField(fields, 'checkpoint_evidence', artifactPath.relativePath);
+    ensureNonEmptyOptionalField(fields, 'dirty_attribution', artifactPath.relativePath);
+    ensureNonEmptyOptionalField(fields, 'environment_state', artifactPath.relativePath);
+    ensureNonEmptyOptionalField(fields, 'recovery_strategy', artifactPath.relativePath);
+  }
+
+  return {
+    ...artifactPath,
+    taskTitle,
+    artifactKind: parsedArtifactKind,
+    lifecycleState,
+    suspensionReason,
+    taskStartBase,
+    lastReviewedCheckpoint,
+    currentDiffReviewTarget,
+    resumeRequiresReview,
+    resumeReviewReasons: normalizeResumeReviewReasons(resumeReviewReasonsValue),
+    rehydrationStatus,
+    ownershipState,
+    blockerStatus,
+    blockingEvidence,
+    remainingAcceptance,
+    failedChecks,
+    checkpointEvidence,
+    dirtyAttribution,
+    environmentState,
+    recoveryStrategy,
+    rawFields: fields,
+  };
+}
+
+export function getSuspendedTaskArtifactExpectedPath(
+  taskId: string,
+  taskSlug: string,
+  kind: SuspendedTaskArtifactKind,
+): string {
+  return getTaskArtifactPath(taskId, taskSlug, kind);
 }
 
 export function headingsEqual(left: MarkdownHeading[], right: MarkdownHeading[]): boolean {

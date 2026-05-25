@@ -17,7 +17,8 @@ import {
 } from './workflow-core';
 import {
   classifyTaskIdentityFromCurrentTask,
-  getTaskArchivePath,
+  getTaskArtifactPath,
+  type TaskArtifactKind,
   type TaskIdentityStatus,
 } from './task-identity';
 import {
@@ -80,7 +81,11 @@ export type BootstrapGovernedDocPlan = {
 export type BootstrapTaskIdentityPlan = {
   current_task_path: string;
   required_fields: ['任务 ID', '任务标题', '任务 slug'];
-  archive_path_pattern: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md';
+  artifact_paths: {
+    archive: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md';
+    paused: 'TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md';
+    interrupted: 'TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md';
+  };
   identity_source: 'CURRENT_TASK.md##任务信息';
   materialization_phase: 'A3';
   bootstrap_behavior: 'preserve-placeholders';
@@ -89,7 +94,16 @@ export type BootstrapTaskIdentityPlan = {
     id: string | null;
     title: string | null;
     slug: string | null;
-    archive_path?: string;
+    artifact_paths?: Record<TaskArtifactKind, string>;
+  };
+  output_impact_assessment: {
+    scope: 'source-repo-governance-output';
+    affected_output: 'bootstrap:project-governance';
+    runtime_manifest_contract: 'unchanged';
+    runtime_install_contract: 'unchanged';
+    runtime_health_report_contract: 'unchanged';
+    follow_up: 'none';
+    reasons: string[];
   };
   reasons: string[];
 };
@@ -229,6 +243,35 @@ const VALIDATION_ENTRYPOINT_SLOTS: ValidationEntrypointSlot[] = [
     description: 'Bind target-project deploy or release checks during Adoption A4 if required.',
   },
 ];
+
+const TASK_ARTIFACT_PATH_PATTERNS: BootstrapTaskIdentityPlan['artifact_paths'] = {
+  archive: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md',
+  paused: 'TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md',
+  interrupted: 'TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md',
+};
+
+function buildTaskArtifactPaths(taskId: string, taskSlug: string): Record<TaskArtifactKind, string> {
+  return {
+    archive: getTaskArtifactPath(taskId, taskSlug, 'archive'),
+    paused: getTaskArtifactPath(taskId, taskSlug, 'paused'),
+    interrupted: getTaskArtifactPath(taskId, taskSlug, 'interrupted'),
+  };
+}
+
+function buildTaskIdentityImpactAssessment(): BootstrapTaskIdentityPlan['output_impact_assessment'] {
+  return {
+    scope: 'source-repo-governance-output',
+    affected_output: 'bootstrap:project-governance',
+    runtime_manifest_contract: 'unchanged',
+    runtime_install_contract: 'unchanged',
+    runtime_health_report_contract: 'unchanged',
+    follow_up: 'none',
+    reasons: [
+      'This step upgrades only the source-repo bootstrap planning output from a single archive path to schema-backed multi-artifact path mappings.',
+      'workflow:manifest, workflow:install, and workflow:health contracts remain unchanged in task 003 phase 1 and are not modified here.',
+    ],
+  };
+}
 
 function parseCliArgs(argv: string[]): BootstrapCliArgs {
   const parsed: BootstrapCliArgs = {
@@ -636,11 +679,12 @@ function buildTaskIdentityPlan(targetRoot: string, profile: JsonObject): Bootstr
     return {
       current_task_path: currentTaskPath,
       required_fields: ['任务 ID', '任务标题', '任务 slug'],
-      archive_path_pattern: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md',
+      artifact_paths: TASK_ARTIFACT_PATH_PATTERNS,
       identity_source: 'CURRENT_TASK.md##任务信息',
       materialization_phase: 'A3',
       bootstrap_behavior: 'preserve-placeholders',
       status: 'absent',
+      output_impact_assessment: buildTaskIdentityImpactAssessment(),
       reasons: ['CURRENT_TASK.md is absent; task identity must first be materialized into the live task package during Adoption A3.'],
     };
   }
@@ -649,21 +693,22 @@ function buildTaskIdentityPlan(targetRoot: string, profile: JsonObject): Bootstr
   const assessment = classifyTaskIdentityFromCurrentTask(currentTaskContent);
   const currentIdentity = {
     ...assessment.identity,
-    archive_path:
+    artifact_paths:
       assessment.status === 'materialized' && assessment.identity.id && assessment.identity.slug
-        ? getTaskArchivePath(assessment.identity.id, assessment.identity.slug)
+        ? buildTaskArtifactPaths(assessment.identity.id, assessment.identity.slug)
         : undefined,
   };
 
   return {
     current_task_path: currentTaskPath,
     required_fields: ['任务 ID', '任务标题', '任务 slug'],
-    archive_path_pattern: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md',
+    artifact_paths: TASK_ARTIFACT_PATH_PATTERNS,
     identity_source: 'CURRENT_TASK.md##任务信息',
     materialization_phase: 'A3',
     bootstrap_behavior: 'preserve-placeholders',
     status: assessment.status,
     current_identity: currentIdentity,
+    output_impact_assessment: buildTaskIdentityImpactAssessment(),
     reasons: assessment.reasons,
   };
 }
@@ -713,8 +758,13 @@ export function formatBootstrapPlan(plan: BootstrapPlan): string {
     'Protocol-level checks:',
     ...plan.generator_checks.map(check => `- PASS ${check.name}`),
     '',
-    `Task identity: status=${plan.task_identity.status}, phase=${plan.task_identity.materialization_phase}, archive=${plan.task_identity.archive_path_pattern}`,
+    `Task identity: status=${plan.task_identity.status}, phase=${plan.task_identity.materialization_phase}, artifacts=${Object.entries(
+      plan.task_identity.artifact_paths,
+    )
+      .map(([kind, artifactPath]) => `${kind}=${artifactPath}`)
+      .join(', ')}`,
     ...plan.task_identity.reasons.map(reason => `- ${reason}`),
+    ...plan.task_identity.output_impact_assessment.reasons.map(reason => `- impact: ${reason}`),
     '',
     'Governed docs:',
     ...plan.governed_docs.map(

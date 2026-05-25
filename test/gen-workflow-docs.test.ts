@@ -8,14 +8,42 @@ import {
   validateProfilePathSemantics,
 } from '../scripts/workflow-core';
 import {
+  getSuspendedTaskArtifactExpectedPath,
+  parseSuspendedTaskArtifactPath,
   WORKFLOW_DOC_NAMES,
   WORKFLOW_DOC_RUNTIME_PLACEHOLDERS,
+  validateSuspendedTaskArtifactPath,
+  validateSuspendedTaskPackage,
   validateWorkflowDocContract,
 } from '../scripts/workflow-doc-contracts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const PROFILE = loadProfile(getWorkflowProfilePath(ROOT));
 const OUTPUT_DIR = getWorkflowGeneratedDir(ROOT, PROFILE, 'workflow-docs');
+const CURRENT_TASK_TEMPLATE = path.join(ROOT, 'templates', 'docs', 'CURRENT_TASK.md.tmpl');
+
+function buildSuspendedPackageContent(overrides: Record<string, string> = {}): string {
+  const fields: Record<string, string> = {
+    task_id: '007',
+    task_title: 'Implement task identity',
+    task_slug: 'implement-task-identity',
+    artifact_kind: 'paused',
+    lifecycle_state: 'paused_pending_closure',
+    suspension_reason: 'Waiting for validation and manual review',
+    task_start_base: '23f52e85',
+    last_reviewed_checkpoint: 'checkpoint-001',
+    current_diff_review_target: 'working-tree',
+    resume_requires_review: 'true',
+    resume_review_reasons: 'manual_review_pending, validation_pending',
+    rehydration_status: 'ready_for_resume',
+    ownership_state: 'recovery_only',
+  };
+
+  const merged = { ...fields, ...overrides };
+  return Object.entries(merged)
+    .map(([key, value]) => `- ${key}: ${value}`)
+    .join('\n');
+}
 
 function generatedDocsFiles(): string[] {
   if (!fs.existsSync(OUTPUT_DIR)) {
@@ -115,6 +143,109 @@ describe('gen-workflow-docs', () => {
     expect(taskArchive).toContain('- 任务 ID：{{TASK_ID}}');
     expect(taskArchive).toContain('- 任务标题：{{TASK_TITLE}}');
     expect(taskArchive).toContain('- 任务 slug：{{TASK_SLUG}}');
+  });
+
+  test('current task template includes lifecycle gate defaults in stable order', () => {
+    const template = fs.readFileSync(CURRENT_TASK_TEMPLATE, 'utf8');
+
+    expect(template).toContain('- 当前状态：draft');
+    expect(template).toContain('- 生命周期状态：active');
+    expect(template).toContain('- 恢复需审查：false');
+    expect(template).toContain('- 恢复审查原因：');
+
+    const workflowStatusIndex = template.indexOf('- 当前状态：draft');
+    const lifecycleStateIndex = template.indexOf('- 生命周期状态：active');
+    const resumeRequiresReviewIndex = template.indexOf('- 恢复需审查：false');
+    const resumeReviewReasonsIndex = template.indexOf('- 恢复审查原因：');
+    const createdAtIndex = template.indexOf('- 创建时间：{{DATE}}');
+
+    expect(workflowStatusIndex).toBeGreaterThan(-1);
+    expect(lifecycleStateIndex).toBeGreaterThan(workflowStatusIndex);
+    expect(resumeRequiresReviewIndex).toBeGreaterThan(lifecycleStateIndex);
+    expect(resumeReviewReasonsIndex).toBeGreaterThan(resumeRequiresReviewIndex);
+    expect(createdAtIndex).toBeGreaterThan(resumeReviewReasonsIndex);
+  });
+
+  test('suspended task artifact path helpers distinguish valid package paths from stray files', () => {
+    expect(parseSuspendedTaskArtifactPath('TASKS/paused/TASK-007-implement-task-identity.md')).toEqual({
+      relativePath: 'TASKS/paused/TASK-007-implement-task-identity.md',
+      kind: 'paused',
+      taskId: '007',
+      taskSlug: 'implement-task-identity',
+    });
+    expect(parseSuspendedTaskArtifactPath('TASKS\\interrupted\\TASK-007-implement-task-identity.md')).toEqual({
+      relativePath: 'TASKS/interrupted/TASK-007-implement-task-identity.md',
+      kind: 'interrupted',
+      taskId: '007',
+      taskSlug: 'implement-task-identity',
+    });
+    expect(getSuspendedTaskArtifactExpectedPath('007', 'implement-task-identity', 'paused')).toBe(
+      'TASKS/paused/TASK-007-implement-task-identity.md',
+    );
+    expect(getSuspendedTaskArtifactExpectedPath('007', 'implement-task-identity', 'interrupted')).toBe(
+      'TASKS/interrupted/TASK-007-implement-task-identity.md',
+    );
+    expect(parseSuspendedTaskArtifactPath('TASKS/TASK-007-implement-task-identity.md')).toBeNull();
+    expect(() => validateSuspendedTaskArtifactPath('TASKS/paused/README.md')).toThrow(
+      'Suspended task artifact path must match',
+    );
+  });
+
+  test('validates a paused suspended package without treating it as a governance doc', () => {
+    expect(
+      validateSuspendedTaskPackage(
+        'TASKS/paused/TASK-007-implement-task-identity.md',
+        buildSuspendedPackageContent(),
+      ),
+    ).toMatchObject({
+      kind: 'paused',
+      artifactKind: 'paused',
+      lifecycleState: 'paused_pending_closure',
+      rehydrationStatus: 'ready_for_resume',
+      ownershipState: 'recovery_only',
+      resumeRequiresReview: true,
+      resumeReviewReasons: ['validation_pending', 'manual_review_pending'],
+    });
+  });
+
+  test('fails closed on paused_blocked packages that miss required blocker evidence', () => {
+    expect(() =>
+      validateSuspendedTaskPackage(
+        'TASKS/paused/TASK-007-implement-task-identity.md',
+        buildSuspendedPackageContent({
+          lifecycle_state: 'paused_blocked',
+          blocker_status: 'blocked',
+          resume_review_reasons: 'blocker_recheck_required, manual_review_pending',
+        }),
+      ),
+    ).toThrow('blocking_evidence');
+
+    expect(() =>
+      validateSuspendedTaskPackage(
+        'TASKS/paused/TASK-007-implement-task-identity.md',
+        buildSuspendedPackageContent({
+          lifecycle_state: 'paused_blocked',
+          blocker_status: 'blocked',
+          blocking_evidence: 'Waiting on external blocker owner',
+          remaining_acceptance: 'Confirm blocker removal',
+          resume_review_reasons: 'manual_review_pending',
+        }),
+      ),
+    ).toThrow('paused_blocked requires blocker_recheck_required');
+  });
+
+  test('fails closed on interrupted packages that miss recovery evidence', () => {
+    expect(() =>
+      validateSuspendedTaskPackage(
+        'TASKS/interrupted/TASK-007-implement-task-identity.md',
+        buildSuspendedPackageContent({
+          artifact_kind: 'interrupted',
+          lifecycle_state: 'interrupted',
+          resume_review_reasons:
+            'checkpoint_drift, diff_review_target_changed, dirty_attribution_pending, recovery_strategy_review_required',
+        }),
+      ),
+    ).toThrow('checkpoint_evidence');
   });
 
   test('lifecycle governance docs provide roadmap and baseline homes', () => {

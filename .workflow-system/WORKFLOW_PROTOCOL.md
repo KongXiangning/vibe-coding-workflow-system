@@ -251,6 +251,113 @@ Materialization boundary:
 - `archive-task` must fail closed if any of those fields are missing or still placeholder text
 - runtime helpers may derive a slug from task title only as an explicit surfaced step; generators must not silently auto-discover task identity
 
+### 3.4.1 Workflow status and lifecycle state
+
+`CURRENT_TASK.md > ## 任务信息 > 当前状态` continues to express live workflow / ownership status, not the task lifecycle phase itself.
+
+The v1 live workflow-status set is:
+
+- `draft`
+- `active`
+- `suspended`
+- `archived`
+- `superseded`
+- `replaced`
+- `blocked_by_replan`
+
+The v1 task lifecycle-state set is:
+
+- `active`
+- `paused_pending_closure`
+- `paused_blocked`
+- `interrupted`
+- `archived`
+
+The following terms are explicitly **not** lifecycle states in this protocol revision:
+
+- `backlog_item`
+- `capture`
+- `active_review_required`
+
+Rules:
+
+- unknown, empty, or misplaced workflow-status / lifecycle-state values must fail closed
+- `paused_pending_closure`, `paused_blocked`, and `interrupted` must not be written into `当前状态`
+- `active_review_required` is modeled as resume-gate metadata, not as a lifecycle state
+
+### 3.4.2 Artifact homes and active ownership
+
+Task lifecycle uses three artifact homes:
+
+- live task package: `docs/workflow/CURRENT_TASK.md`
+- suspended task package: `TASKS/paused/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`
+- interrupted task package: `TASKS/interrupted/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`
+
+Archive naming contract remains:
+
+- `TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`
+
+Active ownership rules:
+
+- only `draft + active` and `active + active` are active-owner tuples
+- `suspended + paused_pending_closure`, `suspended + paused_blocked`, and `suspended + interrupted` are non-active suspended markers
+- `archived + archived` is a terminal archive tuple
+- `superseded + active`, `replaced + active`, and `blocked_by_replan + active` are non-active replacement / replan markers and are not resumable
+
+Dual-active protection:
+
+- active ownership must be derived from the live `CURRENT_TASK.md` tuple, not inferred from suspended package existence
+- if a live active-owner tuple and a suspended / interrupted artifact for the same `TASK_ID` simultaneously claim incompatible ownership, the workflow must fail closed rather than choosing one implicitly
+
+### 3.4.3 Allowed transitions and resume gate
+
+Allowed v1 lifecycle transitions:
+
+- `active -> paused_pending_closure`
+- `active -> paused_blocked`
+- `active -> interrupted`
+- `active -> archived`
+- `paused_pending_closure -> active`
+- `paused_blocked -> active`
+- `interrupted -> active`
+
+Resume-gate rules:
+
+- every suspended-to-active resume path requires `resume_requires_review = true`
+- every suspended-to-active resume path requires a non-empty, normalized `resume_review_reasons` set
+- `paused_pending_closure` resumes must preserve closure-oriented review semantics
+- `paused_blocked` resumes must preserve blocker recheck semantics
+- `interrupted` resumes must preserve checkpoint / recovery-review semantics
+- field names, schema keys, and closed enums are owned by `.workflow-system/FILE_SCHEMAS.md`; this protocol defines the required semantics and fail-closed behavior
+
+Forbidden v1 transitions:
+
+- `paused_pending_closure -> archived`
+- `paused_blocked -> archived`
+- `interrupted -> archived`
+- `archived -> active`
+- any suspended-to-active transition without complete resume-gate metadata
+- any transition that encodes paused / interrupted lifecycle values by overwriting `当前状态`
+
+### 3.4.4 Fail-closed idempotence and recovery
+
+The v1 lifecycle contract uses fail-closed idempotence:
+
+- repeating pause / interrupt / resume / archive against the wrong source tuple, wrong artifact set, or mismatched markers must fail rather than returning a success-shaped no-op
+- lifecycle helpers must not silently normalize or discard contradictory marker combinations
+
+Partial-failure recovery rules:
+
+- suspend / interrupt / resume flows must preserve explicit recovery markers that distinguish completed artifacts from incomplete artifacts
+- incomplete or contradictory artifacts are not eligible resume inputs until an explicit recovery path resolves them
+- interrupted artifacts must carry checkpoint evidence, dirty-diff attribution, environment-state notes, and a recovery strategy before they are considered resumable
+- validators and runtime helpers must reject artifacts whose marker set is incomplete, contradictory, or inconsistent with the declared lifecycle transition
+
+Compatibility boundary:
+
+- this protocol revision does not change runtime manifest / install / health report contracts
+- if lifecycle artifact semantics prove that those runtime contracts must change, the implementation must stop and split follow-up work instead of widening the current task
+
 ---
 
 ## 4. Project-type specialization rules

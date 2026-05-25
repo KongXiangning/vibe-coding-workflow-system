@@ -28,6 +28,29 @@ import {
 const ROOT = path.resolve(import.meta.dir, '..');
 const PROFILE = loadProfile(getWorkflowProfilePath(ROOT));
 
+function buildSuspendedPackageContent(overrides: Record<string, string> = {}): string {
+  const fields: Record<string, string> = {
+    task_id: '007',
+    task_title: 'Implement task identity',
+    task_slug: 'implement-task-identity',
+    artifact_kind: 'paused',
+    lifecycle_state: 'paused_pending_closure',
+    suspension_reason: 'Waiting for validation and manual review',
+    task_start_base: '23f52e85',
+    last_reviewed_checkpoint: 'checkpoint-001',
+    current_diff_review_target: 'working-tree',
+    resume_requires_review: 'true',
+    resume_review_reasons: 'manual_review_pending, validation_pending',
+    rehydration_status: 'ready_for_resume',
+    ownership_state: 'recovery_only',
+  };
+
+  const merged = { ...fields, ...overrides };
+  return Object.entries(merged)
+    .map(([key, value]) => `- ${key}: ${value}`)
+    .join('\n');
+}
+
 function generatedDocsDir(root: string): string {
   return getWorkflowGeneratedDir(root, PROFILE, 'workflow-docs');
 }
@@ -263,6 +286,114 @@ describe('run-validation', () => {
       const failure = report.protocol_results.find(result => result.entrypoint === 'propagation-governance-surface');
       expect(failure?.status).toBe('failed');
       expect(failure?.error).toContain('CURRENT_TASK.md is missing required propagation-governance snippet "- effective_consumers："');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protocol validation passes when no suspended task packages exist', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-suspended-none-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      writeProfileFile(
+        tempRoot,
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+        ].join('\n'),
+      );
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_passed).toBe(true);
+      expect(report.blocked_gates).toEqual([]);
+      expect(
+        report.protocol_results.find(result => result.entrypoint === 'suspended-task-package-validation'),
+      ).toBeUndefined();
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protocol validation fails closed on stray suspended artifacts', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-suspended-stray-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      writeProfileFile(
+        tempRoot,
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+        ].join('\n'),
+      );
+
+      const strayPath = path.join(tempRoot, 'TASKS', 'paused', 'README.md');
+      fs.mkdirSync(path.dirname(strayPath), { recursive: true });
+      fs.writeFileSync(strayPath, '# stray', 'utf8');
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_passed).toBe(false);
+      const failure = report.protocol_results.find(result => result.entrypoint === 'suspended-task-package-validation');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('Stray suspended artifact detected at TASKS/paused/README.md');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protocol validation fails closed on illegal paused_blocked suspended packages', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-suspended-invalid-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      writeProfileFile(
+        tempRoot,
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+        ].join('\n'),
+      );
+
+      const packagePath = path.join(tempRoot, 'TASKS', 'paused', 'TASK-007-implement-task-identity.md');
+      fs.mkdirSync(path.dirname(packagePath), { recursive: true });
+      fs.writeFileSync(
+        packagePath,
+        buildSuspendedPackageContent({
+          lifecycle_state: 'paused_blocked',
+          blocker_status: 'blocked',
+          remaining_acceptance: 'Confirm blocker removal',
+          resume_review_reasons: 'manual_review_pending',
+        }),
+        'utf8',
+      );
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_passed).toBe(false);
+      const failure = report.protocol_results.find(result => result.entrypoint === 'suspended-task-package-validation');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('paused_blocked requires blocker_recheck_required');
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

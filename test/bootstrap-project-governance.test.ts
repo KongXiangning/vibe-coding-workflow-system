@@ -55,7 +55,19 @@ describe('bootstrap-project-governance', () => {
     expect(plan.governed_docs).toHaveLength(WORKFLOW_DOC_NAMES.length);
     expect(plan.task_identity.status).toBe('absent');
     expect(plan.task_identity.materialization_phase).toBe('A3');
-    expect(plan.task_identity.archive_path_pattern).toBe('TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md');
+    expect(plan.task_identity.artifact_paths).toEqual({
+      archive: 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md',
+      paused: 'TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md',
+      interrupted: 'TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md',
+    });
+    expect(plan.task_identity.output_impact_assessment).toMatchObject({
+      scope: 'source-repo-governance-output',
+      affected_output: 'bootstrap:project-governance',
+      runtime_manifest_contract: 'unchanged',
+      runtime_install_contract: 'unchanged',
+      runtime_health_report_contract: 'unchanged',
+      follow_up: 'none',
+    });
     expect(plan.summary.materialize).toBe(WORKFLOW_DOC_NAMES.length);
     expect(plan.summary.propose_diff_only).toBe(0);
     expect(plan.summary.blocked).toBe(0);
@@ -191,9 +203,11 @@ describe('bootstrap-project-governance', () => {
     });
 
     expect(plan.task_identity.status).toBe('materialized');
-    expect(plan.task_identity.current_identity?.archive_path).toBe(
-      'TASKS/TASK-007-implement-task-identity.md',
-    );
+    expect(plan.task_identity.current_identity?.artifact_paths).toEqual({
+      archive: 'TASKS/TASK-007-implement-task-identity.md',
+      paused: 'TASKS/paused/TASK-007-implement-task-identity.md',
+      interrupted: 'TASKS/interrupted/TASK-007-implement-task-identity.md',
+    });
     expect(fs.existsSync(path.join(targetRoot, 'TASKS', 'TASK-007-implement-task-identity.md'))).toBe(false);
   });
 
@@ -230,7 +244,7 @@ describe('bootstrap-project-governance', () => {
     });
 
     expect(plan.task_identity.status).toBe('placeholder-preserved');
-    expect(plan.task_identity.current_identity?.archive_path).toBeUndefined();
+    expect(plan.task_identity.current_identity?.artifact_paths).toBeUndefined();
     expect(plan.task_identity.reasons).toContain(
       'Task identity placeholders are preserved and must be materialized only during Adoption A3 or approved runtime execution.',
     );

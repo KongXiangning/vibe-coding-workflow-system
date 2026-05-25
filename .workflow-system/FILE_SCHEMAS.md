@@ -129,6 +129,114 @@
 
 `BASELINES.md` 是长期发布 / 部署 / 性能可靠性基线；`CURRENT_TASK.md > 发布后验证` 只承载本轮验证计划和结果。没有 deploy baseline、health endpoint、production URL、deploy log 或性能 baseline 时，必须输出 blocked risk，不能把任务标记为已稳定。
 
+### 生命周期 / 恢复 gate 字段
+
+当任务启用 `CURRENT_TASK` suspend / interrupt / resume contract 时，`CURRENT_TASK.md > ## 任务信息` 必须把 workflow status、lifecycle state 和 resume gate 分开承载，不得混写。
+
+- `当前状态`
+  - 继续承载 workflow / ownership status
+  - 语义和值域以 `.workflow-system/WORKFLOW_PROTOCOL.md §3.4` 为准
+  - 不得承载 `paused_pending_closure`、`paused_blocked`、`interrupted`
+- `生命周期状态` -> schema key `lifecycle_state`
+  - 承载 live task lifecycle state
+  - 语义和值域以 `.workflow-system/WORKFLOW_PROTOCOL.md §3.4` 为准
+- `恢复需审查` -> schema key `resume_requires_review`
+  - 布尔值
+  - 普通新建任务可为 `false`
+  - suspended -> active 恢复写回时，v1 固定为 `true`
+- `恢复审查原因` -> schema key `resume_review_reasons`
+  - 承载按稳定顺序输出的非空 reason 集合
+  - 显示层可使用逗号分隔字符串，但 parser / validator 必须映射为数组语义
+
+`resume_review_reasons` 是闭合集合，v1 顺序固定如下：
+
+1. `base_drift`
+2. `checkpoint_drift`
+3. `diff_review_target_changed`
+4. `environment_recovery_pending`
+5. `assumption_changed`
+6. `validation_pending`
+7. `manual_review_pending`
+8. `remaining_acceptance_pending`
+9. `blocker_recheck_required`
+10. `dirty_attribution_pending`
+11. `recovery_strategy_review_required`
+
+最小校验要求：
+
+- `恢复需审查 = false` 时，`恢复审查原因` 必须为空
+- `恢复需审查 = true` 时，`恢复审查原因` 必须为非空闭合集合
+- `恢复审查原因` 必须按上述顺序规范化并去重；若实现路径不执行规范化，则必须 `fail-closed`
+- `paused_pending_closure` 至少包含 `validation_pending`、`manual_review_pending`、`remaining_acceptance_pending` 之一
+- `paused_blocked` 至少包含 `blocker_recheck_required`
+- `interrupted` 至少包含与 checkpoint / diff / dirty attribution / environment / recovery strategy 对应的 interrupt reason
+
+### Suspended package 承载约束
+
+suspended package 是 task artifact，不是新增治理文档类型，也不是 governance catalog 常驻对象。其 path contract 固定如下：
+
+| kind | path contract | 说明 |
+|---|---|---|
+| live package | `docs/workflow/CURRENT_TASK.md` | canonical live task package；不是 suspended artifact kind |
+| `archive` | `TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md` | terminal archive package |
+| `paused` | `TASKS/paused/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md` | suspended package |
+| `interrupted` | `TASKS/interrupted/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md` | interrupted package |
+
+`artifact_kind` 是闭合集合：
+
+- `archive`
+- `paused`
+- `interrupted`
+
+suspended package 的最小字段为：
+
+- `task_id`
+- `task_title`
+- `task_slug`
+- `artifact_kind`
+- `lifecycle_state`
+- `suspension_reason`
+- `task_start_base`
+- `last_reviewed_checkpoint`
+- `current_diff_review_target`
+- `resume_requires_review`
+- `resume_review_reasons`
+- `rehydration_status`
+- `ownership_state`
+
+其中闭合集合为：
+
+- `rehydration_status`
+  - `write_incomplete`
+  - `ready_for_resume`
+  - `rehydrated`
+- `ownership_state`
+  - `recovery_only`
+  - `rehydrated`
+
+恢复输入最小条件：
+
+- `artifact_kind` 必须为 `paused` 或 `interrupted`
+- `rehydration_status = ready_for_resume`
+- `ownership_state = recovery_only`
+- `resume_requires_review = true`
+- `resume_review_reasons` 为满足 lifecycle-state 场景映射的非空闭合集合
+
+额外字段约束：
+
+- `paused_blocked` 还必须记录：
+  - `blocker_status`
+  - `blocking_evidence`
+  - `remaining_acceptance`
+  - `failed_checks` 仅在 blocker 直接来自 validation failure 时必填
+- `artifact_kind = interrupted` 还必须记录：
+  - `checkpoint_evidence`
+  - `dirty_attribution`
+  - `environment_state`
+  - `recovery_strategy`
+
+`write_incomplete` package、marker 不自洽 package、或不满足上述最小字段的 package 都不得作为恢复输入。
+
 ### 更新时机
 
 - 新需求进入时创建
@@ -156,6 +264,8 @@
 - 至少包含一个当前可执行步骤
 - 回滚点必须可操作，不能只有笼统描述
 - 长任务允许创建 checkpoint commit 作为回滚和审计点；如果存在 checkpoint，`## 回滚点` 必须能看出任务起始基线、最近已审查 checkpoint 或当前 diff review target，避免 `/review-diff` 误用空的工作区 diff
+- 启用生命周期 contract 时，`CURRENT_TASK.md > ## 任务信息` 必须能稳定映射 `lifecycle_state`、`resume_requires_review`、`resume_review_reasons`
+- suspended package 的路径、最小字段、闭合集合和恢复输入约束必须能被 parser / validator 稳定消费；不允许把开放字符串伪装成闭合集合
 
 ---
 
