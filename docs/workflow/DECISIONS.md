@@ -53,6 +53,39 @@
 - 替代方案：只在宿主指引中要求 ctx7；接入所有 skill；把 `create-current-task` 作为主查询入口。均不采用。
 - 验证方式：`bun run gen:workflow-skills --dry-run`; `bun run gen:registry --dry-run`; `bun run test:workflow-skills`; `bun run validate:protocol`; `bun run validate:freshness`.
 
+### AD-005: CURRENT_TASK lifecycle foundation 先稳定契约再实现 runtime skills
+
+- 状态：accepted
+- 背景：任务 `003` 需要补齐 `CURRENT_TASK` 暂停 / 中断 / 恢复协议与工件契约，但原始大任务已被收窄为第一阶段 contract foundation。
+- 决策：第一阶段只稳定 lifecycle state、resume review gate、task artifact path、active ownership、suspended package validation 和 protocol-level synthesized check；不实现 pause / resume / interrupt runtime skills，不改 guide / registry routing，不新增 inbox / backlog artifact。
+- 原因：先让 protocol、schema、template、resolver、bootstrap output 和 validator 对同一套 contract 收敛，避免 runtime skill 在语义未稳定前复制或发明状态规则。
+- 约束：AI 不得把后续 runtime lifecycle skill、routing、guide、registry、inbox / backlog artifact 或 runtime manifest / install / health report contract 静默并入本阶段；需要时必须单独开任务并重新锁范围。
+- 影响范围：`.workflow-system/WORKFLOW_PROTOCOL.md`, `.workflow-system/FILE_SCHEMAS.md`, `templates/docs/CURRENT_TASK.md.tmpl`, `scripts/task-identity.ts`, `scripts/bootstrap-project-governance.ts`, `scripts/workflow-doc-contracts.ts`, `scripts/run-validation.ts`, `docs/workflow/generated/workflow-docs/CURRENT_TASK.md`
+- 替代方案：直接实现 lifecycle runtime skills；已否决，因为会扩大到 routing、handoff、guide、registry 和 generated outputs。
+- 验证方式：`bun run gen:all`; `bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`.
+
+### AD-006: CURRENT_TASK active ownership 由 workflow status 与 lifecycle state 共同决定
+
+- 状态：accepted
+- 背景：`CURRENT_TASK.md` 已有 `当前状态` 字段，但暂停 / 中断 / 恢复需要独立表达 lifecycle ownership，不能把所有语义继续塞进 workflow task status。
+- 决策：`当前状态` 继续表达 workflow task record 状态；`生命周期状态` 表达 lifecycle state。`draft + active` 与 `active + active` 是 active owner tuple；`suspended + paused_* / interrupted` 是 non-active suspended marker；suspended package 不能反推 active ownership。
+- 原因：分离 identity completeness、workflow status、lifecycle state 和 ownership derivation，避免 live task 与 suspended package 形成双活或 split-brain。
+- 约束：AI 不得把 `TaskIdentityStatus`、`CurrentTaskWorkflowStatus`、`TaskLifecycleState` 或 `CurrentTaskOwnershipStatus` 混用；非法 tuple 和 resume gate drift 必须 fail-closed 或进入 review gate。
+- 影响范围：`docs/workflow/CURRENT_TASK.md`, `templates/docs/CURRENT_TASK.md.tmpl`, `scripts/task-identity.ts`, `.workflow-system/FILE_SCHEMAS.md`
+- 替代方案：继续让 `当前状态` 独自承担 lifecycle 语义；已否决，因为会污染现有 workflow / ownership status。
+- 验证方式：`bun run test:task-identity`; `bun run validate:protocol`; `bun run test:workflow-all`.
+
+### AD-007: suspended package 是 task artifact，不是 workflow governance catalog 对象
+
+- 状态：accepted
+- 背景：暂停和中断恢复需要持久化 package，但 `docs/workflow/` 目录只承载 live governance docs，`DOCUMENT_CATALOG` 不应被临时 task artifacts 扩面污染。
+- 决策：`TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md` 与 `TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md` 是 recovery input artifact；`workflow-doc-contracts.ts` 校验其路径与结构，但不把每个 suspended package 提升为 governance catalog 常驻文档对象。
+- 原因：保持 live governance docs、generated reference outputs 和 task artifacts 的目录职责清晰。
+- 约束：AI 不得为了“可发现性”静默修改 `templates/docs/DOCUMENT_CATALOG.md.tmpl` 或 `docs/workflow/DOCUMENT_CATALOG.md` 来收纳 suspended packages。
+- 影响范围：`.workflow-system/WORKFLOW_PROTOCOL.md`, `.workflow-system/FILE_SCHEMAS.md`, `scripts/workflow-doc-contracts.ts`, `scripts/run-validation.ts`
+- 替代方案：把 suspended package 纳入 `DOCUMENT_CATALOG`；当前不采用。
+- 验证方式：`bun run test:workflow-docs`; `bun run validate:protocol`; `bun run test:workflow-all`.
+
 ## 🎨 口味决策
 
 ### TD-001: 中文治理文档风格
@@ -86,6 +119,15 @@
 - 触发复议条件：多个任务复用后证明需要机器可读 evidence 字段，或审查 / 归档流程需要稳定读取 external docs evidence。
 - 明确不做范围：本轮不新增 `CURRENT_TASK.md` 标准章节，不改协议/schema，不把 evidence 结构提升为持久 DTO。
 
+### DEFER-003: Lifecycle runtime skills and routing
+
+- 状态：deferred
+- 背景：任务 `003` 已稳定 suspend / interrupt / resume 的第一阶段协议契约，但尚未实现 pause / resume / interrupt runtime skills。
+- 当前结论：本轮不新增 lifecycle runtime skill 模板，不修改 `WORKFLOW_GUIDE` routing，不更新 `SKILL_REGISTRY` 语义，不改 runtime manifest / install / health report contract。
+- 暂缓原因：runtime 行为需要在已稳定 contract foundation 之上单独设计 handoff、幂等、恢复事务和失败回滚流程。
+- 触发复议条件：准备实现 pause / resume / interrupt skill，或需要让 host workflow 自动消费 paused / interrupted packages。
+- 明确不做范围：本轮不触碰 `templates/skills/**`、`templates/docs/WORKFLOW_GUIDE.md.tmpl`、`scripts/workflow-runtime.ts`、`test/workflow-runtime.test.ts`。
+
 ## 🔁 已演进 / 已替代
 
 ### SUPERSEDED-001: 暂无
@@ -107,3 +149,19 @@
 - 否决原因：会混淆 source repo 与 target repo ownership，带来 install-state、managed-file drift repair、target-owned facts 覆盖风险。
 - 替代方案：source repo 执行 `gen:all`、`workflow:sync --root . --host <host> --write`、`workflow:health --root .`，并通过 adoption 建立 live docs。
 - 如果再次被提出时的默认处理：先引用 AD-001 和 CONTRACTS 中 source/target isolation，不直接执行。
+
+### REJECTED-002: 手工编辑 generated reference outputs
+
+- 状态：rejected
+- 背景：任务 `003` 中 `templates/docs/CURRENT_TASK.md.tmpl` 新增 lifecycle / resume gate 字段后，`docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 出现 freshness drift。
+- 否决原因：generated reference outputs 是生成证据，不承载 live facts；手工编辑会破坏 templates / scripts -> generated reference -> freshness 的结构变更流。
+- 替代方案：仅通过 `bun run gen:workflow-docs` 或 `bun run gen:all` 同步单一 Conditional File，并用 diff 证明只同步模板新增字段。
+- 如果再次被提出时的默认处理：引用 CONTRACTS 中 generated-only 边界；除非协议 / schema / templates / generator 已变更并通过 freshness 验证，否则不手改 generated 文件。
+
+### REJECTED-003: 将 CURRENT_TASK lifecycle foundation 扩大为一般 generated maintenance
+
+- 状态：rejected
+- 背景：任务 `003` 只允许同步 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 这一单一 Conditional File。
+- 否决原因：其他 `docs/workflow/generated/**` 或 `docs/workflow/SKILL_REGISTRY.md` diff 表示影响面超过当前任务边界，可能把 registry、guide、runtime 或 skill template 工作混入 contract foundation。
+- 替代方案：若 `bun run gen:all` 产生其他 generated / registry diff，停止并回到 `/lock-scope` 或拆后续任务。
+- 如果再次被提出时的默认处理：先检查 diff 范围；超出单一 Conditional File 时不得继续作为任务 `003` 收尾处理。

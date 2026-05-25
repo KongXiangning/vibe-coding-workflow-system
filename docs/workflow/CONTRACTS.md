@@ -35,6 +35,11 @@
   - 输入输出：`.workflow-system/PROJECT_PROFILE.yaml`、协议/schema、templates -> generated reference outputs。
   - 不可破坏项：不得从 generated outputs 反向维护规范；结构变更必须从协议/schema/templates 开始。
   - 备注：generated freshness 是 protocol-level gate。
+- 模块：`scripts/task-identity.ts`
+  - 函数 / 符号：`TaskIdentityStatus`、`CurrentTaskWorkflowStatus`、`TaskLifecycleState`、`CurrentTaskOwnershipStatus`、`TaskArtifactKind`、`getTaskArtifactPath()`、`getTaskArchivePath()`。
+  - 输入输出：live `CURRENT_TASK.md` identity fields、task artifact kind -> normalized identity / ownership / artifact path contract。
+  - 不可破坏项：`TaskIdentityStatus` 只表达 identity completeness；workflow status、lifecycle state 和 active ownership 不得混用；`getTaskArchivePath()` 必须保持 archive-only 兼容 wrapper。
+  - 备注：非法 status tuple、workflow status 与 resume gate drift 必须保持 named error 可追踪。
 
 ### 🔒 已锁定数据结构 / DTO / 事件 / 表结构
 
@@ -48,6 +53,16 @@
   - 语义：source repo 产品化生成证据。
   - 不可破坏项：不可手改；必须通过 templates / scripts 重新生成。
   - 备注：live docs 才承载本仓库运行事实。
+- 名称：CURRENT_TASK lifecycle / resume gate contract
+  - 结构：`docs/workflow/CURRENT_TASK.md > ## 任务信息` 中的 `当前状态`、`生命周期状态`、`恢复需审查`、`恢复审查原因`。
+  - 语义：`当前状态` 表达 workflow task record 状态；`生命周期状态` 表达 task lifecycle ownership state；两者共同决定 active ownership。`恢复需审查` 与 `恢复审查原因` 承载恢复审查 gate。
+  - 不可破坏项：`当前状态` 不得重新承担 lifecycle 语义；`生命周期状态` 必须保持闭集语义；resume review reasons 必须按闭合集合规范化，drift 必须 fail-closed 或进入 review gate。
+  - 备注：第一阶段只稳定契约，不实现 lifecycle runtime skill。
+- 名称：task artifact path contract
+  - 结构：`TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`、`TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md`、`TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md`。
+  - 语义：archive / paused / interrupted 是同一 task identity 的不同 artifact kind；paused / interrupted package 是 recovery input，不是 live governance document。
+  - 不可破坏项：不得把 suspended package 提升为 `docs/workflow/` 常驻 governance catalog 对象；不得用 suspended package 是否存在反推 active ownership。
+  - 备注：`getTaskArchivePath()` 仅保留 archive-only wrapper；多 artifact path contract 由统一 resolver 承载。
 
 ### 🟡 可扩展不可破坏
 
@@ -83,6 +98,8 @@
 
 - 结构变更：协议/schema/templates -> generator -> generated reference -> freshness。
 - 项目事实变更：workflow skill -> live `docs/workflow/*.md`。
+- task lifecycle 判定：live `docs/workflow/CURRENT_TASK.md` task identity fields -> task identity parser / resolver -> ownership state；suspended packages 只能作为 recovery input。
+- suspended package validation：`TASKS/paused/**` 与 `TASKS/interrupted/**` -> `workflow-doc-contracts.ts` structure validation -> `run-validation.ts` synthesized protocol check。
 - target 安装：source repo bundle -> external target root -> target bootstrap/adoption -> source repo render/sync target。
 - source self-use：source repo generated skills -> `.codex/skills/workflow-system-*` / `.claude/skills/workflow-system-*`。
 
@@ -98,6 +115,7 @@
 ### 🔒 事件 / DTO 语义
 
 - validation matrix 的 `layer: protocol` 归 workflow-system；`layer: project` 且 `owner: target-project` 的 slots 归 target project Adoption A4。
+- `suspended-task-package-validation` 是 protocol-level synthesized check，blocker level 为 `blocks-merge`；目录不存在或无 package 时通过，stray suspended artifact 或非法 suspended package 必须 fail-closed。
 - install drift repair flags：
   - `--replace-managed-drift` 只修 install-state 中 `replace-managed` 管理项。
   - `--repair-bootstrap-drift` 只修 install-state 中 `bootstrap-skill-install` 管理项。
@@ -157,6 +175,16 @@
     - `plan-implementation` 的 evidence 落点是实现方案；`implement-current-step` 的 evidence 落点是执行记录或本步验证记录；`investigate-root-cause` 的 evidence 落点是 debug evidence / 调查报告；`review-implementation` 的 evidence 落点是 finding 或 clean 结论。
     - `create-current-task` 不作为 ctx7 主查询入口；任务创建最多记录后续需要外部文档 evidence。
   - verification：`bun run gen:workflow-skills --dry-run`、`bun run gen:registry --dry-run`、`bun run test:workflow-skills`、`bun run validate:protocol`、`bun run validate:freshness`
+
+- 对象路径：CURRENT_TASK lifecycle / suspended package foundation
+  - assertions：
+    - v1 lifecycle state set is `active`、`paused_pending_closure`、`paused_blocked`、`interrupted`、`archived`.
+    - `backlog_item`、`capture`、`active_review_required` are not v1 lifecycle states.
+    - active ownership is derived from `当前状态` plus `生命周期状态`, not from suspended package presence.
+    - suspended packages must carry review-ready recovery fields before they can be used as resume input.
+    - `artifact_kind = interrupted` additionally requires checkpoint evidence, dirty attribution, environment state, and recovery strategy.
+    - runtime lifecycle skills, guide / registry routing, inbox / backlog artifacts, and runtime manifest / install / health report contract remain outside this foundation contract unless a later task explicitly widens scope.
+  - verification：`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
 
 ### compat path / wrapper rules
 

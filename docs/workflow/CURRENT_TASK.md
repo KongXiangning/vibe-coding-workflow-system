@@ -7,8 +7,8 @@
 - 任务 ID：003
 - 任务标题：补齐 CURRENT_TASK 暂停 / 中断 / 恢复协议与工件契约（第一阶段）
 - 任务 slug：current-task-suspend-resume-contract-foundation
-- 当前状态：draft
-- 当前 handoff：plan-implementation
+- 当前状态：archived
+- 当前 handoff：create-current-task
 - 创建时间：2026-05-25
 
 ## 背景与上下文
@@ -255,38 +255,44 @@ User challenge:
   - `templates/docs/CURRENT_TASK.md.tmpl` 是第一层消费者：它必须把新增字段以稳定默认值落到 live task skeleton，但不能先于 protocol/schema 自行发明字段语义。
   - `scripts/task-identity.ts` 成为状态判定与路径解析的实现中心：分离 workflow status、lifecycle state、ownership status 与 artifact kind，并保留 `getTaskArchivePath()` 作为 archive-only wrapper。
   - `scripts/bootstrap-project-governance.ts` 是唯一明确的导出形状变更面：`BootstrapTaskIdentityPlan` 要从单一 `archive_path_pattern` 升级为 schema-backed artifact mapping，并附带 impact assessment。
-  - `scripts/workflow-doc-contracts.ts` 与 `scripts/run-validation.ts` 负责把 schema-backed suspended package contract 接入校验链；runtime manifest / install / health report、generated outputs、registry、guide 和 skill templates 继续留在范围外。
+  - `scripts/workflow-doc-contracts.ts` 与 `scripts/run-validation.ts` 负责把 schema-backed suspended package contract 接入校验链；runtime manifest / install / health report、registry、guide 和 skill templates 继续留在范围外；`docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 仅作为 generator-derived reference render 进入 Conditional File。
 - Technical approach:
   - 第一优先级是 protocol-first：先在 `WORKFLOW_PROTOCOL` 定义闭集状态、合法 / 非法迁移、resume gate、fail-closed 幂等、partial failure recovery 和 dual-active protection，避免后续实现各自猜语义。
   - 第二优先级是 schema-first：在 `FILE_SCHEMAS` 明确 `CURRENT_TASK.md > ## 任务信息` 的新增字段、schema key 映射、closed enums、suspended package 最小字段以及 artifact path contract，让 template / parser / validator 共享同一来源。
   - 第三优先级才是 implementation wiring：先更新 `templates/docs/CURRENT_TASK.md.tmpl`，再让 `task-identity.ts` 解析 live/suspended artifact contract，随后让 bootstrap、workflow-doc-contracts 和 run-validation 分别消费该 contract，而不是在多个文件里复制路径与状态规则。
   - `run-validation.ts` 采用 `suspended-task-package-validation` synthesized check 接入 suspended package 校验，优先保持在既有 Allowed Files 内完成；如果实施证据证明还必须修改 `scripts/validation-model.ts` 或 `test/validation-model.test.ts`，应立即停止并回到 `/lock-scope`，而不是静默扩面。
-  - 最小可行路径是：protocol -> schema -> template -> task identity -> bootstrap -> workflow doc contracts -> run-validation -> focused tests -> full regression。这样能先锁定语义，再闭合实现链和验证链。
+  - 最小可行路径是：protocol -> schema -> template -> task identity -> bootstrap -> workflow doc contracts -> run-validation -> generator reference sync -> focused tests -> full regression。这样能先锁定语义，再闭合实现链、生成链和验证链。
+  - 当前追加方案不改代码路线：只允许通过 `bun run gen:workflow-docs` 或 `bun run gen:all` 同步 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md`，并用 diff 证明它只反映 `CURRENT_TASK.md.tmpl` 的三个任务信息字段。
 - Alternatives considered:
   - 立即实现 lifecycle runtime skills：拒绝。它会把 scope 扩到 routing、handoff、guide、generated outputs，破坏当前“先定 contract 再做 runtime”的目标。
   - 继续让 `当前状态` 承载 lifecycle 语义：拒绝。它会污染现有 workflow / ownership status，并让 active ownership 判定失去可审计边界。
   - 只在文档或 helper 中补 paused / interrupted 路径：拒绝。没有统一 resolver、bootstrap output 和 validator 支持就会形成 split-brain contract。
   - 现在就把新检查升级为 protocol entrypoint 常量：当前不选。只要 synthesized check 能在 `run-validation.ts` 中 fail-closed 并覆盖现有回归，就不应为了“看起来更统一”去扩大到 `validation-model.ts`；若实现证据否定这一点，再回 `/lock-scope`。
   - 现在把 suspended package 纳入 `DOCUMENT_CATALOG`：拒绝。它属于 task artifact，不是 governance catalog 常驻文档。
+  - 手工编辑 generated reference：拒绝。`CONTRACTS.md` 已锁定 generated reference outputs 只能由生成器写入，本任务只能用生成器同步单一 Conditional File。
+  - 把所有 generated outputs 一并同步：拒绝。当前 root cause 只命中 `workflow-docs/CURRENT_TASK.md`，其他 generated / registry diff 表示范围漂移，必须停止并重新锁范围。
 - Data / state flow:
   - 规范源流：`WORKFLOW_PROTOCOL` 定义状态 / 迁移 / gate 语义，`FILE_SCHEMAS` 定义字段承载与 path contract，`CURRENT_TASK.md.tmpl` 物化默认 skeleton。
   - 运行判定流：`docs/workflow/CURRENT_TASK.md` 继续是唯一 live task identity；`TASKS/paused/**` 与 `TASKS/interrupted/**` 只作为 suspended package；`TASKS/TASK-*.md` 保持 archive package。
   - 解析与消费流：`task-identity.ts` 读取 live/suspended artifact contract 并派生 ownership；`bootstrap-project-governance.ts` 输出 artifact mapping；`workflow-doc-contracts.ts` 校验 package 结构；`run-validation.ts` 把 suspended package 违规提升为 protocol-level validation failure。
+  - 生成同步流：`templates/docs/CURRENT_TASK.md.tmpl` 是新增字段源头，`docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 只作为 source-repo reference render 同步结果，不承载新的 live task 事实。
   - active ownership 只能由 `CURRENT_TASK.md` 的 `TASK_ID + 当前状态 + 生命周期状态` 推导，不能由 suspended package 是否存在反推。
 - Compatibility:
   - `package.json` 对外公开的 `gen:*`、`validate:*`、`test:*`、`workflow:*` 命令名不变；source repo / target repo 隔离语义不变。
   - `BootstrapTaskIdentityPlan` 的导出形状是本任务唯一预期的 contract shape change，但它必须被视为 source-repo governance output change，而不是 runtime manifest / install / health report change。
   - `workflow:install --root .` 禁止 self-install、`workflow:sync --root . --host <host> --write` 可 self-sync 的现有 runtime 边界保持不变。
-- generated outputs 与 `docs/workflow/SKILL_REGISTRY.md` 默认不进入实现范围；已验证 `CURRENT_TASK.md.tmpl` 字段新增会导致 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` freshness drift，因此仅把该单一 generated reference render 作为 Conditional File 纳入生成器同步范围。
+  - generated outputs 与 `docs/workflow/SKILL_REGISTRY.md` 默认不进入实现范围；已验证 `CURRENT_TASK.md.tmpl` 字段新增会导致 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` freshness drift，因此仅把该单一 generated reference render 作为 Conditional File 纳入生成器同步范围。
 - Risks and rollback:
   - 主要风险 1：把 `TaskIdentityStatus`、workflow status 和 lifecycle state 混为一谈，会直接污染 active ownership 语义。
   - 主要风险 2：protocol/schema/template 与 resolver/validator 任一侧未同步，会形成 split-brain contract，导致 live package、suspended package 和 bootstrap output 相互矛盾。
   - 主要风险 3：`BootstrapTaskIdentityPlan` shape change 可能暴露出 runtime report / manifest / install contract 的隐性依赖；一旦发现，必须停止并拆后续任务。
   - 主要风险 4：`run-validation.ts` 新检查如果仍停留在 helper 级别，无法真正保护 merge gate。
   - 主要风险 5：`bun run gen:all` 若产生除 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 以外的 generated diff，说明变更已越过当前 frozen-scope；此时回滚做法是退回到 Task start base `23f52e85`，恢复当前任务包并重新锁范围，而不是把其他 generated outputs 混入本任务。
+  - 主要风险 6：生成器同步后若 diff 超过 `生命周期状态：active`、`恢复需审查：false`、空 `恢复审查原因` 的 reference render 结果，说明模板影响面判断不完整，必须停止并回到 `/lock-scope` 或拆后续任务。
 - Validation strategy:
   - 聚焦验证先覆盖四条链：`bun run test:workflow-docs`（模板 / skeleton 字段）、`bun run test:task-identity`（resolver / tuple / ownership）、`bun run test:bootstrap-governance`（artifact mapping shape）、现有 workflow 回归里能覆盖 `run-validation.ts` 的测试入口。
   - 全量回归保持任务包已声明的四条主命令：`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`。
+  - Conditional File 验证先检查 `git diff -- docs/workflow/generated/workflow-docs/CURRENT_TASK.md`，确认只同步模板新增字段；随后运行 `bun run test:run-validation` 和聚焦 workflow docs / task identity / bootstrap tests。
   - 额外治理 smoke 采用现有 `bun run workflow:health --root .`，用于确认 live governance docs、profile 与 protocol-level validation 仍闭合。
   - 若任何一步提示 runtime / generated / registry surface 需要一并改动，验证策略不是“补更多测试继续做”，而是停止并回到 `/lock-scope`。
 - External Documentation Gate: not triggered. This task depends only on repository-local protocol, schema, templates, scripts, tests, and governance docs; no third-party library / framework / SDK / API / CLI / cloud-service current behavior affects correctness.
@@ -488,11 +494,11 @@ User challenge:
 
 ### blockers / gate status
 
-- 当前执行步骤：`plan-implementation`
-- 已完成 discovery：草案来源核对、`CONTRACTS.md` / `DECISIONS.md` / `STATUS.md` / `.workflow-system/PROJECT_PROFILE.yaml` precedence 核对、关键符号影响面搜索、回滚点核对、Safety mode / Dangerous surfaces / widening 条件锁定、任务决策分类、协议 / schema 优先的实现方案收敛、步骤 6–14 的单步拆解确认，以及步骤 6-12 的协议 / schema / template / task-identity / bootstrap / workflow-doc-contracts / run-validation 实现、只读审查、契约核对与最小回归
+- 当前执行步骤：`sync-current-task`
+- 已完成 discovery：草案来源核对、`CONTRACTS.md` / `DECISIONS.md` / `STATUS.md` / `.workflow-system/PROJECT_PROFILE.yaml` precedence 核对、关键符号影响面搜索、回滚点核对、Safety mode / Dangerous surfaces / widening 条件锁定、任务决策分类、协议 / schema 优先的实现方案收敛、步骤 6–14 的单步拆解确认，以及步骤 6-14 的协议 / schema / template / task-identity / bootstrap / workflow-doc-contracts / run-validation / generated reference sync 实现、只读审查、契约核对与回归验证
 - 剩余 blocker：
-  - `bun run validate:freshness` 当前报告 `workflow-docs/CURRENT_TASK.md` stale；已由 `/investigate-root-cause` 验证根因为 `templates/docs/CURRENT_TASK.md.tmpl` 字段新增未同步 generated reference render。范围已扩大为单一 Conditional File：`docs/workflow/generated/workflow-docs/CURRENT_TASK.md`。
-  - 若实现阶段发现 runtime manifest / install / health report contract、registry 或其他 generated outputs 必须变化，必须停止并拆后续任务。
+  - 无。`workflow-docs/CURRENT_TASK.md` freshness drift 已通过单一 Conditional File 生成器同步闭合，`bun run validate:freshness` 已通过。
+  - 若后续收尾阶段发现 runtime manifest / install / health report contract、registry 或其他 generated outputs 必须变化，必须停止并拆后续任务。
 - `ContractCompatibilityResult`：
   - error_code：none
   - object_path：`CURRENT_TASK lifecycle / artifact path contract`
@@ -504,7 +510,7 @@ User challenge:
   - branch_gate_mapping.merge_gate：已完成 `lock-scope` 与 `classify-decisions`；若实现中触发 runtime、validation-model 或除 Conditional File 外的 generated surface 扩面则立即停下并重回 `/lock-scope`
   - branch_gate_mapping.ship_gate：`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`
   - branch_gate_mapping.rationale：当前任务仍处于单目标、单传播链收敛状态，未命中必须拆分或兼容层迁移的 blocker
-  - suggested_resolution：进入 `plan-implementation` 复核本次 Conditional File 同步不改变既有技术路线；若无新增方案风险，再回到 `implement-current-step` 只执行生成器同步和复验
+  - suggested_resolution：进入 `sync-status`，同步项目状态；本任务实现与回归已完成，若后续发现其他 generated / registry diff，立即停止并回到 `/lock-scope`
 
 ### conformance / verification cases
 
@@ -556,24 +562,27 @@ User challenge:
 - [x] 步骤 12：更新 `scripts/run-validation.ts` 与 `test/run-validation.test.ts`。
   - 子目标：接入 `suspended-task-package-validation` protocol-level synthesized check，blocker level 为 `blocks-merge`。
   - 验证：已在 `scripts/run-validation.ts` 接入 `suspended-task-package-validation` synthesized check，并在 `test/run-validation.test.ts` 覆盖无 package 通过、stray artifact 失败、非法 `paused_blocked` package 失败；`git diff --check` 通过，`bun test test/run-validation.test.ts --test-name-pattern "run-validation"` 通过，`bun run validate:protocol` 通过。
-- [ ] 步骤 13：运行聚焦测试。
-  - 子目标：先验证 task identity、bootstrap、workflow docs 和 run-validation 的关键断言。
-  - 验证：先用生成器同步 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 后，运行 `bun run test:workflow-docs`、`bun run test:task-identity`、`bun run test:bootstrap-governance`、`bun run test:run-validation`；失败时只做最小修复，不扩面。
-- [ ] 步骤 14：运行全量回归与最终复核。
+- [x] 步骤 13：同步单一 generated reference render 并运行聚焦测试。
+  - 输入：`templates/docs/CURRENT_TASK.md.tmpl` 已新增的 `生命周期状态：active`、`恢复需审查：false`、空 `恢复审查原因` 字段，以及 Conditional Files 允许的 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md`。
+  - 输出：仅由 `bun run gen:workflow-docs` 或 `bun run gen:all` 生成的 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` reference render diff；不得手工编辑 generated output。
+  - 子目标：闭合 template -> generated reference -> freshness 的最小生成链，并先验证 task identity、bootstrap、workflow docs 和 run-validation 的关键断言。
+  - 验证：已运行 `bun run gen:workflow-docs` 同步 generated reference；`git diff --name-only -- docs/workflow/generated docs/workflow/SKILL_REGISTRY.md` 仅出现 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md`，且该 diff 只反映 `生命周期状态：active`、`恢复需审查：false`、空 `恢复审查原因` 三个模板字段；`git diff --check` 通过，`bun run test:workflow-docs` 通过，`bun run test:task-identity` 通过，`bun run test:bootstrap-governance` 通过，`bun test test/run-validation.test.ts --test-name-pattern "run-validation"` 通过。未出现其他 generated / registry diff。
+- [x] 步骤 14：运行全量回归与最终复核。
   - 子目标：确认协议、schema、生成链和 freshness 仍稳定。
-  - 验证：`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness` 通过；若 `gen:all` 产生除 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 条件同步以外的 generated diff，停止并回到范围锁定。
+  - 验证：已按 diff-aware QA mode 运行最终完整回归；`bun run gen:all` 通过且生成差异仍仅限 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md`，`bun run test:workflow-all` 通过（201 pass / 0 fail），`bun run validate:protocol` 通过，`bun run validate:freshness` 通过，`bun run workflow:health --root .` 通过，`git diff --check` 与 `git diff --cached --check` 通过；未出现其他 generated / registry diff。
 
 ## 回归检查项
 
-- [ ] `bun run gen:all`
-- [ ] `bun run test:workflow-all`
-- [ ] `bun run validate:protocol`
-- [ ] `bun run validate:freshness`
+- [x] `bun run gen:all`
+- [x] `bun run test:workflow-all`
+- [x] `bun run validate:protocol`
+- [x] `bun run validate:freshness`
+- [x] `bun run workflow:health --root .`
 
 ## 回滚点
 
 - Task start base: 23f52e85
-- Last reviewed checkpoint: not-yet-created
+- Last reviewed checkpoint: 587d5e70
 - Current diff review target: working-tree
 
 ## 执行记录
@@ -606,6 +615,7 @@ User challenge:
 - 2026-05-25：执行 `/implement-current-step` 的步骤 10；已在 `scripts/bootstrap-project-governance.ts` 中把 `BootstrapTaskIdentityPlan` 从单一 `archive_path_pattern` 升级为 `artifact_paths` 映射结构，materialized identity 现统一暴露 archive / paused / interrupted 三类 artifact path，并新增 source-repo governance output impact assessment，明确 `workflow:manifest`、`workflow:install`、`workflow:health` contract 在本步保持 unchanged；同时在 `test/bootstrap-project-governance.test.ts` 中补充新 shape 与 impact assessment 断言；`git diff --check` 通过，`bun run test:bootstrap-governance` 通过，`bun run validate:protocol` 通过；当前 handoff 保持 `/implement-current-step`，下一子目标为步骤 11。
 - 2026-05-25：执行 `/implement-current-step` 的步骤 11；已在 `scripts/workflow-doc-contracts.ts` 中新增 suspended package path parser、path template helper 与 package structure validator，复用 `task-identity.ts` 的 lifecycle / resume gate 闭合集合校验，并确保 suspended package 仍被视为 task artifact 而不是 governance catalog 常驻文档；同时在 `test/gen-workflow-docs.test.ts` 中补充合法 path、stray artifact、非法 `paused_blocked` package 和缺失恢复证据的 `interrupted` package 断言；`git diff --check` 通过，`bun run test:workflow-docs` 通过，`bun run validate:protocol` 通过；当前 handoff 保持 `/implement-current-step`，下一子目标为步骤 12。
 - 2026-05-26：执行 `/implement-current-step` 的步骤 12；已在 `scripts/run-validation.ts` 中接入 `suspended-task-package-validation` protocol-level synthesized check，扫描 `TASKS/paused/**` 与 `TASKS/interrupted/**` 并对 stray artifact 与非法 suspended package 执行 fail-closed；同时在 `test/run-validation.test.ts` 中补充无 package 通过、stray artifact 失败和非法 `paused_blocked` package 失败的 validation-flow 断言；`git diff --check` 通过，`bun test test/run-validation.test.ts --test-name-pattern "run-validation"` 通过，`bun run validate:protocol` 通过；当前 handoff 保持 `/implement-current-step`，下一子目标为步骤 13。
+- 2026-05-26：执行 `/implement-current-step` 的步骤 13；已运行 `bun run gen:workflow-docs` 同步 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` reference render，并确认 `git diff --name-only -- docs/workflow/generated docs/workflow/SKILL_REGISTRY.md` 仅包含该单一 generated file，且 `git diff -- docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 只新增 `生命周期状态：active`、`恢复需审查：false`、空 `恢复审查原因` 三个模板字段；随后完成 `bun run test:workflow-docs`、`bun run test:task-identity`、`bun run test:bootstrap-governance`、`bun test test/run-validation.test.ts --test-name-pattern "run-validation"` 聚焦测试，均通过；`git diff --check` 通过；当前 handoff 保持 `/implement-current-step`，下一子目标为步骤 14。
 - 2026-05-25：执行步骤 9 后的 `/review-diff`；沿用 `working-tree` target，变更文件均在 Allowed Files 内；未触碰 Forbidden / Conditional Files、runtime、generated outputs、registry、catalog、CI/CD、deployment、database、monitoring 或 benchmark surfaces；结论为 clean，handoff 到 `/review-implementation`。
 - 2026-05-25：执行步骤 9 后的 `/review-implementation`；沿用 `working-tree` target，确认 task identity helper 与测试满足步骤 9 子目标，未发现 critical / major 问题；External Documentation Gate 未触发。
 - 2026-05-25：执行步骤 9 后的 `/verify-contracts`；沿用 `working-tree` target，确认 `getTaskArchivePath()` 旧签名和返回路径保持兼容，新增导出属于扩展；未破坏 source repo CLI contract、runtime install/sync contract、generated-only 边界、source/target 隔离、目录职责或架构依赖方向，且不需要修改 `CONTRACTS.md` 解释当前改动。
@@ -623,3 +633,8 @@ User challenge:
 - 2026-05-26：执行 `/sync-current-task`；已将步骤 11 的只读审查、契约验证和 diff-aware 回归结果回写到本任务包；任务级全量回归清单保持未勾选，留待步骤 14；当前 handoff 继续保持 `/implement-current-step`，下一子目标为步骤 12。
 - 2026-05-26：执行 `/lock-scope`；根据 `/run-regression` 与 `/investigate-root-cause` 证据，确认 freshness failure 根因为 `templates/docs/CURRENT_TASK.md.tmpl` 已新增 lifecycle / resume gate 字段但 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 尚未同步；已将该单一 generated reference render 改为 Conditional File，要求只能由 `bun run gen:workflow-docs` 或 `bun run gen:all` 生成，且 diff 只能同步对应三个模板字段；其他 generated outputs、registry、runtime、validation-model 和 catalog surfaces 继续禁止。当前 handoff 更新为 `/classify-decisions`。
 - 2026-05-26：执行 `/classify-decisions`；确认 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 的条件同步是由模板字段已变更但 reference render 未同步导致的 mechanical freshness reconciliation，不属于 Taste 决策；同时把“不得扩展到其他 generated outputs / registry / runtime / validation-model / catalog surfaces”继续保留为 User challenge。当前 handoff 更新为 `/plan-implementation`。
+- 2026-05-26：用户要求“先提交当前”；已提交 `587d5e70 task: add current task lifecycle contract foundation`，提交包含步骤 6-12 的协议 / schema / template / identity / bootstrap / validator / run-validation 变更与任务记录；提交后工作区干净。
+- 2026-05-26：执行 `/plan-implementation`；确认本次 Conditional File 只补齐 `CURRENT_TASK.md.tmpl` 到 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 的 generated reference freshness，不改变既有 protocol-first / schema-first / implementation wiring 技术路线；新增手工编辑 generated reference、同步所有 generated outputs 两个拒绝方案，并补充 Conditional File diff 验证策略。当前 handoff 更新为 `/decompose-task`。
+- 2026-05-26：执行 `/decompose-task`；确认步骤 13 / 14 能承接 `/plan-implementation` 的 generator reference sync 方案，并把步骤 13 细化为“生成器同步单一 Conditional File -> diff 约束审查 -> 聚焦测试”的一验一目标步骤；步骤 14 继续保留全量回归与 freshness 验证。当前 handoff 更新为 `/implement-current-step`。
+- 2026-05-26：执行步骤 13 后的 `/review-diff`、`/review-implementation`、`/verify-contracts` 与 `/run-regression`；确认当前 working-tree diff 只包含 `docs/workflow/CURRENT_TASK.md` 与 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md`，generated reference diff 只同步三个模板字段；`bun run gen:all`、`bun run test:workflow-all`（201 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`、`git diff --check`、`git diff --cached --check` 均通过；步骤 14 已完成，当前 handoff 更新为 `/sync-status`。
+- 2026-05-26：执行 `/archive-task`；已创建归档 `TASKS/TASK-003-current-task-suspend-resume-contract-foundation.md`，归档内容包含任务定义、实际改动、契约 / 决策同步、验证证据、release 字段、remaining observation 和后续入口；当前任务状态标记为 `archived`，handoff 更新为 `/create-current-task`。

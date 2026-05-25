@@ -16,7 +16,7 @@ bun run gen:all
 bun run validate:protocol
 bun run validate:freshness
 bun run test:workflow-all
-bun run workflow:health
+bun run workflow:health --root .
 ```
 
 ## Key Conventions
@@ -29,6 +29,13 @@ bun run workflow:health
 - `docs/workflow/` is the governance management surface only. Product, usage, methodology, and operations docs belong in `README.md`, `vibe-coding/**`, `docs/product/**`, `docs/guides/**`, or `docs/ops/**`.
 - This source repo may self-sync host skills with `workflow:sync --root . --host <host> --write`, but must not self-install with `workflow:install --root .`.
 - Project-level validation slots owned by `target-project` stay unbound in this source repo; source repo quality checks use `validate:protocol`, `validate:freshness`, `test:workflow-all`, and `workflow:health --root .`.
+
+## CURRENT_TASK Lifecycle Boundaries
+
+- `CURRENT_TASK.md` lifecycle work is contract-first: stabilize protocol/schema/template/resolver/validator behavior before adding runtime lifecycle skills.
+- Active ownership is derived from `当前状态` plus `生命周期状态`; do not collapse lifecycle semantics back into `当前状态` or infer ownership from suspended package presence.
+- Suspended packages under `TASKS/paused/**` and `TASKS/interrupted/**` are task recovery artifacts, not `docs/workflow/` governance catalog documents.
+- Do not add pause / resume / interrupt runtime skills, guide / registry routing, inbox / backlog artifacts, or runtime manifest / install / health report changes unless the current task explicitly scopes them and re-locks scope.
 
 ## Workflow External Documentation Gate
 

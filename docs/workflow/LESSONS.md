@@ -29,6 +29,13 @@
 - 触发信号：`STATUS.md` 与 `CURRENT_TASK.md` 对步骤、风险或下一检查点描述不一致；required read 的治理文档缺失或只有占位结构。
 - 应对动作：回到范围锁定或记录范围扩大原因，再做最小同步；确认 live governance docs 不承载产品、方法论、操作手册或一次性聊天内容。
 
+### Contract foundation tasks must not drift into runtime delivery
+
+- 场景：任务只要求稳定协议、schema、模板、resolver 和 validator，但相关概念天然指向后续 runtime skill、routing、registry 或 guide 改造。
+- 结论：contract foundation 与 runtime delivery 必须拆开；第一阶段只能固化状态、路径、ownership、校验和恢复输入契约，不顺手实现 host workflow 行为。
+- 触发信号：实现方案开始出现 `templates/skills/**`、`WORKFLOW_GUIDE` routing、`SKILL_REGISTRY`、runtime manifest / install / health report、inbox / backlog artifact 等范围外文件或概念。
+- 应对动作：先把这些项写入 Forbidden / Deferred / Rejected 决策；如确实需要实现，停止当前任务并重新 `/lock-scope` 或拆后续任务。
+
 ## 数据与存储
 
 - 场景：
@@ -63,6 +70,13 @@
 - 结论：局部 dry-run 通过不等于生成链已闭合；最终必须用 freshness 和完整 workflow tests 证明 generated outputs 与模板一致。
 - 触发信号：`validate:freshness` 报 stale，或 `git status` 出现目标 generated workflow skill 变更。
 - 应对动作：只通过生成器同步 generated reference outputs；随后运行 `bun run gen:workflow-skills --dry-run`、`bun run gen:registry --dry-run`、`bun run test:workflow-skills`、`bun run validate:protocol`、`bun run validate:freshness`。任务级收尾前再跑 `bun run test:workflow-all` 和 `bun run workflow:health --root .`。
+
+### Single-file generated reference sync needs explicit diff proof
+
+- 场景：模板变更只应影响一个 generated reference file，例如 `templates/docs/CURRENT_TASK.md.tmpl` 新增字段后同步 `docs/workflow/generated/workflow-docs/CURRENT_TASK.md`。
+- 结论：允许单一 Conditional File 不等于允许一般 generated maintenance；必须证明生成器只同步预期文件和预期字段。
+- 触发信号：`validate:freshness` 只报告一个 generated doc stale，或 `gen:all` 后 `git diff --name-only -- docs/workflow/generated docs/workflow/SKILL_REGISTRY.md` 出现额外文件。
+- 应对动作：先运行对应生成器，再检查 generated / registry diff 范围；若只命中单一 Conditional File，继续聚焦测试和 full regression；若出现其他 generated / registry diff，停止并回到 `/lock-scope`。
 
 ## 部署与运行时
 
