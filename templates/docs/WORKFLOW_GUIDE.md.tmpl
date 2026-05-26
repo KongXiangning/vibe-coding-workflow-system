@@ -53,6 +53,10 @@
 | 调试并修复编排 | `/debug-and-fix-current-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | investigate-root-cause → plan-implementation → decompose-task → implement-current-step → review / verify / regression |
 | 调查根因 | `/investigate-root-cause` | `CURRENT_TASK.md`、代码和日志线索 | Symptom、Reproduction、Root cause hypothesis、Evidence、Minimal fix path、Regression check |
 | 实现当前步骤 | `/implement-current-step` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md` | 代码改动、dangerous command gate、验证结果、执行记录 |
+| 暂停当前任务 | `/pause-current-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | paused package、fail-closed transaction、resume gate marker |
+| 中断当前任务 | `/interrupt-current-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | interrupted package、checkpoint / dirty / environment / recovery evidence、fail-closed transaction |
+| 恢复已暂停任务 | `/resume-paused-task` | `CURRENT_TASK.md`、`TASKS/paused/**`、`CONTRACTS.md`、`DECISIONS.md` | 从完整 payload 重建的 `CURRENT_TASK.md`，并固定回到 `review-current-task` |
+| 恢复已中断任务 | `/resume-interrupted-task` | `CURRENT_TASK.md`、`TASKS/interrupted/**`、`CONTRACTS.md`、`DECISIONS.md` | 从完整 payload 重建的 `CURRENT_TASK.md`，并固定回到 `review-current-task` |
 | 只读审查编排 | `/review-current-diff` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md`、`.workflow-system/PROJECT_PROFILE.yaml` | review-diff → review-implementation → verify-contracts → run-regression(report-only) |
 | 审查 diff | `/review-diff` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`，以及明确的 diff review target | scope drift / decision drift / safety boundary review / 回归风险 |
 | 审查实现质量 | `/review-implementation` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`LESSONS.md`，以及同一 diff review target 和实现上下文 | Goal fit、Correctness、Edge cases、Robustness、Compatibility、Test adequacy、Remaining risks |
@@ -82,8 +86,10 @@
 7. 用 `/decompose-task` 把确认后的方案拆成一次只做一个当前步骤的小步计划。
 8. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
 9. 每步后用 `/review-diff`、`/review-implementation`、`/verify-contracts`、`/run-regression` 做范围、实现质量、契约和回归复核；先声明本轮 `diff_review_target`，可以是未提交 diff、staged diff、commit range、task-base-to-HEAD、checkpoint-to-HEAD 或用户提供的 patch。长任务允许在流程未关闭前创建 checkpoint commit，但必须把 task base / checkpoint / review target 记录到 `CURRENT_TASK.md > 回滚点` 或执行记录，后续 review 不得因工作区为空而漏审已提交改动。只读审查发现当前 Allowed Files 内可修的 implementation findings 时，先用 `/sync-review-findings` 写入 `CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。`/review-implementation` 必须检查实现是否满足目标、逻辑是否正确、边界条件和异常路径是否鲁棒、兼容性是否保持、测试是否覆盖原始问题和关键边界路径；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
-10. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` / `/sync-host-guidance` 同步治理事实。
-11. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
+10. 需要暂时释放 active ownership 时，用 `/pause-current-task` 或 `/interrupt-current-task` 写出 suspended package；两者都必须采用 `write_incomplete + recovery_only` → read-back validation → `ready_for_resume + recovery_only` 的 fail-closed file transaction。
+11. 需要恢复时，用 `/resume-paused-task` 或 `/resume-interrupted-task` 从完整 payload 重建 `CURRENT_TASK.md`；恢复成功后必须回到 `/review-current-task`，不得直接进入 `/implement-current-step`。
+12. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` / `/sync-host-guidance` 同步治理事实。
+13. 交付前用 `/prepare-delivery-summary`，交付后用 `/capture-lessons` 和 `/archive-task` 完成沉淀。
 
 ## 主流程编排
 
@@ -244,6 +250,11 @@ flowchart TD
 | 只允许改一个模块 | `/lock-scope` 选择 `frozen-scope`，并在 `CURRENT_TASK.md` 写明允许/禁止范围 |
 | 需要危险命令或高影响操作 | `/implement-current-step` 执行 dangerous command gate |
 | 需要解除或扩大修改范围 | 回到 `/lock-scope`，重新记录原因、影响文件、风险、验证方式和三类范围 |
+| 需要暂停当前任务但不立即切换新任务 | `/pause-current-task`（`pause_only = ask-user`） |
+| 需要暂停当前任务并立刻切到新任务 | `/pause-current-task`（`pause_and_switch = create-current-task`） |
+| 当前任务必须中断并保留 checkpoint / dirty / environment / recovery evidence | `/interrupt-current-task` |
+| 从 paused package 恢复当前任务 | `/resume-paused-task` → `/review-current-task` |
+| 从 interrupted package 恢复当前任务 | `/resume-interrupted-task` → `/review-current-task` |
 | 当前任务执行/验证失败，且不确定 bug 根因 | `/investigate-root-cause` |
 | 希望自动调查并修复当前 bug 任务 | `/debug-and-fix-current-task` |
 | 当前任务测试失败但原因不明 | `/investigate-root-cause` |

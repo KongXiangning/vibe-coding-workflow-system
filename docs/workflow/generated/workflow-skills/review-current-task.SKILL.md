@@ -36,6 +36,9 @@ must_check:
   - Allowed Files、Forbidden Files、Conditional Files 是否完整
   - 回滚点是否包含 Task start base、Last reviewed checkpoint、Current diff review target
     三字段，且未知值已显式标记
+  - "`恢复需审查` / `恢复审查原因` / rollback point 三字段是否能支撑 resumed task 审查"
+  - "`base_drift`、`checkpoint_drift`、`diff_review_target_changed`、`environment_\
+    recovery_pending` 是否已被显式处理"
   - 是否存在 docs/workflow/CURRENT_TASK.md 覆盖 docs/workflow/CONTRACTS.md 的冲突
   - 是否遗漏关键契约
   - 是否触发 Change Propagation Check
@@ -47,6 +50,10 @@ stop_conditions:
   - 生产发布缺少回滚方案、health check 或发布证据
   - 回滚点缺少 Task start base、Last reviewed checkpoint 或 Current diff review
     target，且无法从仓库事实或任务记录补齐
+  - resumed task 缺少 `恢复需审查` / `恢复审查原因` / rollback point 三字段，或 resume gate
+    与任务内容不自洽
+  - resumed task 存在 `base_drift`、`checkpoint_drift`、`diff_review_target_changed`
+    或 `environment_recovery_pending`，但任务包未显式处理
   - 存在与既有决策冲突
   - docs/workflow/CURRENT_TASK.md 试图覆盖 docs/workflow/CONTRACTS.md 或
     .workflow-system/PROJECT_PROFILE.yaml
@@ -68,6 +75,8 @@ verification:
     checks、Rollback / recovery、Release evidence 已审查
   - Allowed Files、Forbidden Files、Conditional Files 已收敛
   - 回滚点三字段已审查：Task start base、Last reviewed checkpoint、Current diff review target
+  - resumed task 的 `恢复需审查` / `恢复审查原因` / rollback point 三字段已审查
+  - resume gate 没有被静默清空
   - 所有高风险未决项已上浮
   - 当前任务可进入范围锁定
 allowed-tools:
@@ -240,6 +249,13 @@ release_review_rules:
 - 如果任务已经存在 checkpoint commit，Current diff review target 不得停留在 working-tree
 - 如果三字段缺失且无法机械补齐，停止并上浮
 
+resume_review_rules:
+  - 当 `恢复需审查 = true` 时，必须把 `恢复审查原因` 当作强制审查输入
+  - 必须同时审查 rollback point 三字段：Task start base、Last reviewed checkpoint、Current diff review target
+  - 必须显式检查 `base_drift`、`checkpoint_drift`、`diff_review_target_changed`、`environment_recovery_pending`
+  - 必须核对 blocker、remaining acceptance、manual review、validation pending 是否重新落位
+  - 不得在 review-current-task 中静默清空 resume gate
+
 ### acceptance_rules
 - 每条验收标准都应可验证
 - 口味问题要与技术问题分开
@@ -280,6 +296,18 @@ UI / 视觉任务必须审查 `## 设计约束`：
 - Release evidence
 
 生产发布缺少回滚方案、health check 或发布证据时，不得进入实现或交付。workflow-system 不执行真实 merge、push、deploy 或监控轮询；这些动作只能由宿主、CI/CD 或项目工具执行，并作为证据写回任务。
+
+## Resume Review Gate
+
+当 task 由 `resume-paused-task` 或 `resume-interrupted-task` 恢复后，`review-current-task` 必须成为首个消费者，并额外检查：
+
+- `恢复需审查` 是否为 `true`
+- `恢复审查原因` 是否为非空且与任务内容自洽
+- rollback point 三字段是否完整：Task start base、Last reviewed checkpoint、Current diff review target
+- `base_drift`、`checkpoint_drift`、`diff_review_target_changed`、`environment_recovery_pending` 是否已显式处理
+- blocker、remaining acceptance、manual review、validation pending 是否已重新落位
+
+`review-current-task` 只消费 resume gate，不得静默清空 gate，也不得绕过审查直接把恢复后的任务交给实现类 skill。
 
 ## Execution Protocol
 

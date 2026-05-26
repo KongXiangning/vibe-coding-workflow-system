@@ -357,6 +357,19 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('不得直接继续 `/implement-current-step`');
   });
 
+  test('workflow guide documents lifecycle runtime skill routing', () => {
+    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
+    expect(guide).toContain('/pause-current-task');
+    expect(guide).toContain('/interrupt-current-task');
+    expect(guide).toContain('/resume-paused-task');
+    expect(guide).toContain('/resume-interrupted-task');
+    expect(guide).toContain('write_incomplete + recovery_only');
+    expect(guide).toContain('ready_for_resume + recovery_only');
+    expect(guide).toContain('不得直接进入 `/implement-current-step`');
+    expect(guide).toContain('/resume-paused-task` → `/review-current-task`');
+    expect(guide).toContain('/resume-interrupted-task` → `/review-current-task`');
+  });
+
   test('document catalog codifies directory classification and lookup guidance', () => {
     const catalog = fs.readFileSync(path.join(OUTPUT_DIR, 'DOCUMENT_CATALOG.md'), 'utf8');
     expect(catalog).toContain('docs/workflow/');

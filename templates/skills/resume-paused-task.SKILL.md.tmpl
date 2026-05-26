@@ -1,0 +1,209 @@
+---
+name: resume-paused-task
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Restore CURRENT_TASK.md from one explicit paused package and return the flow to review-current-task.
+purpose: |
+  从一个明确的 paused suspended package 恢复 live CURRENT_TASK.md，并把流程固定交回 review-current-task。
+stage: 阶段 7：状态同步
+trigger: |
+  用户明确要求恢复一个 paused task，且目标 package 已显式给定或可无歧义解析时。
+inputs:
+  - current_task
+  - paused_package_target
+  - resume_review_reasons
+reads:
+  - CURRENT_TASK.md
+  - TASKS/paused/**
+  - CONTRACTS.md
+  - DECISIONS.md
+writes:
+  - CURRENT_TASK.md
+  - TASKS/paused/**
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - "{{FORBIDDEN_PATHS}}"
+  - .workflow-system/WORKFLOW_PROTOCOL.md
+  - .workflow-system/FILE_SCHEMAS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - DOCUMENT_CATALOG.md
+  - SKILL_REGISTRY.md
+  - generated/workflow-docs/**
+  - generated/workflow-skills/**
+  - TASKS/inbox/**
+  - TASKS/backlog/**
+must_check:
+  - 目标 package 是否是显式路径，或能无歧义解析到唯一路径的 `TASK_ID + TASK_SLUG + artifact kind`
+  - 只接受 `artifact_kind = paused`
+  - 只接受 `rehydration_status = ready_for_resume`
+  - 只接受 `ownership_state = recovery_only`
+  - "`resume_review_reasons` 是否为非空闭合集合，且与 package gate 语义一致"
+  - 来源 package 是否包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+  - 是否从完整 payload 重建 `CURRENT_TASK.md`
+  - 写回前是否确认不存在同一 `TASK_ID` 的 active owner conflict、gate drift 或 marker drift
+stop_conditions:
+  - 目标 package 缺失、歧义，或试图“自动挑最新 paused package”
+  - "`artifact_kind` 不是 `paused`"
+  - "`rehydration_status` 不是 `ready_for_resume`"
+  - "`ownership_state` 不是 `recovery_only`"
+  - payload 缺失、截断，或无法重建 `CURRENT_TASK.md` required sections
+  - "`resume_review_reasons` 为空，或与 package gate 语义不一致"
+  - 发现 gate drift、marker drift 或 active owner conflict
+output:
+  - 恢复后的 CURRENT_TASK.md
+  - rehydrated paused package
+  - resume gate alignment record
+handoff:
+  success: review-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动整理显式 package 解析、payload restore 与 gate 对齐顺序。
+  taste: 不得把“恢复哪个 package”静默替用户猜测。
+  user_challenge: 不得绕过 ready-for-resume marker、完整 payload 或 review gate。
+verification:
+  - "`writes` 只覆盖 `CURRENT_TASK.md` 与 `TASKS/paused/**`"
+  - 只接受显式、无歧义、`ready_for_resume + recovery_only` 的 paused package 输入
+  - "`CURRENT_TASK.md` 从完整 payload 重建，并写成 `active + active + 恢复需审查=true + 当前 handoff=review-current-task`"
+  - 来源 package 会写成 `rehydration_status = rehydrated`、`ownership_state = rehydrated`
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /implement-current-step
+notes:
+  - 不允许“自动挑最新一个 paused package”这类模糊恢复策略。
+rehydration_markers:
+  - ready_for_resume
+  - recovery_only
+  - rehydrated
+---
+
+# Skill: resume-paused-task
+
+## Purpose
+
+从一个明确的 paused suspended package 恢复 live `CURRENT_TASK.md`，并把流程固定交回 `review-current-task`。
+
+## Trigger
+
+用户明确要求恢复一个 paused task，且目标 package 已显式给定或可无歧义解析时。
+
+## Inputs
+
+- current_task
+- paused_package_target
+- resume_review_reasons
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for active owner conflict checks.
+
+## Must Check
+
+- 目标 package 是否是显式路径，或能无歧义解析到唯一路径的 `TASK_ID + TASK_SLUG + artifact kind`
+- 只接受 `artifact_kind = paused`
+- 只接受 `rehydration_status = ready_for_resume`
+- 只接受 `ownership_state = recovery_only`
+- `resume_review_reasons` 是否为非空闭合集合，且与 package gate 语义一致
+- 来源 package 是否包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+- 是否从完整 payload 重建 `CURRENT_TASK.md`
+- 写回前是否确认不存在同一 `TASK_ID` 的 active owner conflict、gate drift 或 marker drift
+
+## Stop Conditions
+
+- 目标 package 缺失、歧义，或试图“自动挑最新 paused package”
+- `artifact_kind` 不是 `paused`
+- `rehydration_status` 不是 `ready_for_resume`
+- `ownership_state` 不是 `recovery_only`
+- payload 缺失、截断，或无法重建 `CURRENT_TASK.md` required sections
+- `resume_review_reasons` 为空，或与 package gate 语义不一致
+- 发现 gate drift、marker drift 或 active owner conflict
+
+## Decision Policy
+
+- `mechanical`: 可以自动整理显式 package 解析、payload restore 与 gate 对齐顺序。
+- `taste`: 不得把“恢复哪个 package”静默替用户猜测。
+- `user_challenge`: 不得绕过 ready-for-resume marker、完整 payload 或 review gate。
+
+## Verification
+
+- `writes` 只覆盖 `CURRENT_TASK.md` 与 `TASKS/paused/**`
+- 只接受显式、无歧义、`ready_for_resume + recovery_only` 的 paused package 输入
+- `CURRENT_TASK.md` 从完整 payload 重建，并写成 `active + active + 恢复需审查=true + 当前 handoff=review-current-task`
+- 来源 package 会写成 `rehydration_status = rehydrated`、`ownership_state = rehydrated`
+
+## Extension Fields
+
+### rehydration_markers
+- ready_for_resume
+- recovery_only
+- rehydrated
+
+## Resume Input Resolution
+
+- 目标 package 必须是显式路径，或能无歧义解析到唯一路径的 `TASK_ID + TASK_SLUG + artifact kind`。
+- 不允许“自动挑最新一个 paused package”这类模糊策略。
+- `write_incomplete` package 永远不是合法 resume 输入。
+
+## Restore Rules
+
+- 只接受 `rehydration_status = ready_for_resume`
+- 只接受 `ownership_state = recovery_only`
+- 来源 package 必须包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload。
+- 恢复时必须从完整 payload 重建 `CURRENT_TASK.md`，然后覆盖写入：
+  - `当前状态：active`
+  - `生命周期状态：active`
+  - `恢复需审查：true`
+  - `恢复审查原因：<规范化 reasons>`
+  - `当前 handoff：review-current-task`
+- 恢复成功后，来源 package 必须写成：
+  - `rehydration_status = rehydrated`
+  - `ownership_state = rehydrated`
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 不允许“自动挑最新一个 paused package”这类模糊恢复策略。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

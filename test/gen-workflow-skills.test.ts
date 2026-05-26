@@ -31,6 +31,13 @@ const EXTERNAL_DOCUMENTATION_GATE_SKILLS = [
   'review-implementation.SKILL.md',
 ] as const;
 
+const LIFECYCLE_RUNTIME_SKILLS = [
+  'pause-current-task',
+  'interrupt-current-task',
+  'resume-paused-task',
+  'resume-interrupted-task',
+] as const;
+
 const REQUIRED_FIELDS = [
   'name',
   'purpose',
@@ -324,6 +331,40 @@ describe('gen-workflow-skills', () => {
     expect(reviewDiff).toContain('sync-review-findings');
   });
 
+  test('review-current-task consumes resume gate and rollback review fields', () => {
+    const reviewTaskPath = path.join(OUTPUT_DIR, 'review-current-task.SKILL.md');
+    const frontmatter = parseFrontmatter(reviewTaskPath);
+    const mustCheck = normalizeList(frontmatter.must_check);
+    const stopConditions = normalizeList(frontmatter.stop_conditions);
+    const verification = normalizeList(frontmatter.verification);
+    const content = fs.readFileSync(reviewTaskPath, 'utf8');
+
+    expect(mustCheck).toContain('`恢复需审查` / `恢复审查原因` / rollback point 三字段是否能支撑 resumed task 审查');
+    expect(mustCheck).toContain(
+      '`base_drift`、`checkpoint_drift`、`diff_review_target_changed`、`environment_recovery_pending` 是否已被显式处理',
+    );
+    expect(stopConditions).toContain(
+      'resumed task 缺少 `恢复需审查` / `恢复审查原因` / rollback point 三字段，或 resume gate 与任务内容不自洽',
+    );
+    expect(stopConditions).toContain(
+      'resumed task 存在 `base_drift`、`checkpoint_drift`、`diff_review_target_changed` 或 `environment_recovery_pending`，但任务包未显式处理',
+    );
+    expect(verification).toContain('resumed task 的 `恢复需审查` / `恢复审查原因` / rollback point 三字段已审查');
+    expect(verification).toContain('resume gate 没有被静默清空');
+    expect(content).toContain('## Resume Review Gate');
+    expect(content).toContain('当 `恢复需审查 = true` 时，必须把 `恢复审查原因` 当作强制审查输入');
+    expect(content).toContain(
+      '必须同时审查 rollback point 三字段：Task start base、Last reviewed checkpoint、Current diff review target',
+    );
+    expect(content).toContain('base_drift');
+    expect(content).toContain('checkpoint_drift');
+    expect(content).toContain('diff_review_target_changed');
+    expect(content).toContain('environment_recovery_pending');
+    expect(content).toContain('remaining acceptance');
+    expect(content).toContain('validation pending');
+    expect(content).toContain('不得静默清空 gate');
+  });
+
   test('supersede-current-task preserves task replacement governance semantics', () => {
     const supersedePath = path.join(OUTPUT_DIR, 'supersede-current-task.SKILL.md');
     expect(fs.existsSync(supersedePath)).toBe(true);
@@ -395,6 +436,165 @@ describe('gen-workflow-skills', () => {
     expect(implementStep).toContain('Review Finding Intake');
     expect(implementStep).toContain('Status: open');
     expect(implementStep).toContain('resolved');
+  });
+
+  test('lifecycle runtime skills declare fail-closed suspend and resume contracts', () => {
+    for (const skill of LIFECYCLE_RUNTIME_SKILLS) {
+      expect(fs.existsSync(path.join(TEMPLATE_DIR, `${skill}.SKILL.md.tmpl`))).toBe(true);
+      expect(fs.existsSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`))).toBe(true);
+    }
+
+    const commonForbiddenExpectations = [
+      '.workflow-system/WORKFLOW_PROTOCOL.md',
+      '.workflow-system/FILE_SCHEMAS.md',
+      'docs/workflow/DOCUMENT_CATALOG.md',
+      'SKILL_REGISTRY.md',
+      'generated/workflow-docs/**',
+      'generated/workflow-skills/**',
+      'TASKS/inbox/**',
+      'TASKS/backlog/**',
+    ];
+
+    const pausePath = path.join(OUTPUT_DIR, 'pause-current-task.SKILL.md');
+    const pauseFrontmatter = parseFrontmatter(pausePath);
+    const pauseReads = normalizeList(pauseFrontmatter.reads);
+    const pauseWrites = normalizeList(pauseFrontmatter.writes);
+    const pauseMustCheck = normalizeList(pauseFrontmatter.must_check);
+    const pauseStopConditions = normalizeList(pauseFrontmatter.stop_conditions);
+    const pauseForbidden = normalizeList(pauseFrontmatter.forbidden_writes);
+    const pauseHandoff = pauseFrontmatter.handoff as Record<string, unknown>;
+    const pauseConditional = pauseFrontmatter.conditional_handoff as Record<string, unknown>;
+    const pauseContent = fs.readFileSync(pausePath, 'utf8');
+
+    expect(String(pauseFrontmatter.stage)).toBe('阶段 7：状态同步');
+    expect(pauseReads).toContain(CURRENT_TASK_DOC);
+    expect(pauseWrites).toContain(CURRENT_TASK_DOC);
+    expect(pauseWrites).toContain('TASKS/paused/**');
+    expect(pauseMustCheck).toContain('live task 是否仍持有 active ownership');
+    expect(pauseMustCheck).toContain(
+      '是否按 `write_incomplete + recovery_only` -> suspended tuple -> read-back validation -> `ready_for_resume + recovery_only` 执行 fail-closed file transaction',
+    );
+    expect(pauseStopConditions).toContain(
+      '当前 live task 不是 active owner，或 `当前状态 + 生命周期状态` 不能合法释放 active ownership',
+    );
+    expect(pauseStopConditions).toContain(
+      'read-back validation 发现 `rehydration_status` / `ownership_state` marker drift',
+    );
+    expect(pauseHandoff.success).toBe('create-current-task');
+    expect(pauseHandoff.failure).toBe('ask-user');
+    expect(pauseConditional.pause_only).toBe('ask-user');
+    expect(pauseConditional.pause_and_switch).toBe('create-current-task');
+    for (const entry of commonForbiddenExpectations) {
+      expect(pauseForbidden).toContain(entry);
+    }
+    expect(pauseContent).toContain('paused_pending_closure');
+    expect(pauseContent).toContain('paused_blocked');
+    expect(pauseContent).toContain('write_incomplete + recovery_only');
+    expect(pauseContent).toContain('ready_for_resume + recovery_only');
+    expect(pauseContent).toContain(`完整 live \`${CURRENT_TASK_DOC}\` snapshot / canonical restore payload`);
+    expect(pauseContent).toContain('不得把 pause 默认解释为 `create-current-task`');
+
+    const interruptPath = path.join(OUTPUT_DIR, 'interrupt-current-task.SKILL.md');
+    const interruptFrontmatter = parseFrontmatter(interruptPath);
+    const interruptReads = normalizeList(interruptFrontmatter.reads);
+    const interruptWrites = normalizeList(interruptFrontmatter.writes);
+    const interruptMustCheck = normalizeList(interruptFrontmatter.must_check);
+    const interruptStopConditions = normalizeList(interruptFrontmatter.stop_conditions);
+    const interruptForbidden = normalizeList(interruptFrontmatter.forbidden_writes);
+    const interruptHandoff = interruptFrontmatter.handoff as Record<string, unknown>;
+    const interruptContent = fs.readFileSync(interruptPath, 'utf8');
+
+    expect(String(interruptFrontmatter.stage)).toBe('阶段 7：状态同步');
+    expect(interruptReads).toContain(CURRENT_TASK_DOC);
+    expect(interruptWrites).toContain(CURRENT_TASK_DOC);
+    expect(interruptWrites).toContain('TASKS/interrupted/**');
+    expect(interruptMustCheck).toContain(
+      'interrupted package 是否包含 checkpoint evidence、dirty attribution、environment state、recovery strategy',
+    );
+    expect(interruptStopConditions).toContain(
+      '缺少 checkpoint evidence、dirty attribution、environment state 或 recovery strategy',
+    );
+    expect(interruptHandoff.success).toBe('create-current-task');
+    expect(interruptHandoff.failure).toBe('ask-user');
+    for (const entry of commonForbiddenExpectations) {
+      expect(interruptForbidden).toContain(entry);
+    }
+    expect(interruptContent).toContain('checkpoint evidence');
+    expect(interruptContent).toContain('dirty attribution');
+    expect(interruptContent).toContain('environment state');
+    expect(interruptContent).toContain('recovery strategy');
+    expect(interruptContent).toContain('write_incomplete + recovery_only');
+    expect(interruptContent).toContain('ready_for_resume + recovery_only');
+    expect(interruptContent).toContain(`完整 live \`${CURRENT_TASK_DOC}\` snapshot / canonical restore payload`);
+
+    const resumePausedPath = path.join(OUTPUT_DIR, 'resume-paused-task.SKILL.md');
+    const resumePausedFrontmatter = parseFrontmatter(resumePausedPath);
+    const resumePausedReads = normalizeList(resumePausedFrontmatter.reads);
+    const resumePausedWrites = normalizeList(resumePausedFrontmatter.writes);
+    const resumePausedMustCheck = normalizeList(resumePausedFrontmatter.must_check);
+    const resumePausedStopConditions = normalizeList(resumePausedFrontmatter.stop_conditions);
+    const resumePausedForbidden = normalizeList(resumePausedFrontmatter.forbidden_writes);
+    const resumePausedHandoff = resumePausedFrontmatter.handoff as Record<string, unknown>;
+    const resumePausedContent = fs.readFileSync(resumePausedPath, 'utf8');
+
+    expect(String(resumePausedFrontmatter.stage)).toBe('阶段 7：状态同步');
+    expect(resumePausedReads).toContain(CURRENT_TASK_DOC);
+    expect(resumePausedReads).toContain('TASKS/paused/**');
+    expect(resumePausedWrites).toContain(CURRENT_TASK_DOC);
+    expect(resumePausedWrites).toContain('TASKS/paused/**');
+    expect(resumePausedMustCheck).toContain('只接受 `rehydration_status = ready_for_resume`');
+    expect(resumePausedMustCheck).toContain('只接受 `ownership_state = recovery_only`');
+    expect(resumePausedStopConditions).toContain('目标 package 缺失、歧义，或试图“自动挑最新 paused package”');
+    expect(resumePausedStopConditions).toContain('发现 gate drift、marker drift 或 active owner conflict');
+    expect(resumePausedHandoff.success).toBe('review-current-task');
+    expect(resumePausedHandoff.failure).toBe('ask-user');
+    for (const entry of commonForbiddenExpectations) {
+      expect(resumePausedForbidden).toContain(entry);
+    }
+    expect(resumePausedContent).toContain(`从完整 payload 重建 \`${CURRENT_TASK_DOC}\``);
+    expect(resumePausedContent).toContain('当前 handoff：review-current-task');
+    expect(resumePausedContent).toContain('只接受 `rehydration_status = ready_for_resume`');
+    expect(resumePausedContent).toContain('只接受 `ownership_state = recovery_only`');
+    expect(resumePausedContent).toContain('rehydration_status = rehydrated');
+    expect(resumePausedContent).toContain('ownership_state = rehydrated');
+
+    const resumeInterruptedPath = path.join(OUTPUT_DIR, 'resume-interrupted-task.SKILL.md');
+    const resumeInterruptedFrontmatter = parseFrontmatter(resumeInterruptedPath);
+    const resumeInterruptedReads = normalizeList(resumeInterruptedFrontmatter.reads);
+    const resumeInterruptedWrites = normalizeList(resumeInterruptedFrontmatter.writes);
+    const resumeInterruptedMustCheck = normalizeList(resumeInterruptedFrontmatter.must_check);
+    const resumeInterruptedStopConditions = normalizeList(resumeInterruptedFrontmatter.stop_conditions);
+    const resumeInterruptedForbidden = normalizeList(resumeInterruptedFrontmatter.forbidden_writes);
+    const resumeInterruptedHandoff = resumeInterruptedFrontmatter.handoff as Record<string, unknown>;
+    const resumeInterruptedContent = fs.readFileSync(resumeInterruptedPath, 'utf8');
+
+    expect(String(resumeInterruptedFrontmatter.stage)).toBe('阶段 7：状态同步');
+    expect(resumeInterruptedReads).toContain(CURRENT_TASK_DOC);
+    expect(resumeInterruptedReads).toContain('TASKS/interrupted/**');
+    expect(resumeInterruptedWrites).toContain(CURRENT_TASK_DOC);
+    expect(resumeInterruptedWrites).toContain('TASKS/interrupted/**');
+    expect(resumeInterruptedMustCheck).toContain('只接受 `artifact_kind = interrupted`');
+    expect(resumeInterruptedMustCheck).toContain(
+      'interrupted package 是否完整保留 checkpoint evidence、dirty attribution、environment state、recovery strategy',
+    );
+    expect(resumeInterruptedStopConditions).toContain(
+      '缺少 checkpoint evidence、dirty attribution、environment state 或 recovery strategy',
+    );
+    expect(resumeInterruptedStopConditions).toContain('发现 gate drift、marker drift 或 active owner conflict');
+    expect(resumeInterruptedHandoff.success).toBe('review-current-task');
+    expect(resumeInterruptedHandoff.failure).toBe('ask-user');
+    for (const entry of commonForbiddenExpectations) {
+      expect(resumeInterruptedForbidden).toContain(entry);
+    }
+    expect(resumeInterruptedContent).toContain('只接受 `artifact_kind = interrupted`');
+    expect(resumeInterruptedContent).toContain(`从完整 payload 重建 \`${CURRENT_TASK_DOC}\``);
+    expect(resumeInterruptedContent).toContain('当前 handoff：review-current-task');
+    expect(resumeInterruptedContent).toContain('checkpoint evidence');
+    expect(resumeInterruptedContent).toContain('dirty attribution');
+    expect(resumeInterruptedContent).toContain('environment state');
+    expect(resumeInterruptedContent).toContain('recovery strategy');
+    expect(resumeInterruptedContent).toContain('rehydration_status = rehydrated');
+    expect(resumeInterruptedContent).toContain('ownership_state = rehydrated');
   });
 
   test('review routing stays machine-readable for clean and finding detours', () => {

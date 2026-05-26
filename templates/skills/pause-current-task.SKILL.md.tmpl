@@ -1,0 +1,240 @@
+---
+name: pause-current-task
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Suspend the active CURRENT_TASK into a paused package with fail-closed recovery markers.
+purpose: |
+  将当前 active task 安全暂停为 paused suspended package，并保留可恢复的完整任务快照。
+stage: 阶段 7：状态同步
+trigger: |
+  当前任务需要暂时让出 active ownership，但后续仍可能恢复时。
+inputs:
+  - current_task
+  - pause_intent
+  - pause_state
+  - resume_review_reasons
+  - blocker_evidence
+reads:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+writes:
+  - CURRENT_TASK.md
+  - TASKS/paused/**
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - "{{FORBIDDEN_PATHS}}"
+  - .workflow-system/WORKFLOW_PROTOCOL.md
+  - .workflow-system/FILE_SCHEMAS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - DOCUMENT_CATALOG.md
+  - SKILL_REGISTRY.md
+  - generated/workflow-docs/**
+  - generated/workflow-skills/**
+  - TASKS/inbox/**
+  - TASKS/backlog/**
+must_check:
+  - live task 是否仍持有 active ownership
+  - "`paused_pending_closure` 与 `paused_blocked` 是否已明确区分"
+  - "`resume_review_reasons` 是否与暂停类型一致且为非空闭合集合"
+  - "`paused_blocked` 是否已提供 `blocker_status`、`blocking_evidence`、`remaining_acceptance`"
+  - 仅当 blocker 来自 validation failure 时才要求 `failed_checks`
+  - suspended package 是否包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+  - 是否按 `write_incomplete + recovery_only` -> suspended tuple -> read-back validation -> `ready_for_resume + recovery_only` 执行 fail-closed file transaction
+  - 是否不存在同一 `TASK_ID` 的 active owner conflict 或 marker drift
+stop_conditions:
+  - 当前 live task 不是 active owner，或 `当前状态 + 生命周期状态` 不能合法释放 active ownership
+  - "`pause_state` 不是 `paused_pending_closure` 或 `paused_blocked`"
+  - "`paused_pending_closure` 缺少 closure-oriented `resume_review_reasons`"
+  - "`paused_blocked` 缺少 `blocker_status`、`blocking_evidence` 或 `remaining_acceptance`"
+  - blocker 来自 validation failure 但缺少 `failed_checks`
+  - suspended package 缺少完整 payload，或 payload 无法作为 canonical restore payload
+  - read-back validation 发现 `rehydration_status` / `ownership_state` marker drift
+  - 发现同一 `TASK_ID` 的 active owner conflict
+output:
+  - 暂停后的 CURRENT_TASK.md
+  - paused suspended package
+  - fail-closed transaction record
+handoff:
+  success: create-current-task
+  failure: ask-user
+conditional_handoff:
+  pause_only: ask-user
+  pause_and_switch: create-current-task
+decision_policy:
+  mechanical: 可以自动选择最小安全的 paused package 写入顺序和字段整理方式。
+  taste: 不得把“先暂停还是立刻切新任务”静默当成默认值。
+  user_challenge: 不得绕过既有 lifecycle / resume gate / artifact path contract。
+verification:
+  - "`writes` 只覆盖 CURRENT_TASK.md 与 TASKS/paused/**"
+  - "`paused_pending_closure` 与 `paused_blocked` 的 gate 要求已分离"
+  - suspended package 保留完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+  - fail-closed file transaction 明确包含 prepare marker、read-back validation 与 commit marker
+  - "`pause_only` 与 `pause_and_switch` 的 handoff 语义清楚"
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /implement-current-step
+notes:
+  - "`handoff.success = create-current-task` 只是 generator-compatible fallback / `pause_and_switch` target，不代表 pause 后默认创建新任务。"
+pause_states:
+  - paused_pending_closure
+  - paused_blocked
+transaction_markers:
+  - write_incomplete
+  - ready_for_resume
+  - recovery_only
+  - rehydrated
+---
+
+# Skill: pause-current-task
+
+## Purpose
+
+将当前 active task 安全暂停为 paused suspended package，并保留可恢复的完整任务快照。
+
+## Trigger
+
+当前任务需要暂时让出 active ownership，但后续仍可能恢复时。
+
+## Inputs
+
+- current_task
+- pause_intent
+- pause_state
+- resume_review_reasons
+- blocker_evidence
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for active ownership and scope.
+
+## Must Check
+
+- live task 是否仍持有 active ownership
+- `paused_pending_closure` 与 `paused_blocked` 是否已明确区分
+- `resume_review_reasons` 是否与暂停类型一致且为非空闭合集合
+- `paused_blocked` 是否已提供 `blocker_status`、`blocking_evidence`、`remaining_acceptance`
+- 仅当 blocker 来自 validation failure 时才要求 `failed_checks`
+- suspended package 是否包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+- 是否按 `write_incomplete + recovery_only` -> suspended tuple -> read-back validation -> `ready_for_resume + recovery_only` 执行 fail-closed file transaction
+- 是否不存在同一 `TASK_ID` 的 active owner conflict 或 marker drift
+
+## Stop Conditions
+
+- 当前 live task 不是 active owner，或 `当前状态 + 生命周期状态` 不能合法释放 active ownership
+- `pause_state` 不是 `paused_pending_closure` 或 `paused_blocked`
+- `paused_pending_closure` 缺少 closure-oriented `resume_review_reasons`
+- `paused_blocked` 缺少 `blocker_status`、`blocking_evidence` 或 `remaining_acceptance`
+- blocker 来自 validation failure 但缺少 `failed_checks`
+- suspended package 缺少完整 payload，或 payload 无法作为 canonical restore payload
+- read-back validation 发现 `rehydration_status` / `ownership_state` marker drift
+- 发现同一 `TASK_ID` 的 active owner conflict
+
+## Decision Policy
+
+- `mechanical`: 可以自动选择最小安全的 paused package 写入顺序和字段整理方式。
+- `taste`: 不得把“先暂停还是立刻切新任务”静默当成默认值。
+- `user_challenge`: 不得绕过既有 lifecycle / resume gate / artifact path contract。
+
+## Verification
+
+- `writes` 只覆盖 `CURRENT_TASK.md` 与 `TASKS/paused/**`
+- `paused_pending_closure` 与 `paused_blocked` 的 gate 要求已分离
+- suspended package 保留完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+- fail-closed file transaction 明确包含 prepare marker、read-back validation 与 commit marker
+- `pause_only` 与 `pause_and_switch` 的 handoff 语义清楚
+
+## Extension Fields
+
+### pause_states
+- paused_pending_closure
+- paused_blocked
+
+### transaction_markers
+- write_incomplete
+- ready_for_resume
+- recovery_only
+- rehydrated
+
+## Fail-Closed Pause Transaction
+
+固定事务步骤：
+
+1. prepare：先写 `TASKS/paused/**` package，marker 固定为 `write_incomplete + recovery_only`。
+2. switch ownership：再把 live `CURRENT_TASK.md` 写成合法 suspended tuple：
+   - `当前状态：suspended`
+   - `生命周期状态：paused_pending_closure` 或 `paused_blocked`
+   - `恢复需审查：true`
+   - `恢复审查原因：<规范化 reasons>`
+3. read-back validation：立即重新读取 `CURRENT_TASK.md` 与 paused package，确认：
+   - live task 已释放 active ownership
+   - package path、lifecycle_state、resume gate 与必填 evidence 全部自洽
+   - 不存在同一 `TASK_ID` 的 active owner conflict
+4. commit marker：只有 read-back validation 通过后，才允许把 paused package 升级为 `ready_for_resume + recovery_only`。
+5. 任一步失败时不得进入 `handoff.success`；必须保留 `write_incomplete + recovery_only` marker，并 handoff 到 `ask-user`。
+
+## Payload Preservation Rules
+
+- paused package 必须包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload。
+- 不得只保存 `## 任务信息` 中的 lifecycle / resume gate 字段。
+- canonical restore payload 至少覆盖背景、验收标准、允许 / 禁止范围、确认决策、实现方案、传播治理记录、实施步骤、回归检查项、回滚点和执行记录。
+
+## Pause Outcome Routing
+
+- `handoff.success = create-current-task`
+  - 仅作为 generator-compatible fallback / `pause_and_switch` target。
+  - 不得把 pause 默认解释为 `create-current-task`。
+- `conditional_handoff.pause_only = ask-user`
+  - 用户只是“先暂停，不立即切换任务”时必须走该分支。
+- `conditional_handoff.pause_and_switch = create-current-task`
+  - 仅当用户明确要暂停并立即切到新任务时才允许进入该分支。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off according to `conditional_handoff`; use `handoff.success` only for the `pause_and_switch` route.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- `handoff.success = create-current-task` 只是 generator-compatible fallback / `pause_and_switch` target，不代表 pause 后默认创建新任务。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

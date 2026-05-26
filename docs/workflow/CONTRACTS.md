@@ -183,8 +183,17 @@
     - active ownership is derived from `当前状态` plus `生命周期状态`, not from suspended package presence.
     - suspended packages must carry review-ready recovery fields before they can be used as resume input.
     - `artifact_kind = interrupted` additionally requires checkpoint evidence, dirty attribution, environment state, and recovery strategy.
-    - runtime lifecycle skills, guide / registry routing, inbox / backlog artifacts, and runtime manifest / install / health report contract remain outside this foundation contract unless a later task explicitly widens scope.
+    - runtime lifecycle skills and guide / registry routing now consume this foundation contract through a dedicated runtime delivery contract; inbox / backlog artifacts and runtime manifest / install / health report contract remain outside scope unless a later task explicitly widens scope.
   - verification：`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
+
+- 对象路径：CURRENT_TASK lifecycle runtime skills / resume review routing
+  - assertions：
+    - `pause-current-task` 与 `interrupt-current-task` 必须通过 fail-closed suspended-package transaction 写出完整 live `CURRENT_TASK.md` snapshot，不得只保留最小 marker。
+    - `resume-paused-task` 与 `resume-interrupted-task` 只接受显式、无歧义、`ready_for_resume + recovery_only` 的恢复输入，不允许自动挑选 package。
+    - resume 成功后固定 handoff 到 `review-current-task`；`review-current-task` 是 `恢复需审查`、`恢复审查原因` 与 rollback point 的首个强制消费者，不得在 review 前静默清 gate。
+    - `WORKFLOW_GUIDE`、`SKILL_REGISTRY` 与对应 generated reference outputs 必须把四个 lifecycle runtime skill 暴露在 `阶段 7：状态同步`；registry summary 使用 branch-style routing 表达 suspend / resume 与 steady-state sync 的关系。
+    - generated workflow skills、generated workflow guide 与 registry 只能由生成器同步。
+  - verification：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
 
 ### compat path / wrapper rules
 

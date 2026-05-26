@@ -78,6 +78,13 @@
 - 触发信号：`validate:freshness` 只报告一个 generated doc stale，或 `gen:all` 后 `git diff --name-only -- docs/workflow/generated docs/workflow/SKILL_REGISTRY.md` 出现额外文件。
 - 应对动作：先运行对应生成器，再检查 generated / registry diff 范围；若只命中单一 Conditional File，继续聚焦测试和 full regression；若出现其他 generated / registry diff，停止并回到 `/lock-scope`。
 
+### Branch-style registry summaries must still match full stage membership
+
+- 场景：给 `SKILL_REGISTRY` 的某个 stage summary 增加 branch-style 特判时，容易只盯新增技能，而漏掉该 stage 已存在的历史成员。
+- 结论：summary 特判必须和 stage 的完整成员集合一起校验，不能只断言新增 branch 片段。
+- 触发信号：`scripts/gen-registry.ts` 对某个 `stage` 写了专门 summary 文案，或 `test/gen-registry.test.ts` 开始为该 stage 写顺序断言。
+- 应对动作：同时断言 `parseRegistryRows(...).filter(stage === ...)` 的完整顺序和 summary 行文本；若发现遗漏，优先修 generator summary，使其反映真实 stage membership，而不是削弱顺序断言。
+
 ## 部署与运行时
 
 - 场景：

@@ -73,6 +73,10 @@ const HIGH_RISK_SKILLS = [
   'review-implementation',
   'verify-contracts',
   'run-regression',
+  'pause-current-task',
+  'interrupt-current-task',
+  'resume-paused-task',
+  'resume-interrupted-task',
   'sync-contracts',
   'sync-decisions',
   'archive-task',
@@ -101,6 +105,10 @@ const WORKFLOW_ORDER = [
   'sync-review-findings',
   'verify-contracts',
   'run-regression',
+  'pause-current-task',
+  'interrupt-current-task',
+  'resume-paused-task',
+  'resume-interrupted-task',
   'sync-current-task',
   'sync-status',
   'sync-contracts',
@@ -253,6 +261,9 @@ function renderRegistry(skills: RegistrySkill[], workflowSkillDir: string): stri
     }
     if (section.stage === '阶段 5：范围复核') {
       return `| ${section.summaryLabel} | \`review-diff\` → \`review-implementation\` → \`verify-contracts\`；findings detour: \`review-diff\` / \`review-implementation\` → \`sync-review-findings\` → \`implement-current-step\` |`;
+    }
+    if (section.stage === '阶段 7：状态同步') {
+      return `| ${section.summaryLabel} | suspend branch: \`pause-current-task\` / \`interrupt-current-task\`；resume branch: \`resume-paused-task\` / \`resume-interrupted-task\` → \`review-current-task\`；steady-state sync: \`sync-current-task\` → \`sync-status\` → \`sync-contracts\` → \`sync-decisions\` → \`sync-host-guidance\` → \`capture-lessons\` |`;
     }
     return `| ${section.summaryLabel} | ${formatSkillRefs(stageSkills.map(skill => skill.name))} |`;
   });

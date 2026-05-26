@@ -1,0 +1,230 @@
+---
+name: interrupt-current-task
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Interrupt the active CURRENT_TASK into an interrupted package with full recovery evidence.
+purpose: |
+  将当前 active task 中断为 interrupted package，并保留完整恢复证据与任务快照。
+stage: 阶段 7：状态同步
+trigger: |
+  当前任务必须中断，且恢复时需要基于 checkpoint、dirty 状态和环境证据重建上下文时。
+inputs:
+  - current_task
+  - interrupt_reason
+  - checkpoint_evidence
+  - dirty_attribution
+  - environment_state
+  - recovery_strategy
+reads:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+writes:
+  - CURRENT_TASK.md
+  - TASKS/interrupted/**
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - "{{FORBIDDEN_PATHS}}"
+  - .workflow-system/WORKFLOW_PROTOCOL.md
+  - .workflow-system/FILE_SCHEMAS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - DOCUMENT_CATALOG.md
+  - SKILL_REGISTRY.md
+  - generated/workflow-docs/**
+  - generated/workflow-skills/**
+  - TASKS/inbox/**
+  - TASKS/backlog/**
+must_check:
+  - live task 是否仍持有 active ownership
+  - interrupted package 是否包含 checkpoint evidence、dirty attribution、environment state、recovery strategy
+  - "`resume_review_reasons` 是否与中断原因一致且为非空闭合集合"
+  - interrupted package 是否包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+  - 是否按 `write_incomplete + recovery_only` -> interrupted tuple -> read-back validation -> `ready_for_resume + recovery_only` 执行 fail-closed file transaction
+  - read-back validation 是否确认 interrupted evidence、marker、payload 与 artifact path 自洽
+  - 是否不存在同一 `TASK_ID` 的 active owner conflict 或 marker drift
+stop_conditions:
+  - 当前 live task 不是 active owner，或 `当前状态 + 生命周期状态` 不能合法释放 active ownership
+  - 缺少 checkpoint evidence、dirty attribution、environment state 或 recovery strategy
+  - "`resume_review_reasons` 为空或不能解释中断原因"
+  - interrupted package 缺少完整 payload，或 payload 无法作为 canonical restore payload
+  - read-back validation 发现 `rehydration_status` / `ownership_state` marker drift
+  - 发现同一 `TASK_ID` 的 active owner conflict
+  - interrupted package 的 evidence 与 live task / artifact path 不自洽
+output:
+  - 中断后的 CURRENT_TASK.md
+  - interrupted suspended package
+  - fail-closed transaction record
+handoff:
+  success: create-current-task
+  failure: ask-user
+decision_policy:
+  mechanical: 可以自动整理 interrupted package 的 evidence 字段和最小安全写入顺序。
+  taste: 不得把“先中断还是继续硬做”当成默认值替用户决定。
+  user_challenge: 不得绕过 checkpoint / dirty / environment / recovery evidence 要求。
+verification:
+  - "`writes` 只覆盖 `CURRENT_TASK.md` 与 `TASKS/interrupted/**`"
+  - interrupted package 保留 checkpoint evidence、dirty attribution、environment state、recovery strategy
+  - suspended package 保留完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+  - fail-closed file transaction 明确包含 prepare marker、read-back validation 与 commit marker
+  - 任一步失败时不会进入 `handoff.success`
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+benefits-from:
+  - /implement-current-step
+notes:
+  - 中断不是普通暂停；没有 checkpoint evidence、dirty attribution、environment state、recovery strategy 时必须 fail-closed。
+transaction_markers:
+  - write_incomplete
+  - ready_for_resume
+  - recovery_only
+  - rehydrated
+required_interrupt_evidence:
+  - checkpoint evidence
+  - dirty attribution
+  - environment state
+  - recovery strategy
+---
+
+# Skill: interrupt-current-task
+
+## Purpose
+
+将当前 active task 中断为 interrupted package，并保留完整恢复证据与任务快照。
+
+## Trigger
+
+当前任务必须中断，且恢复时需要基于 checkpoint、dirty 状态和环境证据重建上下文时。
+
+## Inputs
+
+- current_task
+- interrupt_reason
+- checkpoint_evidence
+- dirty_attribution
+- environment_state
+- recovery_strategy
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for active ownership and suspended tuple semantics.
+
+## Must Check
+
+- live task 是否仍持有 active ownership
+- interrupted package 是否包含 checkpoint evidence、dirty attribution、environment state、recovery strategy
+- `resume_review_reasons` 是否与中断原因一致且为非空闭合集合
+- interrupted package 是否包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+- 是否按 `write_incomplete + recovery_only` -> interrupted tuple -> read-back validation -> `ready_for_resume + recovery_only` 执行 fail-closed file transaction
+- read-back validation 是否确认 interrupted evidence、marker、payload 与 artifact path 自洽
+- 是否不存在同一 `TASK_ID` 的 active owner conflict 或 marker drift
+
+## Stop Conditions
+
+- 当前 live task 不是 active owner，或 `当前状态 + 生命周期状态` 不能合法释放 active ownership
+- 缺少 checkpoint evidence、dirty attribution、environment state 或 recovery strategy
+- `resume_review_reasons` 为空或不能解释中断原因
+- interrupted package 缺少完整 payload，或 payload 无法作为 canonical restore payload
+- read-back validation 发现 `rehydration_status` / `ownership_state` marker drift
+- 发现同一 `TASK_ID` 的 active owner conflict
+- interrupted package 的 evidence 与 live task / artifact path 不自洽
+
+## Decision Policy
+
+- `mechanical`: 可以自动整理 interrupted package 的 evidence 字段和最小安全写入顺序。
+- `taste`: 不得把“先中断还是继续硬做”当成默认值替用户决定。
+- `user_challenge`: 不得绕过 checkpoint / dirty / environment / recovery evidence 要求。
+
+## Verification
+
+- `writes` 只覆盖 `CURRENT_TASK.md` 与 `TASKS/interrupted/**`
+- interrupted package 保留 checkpoint evidence、dirty attribution、environment state、recovery strategy
+- suspended package 保留完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
+- fail-closed file transaction 明确包含 prepare marker、read-back validation 与 commit marker
+- 任一步失败时不会进入 `handoff.success`
+
+## Extension Fields
+
+### transaction_markers
+- write_incomplete
+- ready_for_resume
+- recovery_only
+- rehydrated
+
+### required_interrupt_evidence
+- checkpoint evidence
+- dirty attribution
+- environment state
+- recovery strategy
+
+## Fail-Closed Interrupt Transaction
+
+固定事务步骤：
+
+1. prepare：先写 `TASKS/interrupted/**` package，marker 固定为 `write_incomplete + recovery_only`。
+2. switch ownership：再把 live `CURRENT_TASK.md` 写成 interrupted suspended tuple：
+   - `当前状态：suspended`
+   - `生命周期状态：interrupted`
+   - `恢复需审查：true`
+   - `恢复审查原因：<规范化 reasons>`
+3. read-back validation：立即重新读取 `CURRENT_TASK.md` 与 interrupted package，确认：
+   - live task 已释放 active ownership
+   - interrupted package 保留 checkpoint evidence、dirty attribution、environment state、recovery strategy
+   - package path、artifact_kind、resume gate 与完整 payload 自洽
+   - 不存在同一 `TASK_ID` 的 active owner conflict
+4. commit marker：只有 read-back validation 通过后，才允许把 interrupted package 升级为 `ready_for_resume + recovery_only`。
+5. 任一步失败时不得进入 `handoff.success`；必须保留 `write_incomplete + recovery_only` marker，并 handoff 到 `ask-user`。
+
+## Payload Preservation Rules
+
+- interrupted package 必须包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload。
+- interrupted package 还必须完整保留 checkpoint evidence、dirty attribution、environment state、recovery strategy。
+- 不得把 interrupted package 缩成只剩 marker 或最小字段集合。
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off to `handoff.success` when the skill completes normally.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- 中断不是普通暂停；没有 checkpoint evidence、dirty attribution、environment state、recovery strategy 时必须 fail-closed。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

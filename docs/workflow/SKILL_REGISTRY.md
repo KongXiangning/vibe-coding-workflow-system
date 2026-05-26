@@ -27,7 +27,7 @@
 | 阶段 4/6：异常处理 | `debug-and-fix-current-task` → `investigate-root-cause` |
 | 阶段 5：范围复核 | `review-diff` → `review-implementation` → `verify-contracts`；findings detour: `review-diff` / `review-implementation` → `sync-review-findings` → `implement-current-step` |
 | 阶段 6：回归验证 | `run-regression` |
-| 阶段 7：状态同步 | `sync-current-task` → `sync-status` → `sync-contracts` → `sync-decisions` → `sync-host-guidance` → `capture-lessons` |
+| 阶段 7：状态同步 | suspend branch: `pause-current-task` / `interrupt-current-task`；resume branch: `resume-paused-task` / `resume-interrupted-task` → `review-current-task`；steady-state sync: `sync-current-task` → `sync-status` → `sync-contracts` → `sync-decisions` → `sync-host-guidance` → `capture-lessons` |
 | 阶段 8：交付沉淀 | `close-current-task` → `prepare-delivery-summary` → `archive-task` |
 
 失败分支：
@@ -106,6 +106,10 @@
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
+| `pause-current-task` | 将当前 active task 安全暂停为 paused suspended package，并保留可恢复的完整任务快照。 | 当前任务需要暂时让出 active ownership，但后续仍可能恢复时。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md` | `docs/workflow/CURRENT_TASK.md`、`TASKS/paused/**` | `create-current-task` | `ask-user` |
+| `interrupt-current-task` | 将当前 active task 中断为 interrupted package，并保留完整恢复证据与任务快照。 | 当前任务必须中断，且恢复时需要基于 checkpoint、dirty 状态和环境证据重建上下文时。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md` | `docs/workflow/CURRENT_TASK.md`、`TASKS/interrupted/**` | `create-current-task` | `ask-user` |
+| `resume-paused-task` | 从一个明确的 paused suspended package 恢复 live docs/workflow/CURRENT_TASK.md，并把流程固定交回 review-current-task。 | 用户明确要求恢复一个 paused task，且目标 package 已显式给定或可无歧义解析时。 | `docs/workflow/CURRENT_TASK.md`、`TASKS/paused/**`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md` | `docs/workflow/CURRENT_TASK.md`、`TASKS/paused/**` | `review-current-task` | `ask-user` |
+| `resume-interrupted-task` | 从一个明确的 interrupted suspended package 恢复 live docs/workflow/CURRENT_TASK.md，并把流程固定交回 review-current-task。 | 用户明确要求恢复一个 interrupted task，且目标 package 已显式给定或可无歧义解析时。 | `docs/workflow/CURRENT_TASK.md`、`TASKS/interrupted/**`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md` | `docs/workflow/CURRENT_TASK.md`、`TASKS/interrupted/**` | `review-current-task` | `ask-user` |
 | `sync-current-task` | 回写 docs/workflow/CURRENT_TASK.md 的执行状态、验证结果和剩余问题。 | 每轮实现与验证完成后。 | `docs/workflow/CURRENT_TASK.md` | `docs/workflow/CURRENT_TASK.md` | `sync-status` | `ask-user` |
 | `sync-status` | 更新 docs/workflow/STATUS.md，反映当前项目整体进度和稳定状态。 | 任务阶段完成或状态发生变化时。 | `docs/workflow/STATUS.md`、`docs/workflow/CURRENT_TASK.md` | `docs/workflow/STATUS.md` | `sync-contracts` | `ask-user` |
 | `sync-contracts` | 将新形成的稳定接口或架构边界写入 docs/workflow/CONTRACTS.md。 | 本轮任务新增了稳定接口、稳定结构或稳定架构规则时。 | `docs/workflow/CONTRACTS.md`、`docs/workflow/CURRENT_TASK.md` | `docs/workflow/CONTRACTS.md` | `sync-decisions` | `ask-user` |
@@ -140,6 +144,10 @@
 - `review-implementation`
 - `verify-contracts`
 - `run-regression`
+- `pause-current-task`
+- `interrupt-current-task`
+- `resume-paused-task`
+- `resume-interrupted-task`
 - `sync-contracts`
 - `sync-decisions`
 - `archive-task`

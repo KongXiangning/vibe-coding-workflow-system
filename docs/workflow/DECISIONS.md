@@ -86,6 +86,17 @@
 - 替代方案：把 suspended package 纳入 `DOCUMENT_CATALOG`；当前不采用。
 - 验证方式：`bun run test:workflow-docs`; `bun run validate:protocol`; `bun run test:workflow-all`.
 
+### AD-008: lifecycle runtime skills 统一在阶段 7 通过 review-current-task 完成恢复审查
+
+- 状态：accepted
+- 背景：任务 `003` 已稳定 `CURRENT_TASK` suspend / interrupt / resume contract foundation；任务 `004` 需要在不重开 protocol / schema foundation 的前提下，把 runtime skills、guide / registry routing 和 generated reference 闭环补齐。
+- 决策：新增 `pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task` 四个 runtime skill；suspend transaction 必须 fail-closed 并保留完整 payload；resume 成功后固定回到 `review-current-task`，不新增 dedicated resume review skill，不允许自动挑选 suspended package。`WORKFLOW_GUIDE`、`SKILL_REGISTRY` 与 generated reference outputs 统一把它们放在 `阶段 7：状态同步`，并用 branch-style summary 表达 suspend / resume 与 steady-state sync 链。
+- 原因：把恢复安全性、review gate 消费和 registry / guide discoverability 收敛到同一条可审计链路，避免 resume 直接进入实现或由多个 skill 分裂消费 gate。
+- 约束：AI 不得新增 lifecycle state、resume reason、artifact kind、artifact path 或 protocol-level named error；不得把范围扩大到 inbox / backlog artifact 或 runtime manifest / install / health report contract。
+- 影响范围：`templates/skills/{pause-current-task,interrupt-current-task,resume-paused-task,resume-interrupted-task,review-current-task}.SKILL.md.tmpl`, `templates/docs/WORKFLOW_GUIDE.md.tmpl`, `scripts/gen-registry.ts`, `docs/workflow/generated/workflow-skills/**`, `docs/workflow/generated/workflow-docs/WORKFLOW_GUIDE.md`, `docs/workflow/SKILL_REGISTRY.md`, `test/gen-workflow-skills.test.ts`, `test/gen-registry.test.ts`, `test/gen-workflow-docs.test.ts`
+- 替代方案：让 resume 直接 handoff 到实现；新增 dedicated resume review skill；依赖字母排序隐式决定 registry 顺序。均不采用。
+- 验证方式：`bun run gen:all`; `bun run test:workflow-skills`; `bun run test:registry`; `bun run test:workflow-docs`; `bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`.
+
 ## 🎨 口味决策
 
 ### TD-001: 中文治理文档风格
@@ -139,6 +150,16 @@
 - 变更原因：无
 - 兼容 / 迁移要求：无
 - 审计备注：首版 adoption baseline。
+
+### SUPERSEDED-002: DEFER-003 已由 AD-008 落地替代
+
+- 当前状态：accepted-and-replaced
+- 原决策编号：DEFER-003
+- 后继决策编号 / 基线：AD-008
+- 生效版本 / 里程碑：任务 `004` / `current-task-lifecycle-runtime-skills`
+- 变更原因：contract foundation 已在任务 `003` 稳定，后续任务 `004` 重新锁范围并完成 runtime skill、guide / registry routing 和 generated reference 的实现闭环。
+- 兼容 / 迁移要求：继续保持不新增 dedicated resume review skill、不自动挑选 package、不扩大到 inbox / backlog artifact 或 runtime manifest / install / health report contract。
+- 审计备注：保留 DEFER-003 作为历史范围边界记录；当前有效决策以后继 AD-008 为准。
 
 ## ❌ 已否决
 

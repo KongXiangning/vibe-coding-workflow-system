@@ -229,6 +229,40 @@ describe('gen-registry', () => {
     expect(highRiskSection).toContain('- `supersede-current-task`');
   });
 
+  test('lifecycle runtime skills stay in stage 7 before sync-current-task with branch summary and high-risk coverage', () => {
+    const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
+    const rows = parseRegistryRows(content);
+    const stageSevenNames = rows
+      .filter(row => row.stage === '阶段 7：状态同步')
+      .map(row => row.name);
+
+    expect(stageSevenNames).toEqual([
+      'pause-current-task',
+      'interrupt-current-task',
+      'resume-paused-task',
+      'resume-interrupted-task',
+      'sync-current-task',
+      'sync-status',
+      'sync-contracts',
+      'sync-decisions',
+      'sync-host-guidance',
+      'capture-lessons',
+    ]);
+    expect(content).toContain(
+      '| 阶段 7：状态同步 | suspend branch: `pause-current-task` / `interrupt-current-task`；resume branch: `resume-paused-task` / `resume-interrupted-task` → `review-current-task`；steady-state sync: `sync-current-task` → `sync-status` → `sync-contracts` → `sync-decisions` → `sync-host-guidance` → `capture-lessons` |',
+    );
+
+    const highRiskSection = content.slice(content.indexOf('## 4. 高风险 / 重点审计 skill'));
+    for (const skill of [
+      'pause-current-task',
+      'interrupt-current-task',
+      'resume-paused-task',
+      'resume-interrupted-task',
+    ]) {
+      expect(highRiskSection).toContain(`- \`${skill}\``);
+    }
+  });
+
   test('only task placeholders remain unresolved', () => {
     const content = fs.readFileSync(REGISTRY_PATH, 'utf8');
     const matches = content.match(/{{[^}]+}}/g) ?? [];
