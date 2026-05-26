@@ -61,6 +61,7 @@
 - `TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md`
 - `resume_review_reasons` 闭合集合
 - `rehydration_status` / `ownership_state` 闭合集合
+- 既有 `CURRENT_TASK.md > ## 任务信息 > 当前 handoff` 路由字段；004 只把 resume 成功后的 live task 写回 `review-current-task`，不新增 handoff schema / protocol 字段。
 
 因此本任务默认：
 
@@ -172,7 +173,7 @@
 
 - `pause-current-task` / `interrupt-current-task` 写出的 suspended package 必须包含完整 live `CURRENT_TASK.md` snapshot，至少覆盖背景、验收标准、允许 / 禁止范围、确认决策、实现方案、传播治理记录、实施步骤、回归检查项、回滚点和执行记录。
 - 该 snapshot 必须作为 canonical restore payload；不得只保存 `## 任务信息` 四个 lifecycle / resume gate 字段。
-- `resume-paused-task` / `resume-interrupted-task` 必须基于该完整 payload 重建 live `CURRENT_TASK.md`，再覆盖写入 `当前状态：active`、`生命周期状态：active`、`恢复需审查：true`、规范化 `恢复审查原因`。
+- `resume-paused-task` / `resume-interrupted-task` 必须基于该完整 payload 重建 live `CURRENT_TASK.md`，再覆盖写入 `当前状态：active`、`生命周期状态：active`、`恢复需审查：true`、规范化 `恢复审查原因`、`当前 handoff：review-current-task`。
 - 如果 suspended package 缺少完整 payload，或 payload 无法重建 required sections，resume 必须 `fail-closed`，不得生成只有 `## 任务信息` 的截断任务包。
 
 ## 技能与路由建议
@@ -231,7 +232,6 @@
 
 - `handoff.success = create-current-task`
 - `handoff.failure = ask-user`
-- 可选 `conditional_handoff.interrupt_only = ask-user`
 
 ### 3. `resume-paused-task`
 
@@ -244,6 +244,7 @@
   - `生命周期状态：active`
   - `恢复需审查：true`
   - `恢复审查原因：<规范化 reasons>`
+  - `当前 handoff：review-current-task`
 - 把来源 package 标记为：
   - `rehydration_status = rehydrated`
   - `ownership_state = rehydrated`
@@ -268,13 +269,19 @@
 
 - 从合法 `artifact_kind = interrupted` 的 package 恢复 live task
 - 复用 `resume-paused-task` 的写回与 gate 对齐规则
+- 恢复后的 `CURRENT_TASK.md` 同样必须写入 `当前 handoff：review-current-task`
 - 保持 interrupted evidence 可追溯
 
 最小要求：
 
 - 只接受 `artifact_kind = interrupted`
+- 只接受 `rehydration_status = ready_for_resume`
+- 只接受 `ownership_state = recovery_only`
+- `resume_review_reasons` 必须为非空闭合集合
 - interrupted package 必须完整保留 checkpoint / dirty attribution / environment / recovery strategy
+- 来源 package 必须包含可重建 `CURRENT_TASK.md` required sections 的完整 payload；缺失或截断时必须 `fail-closed`
 - 写回前必须确认当前 live `CURRENT_TASK.md` 不再是同一 `TASK_ID` 的 active owner
+- 发现 gate drift、marker drift、payload 缺失、active owner conflict 或 target package 不自洽时必须 `fail-closed`
 
 固定 handoff：
 
@@ -363,7 +370,7 @@ steady-state branch: sync-current-task -> sync-status -> sync-contracts -> sync-
   - `interrupt-current-task` 的 `handoff.success` 为 `create-current-task`
   - `pause-current-task` / `interrupt-current-task` 必须声明 fail-closed file transaction，包含 `write_incomplete + recovery_only` prepare marker、read-back validation 与 `ready_for_resume + recovery_only` commit marker
   - `pause-current-task` / `interrupt-current-task` 必须声明 suspended package 包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload
-  - `resume-paused-task` / `resume-interrupted-task` 必须声明从完整 payload 重建 `CURRENT_TASK.md`，缺失 payload 时 `fail-closed`
+  - `resume-paused-task` / `resume-interrupted-task` 必须声明从完整 payload 重建 `CURRENT_TASK.md`，缺失 payload 时 `fail-closed`，且恢复后的 `CURRENT_TASK.md` 必须写入 `当前 handoff：review-current-task`
   - `review-current-task` 新增对 `恢复需审查` / `恢复审查原因` / rollback point 三字段的审查要求
   - 4 个 lifecycle skill 的 frontmatter 必须覆盖关键 `reads` / `writes` / `forbidden_writes` / `must_check` / `stop_conditions`，不能只通过字段存在校验
   - `pause-current-task` 的 `reads` 必须包含 `CURRENT_TASK.md`，`writes` 必须包含 `CURRENT_TASK.md` 与 `TASKS/paused/**`，`must_check` 必须覆盖 active ownership、resume reasons、transaction markers、完整 payload，`stop_conditions` 必须覆盖非 active owner、marker drift、active owner conflict、缺失 blocker evidence
@@ -483,13 +490,14 @@ steady-state branch: sync-current-task -> sync-status -> sync-contracts -> sync-
 - 已新增 `pause-current-task`、`resume-paused-task`、`interrupt-current-task`、`resume-interrupted-task` 四个 workflow skill template。
 - 四个 lifecycle skill 的 generated reference outputs 已由生成器同步，且不包含手工编辑痕迹。
 - `pause-current-task` 能区分 `paused_pending_closure` 与 `paused_blocked`，并明确要求对应的 `resume_review_reasons` / blocker evidence。
+- `pause-current-task` 必须明确 `pause_only = ask-user` 是“只暂停、不立即切换任务”的语义分支；`handoff.success = create-current-task` 只是 generator-compatible fallback / `pause_and_switch` target，不得被实现或 guide 解释为 pause 后默认创建新任务。
 - `interrupt-current-task` 明确要求 checkpoint evidence、dirty attribution、environment state、recovery strategy，不允许无证据中断。
 - `pause-current-task` 与 `interrupt-current-task` 必须采用 fail-closed file transaction：先写 `write_incomplete + recovery_only`，再切 `CURRENT_TASK.md` 为 suspended tuple，read-back validation 通过后才升级为 `ready_for_resume + recovery_only`。
 - 任一 pause / interrupt 事务步骤失败时，不得进入 `handoff.success`；必须保留 `write_incomplete + recovery_only` marker 并 handoff 到 `ask-user`。
 - `pause-current-task` 与 `interrupt-current-task` 生成的 suspended package 必须包含完整 live `CURRENT_TASK.md` snapshot / canonical restore payload，不得只保留最小字段。
 - `resume-paused-task` 与 `resume-interrupted-task` 只接受显式、无歧义、`ready_for_resume` 的 suspended package 输入；模糊自动挑选方案不被接受。
 - `resume-paused-task` 与 `resume-interrupted-task` 必须从完整 payload 重建 `CURRENT_TASK.md`，并在 payload 缺失、截断或无法恢复 required sections 时 `fail-closed`。
-- 两个 resume skill 在恢复成功后必须把 `CURRENT_TASK.md` 写成 `active + active + 恢复需审查=true + 规范化 reasons`，并把来源 package 更新为 `rehydration_status = rehydrated`、`ownership_state = rehydrated`。
+- 两个 resume skill 在恢复成功后必须把 `CURRENT_TASK.md` 写成 `active + active + 恢复需审查=true + 规范化 reasons + 当前 handoff=review-current-task`，并把来源 package 更新为 `rehydration_status = rehydrated`、`ownership_state = rehydrated`。
 - resume skill 的成功 handoff 固定为 `review-current-task`，不得直接 handoff 到 `implement-current-step`。
 - `review-current-task` 已扩展为 resume gate consumer：能审查 drift / checkpoint / diff target / blocker / remaining acceptance / validation pending 等恢复前提，但不静默清空 gate 字段。
 - `WORKFLOW_GUIDE` 与 `SKILL_REGISTRY` 已收录四个 lifecycle skill，并对 stage / order / handoff / branch summary 给出稳定说明。
