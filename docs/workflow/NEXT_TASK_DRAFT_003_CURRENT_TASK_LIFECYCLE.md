@@ -272,7 +272,7 @@ v1 要求：
 
 必须对齐现有 contract：
 
-- `CURRENT_TASK.md` 仍是 live task identity 与 active ownership 判定的唯一来源
+- `CURRENT_TASK.md` 仍是 active task identity 唯一 live 来源
 - `TASK_ID` / `TASK_SLUG` 一旦 materialized，不可变
 - pause / interrupt / resume 不改变 `TASK_ID`
 - archive filename 仍从 materialized live identity 推导
@@ -341,7 +341,7 @@ Named errors v1：
 - 当前状态：active
 - 生命周期状态：active
 - 恢复需审查：true
-- 恢复审查原因：<按来源 lifecycle_state 映射后的规范化 resume_review_reasons>
+- 恢复审查原因：validation_pending, manual_review_pending
 ```
 
 字段命名规则：
@@ -354,7 +354,6 @@ Named errors v1：
 一致性规则：
 
 - `恢复需审查` / `恢复审查原因` 与 suspended package 中的 `resume_requires_review` / `resume_review_reasons` 语义一致，字段显示名不同不代表不同字段。
-- 上述 `恢复审查原因` 是占位表达，不是默认值；实际值必须由来源 suspended package 的 `lifecycle_state` 场景映射决定。
 - 恢复写回时，`恢复审查原因` 必须使用规范化后的闭合集合 reason；不得把中文释义写成 reason 值。
 - `CURRENT_TASK.md` 中缺少 `恢复需审查` 或 `恢复审查原因` 时，不得把恢复后的任务视为已通过 resume review gate。
 - 普通新建的非恢复 `CURRENT_TASK.md` 可以使用 `恢复需审查：false` 与空 `恢复审查原因`；这不属于 suspended -> active 恢复路径，不推翻恢复路径必须 `true + 非空 reasons` 的规则。
