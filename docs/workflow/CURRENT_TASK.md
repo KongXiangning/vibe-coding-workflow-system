@@ -7,11 +7,11 @@
 - 任务 ID：004
 - 任务标题：实现 CURRENT_TASK lifecycle runtime skills 与 resume review handoff（第二阶段）
 - 任务 slug：current-task-lifecycle-runtime-skills
-- 当前状态：draft
-- 生命周期状态：active
+- 当前状态：archived
+- 生命周期状态：archived
 - 恢复需审查：false
 - 恢复审查原因：
-- 当前 handoff：close-current-task
+- 当前 handoff：create-current-task
 - 创建时间：2026-05-26
 
 ## 背景与上下文
@@ -437,10 +437,10 @@ User challenge:
 
 ### blockers / gate status
 
-- 当前执行步骤：`close-current-task`
+- 当前执行步骤：`archive-task`
 - 已完成 discovery：草案目标核对、`CONTRACTS.md` / `DECISIONS.md` / `STATUS.md` source-of-truth precedence 核对、Allowed / Conditional / Forbidden Files 收敛、回滚点三字段核对、传播治理影响集合确认、Design / Release 章节适用性审查、scope lock 收敛、决策分类、实现方案记录、执行步骤拆解、步骤 6-8 的模板 / guide / registry / 测试改动核对、步骤 6-8 的 working-tree diff review / implementation review / contract verification / targeted regression、步骤 9 的 Conditional Files 同步与 freshness 验证、步骤 10 的全量回归，以及步骤 11 的 live governance docs 同步。
 - 剩余 blocker：
-  - 无阻断项；步骤 11 已完成且治理文档已同步，当前轮可进入 `close-current-task` 做交付摘要与归档。
+  - 无阻断项；任务 `004` 已完成交付摘要与归档。
   - 若后续实现证据表明必须触碰 protocol / schema / runtime / `DOCUMENT_CATALOG`，必须停止并回到 `/lock-scope` 重新锁范围。
 - `ContractCompatibilityResult`：
   - error_code：none
@@ -449,9 +449,9 @@ User challenge:
   - default_blocker_level：none
   - evidence：当前任务包未覆盖 `docs/workflow/CONTRACTS.md` 或 `.workflow-system/PROJECT_PROFILE.yaml`，兼容策略均为 `backward-compatible`，且风险已通过 Allowed / Conditional / Forbidden Files 与 widening 条件上浮。
   - strategy_origin.divergence_state：no_divergence
-  - branch_gate_mapping.merge_gate：继续进入 `close-current-task`；若后续发现必须 touching protocol / schema / runtime，则立即停下并重锁范围
+  - branch_gate_mapping.merge_gate：任务 `004` 已归档；下一轮进入 `create-current-task`；若后续发现必须 touching protocol / schema / runtime，则立即停下并重锁范围
   - branch_gate_mapping.ship_gate：`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
-  - suggested_resolution：进入 `close-current-task`
+  - suggested_resolution：进入 `create-current-task`
 
 ## 实施步骤
 
@@ -508,8 +508,8 @@ User challenge:
 ## 回滚点
 
 - Task start base: 06bfc714
-- Last reviewed checkpoint: not-yet-created
-- Current diff review target: working-tree
+- Last reviewed checkpoint: 23c36e73
+- Current diff review target: 06bfc714..23c36e73
 
 ## 执行记录
 
@@ -530,3 +530,7 @@ User challenge:
 - 2026-05-26：执行步骤 9 完成后的 `/review-diff`、`/review-implementation`、`/verify-contracts` 与 `/run-regression`；本轮继续沿用 `diff_review_target = working tree`（`git diff` + `git diff --cached`），确认 generated sync 只反映新增 lifecycle runtime skills、`review-current-task` 的 resume gate 消费、`WORKFLOW_GUIDE` lifecycle routing 与 `SKILL_REGISTRY` 的 stage 7 branch-style summary，没有出现范围外 generated churn；`QA mode = diff-aware`，定向回归命中 `bun run validate:freshness` 并通过，当前 handoff 更新为 `/sync-status`。
 - 2026-05-26：执行步骤 10 的全量回归；先后运行 `bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`，期间发现 `test:registry` 的 stage 7 断言漏掉既有成员 `capture-lessons`，随后收敛 `scripts/gen-registry.ts` 的 branch-style summary 与对应测试，再次重跑全部剩余检查并全部通过；当前 handoff 更新为 `/sync-status`。
 - 2026-05-26：执行步骤 11 的治理同步；更新 `docs/workflow/STATUS.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md` 与 `docs/workflow/LESSONS.md`，把 lifecycle runtime skills、resume-review routing、stage 7 registry branch-style summary、generated-only 边界与回归教训固化为 live governance facts；未发现需要补充的 `sync-host-guidance` 变更，当前 handoff 更新为 `/close-current-task`。
+- 2026-05-26：执行 `/sync-current-task` 处理完成审核发现；确认任务 `004` 的实现提交为 `23c36e73`，审查范围应固定为 `06bfc714..23c36e73`，不能继续使用空 working tree 作为 diff review target；同步 `当前状态：active`、`当前 handoff：sync-status`、回滚点三字段与收尾偏差记录。当前剩余工作不是实现修复，而是继续 `/sync-status`、`/prepare-delivery-summary` 与 `/archive-task`，创建 `TASKS/TASK-004-current-task-lifecycle-runtime-skills.md` 后才算 close/archive 完成。
+- 2026-05-26：执行 `/sync-status`；将 `STATUS.md` 调整为真实现状：lifecycle runtime skill surface 已稳定，但任务 `004` close/archive 收尾仍在进行，下一检查点是准备交付摘要并创建归档文件。
+- 2026-05-26：执行 `/prepare-delivery-summary`；整理任务目标、实际修改范围、验证结果、release evidence、remaining observation 和下一步建议；该 skill 不写文件，交付摘要作为 `/archive-task` 输入。
+- 2026-05-26：执行 `/archive-task`；创建 `TASKS/TASK-004-current-task-lifecycle-runtime-skills.md`，归档任务定义、实现摘要、契约决策、验证证据、交付摘要、lesson 与后续入口；同步 live `CURRENT_TASK.md` 为 `archived + archived`，当前 handoff 更新为 `/create-current-task`。
