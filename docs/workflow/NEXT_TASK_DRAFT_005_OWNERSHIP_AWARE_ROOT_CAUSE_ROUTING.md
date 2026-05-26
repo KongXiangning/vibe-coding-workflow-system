@@ -170,12 +170,13 @@
 任务 `005` 必须区分两类名称：
 
 - **canonical ownership route**：上节定义的 6 个闭集 route，作为跨 skill 一致的归属判断结果。
-- **skill-local conditional_handoff alias**：某个 skill 为了表达本地动作或输入状态使用的分支名，不得扩展 canonical route 闭集。
+- **skill-local conditional_handoff alias**：某个 skill 为了表达本地动作、guard result 或输入状态使用的分支名，不得扩展 canonical route 闭集。
 
 要求：
 
 - `Ownership assessment` / `Recommended route` 必须只使用 canonical route 闭集。
 - `conditional_handoff` 可以保留本地 alias，但必须显式映射到 canonical route 或 pre-routing state。
+- resume 场景的 `conditional_handoff` 不得直接把 `resume_paused_required` / `resume_interrupted_required` 一跳映射到 `resume-*`；必须把 active-owner guard 结果显式编码为 skill-local alias。
 - `product_contract_architecture`、`scope_widening`、`queued_fixable_findings`、`current_task_failure` 这类名称不得被写成新的 ownership route。
 - `unknown_root_cause` 不是 ownership route；它表示证据不足以完成归属判定时的 pre-routing state，应先 handoff 到 `investigate-root-cause`，再重新产出 canonical route。
 
@@ -184,6 +185,10 @@
 | `queued_fixable_findings` | `current_task_owned` | `implement-current-step` |
 | `current_task_failure` | `current_task_owned` | `investigate-root-cause` |
 | `scope_widening` | `scope_widening_candidate` | `lock-scope` |
+| `resume_paused_guard_passed` | `resume_paused_required` + guard passed | `resume-paused-task` |
+| `resume_paused_guard_blocked` | `resume_paused_required` + guard blocked | `ask-user` |
+| `resume_interrupted_guard_passed` | `resume_interrupted_required` + guard passed | `resume-interrupted-task` |
+| `resume_interrupted_guard_blocked` | `resume_interrupted_required` + guard blocked | `ask-user` |
 | `product_contract_architecture` | `user_decision_required` | `ask-user` |
 | `unknown_root_cause` | pre-routing state | `investigate-root-cause` |
 | `invalid_finding_input` | pre-routing / invalid input state | `ask-user` |
@@ -193,6 +198,7 @@
 - 三个受影响 skill 的正文或 frontmatter 均声明 canonical route 闭集。
 - 任一 skill-local alias 都有映射表，不会被当作新增 route key。
 - `Recommended route` 输出模板只允许 6 个 canonical route 值。
+- generated skill 中不得再出现 `resume_paused_required: resume-paused-task` 或 `resume_interrupted_required: resume-interrupted-task` 这种绕过 guard 的一跳结构。
 
 ### 3. 基本判定矩阵
 
@@ -201,9 +207,9 @@
 | 失败位置、目标、diff 与当前 active task 一致，且修复仍在当前范围内 | `current_task_owned` | `plan-implementation` 或 `implement-current-step` |
 | 失败属于当前任务目标，但修复需要扩大 Allowed Files、触碰稳定契约或改变边界 | `scope_widening_candidate` | `lock-scope` |
 | 失败与某个 paused package 的 blocker / closure / remaining acceptance 明确同源，且 package 唯一且 `ready_for_resume + recovery_only`，并且当前 live active ownership 已释放 | `resume_paused_required` | `resume-paused-task` |
-| 失败与某个 paused package 的 blocker / closure / remaining acceptance 明确同源，但当前 `CURRENT_TASK.md` 仍持有另一个 active task ownership | `resume_paused_required` + active-owner guard | `ask-user`（先决定是否 pause / interrupt 当前 active task，再显式 resume） |
+| 失败与某个 paused package 的 blocker / closure / remaining acceptance 明确同源，但当前 `CURRENT_TASK.md` 仍持有另一个 active task ownership | `resume_paused_required` | active-owner guard blocked -> `ask-user`（先决定是否 pause / interrupt 当前 active task，再显式 resume） |
 | 失败与某个 interrupted package 的 checkpoint / dirty attribution / recovery strategy 明确同源，且 package 唯一且 `ready_for_resume + recovery_only`，并且当前 live active ownership 已释放 | `resume_interrupted_required` | `resume-interrupted-task` |
-| 失败与某个 interrupted package 的 checkpoint / dirty attribution / recovery strategy 明确同源，但当前 `CURRENT_TASK.md` 仍持有另一个 active task ownership | `resume_interrupted_required` + active-owner guard | `ask-user`（先决定是否 pause / interrupt 当前 active task，再显式 resume） |
+| 失败与某个 interrupted package 的 checkpoint / dirty attribution / recovery strategy 明确同源，但当前 `CURRENT_TASK.md` 仍持有另一个 active task ownership | `resume_interrupted_required` | active-owner guard blocked -> `ask-user`（先决定是否 pause / interrupt 当前 active task，再显式 resume） |
 | 失败与当前 active task 无直接 owner 关系，也无唯一 suspended owner，但足以形成独立 bug | `new_bug_task_required` | `create-current-task` |
 | 多个 suspended owner 都可能成立，或产品 / 契约 / 优先级需人工拍板 | `user_decision_required` | `ask-user` |
 
@@ -240,8 +246,10 @@
 - `conditional_handoff` 建议新增：
   - `current_task_owned: plan-implementation`
   - `scope_widening_candidate: lock-scope`
-  - `resume_paused_required: resume-paused-task`
-  - `resume_interrupted_required: resume-interrupted-task`
+  - `resume_paused_guard_passed: resume-paused-task`
+  - `resume_paused_guard_blocked: ask-user`
+  - `resume_interrupted_guard_passed: resume-interrupted-task`
+  - `resume_interrupted_guard_blocked: ask-user`
   - `new_bug_task_required: create-current-task`
   - `user_decision_required: ask-user`
 
@@ -267,8 +275,10 @@
 - `conditional_handoff` 建议新增：
   - `current_task_owned: investigate-root-cause`
   - `scope_widening_candidate: lock-scope`
-  - `resume_paused_required: resume-paused-task`
-  - `resume_interrupted_required: resume-interrupted-task`
+  - `resume_paused_guard_passed: resume-paused-task`
+  - `resume_paused_guard_blocked: ask-user`
+  - `resume_interrupted_guard_passed: resume-interrupted-task`
+  - `resume_interrupted_guard_blocked: ask-user`
   - `new_bug_task_required: create-current-task`
   - `user_decision_required: ask-user`
 
@@ -295,8 +305,10 @@
 
 - `queued_fixable_findings: implement-current-step`
 - `scope_widening: lock-scope`
-- `resume_paused_required: resume-paused-task`
-- `resume_interrupted_required: resume-interrupted-task`
+- `resume_paused_guard_passed: resume-paused-task`
+- `resume_paused_guard_blocked: ask-user`
+- `resume_interrupted_guard_passed: resume-interrupted-task`
+- `resume_interrupted_guard_blocked: ask-user`
 - `new_bug_task_required: create-current-task`
 - `product_contract_architecture: ask-user`
 - `unknown_root_cause: investigate-root-cause`
@@ -306,6 +318,8 @@
 
 - `queued_fixable_findings` 必须映射到 canonical route `current_task_owned`。
 - `scope_widening` 必须映射到 canonical route `scope_widening_candidate`。
+- `resume_paused_guard_passed` / `resume_paused_guard_blocked` 必须映射到 canonical route `resume_paused_required`，并显式携带 guard passed / blocked 结果。
+- `resume_interrupted_guard_passed` / `resume_interrupted_guard_blocked` 必须映射到 canonical route `resume_interrupted_required`，并显式携带 guard passed / blocked 结果。
 - `product_contract_architecture` 必须映射到 canonical route `user_decision_required`。
 - `unknown_root_cause` 必须被声明为 pre-routing state，不得写入 `Recommended route`。
 
@@ -356,6 +370,7 @@
 - 三个受影响 skill 的正文 `Required Reads` 已明确：命中 paused / interrupted owner 候选时，必须先读取匹配的 suspended package evidence，才能输出 `Ownership assessment` / `Recommended route` 或决定 finding queue 去向。
 - `test/gen-workflow-skills.test.ts` 已对三个 generated skill 逐项断言：frontmatter `reads` 包含 `TASKS/paused/**` 与 `TASKS/interrupted/**`，且正文 `Required Reads` 包含“先读取 matching suspended package evidence，再产出 route / queue decision”的规则。
 - `test/gen-workflow-skills.test.ts` 已对 fail-closed 行为做文本断言：当 suspended package evidence 未读取、缺失或无法唯一解析时，生成文本只能导向 `blocked` / `ask-user` / `evidence gap`，不得直接导向 `resume_paused_required` / `resume_interrupted_required`。
+- 三个受影响 skill 的 `conditional_handoff` 已改为 guard-aware alias：`resume_*_guard_passed -> resume-*`、`resume_*_guard_blocked -> ask-user`；不得再保留 `resume_*_required -> resume-*` 的一跳映射。
 - 三个受影响 skill 的 canonical ownership route 与 skill-local conditional handoff alias 映射稳定，`Recommended route` 不使用闭集外 route key。
 - guide 已明确说明“旧任务遗留问题阻断新 active task”时，应根据 owner route 与 active-owner guard 进入 `resume-*`、`lock-scope`、`create-current-task` 或 `ask-user`；当前 live task 仍 active 时必须先让用户决定是否 pause / interrupt 当前任务。
 - 不新增新的 lifecycle state、resume reason、artifact kind、artifact path、protocol-level named error。
@@ -377,6 +392,7 @@
 - `test/gen-workflow-skills.test.ts` 对 generated `investigate-root-cause` / `run-regression` / `sync-review-findings` 的 frontmatter `reads` 逐项断言包含 `TASKS/paused/**` 与 `TASKS/interrupted/**`
 - `test/gen-workflow-skills.test.ts` 对三个 generated skill 的正文 `Required Reads` 逐项断言：paused / interrupted owner 候选必须先读取 matching suspended package evidence
 - `test/gen-workflow-skills.test.ts` 对 fail-closed 文本逐项断言：若 suspended package evidence 未读取、缺失或无法唯一解析，生成文本只能输出 blocked / ask-user / evidence gap，不得直接生成 resume route
+- `test/gen-workflow-skills.test.ts` 对三个 generated skill 的 `conditional_handoff` 逐项断言：只允许出现 `resume_*_guard_passed` / `resume_*_guard_blocked`，不得出现 `resume_*_required: resume-*` 的一跳结构
 - `test/gen-workflow-docs.test.ts` 断言 guide 在 ownership-aware routing 场景下保留 active-owner guard，并把 suspended owner 路由到 `resume-*` / `ask-user` / `create-current-task` / `lock-scope`
 
 ## 允许修改范围
