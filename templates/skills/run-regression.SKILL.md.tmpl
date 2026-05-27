@@ -19,6 +19,8 @@ inputs:
   - browser_or_session_requirement
 reads:
   - CURRENT_TASK.md
+  - TASKS/paused/**
+  - TASKS/interrupted/**
   - .workflow-system/PROJECT_PROFILE.yaml
 writes: []
 forbidden_writes:
@@ -29,6 +31,9 @@ must_check:
   - QA mode 是否匹配任务风险和验证目标
   - diff-aware / report-only 验证是否沿用前序 review 的 diff review target
   - report-only 模式是否明确声明为 terminal report，不继续 handoff
+  - ownership route 是否可收敛到 canonical 闭集
+  - paused / interrupted owner 候选是否已读取 matching suspended package evidence
+  - active-owner guard 是否已在 resume route 前判定
   - 先跑与当前改动直接相关的测试
   - 核心稳定功能是否仍正常
   - 最小 smoke check 是否完成
@@ -42,10 +47,16 @@ stop_conditions:
   - 验证结果与任务目标冲突
   - 现有测试缺失但无法完成人工检查
   - 认证态验证需要 session/cookie 但不可用
+  - paused / interrupted owner 候选存在但 matching suspended package evidence 缺失、marker 不自洽或无法唯一解析
+  - active-owner guard 未通过却试图直接报告 resume success chain
 output:
   - QA mode
   - Target surface
   - Checks run
+  - Ownership assessment
+  - Ownership evidence
+  - Recommended route
+  - Recommended handoff
   - Browser/session requirement
   - Visual evidence
   - Release evidence
@@ -59,6 +70,14 @@ output:
 handoff:
   success: sync-current-task
   failure: investigate-root-cause
+conditional_handoff:
+  scope_widening_candidate: lock-scope
+  resume_paused_guard_passed: resume-paused-task
+  resume_paused_guard_blocked: ask-user
+  resume_interrupted_guard_passed: resume-interrupted-task
+  resume_interrupted_guard_blocked: ask-user
+  new_bug_task_required: create-current-task
+  user_decision_required: ask-user
 decision_policy:
   mechanical: 可以自动运行已有测试和整理结果。
   taste: 不要为了看起来更好而删减失败信息。
@@ -66,6 +85,9 @@ decision_policy:
 verification:
   - QA mode selection 已说明
   - 已声明 diff-aware / report-only 验证使用的 diff review target
+  - "`Recommended route` 已收敛到 canonical ownership route 闭集"
+  - paused / interrupted owner 候选已先读取 matching suspended package evidence
+  - resume route 已报告 active-owner guard 结果
   - 已运行相关测试或完成最小 smoke check
   - UI / 交互相关任务已说明是否执行 browser-backed smoke
   - UI / 视觉任务已说明 visual QA、browser-backed smoke 或 blocked reason
@@ -176,11 +198,16 @@ browser_session_policy:
 1. Read every file listed in frontmatter `reads` before making any decision.
 2. If a required file is missing, follow `handoff.failure` instead of guessing.
 3. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+4. If `Ownership assessment` points to a paused / interrupted owner candidate, read the matching suspended package evidence from `TASKS/paused/**` or `TASKS/interrupted/**` before choosing `Recommended route`, `Recommended handoff`, or a blocked QA result.
+5. Do not infer owner from package presence, runtime memory, or fuzzy similarity; if the suspended package evidence is missing, contradictory, or not unique, fail closed to `blocked`, `ask-user`, `evidence gap`, `lock-scope`, or `/create-current-task`.
 
 ## Must Check
 
 - QA mode 是否匹配任务风险和验证目标
 - diff-aware / report-only 验证是否沿用前序 review 的 diff review target
+- `Ownership assessment` 是否已收敛到 canonical route 闭集
+- paused / interrupted owner 候选是否已读取 matching suspended package evidence
+- active-owner guard 是否已在 resume route 前判定
 - 先跑与当前改动直接相关的测试
 - 核心稳定功能是否仍正常
 - 最小 smoke check 是否完成
@@ -270,6 +297,7 @@ browser_session_policy:
 - report-only pass 不 handoff 到 sync-current-task
 - report-only fail 不 handoff 到 investigate-root-cause
 - report-only findings 只作为人工审查证据，不自动触发修复链
+- report-only 仍必须输出 `Recommended route` / `Recommended handoff`，但只能报告，不得自动执行 route
 
 ### browser_session_policy
 - 不绑定具体 browse daemon；如果项目有浏览器工具或宿主支持浏览器能力，应执行 browser-backed smoke
@@ -283,6 +311,54 @@ browser_session_policy:
 - `report-only`：只输出问题、证据和风险；不修复、不更新治理文档、不进入实现。
 - `authenticated-browser`：用于登录态页面、权限流、账号状态相关验证。先确认 session/cookie 或人工登录可用。
 - `regression-baseline`：当存在 baseline、截图、历史报告或性能/行为基线时，做前后对比。
+
+## Ownership-Aware Routing
+
+`/run-regression` 在输出 pass / fail / blocked / report-only 结论前，必须先判断该验证结果属于哪个 owner，再决定是否推荐后续 handoff。
+
+Canonical ownership route 闭集：
+
+- `current_task_owned`
+- `scope_widening_candidate`
+- `resume_paused_required`
+- `resume_interrupted_required`
+- `new_bug_task_required`
+- `user_decision_required`
+
+Skill-local alias 只能映射到 canonical route 或 guard 结果，不能扩展闭集：
+
+- `scope_widening_candidate`：映射 `scope_widening_candidate`
+- `resume_paused_guard_passed` / `resume_paused_guard_blocked`：映射 `resume_paused_required`
+- `resume_interrupted_guard_passed` / `resume_interrupted_guard_blocked`：映射 `resume_interrupted_required`
+- `new_bug_task_required`：映射 `new_bug_task_required`
+- `user_decision_required`：映射 `user_decision_required`
+
+Ownership assessment rules：
+
+- 只有当验证结果属于当前 active task、后续修复仍在当前 Allowed Files 内，才可输出 `current_task_owned`。
+- 当验证结果属于当前任务目标，但最小修复路径会越出 Allowed Files 时，输出 `scope_widening_candidate`。
+- 当验证结果明显属于唯一 paused / interrupted owner 候选时，先读取 matching suspended package evidence，再决定是否输出 `resume_paused_required` 或 `resume_interrupted_required`。
+- 当验证结果不属于当前 active task，也不属于可恢复的唯一 suspended owner，且需要单独 bug 任务承载时，输出 `new_bug_task_required`。
+- 当当前 live task 仍持有 active ownership、需要用户决定是否 pause / interrupt 当前任务后再恢复旧任务，或验证结论依赖人工裁决时，输出 `user_decision_required`。
+
+Ownership evidence rules：
+
+- `Ownership evidence` 必须引用 live `CURRENT_TASK.md`、`diff_review_target`、已执行 checks，以及命中时读取到的 matching suspended package evidence。
+- 不得仅凭运行时记忆或模糊相似性猜测 owner。
+- 若 suspended package marker 不自洽、文件缺失、同时命中多个候选或无法唯一解析，明确记录 `evidence gap`，并保持 fail-closed。
+
+Recommended handoff rules：
+
+- `current_task_owned` -> `/sync-current-task`
+- `scope_widening_candidate` -> `scope_widening_candidate` -> `/lock-scope`
+- `resume_paused_required` -> `resume_paused_guard_passed` -> `/resume-paused-task`
+- `resume_paused_required` -> `resume_paused_guard_blocked` -> `/ask-user`
+- `resume_interrupted_required` -> `resume_interrupted_guard_passed` -> `/resume-interrupted-task`
+- `resume_interrupted_required` -> `resume_interrupted_guard_blocked` -> `/ask-user`
+- `new_bug_task_required` -> `new_bug_task_required` -> `/create-current-task`
+- `user_decision_required` -> `user_decision_required` -> `/ask-user`
+
+`Recommended route` 表达 owner 归属；`Recommended handoff` 表达 guard-aware 下一步。`qa_mode=report-only` 时仍必须输出这两个字段，但只报告，不自动执行 handoff。若 suspended package evidence 缺失、矛盾、无法唯一解析，或 active-owner guard 未通过，只能导向 `blocked`、`ask-user`、`evidence gap`、`lock-scope` 或 `/create-current-task`，不得直接进入 resume success chain。
 
 ## Release Verification Rules
 
@@ -317,6 +393,10 @@ QA Report:
 - QA mode:
 - Target surface:
 - Checks run:
+- Ownership assessment:
+- Ownership evidence:
+- Recommended route:
+- Recommended handoff:
 - Browser/session requirement:
 - Visual evidence:
 - Release evidence:
@@ -332,12 +412,14 @@ QA Report:
 2. Read all files listed in `reads`.
 3. Select and state the QA mode before running checks.
 4. Check `must_check` items before acting.
-5. Respect `forbidden_writes` and current task boundaries.
-6. If any `stop_conditions` match, produce a fail or blocked QA report; use `handoff.failure` for actual regressions outside `report-only`, and do not implement fixes here.
-7. In `report-only` mode, stop after the QA report even when findings exist.
-8. In `report-only` mode, do not follow `handoff.success` or `handoff.failure`; the QA report is the terminal output.
-9. Produce the artifact(s) described in `output`.
-10. Hand off to `handoff.success` when the skill completes normally outside `report-only` mode.
+5. Complete `Ownership assessment` and `Ownership evidence` before choosing any `Recommended route` or `Recommended handoff`.
+6. If the route points to paused / interrupted ownership, read the matching suspended package evidence first and evaluate the active-owner guard before choosing `Recommended handoff`.
+7. Respect `forbidden_writes` and current task boundaries.
+8. If any `stop_conditions` match, produce a fail or blocked QA report; use `handoff.failure` for actual regressions outside `report-only`, and do not implement fixes here.
+9. In `report-only` mode, stop after the QA report even when findings exist.
+10. In `report-only` mode, do not follow `handoff.success` or `handoff.failure`; the QA report is the terminal output.
+11. Produce the artifact(s) described in `output`.
+12. Hand off to `handoff.success` when the skill completes normally outside `report-only` mode.
 
 ## Output Contract
 

@@ -20,6 +20,7 @@
 - [x] 任务 `002` / `supersede-current-task-skill`：`supersede-current-task` 已加入 workflow skill 模板集；registry 顺序、高风险审计列表、`WORKFLOW_GUIDE` 路由、聚焦测试与 generated reference outputs 已同步，`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness` 通过。
 - [x] 任务 `003` / `current-task-suspend-resume-contract-foundation`：`CURRENT_TASK` 暂停 / 中断 / 恢复第一阶段协议契约已落地；`WORKFLOW_PROTOCOL`、`FILE_SCHEMAS`、`CURRENT_TASK` 模板、task identity resolver、bootstrap task identity output、suspended package validator 与 protocol-level validation flow 已同步；单一 `CURRENT_TASK.md` generated reference render 已由生成器同步，`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过。
 - [x] 任务 `004` / `current-task-lifecycle-runtime-skills`：`pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task` 四个 runtime skill 已落地；`review-current-task` 已成为 resumed task 的首个强制消费者；`WORKFLOW_GUIDE`、`SKILL_REGISTRY`、对应 generated reference outputs 与聚焦测试已同步；任务已归档到 `TASKS/TASK-004-current-task-lifecycle-runtime-skills.md`，`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过。
+- [x] 任务 `005` / `ownership-aware-root-cause-routing`：`investigate-root-cause`、`run-regression`、`sync-review-findings` 与 `WORKFLOW_GUIDE` 已收敛 ownership-aware routing；canonical route 闭集、guard-aware handoff、matching suspended package evidence 读取、report-only terminal rule、finding queue isolation 与 active-owner guard 指引已落地，相关 generated reference outputs 与 `SKILL_REGISTRY.md` 已同步；`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过。
 
 ## 🔨 正在开发
 
@@ -41,6 +42,7 @@
 - 外部 target repo 的历史安装版本与兼容窗口未知。
 - `docs/workflow/generated/workflow-skills/{plan-implementation,implement-current-step,investigate-root-cause,review-implementation}.SKILL.md` 已随模板生成链派生更新；必须继续保持 generated 文件只由生成器更新。
 - lifecycle runtime skills、generated guide / registry 与 resumed-task review routing 已在任务 `004` 收敛；后续若要继续扩到 inbox / backlog artifact 或 runtime manifest / install / health report contract，仍必须单独开任务并重新锁范围。
+- ownership-aware route 闭集、guard-aware alias 和 finding queue isolation 已在任务 `005` 收敛；后续若要继续扩大到 protocol / schema / runtime 级别的 owner state、manifest 或自动恢复策略，仍必须单独开任务并重新锁范围。
 
 ## ❌ 已移除 / 推迟
 
@@ -49,7 +51,7 @@
 
 ## 🔜 下一检查点
 
-- 任务 `004` 已完成 runtime skills、guide / registry routing、generated reference 同步、完成审核修正与归档；如需继续推进 lifecycle 相关工作，应评估是否需要 inbox / backlog artifact 或 runtime manifest / install / health report contract 的独立任务。
+- 任务 `005` 已完成 ownership-aware root-cause / regression / review-finding routing 与 guide 显式化；如需继续推进 owner routing 相关工作，应评估是否需要 protocol / schema / runtime 级别的 dedicated owner state、自动恢复策略或 inbox / backlog artifact，并单独开任务重新锁范围。
 - 若要实现 target root guard，先开独立任务并锁定 `scripts/**`、`test/**`、协议和基线影响范围。
 - adoption 后运行 `bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。
 
@@ -57,6 +59,7 @@
 
 - 2026-05-26：任务 `003` / `current-task-suspend-resume-contract-foundation` 已完成第一阶段协议契约、schema、模板、resolver、bootstrap output、suspended package validation 与 protocol-level synthesized check；`docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 已按 Conditional File 由生成器同步。最终回归通过：`bun run gen:all`、`bun run test:workflow-all`（201 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。Release mode 为 none，发布后状态不适用。
 - 2026-05-26：任务 `004` / `current-task-lifecycle-runtime-skills` 已完成四个 lifecycle runtime skill、`review-current-task` 的 resume gate 消费扩展、`WORKFLOW_GUIDE` / `SKILL_REGISTRY` 路由同步、generated reference outputs 同步、全量回归、完成审核修正与归档；归档文件为 `TASKS/TASK-004-current-task-lifecycle-runtime-skills.md`。最终回归通过：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`（201 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。Release mode 为 none，发布后状态不适用。
+- 2026-05-27：任务 `005` / `ownership-aware-root-cause-routing` 已完成 `investigate-root-cause`、`run-regression`、`sync-review-findings` 与 `WORKFLOW_GUIDE` 的 ownership-aware routing 收敛；canonical route 闭集、guard-aware alias、matching suspended package evidence 读取、report-only terminal rule、finding queue isolation 与 guide 中的 active-owner guard 指引已同步到模板、generated reference outputs、`SKILL_REGISTRY.md`、`CONTRACTS.md`、`DECISIONS.md` 与 `LESSONS.md`。最终回归通过：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`（201 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。Release mode 为 none，发布后状态不适用。
 - 2026-05-22：任务 `002` / `supersede-current-task-skill` 已完成模板、registry、guide、聚焦测试、generated outputs 和最终复核；`review-diff`、`review-implementation`、`verify-contracts` 结论为 clean，`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness` 通过。Release mode 为 none，发布后状态不适用。
 - 2026-05-13：任务 `001` / `ctx7-skill-gate` 已完成步骤 9-11 并通过回归；`bun run gen:workflow-skills --dry-run`、`bun run gen:registry --dry-run`、`bun run test:workflow-skills`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run test:workflow-all`、`bun run workflow:health --root .` 均通过。Release mode 为 none，发布后状态不适用。
 - 2026-05-13：任务 `001` / `ctx7-skill-gate` 已完成四个目标模板的 `External Documentation Gate` 接入，并完成四模板一致性检查与最小生成测试；当时进入步骤 9-11 的生成 / registry dry-run、generated reference 确认和任务级回归，后续已完成。

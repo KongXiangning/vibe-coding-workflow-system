@@ -16,6 +16,8 @@ inputs:
   - current_task
 reads:
   - CURRENT_TASK.md
+  - TASKS/paused/**
+  - TASKS/interrupted/**
 writes:
   - CURRENT_TASK.md
 forbidden_writes:
@@ -25,11 +27,16 @@ must_check:
   - 复现路径是否明确
   - 根因是否与当前改动直接相关
   - 是否存在更小修复面
+  - ownership route 是否可收敛到 canonical 闭集
+  - paused / interrupted owner 候选是否已读取 matching suspended package evidence
+  - active-owner guard 是否已判定
   - 是否存在第三方 library / framework / SDK / API / CLI tool / cloud service current behavior 相关 root cause hypothesis，是否需要触发 External Documentation Gate
 stop_conditions:
   - 连续多次定位仍不收敛
   - 根因判断需要额外产品决策
   - 问题实际来自范围外系统
+  - paused / interrupted owner 候选存在但 matching suspended package evidence 缺失、marker 不自洽或无法唯一解析
+  - active-owner guard 未通过却试图直接 handoff 到 resume success chain
   - External Documentation Gate 已触发但无法取得 current docs evidence，且第三方 current behavior 是当前 root cause hypothesis 的关键判断依据
   - ctx7 evidence 否定当前 root cause hypothesis，且没有新的可验证假设
 output:
@@ -37,6 +44,10 @@ output:
   - Reproduction
   - Root cause hypothesis
   - Evidence
+  - Ownership assessment
+  - Ownership evidence
+  - Recommended route
+  - Recommended handoff
   - External docs evidence、no-op reason 或 blocked reason
   - Minimal fix path
   - Regression check
@@ -49,6 +60,13 @@ handoff:
 conditional_handoff:
   new_bug_registration: create-current-task
   report_only_investigation: ask-user
+  scope_widening_candidate: lock-scope
+  resume_paused_guard_passed: resume-paused-task
+  resume_paused_guard_blocked: ask-user
+  resume_interrupted_guard_passed: resume-interrupted-task
+  resume_interrupted_guard_blocked: ask-user
+  new_bug_task_required: create-current-task
+  user_decision_required: ask-user
   verified_current_task_root_cause: plan-implementation
 decision_policy:
   mechanical: 可以自动做日志、调用链和差异比对。
@@ -139,12 +157,17 @@ external_documentation_gate:
 3. Only after the request is confirmed as current-task investigation, read every file listed in frontmatter `reads`.
 4. If `CURRENT_TASK.md` is missing during current-task investigation, hand off to `/create-current-task` instead of guessing.
 5. When `CURRENT_TASK.md` exists, treat it as the source of truth for scope.
+6. If `Ownership assessment` points to a paused / interrupted owner candidate, read the matching suspended package evidence from `TASKS/paused/**` or `TASKS/interrupted/**` before choosing `Recommended route`, `Recommended handoff`, or `Minimal fix path`.
+7. Do not infer owner from package presence, runtime memory, or fuzzy similarity; if the suspended package evidence is missing, contradictory, or not unique, fail closed to `blocked`, `ask-user`, `evidence gap`, `lock-scope`, or `/create-current-task`.
 
 ## Must Check
 
 - 复现路径是否明确
 - 根因是否与当前改动直接相关
 - 是否存在更小修复面
+- `Ownership assessment` 是否已收敛到 canonical route 闭集
+- paused / interrupted owner 候选是否已读取 matching suspended package evidence
+- active-owner guard 是否已先于 resume handoff 判定
 
 ## Stop Conditions
 
@@ -209,7 +232,62 @@ external_documentation_gate:
 5. Verify that hypothesis before fixing: use a targeted test, log, assertion, debugger output, or minimal reproduction to confirm or reject it.
 6. If the hypothesis is rejected, record the evidence and form the next hypothesis. Do not patch symptoms between hypotheses.
 7. If three hypotheses fail, stop and hand off to `handoff.failure` with the tested hypotheses and evidence.
-8. After the root cause is verified, identify the smallest viable fix path and the regression check that proves the original failure is fixed.
+8. After the root cause is verified, produce `Ownership assessment` and `Ownership evidence` before choosing any repair path or handoff.
+9. Use exactly one `Recommended route` from the canonical ownership route set: `current_task_owned`, `scope_widening_candidate`, `resume_paused_required`, `resume_interrupted_required`, `new_bug_task_required`, `user_decision_required`.
+10. If the route points to paused / interrupted ownership, read the matching suspended package evidence first and evaluate the active-owner guard before choosing `Recommended handoff`.
+11. If suspended package evidence is missing, contradictory, or not unique, or if the active-owner guard fails, only route to `blocked`, `ask-user`, `evidence gap`, `lock-scope`, or `/create-current-task`; do not jump directly to a resume success chain.
+12. After route selection is stable, identify the smallest viable fix path and the regression check that proves the original failure is fixed.
+
+## Ownership-Aware Routing
+
+`/investigate-root-cause` 在根因验证后必须先做 ownership-aware routing，再决定是否继续当前任务修复。
+
+Canonical ownership route 闭集：
+
+- `current_task_owned`
+- `scope_widening_candidate`
+- `resume_paused_required`
+- `resume_interrupted_required`
+- `new_bug_task_required`
+- `user_decision_required`
+
+Skill-local alias 只能映射到 canonical route 或 pre-routing state，不能扩展闭集：
+
+- `new_bug_registration`：pre-routing state，直接 handoff 到 `/create-current-task`
+- `report_only_investigation`：pre-routing state，直接 handoff 到 `/ask-user`
+- `verified_current_task_root_cause`：映射 `current_task_owned`
+- `scope_widening_candidate`：映射 `scope_widening_candidate`
+- `resume_paused_guard_passed` / `resume_paused_guard_blocked`：映射 `resume_paused_required`
+- `resume_interrupted_guard_passed` / `resume_interrupted_guard_blocked`：映射 `resume_interrupted_required`
+- `new_bug_task_required`：映射 `new_bug_task_required`
+- `user_decision_required`：映射 `user_decision_required`
+
+Ownership assessment rules:
+
+- 只有当问题位于当前 active task 的 Allowed Files 内，且最小修复不需要 widening，才可输出 `current_task_owned`。
+- 当根因属于当前任务目标，但最小修复路径会越出 Allowed Files 时，输出 `scope_widening_candidate` 并 handoff 到 `/lock-scope`。
+- 当根因明显属于唯一 paused / interrupted owner 候选时，先读取 matching suspended package evidence，再决定是否输出 `resume_paused_required` 或 `resume_interrupted_required`。
+- 当问题不属于当前 active task，也不属于可恢复的唯一 suspended owner，且需要单独 bug 任务承载时，输出 `new_bug_task_required`。
+- 当当前 live task 仍持有 active ownership、需要用户决定是否 pause / interrupt 当前任务后再恢复旧任务，或根因结论依赖人工裁决时，输出 `user_decision_required`。
+
+Ownership evidence rules:
+
+- `Ownership evidence` 必须引用 live `CURRENT_TASK.md`、当前 diff / symptom / reproduction，以及命中时读取到的 matching suspended package evidence。
+- 不得仅凭运行时记忆或模糊相似性猜测 owner。
+- 若 suspended package marker 不自洽、文件缺失、同时命中多个候选或无法唯一解析，明确记录 `evidence gap`，并保持 fail-closed。
+
+Recommended handoff rules:
+
+- `current_task_owned` -> `verified_current_task_root_cause` -> `/plan-implementation`
+- `scope_widening_candidate` -> `scope_widening_candidate` -> `/lock-scope`
+- `resume_paused_required` -> `resume_paused_guard_passed` -> `/resume-paused-task`
+- `resume_paused_required` -> `resume_paused_guard_blocked` -> `/ask-user`
+- `resume_interrupted_required` -> `resume_interrupted_guard_passed` -> `/resume-interrupted-task`
+- `resume_interrupted_required` -> `resume_interrupted_guard_blocked` -> `/ask-user`
+- `new_bug_task_required` -> `new_bug_task_required` -> `/create-current-task`
+- `user_decision_required` -> `user_decision_required` -> `/ask-user`
+
+`Recommended route` 表达 owner 归属；`Recommended handoff` 表达 guard-aware 下一步。归属判断不得被包装成自动修复授权。
 
 ## External Documentation Gate
 
@@ -259,6 +337,7 @@ external_documentation_gate:
 - 修复必须针对已证明的根因，而不是隐藏报错、扩大兜底或绕过失败路径。
 - 如果根因或最小修复路径超出 `CURRENT_TASK.md` 的允许范围，停止并回到 `/lock-scope` 或 `handoff.failure`。
 - 如果修复需要改变产品行为、接口契约或架构边界，按 `user_challenge` 停下确认。
+- `Minimal fix path` 只在 `Recommended route = current_task_owned` 时直接指向当前任务修复；其他 route 只能描述 why-not-fix-here 与下一步 handoff。
 - 修复后必须复验原始失败场景，并说明回归检查如何覆盖该 bug。
 
 ## Debug Report Template
@@ -269,6 +348,10 @@ Bug 调查报告：
 - Reproduction:
 - Root cause hypothesis:
 - Evidence:
+- Ownership assessment:
+- Ownership evidence:
+- Recommended route:
+- Recommended handoff:
 - Minimal fix path:
 - Regression check:
 - Remaining risk:

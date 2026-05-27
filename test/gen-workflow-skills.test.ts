@@ -414,12 +414,22 @@ describe('gen-workflow-skills', () => {
     const frontmatter = parseFrontmatter(syncFindingsPath);
     const handoff = frontmatter.handoff as Record<string, unknown>;
     const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
-    expect(normalizeList(frontmatter.reads)).toContain(CURRENT_TASK_DOC);
+    expect(normalizeList(frontmatter.reads)).toEqual([
+      CURRENT_TASK_DOC,
+      'TASKS/paused/**',
+      'TASKS/interrupted/**',
+    ]);
     expect(normalizeList(frontmatter.writes)).toEqual([CURRENT_TASK_DOC]);
     expect(normalizeList(frontmatter.forbidden_writes)).toContain(CONTRACTS_DOC);
     expect(handoff.success).toBe('implement-current-step');
     expect(conditionalHandoff.queued_fixable_findings).toBe('implement-current-step');
-    expect(conditionalHandoff.scope_widening).toBe('lock-scope');
+    expect(conditionalHandoff.scope_widening_candidate).toBe('lock-scope');
+    expect(conditionalHandoff.resume_paused_guard_passed).toBe('resume-paused-task');
+    expect(conditionalHandoff.resume_paused_guard_blocked).toBe('ask-user');
+    expect(conditionalHandoff.resume_interrupted_guard_passed).toBe('resume-interrupted-task');
+    expect(conditionalHandoff.resume_interrupted_guard_blocked).toBe('ask-user');
+    expect(conditionalHandoff.new_bug_task_required).toBe('create-current-task');
+    expect(conditionalHandoff.user_decision_required).toBe('ask-user');
     expect(conditionalHandoff.product_contract_architecture).toBe('ask-user');
     expect(conditionalHandoff.unknown_root_cause).toBe('investigate-root-cause');
     expect(conditionalHandoff.invalid_finding_input).toBe('ask-user');
@@ -431,6 +441,11 @@ describe('gen-workflow-skills', () => {
     expect(syncFindings).toContain('Minimal fix direction');
     expect(syncFindings).toContain('Required test');
     expect(syncFindings).toContain('review-implementation');
+    expect(syncFindings).toContain('matching suspended package evidence');
+    expect(syncFindings).toContain('active-owner guard');
+    expect(syncFindings).toContain('current_task_owned');
+    expect(syncFindings).toContain('resume_paused_required');
+    expect(syncFindings).toContain('resume_interrupted_required');
 
     const implementStep = fs.readFileSync(path.join(OUTPUT_DIR, 'implement-current-step.SKILL.md'), 'utf8');
     expect(implementStep).toContain('Review Finding Intake');
@@ -755,23 +770,81 @@ describe('gen-workflow-skills', () => {
   });
 
   test('investigate-root-cause enforces root-cause-first debugging loop', () => {
-    const content = fs.readFileSync(path.join(OUTPUT_DIR, 'investigate-root-cause.SKILL.md'), 'utf8');
+    const skillPath = path.join(OUTPUT_DIR, 'investigate-root-cause.SKILL.md');
+    const frontmatter = parseFrontmatter(skillPath);
+    const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
+    const content = fs.readFileSync(skillPath, 'utf8');
+
+    expect(normalizeList(frontmatter.reads)).toContain(CURRENT_TASK_DOC);
+    expect(normalizeList(frontmatter.reads)).toContain('TASKS/paused/**');
+    expect(normalizeList(frontmatter.reads)).toContain('TASKS/interrupted/**');
+    expect(conditionalHandoff.scope_widening_candidate).toBe('lock-scope');
+    expect(conditionalHandoff.resume_paused_guard_passed).toBe('resume-paused-task');
+    expect(conditionalHandoff.resume_paused_guard_blocked).toBe('ask-user');
+    expect(conditionalHandoff.resume_interrupted_guard_passed).toBe('resume-interrupted-task');
+    expect(conditionalHandoff.resume_interrupted_guard_blocked).toBe('ask-user');
+    expect(conditionalHandoff.new_bug_task_required).toBe('create-current-task');
+    expect(conditionalHandoff.user_decision_required).toBe('ask-user');
+    expect(Object.hasOwn(conditionalHandoff, 'resume_paused_required')).toBe(false);
+    expect(Object.hasOwn(conditionalHandoff, 'resume_interrupted_required')).toBe(false);
     expect(content).toContain('Root cause hypothesis');
     expect(content).toContain('Reproduction');
     expect(content).toContain('Evidence');
+    expect(content).toContain('Ownership assessment');
+    expect(content).toContain('Ownership evidence');
+    expect(content).toContain('Recommended route');
+    expect(content).toContain('Recommended handoff');
     expect(content).toContain('Minimal fix path');
     expect(content).toContain('Regression check');
     expect(content).toContain('未验证 root cause hypothesis 前不得修复');
     expect(content).toContain('若三个 root cause hypothesis 仍不收敛');
     expect(content).toContain('修复后必须复验原始失败场景');
+    expect(content).toContain('matching suspended package evidence');
+    expect(content).toContain('不得仅凭运行时记忆或模糊相似性猜测 owner');
+    expect(content).toContain('active-owner guard');
+    expect(content).toContain('current_task_owned');
+    expect(content).toContain('scope_widening_candidate');
+    expect(content).toContain('resume_paused_required');
+    expect(content).toContain('resume_interrupted_required');
+    expect(content).toContain('new_bug_task_required');
+    expect(content).toContain('user_decision_required');
+    expect(content).toContain('evidence gap');
   });
 
   test('run-regression enforces QA mode selection and report-only behavior', () => {
     const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, 'run-regression.SKILL.md'));
     const content = fs.readFileSync(path.join(OUTPUT_DIR, 'run-regression.SKILL.md'), 'utf8');
+    expect(normalizeList(frontmatter.reads)).toEqual([
+      CURRENT_TASK_DOC,
+      'TASKS/paused/**',
+      'TASKS/interrupted/**',
+      '.workflow-system/PROJECT_PROFILE.yaml',
+    ]);
     expect(String((frontmatter.handoff as Record<string, unknown>).failure)).toBe('investigate-root-cause');
+    expect(frontmatter.output).toEqual(
+      expect.arrayContaining([
+        'Ownership assessment',
+        'Ownership evidence',
+        'Recommended route',
+        'Recommended handoff',
+      ]),
+    );
+    const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
+    expect(String(conditionalHandoff.scope_widening_candidate)).toBe('lock-scope');
+    expect(String(conditionalHandoff.resume_paused_guard_passed)).toBe('resume-paused-task');
+    expect(String(conditionalHandoff.resume_paused_guard_blocked)).toBe('ask-user');
+    expect(String(conditionalHandoff.resume_interrupted_guard_passed)).toBe('resume-interrupted-task');
+    expect(String(conditionalHandoff.resume_interrupted_guard_blocked)).toBe('ask-user');
+    expect(String(conditionalHandoff.new_bug_task_required)).toBe('create-current-task');
+    expect(String(conditionalHandoff.user_decision_required)).toBe('ask-user');
+    expect(conditionalHandoff).not.toHaveProperty('resume_paused_required');
+    expect(conditionalHandoff).not.toHaveProperty('resume_interrupted_required');
     for (const expected of [
       'QA mode',
+      'Ownership assessment',
+      'Ownership evidence',
+      'Recommended route',
+      'Recommended handoff',
       'diff-aware',
       'quick-smoke',
       'full-qa',
@@ -779,12 +852,69 @@ describe('gen-workflow-skills', () => {
       'authenticated-browser',
       'regression-baseline',
       'Browser/session requirement',
+      'matching suspended package evidence',
+      'active-owner guard',
+      'current_task_owned',
+      'scope_widening_candidate',
+      'resume_paused_required',
+      'resume_interrupted_required',
+      'new_bug_task_required',
+      'user_decision_required',
+      'evidence gap',
     ]) {
       expect(content).toContain(expected);
     }
     expect(content).toContain('report-only 模式只报告问题和证据，不进入实现或修复');
+    expect(content).toContain('report-only 仍必须输出 `Recommended route` / `Recommended handoff`');
+    expect(content).toContain('不得仅凭运行时记忆或模糊相似性猜测 owner');
     expect(content).toContain('需要登录但 session/cookie 不可用时输出 blocked');
     expect(content).toContain('不得把未验证页面记为通过');
+    expect(content).toContain('不得直接进入 resume success chain');
+  });
+
+  test('sync-review-findings routes findings by ownership before queueing', () => {
+    const frontmatter = parseFrontmatter(path.join(OUTPUT_DIR, 'sync-review-findings.SKILL.md'));
+    const content = fs.readFileSync(path.join(OUTPUT_DIR, 'sync-review-findings.SKILL.md'), 'utf8');
+    expect(normalizeList(frontmatter.reads)).toEqual([
+      CURRENT_TASK_DOC,
+      'TASKS/paused/**',
+      'TASKS/interrupted/**',
+    ]);
+    expect(frontmatter.output).toEqual(
+      expect.arrayContaining([
+        'Ownership assessment',
+        'Ownership evidence',
+        'Recommended route',
+        'Recommended handoff',
+      ]),
+    );
+    const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
+    expect(String(conditionalHandoff.queued_fixable_findings)).toBe('implement-current-step');
+    expect(String(conditionalHandoff.scope_widening_candidate)).toBe('lock-scope');
+    expect(String(conditionalHandoff.resume_paused_guard_passed)).toBe('resume-paused-task');
+    expect(String(conditionalHandoff.resume_paused_guard_blocked)).toBe('ask-user');
+    expect(String(conditionalHandoff.resume_interrupted_guard_passed)).toBe('resume-interrupted-task');
+    expect(String(conditionalHandoff.resume_interrupted_guard_blocked)).toBe('ask-user');
+    expect(String(conditionalHandoff.new_bug_task_required)).toBe('create-current-task');
+    expect(String(conditionalHandoff.user_decision_required)).toBe('ask-user');
+    expect(conditionalHandoff).not.toHaveProperty('resume_paused_required');
+    expect(conditionalHandoff).not.toHaveProperty('resume_interrupted_required');
+    for (const expected of [
+      'matching suspended package evidence',
+      'active-owner guard',
+      'current_task_owned',
+      'scope_widening_candidate',
+      'resume_paused_required',
+      'resume_interrupted_required',
+      'new_bug_task_required',
+      'user_decision_required',
+      'evidence gap',
+      '只有 `current_task_owned`',
+      'paused / interrupted / new bug / user decision findings',
+      '不得仅凭运行时记忆或模糊相似性猜测 owner',
+    ]) {
+      expect(content).toContain(expected);
+    }
   });
 
   test('sync-host-guidance keeps AGENTS.md and CLAUDE.md aligned as project-wide host guidance', () => {

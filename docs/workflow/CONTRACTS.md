@@ -195,6 +195,16 @@
     - generated workflow skills、generated workflow guide 与 registry 只能由生成器同步。
   - verification：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
 
+- 对象路径：ownership-aware root-cause / regression / review-finding routing
+  - assertions：
+    - `investigate-root-cause`、`run-regression`、`sync-review-findings` 的 owner routing 必须收敛到 6 个 canonical route：`current_task_owned`、`scope_widening_candidate`、`resume_paused_required`、`resume_interrupted_required`、`new_bug_task_required`、`user_decision_required`。
+    - 命中 paused / interrupted owner 候选时，3 个 skill 都必须先读取 `TASKS/paused/**` 或 `TASKS/interrupted/**` 中的 matching suspended package evidence，不得仅凭 package presence、运行时记忆或模糊相似性猜测 owner。
+    - skill-local alias 只能映射到 canonical route 或 pre-routing state；恢复链只能通过 `resume_*_guard_passed` / `resume_*_guard_blocked` 进入，不得保留 `resume_*_required -> resume-*` 的一跳 handoff。
+    - `run-regression` 的 `report-only` 仍是 terminal report；可以报告 `Recommended route` / `Recommended handoff`，但不得自动触发恢复或修复链。
+    - `sync-review-findings` 只允许把 `current_task_owned` 且当前 Allowed Files 内可修的 mechanical implementation finding 写入当前 `CURRENT_TASK.md > 审查问题队列`；paused / interrupted / new bug / user decision findings 必须保持队列隔离。
+    - `WORKFLOW_GUIDE` 必须显式说明：旧任务遗留 blocker 阻断当前 active task 时，先走 canonical route + active-owner guard；当前 live task 仍 active 时，必须先让用户决定是否 pause / interrupt 当前任务，再进入恢复链。
+  - verification：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
+
 ### compat path / wrapper rules
 
 - stable source object：`workflow:install`

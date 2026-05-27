@@ -97,6 +97,17 @@
 - 替代方案：让 resume 直接 handoff 到实现；新增 dedicated resume review skill；依赖字母排序隐式决定 registry 顺序。均不采用。
 - 验证方式：`bun run gen:all`; `bun run test:workflow-skills`; `bun run test:registry`; `bun run test:workflow-docs`; `bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`.
 
+### AD-009: ownership-aware blocker / root-cause / finding routing 保持 canonical route + guard-aware handoff 分离
+
+- 状态：accepted
+- 背景：任务 `005` 需要让 `investigate-root-cause`、`run-regression`、`sync-review-findings` 与 `WORKFLOW_GUIDE` 在遇到旧任务遗留 blocker、当前任务失败或 review finding 时，能稳定区分当前任务、scope widening、paused owner、interrupted owner、独立 bug 和人工决策。
+- 决策：owner 归属统一收敛到 6 个 canonical route：`current_task_owned`、`scope_widening_candidate`、`resume_paused_required`、`resume_interrupted_required`、`new_bug_task_required`、`user_decision_required`。skill-local alias 只表达 guard-aware handoff 或 pre-routing state，不扩展 route 闭集；恢复链只能通过 `resume_*_guard_passed` / `resume_*_guard_blocked` 进入。`run-regression(report-only)` 只报告 route，不自动执行 handoff；`sync-review-findings` 只允许 `current_task_owned` 且当前范围内可修的 mechanical finding 入当前队列。
+- 原因：把 owner 判断和下一步执行权限分离，避免把“应该恢复哪个任务”偷换成“现在就自动恢复 / 修复”，同时保证 evidence gap、owner 不唯一和 active-owner guard 未通过时能 fail-closed。
+- 约束：AI 不得跳过 matching suspended package evidence 读取；不得仅凭 package presence、运行时记忆或模糊相似性猜测 owner；不得把 paused / interrupted / new bug / user decision findings 错写到当前 `CURRENT_TASK.md > 审查问题队列`；不得让 `report-only` 流程自动进入恢复或修复链。
+- 影响范围：`templates/skills/{investigate-root-cause,run-regression,sync-review-findings}.SKILL.md.tmpl`, `templates/docs/WORKFLOW_GUIDE.md.tmpl`, `docs/workflow/generated/workflow-skills/**`, `docs/workflow/generated/workflow-docs/WORKFLOW_GUIDE.md`, `docs/workflow/SKILL_REGISTRY.md`, `test/gen-workflow-skills.test.ts`, `test/gen-workflow-docs.test.ts`
+- 替代方案：让每个 skill 自己发明 owner route；保留 `resume_*_required -> resume-*` 一跳 handoff；让 `report-only` 或 review finding 自动触发恢复 / 修复链。均不采用。
+- 验证方式：`bun run gen:all`; `bun run test:workflow-skills`; `bun run test:registry`; `bun run test:workflow-docs`; `bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`.
+
 ## 🎨 口味决策
 
 ### TD-001: 中文治理文档风格

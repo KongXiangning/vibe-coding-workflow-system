@@ -370,6 +370,19 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('/resume-interrupted-task` → `/review-current-task`');
   });
 
+  test('workflow guide documents ownership-aware blocker routing for old tasks', () => {
+    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
+    expect(guide).toContain('ownership-aware routing');
+    expect(guide).toContain('active-owner guard');
+    expect(guide).toContain('/resume-paused-task');
+    expect(guide).toContain('/resume-interrupted-task');
+    expect(guide).toContain('/lock-scope');
+    expect(guide).toContain('/create-current-task');
+    expect(guide).toContain('/ask-user');
+    expect(guide).toContain('当前 live task 仍 active 时');
+    expect(guide).toContain('必须先让用户决定是否 `/pause-current-task` 或 `/interrupt-current-task` 当前任务');
+  });
+
   test('document catalog codifies directory classification and lookup guidance', () => {
     const catalog = fs.readFileSync(path.join(OUTPUT_DIR, 'DOCUMENT_CATALOG.md'), 'utf8');
     expect(catalog).toContain('docs/workflow/');

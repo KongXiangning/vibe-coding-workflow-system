@@ -85,6 +85,13 @@
 - 触发信号：`scripts/gen-registry.ts` 对某个 `stage` 写了专门 summary 文案，或 `test/gen-registry.test.ts` 开始为该 stage 写顺序断言。
 - 应对动作：同时断言 `parseRegistryRows(...).filter(stage === ...)` 的完整顺序和 summary 行文本；若发现遗漏，优先修 generator summary，使其反映真实 stage membership，而不是削弱顺序断言。
 
+### Owner-sensitive workflow routing must separate ownership from handoff
+
+- 场景：当前 active task 在 root-cause、regression 或 review-finding 阶段遇到旧任务遗留 blocker，既要判断问题归属，又要决定是否允许恢复旧任务。
+- 结论：owner route 和下一步 handoff 必须分开表达；canonical route 只回答“归谁”，guard-aware alias 才回答“下一步怎么做”。如果 matching suspended package evidence 缺失、owner 不唯一，或 active-owner guard 未通过，必须 fail-closed 到 `ask-user`、`lock-scope`、`create-current-task` 或 `blocked / evidence gap`。
+- 触发信号：技能开始出现 `resume_*_required -> resume-*` 一跳 handoff、试图仅凭 package presence 推断 owner，或把旧任务遗留问题直接塞进当前审查问题队列。
+- 应对动作：先读取 matching suspended package evidence，再输出 canonical route；把恢复链改成 `resume_*_guard_passed` / `resume_*_guard_blocked`；只允许 `current_task_owned` 且当前范围内可修的 mechanical finding 进入当前队列，`report-only` 只报告 route 不自动执行 handoff。
+
 ## 部署与运行时
 
 - 场景：

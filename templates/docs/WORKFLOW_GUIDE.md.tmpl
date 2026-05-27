@@ -86,6 +86,8 @@
 7. 用 `/decompose-task` 把确认后的方案拆成一次只做一个当前步骤的小步计划。
 8. 每一步用 `/implement-current-step` 实现，并把执行记录写回 `CURRENT_TASK.md`。
 9. 每步后用 `/review-diff`、`/review-implementation`、`/verify-contracts`、`/run-regression` 做范围、实现质量、契约和回归复核；先声明本轮 `diff_review_target`，可以是未提交 diff、staged diff、commit range、task-base-to-HEAD、checkpoint-to-HEAD 或用户提供的 patch。长任务允许在流程未关闭前创建 checkpoint commit，但必须把 task base / checkpoint / review target 记录到 `CURRENT_TASK.md > 回滚点` 或执行记录，后续 review 不得因工作区为空而漏审已提交改动。只读审查发现当前 Allowed Files 内可修的 implementation findings 时，先用 `/sync-review-findings` 写入 `CURRENT_TASK.md > 审查问题队列`，再回到 `/implement-current-step` 修复。`/review-implementation` 必须检查实现是否满足目标、逻辑是否正确、边界条件和异常路径是否鲁棒、兼容性是否保持、测试是否覆盖原始问题和关键边界路径；`/run-regression` 必须先选择 QA mode。UI / 登录 / 表单 / 路由 / 状态流任务必须考虑 browser-backed smoke；UI / 视觉任务必须有 Design mode、Design source、Design acceptance、Design evidence 或 blocked reason；发布 / 部署 / canary / benchmark 任务必须有 Release mode、Deploy source、Target environment、Health checks、Rollback / recovery、Release evidence 或 blocked reason。如果测试或验证失败且根因不明确，先进入 `/investigate-root-cause`，不要直接修代码。
+   - 如果旧任务遗留问题阻断当前 active task，先做 ownership-aware routing：`current_task_owned` 才能继续当前修复；`scope_widening_candidate` 回 `/lock-scope`；唯一 paused / interrupted owner 只有在 matching suspended package evidence 存在且 active-owner guard 通过时才进入 `/resume-paused-task` 或 `/resume-interrupted-task`；否则按 `ask-user`、`create-current-task` 或 `blocked / evidence gap` fail-closed。
+   - 当前 live task 仍 active 时，不得直接恢复旧任务覆盖它；必须先让用户决定是否 `/pause-current-task` 或 `/interrupt-current-task` 当前任务，再继续恢复链。
 10. 需要暂时释放 active ownership 时，用 `/pause-current-task` 或 `/interrupt-current-task` 写出 suspended package；两者都必须采用 `write_incomplete + recovery_only` → read-back validation → `ready_for_resume + recovery_only` 的 fail-closed file transaction。
 11. 需要恢复时，用 `/resume-paused-task` 或 `/resume-interrupted-task` 从完整 payload 重建 `CURRENT_TASK.md`；恢复成功后必须回到 `/review-current-task`，不得直接进入 `/implement-current-step`。
 12. 用 `/sync-current-task`、`/sync-status`、必要时 `/sync-contracts` / `/sync-decisions` / `/sync-host-guidance` 同步治理事实。
@@ -255,6 +257,11 @@ flowchart TD
 | 当前任务必须中断并保留 checkpoint / dirty / environment / recovery evidence | `/interrupt-current-task` |
 | 从 paused package 恢复当前任务 | `/resume-paused-task` → `/review-current-task` |
 | 从 interrupted package 恢复当前任务 | `/resume-interrupted-task` → `/review-current-task` |
+| 旧任务遗留 blocker 属于唯一 paused owner，且 matching suspended package evidence 完整、active-owner guard 通过 | `/resume-paused-task` → `/review-current-task` |
+| 旧任务遗留 blocker 属于唯一 interrupted owner，且 matching suspended package evidence 完整、active-owner guard 通过 | `/resume-interrupted-task` → `/review-current-task` |
+| 旧任务遗留 blocker 命中 paused / interrupted owner，但当前 live task 仍 active，需要先决定是否暂停/中断当前任务 | `/ask-user`，先决定 `/pause-current-task` 或 `/interrupt-current-task` |
+| 旧任务遗留 blocker 属于当前任务但修复会越出 Allowed Files | `/lock-scope` |
+| 旧任务遗留 blocker 无法唯一归属，或需要独立 bug 任务承载 | `/create-current-task` |
 | 当前任务执行/验证失败，且不确定 bug 根因 | `/investigate-root-cause` |
 | 希望自动调查并修复当前 bug 任务 | `/debug-and-fix-current-task` |
 | 当前任务测试失败但原因不明 | `/investigate-root-cause` |

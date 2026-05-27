@@ -84,7 +84,7 @@
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
 | `debug-and-fix-current-task` | 针对当前 bug 任务先调查根因，再执行最小修复并完成审查和回归验证。 | 测试失败、回归失败、实现异常或用户要求自动调查并修复当前 bug 时。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md` | `[]` | `investigate-root-cause` | `ask-user` |
-| `investigate-root-cause` | 先做根因定位，再提出最小修复建议。 | 当前任务的测试失败、验证失败或实现过程中出现异常时；不是新 bug 登记入口。 | `docs/workflow/CURRENT_TASK.md` | `docs/workflow/CURRENT_TASK.md` | `plan-implementation` | `ask-user` |
+| `investigate-root-cause` | 先做根因定位，再提出最小修复建议。 | 当前任务的测试失败、验证失败或实现过程中出现异常时；不是新 bug 登记入口。 | `docs/workflow/CURRENT_TASK.md`、`TASKS/paused/**`、`TASKS/interrupted/**` | `docs/workflow/CURRENT_TASK.md` | `plan-implementation` | `ask-user` |
 
 ### 3.7 阶段 5：范围复核
 
@@ -93,14 +93,14 @@
 | `review-current-diff` | 只审查当前 diff，不修复；输出范围、实现质量、契约和回归验证风险。 | 用户要求 review、只报告问题、不要改代码，或准备合并前需要审查当前 diff 时。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md`、`.workflow-system/PROJECT_PROFILE.yaml` | `[]` | `review-diff` | `ask-user` |
 | `review-diff` | 审查当前 diff 是否越界、是否偏离任务意图。 | 每完成一个实现步骤后。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md` | `[]` | `review-implementation` | `ask-user` |
 | `review-implementation` | 审查当前实现是否真正解决任务目标，并检查代码合理性、鲁棒性和测试充分性。 | review-diff 通过后、进入契约验证前。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/LESSONS.md` | `[]` | `verify-contracts` | `ask-user` |
-| `sync-review-findings` | 将 review-diff / review-implementation 发现的实现问题写入 docs/workflow/CURRENT_TASK.md 的审查问题队列，作为下一轮修复输入。 | 只读审查输出 P1 / P2 / P3 implementation findings，且这些 finding 需要在进入修复前持久记录时。 | `docs/workflow/CURRENT_TASK.md` | `docs/workflow/CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
+| `sync-review-findings` | 将 review-diff / review-implementation 发现的实现问题写入 docs/workflow/CURRENT_TASK.md 的审查问题队列，作为下一轮修复输入。 | 只读审查输出 P1 / P2 / P3 implementation findings，且这些 finding 需要在进入修复前持久记录时。 | `docs/workflow/CURRENT_TASK.md`、`TASKS/paused/**`、`TASKS/interrupted/**` | `docs/workflow/CURRENT_TASK.md` | `implement-current-step` | `ask-user` |
 | `verify-contracts` | 专门核查接口契约和架构契约是否被破坏。 | diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时。 | `docs/workflow/CONTRACTS.md`、`docs/workflow/CURRENT_TASK.md` | `[]` | `run-regression` | `ask-user` |
 
 ### 3.8 阶段 6：回归验证
 
 | Skill | 作用 | 触发条件 | 读取 | 写入 | handoff.success | handoff.failure |
 |---|---|---|---|---|---|---|
-| `run-regression` | 选择合适 QA 模式，运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `docs/workflow/CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml` | `[]` | `sync-current-task` | `investigate-root-cause` |
+| `run-regression` | 选择合适 QA 模式，运行已有测试或最小 smoke check，确认旧功能未被破坏。 | 通过范围复核后。 | `docs/workflow/CURRENT_TASK.md`、`TASKS/paused/**`、`TASKS/interrupted/**`、`.workflow-system/PROJECT_PROFILE.yaml` | `[]` | `sync-current-task` | `investigate-root-cause` |
 
 ### 3.9 阶段 7：状态同步
 
