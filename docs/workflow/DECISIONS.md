@@ -108,6 +108,17 @@
 - 替代方案：让每个 skill 自己发明 owner route；保留 `resume_*_required -> resume-*` 一跳 handoff；让 `report-only` 或 review finding 自动触发恢复 / 修复链。均不采用。
 - 验证方式：`bun run gen:all`; `bun run test:workflow-skills`; `bun run test:registry`; `bun run test:workflow-docs`; `bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`.
 
+### AD-010: `workflow:install` 对 source-target root crossing 采用 fail-closed target-root guard
+
+- 状态：accepted
+- 背景：任务 `006` 需要把 adoption baseline 中“source repo 不得 self-install、target project 必须使用独立 root”的规则落到 runtime，否则 `workflow:install --root .`、source parent / ancestor root 或 shared `.git` crossing 仍可能误伤 source repo 自身。
+- 决策：在 `installWorkflowBundle()` 的 bundle integrity 校验后、其他 install preflight 之前接入独立的 `scripts/guard-target-root.ts` helper；命中 source repo root、source parent / ancestor root 或 shared `.git` root crossing 时，统一以 `PreflightFailure.category = incompatible_target` fail-closed 返回。`workflow:sync --root . --host <host> --write` 继续保留为 source repo self-use allow path，不复用 install guard。
+- 原因：把 source/target ownership collision 收敛到 install 入口，避免在非法 target root 上继续计算 planned writes、drift repair 或 bootstrap plan，同时保持现有 CLI surface 与错误分类闭集不扩大。
+- 约束：AI 不得静默把 guard 扩大到 `workflow:install` 之外的其他 root 参数入口；不得新增 protocol-level named error 或修改 protocol / schema / templates / generated outputs，除非先重新锁范围。
+- 影响范围：`scripts/workflow-runtime.ts`, `scripts/guard-target-root.ts`, `test/workflow-runtime.test.ts`, `test/guard-target-root.test.ts`, `docs/workflow/{CURRENT_TASK,CONTRACTS,STATUS}.md`
+- 替代方案：把逻辑内联进 `workflow-runtime.ts`；为 crossing guard 新增 failure category / 协议错误码；立即扩大到所有 root 参数入口。均不采用。
+- 验证方式：`bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`
+
 ## 🎨 口味决策
 
 ### TD-001: 中文治理文档风格
@@ -171,6 +182,16 @@
 - 变更原因：contract foundation 已在任务 `003` 稳定，后续任务 `004` 重新锁范围并完成 runtime skill、guide / registry routing 和 generated reference 的实现闭环。
 - 兼容 / 迁移要求：继续保持不新增 dedicated resume review skill、不自动挑选 package、不扩大到 inbox / backlog artifact 或 runtime manifest / install / health report contract。
 - 审计备注：保留 DEFER-003 作为历史范围边界记录；当前有效决策以后继 AD-008 为准。
+
+### SUPERSEDED-003: DEFER-001 已由 AD-010 落地替代
+
+- 当前状态：accepted-and-replaced
+- 原决策编号：DEFER-001
+- 后继决策编号 / 基线：AD-010
+- 生效版本 / 里程碑：任务 `006` / `target-root-guard`
+- 变更原因：target root guard 已在 install-first 边界内完成 helper、runtime 接入、shared `.git` crossing 覆盖与 self-sync unaffected 回归，不再只是 adoption 阶段的 deferred candidate。
+- 兼容 / 迁移要求：继续保持 install-first-only；若未来要扩大到其他 root 参数入口、source-repair 等价流程或 protocol-level named error，必须单独开任务并重新锁范围。
+- 审计备注：保留 DEFER-001 作为 adoption 阶段“先不实现 guard”的历史边界记录；当前有效决策以后继 AD-010 为准。
 
 ## ❌ 已否决
 

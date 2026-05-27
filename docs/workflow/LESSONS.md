@@ -64,6 +64,13 @@
   - 触发信号：
   - 应对动作：
 
+### Runtime root-isolation tests should inject sourceRoot and prefer temp roots
+
+- 场景：`workflow:install` 的 source/target root 隔离测试既要覆盖 source self-install、ancestor root、shared `.git` crossing，又要避免把 CI / monorepo 目录布局当成测试前提。
+- 结论：当 runtime 逻辑依赖 source root 与 target root 的关系时，测试入口最好允许注入 `sourceRoot`，并优先用 `withTempRoot()` 构造 ancestor / shared-`.git` 场景；只有验证 source repo self-use allow path 时，才回到真实 `ROOT` 做 dry-run smoke。
+- 触发信号：测试开始依赖 `path.dirname(ROOT)`、真实工作区父目录、宿主机 `.git` 布局，或为 shared `.git` 场景准备引入固定 fixture。
+- 应对动作：给 install 入口保留可注入 `sourceRoot` 的测试钩子；用临时目录构造 `.git` directory / file、ancestor root 和 isolated target；source repo self-sync 只做 `syncWorkflowHost({ root: ROOT, host, write: false })` 之类的无副作用 smoke。
+
 ### Template changes require freshness closure after generated outputs move
 
 - 场景：修改 `templates/skills/*.SKILL.md.tmpl` 后，测试或生成器可能派生更新 `docs/workflow/generated/workflow-skills/**`。
@@ -98,3 +105,10 @@
   - 结论：
   - 触发信号：
   - 应对动作：
+
+### Fail-closed install guards must stop before other preflight planners
+
+- 场景：在 `installWorkflowBundle()` 这类累积 `failures[]` 的 preflight 链中新增 target-root guard 时，如果 deny 之后继续执行 replace-managed / package / profile / bootstrap 规划，会把无关 failure 混进同一份报告。
+- 结论：source/target root crossing 这类 fail-closed guard 必须在 bundle integrity 之后、其他 install 规划之前短路返回；否则 source repo self-install 之类非法目标会伪造出 `local_drift`、planned writes 或其他噪音，掩盖真正根因。
+- 触发信号：同一次非法 install 报告里同时出现 `incompatible_target` 和不相关的 drift / frozen failure，或 deny 场景下仍然生成了 `planned_writes`。
+- 应对动作：把 guard 放在 root / bundle 解析完成后的最早安全落点；deny 分支只返回单一、可追踪的 failure，并用 integration tests 断言 self-install、ancestor root、shared `.git` crossing 场景都不会继续生成 install plan。

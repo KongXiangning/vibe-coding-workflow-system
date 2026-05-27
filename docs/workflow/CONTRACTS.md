@@ -19,8 +19,8 @@
   - 备注：证据见 `docs/adoption/API_INVENTORY.md`。
 - 名称：runtime install/sync contract
   - 路径 / 符号：`scripts/workflow-runtime.ts`
-  - 当前语义：`workflow:install` 只面向外部 target root；`workflow:sync --root .` 可用于 source repo self-use 的 host skill 同步。
-  - 不可破坏项：source repo 禁止 self-install；target project 必须使用独立 root；host sync 必须保留 `workflow-system-*` 隔离 namespace。
+  - 当前语义：`workflow:install` 只面向外部或隔离 target root；source repo root、自身父目录 / 祖先目录以及与 source repo 共享 `.git` root 的 crossing root 必须 fail-closed 拒绝。`workflow:sync --root .` 可用于 source repo self-use 的 host skill 同步。
+  - 不可破坏项：source repo 禁止 self-install；source parent / ancestor root 与 shared `.git` crossing 不得被当作 install target；target project 必须使用独立 root；host sync 必须保留 `workflow-system-*` 隔离 namespace。
   - 备注：未来若需要 source-repo import/repair 等价流程，必须先在协议和 runtime 中设计独立语义。
 
 ### 🔒 已锁定核心函数 / 导出
@@ -162,9 +162,11 @@
 - 对象路径：source repo self-use flow
   - assertions：
     - source repo must not self-install
+    - source parent / ancestor root must not be used as install target
+    - roots sharing the same `.git` anchor as the source repo must not be used as install target
     - source repo may self-sync host skills
     - target project must use external or isolated root
-  - verification：manual command review now; future `guard-target-root` tests if implemented
+  - verification：`bun run test:workflow-all`; `bun run workflow:health --root .`
 
 - 对象路径：core skill External Documentation Gate
   - assertions：

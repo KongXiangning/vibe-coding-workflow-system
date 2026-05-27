@@ -34,6 +34,7 @@ import {
   type JsonObject,
   type WriteOperation,
 } from './workflow-core';
+import { checkTargetRoot } from './guard-target-root';
 import { repoPatternMatchesPath } from './repo-path-patterns';
 import { runFreshnessChecks } from './check-freshness';
 import { runValidation } from './run-validation';
@@ -275,6 +276,7 @@ export type InstallReport = {
 export type InstallOptions = {
   bundleDir: string;
   root?: string;
+  sourceRoot?: string;
   host?: RuntimeHost;
   dryRun?: boolean;
   repairBootstrapDrift?: boolean;
@@ -288,6 +290,7 @@ type HostResolution = {
 };
 
 const WORKFLOW_RUNTIME_PREFIX = 'workflow-system-';
+const WORKFLOW_SOURCE_ROOT = path.resolve(import.meta.dir, '..');
 const DEFAULT_BOOTSTRAP_HOSTS: readonly RuntimeHost[] = ['claude', 'codex'];
 const BOOTSTRAP_INIT_SKILLS = [
   'design-baseline-init',
@@ -1738,9 +1741,27 @@ function writePlannedFiles(
 
 export function installWorkflowBundle(options: InstallOptions): InstallReport {
   const root = path.resolve(options.root ?? process.cwd());
+  const sourceRoot = path.resolve(options.sourceRoot ?? WORKFLOW_SOURCE_ROOT);
   const bundleDir = path.resolve(options.bundleDir);
   const bundle = parseWorkflowBundle(bundleDir);
   verifyBundleIntegrity(bundleDir, bundle);
+  const targetRootCheck = checkTargetRoot(sourceRoot, root);
+  if (!targetRootCheck.allowed) {
+    return {
+      report_version: 1,
+      bundle_id: bundle.bundle_id,
+      workflow_system_version: bundle.workflow_system_version,
+      dry_run: Boolean(options.dryRun),
+      success: false,
+      failures: [{
+        category: 'incompatible_target',
+        path: '.',
+        message: targetRootCheck.message,
+      }],
+      planned_writes: [],
+      exit_code: 3,
+    };
+  }
   const existingInstallState = readInstallState(root);
   const existingProfile = fs.existsSync(getWorkflowProfilePath(root))
     ? loadProfile(getWorkflowProfilePath(root))

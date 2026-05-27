@@ -430,6 +430,20 @@ describe('workflow-runtime host detection', () => {
 });
 
 describe('workflow-runtime sync', () => {
+  test('syncWorkflowHost still supports source-repo self-sync on the current repository', () => {
+    const result = syncWorkflowHost({ root: ROOT, host: 'codex', write: false });
+    const runtimeRoot = path.join(ROOT, '.codex', 'skills');
+
+    expect(result.write).toBe(false);
+    expect(result.runtime_root).toBe(runtimeRoot);
+    expect(result.synced).toBeGreaterThan(0);
+    expect(
+      result.entries.every(entry =>
+        path.relative(runtimeRoot, path.dirname(entry.target)).replace(/\\/g, '/').startsWith('workflow-system-'),
+      ),
+    ).toBe(true);
+  });
+
   test('host sync plan uses isolated workflow-system targets and reports orphaned workflow-system dirs only', () => {
     withTempRoot(root => {
       writeProfile(root, 'codex');
@@ -646,6 +660,114 @@ describe('workflow-runtime install', () => {
             }),
           ]),
         );
+      });
+    });
+  });
+
+  test('installWorkflowBundle denies source repo self-install before planning writes', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+
+      const report = installWorkflowBundle({
+        bundleDir: packReport.output_directory,
+        root: ROOT,
+        dryRun: true,
+      });
+
+      expect(report.success).toBe(false);
+      expect(report.exit_code).toBe(3);
+      expect(report.planned_writes).toEqual([]);
+      expect(report.failures).toEqual([
+        {
+          category: 'incompatible_target',
+          path: '.',
+          message: 'Target root cannot be the workflow-system source root itself.',
+        },
+      ]);
+    });
+  });
+
+  test('installWorkflowBundle denies ancestor target roots before planning writes', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(root => {
+        const ancestorRoot = path.join(root, 'workspace');
+        const sourceRoot = path.join(ancestorRoot, 'repo', 'source');
+        fs.mkdirSync(sourceRoot, { recursive: true });
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: ancestorRoot,
+          sourceRoot,
+          dryRun: true,
+        });
+
+        expect(report.success).toBe(false);
+        expect(report.exit_code).toBe(3);
+        expect(report.planned_writes).toEqual([]);
+        expect(report.failures).toEqual([
+          {
+            category: 'incompatible_target',
+            path: '.',
+            message: 'Target root cannot be a parent or ancestor of the workflow-system source root.',
+          },
+        ]);
+      });
+    });
+  });
+
+  test('installWorkflowBundle still allows isolated targets after target-root guard', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(root => {
+        const sourceRoot = path.join(root, 'source', 'repo');
+        const targetRoot = path.join(root, 'isolated-target');
+        fs.mkdirSync(sourceRoot, { recursive: true });
+        fs.mkdirSync(targetRoot, { recursive: true });
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          sourceRoot,
+          dryRun: true,
+        });
+
+        expect(report.success).toBe(true);
+        expect(report.exit_code).toBe(0);
+        expect(report.failures).toEqual([]);
+        expect(report.planned_writes.length).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  test('installWorkflowBundle denies targets that share the same git root as the source root', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(root => {
+        const repoRoot = path.join(root, 'repo');
+        const sourceRoot = path.join(repoRoot, 'source');
+        const targetRoot = path.join(repoRoot, 'target');
+        fs.mkdirSync(path.join(repoRoot, '.git'), { recursive: true });
+        fs.mkdirSync(sourceRoot, { recursive: true });
+        fs.mkdirSync(targetRoot, { recursive: true });
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+          sourceRoot,
+          dryRun: true,
+        });
+
+        expect(report.success).toBe(false);
+        expect(report.exit_code).toBe(3);
+        expect(report.planned_writes).toEqual([]);
+        expect(report.failures).toEqual([
+          {
+            category: 'incompatible_target',
+            path: '.',
+            message: 'Target root cannot share the same Git root as the workflow-system source root.',
+          },
+        ]);
       });
     });
   });

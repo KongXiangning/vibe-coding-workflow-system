@@ -27,7 +27,7 @@ bun run workflow:health --root .
 - Keep target-project facts in `.workflow-system/PROJECT_PROFILE.yaml` when installing into another project. Do not overwrite target-owned runtime facts just to match this source repo.
 - `docs/workflow/*.md` are this source repo's live governance docs; `docs/workflow/generated/**` and `docs/workflow/SKILL_REGISTRY.md` are generated reference evidence.
 - `docs/workflow/` is the governance management surface only. Product, usage, methodology, and operations docs belong in `README.md`, `vibe-coding/**`, `docs/product/**`, `docs/guides/**`, or `docs/ops/**`.
-- This source repo may self-sync host skills with `workflow:sync --root . --host <host> --write`, but must not self-install with `workflow:install --root .`.
+- This source repo may self-sync host skills with `workflow:sync --root . --host <host> --write`, but must not self-install with `workflow:install --root .`; source parent / ancestor roots and roots sharing the same `.git` anchor as the source repo are also forbidden install targets.
 - Project-level validation slots owned by `target-project` stay unbound in this source repo; source repo quality checks use `validate:protocol`, `validate:freshness`, `test:workflow-all`, and `workflow:health --root .`.
 
 ## CURRENT_TASK Lifecycle Boundaries
