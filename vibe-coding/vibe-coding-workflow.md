@@ -344,6 +344,13 @@ Skill 应表达清楚治理职责、执行边界和交接意图。正式 metadat
 
 同时检查 `DECISIONS.md`：本次需求是否涉及已确认的决策？是否需要新增决策记录？
 
+在当前 workflow-system 的实现里，阶段 1 已经形成“主链 + 旁路”的结构：
+
+- **主链**：围绕 `create-current-task` / `review-current-task` 收敛一个可执行任务包。
+- **record-only branch**：如果当前任务执行中冒出与当前范围无关的新事项，不应直接改写当前 `CURRENT_TASK.md`，而应通过 `capture-work-item` 把事项写入 `TASKS/inbox/**`，再由人工决定是否另开任务。
+
+这条旁路的意义，是把“记录新事项”和“切换当前任务”分开，避免阶段 1 把所有新想法都默认解释成要立即生成新任务。
+
 这一阶段对应 gstack 的 `/office-hours` + `/autoplan` 思路：先想清楚，再动手。
 
 ---
@@ -547,6 +554,10 @@ git --no-pager diff --stat
 
 目标：确认这次新增需求没有把旧功能带崩。
 
+在当前 workflow-system 中，阶段 6 不再只是“跑测试 + 发现 bug 就修”。验证与排障阶段已经显式纳入 QA mode、ownership-aware routing 和只读验证分流。
+
+先做 QA mode 选择，再决定测试、smoke check、browser-backed 验证和证据深度；`report-only` 只负责输出问题与证据，不自动进入修复或恢复链。
+
 优先级从高到低：
 
 ### A. 跑已有测试
@@ -583,6 +594,13 @@ bun run workflow:health
 - 禁止顺手优化
 - 3 次失败后必须停
 
+如果验证结果显示问题并不属于当前 active task，还要先做 ownership-aware routing：
+
+- 属于当前任务，才继续当前修复。
+- 需要扩大范围，先回到范围锁定。
+- 明显属于旧任务时，只有在 matching suspended package evidence 完整、且 active-owner guard 通过时，才允许进入 pause / interrupt / resume 链。
+- 不能证明 owner、或当前 live task 仍需要人工裁决时，应 fail-closed 到人工决策或新任务，而不是自动恢复旧任务覆盖当前上下文。
+
 这一阶段对应 gstack 的：
 
 - `/qa`
@@ -596,6 +614,13 @@ bun run workflow:health
 目标：每轮开发结束后，把项目状态更新回系统里，而不是只留在聊天记录里。
 
 任务结束时应检查相关治理事实是否需要同步；正式需要更新哪些文档、更新时机、章节和字段以 `FILE_SCHEMAS.md`、`templates/docs/**` 和 workflow sync 规则为准。本文只说明不要把状态只留在聊天记录里。
+
+在当前 workflow-system 中，阶段 7 同时承担 steady-state sync 和 lifecycle sync 两类职责：
+
+- **steady-state sync**：把本轮已经确认的任务、状态、契约、决策和经验写回治理工件。
+- **lifecycle sync**：当当前任务需要让出 active ownership 时，通过 `pause-current-task` 或 `interrupt-current-task` 写出可恢复工件；当旧任务需要恢复时，只能从显式 suspended package 进入恢复链。
+
+这里最关键的约束是：resume 不是“直接继续实现”。恢复成功后，首个强制消费者必须是 `review-current-task`；只有先消费 resume gate、rollback point 和恢复原因，后续实现链才重新具备可审计边界。
 
 这一阶段对应 gstack 的：
 

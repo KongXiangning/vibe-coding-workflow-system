@@ -232,6 +232,11 @@ CURRENT_TASK.md
 
 注意，这条链路的前置条件是：项目治理基线已经建立。新项目和老项目进入这条链路之前，入口不同。
 
+在当前 workflow-system 里，这条主链还有两个需要被读者显式看见的分支：
+
+1. **record-only intake branch**：如果当前任务执行中冒出与当前范围无关、但值得留档的新事项，不应直接污染 `CURRENT_TASK.md`，而应通过 `capture-work-item` 写入 `TASKS/inbox/**`，再由人工决定是否另开任务。
+2. **lifecycle / ownership branch**：如果验证或排障过程中发现问题实际属于旧任务，不能直接覆盖当前 live task；必须先判断 owner，必要时暂停或中断当前任务，再从可恢复工件回到恢复链。
+
 #### 新项目：先设计基线，再治理固化
 
 新项目不是直接进入 `CURRENT_TASK.md`。当项目只有原始需求或产品想法时，应该先走：
@@ -789,6 +794,13 @@ Bug 调查报告：
 
 在 workflow-system 中，这组能力不需要照搬成同名 skill；更稳的落点是阶段 6 的 `/run-regression`。它应该先判断本轮需要哪种 QA mode，再决定要跑哪些测试、是否需要 browser-backed smoke、是否需要 session/cookie。
 
+同时，阶段 6 在当前实现里已经不是“验证失败后直接继续修”的单线流程。验证或排障如果发现问题不属于当前 active task，还必须先做 **ownership-aware routing**：
+
+- 问题仍属于当前任务时，才继续当前修复链。
+- 问题虽然属于当前目标，但最小修复面已经越出当前范围时，应先回到范围锁定。
+- 问题明显属于之前暂停或中断的任务时，只有在 suspended package evidence 完整、且 active-owner guard 通过时，才允许进入恢复链。
+- 其余情况应 fail-closed 到人工决策或新任务，而不是把“旧问题存在”偷换成“现在就自动恢复 / 自动修复”。
+
 #### QA mode
 
 | 模式 | 使用场景 | 验证重点 |
@@ -808,6 +820,8 @@ Bug 调查报告：
 - `report-only` 模式下，即使发现问题，也只输出证据，不直接修复。
 - `/run-regression` 发现真实失败后，进入 `/investigate-root-cause`；修复仍由实现阶段完成。
 - 不把具体浏览器工具写死进方法论；有工具就执行 browser-backed smoke，没有工具就记录人工验证项或 blocked risk。
+
+这里还要额外强调一点：`report-only` 不是“先报告，后面默认继续修”的弱提示，而是**terminal evidence path**。它的职责是停在只读审查或外部验收现场，只交付问题与证据，不自动接入同步链、恢复链或修复链。
 
 #### 最小 QA 报告
 
@@ -982,6 +996,13 @@ workflow-system 不依赖 Claude hook 或 shell 拦截器。即使没有原生 h
 - 修改边界
 - 回归项
 - 回滚点
+
+在 workflow-system 的当前实现里，阶段 1 也不再是“所有想法都直接进入 `CURRENT_TASK.md`”：
+
+- **主链**仍是围绕 `create-current-task` / `review-current-task` 展开的可执行任务包收敛过程。
+- **record-only branch** 用于处理当前任务执行中冒出的无关新事项：这类事项先通过 `capture-work-item` 写入 `TASKS/inbox/**`，不自动变成新任务，也不自动切换当前任务。
+
+这样做的目的，是把“记录新事项”和“切换当前任务”分开，避免方法论层默认把所有新想法都解释成当前任务改写或立即建新任务。
 
 #### 阶段门槛
 
@@ -1240,6 +1261,17 @@ bun run workflow:health
 把本轮开发的结果更新回治理系统，而不是只留在聊天记录里。
 
 一轮任务结束后，应检查治理文档是否需要同步；正式同步对象、更新时机、章节、字段和生成/校验规则以 `FILE_SCHEMAS.md`、`templates/docs/**` 与 workflow sync 规则为准。
+
+在当前 workflow-system 中，阶段 7 还承担另一类高层职责：**active ownership 的安全交接**。也就是说，状态同步不只是在任务做完后回写 `STATUS.md` / `LESSONS.md`，还包括：
+
+- 当当前任务需要让出 active ownership 时，通过 `pause-current-task` 或 `interrupt-current-task` 写出可恢复工件。
+- 当旧任务需要恢复时，只能从显式、可审计的 suspended package 进入恢复链，而不是凭聊天上下文直接“继续上次任务”。
+- 恢复成功后，不允许直接进入实现；恢复后的首个强制消费者必须是 `review-current-task`，由它消费 resume gate、rollback point 和恢复原因，再决定是否重新进入后续实现链。
+
+换句话说，阶段 7 现在同时覆盖两条路径：
+
+1. **steady-state sync**：把当前轮次已经确认的事实写回治理工件。
+2. **lifecycle sync**：在 pause / interrupt / resume 时保持 active ownership、恢复输入和后续审查链可审计。
 
 #### 阶段门槛
 

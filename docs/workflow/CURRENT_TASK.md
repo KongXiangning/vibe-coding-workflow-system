@@ -4,33 +4,35 @@
 
 - 项目：vibe-coding-workflow-system
 - 项目类型：ai-engineering-workflow
-- 任务 ID：007
-- 任务标题：实现 capture-work-item 与 inbox artifact，支持无关新事项记录
-- 任务 slug：capture-work-item-inbox
-- 当前状态：archived
-- 生命周期状态：archived
+- 任务 ID：008
+- 任务标题：补齐方法论文档对 003-007 新增 workflow 分支的高层叙事
+- 任务 slug：methodology-docs-cover-003-007-skill-branches
+- 当前状态：active
+- 生命周期状态：active
 - 恢复需审查：false
 - 恢复审查原因：
 - 创建时间：2026-05-28
 
 ## 背景与上下文
 
-- 本任务已完成并归档到 `TASKS/TASK-007-capture-work-item-inbox.md`。
-- 归档内容保留任务定义、实施摘要、契约 / 决策同步、验证证据、发布后验证字段、remaining observation 与后续建议。
-- 下一轮入口：`/create-current-task`。
+- 用户要求先按 `/create-current-task`、`/investigate-root-cause` 的顺序处理此前文档审查发现的 major finding，再补完文档并审查。
+- 已确认问题：`vibe-coding/vibe-coding-methodology.md` 与 `vibe-coding/vibe-coding-workflow.md` 仍停留在旧的抽象层，没有把任务 `003-007` 新增的高层 workflow 分支补成完整叙事。
+- 已确认缺口：
+  - `capture-work-item` 的 record-only intake branch 未进入方法论 / 工作流说明层。
+  - `pause-current-task` / `interrupt-current-task` / `resume-*` 的 suspend-resume lifecycle 未进入方法论 / 工作流说明层。
+  - `review-current-task` 作为 resume 后首个强制消费者未形成明确叙事。
+  - ownership-aware routing、active-owner guard 与 `report-only` terminal rule 没有被提升成完整高层映射。
+- 已确认现状：目标项目生成文档 / 指引已覆盖上述能力，差距集中在人类阅读的高层方法论文档。
 
 ## 验收标准
 
-- [x] 已新增 `capture-work-item` workflow skill template，并能生成对应 generated skill。
-- [x] 已定义 inbox artifact path contract 与最小 schema，路径固定为 `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` 风格，且不会与 archived / paused / interrupted task artifact 混淆。
-- [x] `capture-work-item` 只在 `relation_to_current_task = unrelated` 时成功写入 `TASKS/inbox/**`，不会修改当前 `CURRENT_TASK.md` 的任务目标、验收标准、Allowed / Conditional / Forbidden Files、实施步骤、审查问题队列或 active ownership marker。
-- [x] `relation_to_current_task = scope_widening_candidate` 时不写 inbox，而是转 `/lock-scope`；`relation_to_current_task = uncertain` 时 fail-closed 到 `ask-user`。
-- [x] `handoff.success = create-current-task` 仅保留为 generator-compatible fallback；record-only 成功语义必须通过 `conditional_handoff.capture_only = ask-user` 表达，不得被 guide / registry 解释为 capture 后默认创建任务。
-- [x] `capture-work-item` 必须读取 live `CURRENT_TASK.md` 与现有 `TASKS/inbox/**` 做轻量 duplicate read-back；命中 title / slug / evidence 疑似重复时必须 fail-closed 到 `ask-user`，不得静默覆盖或继续写入。
-- [x] validator 能拒绝非法 inbox path、缺少 required fields 的 inbox item，以及把 inbox artifact 混入 `TASKS/paused/**`、`TASKS/interrupted/**`、`TASKS/TASK-*.md` 或 `CURRENT_TASK.md` lifecycle state 的情况。
-- [x] `capture-work-item` 归入 `阶段 1：需求进入`，但 guide / registry summary 必须把它表达成 record-only branch，而不是 `create-current-task` 主链的一部分。
-- [x] 不修改 `create-current-task`、`investigate-root-cause`、`run-regression`、`sync-review-findings`、`scripts/workflow-runtime.ts`、`scripts/task-identity.ts` 或 `test/task-identity.test.ts`；若实现证明必须触碰这些面，立即停止并回 `/lock-scope`。
-- [x] 不新增 `CURRENT_TASK.md` lifecycle state；`capture` 与 `backlog_item` 继续不是 lifecycle state。
+- [x] `vibe-coding/vibe-coding-methodology.md` 在高层方法论叙事中明确补入 `阶段 1` 的 main chain 与 `capture-work-item` record-only branch，并说明其与 `CURRENT_TASK.md` / `TASKS/inbox/**` 的关系。
+- [x] `vibe-coding/vibe-coding-methodology.md` 明确补入 ownership-aware routing、active-owner guard、`pause-current-task` / `interrupt-current-task` / `resume-*` lifecycle，以及 resume 后必须先回到 `review-current-task` 的高层逻辑。
+- [x] `vibe-coding/vibe-coding-methodology.md` 明确补入 `run-regression(report-only)` 的 terminal 语义，不把只读审查自动接到修复链。
+- [x] `vibe-coding/vibe-coding-workflow.md` 的阶段说明同步补齐上述高层逻辑映射，至少覆盖 `阶段 1`、`阶段 6`、`阶段 7`。
+- [x] 文档仍保持“方法论 / 工作流说明层”的职责，不复制 protocol/schema 字段、枚举、错误码或 generated surface 细节；正式规则仍以下沉规范源为准。
+- [x] `docs/workflow/generated/**`、`docs/workflow/SKILL_REGISTRY.md`、`templates/**`、`scripts/**`、`test/**`、`.workflow-system/{WORKFLOW_PROTOCOL.md,FILE_SCHEMAS.md,PROJECT_PROFILE.yaml}` 不发生修改。
+- [x] 通过文档检索证据证明新增 skill 名称、`TASKS/inbox/**`、ownership-aware routing、active-owner guard、resume gate / `review-current-task`、`report-only` terminal 已在高层文档中可检索。
 
 ## 设计约束
 
@@ -45,245 +47,150 @@
 - Release mode: none
 - Deploy source: none
 - Target environment: local
-- Health checks: not applicable beyond repo-local regression matrix
+- Health checks: not applicable
 - Canary window: not applicable
 - Performance baseline: not applicable
-- Rollback / recovery: 回退到 task start base `3ec116de`，撤销任务 `007` 引入的 protocol / schema / validator / template / registry / guide / test / governance diff
-- Release evidence: `bun run gen:all`、`bun run test:workflow-all`（209 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 均通过；详见归档文件。
+- Rollback / recovery: 回退到 task start base `be98f4387265a81e2e1e67a16cf6bd80070291b6`，撤销本任务对方法论文档与当前任务包的修改。
+- Release evidence: not applicable
 
 ## 允许修改范围
 
-- 任务已归档；当前无 active task allowed files。
+- `docs/workflow/CURRENT_TASK.md`
+- `vibe-coding/vibe-coding-methodology.md`
+- `vibe-coding/vibe-coding-workflow.md`
+
+## 条件修改范围
+
+- `vibe-coding/vibe-coding-quality-system.md`
+  - 触发条件：只有当补齐 `methodology / workflow` 后仍存在明显的高层叙事断裂，且不改该文件就会让三份人类文档之间出现新的事实冲突。
+  - 证据要求：必须先给出具体断裂点、为何不能仅靠前两份文档修复，以及保持职责边界后的最小改动理由。
 
 ## 禁止修改范围
 
-- 任务已归档；新任务必须通过 `/create-current-task` 重新锁定范围。
+- `.git/**`
+- `node_modules/**`
+- `dist/**`
+- `docs/workflow/generated/**`
+- `docs/workflow/SKILL_REGISTRY.md`
+- `templates/docs/**`
+- `templates/skills/**`
+- `scripts/**`
+- `test/**`
+- `.workflow-system/WORKFLOW_PROTOCOL.md`
+- `.workflow-system/FILE_SCHEMAS.md`
+- `.workflow-system/PROJECT_PROFILE.yaml`
+- `docs/workflow/CONTRACTS.md`
+- `docs/workflow/DECISIONS.md`
+- `docs/workflow/STATUS.md`
 
 ## 受影响的契约
 
-- `capture-work-item / TASKS/inbox/** record-only intake` 已同步到 `docs/workflow/CONTRACTS.md`。
-- `AD-011` 已同步到 `docs/workflow/DECISIONS.md`。
+- 文档职责边界：方法论文档负责“为什么 / 何时用 / 高层逻辑”，不得复制 protocol / schema / generated surface 的实现细节。
+- `CURRENT_TASK lifecycle runtime skills / resume review routing`
+- `ownership-aware root-cause / regression / review-finding routing`
+- `capture-work-item / TASKS/inbox/** record-only intake`
 
 ## 已确认决策
 
-- `capture-work-item` 是 record-only inbox branch，不自动 promote，不自动切换当前任务，不自动创建任务。
-- `TASKS/inbox/**` 不进入 lifecycle state、task identity、runtime manifest / install / health report 或 `DOCUMENT_CATALOG.md`。
-- 任何 promote / backlog / catalog / runtime 扩展都必须另开任务并重新锁范围。
+- 本任务只补高层叙事，不重开 protocol、schema、template、generated output、runtime 或测试范围。
+- `capture-work-item` 继续保持 record-only branch，不自动 promote 成新任务。
+- `pause-current-task` / `interrupt-current-task` / `resume-*` 的 lifecycle 继续由 `review-current-task` 消费恢复审查 gate。
+- ownership-aware routing 继续保持 canonical route + guard-aware handoff 分离。
 
 ## 待确认问题
 
-- 无阻断项。
-- 可选 follow-up：为合法 inbox path 但缺 required field 的失败路径补直接单测。
+- 无阻断项；默认按最小文档补全执行。
 
 ## 实现方案
 
-- Goal: 已完成；详见 `TASKS/TASK-007-capture-work-item-inbox.md`。
-- Architecture impact: 已同步 protocol / schema / validator / skill template / guide / registry / tests / governance docs。
-- Technical approach: 已完成；详见归档。
-- Alternatives considered: 已归档。
-- Data / state flow: 已归档。
-- Compatibility: backward-compatible。
-- Risks and rollback: 回退到 task start base `3ec116de`。
-- Validation strategy: 已执行并通过全量回归。
-- Open decisions: none。
+- Goal: 补齐方法论文档与工作流说明文档，使 003-007 新增 workflow 分支在高层叙事层可被直接理解。
+- Architecture impact: 仅影响人类阅读文档，不改变 protocol、schema、template、generated output 或 runtime 行为。
+- Technical approach:
+  - 在 `vibe-coding-methodology.md` 补“日常任务链路 / 阶段 1 / QA 分流 / 阶段 7”中的新增分支叙事。
+  - 在 `vibe-coding-workflow.md` 补“阶段 1 / 阶段 6 / 阶段 7”的高层逻辑映射。
+  - 保持所有细节规则继续下沉到 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`WORKFLOW_GUIDE.md` 与 generated skill docs。
+- Alternatives considered:
+  - 只改 generated docs：不能修复高层方法论阅读路径，拒绝。
+  - 直接复制 protocol/schema 细节到方法论文档：会破坏职责边界，拒绝。
+- Data / state flow: 人类文档阅读链从“通用 8 阶段”补齐到“含 record-only intake、ownership-aware routing、suspend/resume、report-only terminal”的完整高层链路。
+- Compatibility: backward-compatible
+- Risks and rollback: 风险主要是高层文档与规范源叙事重复或越权；通过显式声明“正式规则以下沉规范源为准”控制。
+- Validation strategy: 使用文档 diff 审查 + 关键词检索验证高层叙事覆盖，不修改 generated surface。
+- Open decisions: none
 
 ## 审查问题队列
 
-- [minor][test_adequacy] `test/run-validation.test.ts` 尚未直接覆盖“合法 `TASKS/inbox/INBOX-YYYYMMDD-<id>-<slug>.md` 路径但缺少 required field”的失败路径；实现层已拒绝缺字段，当前回归通过。状态：non-blocking observation archived。
+- 当前来源：文档审查 / root-cause evidence
+- Finding ID：DOC-008
+  - Severity：major
+  - Source：documentation audit
+  - Status：resolved
+  - File / symbol：`vibe-coding/vibe-coding-methodology.md`, `vibe-coding/vibe-coding-workflow.md`
+  - Failure scenario：只阅读高层方法论文档时，无法发现 record-only intake、ownership-aware routing、suspend/resume 与 resume-review 链已经是正式 workflow 能力。
+  - Minimal fix direction：只补高层逻辑映射，不复制 protocol/schema 细节。
+  - Required test：文档检索证据显示新增 skill 名称、`TASKS/inbox/**`、ownership-aware routing、active-owner guard、`review-current-task`、`report-only` terminal 在高层文档中可检索。
+  - Handoff：implement-current-step
 
 ## 传播治理记录
 
 ### change_start_set
 
-- 对象路径：`TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
-- 对象类型：record-only artifact path contract
-- 变更起点语义：新增独立 inbox artifact family，用于承载与当前任务无关的新事项记录。
+- 对象路径：`vibe-coding/vibe-coding-methodology.md`, `vibe-coding/vibe-coding-workflow.md`
+- 对象类型：human-facing methodology / workflow guidance narrative
+- 变更起点语义：补齐 003-007 新增 workflow 分支在高层文档层的逻辑映射。
 
 ### discovery evidence
 
 - `EvidenceRecord`：
-  - mechanism：archived task package
-  - query_or_entrypoint：`TASKS/TASK-007-capture-work-item-inbox.md`
-  - scope：capture-work-item / inbox artifact / record-only branch
-  - result_summary：任务已完成并归档；长期事实已同步到 `STATUS.md`、`CONTRACTS.md`、`DECISIONS.md`、`AGENTS.md`、`CLAUDE.md` 与 `LESSONS.md`。
+  - mechanism：manual documentation audit
+  - query_or_entrypoint：针对 `pause-current-task|interrupt-current-task|resume-paused-task|resume-interrupted-task|capture-work-item` 的全文检索与阶段章节对照
+  - scope：methodology / workflow explanation coverage for tasks 003-007
+  - result_summary：generated docs / guide / registry 已覆盖新增能力，但 `vibe-coding-methodology.md` 与 `vibe-coding-workflow.md` 缺少对应高层叙事。
   - confidence：high
-  - gaps：仅保留 non-blocking direct test coverage gap
+  - gaps：待补完后复核检索结果
 
 ### aggregation / complexity
 
 - `evidence_diff_threshold`：
-  - absolute_diff：3
+  - absolute_diff：2
   - relative_diff_ratio：0.5
 - `EvidenceAggregation`：
   - aggregation_strategy：union
-  - candidate_impact_set：archived
-  - significant_divergence：false
-  - divergence_reason：none
-  - unresolved_gaps：non-blocking direct test coverage gap
+  - candidate_impact_set：methodology docs, workflow overview docs
+  - significant_divergence：true
+  - divergence_reason：generated surface 完整，但高层叙事层遗漏新增分支
+  - unresolved_gaps：补丁后待复核
   - aggregated_confidence：high
 - `over_limit_policy`：
-  - threshold_trigger：none
-  - selected_branch：archived
-  - rationale：任务已完成并归档，下一轮通过 `/create-current-task` 重新 materialize。
-  - direct_consumers_semantics：保护旧入口 / wrapper / compat path
-  - total_candidate_consumers_semantics：控制全传播面 / migration window
-- `ComplexityAssessment`：
-  - propagation_depth：closed
-  - direct_consumers：archived
-  - total_candidate_consumers：archived
-  - cross_boundary_hops：closed
-  - exceeded_metrics：none
-  - threshold_status：not exceeded
-  - forced_strategy：none
-
-### eligibility / candidate / registry
-
-- `MutationEligibilityAssessment`：
-  - common.object_path：`capture-work-item / TASKS/inbox/**`
-  - common.object_kind：record-only workflow intake
-  - common.explicit_contract_state：stable
-  - common.discovered_direct_consumers：guide / registry / validator / generated skill
-  - common.cross_boundary：false
-  - common.critical_path_hit：false
-  - common.locked_hit_chain：false
-  - common.registry_freshness：fresh
-  - common.rationale：任务已完成并归档。
-  - when_pending_prerequisites.assessment_status：not applicable
-  - when_pending_prerequisites.blocking_gaps：none
-  - when_completed.assessment_status：completed
-  - when_completed.eligibility：archived
-- `implicit_shared_object_detection`：
-  - object_path：`TASKS/inbox/**`
-  - object_kind：record-only artifact family
-  - direct_consumers：validator / capture-work-item / guide / registry
-  - cross_boundary：false
-  - critical_path_hit：false
-  - locked_hit_chain：false
-  - proposed_contract_state：stable
-  - writeback_required：done
-- `RegistryFreshnessReport`：
-  - object_path：`capture-work-item`
-  - registry_consumers：`docs/workflow/SKILL_REGISTRY.md`
-  - discovered_consumers：`templates/skills/capture-work-item.SKILL.md.tmpl`
-  - effective_consumers：registry / guide
-  - freshness：fresh
-  - reconciliation：discovered-union
-  - divergence_summary：none
-- `EntityMutationChecklist`：
-  - entity_name：`capture-work-item`
-  - covered_categories：protocol, schema, validator, skill-template, guide, registry, tests, generated-reference, governance-sync
-  - unresolved_categories：direct missing-field test coverage
-  - gap_resolution：
-    - category：test_adequacy
-    - handling：non-blocking follow-up candidate
-    - blocker_error_code：none
-- same-file wrapper / compat decision：
-  - stable_source_object：none
-  - successor_wrapper_or_compat_object：none
-  - preserved_direct_entrypoints：`create-current-task`
-  - decision_rationale：capture branch remains record-only and does not replace create chain
-
-### layout / behavior / migration / regression
-
-- `LayoutContract`：
-  - container_path：not applicable
-  - machine_anchor：not applicable
-  - layout_model：not applicable
-  - locked_properties：not applicable
-  - locked_relations：not applicable
-  - cascade_sources：not applicable
-  - sibling_reflow_sensitive：not applicable
-  - insertion_guard：
-    - mode：not applicable
-    - protected_siblings：not applicable
-  - breakpoint_contracts：not applicable
-  - stacking_context：not applicable
-  - side_effect_scope：not applicable
-- `BehaviorContract`：
-  - object_path：`capture-work-item / TASKS/inbox/**`
-  - assertions：record-only, no active task pollution, relation gate, duplicate read-back, fail-closed routing, no lifecycle state expansion
-  - verification：`bun run gen:all`, `bun run test:workflow-all`, `bun run validate:protocol`, `bun run validate:freshness`, `bun run workflow:health --root .`
-- API downstream validation：
-  - hook：not applicable
-  - store：not applicable
-  - page：not applicable
-  - widget：not applicable
-  - form：not applicable
-  - table：not applicable
-  - detail view：not applicable
-- `migration_plan_requirement`：
-  - required：false
-  - trigger_reason：backward-compatible record-only branch
-- `StagedMigrationPlan`：
-  - migration_id：not applicable
-  - phases：not applicable
-  - runtime_state：not applicable
-  - dependencies：not applicable
-  - verification：not applicable
-  - exit_criteria：not applicable
-- `LinkedRegressionRecord`：
-  - regression_chain_id：TASK-007
-  - current_issue：none
-  - prior_fix_refs：none
-  - window_scope：task diff
-  - window_size：one task
-  - count_basis：workflow regression matrix
-  - linked_components：protocol, schema, validator, guide, registry, generated skills
-  - shared_objects：`CURRENT_TASK.md`, `TASKS/inbox/**`
-  - relation：closed
-  - escalation：none
-
-### blockers / gate status
-
-- 当前执行步骤：archived
-- 已完成 discovery：任务 `007` 已完成并归档。
-- 剩余 blocker：none
-- `ContractCompatibilityResult`：
-  - error_code：none
-  - object_path：`capture-work-item / TASKS/inbox/**`
-  - severity：none
-  - default_blocker_level：none
-  - evidence：regression passed
-  - strategy_origin.over_limit_policy_branch：archived
-  - strategy_origin.divergence_state：none
-  - branch_gate_mapping.merge_gate：passed
-  - branch_gate_mapping.ship_gate：passed
-  - branch_gate_mapping.rationale：local workflow regression matrix passed
-  - suggested_resolution：next task should start with `/create-current-task`
-
-### conformance / verification cases
-
-- 输入场景：archived task package
-- discovery evidence：`TASKS/TASK-007-capture-work-item-inbox.md`
-- 期望 `ContractCompatibilityResult`：none / passed
-- 期望 gate / severity / `strategy_origin`：passed / none / archived
+  - threshold_trigger：not triggered
+  - selected_branch：direct-doc-fix
+  - rationale：问题局限于高层人类文档，不需要扩大到 protocol / template / generated 层
+  - direct_consumers_semantics：human readers, future task authors
+  - total_candidate_consumers_semantics：documentation onboarding path
 
 ## 实施步骤
 
-- [x] 步骤 1：创建并审查任务包。
-- [x] 步骤 2：锁定范围、分类决策、制定方案并拆解步骤。
-- [x] 步骤 3：完成 protocol / schema、validator、skill template、guide / registry、generated sync 与全量回归。
-- [x] 步骤 4：同步 status / contracts / decisions / host guidance / lessons。
-- [x] 步骤 5：准备交付摘要并归档。
+- [x] 步骤 1：更新 `docs/workflow/CURRENT_TASK.md`，固化任务范围、根因和验收标准。
+- [x] 步骤 2：在 `vibe-coding/vibe-coding-methodology.md` 补齐阶段 1、阶段 6/7 与日常链路中的新增分支叙事。
+- [x] 步骤 3：在 `vibe-coding/vibe-coding-workflow.md` 补齐阶段 1、阶段 6、阶段 7 的高层逻辑映射。
+- [x] 步骤 4：用检索与差异复核确认高层文档已覆盖新增 skill 及相关配置，并确认未触碰 generated / protocol / template 面。
 
 ## 回归检查项
 
-- [x] `bun run gen:all`
-- [x] `bun run test:workflow-skills`
-- [x] `bun run test:registry`
-- [x] `bun run test:workflow-docs`
-- [x] `bun test test/run-validation.test.ts`
-- [x] `bun run test:workflow-all`
-- [x] `bun run validate:protocol`
-- [x] `bun run validate:freshness`
-- [x] `bun run workflow:health --root .`
+- [x] 检索 `capture-work-item`、`TASKS/inbox/**` 在 `vibe-coding/vibe-coding-methodology.md` 与 `vibe-coding/vibe-coding-workflow.md` 中可命中。
+- [x] 检索 `pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task` 在两份高层文档中可命中。
+- [x] 检索 `ownership-aware routing`、`active-owner guard`、`review-current-task`、`report-only` 在两份高层文档中可命中。
+- [x] 确认 `docs/workflow/generated/**`、`docs/workflow/SKILL_REGISTRY.md`、`templates/**`、`scripts/**`、`test/**`、`.workflow-system/**` 无改动。
 
 ## 回滚点
 
-- Task start base：`3ec116de`
-- Last reviewed checkpoint：`working-tree`
-- Current diff review target：`working-tree`
+- Task start base：`be98f4387265a81e2e1e67a16cf6bd80070291b6`
+- Last reviewed checkpoint：not-yet-created
+- Current diff review target：working-tree
 
 ## 执行记录
 
-- 2026-05-28：任务 `007` 已归档到 `TASKS/TASK-007-capture-work-item-inbox.md`；`CURRENT_TASK.md` 切换为 `archived + archived` terminal tuple。下一轮入口为 `/create-current-task`。
+- 2026-05-28：按用户要求先加载 `/create-current-task` 与 `/investigate-root-cause` skill context，并基于既有文档审查 evidence 建立任务包。
+- 2026-05-28：已确认问题属于当前仓库人类文档层，不涉及 protocol/schema/runtime 行为修复；最小修复面锁定为 `vibe-coding-methodology.md` 与 `vibe-coding-workflow.md`。
+- 2026-05-28：已在两份高层文档补入 `capture-work-item` record-only branch、ownership-aware routing、active-owner guard、`pause/interrupt/resume` lifecycle、resume 后先 `review-current-task`、以及 `report-only` terminal 语义，并完成差异与检索复核。
+- 2026-05-28：差异审查曾发现方法论文档误引 route 枚举名；已改回高层语义表达，终审结论为 clean。
