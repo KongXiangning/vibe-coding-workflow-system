@@ -151,14 +151,15 @@ describe('gen-registry', () => {
       .filter(row => row.stage === '阶段 1：需求进入')
       .map(row => row.name);
 
-    expect(stageOneNames.indexOf('create-current-task')).toBeLessThan(
-      stageOneNames.indexOf('supersede-current-task'),
-    );
-    expect(stageOneNames.indexOf('supersede-current-task')).toBeLessThan(
-      stageOneNames.indexOf('review-current-task'),
-    );
+    expect(stageOneNames).toEqual([
+      'execute-current-task',
+      'create-current-task',
+      'supersede-current-task',
+      'capture-work-item',
+      'review-current-task',
+    ]);
     expect(content).toContain(
-      '| 阶段 1：需求进入 | `execute-current-task` → `create-current-task` → `supersede-current-task` → `review-current-task` |',
+      '| 阶段 1：需求进入 | main chain: `execute-current-task` → `create-current-task` → `supersede-current-task` → `review-current-task`；record-only branch: `capture-work-item` → `ask-user` |',
     );
   });
 
@@ -227,6 +228,7 @@ describe('gen-registry', () => {
     const highRiskSection = content.slice(content.indexOf('## 4. 高风险 / 重点审计 skill'));
 
     expect(highRiskSection).toContain('- `supersede-current-task`');
+    expect(highRiskSection).toContain('- `capture-work-item`');
   });
 
   test('lifecycle runtime skills stay in stage 7 before sync-current-task with branch summary and high-risk coverage', () => {

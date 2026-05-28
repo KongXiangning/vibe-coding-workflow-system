@@ -445,10 +445,41 @@ export type SuspendedTaskPackageContract = SuspendedTaskArtifactPath & {
   rawFields: Record<string, string>;
 };
 
+export type InboxArtifactKind = 'inbox_item';
+export type InboxItemType = 'requirement' | 'idea' | 'bug' | 'chore' | 'question';
+export type InboxItemSource = 'user' | 'implementation' | 'review' | 'regression' | 'root_cause' | 'other';
+export type InboxRelationToCurrentTask = 'unrelated';
+export type InboxSuggestedNextAction = 'triage_later' | 'ask_user';
+export type InboxArtifactStatus = 'captured';
+
+export type InboxArtifactPath = {
+  relativePath: string;
+  dateStamp: string;
+  shortId: string;
+  itemSlug: string;
+};
+
+export type InboxArtifactContract = InboxArtifactPath & {
+  itemId: string;
+  title: string;
+  artifactKind: InboxArtifactKind;
+  type: InboxItemType;
+  source: InboxItemSource;
+  capturedAt: string;
+  relationToCurrentTask: InboxRelationToCurrentTask;
+  currentTaskId: string;
+  description: string;
+  evidence: string;
+  suggestedNextAction: InboxSuggestedNextAction;
+  status: InboxArtifactStatus;
+  rawFields: Record<string, string>;
+};
+
 export const SUSPENDED_TASK_ARTIFACT_PATH_TEMPLATES: Record<SuspendedTaskArtifactKind, string> = {
   paused: 'TASKS/paused/TASK-<TASK_ID>-<TASK_SLUG>.md',
   interrupted: 'TASKS/interrupted/TASK-<TASK_ID>-<TASK_SLUG>.md',
 };
+export const INBOX_ARTIFACT_PATH_TEMPLATE = 'TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md';
 
 export const SUSPENDED_TASK_PACKAGE_REQUIRED_FIELDS = [
   'task_id',
@@ -465,11 +496,26 @@ export const SUSPENDED_TASK_PACKAGE_REQUIRED_FIELDS = [
   'rehydration_status',
   'ownership_state',
 ] as const;
+export const INBOX_ARTIFACT_REQUIRED_FIELDS = [
+  'artifact_kind',
+  'item_id',
+  'title',
+  'type',
+  'source',
+  'captured_at',
+  'relation_to_current_task',
+  'current_task_id',
+  'description',
+  'evidence',
+  'suggested_next_action',
+  'status',
+] as const;
 
 const SUSPENDED_TASK_ARTIFACT_PATH_PATTERNS: Record<SuspendedTaskArtifactKind, RegExp> = {
   paused: /^TASKS\/paused\/TASK-([0-9]{3,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/,
   interrupted: /^TASKS\/interrupted\/TASK-([0-9]{3,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/,
 };
+const INBOX_ARTIFACT_PATH_PATTERN = /^TASKS\/inbox\/INBOX-([0-9]{8})-([a-z0-9]{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
 const SUSPENDED_TASK_PACKAGE_REHYDRATION_STATUSES = new Set<SuspendedTaskPackageRehydrationStatus>([
   'write_incomplete',
   'ready_for_resume',
@@ -479,6 +525,20 @@ const SUSPENDED_TASK_PACKAGE_OWNERSHIP_STATES = new Set<SuspendedTaskPackageOwne
   'recovery_only',
   'rehydrated',
 ]);
+const INBOX_ARTIFACT_KINDS = new Set<InboxArtifactKind>(['inbox_item']);
+const INBOX_ITEM_TYPES = new Set<InboxItemType>(['requirement', 'idea', 'bug', 'chore', 'question']);
+const INBOX_ITEM_SOURCES = new Set<InboxItemSource>([
+  'user',
+  'implementation',
+  'review',
+  'regression',
+  'root_cause',
+  'other',
+]);
+const INBOX_RELATIONS_TO_CURRENT_TASK = new Set<InboxRelationToCurrentTask>(['unrelated']);
+const INBOX_SUGGESTED_NEXT_ACTIONS = new Set<InboxSuggestedNextAction>(['triage_later', 'ask_user']);
+const INBOX_ARTIFACT_STATUSES = new Set<InboxArtifactStatus>(['captured']);
+const WORKFLOW_GUIDE_CAPTURE_REQUIRED_SNIPPETS = ['/capture-work-item', 'record-only', 'ask-user'] as const;
 
 export type MarkdownHeading = {
   level: number;
@@ -537,6 +597,27 @@ function getRequiredArtifactField(
 function getOptionalArtifactField(fields: Record<string, string>, field: string): string | undefined {
   const value = fields[field];
   return value && value.length > 0 ? value : undefined;
+}
+
+function getRequiredInboxArtifactField(
+  fields: Record<string, string>,
+  field: (typeof INBOX_ARTIFACT_REQUIRED_FIELDS)[number],
+  relativePath: string,
+): string {
+  const value = fields[field];
+  if (!value) {
+    throw new Error(`Inbox artifact missing required field "${field}" in ${relativePath}.`);
+  }
+  return value;
+}
+
+function parseInboxClosedFieldValue<T extends string>(value: string, allowedValues: Set<T>, field: string, relativePath: string): T {
+  if (!allowedValues.has(value as T)) {
+    throw new Error(
+      `Inbox artifact field "${field}" in ${relativePath} must use one of: ${[...allowedValues].join(', ')}.`,
+    );
+  }
+  return value as T;
 }
 
 function parseClosedFieldValue<T extends string>(value: string, allowedValues: Set<T>, field: string, relativePath: string): T {
@@ -653,6 +734,91 @@ export function validateSuspendedTaskArtifactPath(filePath: string): SuspendedTa
     );
   }
   return parsed;
+}
+
+export function parseInboxArtifactPath(filePath: string): InboxArtifactPath | null {
+  const relativePath = normalizeRelativePath(filePath);
+  const match = INBOX_ARTIFACT_PATH_PATTERN.exec(relativePath);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    relativePath,
+    dateStamp: match[1],
+    shortId: match[2],
+    itemSlug: match[3],
+  };
+}
+
+export function validateInboxArtifactPath(filePath: string): InboxArtifactPath {
+  const parsed = parseInboxArtifactPath(filePath);
+  if (!parsed) {
+    throw new Error(
+      `Inbox artifact path must match ${INBOX_ARTIFACT_PATH_TEMPLATE}. Got: ${normalizeRelativePath(filePath)}`,
+    );
+  }
+  return parsed;
+}
+
+export function validateInboxArtifactPackage(filePath: string, content: string): InboxArtifactContract {
+  const artifactPath = validateInboxArtifactPath(filePath);
+  const fields = extractArtifactFields(content);
+
+  const artifactKindValue = getRequiredInboxArtifactField(fields, 'artifact_kind', artifactPath.relativePath);
+  const itemId = getRequiredInboxArtifactField(fields, 'item_id', artifactPath.relativePath);
+  const title = getRequiredInboxArtifactField(fields, 'title', artifactPath.relativePath);
+  const typeValue = getRequiredInboxArtifactField(fields, 'type', artifactPath.relativePath);
+  const sourceValue = getRequiredInboxArtifactField(fields, 'source', artifactPath.relativePath);
+  const capturedAt = getRequiredInboxArtifactField(fields, 'captured_at', artifactPath.relativePath);
+  const relationToCurrentTaskValue = getRequiredInboxArtifactField(fields, 'relation_to_current_task', artifactPath.relativePath);
+  const currentTaskId = getRequiredInboxArtifactField(fields, 'current_task_id', artifactPath.relativePath);
+  const description = getRequiredInboxArtifactField(fields, 'description', artifactPath.relativePath);
+  const evidence = getRequiredInboxArtifactField(fields, 'evidence', artifactPath.relativePath);
+  const suggestedNextActionValue = getRequiredInboxArtifactField(fields, 'suggested_next_action', artifactPath.relativePath);
+  const statusValue = getRequiredInboxArtifactField(fields, 'status', artifactPath.relativePath);
+
+  validateTaskTitle(title);
+  validateTaskId(currentTaskId);
+
+  const artifactKind = parseInboxClosedFieldValue(
+    artifactKindValue,
+    INBOX_ARTIFACT_KINDS,
+    'artifact_kind',
+    artifactPath.relativePath,
+  );
+  const type = parseInboxClosedFieldValue(typeValue, INBOX_ITEM_TYPES, 'type', artifactPath.relativePath);
+  const source = parseInboxClosedFieldValue(sourceValue, INBOX_ITEM_SOURCES, 'source', artifactPath.relativePath);
+  const relationToCurrentTask = parseInboxClosedFieldValue(
+    relationToCurrentTaskValue,
+    INBOX_RELATIONS_TO_CURRENT_TASK,
+    'relation_to_current_task',
+    artifactPath.relativePath,
+  );
+  const suggestedNextAction = parseInboxClosedFieldValue(
+    suggestedNextActionValue,
+    INBOX_SUGGESTED_NEXT_ACTIONS,
+    'suggested_next_action',
+    artifactPath.relativePath,
+  );
+  const status = parseInboxClosedFieldValue(statusValue, INBOX_ARTIFACT_STATUSES, 'status', artifactPath.relativePath);
+
+  return {
+    ...artifactPath,
+    itemId,
+    title,
+    artifactKind,
+    type,
+    source,
+    capturedAt,
+    relationToCurrentTask,
+    currentTaskId,
+    description,
+    evidence,
+    suggestedNextAction,
+    status,
+    rawFields: fields,
+  };
 }
 
 export function validateSuspendedTaskPackage(filePath: string, content: string): SuspendedTaskPackageContract {
@@ -804,6 +970,18 @@ export function validateWorkflowDocContract(file: WorkflowDocName, content: stri
   for (const snippet of WORKFLOW_DOC_REQUIRED_SNIPPETS[file] ?? []) {
     if (!content.includes(snippet)) {
       throw new Error(`Workflow doc contract missing required snippet "${snippet}" in ${file}`);
+    }
+  }
+}
+
+export function validateWorkflowGuideCaptureContract(content: string): void {
+  if (!content.includes('/capture-work-item')) {
+    return;
+  }
+
+  for (const snippet of WORKFLOW_GUIDE_CAPTURE_REQUIRED_SNIPPETS) {
+    if (!content.includes(snippet)) {
+      throw new Error(`Workflow doc contract missing capture-work-item guide snippet "${snippet}" in WORKFLOW_GUIDE.md`);
     }
   }
 }

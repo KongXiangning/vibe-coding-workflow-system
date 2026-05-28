@@ -357,6 +357,15 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('不得直接继续 `/implement-current-step`');
   });
 
+  test('workflow guide documents capture-work-item as a record-only branch', () => {
+    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
+    expect(guide).toContain('/capture-work-item');
+    expect(guide).toContain('record-only');
+    expect(guide).toContain('TASKS/inbox/**');
+    expect(guide).toContain('/ask-user');
+    expect(guide).toContain('不是 `/create-current-task` 主链');
+  });
+
   test('workflow guide documents lifecycle runtime skill routing', () => {
     const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
     expect(guide).toContain('/pause-current-task');

@@ -64,6 +64,13 @@
   - 触发信号：
   - 应对动作：
 
+### Acceptance checkboxes need regression evidence before task closure
+
+- 场景：任务实施步骤、`STATUS.md` 或执行记录已经显示完成，但 `CURRENT_TASK.md > 验收标准` 仍保留未勾选项。
+- 结论：验收标准是完成证据的一部分，不能只靠实施步骤完成或状态同步来隐式满足；应先用 `/run-regression` 对验收面形成测试 / 生成 / 协议证据，再由 `/sync-current-task` 勾选验收标准并保留剩余风险。
+- 触发信号：`实施步骤` 全部为 `[x]`、`STATUS.md` 已写“已完成且稳定”、或执行记录写着“任务满足 acceptance”，但 `验收标准` 仍有 `[ ]`；或者 review finding 指出某个验收项只有实现逻辑、缺少直接测试覆盖。
+- 应对动作：先运行与验收标准对应的 focused checks 和 full regression；将通过命令、pass/fail 数量和 non-blocking gap 写回 `CURRENT_TASK.md`；若关键验收缺少证据，不要勾选，回到实现或补测试后再同步。
+
 ### Runtime root-isolation tests should inject sourceRoot and prefer temp roots
 
 - 场景：`workflow:install` 的 source/target root 隔离测试既要覆盖 source self-install、ancestor root、shared `.git` crossing，又要避免把 CI / monorepo 目录布局当成测试前提。

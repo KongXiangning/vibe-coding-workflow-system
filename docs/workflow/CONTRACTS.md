@@ -207,6 +207,17 @@
     - `WORKFLOW_GUIDE` 必须显式说明：旧任务遗留 blocker 阻断当前 active task 时，先走 canonical route + active-owner guard；当前 live task 仍 active 时，必须先让用户决定是否 pause / interrupt 当前任务，再进入恢复链。
   - verification：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
 
+- 对象路径：capture-work-item / `TASKS/inbox/**` record-only intake
+  - assertions：
+    - `capture-work-item` 是 `阶段 1：需求进入` 的 record-only branch，不属于 `create-current-task` 主链；成功记录后默认回到 `ask-user`，不得自动 promote、切换当前任务或创建新任务。
+    - `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` 是独立 inbox artifact family，用于记录已判断与当前 live task 无关的新事项；它不是 `TaskArtifactKind`、不是 lifecycle state、不是 paused / interrupted / archive package，也不纳入 `DOCUMENT_CATALOG.md`。
+    - `capture-work-item` 只允许在 `relation_to_current_task = unrelated` 时写入 inbox artifact；`scope_widening_candidate` 必须转 `/lock-scope`，`uncertain` 和 duplicate-suspected 必须 fail-closed 到 `ask-user`。
+    - capture 过程必须读取 live `CURRENT_TASK.md` 与现有 `TASKS/inbox/**` 做 title / slug / evidence 轻量 duplicate read-back；不得静默覆盖或继续写入疑似重复事项。
+    - inbox artifact validation 必须拒绝非法 inbox path、缺少 required fields、inbox artifact 混入 `TASKS/paused/**` / `TASKS/interrupted/**` / `TASKS/TASK-*.md`，以及把 `capture` / `backlog_item` 写入 live `CURRENT_TASK.md` lifecycle state 的污染。
+    - `WORKFLOW_GUIDE` 与 `SKILL_REGISTRY` 必须把 `capture-work-item` 表达成 record-only branch，并保持 `handoff.success = create-current-task` 只是 generator-compatible fallback，真实成功语义由 `conditional_handoff.capture_only = ask-user` 表达。
+    - promote、prioritization、backlog grooming、`DOCUMENT_CATALOG.md` 收录、task identity 感知、runtime manifest / install / health report 扩面都不属于该契约；如后续需要，必须单独开任务并重新锁范围。
+  - verification：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun test test/run-validation.test.ts`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
+
 ### compat path / wrapper rules
 
 - stable source object：`workflow:install`

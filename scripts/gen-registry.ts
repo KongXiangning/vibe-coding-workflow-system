@@ -62,6 +62,7 @@ const ALLOWED_UNRESOLVED = new Set(['{{TASK_ID}}', '{{TASK_SLUG}}']);
 const HIGH_RISK_SKILLS = [
   'execute-current-task',
   'supersede-current-task',
+  'capture-work-item',
   'continue-current-step',
   'debug-and-fix-current-task',
   'review-current-diff',
@@ -90,6 +91,7 @@ const WORKFLOW_ORDER = [
   'execute-current-task',
   'create-current-task',
   'supersede-current-task',
+  'capture-work-item',
   'review-current-task',
   'lock-scope',
   'classify-decisions',
@@ -258,6 +260,15 @@ function renderRegistry(skills: RegistrySkill[], workflowSkillDir: string): stri
     const stageSkills = grouped.get(section.stage) ?? [];
     if (section.stage === '初始化') {
       return `| ${section.summaryLabel} | \`design-baseline-init\` → \`realign-workflow-assets\` → \`greenfield-init\` / \`legacy-inventory\` → \`adopt-existing-project\` |`;
+    }
+    if (section.stage === '阶段 1：需求进入') {
+      const stageSkillNames = stageSkills.map(skill => skill.name);
+      if (stageSkillNames.includes('capture-work-item')) {
+        const mainChain = stageSkills
+          .filter(skill => skill.name !== 'capture-work-item')
+          .map(skill => skill.name);
+        return `| ${section.summaryLabel} | main chain: ${formatSkillRefs(mainChain)}；record-only branch: \`capture-work-item\` → \`ask-user\` |`;
+      }
     }
     if (section.stage === '阶段 5：范围复核') {
       return `| ${section.summaryLabel} | \`review-diff\` → \`review-implementation\` → \`verify-contracts\`；findings detour: \`review-diff\` / \`review-implementation\` → \`sync-review-findings\` → \`implement-current-step\` |`;

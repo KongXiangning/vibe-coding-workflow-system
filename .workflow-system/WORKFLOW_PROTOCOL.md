@@ -358,6 +358,25 @@ Compatibility boundary:
 - this protocol revision does not change runtime manifest / install / health report contracts
 - if lifecycle artifact semantics prove that those runtime contracts must change, the implementation must stop and split follow-up work instead of widening the current task
 
+### 3.4.5 Record-only intake artifacts
+
+This protocol revision also allows a **record-only intake artifact** family for items that are explicitly judged unrelated to the current live task.
+
+Canonical rules:
+
+- record-only intake artifacts must live under `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
+- record-only intake artifacts are **not** lifecycle states, suspended packages, archive packages, or governance catalog documents
+- `capture` and `backlog_item` remain explicitly forbidden as lifecycle-state values
+- a persisted inbox artifact must represent `relation_to_current_task = unrelated`; scope-widening or uncertain routes must fail closed to review / user decision flow without writing an inbox artifact
+- successful record-only capture must not mutate the live `CURRENT_TASK.md` goal, acceptance, scope boundaries, execution steps, review-finding queue, or active-ownership tuple
+- duplicate handling may use lightweight read-back against existing inbox artifacts, but must fail closed rather than silently overwriting an existing record
+
+Compatibility boundary:
+
+- inbox artifacts are a separate artifact family and do not expand the task-identity `artifact_kind` contract in this protocol revision
+- if inbox semantics prove that `TaskArtifactKind`, `DOCUMENT_CATALOG.md`, owner-routing, or runtime manifest / install / health report contracts must change, the implementation must stop and split follow-up work instead of widening the current task
+- field names, minimal required fields, and closed enums for inbox artifacts are owned by `.workflow-system/FILE_SCHEMAS.md`; this protocol defines only the required semantics and fail-closed behavior
+
 ---
 
 ## 4. Project-type specialization rules
@@ -450,6 +469,7 @@ The workflow system defines exactly 10 stage groups. Generators must validate th
 - Generators must validate that the rendered **runtime skill set** covers all workflow stages, including `init` and `phase-4-6-exception`.
 - The canonical ID is the protocol-level identifier. The display name is an alias for human readability.
 - A stage value that matches neither the canonical ID nor the display name is invalid and must cause generation to fail.
+- Intake and task-creation skills must reuse the existing `phase-1-intake` / `阶段 1：需求进入` stage value; aliases such as `阶段 1：任务创建` are invalid and must fail generation rather than being normalized silently.
 - Multiple skills may belong to the same stage. The minimum required runtime-skill coverage is at least one generated skill per stage group.
 
 ### 4a.2 Stage count clarification
@@ -674,6 +694,16 @@ run-regression -> investigate-root-cause -> plan-implementation -> decompose-tas
 ```
 
 - `investigate-root-cause` is a current-task failure detour, not a new bug intake command. If the user asks to register, record, or create a new bug, the workflow must route to `create-current-task` and must not hand off toward implementation unless the user later authorizes implementation.
+
+Plus the phase-1 record-only intake branch:
+
+```text
+capture-work-item -> ask-user
+```
+
+- `capture-work-item`, when present, must belong to `phase-1-intake` / `阶段 1：需求进入`
+- its record-only success path must terminate at `ask-user` (or an equivalent explicit manual-decision node), not auto-promote into the main implementation chain
+- registry / guide rendering must distinguish the phase-1 main chain from this record-only branch rather than flattening all phase-1 skills into one linear summary
 
 Plus the review-finding persistence detour:
 
@@ -1207,6 +1237,7 @@ The registry generator must:
 - render a workflow overview grouped by stage
 - render a detailed skill table grouped by stage
 - include handoff success/failure targets for every skill
+- when `phase-1-intake` contains a record-only intake skill such as `capture-work-item`, render the overview so the main task-creation chain and the record-only branch stay distinguishable instead of appearing as one linear sequence
 
 ### 13.4 Registry validation rules
 

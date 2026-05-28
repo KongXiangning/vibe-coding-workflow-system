@@ -44,6 +44,7 @@
 | 执行当前任务编排 | `/execute-current-task` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | 自动进入 review-current-task → lock-scope → classify-decisions → plan-implementation → decompose-task → implement/review/regression 链 |
 | 创建任务包 | `/create-current-task` | `.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`STATUS.md`、`DECISIONS.md`、用户需求 | `CURRENT_TASK.md` |
 | 替代失效任务包 | `/supersede-current-task` | 旧 `CURRENT_TASK.md`、`STATUS.md`、`DECISIONS.md`、`CONTRACTS.md` | 当未完成任务包发生 scope invalidation 时，保留旧任务状态、未完成项和 partial diff 归属，并把新任务包送回 `review-current-task` |
+| 记录无关新事项 | `/capture-work-item` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md`、`TASKS/inbox/**` | 将与当前任务无关的新事项写入 `TASKS/inbox/**` 的 record-only branch；成功后回到 `/ask-user`，不自动创建任务 |
 | 审查任务包 | `/review-current-task` | `CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`、`CONTRACTS.md`、`DECISIONS.md`、`STATUS.md` | 修订后的任务边界、验收、设计约束和风险 |
 | 锁定范围 | `/lock-scope` | `CURRENT_TASK.md`、`CONTRACTS.md`、`DECISIONS.md` | Safety mode、Allowed Files、Forbidden Files、Conditional Files、Dangerous surfaces、Unlock / widening conditions |
 | 分类决策 | `/classify-decisions` | `CURRENT_TASK.md`、`DECISIONS.md` | Mechanical / Taste / User challenge 分类 |
@@ -79,6 +80,7 @@
 1. 先读 `DOCUMENT_CATALOG.md` 确认文档目录协议，再读 `STATUS.md` / `ROADMAP.md`，确认当前任务是否处在正确窗口。
 2. 用 `/create-current-task` 创建 `CURRENT_TASK.md`。
    - 如果未完成的 `CURRENT_TASK.md` 在实现、审查或回归中发现目标、范围锁或验收标准已经失效，先用 `/supersede-current-task` 替代任务包，再重新进入 `/review-current-task` → `/lock-scope` → `/plan-implementation`；不得直接继续 `/implement-current-step`。
+   - `阶段 1：需求进入` 还允许一条 record-only branch：当当前任务执行中冒出与当前范围无关的新事项时，用 `/capture-work-item` 只写 `TASKS/inbox/**`，成功后固定回到 `/ask-user`；它不是 `/create-current-task` 主链，也不会自动 promote 成新任务。
 3. 用 `/review-current-task` 收敛目标、验收、风险和范围。
 4. 用 `/lock-scope` 明确 Safety mode、`Allowed Files`、`Forbidden Files`、`Conditional Files`、Dangerous surfaces 和受影响契约。
 5. 用 `/classify-decisions` 识别哪些决策可自动处理，哪些必须用户确认。
@@ -182,6 +184,7 @@ flowchart TD
 | 顺序 | Skill | 目的 | 影响文档 | 是否需要人工确认 |
 |---:|---|---|---|---|
 | 1 | `/create-current-task` | 把需求写成任务包初稿 | `CURRENT_TASK.md` | 需求模糊、目标不清时需要 |
+| 1a | `/capture-work-item` | 当当前任务执行中出现无关新事项时，走 record-only branch，只写 `TASKS/inbox/**`，不改当前 `CURRENT_TASK.md` | `TASKS/inbox/**` | relation 不明确、疑似 duplicate 或需要改当前范围时需要 |
 | 2 | `/review-current-task` | 收敛目标、验收标准、风险、范围 | `CURRENT_TASK.md` | Taste / User challenge 需要 |
 | 3 | `/lock-scope` | 锁定 Allowed / Forbidden / Conditional Files | `CURRENT_TASK.md` | 扩大范围、高风险文件需要 |
 | 4 | `/classify-decisions` | 判断哪些方案决策可自动做，哪些要用户拍板 | `CURRENT_TASK.md`、`DECISIONS.md` | Taste / User challenge 必须 |
@@ -235,6 +238,7 @@ flowchart TD
 | 已有 CURRENT_TASK.md，希望自动推进完整任务 | `/execute-current-task` |
 | 当前任务已锁范围并拆好步骤，只想继续下一步 | `/continue-current-step` |
 | 新需求进入 | `/create-current-task` |
+| 当前任务进行中，冒出与当前范围无关但需要留档的新事项 | `/capture-work-item`（record-only，成功后 `/ask-user`） |
 | 登记或记录一个新 bug，尚未授权修复 | `/create-current-task` |
 | 当前未完成任务的目标、范围锁或验收标准已经失效 | `/supersede-current-task` → `/review-current-task` → `/lock-scope` → `/plan-implementation` |
 | 任务范围太大或不清楚 | `/review-current-task` → `/lock-scope` |

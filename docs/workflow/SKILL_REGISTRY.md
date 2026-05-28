@@ -20,7 +20,7 @@
 | 阶段 | Skill |
 |---|---|
 | 初始化 | `design-baseline-init` → `realign-workflow-assets` → `greenfield-init` / `legacy-inventory` → `adopt-existing-project` |
-| 阶段 1：需求进入 | `execute-current-task` → `create-current-task` → `supersede-current-task` → `review-current-task` |
+| 阶段 1：需求进入 | main chain: `execute-current-task` → `create-current-task` → `supersede-current-task` → `review-current-task`；record-only branch: `capture-work-item` → `ask-user` |
 | 阶段 2：范围锁定 | `lock-scope` |
 | 阶段 3：方案拆解 | `classify-decisions` → `plan-implementation` → `decompose-task` |
 | 阶段 4：小步实现 | `continue-current-step` → `implement-current-step` |
@@ -56,6 +56,7 @@
 | `execute-current-task` | 按标准顺序执行当前任务，从任务复核、范围锁定、决策分类、实现方案分析和步骤拆解进入实现与验证链。 | docs/workflow/CURRENT_TASK.md 已存在，用户要求继续执行或自动推进当前任务时。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/STATUS.md` | `[]` | `review-current-task` | `ask-user` |
 | `create-current-task` | 根据用户需求生成可执行的 docs/workflow/CURRENT_TASK.md 初稿。 | 当用户提出新需求，且当前没有可直接执行的任务包时。 | `.workflow-system/PROJECT_PROFILE.yaml`、`docs/workflow/CONTRACTS.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md` | `docs/workflow/CURRENT_TASK.md` | `review-current-task` | `ask-user` |
 | `supersede-current-task` | 当未完成的当前任务因目标、范围锁或验收标准失效而不能继续时，用新任务包安全替代旧任务包。 | docs/workflow/CURRENT_TASK.md 尚未完成，但执行中发现原任务目标、范围锁或验收标准失效，必须替代当前任务包时。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/CONTRACTS.md` | `docs/workflow/CURRENT_TASK.md` | `review-current-task` | `ask-user` |
+| `capture-work-item` | 将与当前任务无关的新事项记录到 TASKS/inbox/**，不切换当前 active task。 | 当执行当前任务时冒出一个已判断与当前 live task 无关、但需要留档的新事项。 | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`TASKS/inbox/**` | `TASKS/inbox/**` | `create-current-task` | `ask-user` |
 | `review-current-task` | 审查 docs/workflow/CURRENT_TASK.md 初稿并收敛成可执行任务包。 | 当 docs/workflow/CURRENT_TASK.md 初稿已经生成，进入实现前。 | `docs/workflow/CURRENT_TASK.md`、`.workflow-system/PROJECT_PROFILE.yaml`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/STATUS.md` | `docs/workflow/CURRENT_TASK.md` | `lock-scope` | `ask-user` |
 
 ### 3.3 阶段 2：范围锁定
@@ -133,6 +134,7 @@
 
 - `execute-current-task`
 - `supersede-current-task`
+- `capture-work-item`
 - `continue-current-step`
 - `debug-and-fix-current-task`
 - `review-current-diff`

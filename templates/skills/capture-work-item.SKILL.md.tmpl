@@ -1,0 +1,257 @@
+---
+name: capture-work-item
+preamble-tier: 2
+version: 0.1.0
+description: |
+  Capture an unrelated work item into TASKS/inbox/** without changing the active CURRENT_TASK.
+purpose: |
+  将与当前任务无关的新事项记录到 TASKS/inbox/**，不切换当前 active task。
+stage: 阶段 1：需求进入
+trigger: |
+  当执行当前任务时冒出一个已判断与当前 live task 无关、但需要留档的新事项。
+inputs:
+  - current_task
+  - new_work_item
+  - relation_to_current_task
+  - duplicate_evidence
+reads:
+  - CURRENT_TASK.md
+  - CONTRACTS.md
+  - DECISIONS.md
+  - TASKS/inbox/**
+writes:
+  - TASKS/inbox/**
+forbidden_writes:
+  - "{{CODE_DIRECTORIES}}"
+  - "{{FORBIDDEN_PATHS}}"
+  - CURRENT_TASK.md
+  - STATUS.md
+  - DECISIONS.md
+  - CONTRACTS.md
+  - .workflow-system/WORKFLOW_PROTOCOL.md
+  - .workflow-system/FILE_SCHEMAS.md
+  - .workflow-system/PROJECT_PROFILE.yaml
+  - DOCUMENT_CATALOG.md
+  - SKILL_REGISTRY.md
+  - generated/workflow-docs/**
+  - generated/workflow-skills/**
+  - TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md
+  - TASKS/paused/**
+  - TASKS/interrupted/**
+  - TASKS/backlog/**
+must_check:
+  - "`relation_to_current_task` 是否明确区分 `unrelated`、`scope_widening_candidate`、`uncertain`"
+  - 是否已读取 live `CURRENT_TASK.md`，并确认 capture 不会修改任务目标、验收标准、Allowed / Conditional / Forbidden Files、实施步骤、审查问题队列或 active ownership
+  - 是否已读取 `TASKS/inbox/**` 做 lightweight duplicate read-back
+  - duplicate read-back 是否至少覆盖 title / slug / evidence
+  - 写入路径是否严格使用 `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
+  - "`conditional_handoff.capture_only = ask-user` 是否保持 record-only 语义"
+  - 是否继续遵守既有 lifecycle / artifact / catalog 决策，不把 inbox 当作 task artifact 或 lifecycle state
+stop_conditions:
+  - 需要修改 `CURRENT_TASK.md`、task archive / paused / interrupted artifact，或任何范围外文件
+  - 需要把 `capture`、`backlog_item` 或 `inbox_item` 当作 live lifecycle state 或 task artifact kind
+  - 无法生成合法 inbox path、必填字段或 duplicate read-back 证据
+  - 实现依赖未确认的 Taste / User challenge 决策
+output:
+  - captured inbox artifact
+  - duplicate read-back result
+  - routing result (`capture_only` / `scope_widening_candidate` / `uncertain` / `duplicate_suspected`)
+handoff:
+  success: create-current-task
+  failure: ask-user
+conditional_handoff:
+  capture_only: ask-user
+  scope_widening_candidate: lock-scope
+  uncertain: ask-user
+  duplicate_suspected: ask-user
+decision_policy:
+  mechanical: 可以自动整理 inbox path、最小字段和 duplicate read-back 证据顺序。
+  taste: 不得把“记录后立刻 triage 还是稍后再看”静默包装成新的任务流程。
+  user_challenge: 不得把 record-only capture 扩大成 task promotion、lifecycle state 或 active-task 切换。
+verification:
+  - "`writes` 只覆盖 `TASKS/inbox/**`"
+  - 只有 `relation_to_current_task = unrelated` 才允许持久化 inbox artifact
+  - "`uncertain` 与 `duplicate_suspected` 路线不得静默写入或覆盖 inbox artifact"
+  - capture 成功不会修改 `CURRENT_TASK.md` 的任务目标、验收标准、Allowed / Conditional / Forbidden Files、实施步骤、审查问题队列或 active ownership
+  - "`handoff.success = create-current-task` 只作为 generator-compatible fallback，不代表 capture 后默认创建任务"
+allowed-tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Edit
+  - AskUserQuestion
+benefits-from:
+  - /review-current-task
+  - /lock-scope
+  - /implement-current-step
+relation_values:
+  - unrelated
+  - scope_widening_candidate
+  - uncertain
+duplicate_checks:
+  - title
+  - slug
+  - evidence
+notes:
+  - "`handoff.success = create-current-task` 只是 generator-compatible fallback，不代表 capture 后默认创建新任务。"
+---
+
+# Skill: capture-work-item
+
+## Purpose
+
+将与当前任务无关的新事项记录到 `TASKS/inbox/**`，不切换当前 active task。
+
+## Trigger
+
+当执行当前任务时冒出一个已判断与当前 live task 无关、但需要留档的新事项。
+
+## Inputs
+
+- current_task
+- new_work_item
+- relation_to_current_task
+- duplicate_evidence
+
+## Project Variables
+
+### core
+- {{PROJECT_NAME}}
+- {{PROJECT_TYPE}}
+- {{TECH_STACK}}
+
+### structure
+- {{CODE_DIRECTORIES}}
+- {{FORBIDDEN_PATHS}}
+- {{ARCHITECTURE_RULES}}
+
+### execution
+- {{TEST_COMMANDS}}
+- {{DECISION_TYPES}}
+
+## Required Reads
+
+1. Read every file listed in frontmatter `reads` before making any decision.
+2. If a required file is missing, follow `handoff.failure` instead of guessing.
+3. When `CURRENT_TASK.md` exists, treat it as the source of truth for the active task boundary.
+
+## Must Check
+
+- `relation_to_current_task` 是否明确区分 `unrelated`、`scope_widening_candidate`、`uncertain`
+- 是否已读取 live `CURRENT_TASK.md`，并确认 capture 不会修改任务目标、验收标准、Allowed / Conditional / Forbidden Files、实施步骤、审查问题队列或 active ownership
+- 是否已读取 `TASKS/inbox/**` 做 lightweight duplicate read-back
+- duplicate read-back 是否至少覆盖 title / slug / evidence
+- 写入路径是否严格使用 `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
+- `conditional_handoff.capture_only = ask-user` 是否保持 record-only 语义
+- 是否继续遵守既有 lifecycle / artifact / catalog 决策，不把 inbox 当作 task artifact 或 lifecycle state
+
+## Stop Conditions
+
+- 需要修改 `CURRENT_TASK.md`、task archive / paused / interrupted artifact，或任何范围外文件
+- 需要把 `capture`、`backlog_item` 或 `inbox_item` 当作 live lifecycle state 或 task artifact kind
+- 无法生成合法 inbox path、必填字段或 duplicate read-back 证据
+- 实现依赖未确认的 Taste / User challenge 决策
+
+## Decision Policy
+
+- `mechanical`: 可以自动整理 inbox path、最小字段和 duplicate read-back 证据顺序。
+- `taste`: 不得把“记录后立刻 triage 还是稍后再看”静默包装成新的任务流程。
+- `user_challenge`: 不得把 record-only capture 扩大成 task promotion、lifecycle state 或 active-task 切换。
+
+## Verification
+
+- `writes` 只覆盖 `TASKS/inbox/**`
+- 只有 `relation_to_current_task = unrelated` 才允许持久化 inbox artifact
+- `uncertain` 与 `duplicate_suspected` 路线不得静默写入或覆盖 inbox artifact
+- capture 成功不会修改 `CURRENT_TASK.md` 的任务目标、验收标准、Allowed / Conditional / Forbidden Files、实施步骤、审查问题队列或 active ownership
+- `handoff.success = create-current-task` 只作为 generator-compatible fallback，不代表 capture 后默认创建任务
+
+## Extension Fields
+
+### relation_values
+- unrelated
+- scope_widening_candidate
+- uncertain
+
+### duplicate_checks
+- title
+- slug
+- evidence
+
+## Relation Gate
+
+`capture-work-item` 只允许在 `relation_to_current_task = unrelated` 时写入 inbox artifact：
+
+- `unrelated`
+  - 允许写入 `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
+  - persisted artifact 的 `relation_to_current_task` 固定为 `unrelated`
+  - 成功后走 `conditional_handoff.capture_only = ask-user`
+- `scope_widening_candidate`
+  - 不写 inbox artifact
+  - 立即走 `conditional_handoff.scope_widening_candidate = lock-scope`
+- `uncertain`
+  - 不写 inbox artifact
+  - fail-closed 到 `ask-user`
+
+不得把 `scope_widening_candidate` 或 `uncertain` 静默降级为 `unrelated`。
+
+## Duplicate Read-back Gate
+
+写入前必须读取现有 `TASKS/inbox/**` 做 lightweight duplicate read-back，最小覆盖：
+
+- title
+- slug
+- evidence
+
+如果命中疑似重复：
+
+- 不得静默覆盖、追加到旧 artifact 或改写现有 inbox item
+- 不得继续假装 capture 成功
+- 必须走 `conditional_handoff.duplicate_suspected = ask-user`
+
+## Record-only Write Rules
+
+- 唯一允许的持久化路径：`TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
+- 只允许写入 inbox artifact 最小字段；不得额外发明 lifecycle marker、task artifact kind 或 promote status
+- 不得修改当前 live `CURRENT_TASK.md`
+- 不得写入 `TASKS/TASK-*.md`、`TASKS/paused/**`、`TASKS/interrupted/**` 或 `TASKS/backlog/**`
+- 不得把 inbox artifact 收编到 `DOCUMENT_CATALOG.md`、`SKILL_REGISTRY.md` 或 generated docs surface
+
+## Record-only Outcome Routing
+
+- `handoff.success = create-current-task`
+  - 只作为 generator-compatible fallback
+  - 不得把 capture 默认解释为 `create-current-task`
+- `conditional_handoff.capture_only = ask-user`
+  - record-only capture 成功后的标准出口
+- `conditional_handoff.scope_widening_candidate = lock-scope`
+  - 仅当新事项其实要求扩大当前任务范围时使用
+- `conditional_handoff.uncertain = ask-user`
+  - 无法确认 relation 时必须停下
+- `conditional_handoff.duplicate_suspected = ask-user`
+  - duplicate read-back 命中疑似重复时必须停下
+
+## Execution Protocol
+
+1. Restate the goal in one sentence.
+2. Read all files listed in `reads`.
+3. Check `must_check` items before acting.
+4. Respect `forbidden_writes` and current task boundaries.
+5. If any `stop_conditions` match, stop and hand off to `handoff.failure`.
+6. Produce the artifact(s) described in `output`.
+7. Hand off according to `conditional_handoff`; use `handoff.success` only as the generator-compatible fallback.
+
+## Output Contract
+
+- Only write the files listed in `writes`.
+- If `writes` is `[]`, respond without persisting files.
+- Surface assumptions explicitly.
+- Keep the result structured and auditable.
+- Report unresolved risks rather than hiding them.
+
+## Notes
+
+- `capture-work-item` 是 record-only branch，不进入默认实现链。
+- This is a draft skill template generated from the workflow schema in `vibe-coding/vibe-coding-workflow.md`.
+- Replace project variables with concrete project-specific values during skill generation.

@@ -35,7 +35,8 @@ bun run workflow:health --root .
 - `CURRENT_TASK.md` lifecycle work is contract-first: stabilize protocol/schema/template/resolver/validator behavior before adding runtime lifecycle skills.
 - Active ownership is derived from `当前状态` plus `生命周期状态`; do not collapse lifecycle semantics back into `当前状态` or infer ownership from suspended package presence.
 - Suspended packages under `TASKS/paused/**` and `TASKS/interrupted/**` are task recovery artifacts, not `docs/workflow/` governance catalog documents.
-- Do not add pause / resume / interrupt runtime skills, guide / registry routing, inbox / backlog artifacts, or runtime manifest / install / health report changes unless the current task explicitly scopes them and re-locks scope.
+- `capture-work-item` and `TASKS/inbox/**` are record-only intake surfaces; they do not automatically promote, switch the current task, enter `create-current-task`, become lifecycle states, or join task identity / catalog / runtime contracts.
+- Do not add pause / resume / interrupt runtime skills, new guide / registry routing, promote / backlog behavior, task identity / catalog awareness, or runtime manifest / install / health report changes unless the current task explicitly scopes them and re-locks scope.
 
 ## Workflow External Documentation Gate
 

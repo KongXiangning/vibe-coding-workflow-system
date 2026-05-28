@@ -399,6 +399,112 @@ describe('run-validation', () => {
     }
   });
 
+  test('protocol validation fails closed on stray inbox artifacts', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-inbox-stray-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      writeProfileFile(
+        tempRoot,
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+        ].join('\n'),
+      );
+
+      const strayPath = path.join(tempRoot, 'TASKS', 'inbox', 'README.md');
+      fs.mkdirSync(path.dirname(strayPath), { recursive: true });
+      fs.writeFileSync(strayPath, '# stray inbox artifact', 'utf8');
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_passed).toBe(false);
+      const failure = report.protocol_results.find(result => result.entrypoint === 'inbox-artifact-validation');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('Stray inbox artifact detected at TASKS/inbox/README.md');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protocol validation fails closed on inbox lifecycle pollution in live CURRENT_TASK.md', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-inbox-lifecycle-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      writeProfileFile(
+        tempRoot,
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+        ].join('\n'),
+      );
+
+      const currentTask = fs
+        .readFileSync(path.join(generatedDocsDir(ROOT), 'CURRENT_TASK.md'), 'utf8')
+        .replace(/^- 生命周期状态：\s*active\s*$/m, '- 生命周期状态：capture');
+      fs.mkdirSync(path.dirname(workflowDocPath(tempRoot, 'CURRENT_TASK.md')), { recursive: true });
+      fs.writeFileSync(workflowDocPath(tempRoot, 'CURRENT_TASK.md'), currentTask, 'utf8');
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_passed).toBe(false);
+      const failure = report.protocol_results.find(result => result.entrypoint === 'inbox-artifact-validation');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('CURRENT_TASK.md lifecycle state must not use capture, backlog_item, or inbox_item');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protocol validation fails when generated WORKFLOW_GUIDE mentions capture-work-item without full guide contract', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-guide-capture-'));
+
+    try {
+      copyGeneratedSnapshot(tempRoot);
+      writeProfileFile(
+        tempRoot,
+        [
+          'validation:',
+          '  matrix:',
+          '    - name: workflow-docs-validation',
+          '      layer: protocol',
+          '      command: bun run gen:workflow-docs --dry-run',
+          '      blocker_level: blocks-generator',
+          '      description: protocol docs',
+          '      phase: P9',
+          '      owner: workflow-system',
+        ].join('\n'),
+      );
+
+      const guidePath = path.join(generatedDocsDir(tempRoot), 'WORKFLOW_GUIDE.md');
+      const guide = fs
+        .readFileSync(guidePath, 'utf8')
+        .replace(/record-only/g, 'capture-only');
+      fs.writeFileSync(guidePath, guide, 'utf8');
+
+      const report = runValidation({ root: tempRoot, layer: 'protocol', dryRun: true });
+      expect(report.protocol_passed).toBe(false);
+      const failure = report.protocol_results.find(result => result.entrypoint === 'workflow-guide-capture-validation');
+      expect(failure?.status).toBe('failed');
+      expect(failure?.error).toContain('Workflow doc contract missing capture-work-item guide snippet "record-only"');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test('project validation accepts generated lifecycle governance homes when project entrypoints are bound', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-validation-governance-ok-'));
 

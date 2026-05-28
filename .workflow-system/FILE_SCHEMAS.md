@@ -237,6 +237,63 @@ suspended package 的最小字段为：
 
 `write_incomplete` package、marker 不自洽 package、或不满足上述最小字段的 package 都不得作为恢复输入。
 
+### Inbox / record-only artifact 承载约束
+
+inbox artifact 是 record-only work item，不是 task identity artifact、lifecycle state、suspended package 或 governance catalog 常驻对象。其 path contract 固定如下：
+
+```text
+TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
+```
+
+最小字段为：
+
+- `artifact_kind`
+- `item_id`
+- `title`
+- `type`
+- `source`
+- `captured_at`
+- `relation_to_current_task`
+- `current_task_id`
+- `description`
+- `evidence`
+- `suggested_next_action`
+- `status`
+
+其中闭合集合为：
+
+- `artifact_kind`
+  - `inbox_item`
+- `type`
+  - `requirement`
+  - `idea`
+  - `bug`
+  - `chore`
+  - `question`
+- `source`
+  - `user`
+  - `implementation`
+  - `review`
+  - `regression`
+  - `root_cause`
+  - `other`
+- `relation_to_current_task`
+  - `unrelated`
+- `suggested_next_action`
+  - `triage_later`
+  - `ask_user`
+- `status`
+  - `captured`
+
+最小校验要求：
+
+- inbox artifact path 必须匹配 `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
+- `relation_to_current_task` 对已写入 inbox 的 artifact 固定为 `unrelated`
+- inbox artifact 不得落入 `TASKS/paused/**`、`TASKS/interrupted/**`、`TASKS/TASK-*.md` 或 `docs/workflow/CURRENT_TASK.md`
+- inbox artifact 不得把 `capture`、`backlog_item` 或 `inbox_item` 写成 live `CURRENT_TASK.md` 的 lifecycle state
+- duplicate 检测可依赖 title / slug / evidence 的轻量 read-back，但命中疑似重复时必须 fail-closed，不能静默覆盖
+- `promoted`、`rejected`、`duplicate` 等后续状态不属于本轮最小闭集；需要时必须先扩展协议 / schema
+
 ### 更新时机
 
 - 新需求进入时创建
@@ -617,6 +674,7 @@ suspended package 的最小字段为：
 - 必须覆盖标准任务链上的主要 skill
 - 不得重新定义字段结构、错误码、gate 或 blocker 语义
 - 与 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md` 或 skill frontmatter 冲突时，以规范源和 skill frontmatter 为准
+- 当 `阶段 1：需求进入` 存在 record-only intake skill（如 `capture-work-item`）时，`WORKFLOW_GUIDE.md` 必须把它表达成独立的 record-only branch，并明确它不是 `create-current-task` 主链
 
 ---
 

@@ -119,6 +119,17 @@
 - 替代方案：把逻辑内联进 `workflow-runtime.ts`；为 crossing guard 新增 failure category / 协议错误码；立即扩大到所有 root 参数入口。均不采用。
 - 验证方式：`bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`
 
+### AD-011: `capture-work-item` 作为 record-only inbox branch，不自动进入任务主链
+
+- 状态：accepted
+- 背景：任务 `007` 需要承接此前 deferred 的 inbox / backlog artifact 能力，但当前目标只是把已判断与当前 live task 无关的新事项留档，不能污染 active task、lifecycle state、task artifact identity 或 create-current-task 主链。
+- 决策：新增 `capture-work-item` 作为 `阶段 1：需求进入` 的 record-only branch；`TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` 作为独立 inbox artifact family。`capture-work-item` 只在 `relation_to_current_task = unrelated` 时写入 inbox；成功后通过 `conditional_handoff.capture_only = ask-user` 回到人工决策，不自动 promote、不自动切换当前任务、不默认进入 `create-current-task`。`handoff.success = create-current-task` 仅保留为 generator-compatible fallback。
+- 原因：把“记录无关新事项”和“创建 / 切换 / 扩大当前任务”分离，避免在执行当前 active task 时引入隐式上下文切换、active ownership 污染或 task lifecycle 语义漂移。
+- 约束：AI 不得把 `capture` 或 `backlog_item` 写成 `CURRENT_TASK` lifecycle state；不得把 inbox artifact 纳入 `TaskArtifactKind`、`DOCUMENT_CATALOG.md`、paused / interrupted / archive package、runtime manifest / install / health report contract，除非后续单独开任务并重新锁范围。`scope_widening_candidate` 必须回 `/lock-scope`；`uncertain` 或 duplicate-suspected 必须 fail-closed 到 `ask-user`。
+- 影响范围：`.workflow-system/WORKFLOW_PROTOCOL.md`, `.workflow-system/FILE_SCHEMAS.md`, `scripts/workflow-doc-contracts.ts`, `scripts/run-validation.ts`, `templates/skills/capture-work-item.SKILL.md.tmpl`, `templates/docs/WORKFLOW_GUIDE.md.tmpl`, `scripts/gen-registry.ts`, `docs/workflow/generated/workflow-skills/capture-work-item.SKILL.md`, `docs/workflow/generated/workflow-docs/WORKFLOW_GUIDE.md`, `docs/workflow/SKILL_REGISTRY.md`, `test/{gen-workflow-skills,gen-workflow-docs,gen-registry,run-validation}.test.ts`
+- 替代方案：把 inbox item 建模成新的 lifecycle state；把 inbox artifact 纳入 task identity artifact kind；直接扩展 `create-current-task` 或 owner-routing skills 消费 capture；把 inbox 收录进 `DOCUMENT_CATALOG.md`；只更新 guide / registry 不加 validator 闭环。均不采用。
+- 验证方式：`bun run gen:all`; `bun run test:workflow-skills`; `bun run test:registry`; `bun run test:workflow-docs`; `bun test test/run-validation.test.ts`; `bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`
+
 ## 🎨 口味决策
 
 ### TD-001: 中文治理文档风格

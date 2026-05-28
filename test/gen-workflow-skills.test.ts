@@ -365,6 +365,58 @@ describe('gen-workflow-skills', () => {
     expect(content).toContain('不得静默清空 gate');
   });
 
+  test('capture-work-item stays record-only and never auto-promotes into task creation', () => {
+    const templatePath = path.join(TEMPLATE_DIR, 'capture-work-item.SKILL.md.tmpl');
+    const skillPath = path.join(OUTPUT_DIR, 'capture-work-item.SKILL.md');
+    expect(fs.existsSync(templatePath)).toBe(true);
+    expect(fs.existsSync(skillPath)).toBe(true);
+
+    const frontmatter = parseFrontmatter(skillPath);
+    const reads = normalizeList(frontmatter.reads);
+    const writes = normalizeList(frontmatter.writes);
+    const forbidden = normalizeList(frontmatter.forbidden_writes);
+    const mustCheck = normalizeList(frontmatter.must_check);
+    const stopConditions = normalizeList(frontmatter.stop_conditions);
+    const handoff = frontmatter.handoff as Record<string, unknown>;
+    const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
+    const relationValues = normalizeList(frontmatter.relation_values);
+    const duplicateChecks = normalizeList(frontmatter.duplicate_checks);
+    const content = fs.readFileSync(skillPath, 'utf8');
+
+    expect(String(frontmatter.stage)).toBe('阶段 1：需求进入');
+    expect(reads).toEqual([CURRENT_TASK_DOC, CONTRACTS_DOC, DECISIONS_DOC, 'TASKS/inbox/**']);
+    expect(writes).toEqual(['TASKS/inbox/**']);
+    expect(forbidden).toContain(CURRENT_TASK_DOC);
+    expect(forbidden).toContain(STATUS_DOC);
+    expect(forbidden).toContain(CONTRACTS_DOC);
+    expect(forbidden).toContain(DECISIONS_DOC);
+    expect(forbidden).toContain('TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md');
+    expect(forbidden).toContain('TASKS/paused/**');
+    expect(forbidden).toContain('TASKS/interrupted/**');
+    expect(handoff.success).toBe('create-current-task');
+    expect(handoff.failure).toBe('ask-user');
+    expect(conditionalHandoff.capture_only).toBe('ask-user');
+    expect(conditionalHandoff.scope_widening_candidate).toBe('lock-scope');
+    expect(conditionalHandoff.uncertain).toBe('ask-user');
+    expect(conditionalHandoff.duplicate_suspected).toBe('ask-user');
+    expect(relationValues).toEqual(['unrelated', 'scope_widening_candidate', 'uncertain']);
+    expect(duplicateChecks).toEqual(['title', 'slug', 'evidence']);
+    expect(mustCheck).toContain(
+      '`relation_to_current_task` 是否明确区分 `unrelated`、`scope_widening_candidate`、`uncertain`',
+    );
+    expect(mustCheck).toContain('duplicate read-back 是否至少覆盖 title / slug / evidence');
+    expect(stopConditions).toContain(
+      '需要把 `capture`、`backlog_item` 或 `inbox_item` 当作 live lifecycle state 或 task artifact kind',
+    );
+    expect(content).toContain('TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md');
+    expect(content).toContain('`capture-work-item` 只允许在 `relation_to_current_task = unrelated` 时写入 inbox artifact');
+    expect(content).toContain('lightweight duplicate read-back');
+    expect(content).toContain('title / slug / evidence');
+    expect(content).toContain('不得修改当前 live `docs/workflow/CURRENT_TASK.md`');
+    expect(content).toContain('不得把 capture 默认解释为 `create-current-task`');
+    expect(content).toContain('conditional_handoff.capture_only = ask-user');
+  });
+
   test('supersede-current-task preserves task replacement governance semantics', () => {
     const supersedePath = path.join(OUTPUT_DIR, 'supersede-current-task.SKILL.md');
     expect(fs.existsSync(supersedePath)).toBe(true);

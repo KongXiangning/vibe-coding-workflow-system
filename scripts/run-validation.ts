@@ -24,12 +24,16 @@ import {
 } from './workflow-core';
 import { validatePropagationGovernanceDocs } from './propagation-governance';
 import {
+  parseInboxArtifactPath,
   parseSuspendedTaskArtifactPath,
+  validateInboxArtifactPackage,
   validateSuspendedTaskPackage,
   validateBaselineCoverageForBoundSlots,
   validateLifecycleGovernanceDoc,
+  validateWorkflowGuideCaptureContract,
   type LifecycleGovernanceDoc,
 } from './workflow-doc-contracts';
+import { extractCurrentTaskStateFromCurrentTask } from './task-identity';
 import {
   type BlockerLevel,
   type ValidationEntrypoint,
@@ -75,6 +79,16 @@ type EntrypointExecutionContext = {
 
 type SuspendedTaskPackageCheck = {
   entrypoint: 'suspended-task-package-validation';
+  blocker_level: 'blocks-merge';
+};
+
+type InboxArtifactCheck = {
+  entrypoint: 'inbox-artifact-validation';
+  blocker_level: 'blocks-merge';
+};
+
+type WorkflowGuideCaptureCheck = {
+  entrypoint: 'workflow-guide-capture-validation';
   blocker_level: 'blocks-merge';
 };
 
@@ -166,6 +180,14 @@ const GOVERNANCE_HOME_CHECKS: readonly GovernanceHomeCheck[] = [
 const WORKFLOW_SYSTEM_SOURCE_ROOT = path.resolve(import.meta.dir, '..');
 const SUSPENDED_TASK_PACKAGE_CHECK: SuspendedTaskPackageCheck = {
   entrypoint: 'suspended-task-package-validation',
+  blocker_level: 'blocks-merge',
+};
+const INBOX_ARTIFACT_CHECK: InboxArtifactCheck = {
+  entrypoint: 'inbox-artifact-validation',
+  blocker_level: 'blocks-merge',
+};
+const WORKFLOW_GUIDE_CAPTURE_CHECK: WorkflowGuideCaptureCheck = {
+  entrypoint: 'workflow-guide-capture-validation',
   blocker_level: 'blocks-merge',
 };
 
@@ -358,11 +380,108 @@ function validateSuspendedTaskArtifacts(root: string): void {
   }
 }
 
+function readArtifactKind(content: string): string | null {
+  const match = /^\s*(?:-\s*)?artifact_kind\s*:\s*(.*?)\s*$/m.exec(content);
+  return match?.[1]?.trim() || null;
+}
+
+function validateInboxCurrentTaskState(root: string): void {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const currentTaskPath = getWorkflowDocPath(root, profile, 'CURRENT_TASK.md');
+  if (!fs.existsSync(currentTaskPath)) {
+    return;
+  }
+
+  const { lifecycleState } = extractCurrentTaskStateFromCurrentTask(readText(currentTaskPath));
+  if (!lifecycleState) {
+    return;
+  }
+
+  if (['capture', 'backlog_item', 'inbox_item'].includes(lifecycleState)) {
+    throw new Error(
+      'CURRENT_TASK.md lifecycle state must not use capture, backlog_item, or inbox_item; inbox artifacts are record-only and must stay outside the lifecycle tuple.',
+    );
+  }
+}
+
+function validateMisplacedInboxArchiveArtifacts(root: string): void {
+  const taskRoot = path.join(root, 'TASKS');
+  if (!fs.existsSync(taskRoot)) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(taskRoot, { withFileTypes: true })) {
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const relativePath = path.join('TASKS', entry.name).replace(/\\/g, '/');
+    if (!/^TASKS\/TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(relativePath)) {
+      continue;
+    }
+
+    const artifactKind = readArtifactKind(readText(path.join(taskRoot, entry.name)));
+    if (artifactKind === 'inbox_item') {
+      throw new Error(
+        `Inbox artifact must not be stored at ${relativePath}; use TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md instead.`,
+      );
+    }
+  }
+}
+
+function validateInboxArtifacts(root: string): void {
+  const artifactFiles = listFilesRecursively(path.join(root, 'TASKS', 'inbox'));
+
+  for (const filePath of artifactFiles) {
+    const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+    if (parseInboxArtifactPath(relativePath) === null) {
+      throw new Error(
+        `Stray inbox artifact detected at ${relativePath}; expected only TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md.`,
+      );
+    }
+
+    validateInboxArtifactPackage(relativePath, readText(filePath));
+  }
+
+  validateMisplacedInboxArchiveArtifacts(root);
+  validateInboxCurrentTaskState(root);
+}
+
+function validateWorkflowGuideCapture(root: string): void {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const generatedGuidePath = path.join(getWorkflowGeneratedDir(root, profile, 'workflow-docs'), 'WORKFLOW_GUIDE.md');
+  if (!fs.existsSync(generatedGuidePath)) {
+    return;
+  }
+
+  validateWorkflowGuideCaptureContract(readText(generatedGuidePath));
+}
+
 function buildSuspendedTaskPackageFailure(error: Error): ValidationResult {
   return {
     entrypoint: SUSPENDED_TASK_PACKAGE_CHECK.entrypoint,
     layer: 'protocol',
     blocker_level: SUSPENDED_TASK_PACKAGE_CHECK.blocker_level,
+    status: 'failed',
+    error: error.message,
+  };
+}
+
+function buildInboxArtifactFailure(error: Error): ValidationResult {
+  return {
+    entrypoint: INBOX_ARTIFACT_CHECK.entrypoint,
+    layer: 'protocol',
+    blocker_level: INBOX_ARTIFACT_CHECK.blocker_level,
+    status: 'failed',
+    error: error.message,
+  };
+}
+
+function buildWorkflowGuideCaptureFailure(error: Error): ValidationResult {
+  return {
+    entrypoint: WORKFLOW_GUIDE_CAPTURE_CHECK.entrypoint,
+    layer: 'protocol',
+    blocker_level: WORKFLOW_GUIDE_CAPTURE_CHECK.blocker_level,
     status: 'failed',
     error: error.message,
   };
@@ -439,6 +558,46 @@ export function runValidation(options: RunValidationOptions = {}): ValidationRep
       } catch (error) {
         protocolResults.push(
           buildSuspendedTaskPackageFailure(error instanceof Error ? error : new Error(String(error))),
+        );
+      }
+    }
+
+    if (shouldRun(
+      {
+        name: INBOX_ARTIFACT_CHECK.entrypoint,
+        layer: 'protocol',
+        command: '',
+        blocker_level: INBOX_ARTIFACT_CHECK.blocker_level,
+        description: 'Validate inbox artifacts, archive-path pollution, and lifecycle contamination.',
+        phase: 'P9',
+        owner: 'workflow-system',
+      },
+      options.maxBlockerLevel,
+    )) {
+      try {
+        validateInboxArtifacts(root);
+      } catch (error) {
+        protocolResults.push(buildInboxArtifactFailure(error instanceof Error ? error : new Error(String(error))));
+      }
+    }
+
+    if (shouldRun(
+      {
+        name: WORKFLOW_GUIDE_CAPTURE_CHECK.entrypoint,
+        layer: 'protocol',
+        command: '',
+        blocker_level: WORKFLOW_GUIDE_CAPTURE_CHECK.blocker_level,
+        description: 'Validate capture-work-item guide snippets when the guide exposes that branch.',
+        phase: 'P9',
+        owner: 'workflow-system',
+      },
+      options.maxBlockerLevel,
+    )) {
+      try {
+        validateWorkflowGuideCapture(root);
+      } catch (error) {
+        protocolResults.push(
+          buildWorkflowGuideCaptureFailure(error instanceof Error ? error : new Error(String(error))),
         );
       }
     }
