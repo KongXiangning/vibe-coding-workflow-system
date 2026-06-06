@@ -4,6 +4,15 @@
 
 It owns the protocol, schemas, templates, generators, runtime sync/install scripts, and reference generated outputs used to install workflow governance into target projects.
 
+## Attribution
+
+This project is inspired by and partially derived from
+[gstack](https://github.com/garrytan/gstack), which is licensed under the MIT License.
+
+The workflow-system implementation, templates, generators, runtime scripts, and
+governance documents in this repository adapt those workflow-governance ideas for
+personal Vibe Coding projects.
+
 ## Source Layout
 
 - `.workflow-system/` - protocol, file schemas, and source-repo project profile.
