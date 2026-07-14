@@ -22,6 +22,13 @@
 - 触发信号：某条规则被写入多个核心 skill，或被提升为 `CONTRACTS.md` / `DECISIONS.md` 中的长期边界。
 - 应对动作：先完成模板和生成验证，再判断是否同步 `CONTRACTS.md`、`DECISIONS.md`、`AGENTS.md`、`CLAUDE.md`；只同步已确认的长期规则，不复制任务级临时说明。
 
+### High-level methodology changes must preserve layer boundaries
+
+- 场景：workflow 能力已经在 protocol、guide、registry 或 generated surface 中存在，但人类阅读的方法论 / 工作流说明遗漏了对应高层叙事。
+- 结论：高层文档补全应只补“为什么、何时用、分支如何连接”的叙事，不复制 schema 字段、闭集枚举、错误码或 generated surface 细节。
+- 触发信号：文档审查发现底层能力已完整，而方法论读者仍无法发现 record-only、suspend/resume、owner routing 或 terminal branch。
+- 应对动作：只修改对应的 methodology / workflow overview 文档，使用关键词检索和 diff 复核验证覆盖，并明确正式规则仍以下沉规范源为准。
+
 ### Live governance docs need explicit scope widening
 
 - 场景：任务执行中需要更新 `STATUS.md`、`LESSONS.md` 等 live governance docs，但初始范围只允许代码或模板。

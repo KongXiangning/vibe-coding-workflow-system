@@ -7,10 +7,11 @@
 - 任务 ID：008
 - 任务标题：补齐方法论文档对 003-007 新增 workflow 分支的高层叙事
 - 任务 slug：methodology-docs-cover-003-007-skill-branches
-- 当前状态：active
-- 生命周期状态：active
+- 当前状态：archived
+- 生命周期状态：archived
 - 恢复需审查：false
 - 恢复审查原因：
+- 当前 handoff：create-current-task
 - 创建时间：2026-05-28
 
 ## 背景与上下文
@@ -147,7 +148,7 @@
   - scope：methodology / workflow explanation coverage for tasks 003-007
   - result_summary：generated docs / guide / registry 已覆盖新增能力，但 `vibe-coding-methodology.md` 与 `vibe-coding-workflow.md` 缺少对应高层叙事。
   - confidence：high
-  - gaps：待补完后复核检索结果
+  - gaps：已完成补丁后的全文检索复核；未发现高层叙事覆盖缺口
 
 ### aggregation / complexity
 
@@ -185,8 +186,8 @@
 ## 回滚点
 
 - Task start base：`be98f4387265a81e2e1e67a16cf6bd80070291b6`
-- Last reviewed checkpoint：not-yet-created
-- Current diff review target：working-tree
+- Last reviewed checkpoint：8362355e
+- Current diff review target：be98f438..8362355e
 
 ## 执行记录
 
@@ -194,3 +195,5 @@
 - 2026-05-28：已确认问题属于当前仓库人类文档层，不涉及 protocol/schema/runtime 行为修复；最小修复面锁定为 `vibe-coding-methodology.md` 与 `vibe-coding-workflow.md`。
 - 2026-05-28：已在两份高层文档补入 `capture-work-item` record-only branch、ownership-aware routing、active-owner guard、`pause/interrupt/resume` lifecycle、resume 后先 `review-current-task`、以及 `report-only` terminal 语义，并完成差异与检索复核。
 - 2026-05-28：差异审查曾发现方法论文档误引 route 枚举名；已改回高层语义表达，终审结论为 clean。
+- 2026-07-14：执行收尾回归：`bun run test:workflow-all`（209 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 均通过；确认无剩余 blocker。
+- 2026-07-14：执行 `/close-current-task` 收尾；同步任务与状态记录、记录高层文档职责边界经验、准备交付摘要，并创建 `TASKS/TASK-008-methodology-docs-cover-003-007-skill-branches.md`。当前任务已归档，下一轮入口为 `/create-current-task`。
