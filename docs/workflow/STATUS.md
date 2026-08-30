@@ -24,6 +24,8 @@
 - [x] 任务 `006` / `target-root-guard`：`workflow:install` 已新增 fail-closed target-root guard，能够拒绝 source repo self-install、source parent / ancestor root 与 shared `.git` root crossing，同时保留 isolated target install 与 source repo self-sync allow path；`scripts/guard-target-root.ts`、`installWorkflowBundle()` 集成、runtime / guard tests 与 live `CURRENT_TASK.md` 已同步，`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过。
 - [x] 任务 `007` / `capture-work-item-inbox`：已新增 `capture-work-item` skill template、`TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` record-only artifact contract、validator fail-closed 校验，以及 `WORKFLOW_GUIDE` / `SKILL_REGISTRY` 的阶段 1 record-only branch 暴露；generated reference outputs 已同步到 `docs/workflow/generated/workflow-skills/capture-work-item.SKILL.md`、`docs/workflow/generated/workflow-docs/WORKFLOW_GUIDE.md` 与 `docs/workflow/SKILL_REGISTRY.md`。`bun run gen:all`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过。
 - [x] 任务 `008` / `methodology-docs-cover-003-007-skill-branches`：已补齐 `vibe-coding/vibe-coding-methodology.md` 与 `vibe-coding/vibe-coding-workflow.md` 对任务 `003-007` 新增 workflow 分支的高层叙事；已完成全文检索复核与归档，`bun run test:workflow-all`（209 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过，归档文件为 `TASKS/TASK-008-methodology-docs-cover-003-007-skill-branches.md`。
+- [x] 任务 `009` / `audit-workflow-skills-for-vnext`：已完成全部 37 个 workflow Skill 的 `Keep / Merge / Runtime / Delete` 审计，形成 `5 / 20 / 7 / 5` 唯一分类、10 个候选公开入口、18 项全局不变量、37 个逐项 `MR-*` 与 18 个组合 `GR-*` 回归用例，以及 contract-first 分阶段迁移计划；未改变现行 Skill/runtime 行为，归档文件为 `TASKS/TASK-009-audit-workflow-skills-for-vnext.md`。
+- [x] 任务 `010` / `workflow-vnext-capability-contract`：已建立 public / internal / runtime / compat additive shadow contract、10 个候选公开入口、37-name compatibility manifest、55-case golden fixture 与 fail-closed validator；K/M/R/D 为 `5 / 20 / 7 / 5`，旧 Skill、handoff、generator、registry、runtime 与 host surface 均未改变。`test:workflow-all` 285 pass / 0 fail，protocol、freshness 与 health gates 通过；当前停在 Phase 1 用户确认门。
 
 ## 🔨 正在开发
 
@@ -46,6 +48,9 @@
 - lifecycle runtime skills、generated guide / registry 与 resumed-task review routing 已在任务 `004` 收敛；后续若要继续扩到 inbox / backlog artifact 或 runtime manifest / install / health report contract，仍必须单独开任务并重新锁范围。
 - ownership-aware route 闭集、guard-aware alias 和 finding queue isolation 已在任务 `005` 收敛；后续若要继续扩大到 protocol / schema / runtime 级别的 owner state、manifest 或自动恢复策略，仍必须单独开任务并重新锁范围。
 - `capture-work-item` 与 `TASKS/inbox/**` 已稳定为 record-only branch / artifact family；后续若要继续扩到 promote、prioritization、`DOCUMENT_CATALOG.md`、task identity contract、runtime manifest / install / health report 或 lifecycle state，仍必须单独开任务并重新锁范围。
+- vNext Phase 0 manifest 是 source-repo conformance shadow，不是 Runtime executor、target-project state 或 host install surface；不得据此直接 redirect / delete 旧 alias。
+- Phase 1 行为推广前仍需补齐 branch-aware fixture、expected writes / handoff / diff target / terminal 的精确等价校验，以及 Runtime operation-specific source / write 绑定；Runtime proposal 的路径解析、原子提交和幂等冲突处理继续保持 deferred。
+- Codex host skill 路径在协议历史表述与当前 runtime/tests 间存在 `.agents/skills` / `.codex/skills` 漂移；本任务未触碰 host sync，需独立 decision gate 处理。
 
 ## ❌ 已移除 / 推迟
 
@@ -54,6 +59,7 @@
 
 ## 🔜 下一检查点
 
+- 任务 `010` 的 Phase 0 shadow baseline 已完成。下一推荐任务是 Phase 1 read-only facade shadow：先强化 semantic fixtures 与 operation-specific constraints，再实现只读 resolver 对比 legacy alias 与候选 facade verdict，并用跨模型 / harness 代表场景验证；在 equivalence gate 通过前不 redirect alias、不改变 registry / host sync 默认暴露面。
 - 任务 `005` 已完成 ownership-aware root-cause / regression / review-finding routing 与 guide 显式化；如需继续推进 owner routing 相关工作，应评估是否需要 protocol / schema / runtime 级别的 dedicated owner state、自动恢复策略或 inbox / backlog artifact，并单独开任务重新锁范围。
 - 任务 `006` 已完成 target root guard；如需继续扩大到 `workflow:install` 之外的 root 参数入口、协议级错误分类或 source-repair 等价流程，必须单独开任务并重新锁范围。
 - 任务 `007` 已完成 record-only `capture-work-item` / inbox artifact 能力；如需继续推进 promote / backlog triage、`DOCUMENT_CATALOG.md` 收录、task identity 感知、或 runtime/host routing 扩面，必须单独开任务重新锁范围。
@@ -62,6 +68,8 @@
 
 ## 最近更新记录
 
+- 2026-08-30：任务 `010` 完成 vNext Phase 0 capability / compatibility shadow baseline：10 个候选 public entry、23 个 internal capability、10 个 Runtime operation declaration、37 个 compat alias 与 55 个 golden fixture 已由 fail-closed validator 校验。`luna_worker` 独立复核确认 alias capability/runtime/stage/write-class 差异为 0；`bun run test:workflow-all`（285 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过。当前停在 Phase 1 用户确认门。
+- 2026-08-30：任务 `009` 完成 37 个 workflow Skill 的 K/M/R/D 审计与 vNext 迁移计划；机械覆盖检查为 37/37，迁移用例为 37 个 `MR-*` 加 18 个 `GR-*`，`bun run test:workflow-all`（273 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 通过。下一任务按 contract-first 顺序建立 capability/compat contract 与 golden fixture baseline。
 - 2026-05-26：任务 `003` / `current-task-suspend-resume-contract-foundation` 已完成第一阶段协议契约、schema、模板、resolver、bootstrap output、suspended package validation 与 protocol-level synthesized check；`docs/workflow/generated/workflow-docs/CURRENT_TASK.md` 已按 Conditional File 由生成器同步。最终回归通过：`bun run gen:all`、`bun run test:workflow-all`（201 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。Release mode 为 none，发布后状态不适用。
 - 2026-05-26：任务 `004` / `current-task-lifecycle-runtime-skills` 已完成四个 lifecycle runtime skill、`review-current-task` 的 resume gate 消费扩展、`WORKFLOW_GUIDE` / `SKILL_REGISTRY` 路由同步、generated reference outputs 同步、全量回归、完成审核修正与归档；归档文件为 `TASKS/TASK-004-current-task-lifecycle-runtime-skills.md`。最终回归通过：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`（201 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。Release mode 为 none，发布后状态不适用。
 - 2026-05-27：任务 `005` / `ownership-aware-root-cause-routing` 已完成 `investigate-root-cause`、`run-regression`、`sync-review-findings` 与 `WORKFLOW_GUIDE` 的 ownership-aware routing 收敛；canonical route 闭集、guard-aware alias、matching suspended package evidence 读取、report-only terminal rule、finding queue isolation 与 guide 中的 active-owner guard 指引已同步到模板、generated reference outputs、`SKILL_REGISTRY.md`、`CONTRACTS.md`、`DECISIONS.md` 与 `LESSONS.md`。最终回归通过：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun run test:workflow-all`（201 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`。Release mode 为 none，发布后状态不适用。

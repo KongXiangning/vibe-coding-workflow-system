@@ -4,36 +4,35 @@
 
 - 项目：vibe-coding-workflow-system
 - 项目类型：ai-engineering-workflow
-- 任务 ID：008
-- 任务标题：补齐方法论文档对 003-007 新增 workflow 分支的高层叙事
-- 任务 slug：methodology-docs-cover-003-007-skill-branches
-- 当前状态：archived
-- 生命周期状态：archived
+- 任务 ID：010
+- 任务标题：建立 workflow vNext capability contract 与 golden fixture 基线
+- 任务 slug：workflow-vnext-capability-contract
+- 当前状态：active
+- 生命周期状态：active
 - 恢复需审查：false
 - 恢复审查原因：
-- 当前 handoff：create-current-task
-- 创建时间：2026-05-28
+- 当前 handoff：ask-user
+- 创建时间：2026-08-30
 
 ## 背景与上下文
 
-- 用户要求先按 `/create-current-task`、`/investigate-root-cause` 的顺序处理此前文档审查发现的 major finding，再补完文档并审查。
-- 已确认问题：`vibe-coding/vibe-coding-methodology.md` 与 `vibe-coding/vibe-coding-workflow.md` 仍停留在旧的抽象层，没有把任务 `003-007` 新增的高层 workflow 分支补成完整叙事。
-- 已确认缺口：
-  - `capture-work-item` 的 record-only intake branch 未进入方法论 / 工作流说明层。
-  - `pause-current-task` / `interrupt-current-task` / `resume-*` 的 suspend-resume lifecycle 未进入方法论 / 工作流说明层。
-  - `review-current-task` 作为 resume 后首个强制消费者未形成明确叙事。
-  - ownership-aware routing、active-owner guard 与 `report-only` terminal rule 没有被提升成完整高层映射。
-- 已确认现状：目标项目生成文档 / 指引已覆盖上述能力，差距集中在人类阅读的高层方法论文档。
+- 任务 `009` 已完成 37 个 workflow Skill 的 K/M/R/D 审计，用户已确认按推荐顺序继续。
+- 推荐顺序的 Phase 0 是先让 public / internal / runtime / compat 能力在协议中可表示，并建立覆盖 37 个逐项 `MR-*` 和 18 个组合 `GR-*` 的 golden fixture 基线。
+- 本任务不引入 facade 行为、不删除旧 Skill、不改变旧 handoff、registry、host sync、install、pack 或 generated reference 默认语义。
+- 现有 37 个 Skill 必须继续作为当前 authoritative runtime surface；vNext capability surface 在本任务中只作为 additive、machine-readable、可验证的 shadow contract。
 
 ## 验收标准
 
-- [x] `vibe-coding/vibe-coding-methodology.md` 在高层方法论叙事中明确补入 `阶段 1` 的 main chain 与 `capture-work-item` record-only branch，并说明其与 `CURRENT_TASK.md` / `TASKS/inbox/**` 的关系。
-- [x] `vibe-coding/vibe-coding-methodology.md` 明确补入 ownership-aware routing、active-owner guard、`pause-current-task` / `interrupt-current-task` / `resume-*` lifecycle，以及 resume 后必须先回到 `review-current-task` 的高层逻辑。
-- [x] `vibe-coding/vibe-coding-methodology.md` 明确补入 `run-regression(report-only)` 的 terminal 语义，不把只读审查自动接到修复链。
-- [x] `vibe-coding/vibe-coding-workflow.md` 的阶段说明同步补齐上述高层逻辑映射，至少覆盖 `阶段 1`、`阶段 6`、`阶段 7`。
-- [x] 文档仍保持“方法论 / 工作流说明层”的职责，不复制 protocol/schema 字段、枚举、错误码或 generated surface 细节；正式规则仍以下沉规范源为准。
-- [x] `docs/workflow/generated/**`、`docs/workflow/SKILL_REGISTRY.md`、`templates/**`、`scripts/**`、`test/**`、`.workflow-system/{WORKFLOW_PROTOCOL.md,FILE_SCHEMAS.md,PROJECT_PROFILE.yaml}` 不发生修改。
-- [x] 通过文档检索证据证明新增 skill 名称、`TASKS/inbox/**`、ownership-aware routing、active-owner guard、resume gate / `review-current-task`、`report-only` terminal 已在高层文档中可检索。
+- [x] `.workflow-system/WORKFLOW_PROTOCOL.md` 定义 public / internal / runtime / compat 四层 capability 语义、source precedence、authority boundary、terminal behavior、兼容规则和 no-second-state-source 约束。
+- [x] `.workflow-system/FILE_SCHEMAS.md` 定义 capability manifest 与 golden fixture manifest 的最小字段、闭合集合、更新方向和 fail-closed 校验要求。
+- [x] machine-readable capability manifest 表达 10 个候选公开入口、显式 modes、`covers_stages`、内部能力、Runtime operation 声明和 compatibility aliases。
+- [x] 37 个现有 Skill name 全部且仅一次映射到 public entry / mode、internal capability 或 Runtime proposal route；本任务不移除任何旧 name。
+- [x] 10 个当前 stage group 由 vNext `covers_stages` 完整覆盖，且覆盖可被 validator 机械证明。
+- [x] golden fixture manifest 唯一覆盖 `MR-K01..K05`、`MR-M01..M20`、`MR-R01..R07`、`MR-D01..D05` 和 `GR-01..GR-18` 共 55 个 case。
+- [x] 每个 fixture 至少记录 invariant、initial state、invocation、expected guard/verdict/writes/handoff/terminal behavior、diff target 和 evidence；不适用项必须显式标记而不是省略。
+- [x] fail-closed validator 能拒绝重复/遗漏 alias、dangling target/mode/capability/runtime operation、stage coverage 缺口、非法 terminal handoff、fixture ID 缺口或重复、case 与 capability 不可解析映射。
+- [x] capability test 接入现有 protocol quality path；`validate:protocol` 能运行该基线，同时不改变现有 generator 输出内容。
+- [x] 现有 37 个 Skill、generated references、registry 和 host sync 结果保持不变；完整回归和 freshness 通过。
 
 ## 设计约束
 
@@ -48,152 +47,172 @@
 - Release mode: none
 - Deploy source: none
 - Target environment: local
-- Health checks: not applicable
+- Health checks: protocol validation、capability contract tests、full workflow regression、freshness、workflow health
 - Canary window: not applicable
-- Performance baseline: not applicable
-- Rollback / recovery: 回退到 task start base `be98f4387265a81e2e1e67a16cf6bd80070291b6`，撤销本任务对方法论文档与当前任务包的修改。
+- Performance baseline: 记录新增 validator 的运行时间，不设产品性能阈值
+- Rollback / recovery: 回退本任务新增 manifest/parser/test 和 protocol/schema 增量；保留任务 009 审计与现行 37-Skill surface。
 - Release evidence: not applicable
 
 ## 允许修改范围
 
+### Allowed Files
+
 - `docs/workflow/CURRENT_TASK.md`
-- `vibe-coding/vibe-coding-methodology.md`
-- `vibe-coding/vibe-coding-workflow.md`
+- `.workflow-system/WORKFLOW_PROTOCOL.md`
+- `.workflow-system/FILE_SCHEMAS.md`
+- `.workflow-system/WORKFLOW_CAPABILITIES.yaml`（新增）
+- `scripts/workflow-capabilities.ts`（新增）
+- `test/fixtures/workflow-capability-cases.yaml`（新增）
+- `test/workflow-capabilities.test.ts`（新增）
+- `package.json`
 
 ## 条件修改范围
 
-- `vibe-coding/vibe-coding-quality-system.md`
-  - 触发条件：只有当补齐 `methodology / workflow` 后仍存在明显的高层叙事断裂，且不改该文件就会让三份人类文档之间出现新的事实冲突。
-  - 证据要求：必须先给出具体断裂点、为何不能仅靠前两份文档修复，以及保持职责边界后的最小改动理由。
+### Conditional Files
+
+- `docs/workflow/CONTRACTS.md`：仅当实现与回归证明 capability manifest / validator 已成为稳定长期边界时，补充 additive contract；不得改变现有 Skill/runtime contract。
+- `docs/workflow/DECISIONS.md`：仅记录用户已确认的 contract-first、all-37-compatible、no-second-state-source 决策；不得提前确认 facade 默认推广或 alias 删除窗口。
+- `docs/workflow/STATUS.md`：仅在本任务完成关键验证后同步任务 010 状态；任务 009 的 closure 同步已经完成。
+- `.workflow-system/PROJECT_PROFILE.yaml`：只有现有 validation matrix 无法在不改变 layer/owner 语义的情况下执行 capability test 时才允许 additive protocol-level entry；优先复用现有 `workflow-skills-tests`。
+- `test/run-validation.test.ts`：仅当新增 protocol-level validation entry 时补充矩阵回归；否则禁止修改。
 
 ## 禁止修改范围
+
+### Forbidden Files
 
 - `.git/**`
 - `node_modules/**`
 - `dist/**`
+- `templates/skills/**`
+- `templates/docs/**`
+- `scripts/gen-workflow-skills.ts`
+- `scripts/gen-workflow-docs.ts`
+- `scripts/gen-registry.ts`
+- `scripts/workflow-runtime.ts`
+- `scripts/bootstrap-project-governance.ts`
+- `scripts/task-identity.ts`
+- `scripts/workflow-doc-contracts.ts`
+- `scripts/validation-model.ts`
+- `test/gen-workflow-skills.test.ts`
+- `test/gen-workflow-docs.test.ts`
+- `test/gen-registry.test.ts`
+- `test/workflow-runtime.test.ts`
 - `docs/workflow/generated/**`
 - `docs/workflow/SKILL_REGISTRY.md`
-- `templates/docs/**`
-- `templates/skills/**`
-- `scripts/**`
-- `test/**`
-- `.workflow-system/WORKFLOW_PROTOCOL.md`
-- `.workflow-system/FILE_SCHEMAS.md`
-- `.workflow-system/PROJECT_PROFILE.yaml`
-- `docs/workflow/CONTRACTS.md`
-- `docs/workflow/DECISIONS.md`
-- `docs/workflow/STATUS.md`
+- `AGENTS.md`
+- `CLAUDE.md`
+- `README.md`
+- `vibe-coding/**`
+- `docs/product/**`
 
 ## 受影响的契约
 
-- 文档职责边界：方法论文档负责“为什么 / 何时用 / 高层逻辑”，不得复制 protocol / schema / generated surface 的实现细节。
-- `CURRENT_TASK lifecycle runtime skills / resume review routing`
-- `ownership-aware root-cause / regression / review-finding routing`
-- `capture-work-item / TASKS/inbox/** record-only intake`
+- 本任务对 workflow-system 协议新增 capability migration contract，但保持现有 37-Skill contract 完全可用。
+- `.workflow-system/WORKFLOW_CAPABILITIES.yaml` 是产品 capability/compat declaration，不承载目标项目 live task、status、contract 或 decision facts，因此不得成为第二项目状态源。
+- 现行 source precedence、generated-only、source/target isolation、lifecycle、active ownership、finding admission、report-only、External Documentation Gate 和两层 validation 均保持不变。
+- `package.json` 只允许 additive test command / existing test-chain integration；不得重命名或改变现有公开 CLI command 的语义。
 
 ## 已确认决策
 
-- 本任务只补高层叙事，不重开 protocol、schema、template、generated output、runtime 或测试范围。
-- `capture-work-item` 继续保持 record-only branch，不自动 promote 成新任务。
-- `pause-current-task` / `interrupt-current-task` / `resume-*` 的 lifecycle 继续由 `review-current-task` 消费恢复审查 gate。
-- ownership-aware routing 继续保持 canonical route + guard-aware handoff 分离。
+- `Mechanical`：manifest/schema/parser/test 文件命名、YAML 解析、闭集/唯一性/引用完整性校验和测试组织可选择最小兼容实现。
+- `Taste`：任务 009 提议的 10 个公开入口名称作为 Phase 0 shadow baseline 使用；本任务不将其推广为默认 host surface，也不声明最终数量永久冻结。
+- `User challenge`：用户已确认“按推荐步骤继续”，本阶段据此采用 contract-first 顺序、保留全部 37 个旧 name、只声明 Runtime operation 而不实现状态写入、保持 host sync 默认暴露面不变。
+- Compatibility policy：所有 37 个现有 Skill name 在 Phase 0 必须可解析且保持可调用；本任务不设置删除日期或自动弃用。
+- Source of truth policy：canonical project facts 仍在现有 Markdown/YAML governance sources；capability manifest 只描述 workflow-system 产品能力与迁移映射。
 
 ## 待确认问题
 
-- 无阻断项；默认按最小文档补全执行。
+- 无当前阻断项。
+- Phase 1 是否立项由用户确认；推荐范围是 read-only facade shadow 与 semantic fixture strengthening，不进行 alias redirect、删除或 host 默认推广。
+- Phase 1 gate 必须补齐：fixture `outcome/branch`；expected writes 与 mode/template/runtime 的精确一致性；严格 `/**` 通配符；handoff、diff target、terminal behavior 分支语义；Runtime operation-specific source / write 绑定。
+- facade 默认推广、compat alias 退役窗口、Runtime 写事务 API、目标项目路径解析和 host sync public/internal 安装策略留给后续行为任务；本任务不得提前实现。
 
 ## 实现方案
 
-- Goal: 补齐方法论文档与工作流说明文档，使 003-007 新增 workflow 分支在高层叙事层可被直接理解。
-- Architecture impact: 仅影响人类阅读文档，不改变 protocol、schema、template、generated output 或 runtime 行为。
+- Goal: 在不改变现有 37-Skill 行为的前提下，建立可机器验证的 vNext capability/compat contract 和 55-case non-loss baseline。
+- Architecture impact: 新增一个 protocol-owned manifest 与独立 validator/test；协议/schema additive 扩展；现有 generator/runtime/host surface 不变。
 - Technical approach:
-  - 在 `vibe-coding-methodology.md` 补“日常任务链路 / 阶段 1 / QA 分流 / 阶段 7”中的新增分支叙事。
-  - 在 `vibe-coding-workflow.md` 补“阶段 1 / 阶段 6 / 阶段 7”的高层逻辑映射。
-  - 保持所有细节规则继续下沉到 `WORKFLOW_PROTOCOL.md`、`FILE_SCHEMAS.md`、`WORKFLOW_GUIDE.md` 与 generated skill docs。
+  - 用 `.workflow-system/WORKFLOW_CAPABILITIES.yaml` 声明 public entries、modes、internal capabilities、Runtime operations 和 37-name compat mapping。
+  - 用 `test/fixtures/workflow-capability-cases.yaml` 承载 55 个 machine-readable golden case。
+  - 用 `scripts/workflow-capabilities.ts` 解析并 fail-closed 校验两份 manifest，同时读取现有 skill template names 证明 37/37 compatibility coverage。
+  - 在 `test/workflow-capabilities.test.ts` 覆盖合法基线与关键负例，并通过 `package.json` 把测试接入现有 protocol quality path。
 - Alternatives considered:
-  - 只改 generated docs：不能修复高层方法论阅读路径，拒绝。
-  - 直接复制 protocol/schema 细节到方法论文档：会破坏职责边界，拒绝。
-- Data / state flow: 人类文档阅读链从“通用 8 阶段”补齐到“含 record-only intake、ownership-aware routing、suspend/resume、report-only terminal”的完整高层链路。
-- Compatibility: backward-compatible
-- Risks and rollback: 风险主要是高层文档与规范源叙事重复或越权；通过显式声明“正式规则以下沉规范源为准”控制。
-- Validation strategy: 使用文档 diff 审查 + 关键词检索验证高层叙事覆盖，不修改 generated surface。
-- Open decisions: none
+  - 直接给 37 个 Skill frontmatter 增加新字段：本阶段拒绝，会制造 37 个 generated diff 并把 shadow contract 误变成 runtime 行为变更。
+  - 直接修改 registry/host sync：本阶段拒绝，属于 Phase 1 之后的暴露面迁移。
+  - 只保留 Markdown 审计表：拒绝，不能提供 fail-closed 引用、覆盖和 fixture 校验。
+- Data / state flow: protocol/schema -> capability manifest + golden fixtures -> validator -> focused tests -> existing protocol quality path；不写 live project state。
+- Compatibility: additive / backward-compatible；旧 name、旧 handoff、旧 generator outputs 和旧 install/sync 语义不变。
+- Risks and rollback:
+  - manifest 与现有模板漂移：validator 读取实际 template names 并要求一一覆盖。
+  - 把 facade proposal 误当成默认 runtime：manifest 必须声明 shadow status，host/generator 文件列为 Forbidden。
+  - fixture 只检查 ID 不检查语义：schema 要求 expected guard/verdict/writes/handoff/terminal/diff/evidence 字段并覆盖负例。
+  - 回滚：删除新增 manifest/parser/test，撤回 protocol/schema/package additive change；现有执行面无需迁移回滚。
+- Validation strategy: focused capability tests、现有 workflow skill tests、`validate:protocol`、`validate:freshness`、`test:workflow-all`、`workflow:health --root .`，并比较 generated/registry/host skill 文件零 diff。
+- Open decisions: 后续 facade/runtime/host promotion decisions 均不在本任务内。
+- Handoff: 完成 contract/fixtures/validator 后进入同一 diff target 的 review 与 regression；通过后停在 Phase 1 用户确认点。
 
 ## 审查问题队列
 
-- 当前来源：文档审查 / root-cause evidence
-- Finding ID：DOC-008
-  - Severity：major
-  - Source：documentation audit
-  - Status：resolved
-  - File / symbol：`vibe-coding/vibe-coding-methodology.md`, `vibe-coding/vibe-coding-workflow.md`
-  - Failure scenario：只阅读高层方法论文档时，无法发现 record-only intake、ownership-aware routing、suspend/resume 与 resume-review 链已经是正式 workflow 能力。
-  - Minimal fix direction：只补高层逻辑映射，不复制 protocol/schema 细节。
-  - Required test：文档检索证据显示新增 skill 名称、`TASKS/inbox/**`、ownership-aware routing、active-owner guard、`review-current-task`、`report-only` terminal 在高层文档中可检索。
-  - Handoff：implement-current-step
+- Finding ID: `F-010-01`
+  - Severity: major
+  - Source: `review-implementation`
+  - Status: resolved
+  - File / symbol: `scripts/workflow-capabilities.ts > validateWorkflowCapabilityData`
+  - Failure scenario: 直接调用 data-level validator 时省略 optional `templateContracts`，manifest 可在 legacy stage / write-class 与 target mode 漂移时仍返回成功；只有 file-level wrapper 会执行完整校验。
+  - Minimal fix direction: 把 `templateContracts` 改为必填输入，由它派生 template name set；所有公开完整验证入口不得提供跳过 legacy contract check 的路径。
+  - Required test: focused capability tests 继续通过，并新增/保留 data-level mutation 用例证明 stage/write-class drift 必须 fail-closed。
+  - Handoff: `implement-current-step`
+  - Resolution evidence: `templateContracts` 已改为 data-level validator 必填参数并作为 template name set 唯一来源；`bun run test:workflow-capabilities` 12 pass / 0 fail，standalone validator 通过。
 
 ## 传播治理记录
 
-### change_start_set
-
-- 对象路径：`vibe-coding/vibe-coding-methodology.md`, `vibe-coding/vibe-coding-workflow.md`
-- 对象类型：human-facing methodology / workflow guidance narrative
-- 变更起点语义：补齐 003-007 新增 workflow 分支在高层文档层的逻辑映射。
-
-### discovery evidence
-
-- `EvidenceRecord`：
-  - mechanism：manual documentation audit
-  - query_or_entrypoint：针对 `pause-current-task|interrupt-current-task|resume-paused-task|resume-interrupted-task|capture-work-item` 的全文检索与阶段章节对照
-  - scope：methodology / workflow explanation coverage for tasks 003-007
-  - result_summary：generated docs / guide / registry 已覆盖新增能力，但 `vibe-coding-methodology.md` 与 `vibe-coding-workflow.md` 缺少对应高层叙事。
-  - confidence：high
-  - gaps：已完成补丁后的全文检索复核；未发现高层叙事覆盖缺口
-
-### aggregation / complexity
-
-- `evidence_diff_threshold`：
-  - absolute_diff：2
-  - relative_diff_ratio：0.5
-- `EvidenceAggregation`：
-  - aggregation_strategy：union
-  - candidate_impact_set：methodology docs, workflow overview docs
-  - significant_divergence：true
-  - divergence_reason：generated surface 完整，但高层叙事层遗漏新增分支
-  - unresolved_gaps：补丁后待复核
-  - aggregated_confidence：high
-- `over_limit_policy`：
-  - threshold_trigger：not triggered
-  - selected_branch：direct-doc-fix
-  - rationale：问题局限于高层人类文档，不需要扩大到 protocol / template / generated 层
-  - direct_consumers_semantics：human readers, future task authors
-  - total_candidate_consumers_semantics：documentation onboarding path
+- change_start_set: `.workflow-system/{WORKFLOW_PROTOCOL.md,FILE_SCHEMAS.md,WORKFLOW_CAPABILITIES.yaml}`、`scripts/workflow-capabilities.ts`、`test/{fixtures/workflow-capability-cases.yaml,workflow-capabilities.test.ts}`、`package.json`。
+- candidate_impact_set: protocol/schema consumers、source repo quality checks、future registry/host sync/facade/runtime consumers；本任务只实现前两项的 additive shadow contract。
+- compatibility result: `backward-compatible`；旧 37-name surface 保留，新增 contract 不参与当前 handoff 执行。
+- discovery evidence: 任务 009 审计、现有 37 个 Skill template、stage/handoff/generator/registry/runtime tests、AD-001..AD-011。
+- union impact set: protocol、schema、manifest parser、test chain；templates/generator/registry/runtime/host/generated 属于 observed-but-forbidden downstream。
+- observed contract drift: Protocol §17.4 记录 Codex `.agents/skills`，当前 runtime/tests/CONTRACTS 使用 `.codex/skills`；本任务不触碰 host sync，故只记录为独立后续 decision gate，不顺手修复。
+- migration strategy: Phase 0 shadow contract -> Phase 1 read-only facade shadow -> 后续 state-changing slices；任一 hard invariant mismatch 立即停止推广。
+- linked regression: `MR-K01..K05`、`MR-M01..M20`、`MR-R01..R07`、`MR-D01..D05`、`GR-01..GR-18`。
 
 ## 实施步骤
 
-- [x] 步骤 1：更新 `docs/workflow/CURRENT_TASK.md`，固化任务范围、根因和验收标准。
-- [x] 步骤 2：在 `vibe-coding/vibe-coding-methodology.md` 补齐阶段 1、阶段 6/7 与日常链路中的新增分支叙事。
-- [x] 步骤 3：在 `vibe-coding/vibe-coding-workflow.md` 补齐阶段 1、阶段 6、阶段 7 的高层逻辑映射。
-- [x] 步骤 4：用检索与差异复核确认高层文档已覆盖新增 skill 及相关配置，并确认未触碰 generated / protocol / template 面。
+- [x] 步骤 1：稳定 protocol/schema 中 capability surface、compat alias 与 golden fixture contract。
+- [x] 步骤 2：实现 10-entry / internal / Runtime / 37-alias machine-readable capability manifest。
+- [x] 步骤 3：实现 55-case golden fixture manifest，补齐结构化 initial/expected evidence。
+- [x] 步骤 4：实现 fail-closed parser/validator 和合法/非法 fixture 单元测试。
+- [x] 步骤 5：接入现有 protocol quality path，证明现有 Skill/generator/registry/host outputs 零行为变化。
+- [x] 步骤 6：完成 diff review、contract review、full regression、状态同步并停在 Phase 1 gate。
 
 ## 回归检查项
 
-- [x] 检索 `capture-work-item`、`TASKS/inbox/**` 在 `vibe-coding/vibe-coding-methodology.md` 与 `vibe-coding/vibe-coding-workflow.md` 中可命中。
-- [x] 检索 `pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task` 在两份高层文档中可命中。
-- [x] 检索 `ownership-aware routing`、`active-owner guard`、`review-current-task`、`report-only` 在两份高层文档中可命中。
-- [x] 确认 `docs/workflow/generated/**`、`docs/workflow/SKILL_REGISTRY.md`、`templates/**`、`scripts/**`、`test/**`、`.workflow-system/**` 无改动。
+- [x] 10 个 public entry、全部 modes、internal capability 和 Runtime operation 的引用闭合。
+- [x] 37 个 template name 与 37 个 compat alias 严格一一对应。
+- [x] 10 个 current stage group 全覆盖，无未知 stage。
+- [x] 55 个 fixture ID 完整、唯一且都能解析到 capability/invariant。
+- [x] duplicate、missing、dangling、terminal-handoff、stage-gap 和 fixture-gap 负例均 fail-closed。
+- [x] `bun run test:workflow-skills` 通过并实际包含 capability contract tests。
+- [x] `bun run validate:protocol`、`bun run validate:freshness`、`bun run test:workflow-all`、`bun run workflow:health --root .` 通过。
+- [x] `templates/**`、generated references、`SKILL_REGISTRY.md`、generator、runtime 和 host skill surface 零 diff。
 
 ## 回滚点
 
-- Task start base：`be98f4387265a81e2e1e67a16cf6bd80070291b6`
-- Last reviewed checkpoint：8362355e
-- Current diff review target：be98f438..8362355e
+- Task start base：`f62a525f5e9990d62954627f5a77ef85155d07f1`，并保留任务 009 已审查的 product docs / archive / STATUS 工作区工件。
+- Last reviewed checkpoint：任务 009 归档与 37/37 审计证据；未创建 git checkpoint。
+- Current diff review target：相对 Task start base 的 working-tree，按本任务 `change_start_set` 路径限定；任务 009 已归档工件作为 pre-existing reviewed set 排除。
 
 ## 执行记录
 
-- 2026-05-28：按用户要求先加载 `/create-current-task` 与 `/investigate-root-cause` skill context，并基于既有文档审查 evidence 建立任务包。
-- 2026-05-28：已确认问题属于当前仓库人类文档层，不涉及 protocol/schema/runtime 行为修复；最小修复面锁定为 `vibe-coding-methodology.md` 与 `vibe-coding-workflow.md`。
-- 2026-05-28：已在两份高层文档补入 `capture-work-item` record-only branch、ownership-aware routing、active-owner guard、`pause/interrupt/resume` lifecycle、resume 后先 `review-current-task`、以及 `report-only` terminal 语义，并完成差异与检索复核。
-- 2026-05-28：差异审查曾发现方法论文档误引 route 枚举名；已改回高层语义表达，终审结论为 clean。
-- 2026-07-14：执行收尾回归：`bun run test:workflow-all`（209 pass / 0 fail）、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .` 均通过；确认无剩余 blocker。
-- 2026-07-14：执行 `/close-current-task` 收尾；同步任务与状态记录、记录高层文档职责边界经验、准备交付摘要，并创建 `TASKS/TASK-008-methodology-docs-cover-003-007-skill-branches.md`。当前任务已归档，下一轮入口为 `/create-current-task`。
+- 2026-08-30：用户确认按任务 009 的推荐顺序继续；任务 009 已归档，创建任务 010。
+- 2026-08-30：Phase 0 固定为 additive shadow contract；保留全部 37 个旧 Skill、旧 handoff、generator/registry/runtime/host surface，不进入 facade 行为实现。
+- 2026-08-30：完成步骤 1。`WORKFLOW_PROTOCOL` 升级为 additive `0.4.0`，新增 §4c capability/compat/non-loss contract；`FILE_SCHEMAS` 新增 manifest/fixture schema、闭集和 fail-closed error categories。`bun run validate:protocol` 通过，现有 generator/registry 输出未修改。
+- 2026-08-30：吸收 `luna_worker` 只读勘察结果：K/M/R/D disposition 与 exposure 分离；stage 改为 per-mode；authority boundary 改为四 owner 结构；Phase 0 public/internal/runtime 固定 `installable=false`，compat 固定 `installable=true` 且保留旧 handoff/writes。
+- 2026-08-30：完成步骤 2。新增 `.workflow-system/WORKFLOW_CAPABILITIES.yaml` shadow manifest；机械校验确认 10 个 public entry、23 个 internal capability、10 个 Runtime operation、37 个 compat alias，K/M/R/D 数量为 5/20/7/5，alias 与 template name 严格相等，stage 与全部引用闭合。
+- 2026-08-30：完成步骤 3。新增 `test/fixtures/workflow-capability-cases.yaml`；机械校验确认 37 个 row case 与 alias 双向一致、18 个 global case 完整，55 个 ID 无遗漏/重复/额外项，全部 capability refs 可解析。
+- 2026-08-30：`luna_worker` 交叉审计发现 `continue-current-step` 与 `debug-and-fix-current-task` 不得直接映射到 writer/repair。新增 `execute-step:orchestrate`、`debug-task:orchestrate` 两个只读 shadow mode；补齐 lessons/findings legacy stage union、user-owned gate escalation，并强制 alias dependency set 与 target mode 完全一致。
+- 2026-08-30：强化 Runtime declaration：统一 `runtime-proposal-envelope`、exact write allowlist、source tuple、authority evidence 与 conflict key；不实现任何状态写事务。
+- 2026-08-30：完成步骤 4/5。新增 `scripts/workflow-capabilities.ts` 与 12 组正/负测试，接入 `test:workflow-skills`；该入口 28 个既有 Skill tests + 12 个 capability tests 全通过，`validate:protocol` 通过，forbidden downstream surface 零 diff。
+- 2026-08-30：完成 diff / implementation / contract review。修复 `F-010-01`：data-level validator 不再允许省略实际 template contract 校验；复核后当前 Phase 0 无未解决 finding。
+- 2026-08-30：`luna_worker` 第二轮只读复核确认 K/M/R/D 为 `5/20/7/5`，37 个 alias 的 capability/runtime/stage/write-class 差异为 0，55 个 fixture 无重复；最终 verdict 为 Phase 0 可收束、不可把 manifest 当成已实现 Runtime executor。
+- 2026-08-30：完整回归通过：`test:workflow-capabilities` 12 pass / 0 fail（58 expectations），`test:workflow-all` 285 pass / 0 fail，`validate:protocol`、`validate:freshness` 与 `workflow:health --root .` 均通过；templates、generated references、registry、generator、runtime 和 host surface 零 diff。
+- 2026-08-30：同步 `AD-012` 与 `DEFER-004`。Phase 0 完成并停在 Phase 1 用户确认门；下一阶段优先强化 branch-aware fixture 语义与 read-only equivalence，不做 alias redirect。

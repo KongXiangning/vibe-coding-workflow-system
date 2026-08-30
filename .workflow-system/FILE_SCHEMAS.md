@@ -20,6 +20,8 @@
 - `.workflow-system/WORKFLOW_PROTOCOL.md` 与 `.workflow-system/FILE_SCHEMAS.md` 是规范源；模板只能承载这里已经定义的结构
 - `templates/**` 负责定义生成骨架，不能偷偷扩展未在规范源登记的新章节或新字段
 - `dist/workflow-system/**` 由规范源、`templates/docs/**`、`templates/skills/**`、`scripts/gen-workflow-docs.ts`、`scripts/gen-workflow-skills.ts`、`scripts/workflow-doc-contracts.ts` 与 `scripts/workflow-runtime.ts` 共同决定；其中 `generated/**` 产物是参考证据，不是独立规范源
+- `.workflow-system/WORKFLOW_CAPABILITIES.yaml` 是 workflow-system 产品 capability / compatibility 的 machine-readable declaration；它不得承载 target-project live task / status / contract / decision facts
+- `test/fixtures/workflow-capability-cases.yaml` 是 conformance fixture，不是规范源或项目事实源
 - v26 是在 v25 基线上的增量修复版；规范更新默认按 additive extend 处理，除非显式声明替代旧规则
 - 传播治理公开结构的字段、默认规则和 conformance 测试要求由 `.workflow-system/WORKFLOW_PROTOCOL.md` 定义；`.workflow-system/FILE_SCHEMAS.md` 只登记这些结构在治理文档中的承载位置和最小文档可审计要求
 
@@ -675,6 +677,245 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 - 不得重新定义字段结构、错误码、gate 或 blocker 语义
 - 与 `.workflow-system/WORKFLOW_PROTOCOL.md`、`.workflow-system/FILE_SCHEMAS.md` 或 skill frontmatter 冲突时，以规范源和 skill frontmatter 为准
 - 当 `阶段 1：需求进入` 存在 record-only intake skill（如 `capture-work-item`）时，`WORKFLOW_GUIDE.md` 必须把它表达成独立的 record-only branch，并明确它不是 `create-current-task` 主链
+
+---
+
+## 11a. Workflow capability 与 golden fixture manifests
+
+### 作用
+
+`.workflow-system/WORKFLOW_CAPABILITIES.yaml` 把 `.workflow-system/WORKFLOW_PROTOCOL.md §4c` 的 public / internal / runtime / compat capability surface 物化为可机器校验的 shadow declaration。
+
+`test/fixtures/workflow-capability-cases.yaml` 承载迁移 non-loss conformance cases。它只描述输入和预期，不定义新的治理规则。
+
+### Capability manifest 顶层结构
+
+```yaml
+schema_version: 1
+status: shadow
+public_entries: []
+internal_capabilities: []
+runtime_operations: []
+compatibility_aliases: []
+```
+
+顶层约束：
+
+- `schema_version` 当前固定为 `1`
+- `status` 当前固定为 `shadow`
+- 四个列表都必须存在且非空
+- 所有 canonical `id` 和所有 `legacy_name` 必须在各自命名空间内唯一
+- manifest 不得包含 target-project task、status、contract、decision 或 release facts
+
+### Public entry 最小结构
+
+```yaml
+public_entries:
+  - id: <public-entry-id>
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: <mode-id>
+        covers_stages:
+          - <canonical stage id>
+        capabilities:
+          - <internal capability id>
+        runtime_operations:
+          - <runtime operation id>
+        mutation: <none|code|task-artifact|semantic-proposal>
+        terminal_behavior: <continue|report-only|manual-decision|complete>
+        authority_boundary:
+          protocol: <define|validate|none>
+          model: <propose|classify|none>
+          user: <confirm|approve|none>
+          runtime: <validate-and-commit|none>
+        automatic_handoff: <entry-id:mode-id|not-applicable>
+```
+
+校验要求：
+
+- public entry `id` 必须来自 `.workflow-system/WORKFLOW_PROTOCOL.md §4c.2` 的闭集
+- `status` 固定为 `shadow`，`installable` 固定为 `false`
+- `modes` 必须非空；同一 entry 下 mode `id` 唯一
+- 每个 mode 的 `covers_stages` 必须非空，只能使用 §4a canonical ID；全部 modes 的 union 必须覆盖 10 个 stage group
+- `capabilities` 和 `runtime_operations` 必须存在；允许空数组，但非空引用必须闭合
+- `authority_boundary` 必须包含 `protocol / model / user / runtime` 四个 key，并分别使用对应闭集；不得省略未参与 owner，未参与时显式写 `none`
+- mode 引用任一 `authority_owner: user` 的 internal capability 时，`authority_boundary.user` 不得为 `none`
+- `automatic_handoff` 若非 `not-applicable`，必须解析到已声明的 `<entry-id>:<mode-id>`
+- `terminal_behavior = report-only | manual-decision` 时，`automatic_handoff` 固定为 `not-applicable`
+- `mutation = none` 的 fixture 预期写集合必须为空
+
+### Internal capability 最小结构
+
+```yaml
+internal_capabilities:
+  - id: <internal-capability-id>
+    exposure: internal
+    installable: false
+    kind: <policy|resolver|validator|gate|router>
+    authority_owner: <protocol|model|user|runtime>
+    description: <non-empty string>
+```
+
+校验要求：
+
+- `id` 唯一且非空
+- `exposure` 固定为 `internal`
+- `installable` 固定为 `false`
+- `kind` 与 `authority_owner` 使用闭集
+- `description` 非空
+
+### Runtime operation 最小结构
+
+```yaml
+runtime_operations:
+  - id: <runtime-operation-id>
+    exposure: runtime
+    installable: false
+    proposal_kind: <non-empty string>
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources:
+      - <repo-relative canonical source or explicit not-applicable>
+    write_targets:
+      - <exact repo-relative file or bounded pattern>
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: <non-empty deterministic key description>
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+```
+
+校验要求：
+
+- `id` 唯一且非空
+- `exposure` 固定为 `runtime`
+- `installable` 固定为 `false`
+- `proposal_kind` 非空
+- `proposal_schema_ref` 固定为 `runtime-proposal-envelope`
+- `canonical_state_sources` 非空，Phase 0 闭集为五个 live governance docs、`AGENTS.md`、`CLAUDE.md`、`TASKS/{paused,interrupted,inbox}` 和 materialized canonical archive path；不得指向 derived cache、新状态数据库或宽泛 `TASKS`
+- `write_targets` 非空，Phase 0 闭集为：`docs/workflow/{CURRENT_TASK,STATUS,CONTRACTS,DECISIONS,LESSONS}.md`、`AGENTS.md`、`CLAUDE.md`、`TASKS/{paused,interrupted,inbox}/**`、`TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`；新增目标必须先修改 protocol/schema，不得用 `**`、`docs/**`、`TASKS/**` 等宽泛 pattern 绕过
+- `write_policy` 固定为 `exact-allowlist`
+- `source_tuple_required` 与 `authority_evidence_required` 固定为 `true`
+- `conflict_key` 非空
+- `atomic` 固定为 `true`
+- `idempotence` 固定为 `fail-closed`
+- `conflict_policy` 固定为 `fail-closed`
+- `result_states` 去重后的集合必须严格等于 `success / no-op / conflict / blocked`
+
+`runtime-proposal-envelope` 是 Phase 0 的声明性通用 envelope，至少携带：
+
+- 与 `proposal_kind` 一致的 typed proposal kind
+- canonical source revision / lifecycle tuple
+- model / user / protocol authority evidence
+- 与 `write_targets` 一致的 exact intended writes
+- 与 operation 声明一致的 conflict key
+- idempotency identity
+
+Phase 0 只校验 declaration，不执行 commit。
+
+### Compatibility alias 最小结构
+
+```yaml
+compatibility_aliases:
+  - legacy_name: <current skill template name>
+    exposure: compat
+    classification: <keep|merge|runtime|delete>
+    status: active
+    installable: true
+    target_entry: <public-entry-id>
+    target_mode: <mode-id>
+    required_capabilities:
+      - <internal capability id>
+    runtime_operations:
+      - <runtime operation id>
+    migration_case: <MR-K01|MR-M01|MR-R01|MR-D01 style id>
+    preserve_handoff: true
+    preserve_writes: true
+```
+
+校验要求：
+
+- `legacy_name` 必须与 `templates/skills/*.SKILL.md.tmpl` 的实际 name set 严格一一对应
+- `exposure` 固定为 `compat`，`status` 固定为 `active`，`installable` 固定为 `true`
+- `target_entry` 与 `target_mode` 必须解析到 public entry / mode
+- capability / Runtime 引用必须闭合
+- `required_capabilities` 与 `runtime_operations` 必须分别严格等于 target mode 的同名依赖集合；不得隐式缺少或增加 gate
+- target mode 的 `covers_stages` 必须包含 legacy template 的 canonical stage
+- legacy template `writes: []` 当且仅当 target mode `mutation: none`；read-only wrapper 不得映射到 code / task-artifact / semantic-proposal，legacy writer 也不得映射到 `none`
+- 每个 alias 必须有唯一 row-level `migration_case`
+- classification 与 migration-case prefix 必须一致：`keep -> MR-K`、`merge -> MR-M`、`runtime -> MR-R`、`delete -> MR-D`
+- Phase 0 的 `preserve_handoff` 与 `preserve_writes` 固定为 `true`；不得用处置分类推导旧行为可以提前变化
+- shadow 阶段的 target 只表达 semantic ownership，不执行 alias redirect；legacy template handoff / conditional handoff 继续是当前行为事实，未来 route equivalence 必须由 MR / GR evidence 单独证明
+
+### Golden fixture manifest 顶层结构
+
+```yaml
+schema_version: 1
+cases: []
+```
+
+每个 case 的最小结构：
+
+```yaml
+cases:
+  - id: <MR-*|GR-*>
+    kind: <row|global>
+    invariant: <non-empty string>
+    capability_refs:
+      - <public:entry/mode|internal:id|runtime:id>
+    initial_state:
+      task_status: <string|not-applicable>
+      lifecycle_state: <string|not-applicable>
+      diff_target: <string|not-applicable>
+      evidence:
+        - <string|not-applicable>
+    invocation:
+      entry: <public-entry-id>
+      mode: <mode-id>
+      legacy_alias: <legacy-name|not-applicable>
+    expected:
+      guard: <allow|block|ask-user|no-op>
+      verdict: <non-empty string>
+      writes: []
+      handoff: <entry-id:mode-id|ask-user|not-applicable>
+      terminal_behavior: <continue|report-only|manual-decision|complete>
+      diff_target: <preserve|required|forbidden|not-applicable>
+      evidence:
+        - <string|not-applicable>
+```
+
+校验要求：
+
+- `schema_version` 固定为 `1`
+- ID 集合严格等于 `MR-K01..K05`、`MR-M01..M20`、`MR-R01..R07`、`MR-D01..D05`、`GR-01..GR-18`
+- `MR-*` case 的 `kind` 固定为 `row`，必须带非 `not-applicable` legacy alias，并与 alias 的 `migration_case` 双向一致
+- `MR-*` case 的 `capability_refs` 必须严格等于 alias target public mode、`required_capabilities` 与 `runtime_operations` 的组合，不得遗漏或混入无关 capability
+- `GR-*` case 的 `kind` 固定为 `global`，可使用 `legacy_alias: not-applicable`
+- `capability_refs` 非空且全部可解析；引用语法固定为 `public:<entry>/<mode>`、`internal:<id>` 或 `runtime:<id>`
+- `initial_state`、`invocation`、`expected` 的列出字段不得省略
+- `initial_state.evidence` 与 `expected.evidence` 非空；不适用时必须显式写 `not-applicable`
+- `expected.writes` 必须存在，允许为空数组
+- `expected.writes` 的非空项必须是 bounded repo-relative path / symbolic path，不得使用 `design-artifacts` 一类不可解析标签
+- `expected.handoff` 若指向 public entry，必须使用 `<entry-id>:<mode-id>` 并可解析
+- `report-only` / `manual-decision` case 不得声明可执行 automatic handoff
+- `guard: no-op` 的 case 必须以 `terminal_behavior: complete` 结束，避免把 mode 默认 `continue` 与本次 no-op outcome 混为一谈
+- `guard: allow` 的 case 必须与 invocation mode 声明的 `terminal_behavior` 一致；block / ask-user 分支可声明其实际停止或重路由行为
+
+### 更新方向与失败行为
+
+- 更新方向固定为 `protocol/schema -> capability manifest / fixtures -> validator/tests`
+- 当前 Skill template set 只提供 legacy-name coverage evidence；Phase 0 validator 不得为修复 manifest drift 而修改模板
+- capability / fixture validator 必须先完整解析和验证，再返回结果；不得部分接受或静默丢弃未知 / 重复记录
+- 最小错误类别为 `CAPABILITY_SCHEMA_INVALID`、`CAPABILITY_DUPLICATE_ID`、`CAPABILITY_DANGLING_REFERENCE`、`CAPABILITY_STAGE_COVERAGE_MISSING`、`CAPABILITY_COMPAT_COVERAGE_MISMATCH`、`CAPABILITY_TERMINAL_HANDOFF_INVALID`、`FIXTURE_SCHEMA_INVALID`、`FIXTURE_DUPLICATE_ID`、`FIXTURE_COVERAGE_MISMATCH`、`FIXTURE_CAPABILITY_UNRESOLVED`
+- capability / fixture conformance 由现有 protocol-level `workflow-skills-tests` entrypoint 执行；不得绑定或复用 target-project validation slot
 
 ---
 

@@ -130,6 +130,17 @@
 - 替代方案：把 inbox item 建模成新的 lifecycle state；把 inbox artifact 纳入 task identity artifact kind；直接扩展 `create-current-task` 或 owner-routing skills 消费 capture；把 inbox 收录进 `DOCUMENT_CATALOG.md`；只更新 guide / registry 不加 validator 闭环。均不采用。
 - 验证方式：`bun run gen:all`; `bun run test:workflow-skills`; `bun run test:registry`; `bun run test:workflow-docs`; `bun test test/run-validation.test.ts`; `bun run test:workflow-all`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run workflow:health --root .`
 
+### AD-012: workflow vNext 迁移先建立 additive shadow capability contract
+
+- 状态：accepted
+- 背景：任务 `009` 已完成 37 个 workflow Skill 的 `Keep / Merge / Runtime / Delete` 审计；用户确认按推荐顺序继续，任务 `010` 需要先证明候选入口、治理语义与回归证据可无损表达，再决定是否迁移现行执行面。
+- 决策：以 `.workflow-system/WORKFLOW_PROTOCOL.md` 和 `.workflow-system/FILE_SCHEMAS.md` 为规则源，新增 `.workflow-system/WORKFLOW_CAPABILITIES.yaml`、55 个 golden fixture 与 fail-closed validator，声明 public / internal / runtime / compat 四层 shadow contract。Phase 0 保留全部 37 个现有 Skill name、旧 handoff、旧 writes 与当前 generator / registry / install / pack / host sync 行为；public / internal / runtime 均 `installable: false`，compat alias 继续作为当前可安装、可调用的 authoritative surface。Runtime 仅声明 proposal envelope、authority evidence、source / write allowlist 与结果状态，不实现状态写事务。
+- 原因：先把不可丢失治理语义、能力依赖和迁移回归变成机器可验证证据，避免在 facade 或 Runtime 行为实现时丢失 user gate、scope lock、owner routing、atomicity、terminal handoff 或兼容入口。
+- 约束：capability manifest 不是 live project facts 或第二状态源，也不进入当前 target export / pack / install / host sync source pipeline；10 个候选公开入口只是 Phase 0 shadow baseline，不是永久数量或默认 host surface。任何 alias redirect / retirement、facade promotion 或 state-changing Runtime 都必须另开任务并通过对应 golden / equivalence gate。
+- 影响范围：`.workflow-system/{WORKFLOW_PROTOCOL.md,FILE_SCHEMAS.md,WORKFLOW_CAPABILITIES.yaml}`, `scripts/workflow-capabilities.ts`, `test/fixtures/workflow-capability-cases.yaml`, `test/workflow-capabilities.test.ts`, `package.json`
+- 替代方案：直接合并或删除 37 个 Skill；直接修改 registry / host sync；只保留 Markdown 审计表。均不采用。
+- 验证方式：`bun run test:workflow-capabilities`; `bun run test:workflow-skills`; `bun run validate:protocol`; `bun run validate:freshness`; `bun run test:workflow-all`; `bun run workflow:health --root .`.
+
 ## 🎨 口味决策
 
 ### TD-001: 中文治理文档风格
@@ -171,6 +182,15 @@
 - 暂缓原因：runtime 行为需要在已稳定 contract foundation 之上单独设计 handoff、幂等、恢复事务和失败回滚流程。
 - 触发复议条件：准备实现 pause / resume / interrupt skill，或需要让 host workflow 自动消费 paused / interrupted packages。
 - 明确不做范围：本轮不触碰 `templates/skills/**`、`templates/docs/WORKFLOW_GUIDE.md.tmpl`、`scripts/workflow-runtime.ts`、`test/workflow-runtime.test.ts`。
+
+### DEFER-004: vNext facade promotion、alias 退役与 state-changing Runtime
+
+- 状态：deferred
+- 背景：任务 `010` 只建立 additive shadow capability / compatibility contract；当前 manifest、fixtures 与 validator 尚未成为 host surface 或 Runtime executor。
+- 当前结论：Phase 0 不重定向 37 个旧 Skill，不修改 registry / install / pack / host sync，不实现 Runtime proposal 的解析、原子提交、幂等冲突或目标项目路径解析。
+- 暂缓原因：进入行为迁移前仍需强化 fixture 的 branch / handoff / diff target / terminal / exact writes 语义、为 Runtime operation 绑定 operation-specific source / write 集合，并用 read-only shadow resolver 证明 legacy 与 facade verdict 等价。
+- 触发复议条件：用户确认进入 Phase 1，或准备让任一 facade / Runtime operation 参与真实路由、写入、安装或 host 暴露。
+- 明确不做范围：不得仅凭 Phase 0 manifest 直接 redirect / delete alias；不得把 declaration 当成已实现的 Runtime transaction；不得在缺少跨 harness 等价证据时推广默认入口。
 
 ## 🔁 已演进 / 已替代
 

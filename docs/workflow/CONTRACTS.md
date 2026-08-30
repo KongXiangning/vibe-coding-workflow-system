@@ -63,6 +63,11 @@
   - 语义：archive / paused / interrupted 是同一 task identity 的不同 artifact kind；paused / interrupted package 是 recovery input，不是 live governance document。
   - 不可破坏项：不得把 suspended package 提升为 `docs/workflow/` 常驻 governance catalog 对象；不得用 suspended package 是否存在反推 active ownership。
   - 备注：`getTaskArchivePath()` 仅保留 archive-only wrapper；多 artifact path contract 由统一 resolver 承载。
+- 名称：workflow vNext Phase 0 capability / compatibility shadow contract
+  - 结构：`.workflow-system/WORKFLOW_CAPABILITIES.yaml`、`test/fixtures/workflow-capability-cases.yaml`。
+  - 语义：manifest 声明 public / internal / runtime / compat 四层产品能力与 37-name 迁移映射；fixtures 承载 37 个逐项 `MR-*` 与 18 个组合 `GR-*` non-loss evidence。两者只用于 source-repo conformance，不承载目标项目 live task、status、contract 或 decision facts。
+  - 不可破坏项：37 个现有 Skill name 在 Phase 0 必须全部且仅一次保留，legacy handoff / writes 继续权威；public / internal / runtime 不得被当前 generator、registry、export、pack、install 或 host sync 当成已推广 surface；Runtime declaration 不得冒充已实现的状态事务。
+  - 备注：10 个 public entry 名称是 shadow baseline，可在后续用户确认的迁移任务中演进，但任何演进都必须保持 alias coverage、stage coverage 和 golden evidence 可追溯。
 
 ### 🟡 可扩展不可破坏
 
@@ -217,6 +222,16 @@
     - `WORKFLOW_GUIDE` 与 `SKILL_REGISTRY` 必须把 `capture-work-item` 表达成 record-only branch，并保持 `handoff.success = create-current-task` 只是 generator-compatible fallback，真实成功语义由 `conditional_handoff.capture_only = ask-user` 表达。
     - promote、prioritization、backlog grooming、`DOCUMENT_CATALOG.md` 收录、task identity 感知、runtime manifest / install / health report 扩面都不属于该契约；如后续需要，必须单独开任务并重新锁范围。
   - verification：`bun run gen:all`、`bun run test:workflow-skills`、`bun run test:registry`、`bun run test:workflow-docs`、`bun test test/run-validation.test.ts`、`bun run test:workflow-all`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run workflow:health --root .`
+
+- 对象路径：workflow vNext Phase 0 capability / compatibility shadow baseline
+  - assertions：
+    - `.workflow-system/WORKFLOW_CAPABILITIES.yaml` 必须保持 `status: shadow`，并声明 10 个候选 public entry、完整 mode、internal capability、Runtime operation 与 37 个 compat alias；compat alias name set 必须与实际 `templates/skills/*.SKILL.md.tmpl` name set 严格相等。
+    - K/M/R/D 只表达迁移 disposition，不授予 exposure 或写权限；Phase 0 public / internal / runtime 固定不可安装，compat alias 继续保留现行可调用语义。
+    - alias target dependency、legacy stage 与 write-class 必须由 validator 对照实际 template fail-closed 校验；只读 orchestration alias 不得被映射为 writer / repair mode。
+    - Runtime operation 必须使用 `runtime-proposal-envelope`、canonical source / exact write allowlist、source tuple、authority evidence、conflict key 与 atomic fail-closed result contract；当前仅为声明，不存在可执行写事务。
+    - 55 个 golden fixture ID 必须完整、唯一且可解析；Phase 1 行为推广前还必须补齐 branch-aware exact writes、handoff、diff target、terminal behavior 和 operation-specific source / write 约束。
+    - capability manifest 不是当前 runtime source pipeline、target-project state 或 host install surface；不得形成第二状态源或绕过现行 37-Skill authority。
+  - verification：`bun run test:workflow-capabilities`、`bun run test:workflow-skills`、`bun run validate:protocol`、`bun run validate:freshness`、`bun run test:workflow-all`、`bun run workflow:health --root .`
 
 ### compat path / wrapper rules
 

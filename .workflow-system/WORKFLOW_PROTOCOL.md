@@ -1,9 +1,9 @@
 # Workflow Protocol
 
 ```yaml
-Protocol-Version: 0.3.0
+Protocol-Version: 0.4.0
 Status: Formal Spec
-Last-Updated: 2026-04-22
+Last-Updated: 2026-08-30
 ```
 
 This file defines the execution rules for the workflow skill system.
@@ -81,7 +81,9 @@ The workflow-system is defined by a strict source pipeline composed of the follo
 - `scripts/workflow-doc-contracts.ts`
 - `scripts/workflow-runtime.ts`
 
-These inputs collectively define, enforce, and materialize the workflow-system structure.
+These inputs collectively define, enforce, and materialize the currently exported workflow-system structure.
+
+`.workflow-system/WORKFLOW_CAPABILITIES.yaml` is the Phase 0 source-repository conformance input for the shadow capability / compatibility contract defined by §4c. It does not carry target-project runtime facts, replace live governance documents, or join the export / pack / install / host-sync source pipeline until a later behavior task explicitly updates and tests that pipeline.
 
 Generated artifacts:
 
@@ -591,6 +593,216 @@ The default `git diff` / `git diff --cached` fallback is valid only when there a
 
 ---
 
+## 4c. Workflow capability surface contract
+
+This section defines the additive Phase 0 shadow contract for reducing the public Skill surface without deleting governance semantics.
+
+The current 37 generated Skills remain the authoritative runtime and host-sync surface in this phase. The capability contract is machine-readable migration input and conformance evidence; it must not change current Skill generation, handoff, registry, install, sync, or host exposure by its presence alone.
+
+### 4c.1 Capability layers
+
+`exposure` is a closed set:
+
+- `public` — a thin user / harness entry with explicit modes
+- `internal` — a shared policy, resolver, validator, or gate used by public entries; not independently promoted to the user surface by default
+- `runtime` — a deterministic operation that validates and atomically commits an already-authorized typed proposal
+- `compat` — an active legacy Skill name that resolves to one public entry / mode plus any required internal or Runtime dependencies
+
+Layer rules:
+
+- a capability has one canonical layer
+- public entries may reference internal capabilities and Runtime operations
+- internal capabilities and Runtime operations must not gain public visibility merely because they are referenced
+- compat aliases preserve old invocation semantics during migration and are not a second implementation of the target capability
+- an alias must resolve to exactly one public entry and one mode; ambiguous or missing resolution fails closed
+
+### 4c.2 Phase 0 public entry set
+
+The v1 shadow public-entry set is:
+
+- `bootstrap-project`
+- `prepare-task`
+- `execute-step`
+- `review-change`
+- `validate-change`
+- `debug-task`
+- `task-lifecycle`
+- `capture-work-item`
+- `sync-state`
+- `close-task`
+
+This set is a shadow migration baseline, not a claim that host sync already exposes these names. Default promotion or later renaming requires a separately reviewed behavior task.
+
+Each public entry must declare:
+
+- a unique `id`
+- `exposure: public`
+- `status: shadow`
+- `installable: false` during Phase 0
+- one or more explicit modes
+
+Each mode must declare:
+
+- a unique mode `id` within its entry
+- one or more canonical `covers_stages` values from §4a
+- referenced internal `capabilities`
+- referenced `runtime_operations`
+- `mutation` intent
+- `terminal_behavior`
+- `authority_boundary`
+
+The union of `covers_stages` across all public-entry modes must cover all 10 stage groups. Overlap is allowed; unknown stages and coverage gaps fail closed. Stage membership is declared per mode so one facade cannot silently lend a broader stage or mutation authority to all of its modes.
+
+Read-only legacy orchestrators must resolve to read-only orchestration modes, not directly to a code-writing or repair mode. Phase 0 therefore keeps explicit `execute-step:orchestrate` and `debug-task:orchestrate` shadow modes so `continue-current-step` and `debug-and-fix-current-task` cannot acquire mutation authority through consolidation.
+
+### 4c.3 Internal capability rules
+
+Every internal capability must declare a unique `id`, `exposure: internal`, `installable: false`, a non-empty `kind`, and an `authority_owner`.
+
+The minimum `kind` set is:
+
+- `policy`
+- `resolver`
+- `validator`
+- `gate`
+- `router`
+
+`authority_owner` is a closed set:
+
+- `protocol`
+- `model`
+- `user`
+- `runtime`
+
+Internal capability references must resolve. Circular reference chains are forbidden when they would make authority, stop conditions, or transition order ambiguous.
+
+If a mode references any internal capability whose `authority_owner` is `user`, that mode's `authority_boundary.user` must be `confirm` or `approve`; `none` is invalid even when the mode normally expects a mechanical path.
+
+### 4c.4 Runtime operation rules
+
+Every Runtime operation must declare:
+
+- a unique `id`
+- `exposure: runtime`
+- `installable: false`
+- the accepted typed `proposal_kind`
+- `proposal_schema_ref: runtime-proposal-envelope`
+- one or more `canonical_state_sources`
+- one or more exact `write_targets` plus `write_policy: exact-allowlist`
+- `source_tuple_required: true`
+- `authority_evidence_required: true`
+- a non-empty deterministic `conflict_key`
+- `atomic: true`
+- `idempotence: fail-closed`
+- `conflict_policy: fail-closed`
+- the complete result set `success`, `no-op`, `conflict`, and `blocked`
+
+Runtime operations do not decide whether a proposed contract, decision, lesson, finding, lifecycle change, or status change is semantically authorized. The model and user-authority gates produce the proposal and evidence; Runtime validates schema, current source tuple, path, authority marker, conflict, and atomicity before commit.
+
+`runtime-proposal-envelope` requires at least proposal kind, canonical source revision / lifecycle tuple, authority evidence, intended exact writes, conflict key, and idempotency identity. Phase 0 declares this envelope and write boundary only; it does not implement state-changing transactions.
+
+The Phase 0 Runtime canonical-source allowlist is closed to the five live governance documents (`CURRENT_TASK`, `STATUS`, `CONTRACTS`, `DECISIONS`, `LESSONS`), paired `AGENTS.md` / `CLAUDE.md`, bounded `TASKS/paused`, `TASKS/interrupted`, `TASKS/inbox`, and the materialized canonical task archive path. The write-target allowlist uses the same exact documents plus bounded family patterns for paused / interrupted / inbox artifacts. Broad sources or targets such as `TASKS`, `**`, `docs/**`, or `TASKS/**` are invalid.
+
+A Runtime operation must not introduce a database, cache, manifest field, or derived projection as an independent source of target-project truth. A projection may be returned for validation or display, but canonical project facts remain in the existing live governance sources.
+
+### 4c.5 Compatibility alias rules
+
+Every current `templates/skills/*.SKILL.md.tmpl` name must appear exactly once in `compatibility_aliases` while Phase 0 is active.
+
+Each alias must declare:
+
+- `legacy_name`
+- audit `classification`: `keep`, `merge`, `runtime`, or `delete`
+- `status: active`
+- `installable: true`
+- `target_entry`
+- `target_mode`
+- referenced `required_capabilities`
+- referenced `runtime_operations`
+- exactly one row-level `migration_case`
+- `preserve_handoff: true`
+- `preserve_writes: true`
+
+Compatibility rules:
+
+- `delete` means deletion of a future standalone wrapper only; its required governance semantics must already resolve through the target entry, internal capabilities, protocol rule, Runtime operation, or migration case
+- `runtime` means deterministic commit responsibility moves down; semantic proposal authority remains explicit
+- alias `required_capabilities` and `runtime_operations` must equal the selected target mode's dependency sets; implicit extra or missing gates are invalid
+- the target mode's `covers_stages` must include the legacy template stage
+- a legacy template with `writes: []` must map to `mutation: none`, while a legacy writer must not map to `mutation: none`; this prevents a read-only wrapper from silently acquiring write authority or a writer from losing its declared state responsibility
+- during shadow status, `target_entry` / `target_mode` identify semantic ownership only; they do not redirect invocation, and the legacy template's handoff / conditional handoff remains authoritative even when the target mode intentionally composes a different future route
+- no legacy name may be removed, hidden, or redirected by Phase 0
+- alias retirement requires a later compatibility window, passing migration evidence, removal preconditions, and host / registry consumer review
+- a dangling target, missing template alias, extra alias, duplicate alias, or unresolved capability / Runtime reference is a blocking protocol error
+
+### 4c.6 Terminal and authority rules
+
+`terminal_behavior` is a closed set:
+
+- `continue`
+- `report-only`
+- `manual-decision`
+- `complete`
+
+`mutation` is a closed set:
+
+- `none`
+- `code`
+- `task-artifact`
+- `semantic-proposal`
+
+`authority_boundary` is a required object with four explicit owners:
+
+- `protocol: define | validate | none`
+- `model: propose | classify | none`
+- `user: confirm | approve | none`
+- `runtime: validate-and-commit | none`
+
+Every owner key must be present. This structure distinguishes who proposes, who confirms, who defines the rule, and who may commit; a flat participant list is insufficient evidence of authority.
+
+Rules:
+
+- `report-only` and `manual-decision` modes must not declare an executable automatic handoff
+- a mode with `mutation: none` must not claim writes in its golden expected result
+- a non-empty golden expected write must be a bounded repo-relative path / symbolic path, not an opaque artifact label
+- a `guard: no-op` outcome must terminate as `complete`; it must not inherit a mode's normal `continue` route
+- `semantic-proposal` authorizes proposal construction only; it does not authorize Runtime commit or user-challenge decisions
+- code and task-artifact mutation remains subject to CURRENT_TASK scope, dangerous-operation, lifecycle, ownership, and finding-admission gates
+- facade membership does not broaden a mode's reads, writes, decision authority, or stop conditions
+
+### 4c.7 Golden non-loss fixtures
+
+Phase 0 conformance evidence lives in `test/fixtures/workflow-capability-cases.yaml` and contains exactly:
+
+- 37 row cases: `MR-K01..K05`, `MR-M01..M20`, `MR-R01..R07`, `MR-D01..D05`
+- 18 composition cases: `GR-01..GR-18`
+
+Every case must declare:
+
+- invariant / governance rule under test
+- initial task, lifecycle, diff-target, and evidence state
+- invocation entry, mode, and legacy alias when applicable
+- referenced public / internal / Runtime capabilities
+- expected guard, verdict, writes, handoff, terminal behavior, diff-target behavior, and evidence
+
+An inapplicable field must be represented explicitly by the schema's `not-applicable` value or an empty collection where allowed; omission is not a substitute for a tested expectation.
+
+Row cases must map 1:1 to `compatibility_aliases[].migration_case`, and their capability references must exactly equal the alias target public mode plus its internal / Runtime dependency sets. Composition cases may reference multiple aliases and capabilities. Duplicate, missing, extra, or unresolvable fixture IDs fail closed.
+
+### 4c.8 Source and implementation boundary
+
+Authority order for this surface is:
+
+1. `.workflow-system/WORKFLOW_PROTOCOL.md` — semantics, closed sets, invariants
+2. `.workflow-system/FILE_SCHEMAS.md` — manifest and fixture structure
+3. `.workflow-system/WORKFLOW_CAPABILITIES.yaml` — machine-readable capability / compat declaration
+4. current Skill templates — authoritative legacy runtime names and behavior during Phase 0
+5. golden fixtures — conformance inputs and expected evidence, not normative project state
+
+Phase 0 must fail if the manifest and the actual template-name set diverge. It must not resolve that failure by changing templates, generated references, registry, or host sync inside the contract-foundation task.
+
+---
+
 ## 5. Skill template contract
 
 ### 5.1 Must be expanded by the generator
@@ -992,11 +1204,14 @@ Each error is a JSON object on a single line of stderr:
 | `PATH_` | Path grammar violations | `PATH_001` invalid path entry |
 | `WRITE_` | Write boundary violations | `WRITE_001` writes/forbidden_writes conflict |
 | `HEADING_` | Doc heading validation | `HEADING_001` missing required heading |
+| `CAPABILITY_` | Capability schema, coverage, or reference violations | `CAPABILITY_SCHEMA_INVALID`, `CAPABILITY_COMPAT_COVERAGE_MISMATCH` |
+| `FIXTURE_` | Golden fixture schema, coverage, or reference violations | `FIXTURE_SCHEMA_INVALID`, `FIXTURE_COVERAGE_MISMATCH` |
 | `IO_` | Input/output and generator execution errors | `IO_001` input file error, `IO_002` generator execution failed |
 
 Current implementation:
 
 - `scripts/workflow-core.ts` currently emits structured errors for `SCHEMA_001`, `SCHEMA_002`, `HANDOFF_001`, `PLACEHOLDER_001`, `STAGE_001`, `STAGE_002`, `PATH_001`, `WRITE_001`, `HEADING_001`, `IO_001`, and `IO_002`
+- `scripts/workflow-capabilities.ts` emits the §4c `CAPABILITY_*` / `FIXTURE_*` fail-closed contract errors through its typed validator and CLI failure output
 - `SYNC_` and additional suffixes such as `HANDOFF_002`, `PLACEHOLDER_002`, or `WRITE_002` remain namespace reservations at the protocol layer unless and until execution code emits them
 
 ### 9b.3 Human-readable summary
@@ -1451,6 +1666,8 @@ Validation is split into two layers with distinct ownership and scope:
 Protocol-level validation covers:
 
 - template schema validity
+- capability / compatibility manifest validity and legacy-name coverage
+- golden non-loss fixture structure, coverage, and reference closure
 - stage coverage completeness
 - handoff graph closure
 - placeholder resolution rules
@@ -1559,6 +1776,8 @@ The workflow-system defines the following protocol-level entrypoints as the mini
 | `task-identity-tests` | `protocol` | `blocks-merge` | `bun run test:task-identity` | `workflow-system` |
 
 Target projects are expected to declare at least the following project-level slots (unbound by default):
+
+`workflow-skills-tests` also owns the Phase 0 capability/compatibility and golden-fixture conformance tests. This reuses an existing protocol-level entrypoint and does not create or bind a target-project validation slot.
 
 | Name | Layer | Blocker level | Phase | Owner |
 |---|---|---|---|---|
@@ -2210,6 +2429,9 @@ This protocol revision contains normative incubation definitions through `P11`, 
 
 The following contracts remain outside the currently implemented workflow-system baseline:
 
+- default host exposure of the §4c shadow public entries
+- retirement or deletion of any §4c compatibility alias
+- state-changing Runtime implementations for §4c Runtime operation declarations
 - target-project-specific command bindings for optional project-level validation slots
 - production-environment credentials, secret rotation procedures, and deploy implementations
 - extraction-time release governance beyond the documented roadmap and baseline contracts

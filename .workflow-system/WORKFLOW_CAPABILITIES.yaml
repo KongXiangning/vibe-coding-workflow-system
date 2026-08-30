@@ -1,0 +1,618 @@
+schema_version: 1
+status: shadow
+
+public_entries:
+  - id: bootstrap-project
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: design
+        covers_stages: [init]
+        capabilities: [source-authority-policy, design-evidence-gate, scope-guard]
+        runtime_operations: []
+        mutation: semantic-proposal
+        terminal_behavior: manual-decision
+        authority_boundary: { protocol: define, model: propose, user: approve, runtime: none }
+        automatic_handoff: not-applicable
+      - id: greenfield
+        covers_stages: [init]
+        capabilities: [source-authority-policy, design-evidence-gate, scope-guard]
+        runtime_operations: []
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: confirm, runtime: none }
+        automatic_handoff: "prepare-task:create"
+      - id: inventory
+        covers_stages: [init]
+        capabilities: [source-authority-policy, propagation-evidence-validator, scope-guard]
+        runtime_operations: []
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: none }
+        automatic_handoff: "bootstrap-project:adopt"
+      - id: adopt
+        covers_stages: [init]
+        capabilities: [source-authority-policy, propagation-evidence-validator, decision-authority-gate]
+        runtime_operations: []
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: none }
+        automatic_handoff: "prepare-task:create"
+      - id: realign
+        covers_stages: [init]
+        capabilities: [source-authority-policy, host-isolation-guard, scope-guard, dangerous-operation-gate]
+        runtime_operations: []
+        mutation: semantic-proposal
+        terminal_behavior: manual-decision
+        authority_boundary: { protocol: validate, model: classify, user: approve, runtime: none }
+        automatic_handoff: not-applicable
+
+  - id: prepare-task
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: create
+        covers_stages: [phase-1-intake]
+        capabilities: [source-authority-policy, scope-guard, decision-authority-gate, task-identity-guard, design-evidence-gate, release-evidence-gate]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: define, model: propose, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:review"
+      - id: review
+        covers_stages: [phase-1-intake]
+        capabilities: [source-authority-policy, scope-guard, decision-authority-gate, task-identity-guard, resume-review-gate]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:scope-lock"
+      - id: scope-lock
+        covers_stages: [phase-2-scope-lock]
+        capabilities: [scope-guard, dangerous-operation-gate, propagation-evidence-validator]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:classify"
+      - id: classify
+        covers_stages: [phase-3-decomposition]
+        capabilities: [decision-authority-gate, source-authority-policy]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: define, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:plan"
+      - id: plan
+        covers_stages: [phase-3-decomposition]
+        capabilities: [decision-authority-gate, propagation-evidence-validator, external-documentation-gate, adaptive-depth-policy]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:decompose"
+      - id: decompose
+        covers_stages: [phase-3-decomposition]
+        capabilities: [scope-guard, decision-authority-gate, adaptive-depth-policy]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "execute-step:implement"
+      - id: replan
+        covers_stages: [phase-1-intake, phase-2-scope-lock, phase-3-decomposition]
+        capabilities: [source-authority-policy, scope-guard, decision-authority-gate, propagation-evidence-validator]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: approve, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:review"
+      - id: orchestrate
+        covers_stages: [phase-1-intake, phase-2-scope-lock, phase-3-decomposition]
+        capabilities: [orchestration-route-resolver, source-authority-policy, scope-guard, decision-authority-gate]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: none }
+        automatic_handoff: "prepare-task:review"
+
+  - id: execute-step
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: orchestrate
+        covers_stages: [phase-4-implementation]
+        capabilities: [orchestration-route-resolver, scope-guard, diff-target-resolver]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: none }
+        automatic_handoff: "execute-step:implement"
+      - id: implement
+        covers_stages: [phase-4-implementation]
+        capabilities: [scope-guard, dangerous-operation-gate, decision-authority-gate, design-evidence-gate, external-documentation-gate]
+        runtime_operations: [task-state-transaction]
+        mutation: code
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "review-change:scope"
+      - id: repair
+        covers_stages: [phase-4-implementation]
+        capabilities: [scope-guard, dangerous-operation-gate, finding-admission, decision-authority-gate, external-documentation-gate]
+        runtime_operations: [task-state-transaction, finding-queue-transaction]
+        mutation: code
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "review-change:scope"
+
+  - id: review-change
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: scope
+        covers_stages: [phase-5-scope-review]
+        capabilities: [read-only-review-guard, diff-target-resolver, scope-guard, propagation-evidence-validator, finding-admission]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: none }
+        automatic_handoff: "review-change:implementation"
+      - id: implementation
+        covers_stages: [phase-5-scope-review]
+        capabilities: [read-only-review-guard, diff-target-resolver, finding-admission, external-documentation-gate]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: none }
+        automatic_handoff: "review-change:contract"
+      - id: contract
+        covers_stages: [phase-5-scope-review]
+        capabilities: [read-only-review-guard, diff-target-resolver, source-authority-policy, propagation-evidence-validator, decision-authority-gate]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: none }
+        automatic_handoff: "validate-change:regression"
+      - id: report-only
+        covers_stages: [phase-5-scope-review, phase-6-regression]
+        capabilities: [read-only-review-guard, diff-target-resolver, validation-layer-gate, propagation-evidence-validator]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: report-only
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: none }
+        automatic_handoff: not-applicable
+
+  - id: validate-change
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: regression
+        covers_stages: [phase-6-regression]
+        capabilities: [validation-layer-gate, diff-target-resolver, owner-route-resolver, release-evidence-gate]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: none }
+        automatic_handoff: "sync-state:task"
+      - id: report-only
+        covers_stages: [phase-6-regression]
+        capabilities: [validation-layer-gate, diff-target-resolver, read-only-review-guard]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: report-only
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: none }
+        automatic_handoff: not-applicable
+
+  - id: debug-task
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: orchestrate
+        covers_stages: [phase-4-6-exception]
+        capabilities: [orchestration-route-resolver, root-cause-loop, owner-route-resolver, scope-guard]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: none }
+        automatic_handoff: "debug-task:investigate"
+      - id: investigate
+        covers_stages: [phase-4-6-exception]
+        capabilities: [root-cause-loop, owner-route-resolver, source-authority-policy, external-documentation-gate]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:plan"
+      - id: repair
+        covers_stages: [phase-4-6-exception]
+        capabilities: [root-cause-loop, owner-route-resolver, scope-guard, decision-authority-gate]
+        runtime_operations: []
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: confirm, runtime: none }
+        automatic_handoff: "execute-step:repair"
+
+  - id: task-lifecycle
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: pause
+        covers_stages: [phase-7-sync]
+        capabilities: [lifecycle-transition-guard, task-identity-guard, scope-guard]
+        runtime_operations: [lifecycle-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: manual-decision
+        authority_boundary: { protocol: define, model: propose, user: approve, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: interrupt
+        covers_stages: [phase-7-sync]
+        capabilities: [lifecycle-transition-guard, task-identity-guard, scope-guard]
+        runtime_operations: [lifecycle-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: manual-decision
+        authority_boundary: { protocol: define, model: propose, user: approve, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: resume-paused
+        covers_stages: [phase-7-sync]
+        capabilities: [lifecycle-transition-guard, task-identity-guard, resume-review-gate, owner-route-resolver]
+        runtime_operations: [lifecycle-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: define, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:review"
+      - id: resume-interrupted
+        covers_stages: [phase-7-sync]
+        capabilities: [lifecycle-transition-guard, task-identity-guard, resume-review-gate, owner-route-resolver]
+        runtime_operations: [lifecycle-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: define, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:review"
+      - id: supersede
+        covers_stages: [phase-7-sync, phase-1-intake]
+        capabilities: [lifecycle-transition-guard, task-identity-guard, decision-authority-gate, propagation-evidence-validator]
+        runtime_operations: [lifecycle-transaction, task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: define, model: classify, user: approve, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:create"
+      - id: replan
+        covers_stages: [phase-7-sync, phase-3-decomposition]
+        capabilities: [lifecycle-transition-guard, task-identity-guard, decision-authority-gate]
+        runtime_operations: [lifecycle-transaction, task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: continue
+        authority_boundary: { protocol: define, model: classify, user: approve, runtime: validate-and-commit }
+        automatic_handoff: "prepare-task:review"
+
+  - id: capture-work-item
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: capture-only
+        covers_stages: [phase-1-intake]
+        capabilities: [record-only-intake-guard, owner-route-resolver, scope-guard]
+        runtime_operations: [inbox-record-transaction]
+        mutation: task-artifact
+        terminal_behavior: manual-decision
+        authority_boundary: { protocol: define, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+
+  - id: sync-state
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: task
+        covers_stages: [phase-7-sync]
+        capabilities: [source-authority-policy, scope-guard]
+        runtime_operations: [task-state-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: validate, model: propose, user: none, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: status
+        covers_stages: [phase-7-sync]
+        capabilities: [source-authority-policy, release-evidence-gate]
+        runtime_operations: [project-status-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: validate, model: propose, user: none, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: contracts
+        covers_stages: [phase-7-sync]
+        capabilities: [source-authority-policy, decision-authority-gate, propagation-evidence-validator]
+        runtime_operations: [contract-candidate-commit]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: define, model: classify, user: approve, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: decisions
+        covers_stages: [phase-7-sync]
+        capabilities: [source-authority-policy, decision-authority-gate]
+        runtime_operations: [decision-record-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: host-guidance
+        covers_stages: [phase-7-sync]
+        capabilities: [source-authority-policy, host-isolation-guard, decision-authority-gate]
+        runtime_operations: [paired-host-guidance-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: findings
+        covers_stages: [phase-5-scope-review, phase-7-sync]
+        capabilities: [finding-admission, owner-route-resolver, scope-guard]
+        runtime_operations: [finding-queue-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+      - id: lessons
+        covers_stages: [phase-7-sync, phase-8-delivery]
+        capabilities: [source-authority-policy, closure-eligibility-gate]
+        runtime_operations: [lesson-record-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: validate, model: classify, user: none, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+
+  - id: close-task
+    exposure: public
+    status: shadow
+    installable: false
+    modes:
+      - id: close
+        covers_stages: [phase-8-delivery]
+        capabilities: [closure-eligibility-gate, source-authority-policy, release-evidence-gate, orchestration-route-resolver]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: none }
+        automatic_handoff: "close-task:summary"
+      - id: summary
+        covers_stages: [phase-8-delivery]
+        capabilities: [closure-eligibility-gate, release-evidence-gate]
+        runtime_operations: []
+        mutation: none
+        terminal_behavior: continue
+        authority_boundary: { protocol: validate, model: propose, user: none, runtime: none }
+        automatic_handoff: "close-task:archive"
+      - id: archive
+        covers_stages: [phase-8-delivery]
+        capabilities: [closure-eligibility-gate, task-identity-guard, source-authority-policy]
+        runtime_operations: [archive-transaction]
+        mutation: semantic-proposal
+        terminal_behavior: complete
+        authority_boundary: { protocol: define, model: propose, user: confirm, runtime: validate-and-commit }
+        automatic_handoff: not-applicable
+
+internal_capabilities:
+  - { id: source-authority-policy, exposure: internal, installable: false, kind: policy, authority_owner: protocol, description: "Resolve protocol/schema and project source precedence without conversational overrides." }
+  - { id: scope-guard, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Enforce Allowed, Conditional, Forbidden, widening, and default-deny mutation scope." }
+  - { id: dangerous-operation-gate, exposure: internal, installable: false, kind: gate, authority_owner: user, description: "Require target, risk, recovery, scope check, and confirmation for dangerous operations." }
+  - { id: decision-authority-gate, exposure: internal, installable: false, kind: gate, authority_owner: user, description: "Separate mechanical choices from taste and user-challenge authority." }
+  - { id: propagation-evidence-validator, exposure: internal, installable: false, kind: validator, authority_owner: protocol, description: "Validate discovery union, compatibility, migration, and linked-regression evidence." }
+  - { id: diff-target-resolver, exposure: internal, installable: false, kind: resolver, authority_owner: protocol, description: "Resolve one explicit diff target shared by review and validation." }
+  - { id: read-only-review-guard, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Prevent review and report-only paths from mutating code or governance state." }
+  - { id: finding-admission, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Admit only current-owner in-scope mechanical findings before repair." }
+  - { id: owner-route-resolver, exposure: internal, installable: false, kind: router, authority_owner: model, description: "Separate canonical ownership from guard-aware executable handoff." }
+  - { id: lifecycle-transition-guard, exposure: internal, installable: false, kind: validator, authority_owner: protocol, description: "Validate legal lifecycle tuples, transitions, markers, and fail-closed recovery." }
+  - { id: resume-review-gate, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Require explicit package, complete recovery evidence, normalized reasons, and review before execution." }
+  - { id: record-only-intake-guard, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Keep unrelated inbox capture separate from task creation, lifecycle, and task identity." }
+  - { id: validation-layer-gate, exposure: internal, installable: false, kind: validator, authority_owner: protocol, description: "Keep protocol validation separate from target-project and task-level QA." }
+  - { id: generation-atomicity-policy, exposure: internal, installable: false, kind: policy, authority_owner: protocol, description: "Preserve render/validate-before-write and generated/live direction." }
+  - { id: host-isolation-guard, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Protect source/target separation and isolated workflow-system host assets." }
+  - { id: design-evidence-gate, exposure: internal, installable: false, kind: gate, authority_owner: user, description: "Require auditable design source and acceptance before UI implementation." }
+  - { id: release-evidence-gate, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Prevent stable or complete claims without required release, canary, benchmark, or rollback evidence." }
+  - { id: external-documentation-gate, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Require current third-party documentation when external behavior affects correctness." }
+  - { id: task-identity-guard, exposure: internal, installable: false, kind: validator, authority_owner: protocol, description: "Validate immutable task identity, active ownership, and canonical artifact paths." }
+  - { id: root-cause-loop, exposure: internal, installable: false, kind: gate, authority_owner: model, description: "Require reproduction and hypothesis validation before repair, with bounded non-convergence." }
+  - { id: adaptive-depth-policy, exposure: internal, installable: false, kind: policy, authority_owner: protocol, description: "Allow less planning prose without bypassing hard governance gates." }
+  - { id: closure-eligibility-gate, exposure: internal, installable: false, kind: gate, authority_owner: protocol, description: "Require acceptance, validation, remaining-risk, and release evidence before archive." }
+  - { id: orchestration-route-resolver, exposure: internal, installable: false, kind: router, authority_owner: protocol, description: "Resolve validated next actions without replacing child authority or write boundaries." }
+
+runtime_operations:
+  - id: task-state-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: task-state-delta
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/CURRENT_TASK.md]
+    write_targets: [docs/workflow/CURRENT_TASK.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: task-id+source-revision
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: lifecycle-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: lifecycle-transition-proposal
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/CURRENT_TASK.md, TASKS/paused, TASKS/interrupted]
+    write_targets: [docs/workflow/CURRENT_TASK.md, "TASKS/paused/**", "TASKS/interrupted/**"]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: task-id+source-revision+target-state
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: inbox-record-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: unrelated-work-item-proposal
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/CURRENT_TASK.md, TASKS/inbox]
+    write_targets: ["TASKS/inbox/**"]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: content-fingerprint+active-task-id
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: finding-queue-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: admitted-finding-delta
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/CURRENT_TASK.md]
+    write_targets: [docs/workflow/CURRENT_TASK.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: task-id+finding-fingerprint+diff-target
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: project-status-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: project-status-delta
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/STATUS.md, docs/workflow/CURRENT_TASK.md]
+    write_targets: [docs/workflow/STATUS.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: task-id+source-revision
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: contract-candidate-commit
+    exposure: runtime
+    installable: false
+    proposal_kind: verified-contract-candidate
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/CONTRACTS.md, docs/workflow/DECISIONS.md]
+    write_targets: [docs/workflow/CONTRACTS.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: contract-key+source-revision
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: decision-record-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: confirmed-decision-record
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/DECISIONS.md, docs/workflow/CONTRACTS.md]
+    write_targets: [docs/workflow/DECISIONS.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: decision-id+source-revision
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: paired-host-guidance-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: durable-host-guidance-delta
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [AGENTS.md, CLAUDE.md, docs/workflow/CONTRACTS.md]
+    write_targets: [AGENTS.md, CLAUDE.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: rule-fingerprint+source-revision
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: lesson-record-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: reusable-lesson-candidate
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/LESSONS.md]
+    write_targets: [docs/workflow/LESSONS.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: lesson-fingerprint+source-revision
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+  - id: archive-transaction
+    exposure: runtime
+    installable: false
+    proposal_kind: closure-archive-proposal
+    proposal_schema_ref: runtime-proposal-envelope
+    canonical_state_sources: [docs/workflow/CURRENT_TASK.md, docs/workflow/STATUS.md, "TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md"]
+    write_targets: ["TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md", docs/workflow/CURRENT_TASK.md]
+    write_policy: exact-allowlist
+    source_tuple_required: true
+    authority_evidence_required: true
+    conflict_key: task-id+task-slug+source-revision
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+    result_states: [success, no-op, conflict, blocked]
+
+compatibility_aliases:
+  - { legacy_name: capture-work-item, exposure: compat, classification: keep, status: active, installable: true, target_entry: capture-work-item, target_mode: capture-only, required_capabilities: [record-only-intake-guard, owner-route-resolver, scope-guard], runtime_operations: [inbox-record-transaction], migration_case: MR-K01, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: implement-current-step, exposure: compat, classification: keep, status: active, installable: true, target_entry: execute-step, target_mode: implement, required_capabilities: [scope-guard, dangerous-operation-gate, decision-authority-gate, design-evidence-gate, external-documentation-gate], runtime_operations: [task-state-transaction], migration_case: MR-K02, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: investigate-root-cause, exposure: compat, classification: keep, status: active, installable: true, target_entry: debug-task, target_mode: investigate, required_capabilities: [root-cause-loop, owner-route-resolver, source-authority-policy, external-documentation-gate], runtime_operations: [task-state-transaction], migration_case: MR-K03, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: realign-workflow-assets, exposure: compat, classification: keep, status: active, installable: true, target_entry: bootstrap-project, target_mode: realign, required_capabilities: [source-authority-policy, host-isolation-guard, scope-guard, dangerous-operation-gate], runtime_operations: [], migration_case: MR-K04, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: run-regression, exposure: compat, classification: keep, status: active, installable: true, target_entry: validate-change, target_mode: regression, required_capabilities: [validation-layer-gate, diff-target-resolver, owner-route-resolver, release-evidence-gate], runtime_operations: [], migration_case: MR-K05, preserve_handoff: true, preserve_writes: true }
+
+  - { legacy_name: adopt-existing-project, exposure: compat, classification: merge, status: active, installable: true, target_entry: bootstrap-project, target_mode: adopt, required_capabilities: [source-authority-policy, propagation-evidence-validator, decision-authority-gate], runtime_operations: [], migration_case: MR-M01, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: capture-lessons, exposure: compat, classification: merge, status: active, installable: true, target_entry: sync-state, target_mode: lessons, required_capabilities: [source-authority-policy, closure-eligibility-gate], runtime_operations: [lesson-record-transaction], migration_case: MR-M02, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: close-current-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: close-task, target_mode: close, required_capabilities: [closure-eligibility-gate, source-authority-policy, release-evidence-gate, orchestration-route-resolver], runtime_operations: [], migration_case: MR-M03, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: create-current-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: prepare-task, target_mode: create, required_capabilities: [source-authority-policy, scope-guard, decision-authority-gate, task-identity-guard, design-evidence-gate, release-evidence-gate], runtime_operations: [task-state-transaction], migration_case: MR-M04, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: design-baseline-init, exposure: compat, classification: merge, status: active, installable: true, target_entry: bootstrap-project, target_mode: design, required_capabilities: [source-authority-policy, design-evidence-gate, scope-guard], runtime_operations: [], migration_case: MR-M05, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: greenfield-init, exposure: compat, classification: merge, status: active, installable: true, target_entry: bootstrap-project, target_mode: greenfield, required_capabilities: [source-authority-policy, design-evidence-gate, scope-guard], runtime_operations: [], migration_case: MR-M06, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: interrupt-current-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: task-lifecycle, target_mode: interrupt, required_capabilities: [lifecycle-transition-guard, task-identity-guard, scope-guard], runtime_operations: [lifecycle-transaction], migration_case: MR-M07, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: legacy-inventory, exposure: compat, classification: merge, status: active, installable: true, target_entry: bootstrap-project, target_mode: inventory, required_capabilities: [source-authority-policy, propagation-evidence-validator, scope-guard], runtime_operations: [], migration_case: MR-M08, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: lock-scope, exposure: compat, classification: merge, status: active, installable: true, target_entry: prepare-task, target_mode: scope-lock, required_capabilities: [scope-guard, dangerous-operation-gate, propagation-evidence-validator], runtime_operations: [task-state-transaction], migration_case: MR-M09, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: pause-current-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: task-lifecycle, target_mode: pause, required_capabilities: [lifecycle-transition-guard, task-identity-guard, scope-guard], runtime_operations: [lifecycle-transaction], migration_case: MR-M10, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: plan-implementation, exposure: compat, classification: merge, status: active, installable: true, target_entry: prepare-task, target_mode: plan, required_capabilities: [decision-authority-gate, propagation-evidence-validator, external-documentation-gate, adaptive-depth-policy], runtime_operations: [task-state-transaction], migration_case: MR-M11, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: prepare-delivery-summary, exposure: compat, classification: merge, status: active, installable: true, target_entry: close-task, target_mode: summary, required_capabilities: [closure-eligibility-gate, release-evidence-gate], runtime_operations: [], migration_case: MR-M12, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: resume-interrupted-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: task-lifecycle, target_mode: resume-interrupted, required_capabilities: [lifecycle-transition-guard, task-identity-guard, resume-review-gate, owner-route-resolver], runtime_operations: [lifecycle-transaction], migration_case: MR-M13, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: resume-paused-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: task-lifecycle, target_mode: resume-paused, required_capabilities: [lifecycle-transition-guard, task-identity-guard, resume-review-gate, owner-route-resolver], runtime_operations: [lifecycle-transaction], migration_case: MR-M14, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: review-current-diff, exposure: compat, classification: merge, status: active, installable: true, target_entry: review-change, target_mode: report-only, required_capabilities: [read-only-review-guard, diff-target-resolver, validation-layer-gate, propagation-evidence-validator], runtime_operations: [], migration_case: MR-M15, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: review-current-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: prepare-task, target_mode: review, required_capabilities: [source-authority-policy, scope-guard, decision-authority-gate, task-identity-guard, resume-review-gate], runtime_operations: [task-state-transaction], migration_case: MR-M16, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: review-diff, exposure: compat, classification: merge, status: active, installable: true, target_entry: review-change, target_mode: scope, required_capabilities: [read-only-review-guard, diff-target-resolver, scope-guard, propagation-evidence-validator, finding-admission], runtime_operations: [], migration_case: MR-M17, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: review-implementation, exposure: compat, classification: merge, status: active, installable: true, target_entry: review-change, target_mode: implementation, required_capabilities: [read-only-review-guard, diff-target-resolver, finding-admission, external-documentation-gate], runtime_operations: [], migration_case: MR-M18, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: supersede-current-task, exposure: compat, classification: merge, status: active, installable: true, target_entry: task-lifecycle, target_mode: supersede, required_capabilities: [lifecycle-transition-guard, task-identity-guard, decision-authority-gate, propagation-evidence-validator], runtime_operations: [lifecycle-transaction, task-state-transaction], migration_case: MR-M19, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: verify-contracts, exposure: compat, classification: merge, status: active, installable: true, target_entry: review-change, target_mode: contract, required_capabilities: [read-only-review-guard, diff-target-resolver, source-authority-policy, propagation-evidence-validator, decision-authority-gate], runtime_operations: [], migration_case: MR-M20, preserve_handoff: true, preserve_writes: true }
+
+  - { legacy_name: archive-task, exposure: compat, classification: runtime, status: active, installable: true, target_entry: close-task, target_mode: archive, required_capabilities: [closure-eligibility-gate, task-identity-guard, source-authority-policy], runtime_operations: [archive-transaction], migration_case: MR-R01, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: sync-contracts, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: contracts, required_capabilities: [source-authority-policy, decision-authority-gate, propagation-evidence-validator], runtime_operations: [contract-candidate-commit], migration_case: MR-R02, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: sync-current-task, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: task, required_capabilities: [source-authority-policy, scope-guard], runtime_operations: [task-state-transaction], migration_case: MR-R03, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: sync-decisions, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: decisions, required_capabilities: [source-authority-policy, decision-authority-gate], runtime_operations: [decision-record-transaction], migration_case: MR-R04, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: sync-host-guidance, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: host-guidance, required_capabilities: [source-authority-policy, host-isolation-guard, decision-authority-gate], runtime_operations: [paired-host-guidance-transaction], migration_case: MR-R05, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: sync-review-findings, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: findings, required_capabilities: [finding-admission, owner-route-resolver, scope-guard], runtime_operations: [finding-queue-transaction], migration_case: MR-R06, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: sync-status, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: status, required_capabilities: [source-authority-policy, release-evidence-gate], runtime_operations: [project-status-transaction], migration_case: MR-R07, preserve_handoff: true, preserve_writes: true }
+
+  - { legacy_name: classify-decisions, exposure: compat, classification: delete, status: active, installable: true, target_entry: prepare-task, target_mode: classify, required_capabilities: [decision-authority-gate, source-authority-policy], runtime_operations: [task-state-transaction], migration_case: MR-D01, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: continue-current-step, exposure: compat, classification: delete, status: active, installable: true, target_entry: execute-step, target_mode: orchestrate, required_capabilities: [orchestration-route-resolver, scope-guard, diff-target-resolver], runtime_operations: [], migration_case: MR-D02, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: debug-and-fix-current-task, exposure: compat, classification: delete, status: active, installable: true, target_entry: debug-task, target_mode: orchestrate, required_capabilities: [orchestration-route-resolver, root-cause-loop, owner-route-resolver, scope-guard], runtime_operations: [], migration_case: MR-D03, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: decompose-task, exposure: compat, classification: delete, status: active, installable: true, target_entry: prepare-task, target_mode: decompose, required_capabilities: [scope-guard, decision-authority-gate, adaptive-depth-policy], runtime_operations: [task-state-transaction], migration_case: MR-D04, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: execute-current-task, exposure: compat, classification: delete, status: active, installable: true, target_entry: prepare-task, target_mode: orchestrate, required_capabilities: [orchestration-route-resolver, source-authority-policy, scope-guard, decision-authority-gate], runtime_operations: [], migration_case: MR-D05, preserve_handoff: true, preserve_writes: true }
