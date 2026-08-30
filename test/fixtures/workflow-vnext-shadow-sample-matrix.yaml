@@ -1,0 +1,554 @@
+schemaVersion: 1
+fixtureRevision: phase1-sample-matrix-v1
+sourceTuple: workflow-vnext-phase1-read-only-v1
+
+# No axes are declared in this source-repository contract fixture.  It is
+# intentionally useful for structural/regression checks only; contract-fixture
+# captures can never become promotion evidence.
+requiredScenarios:
+  - small-clean
+  - checkpoint-continuity
+  - mechanical-finding
+  - scope-blocker
+  - contract-product-decision
+  - api-dto-propagation
+  - ui-missing-design-evidence
+  - third-party-docs-gate
+  - report-only-pass
+  - report-only-failure
+  - convergence-budget
+  - verification-speculative-edge
+
+defaults:
+  request:
+    mode: default
+    reviewCyclePhase: discovery
+    taskIdentity: null
+    lifecycleTuple: null
+    diffTarget:
+      kind: patch
+      description: fixture patch
+      base: fixture-base
+      head: null
+      fingerprint: diff-default
+    goalAndClaims: [C1]
+    scope:
+      allowed: [src/**]
+      conditional: []
+      forbidden: [.git/**, node_modules/**]
+      conditionalAuthorizations: []
+    changedPaths: [src/example.ts]
+    changedSymbols: [value]
+    changedSurfaces: [typescript-module]
+    riskTriggers: []
+    evidence:
+      - id: E1
+        kind: test
+        claimIds: [C1]
+        status: passed
+        locator: test/example.test.ts
+        persistent: true
+        ownerSource: acceptance
+    observations: []
+    convergence:
+      repairRounds: 0
+      verificationNewFindingWaves: 0
+      attemptsByFingerprint: {}
+      knownFingerprints: []
+    contextBudget:
+      maxItems: 60
+      maxSummaryBytes: 80000
+    declaredEphemeralPaths: []
+
+cases:
+  - id: TA-03-small-clean
+    scenario: small-clean
+    request:
+      requestId: TA-03-small-clean
+      diffTarget:
+        description: small clean patch
+        fingerprint: diff-small-clean
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#TA-03-small-clean
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-small-clean
+      actualPathSet: [src/example.ts]
+      verdictClass: clean
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-03-checkpoint-continuity
+    scenario: checkpoint-continuity
+    request:
+      requestId: TA-03-checkpoint-continuity
+      diffTarget:
+        kind: range
+        description: reviewed checkpoint to current worktree
+        base: checkpoint-base
+        head: WORKTREE
+        fingerprint: diff-checkpoint
+      changedSymbols: [checkpoint]
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#checkpoint-continuity
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: range
+      diffTargetFingerprint: diff-checkpoint
+      actualPathSet: [src/example.ts]
+      verdictClass: clean
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-07-mechanical-finding
+    scenario: mechanical-finding
+    request:
+      requestId: TA-07-mechanical-finding
+      diffTarget:
+        description: mechanical finding patch
+        fingerprint: diff-mechanical-finding
+      observations:
+        - id: O1
+          category: correctness
+          severity: major
+          location: src/example.ts:value
+          scopePath: src/example.ts
+          failureScenario: The accepted behavior is not preserved.
+          violatedInvariant: The acceptance claim must remain true.
+          ownerSource: acceptance
+          evidenceRefs: [E1]
+          speculative: false
+          mechanical: true
+          rootCause: confirmed
+          resolutionOwner: model-mechanical
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#mechanical-finding
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-mechanical-finding
+      actualPathSet: [src/example.ts]
+      verdictClass: findings
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: repair
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes:
+        - observationId: O1
+          fingerprint: finding-838747c26605ec2583029ecf
+          admitted: true
+          ownerRoute: repair
+          budgetState: available
+      recommendedRoute: execute-step:repair
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-04-scope-blocker
+    scenario: scope-blocker
+    request:
+      requestId: TA-04-scope-blocker
+      diffTarget:
+        description: forbidden scope patch
+        fingerprint: diff-scope-blocker
+      changedPaths: [README.md]
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#scope-blocker
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-scope-blocker
+      actualPathSet: [README.md]
+      verdictClass: blocked
+      scopeOutcome: fail
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-08-contract-product-decision
+    scenario: contract-product-decision
+    request:
+      requestId: TA-08-contract-product-decision
+      diffTarget:
+        description: product contract decision
+        fingerprint: diff-contract-product
+      changedSurfaces: [contract]
+      riskTriggers: [product decision]
+      evidence:
+        - id: E1
+          kind: test
+          claimIds: [C1]
+          status: passed
+          locator: test/example.test.ts
+          persistent: true
+          ownerSource: acceptance
+        - id: E-contract
+          kind: contract
+          claimIds: [C1]
+          status: passed
+          locator: docs/workflow/CONTRACTS.md#product-decision
+          persistent: true
+          ownerSource: contract
+      observations:
+        - id: O1
+          category: product-contract
+          severity: major
+          location: src/example.ts:value
+          scopePath: src/example.ts
+          failureScenario: Product behavior conflicts with the accepted contract.
+          violatedInvariant: The contract decision must be explicit.
+          ownerSource: acceptance
+          evidenceRefs: [E1]
+          speculative: false
+          mechanical: false
+          rootCause: confirmed
+          resolutionOwner: user
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#contract-product-decision
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-contract-product
+      actualPathSet: [src/example.ts]
+      verdictClass: needs-user
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: user
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes:
+        - observationId: O1
+          fingerprint: finding-950a325acacafb204c56a190
+          admitted: true
+          ownerRoute: user
+          budgetState: available
+      recommendedRoute: ask-user
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-02-api-dto-propagation
+    scenario: api-dto-propagation
+    request:
+      requestId: TA-02-api-dto-propagation
+      diffTarget:
+        description: public API and DTO propagation patch
+        fingerprint: diff-api-dto
+      changedSurfaces: [public-api, dto-schema]
+      evidence:
+        - id: E1
+          kind: test
+          claimIds: [C1]
+          status: passed
+          locator: test/example.test.ts
+          persistent: true
+          ownerSource: acceptance
+        - id: E-contract
+          kind: contract
+          claimIds: [C1]
+          status: passed
+          locator: docs/workflow/CONTRACTS.md#API
+          persistent: true
+          ownerSource: contract
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#api-dto-propagation
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-api-dto
+      actualPathSet: [src/example.ts]
+      verdictClass: clean
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-UI-missing-design
+    scenario: ui-missing-design-evidence
+    request:
+      requestId: TA-UI-missing-design
+      diffTarget:
+        description: UI patch without design evidence
+        fingerprint: diff-ui-missing-design
+      changedSurfaces: [ui]
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#ui-missing-design-evidence
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-ui-missing-design
+      actualPathSet: [src/example.ts]
+      verdictClass: needs-evidence
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: insufficient
+      claimBoundEvidenceOutcome: insufficient
+      validationRequestKeys: [design-and-visual:design]
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-11-third-party-docs
+    scenario: third-party-docs-gate
+    request:
+      requestId: TA-11-third-party-docs
+      diffTarget:
+        description: third-party SDK patch
+        fingerprint: diff-third-party-docs
+      riskTriggers: [third-party sdk]
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#third-party-docs-gate
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-third-party-docs
+      actualPathSet: [src/example.ts]
+      verdictClass: needs-evidence
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: insufficient
+      claimBoundEvidenceOutcome: insufficient
+      validationRequestKeys: [external-documentation:external-doc]
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-04-report-only-pass
+    scenario: report-only-pass
+    request:
+      requestId: TA-04-report-only-pass
+      mode: report-only
+      diffTarget:
+        description: report-only clean patch
+        fingerprint: diff-report-only-pass
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#report-only-pass
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-report-only-pass
+      actualPathSet: [src/example.ts]
+      verdictClass: clean
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: report-only
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-04-report-only-failure
+    scenario: report-only-failure
+    request:
+      requestId: TA-04-report-only-failure
+      mode: report-only
+      diffTarget:
+        description: report-only failed validation
+        fingerprint: diff-report-only-failure
+      evidence:
+        - id: E1
+          kind: test
+          claimIds: [C1]
+          status: failed
+          locator: test/example.test.ts
+          persistent: true
+          ownerSource: acceptance
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#report-only-failure
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-report-only-failure
+      actualPathSet: [src/example.ts]
+      verdictClass: needs-debug
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: report-only
+      governedMutationCount: 0
+      evidenceOutcome: failed
+      claimBoundEvidenceOutcome: failed
+      validationRequestKeys: []
+      findingOutcomes: []
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-05-convergence-budget
+    scenario: convergence-budget
+    request:
+      requestId: TA-05-convergence-budget
+      diffTarget:
+        description: same fingerprint at repair budget
+        fingerprint: diff-convergence-budget
+      convergence:
+        repairRounds: 3
+        verificationNewFindingWaves: 0
+        attemptsByFingerprint: {}
+        knownFingerprints: []
+      observations:
+        - id: O1
+          category: correctness
+          severity: major
+          location: src/example.ts:value
+          scopePath: src/example.ts
+          failureScenario: The accepted behavior is not preserved.
+          violatedInvariant: The acceptance claim must remain true.
+          ownerSource: acceptance
+          evidenceRefs: [E1]
+          speculative: false
+          mechanical: true
+          rootCause: confirmed
+          resolutionOwner: model-mechanical
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#convergence-budget
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-convergence-budget
+      actualPathSet: [src/example.ts]
+      verdictClass: needs-debug
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: debug
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes:
+        - observationId: O1
+          fingerprint: finding-838747c26605ec2583029ecf
+          admitted: true
+          ownerRoute: debug
+          budgetState: exhausted
+      recommendedRoute: debug-task:investigate
+      unexpectedWorkspaceDiffs: []
+
+  - id: TA-06-verification-speculative
+    scenario: verification-speculative-edge
+    request:
+      requestId: TA-06-verification-speculative
+      reviewCyclePhase: verification
+      diffTarget:
+        description: verification speculative edge
+        fingerprint: diff-verification-speculative
+      observations:
+        - id: O1
+          category: correctness
+          severity: major
+          location: src/example.ts:value
+          scopePath: src/example.ts
+          failureScenario: The accepted behavior is not preserved.
+          violatedInvariant: The acceptance claim must remain true.
+          ownerSource: acceptance
+          evidenceRefs: [E1]
+          speculative: true
+          mechanical: true
+          rootCause: confirmed
+          resolutionOwner: model-mechanical
+    legacy:
+      captureKind: contract-fixture
+      model: fixture-model
+      harness: fixture-harness
+      capturedAt: 2026-08-30T00:00:00Z
+      evidenceLocator: test/fixtures/workflow-vnext-shadow-sample-matrix.yaml#verification-speculative-edge
+      fixtureRevision: phase1-sample-matrix-v1
+      diffKind: patch
+      diffTargetFingerprint: diff-verification-speculative
+      actualPathSet: [src/example.ts]
+      verdictClass: clean
+      scopeOutcome: pass
+      authorityOutcome: pass
+      ownerRoute: none
+      terminalBehavior: continue
+      governedMutationCount: 0
+      evidenceOutcome: sufficient
+      claimBoundEvidenceOutcome: sufficient
+      validationRequestKeys: []
+      findingOutcomes:
+        - observationId: O1
+          fingerprint: finding-838747c26605ec2583029ecf
+          admitted: false
+          ownerRoute: none
+          budgetState: available
+      recommendedRoute: none
+      unexpectedWorkspaceDiffs: []

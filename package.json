@@ -22,6 +22,7 @@
     "workflow:pack": "bun run scripts/workflow-runtime.ts pack",
     "workflow:install": "bun run scripts/workflow-runtime.ts install",
     "test:workflow-capabilities": "bun test test/workflow-capabilities.test.ts",
+    "test:workflow-vnext-shadow": "bun test test/project-context-resolver.test.ts test/workflow-review-shadow.test.ts test/workflow-validate-shadow.test.ts test/workflow-shadow-samples.test.ts",
     "test:workflow-skills": "bun run gen:workflow-skills --dry-run && bun test test/gen-workflow-skills.test.ts && bun run test:workflow-capabilities",
     "test:workflow-docs": "bun run gen:workflow-docs --dry-run && bun test test/gen-workflow-docs.test.ts",
     "test:registry": "bun run gen:registry --dry-run && bun test test/gen-registry.test.ts",
@@ -30,7 +31,7 @@
     "test:validation-model": "bun test test/validation-model.test.ts",
     "test:run-validation": "bun test test/run-validation.test.ts",
     "test:workflow-runtime": "bun test test/workflow-runtime.test.ts",
-    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry && bun test test/bootstrap-project-governance.test.ts test/task-identity.test.ts test/validation-model.test.ts test/run-validation.test.ts test/workflow-core.test.ts test/workflow-runtime.test.ts",
+    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-docs && bun run test:registry && bun run test:workflow-vnext-shadow && bun test test/bootstrap-project-governance.test.ts test/task-identity.test.ts test/validation-model.test.ts test/run-validation.test.ts test/workflow-core.test.ts test/workflow-runtime.test.ts",
     "test": "bun run test:workflow-all"
   },
   "dependencies": {
