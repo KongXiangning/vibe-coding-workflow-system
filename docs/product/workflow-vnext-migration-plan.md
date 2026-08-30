@@ -1,349 +1,227 @@
 # Workflow vNext Migration Plan
 
-- Status: Phase 0A / 0B complete; Phase 0C accepted; Phase 1 review/validation shadow and contract sampling active, non-default, and not promoted
-- Planning date: 2026-08-30
-- Input baseline: [workflow-skill-kmrd-audit.md](workflow-skill-kmrd-audit.md)
-- Target architecture proposal: [workflow-vnext-target-architecture.md](../designs/workflow-vnext-target-architecture.md)
-- Phase 1 prototype assessment: [workflow-vnext-phase1-prototype-assessment.md](workflow-vnext-phase1-prototype-assessment.md)
-- Current runtime/host behavior: unchanged; the source-repo regression chain now includes the additive shadow tests
+- Status: `Target architecture accepted; simplified rollout plan`
+- Planning date: `2026-08-31`
+- Target architecture: [workflow-vnext-target-architecture.md](../designs/workflow-vnext-target-architecture.md)
+- Product rule: an installed project runs either the old workflow or pure vNext; it does not run a long-lived legacy/vNext hybrid
 
-## 1. Recommendation
+## 1. Product rollout principle
 
-Do not rewrite or remove the 37 current Skills yet. Phase 0A / 0B completed the reality audit, capability/compatibility declaration, and 55-case structural baseline. Phase 0C has now confirmed the target architecture, including project-context/knowledge admission and existing-installation/state-schema migration contracts.
-
-Phase 0C must:
-
-1. distinguish user intent entries from historical workflow stages;
-2. split daily, administrative, expert/automation, internal, and compatibility exposure;
-3. move preparation and review stages into adaptive internal capabilities rather than a new fixed mode chain;
-4. define Review Convergence and Evidence Admission before any repair-capable slice;
-5. restrict automatic handoff to guarded macro transitions;
-6. confirm one Runtime transaction kernel with exact typed operation handlers and no second source of truth.
-
-Phase 1 may now introduce a read-only `review-change` shadow. The Phase 0B manifest remains a migration mapping v1, not the final execution graph. Existing state is not migrated during Phase 1; version-aware readers report migration eligibility while leaving the legacy runtime authoritative.
-
-## 2. Why direct consolidation is unsafe
-
-The current system has assumptions that are wider than the Skill files themselves:
-
-- each Skill has one primary stage, while the proposed public entries cover multiple current stages;
-- the protocol requires coverage of all ten stage groups;
-- handoffs and owner-aware routes currently resolve concrete Skill names;
-- the generator, registry, freshness checks, host sync, install, health, and tests assume one generated Skill artifact per template;
-- lifecycle and sync Skills contain transaction semantics that cannot safely become ordinary facade prose;
-- target projects may already invoke the old names from host guidance, task records, suspended packages, or human habit.
-
-Therefore, deleting templates first would make compatibility and governance loss hard to distinguish from ordinary migration defects.
-
-## 3. Target layers
+The product migration has one narrow boundary:
 
 ```text
-User / harness
-  -> daily / administrative / expert intent entries
-  -> adaptive internal governance capabilities
-  -> typed semantic proposals
-  -> shared transaction kernel with exact typed handlers
-  -> existing canonical Markdown/YAML governance sources
+old project in `idle`
+        ↓
+one-time Migration Pack
+        ↓
+offline conversion of old governance documents
+        ↓
+install pure vNext
+        ↓
+old Skills no longer exist
 ```
 
-### 3.1 Exposure-tiered entries
+The old Skill graph, old protocol, and old schema are migration inputs only. They are not a compatibility runtime layer in vNext. Existing projects do not receive a partial vNext surface while they are still running the old workflow.
 
-The recommended target surface is:
+The workflow-system source repository is an explicit development exception: it may temporarily retain the old implementation and experimental vNext implementation side by side for development and comparison. This source-repository dual track is not an installed-project product architecture, must not become a target-project compatibility contract, and must not cause old and vNext surfaces to be installed together.
 
-| Exposure | Candidate entries | Meaning |
-|---|---|---|
-| Daily public | `prepare-task`, `execute-step`, `review-change`, `debug-task`, `task-lifecycle`, `capture-work-item`, `close-task` | Ordinary user intents |
-| Administrative | `bootstrap-project` | Explicit project initialization/adoption intent |
-| Expert / CI callable | `validate-change` | Independent read-only evidence request; normal review may invoke it internally |
-| Internal / system | `sync-state` | Typed semantic deltas and recovery/reconciliation, not a daily user checklist |
-| Compatibility | all 37 legacy names | Current authoritative behavior until evidence-based retirement |
+## 2. Phase 1 — Minimum vNext Skill/Capability structure
 
-The recommended names, target modes, and exposure tiers were accepted in Phase 0C. Exact Runtime/migration APIs, default promotion, compatibility retirement, and host/registry mechanics remain later decision gates. The Phase 0B exact ten-ID set continues to validate its own migration baseline and must not be mistaken for permanent public exposure.
+Phase 1 determines and implements only the smallest target structure required for vNext. It defines the final execution model; it does not create a long-running legacy/shadow rollout for installed projects.
 
-### 3.2 Internal capabilities
+### 2.1 Daily intents
 
-Reusable policy must be referenced once and invoked by capability, not copied into every public Skill. Initial candidates are:
+The daily surface remains exactly seven intent entries:
 
-- source-precedence and authority resolver;
-- scope and dangerous-operation guard;
-- decision-authority classifier;
-- diff-target resolver;
-- propagation-evidence validator;
-- owner and guard-aware route resolver;
-- finding admission and deduplication;
-- review convergence, fingerprinting, and bounded repair attempts;
-- claim ownership, certainty, and evidence/test admission;
-- project-context resolution with relevance, precedence, freshness, exact locators, and conflict reporting;
-- Contract/Decision/Lesson knowledge admission, deduplication, supersession, applicability, and provenance;
-- lifecycle transition guard;
-- validation-mode planner;
-- design, release, and External Documentation gates.
+| Entry | Intent |
+|---|---|
+| `prepare-task` | Turn a request into a bounded executable intent |
+| `execute-step` | Implement the admitted current step |
+| `review-change` | Produce one unified read-only review verdict |
+| `debug-task` | Establish root cause and select an authorized route |
+| `task-lifecycle` | Perform an explicit lifecycle/ownership transition |
+| `capture-work-item` | Record work proven unrelated to the active task |
+| `close-task` | Prove closure eligibility and finish the task |
 
-These are not automatically user-visible Skills or sequential workflow nodes. A capability may remain declarative policy, generated reference material, or Runtime validation depending on whether it requires model judgment. Selection is adaptive from explicit risk/evidence triggers; mandatory authority and scope gates cannot be skipped.
+The administrative `bootstrap-project`, expert/automation `validate-change`, internal `sync-state`, and Runtime transaction surfaces are not additional daily intents.
 
-### 3.3 Runtime operations
+### 2.2 Adaptive internal capabilities
 
-The Phase 0B operation declarations are:
+Preparation, scope, classification, planning, decomposition, review dimensions, and evidence selection are adaptive internal capabilities rather than a fixed Skill handoff chain. The minimum capability structure retains:
 
-- `task-state-transaction`;
-- `lifecycle-transaction`;
-- `inbox-record-transaction`;
-- `finding-queue-transaction`;
-- `project-status-transaction`;
-- `contract-candidate-commit`;
-- `decision-record-transaction`;
-- `paired-host-guidance-transaction`;
-- `lesson-record-transaction`;
-- `archive-transaction`.
+- mandatory authority, scope, and dangerous-operation gates;
+- adaptive depth selected from explicit risk and evidence triggers;
+- unified review with separate finding admission;
+- Review Convergence with bounded repair attempts and stop conditions;
+- Evidence Admission for claims, evidence, and persistent-test decisions;
+- `project-context-resolver` for relevant, precedence-aware canonical context;
+- `knowledge-admission-policy` for Contract/Decision/Lesson growth;
+- a shared Runtime transaction kernel with exact typed handlers;
+- Markdown/YAML canonical governance knowledge as the only project truth.
 
-Runtime should implement these as exact operation handlers behind one shared governance transaction kernel, not ten unrelated frameworks and not one unrestricted document editor. It must consume a typed proposal with evidence, validate the current source tuple and authorization, render and validate before writing, commit atomically, and return an explicit success, no-op, conflict, or blocked result. Each handler keeps its own source/write allowlist, preconditions, and postconditions. Runtime must not create a database or manifest that becomes a second source of project truth.
+These capabilities may be implemented or exercised experimentally in the source repository during Phase 1. They are not permission to expose old Skills, create a compatibility branch, or migrate project state at runtime.
 
-### 3.4 Compatibility layer
+### 2.3 Phase 1 boundaries
 
-Old names remain callable during migration. Each old Skill must resolve to exactly one of:
+Phase 1 must not:
 
-- a public entry plus explicit mode;
-- an internal capability used by a public entry;
-- a Runtime operation reached through a semantic proposal;
-- a deprecated wrapper that emits a deterministic replacement route.
+- make an installed business project run legacy and vNext together;
+- make vNext Skills parse or understand the old protocol/schema;
+- hot-migrate an active `CURRENT_TASK` or active finding/repair state;
+- add paused/interrupted runtime migration;
+- require every vNext reader to remain version-aware;
+- introduce a complex legacy fallback route;
+- install old Skills, aliases, adapters, or a shadow surface into a target project.
 
-Compatibility retirement is evidence-based. An alias is removable only after all mapped `MR-*` cases pass, representative `GR-*` paths pass across supported hosts, registry/install/health behavior is proven, and no live route or generated artifact still depends on the old name.
+## 3. Migration Pack — idle-only, one-time offline upgrade
 
-## 4. Protocol representation required before migration
+### 3.1 Upgrade precondition
 
-The next task should design and validate the following concepts. Field names below are illustrative and may change during protocol review.
+Only an old project in its canonical `idle` state may enter the Migration Pack flow. `CURRENT_TASK.md` must already have completed its `close`/`archive` flow before the pack is allowed to run. An active task, unresolved finding/repair, paused work, interrupted work, pending lifecycle/recovery work, or ambiguous state is non-idle and blocks the upgrade.
 
-| Concept | Purpose | Required constraint |
-|---|---|---|
-| `exposure` | Distinguish `daily`, `administrative`, `expert`, `internal`, `runtime`, and `compat` | Host sync and registry must not infer visibility from filename or Phase 0B public status |
-| `covers_stages` | Let one facade cover multiple existing stage groups | Existing ten-stage coverage remains mechanically provable |
-| `intent` | Express what the caller wants rather than which historical stage runs next | Internal preparation/review dimensions cannot masquerade as user intent |
-| `modes` | Represent different intent, authority, mutation, terminal, or recovery semantics | Historical Skill identity alone cannot create a target mode |
-| `capabilities` | Reference shared governance behavior without copying prose | Mandatory and trigger-selected capabilities must be resolvable and auditable |
-| `compat_aliases` | Preserve old invocations and deprecation evidence | Every alias maps to one target and retains old stop conditions |
-| `terminal_behavior` | Encode report-only and other terminal routes | Terminal modes cannot emit an executable follow-up handoff |
-| `authority_boundary` | State whether model, user, protocol, or Runtime owns a decision | Runtime validation cannot turn an unconfirmed proposal into authority |
-| `runtime_operations` | Declare deterministic transactions required by an entry | Operations must have schema, precondition, conflict, and atomicity tests |
-| `review_cycle` | Separate discovery, admission, repair, and verification | Same-fingerprint repair is bounded and review breadth does not widen the repair queue |
-| `evidence_plan` | Bind claims, owner, certainty, evidence type, and test admission | Unconfirmed guesses cannot become persistent tests or completion evidence |
-| `context_bundle` | Select relevant canonical project knowledge for the current intent | Required authority/conflicts cannot be dropped for budget; Lessons remain advisory |
-| `knowledge_candidate` | Govern Contract/Decision/Lesson growth | Admission requires authority, stability, evidence, novelty, applicability, and deduplication |
-| `installation_state_migration` | Upgrade installed assets and canonical state in place | Dry-run-first, exact ordered versions, target-owned preservation, atomic commit/rollback, no bootstrap/adopt |
+Recoverable paused or interrupted work is also non-idle. It must be completed or otherwise settled through the old workflow before upgrade. The Migration Pack does not close/archive `CURRENT_TASK`, select an owner, reset attempts, invent recovery facts, or convert unfinished work into `idle`. When the precondition fails, the old installation and old governance documents remain unchanged; this is a migration stop, not a runtime fallback architecture.
 
-The handoff model should evolve from a Skill-name-only graph to guarded macro intent transitions. Internal capabilities and review dimensions do not hand off to one another. During compatibility, legacy and target views must resolve to equivalent authority, stop, diff-target, evidence, and owner-route semantics.
+### 3.2 Migration Pack scope
 
-## 5. Golden regression contract
+The Migration Pack is a separate, one-time, offline conversion tool. It is the only component allowed to read the old protocol and schema. Its input and write scope is limited to:
 
-Create a machine-readable fixture manifest before changing behavior. It must reference every `MR-K01..K05`, `MR-M01..M20`, `MR-R01..R07`, `MR-D01..D05`, and `GR-01..GR-18` case from the audit.
+| Legacy surface | Allowed operation |
+|---|---|
+| `CONTRACTS` | mechanical heading/schema conversion, stable IDs, provenance, and validation |
+| `DECISIONS` | mechanical heading/schema conversion, stable IDs, provenance, and validation |
+| `LESSONS` | mechanical heading/schema conversion, stable IDs, provenance, and validation |
+| `STATUS` / `BASELINES` and other long-term governance documents | mechanical structure and path/reference conversion |
+| `TASK` archives | archive path/schema/reference conversion only |
+| workflow schema/version metadata | version and schema-field conversion/validation |
+| Skill installation surface | managed installation, registry, host, and generated-path conversion required for pure vNext |
 
-Each fixture records at least:
+`CURRENT_TASK.md` is an upgrade precondition, not a hot-migration input. Active findings, finding-repair state, paused packages, interrupted runtime state, and other unfinished lifecycle state are outside the pack scope and make the source project non-idle.
 
-- fixture ID and governance invariant;
-- initial live task/lifecycle/marker state;
-- relevant protocol, Profile, Contract, and Decision inputs;
-- allowed, conditional, and forbidden mutation surfaces;
-- invocation name, public entry, and mode;
-- expected owner route, guard result, verdict, writes, handoff, and stop condition;
-- expected diff target and evidence set;
-- baseline output, shadow output, and equivalence rule;
-- supported host/model matrix and any intentionally variable cost/turn metrics.
+The pack must read the exact source project identity, transform copies offline, preserve original text and authoritative facts, record stable IDs and provenance, and validate the complete converted pack before installation. Conversion artifacts, mappings, and reports remain outside the vNext runtime truth model.
 
-Hard invariants use exact assertions. Text phrasing, token usage, latency, and turn count are observational metrics and must not weaken semantic assertions.
+### 3.3 Mechanical conversion principle
 
-The accepted Phase 0C target and the current Phase 1 boundary add `TA-01..TA-34` cases in [workflow-vnext-target-architecture.md](../designs/workflow-vnext-target-architecture.md). `TA-15..TA-20` cover context/knowledge selection and admission; `TA-21..TA-29` cover active/finding/paused/interrupted in-place migration, drift, rollback, replay, missing install metadata, and blocked legacy fallback; `TA-30..TA-34` cover side-effect-audited validation and fail-closed representative sampling.
-
-## 6. Phased migration
-
-### Phase 0A / 0B — Audit, contract, and fixture baseline (complete)
-
-Goal: make the target architecture representable and the non-loss suite executable without changing current public behavior.
-
-Deliverables:
-
-- protocol/schema proposal for exposure, modes, multi-stage coverage, capabilities, Runtime declarations, and aliases;
-- compatibility mapping for all 37 names;
-- golden fixture manifest covering all 55 audit cases;
-- validators for uniqueness, stage coverage, route validity, terminal behavior, alias resolution, and fixture coverage;
-- conceptual future registry and host-sync exposure design showing public, internal, Runtime, and compatibility views separately; no host surface changed in Phase 0A / 0B;
-- baseline results from the unchanged 37-Skill system.
-
-Exit criteria:
-
-- all current tests remain green;
-- all 37 names have one unambiguous compatibility destination;
-- all ten current stage groups remain covered;
-- no new project-state source exists;
-- generated/live freshness and source/target isolation remain unchanged;
-- no existing Skill has been retired.
-
-### Phase 0C — Target Architecture Decision (complete)
-
-Goal: decide what the system is being simplified into before implementing a facade.
-
-Deliverables:
-
-- intent-driven exposure matrix;
-- target-mode admission rule and compatibility-mode separation;
-- mandatory and trigger-selected internal capability model;
-- unified review result, Review Convergence, and Evidence Admission semantics;
-- relevance-aware project context and bounded knowledge-admission semantics;
-- existing-installation/state-schema migration contract covering active, finding, paused, and interrupted state without bootstrap/adopt;
-- guarded macro-transition policy;
-- shared Runtime transaction-kernel boundary;
-- v1 migration projection versus vNext execution-model separation;
-- target-shape acceptance cases and explicit user decision register.
-
-Exit criteria:
-
-- internal stages are not target public modes unless they pass the mode-admission rule;
-- review and preparation do not recreate fixed internal handoff chains;
-- review/repair and test/evidence growth have bounded admission and stop rules;
-- exposure, target modes, repair budget, test policy, macro automation, Runtime direction, context/knowledge, and in-place migration requirements receive user confirmation;
-- no current runtime or host behavior changes.
-
-The user confirmed these exit decisions on 2026-08-30. Phase 0C is complete.
-
-### Phase 1 — Read-only facade shadow
-
-Introduce `review-change` as a non-default, read-only shadow entry. `validate-change` remains an expert/CI-callable evidence surface that the facade may request internally. The shadow uses `project-context-resolver`, version-aware read adapters, and one explicit diff target, then compares the unified structured verdict/evidence with the existing chain:
-
-Legacy baseline chain used only for shadow comparison:
+Migration is structural conversion, not historical semantic re-interpretation. The pack does not require AI to re-understand every old governance document or decide how its meaning should change.
 
 ```text
-review-current-diff / review-diff / review-implementation / verify-contracts
-  -> run-regression
+old Markdown
+  → new heading/schema
+  → stable IDs
+  → provenance
+  → path/reference adjustments
+  → validation
 ```
 
-Use at least these fixtures:
+The pack must not guess:
 
-- a small code change;
-- a task with a reviewed checkpoint and clean working tree;
-- an in-scope mechanical finding;
-- a product/contract/scope finding;
-- a DTO or public API propagation change;
-- UI work lacking design evidence;
-- third-party behavior requiring current documentation;
-- report-only pass and report-only failure.
+- which symbol a Lesson precisely applies to;
+- which Lessons are semantically duplicates;
+- which semantic tags should be created;
+- whether an ambiguous statement should be rewritten, merged, or superseded.
 
-The facade builds one risk/evidence/context profile, selects review dimensions without internal handoffs, applies finding-admission and convergence classification without queue writes, and returns one verdict. It may report a knowledge candidate but cannot persist it. It may detect migration eligibility/blockers but cannot rewrite installed or task state. Exit criteria are zero hard-invariant mismatches, zero governed mutations, zero unexpected workspace diffs, identical terminal behavior for report-only, and equivalent owner/guard routes. Declared cache/build/temp artifacts from validation must be sandboxed or project-approved, audited, and cleaned when permitted. Soft improvements in tokens or turns are recorded but are not sufficient for promotion.
+It preserves the original text and records unresolved structure as provenance or an explicit conversion issue. Later vNext use of the original text is the responsibility of `project-context-resolver`; `knowledge-admission-policy` governs new or explicitly proposed durable knowledge and is not a requirement for semantic reclassification during migration.
 
-Initial implementation status on 2026-08-30:
+### 3.4 Pure vNext installation
 
-- `project-context-resolver` and read-only knowledge-admission classification are implemented with exact locators/revisions, authority precedence, conflict tracing, required-context budget blocking, relevance caps, and lifecycle/install/host auxiliary context;
-- `review-change` shadow is implemented with `shadow_only`/advisory routing, canonical task scope/claim/lifecycle/diff checks, Git-backed diff verification when available, finding/convergence classification, install/task/suspended-state readers, and pre/post workspace mutation detection;
-- `validate-change` shadow is implemented as a report-only evidence executor: it resolves one exact Project Profile validation-matrix command, binds command/context/diff/claim revisions, rejects shell grammar, executes with `shell: false` in a clean disposable copy, audits both the copy and the live workspace, and always cleans the copy;
-- a 12-scenario legacy-versus-shadow runner and matrix are implemented with separate disposable copies, complete hard-governance comparisons, soft cost/wording metrics, legacy-authoritative routing, and explicit scenario/model/harness coverage reporting;
-- focused target cases are in `test:workflow-vnext-shadow` and are part of `test:workflow-all`;
-- the first source-repo smoke produced a verified Git diff target, a `clean` terminal report-only result, zero governed mutations, zero unexpected workspace diffs, and an `inventory-required` diagnosis for this self-adopted source repo without install metadata.
+Installation occurs only after the offline pack is complete and valid. The installed result contains:
 
-The local 12-case `contract-fixture` matrix currently passes its structural and hard-semantic assertions, but this is not Phase 1 exit or promotion evidence. Contract fixtures cannot stand in for observed legacy behavior. Phase 1 still needs traceable observed legacy-versus-shadow executions for every declared scenario/model/harness cell, with zero hard mismatch, zero governed mutation, zero unexpected diff, and identical report-only/owner/guard terminal behavior. `TA-26`/`TA-27` are intentionally not simulated in the read-only facade; they remain transaction tests for Phase 1.5.
+- the vNext protocol, File Schema, and canonical project-document schema;
+- the vNext daily, administrative, expert, internal, and Runtime surfaces;
+- converted Markdown/YAML governance documents;
+- no old Skill files, old registry entries, aliases, old-state adapters, or legacy host routes.
 
-### Phase 1.5 — Existing-installation and state-migration foundation
+The old names are not resolvable after installation. A target project is not expected to keep the old runtime available as a fallback.
 
-Before the first state-changing vNext slice, implement and rehearse the accepted in-place migration contract:
+### 3.5 Unsupported schema in vNext
 
-- version-aware install/state inventory and dry-run plan;
-- ordered state-schema migrations with target-owned preservation;
-- active task and finding migration without completion/attempt reset;
-- paused/interrupted package migration without guessed recovery or owner selection;
-- checksummed recovery journal, atomic multi-file commit, rollback, and idempotent replay;
-- legacy runtime fallback when migration is blocked;
-- no bootstrap/adopt requirement for already governed projects.
+vNext readers support only the vNext schema. They may perform a schema check, but they do not become long-term version-aware readers and do not parse legacy content.
 
-Phase 1.5 must pass `TA-21..TA-29` before Phase 2 can own task/finding state writes.
+When a vNext entry detects an old or unsupported schema:
 
-### Phase 2 — Execute and finding-admission slice
+```text
+migration-required
+→ stop
+```
 
-Add `execute-step`, then place finding admission, review-convergence state, evidence admission, and task-state commits behind typed proposals and exact Runtime handlers. The old implementation and sync names remain aliases. Prove:
+The stop occurs before task execution, governance-state mutation, conversion, or fallback to an old Skill. The user must run the separate Migration Pack against an eligible idle old project.
 
-- only admitted current-owner mechanical findings can enter repair;
-- scope/product/contract/root-cause findings take distinct routes;
-- failed validation cannot be beautified into completion;
-- replay is idempotent and partial writes are impossible;
-- External Documentation and dangerous-operation gates still fail closed.
+### 3.6 Failure boundary
 
-### Phase 3 — Task preparation and debugging
+Migration is fail-closed and all-or-nothing with respect to vNext installation:
 
-Introduce intent-driven `prepare-task` and `debug-task`. Task creation/review, scope, classification, planning, decomposition, and review dimensions become adaptive capabilities rather than a fixed mode chain. Preserve their governance semantics and the distinction among report-only investigation, new-bug intake, confirmed root cause, and authorized repair.
+- a non-idle, ambiguous, stale, or unsupported source blocks the pack;
+- a `CURRENT_TASK.md` that has not completed `close`/`archive` blocks the pack;
+- conversion or validation failure leaves the old project unchanged;
+- an incomplete or stale pack cannot install vNext;
+- no partial vNext registry, host surface, schema marker, or generated output is promoted;
+- after pure vNext installation, an old schema produces `migration-required`, not legacy fallback.
 
-### Phase 4 — Lifecycle transactions
+## 4. Phase 2 — Pure vNext state-changing workflow
 
-Introduce `task-lifecycle` only after lifecycle fixtures cover pause, interrupt, resume, supersede, replan, duplicate packages, incomplete markers, dirty attribution, active-owner conflict, and failure recovery. Runtime owns transition validation and atomic writes; the model owns semantic proposals and recovery interpretation.
+After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch.
 
-### Phase 5 — State synchronization and closure
+Phase 2 introduces the first state-changing slice behind typed Runtime proposals and exact handlers:
 
-Introduce `close-task` and internal/system state synchronization. Migrate contracts, decisions, status, host guidance, lessons, findings, task progress, summary, and archive independently behind typed operation handlers. Optional no-op deltas remain auditable; ordinary users do not manually sequence sync categories; closure cannot bypass unresolved acceptance or release evidence.
+- `execute-step` for an admitted current step;
+- finding admission and bounded repair through Review Convergence;
+- Evidence Admission and claim-bound validation;
+- task-state and finding-queue commits through the shared Runtime kernel;
+- fail-closed authority, scope, evidence, and dangerous-operation gates.
 
-### Phase 6 — Project bootstrap
+The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface.
 
-Introduce explicit `bootstrap-project` modes for design, greenfield, inventory, adopt, and realign. Do this late because source/target separation, target-owned fact preservation, host pruning, and legacy adoption have a wider blast radius than read-only review.
+## 5. Subsequent vNext phases
 
-### Phase 7 — Default promotion and compatibility retirement
+After the first state-changing slice is stable, add the remaining intents incrementally:
 
-Promote a facade only after shadow equivalence is proven. Then update generator, registry, host sync, install, health, documentation, and host guidance as one compatibility-aware change. Retire aliases in small groups; never delete all legacy entries in one task.
+1. `task-lifecycle` for pause, interrupt, resume, supersede, and related ownership transitions created within vNext;
+2. `close-task` for closure evidence, summary, status, and archive transactions;
+3. `bootstrap-project` for design, greenfield, inventory, adopt, and realign flows for projects that are not being upgraded through the Migration Pack;
+4. additional project-specific gates and operations only when their authority, evidence, and rollback boundaries are explicit.
 
-## 7. Decision gates
+Each later phase must preserve the seven-intent daily surface, adaptive internal capabilities, Review Convergence, Evidence Admission, canonical Markdown/YAML knowledge, and the Runtime kernel. It must not reintroduce a legacy compatibility runtime.
 
-Resolved for Phase 0C:
+## 6. Acceptance gates
 
-1. daily / administrative / expert / internal exposure and names;
-2. target-mode admission and explicit modes;
-3. bounded review-convergence and Evidence Admission policy;
-4. guarded macro transitions under authorized end-to-end intent;
-5. shared Runtime kernel and canonical Markdown/YAML truth;
-6. project-context/knowledge admission and existing-installation/state-schema migration requirements.
+### 6.1 Phase 1 gate
 
-Future implementation still stops for user confirmation when choosing:
+- the seven daily intents and exposure tiers are explicit;
+- internal capabilities are adaptive and are not executable public handoffs;
+- Review Convergence and Evidence Admission have bounded contracts;
+- `project-context-resolver` and `knowledge-admission-policy` have defined authority boundaries;
+- Runtime has one shared kernel with operation-specific write boundaries;
+- vNext Skills and readers accept only vNext schemas;
+- source-repository experiments are isolated from target-project installation behavior.
 
-1. exact Runtime/migration command and API surface;
-2. compatibility retirement window and telemetry/evidence source;
-3. registry/install/host discoverability mechanics;
-4. each facade's default promotion after shadow results are available.
+### 6.2 Migration Pack gate
 
-## 8. Evaluation measures
+- an `idle` old project converts once from an exact source identity;
+- any active, unresolved, paused, interrupted, or ambiguous old state is rejected without mutation;
+- old governance documents are converted offline into validated canonical Markdown/YAML documents;
+- conversion does not perform active-state hot migration or invoke vNext Skills to parse the old protocol;
+- pure vNext installation contains no old Skill or compatibility surface;
+- an old/unsupported schema in vNext returns `migration-required` and stops.
 
-Hard measures:
+### 6.3 Phase 2 and later gates
 
-- task success and acceptance correctness;
-- scope and dangerous-operation violations;
-- wrong decision authority or owner route;
-- state, lifecycle, marker, and archive drift;
-- review/report-only mutation count;
-- missing or inconsistent diff targets;
-- incomplete governance evidence;
-- generated/live freshness and host-isolation failures.
+- state changes use typed proposals and the shared Runtime kernel;
+- review findings enter repair only through Evidence Admission and convergence checks;
+- partial writes, guessed authority, unbounded repair, and success-shaped failure are impossible;
+- lifecycle, closure, and bootstrap additions do not widen the daily surface or reintroduce legacy fallback.
 
-Soft measures:
+## 7. Explicitly removed from the product architecture
 
-- prompt and context tokens;
-- latency and tool-call count;
-- review/fix convergence rounds;
-- user interruptions and manual Skill invocations;
-- cross-model and cross-harness variance;
-- maintenance lines and duplicated policy text.
+The following are not migration features or rollout goals:
 
-Hard measures must remain at zero regression. Soft measures determine whether consolidation is worthwhile, not whether governance loss is acceptable.
+- long-term legacy plus vNext coexistence in a business project;
+- hot migration of an active `CURRENT_TASK`;
+- hot migration of finding repair state;
+- paused/interrupted runtime migration;
+- long-term version-aware parsing in every vNext reader;
+- complex legacy fallback after vNext installation.
 
-## 9. Stop conditions
+The only dual track permitted is the temporary source-repository development arrangement described in §1. It exists for implementation comparison and has no target-project installation semantics.
 
-Stop the current migration phase and keep the old route authoritative if any of the following occurs:
+## 8. Next boundary
 
-- a facade or Runtime projection becomes a second source of truth;
-- context resolution drops required authority/conflicts for token budget or treats Lessons as higher authority;
-- Contract/Decision/Lesson growth bypasses authority, evidence, applicability, or deduplication;
-- a mode gains file, decision, lifecycle, or dangerous-operation authority it did not previously have;
-- review or report-only mode writes code or governance state;
-- the same checkpoint produces different diff targets across review and validation;
-- a finding bypasses admission or enters the wrong owner queue;
-- lifecycle failure leaves dual active owners, partial markers, or success-shaped output;
-- migration requires bootstrap/adopt, resets finding attempts, guesses recovery facts, advances a version marker on partial state, or overwrites target-owned facts;
-- generated references become editable inputs or generation becomes non-atomic;
-- source-repo install or target-owned asset isolation regresses;
-- old and new routes disagree on a hard invariant for any golden fixture;
-- cross-host behavior cannot be explained by an explicitly documented capability difference.
-
-## 10. Immediate next boundary
-
-Phase 0C is accepted, and the Phase 1 review/validation shadow plus 12-scenario contract sample harness are implemented. The immediate boundary is to define the supported model/harness/host axes, capture traceable observed legacy executions for every required scenario-axis cell on disposable copies, and resolve every hard mismatch before considering promotion. Contract fixtures and soft efficiency gains remain non-promotion evidence.
-
-Phase 1 must not modify current Skills, the Phase 0B manifest/fixtures, canonical governance/task state, generator, registry, Runtime install/sync behavior, host surface, or aliases. The additive source scripts/tests and test-chain entry do not change those target runtime surfaces. This keeps comparison non-mutating and makes context, stage-graph, finding-admission, convergence, evidence, and legacy-schema drift visible before any state-changing responsibility moves out of the existing Skills.
+The next implementation task is Phase 1: define and implement the minimum vNext Skill/Capability structure. Do not expand the shadow runner, add legacy-aware vNext readers, or design state migration for non-idle projects. The Migration Pack is the separate follow-on boundary between an idle old project and a pure vNext installation.
