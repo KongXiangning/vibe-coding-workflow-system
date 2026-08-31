@@ -297,7 +297,8 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 
 Migration Pack 的独立实现现位于 `scripts/vnext-migration-pack.ts`，其
 `preflight → convert → validate → install` 命令链、Pack/Bundle schema、
-source/target identity 绑定、idle-only 检查和回滚式安装细节以
+source/target identity 绑定、idle-only 检查、canonical Markdown/YAML
+结构转换、原文 sidecar 和回滚式安装细节以
 `docs/product/workflow-vnext-migration-plan.md §9` 及
 `.workflow-system/vnext/MIGRATION_PACK_SCHEMA.yaml` 为实施记录。该状态
 说明不改变上表的架构边界：Pack 仍不是 vNext entry、Runtime handler 或

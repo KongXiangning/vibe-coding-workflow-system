@@ -8,6 +8,7 @@ status: contract
 pack:
   manifest_file: migration-pack.json
   artifact_directory: artifacts/
+  original_directory: originals/
   required_fields:
     - schema_version
     - kind
@@ -25,9 +26,11 @@ pack:
   schema_version: 1
   status: validated
   conversion:
-    mode: offline-copy
+    mode: offline-structural
     preserves_original_text: true
     semantic_reinterpretation: false
+    canonical_document_schema_version: 1
+    conversion_rule: canonical-envelope-v1
   current_task:
     precondition_only: true
     required_state: archived/archived
@@ -48,13 +51,44 @@ artifact:
     - source_path
     - target_path
     - content_path
+    - original_content_path
+    - canonical_schema_version
+    - conversion_rule
     - source_sha256
     - content_sha256
     - byte_length
     - path_references
     - provenance
   stable_id: artifact-<24 lowercase hex>
-  conversion_rule: copy-preserving-v1
+  conversion_rule: canonical-envelope-v1
+  original_content_path: originals/<stable-id>.source
+  canonical_document: frontmatter-or-vnext-profile-extension
+  canonical_frontmatter_fields:
+    - schema_version
+    - kind
+    - document_kind
+    - document_id
+    - source_path
+    - source_sha256
+    - legacy_source_revision
+    - legacy_source_tree_hash
+    - legacy_protocol_version
+    - conversion_rule
+    - original_text_preserved
+    - heading_index
+    - path_references
+  canonical_profile_extension_fields:
+    - schema_version
+    - kind
+    - document_id
+    - source_path
+    - source_sha256
+    - legacy_source_revision
+    - legacy_source_tree_hash
+    - legacy_protocol_version
+    - conversion_rule
+    - original_text_preserved
+    - path_references
   provenance:
     - source.revision
     - source.tree_hash
@@ -94,5 +128,7 @@ installation:
   all_or_nothing: true
   install_state: .workflow-system/vnext/INSTALL_STATE.json
   receipt: .workflow-system/vnext/MIGRATION_RECEIPT.json
+  in_progress_marker: .workflow-system/vnext/MIGRATION_IN_PROGRESS.json
+  interruption_boundary: fail-closed-marker-requires-explicit-recovery
   no_legacy_surface: true
   replay: exact-pack-and-target-identity-no-op

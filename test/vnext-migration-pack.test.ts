@@ -9,6 +9,7 @@ import {
   installMigrationPack,
   preflightMigration,
   validateMigrationPack,
+  VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH,
   VNEXT_INSTALL_STATE_RELATIVE_PATH,
 } from '../scripts/vnext-migration-pack';
 
@@ -65,7 +66,36 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string):
   for (const [relative, target, category] of files) {
     const file = path.join(sourceRoot, ...relative.split('/'));
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, category === 'protocol' ? '# vNext Protocol\n' : category === 'schema' ? '# vNext File Schema\n' : `# ${target}\n`, 'utf8');
+    if (category === 'protocol') {
+      fs.writeFileSync(file, 'schema_version: 1\nkind: vnext-protocol\n\n# vNext Protocol\n', 'utf8');
+    } else if (category === 'schema') {
+      fs.writeFileSync(file, 'schema_version: 1\nkind: vnext-file-schema\n\n# vNext File Schema\nCURRENT_TASK.md\n', 'utf8');
+    } else if (target.endsWith('CURRENT_TASK.md')) {
+      fs.writeFileSync(file, [
+        '---',
+        'schema_version: 1',
+        'kind: vnext-current-task',
+        'document_id: doc-000000000000000000000000',
+        '---',
+        '',
+        '# vNext CURRENT_TASK',
+        '',
+        '## 任务信息',
+        '- 任务 ID：none',
+        '- 当前状态：draft',
+        '- 生命周期状态：active',
+        '- 恢复需审查：false',
+        '## 验收标准',
+        '## 允许修改范围',
+        '## 实施步骤',
+        '',
+      ].join('\n'), 'utf8');
+    } else if (category === 'skill') {
+      const entry = path.posix.basename(target).replace(/\.SKILL\.md$/, '');
+      fs.copyFileSync(path.join(ROOT, 'templates', 'vnext', 'skills', `${entry}.SKILL.md.tmpl`), file);
+    } else {
+      fs.writeFileSync(file, `# ${target}\n`, 'utf8');
+    }
   }
   buildVNextBundle({
     sourceRoot,
@@ -105,8 +135,29 @@ describe('one-time vNext Migration Pack', () => {
     expect(manifest.preflight.current_task_excluded).toBe(true);
     expect(manifest.artifacts.some(artifact => artifact.kind === 'project-profile')).toBe(true);
     expect(manifest.artifacts.some(artifact => artifact.target_path.endsWith('/CURRENT_TASK.md'))).toBe(false);
-    expect(manifest.artifacts.every(artifact => artifact.source_sha256 === artifact.content_sha256)).toBe(true);
+    expect(manifest.artifacts.every(artifact => artifact.source_sha256 !== artifact.content_sha256)).toBe(true);
+    expect(manifest.artifacts.every(artifact => artifact.original_content_path.startsWith('originals/'))).toBe(true);
+    expect(manifest.artifacts.every(artifact => artifact.conversion_rule === 'canonical-envelope-v1')).toBe(true);
+    const contracts = manifest.artifacts.find(artifact => artifact.target_path.endsWith('/CONTRACTS.md'))!;
+    const canonical = fs.readFileSync(path.join(packDir, ...contracts.content_path.split('/')), 'utf8');
+    const original = fs.readFileSync(path.join(packDir, ...contracts.original_content_path.split('/')), 'utf8');
+    expect(canonical).toContain('kind: vnext-canonical-document');
+    expect(canonical).toContain('## 使用规则');
+    expect(original).toContain('## 使用规则');
+    expect(canonical).not.toBe(original);
+    const profileArtifact = manifest.artifacts.find(artifact => artifact.kind === 'project-profile')!;
+    expect(fs.readFileSync(path.join(packDir, ...profileArtifact.content_path.split('/')), 'utf8')).toContain('vnext_migration:');
     expect(validateMigrationPack({ packDir, sourceRoot: ROOT, targetRoot: target }).pack_id).toBe(manifest.pack_id);
+  });
+
+  test('rejects a tampered canonical conversion before installation', () => {
+    const target = copyFixtureTarget();
+    const packDir = tempRoot('workflow-vnext-migration-pack-');
+    const manifest = createMigrationPack({ sourceRoot: ROOT, targetRoot: target, outDir: packDir });
+    const artifact = manifest.artifacts.find(item => item.kind === 'governance-document')!;
+    fs.writeFileSync(path.join(packDir, ...artifact.content_path.split('/')), '# legacy copy\n', 'utf8');
+
+    expect(() => validateMigrationPack({ packDir, sourceRoot: ROOT, targetRoot: target })).toThrow(/PACK_INVALID/);
   });
 
   test('rejects open findings and suspended packages before conversion', () => {
@@ -125,12 +176,26 @@ describe('one-time vNext Migration Pack', () => {
     expect(result.blockers.map(issue => issue.code)).toEqual(expect.arrayContaining(['CURRENT_TASK_FINDING_OPEN', 'SUSPENDED_WORK_PRESENT']));
   });
 
+  test('rejects an ambiguous legacy surface without discoverable Skill identities', () => {
+    const target = copyFixtureTarget();
+    fs.rmSync(path.join(target, 'templates', 'skills'), { recursive: true, force: true });
+    fs.rmSync(path.join(target, '.claude', 'skills'), { recursive: true, force: true });
+
+    const result = preflightMigration({ sourceRoot: ROOT, targetRoot: target });
+
+    expect(result.eligible).toBe(false);
+    expect(result.state).toBe('ambiguous');
+    expect(result.blockers.some(issue => issue.code === 'LEGACY_SURFACE_AMBIGUOUS')).toBe(true);
+  });
+
   test('installs a validated pack atomically and replays as a no-op', () => {
     const source = tempRoot('workflow-vnext-migration-source-');
     const target = copyFixtureTarget();
     const packDir = tempRoot('workflow-vnext-migration-pack-');
     const bundleDir = tempRoot('workflow-vnext-bundle-');
     writeBundle(source, target, bundleDir);
+    fs.mkdirSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff'), { recursive: true });
+    fs.writeFileSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'), '# legacy nested skill\n', 'utf8');
     const manifest = createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });
 
     const dryRun = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target, dryRun: true });
@@ -140,6 +205,7 @@ describe('one-time vNext Migration Pack', () => {
     const installed = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target });
     expect(installed.status).toBe('installed');
     expect(fs.existsSync(path.join(target, '.claude', 'skills', 'workflow-system-create-current-task.SKILL.md'))).toBe(false);
+    expect(fs.existsSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'))).toBe(false);
     expect(fs.existsSync(path.join(target, '.claude', 'skills', 'prepare-task.SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(target, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/')))).toBe(true);
 
@@ -182,5 +248,32 @@ describe('one-time vNext Migration Pack', () => {
     const identity = getSourceIdentity(source);
     expect(identity.root_identity).toMatch(/^[a-f0-9]{32}$/);
     expect(identity.tree_hash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  test('fails closed when an interrupted installation marker is present', () => {
+    const source = tempRoot('workflow-vnext-migration-source-');
+    const target = copyFixtureTarget();
+    const packDir = tempRoot('workflow-vnext-migration-pack-');
+    const bundleDir = tempRoot('workflow-vnext-bundle-');
+    writeBundle(source, target, bundleDir);
+    const manifest = createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });
+    const markerPath = path.join(target, ...VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH.split('/'));
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, JSON.stringify({
+      schema_version: 1,
+      kind: 'vnext-migration-in-progress',
+      migration_pack_id: manifest.pack_id,
+      bundle_id: 'bundle-000000000000000000000000',
+      target_identity: manifest.target.root_identity,
+      started_at: new Date().toISOString(),
+      planned_writes: ['docs/workflow/CURRENT_TASK.md'],
+      planned_deletes: ['.workflow-system/install-state.json'],
+      recovery: 'fail-closed-explicit-recovery',
+    }, null, 2), 'utf8');
+
+    const result = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target });
+    expect(result.status).toBe('rejected');
+    expect(result.blockers[0]?.code).toBe('VNEXT_INSTALL_IN_PROGRESS');
+    expect(preflightMigration({ sourceRoot: source, targetRoot: target }).state).toBe('install-in-progress');
   });
 });

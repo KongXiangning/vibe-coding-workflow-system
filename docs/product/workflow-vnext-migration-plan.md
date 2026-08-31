@@ -241,22 +241,31 @@ bun run scripts/vnext-migration-pack.ts preflight --target <old-project>
 bun run scripts/vnext-migration-pack.ts convert --target <old-project> --out <pack-dir>
 bun run scripts/vnext-migration-pack.ts validate --pack <pack-dir> --target <old-project>
 bun run scripts/vnext-migration-pack.ts install --pack <pack-dir> --bundle <vnext-bundle-dir> --target <old-project> --write
+bun run scripts/vnext-migration-pack.ts migrate --target <old-project> --out <pack-dir> --bundle <vnext-bundle-dir> --write
 ```
 
 `convert` performs only read-only inspection of the old project and writes an
 external pack directory. The directory contains `migration-pack.json`,
-`migration-report.json`, and `artifacts/<stable-id>.content`. Every converted
-artifact has a deterministic stable ID, source/content SHA-256, source
-revision/tree hash, legacy-target revision/tree hash, source/target path,
-path-reference inventory, and provenance. `CURRENT_TASK.md`, protocol/schema source files, paused packages,
+`migration-report.json`, `artifacts/<stable-id>.content`, and
+`originals/<stable-id>.source`. Every converted artifact has a deterministic
+stable ID, separate original/canonical SHA-256 values, source revision/tree
+hash, legacy-target revision/tree hash, source/target path, path-reference
+inventory, and provenance. Markdown artifacts receive the deterministic
+vNext canonical frontmatter envelope while retaining the complete legacy body;
+the profile receives a validated `vnext_migration` extension. `CURRENT_TASK.md`, protocol/schema source files, paused packages,
 interrupted packages, and active finding/repair state are never conversion
 artifacts. Original document bytes are copied verbatim; semantic deduplication,
 Lesson applicability inference, and AI rewriting are out of scope.
 
+`migrate` is the composed one-shot command: it runs `convert` and then the
+same validated install path. Omitting `--write` keeps the install phase in
+dry-run mode; no target files are changed until `--write` is supplied.
+
 `install` requires both a validated pack and a separately validated
 `vnext-bundle.json`. The bundle is bound to the exact source root identity,
 revision, and tree hash and must declare `legacy_compatibility: absent` plus
-protocol, schema, and all seven daily-entry Skill artifacts. The target must still match the pack's
+explicit vNext protocol/schema markers, canonical `CURRENT_TASK`, valid Skill
+entry contracts, and all seven daily-entry Skill artifacts. The target must still match the pack's
 project identity, archived/archived idle snapshot, source checksums, and legacy
 installation surface. A changed target or source is stale and stops before any
 write.
@@ -269,6 +278,14 @@ writes `.workflow-system/vnext/INSTALL_STATE.json` plus
 old task during preflight/conversion. An exact pack/bundle/target identity
 replay is a no-op; a different marker is a conflict. Any post-install legacy
 Skill or compatibility surface causes the transaction to roll back.
+
+Installation also creates an atomic
+`.workflow-system/vnext/MIGRATION_IN_PROGRESS.json` boundary before promotion.
+If the process is interrupted, a later preflight/install fails closed on this
+marker instead of guessing whether the target is safe to retry. Once the
+completed install state and all artifact hashes validate, an explicit replay
+clears the stale marker; an incomplete marker remains an operator-recovery
+blocker.
 
 The machine-readable pack boundary is recorded in
 `.workflow-system/vnext/MIGRATION_PACK_SCHEMA.yaml`. The schema and focused

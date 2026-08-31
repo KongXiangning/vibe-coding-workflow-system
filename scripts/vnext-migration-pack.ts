@@ -10,16 +10,11 @@
 import { execFileSync } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
-import { parse, parseDocument } from 'yaml';
+import { parseDocument, stringify as stringifyYaml } from 'yaml';
 import { checkTargetRoot, normalizeAbsoluteRootPath } from './guard-target-root';
 import {
-  getWorkflowDocPath,
-  getWorkflowProfilePath,
   getWorkflowHome,
-  loadProfile,
-  readText,
   resolveRoot,
   type JsonObject,
 } from './workflow-core';
@@ -33,9 +28,13 @@ import {
   extractCurrentTaskStateFromCurrentTask,
   validateCurrentTaskStatusTuple,
 } from './task-identity';
+import { validateVNextSource } from './vnext-source-contract';
 
 export const MIGRATION_PACK_SCHEMA_VERSION = 1 as const;
 export const MIGRATION_PACK_KIND = 'workflow-vnext-migration-pack' as const;
+export const VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION = 1 as const;
+export const VNEXT_CANONICAL_DOCUMENT_KIND = 'vnext-canonical-document' as const;
+export const VNEXT_CANONICAL_CONVERSION_RULE = 'canonical-envelope-v1' as const;
 export const VNEXT_BUNDLE_SCHEMA_VERSION = 1 as const;
 export const VNEXT_BUNDLE_KIND = 'workflow-vnext-bundle' as const;
 export const MIGRATION_PACK_FILE = 'migration-pack.json';
@@ -43,10 +42,13 @@ export const MIGRATION_REPORT_FILE = 'migration-report.json';
 export const VNEXT_BUNDLE_FILE = 'vnext-bundle.json';
 export const VNEXT_INSTALL_STATE_RELATIVE_PATH = '.workflow-system/vnext/INSTALL_STATE.json';
 export const VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH = '.workflow-system/vnext/MIGRATION_RECEIPT.json';
+export const VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH = '.workflow-system/vnext/MIGRATION_IN_PROGRESS.json';
 
 const LEGACY_PROTOCOL_VERSION_PATTERN = /^0\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/;
+const VNEXT_SCHEMA_VERSION_PATTERN = /(?:^|\n)\s*(?:schema_version|vnext_schema_version)\s*:\s*1\b/i;
 const SAFE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const STABLE_ID_PATTERN = /^artifact-[a-f0-9]{24}$/;
+const DOCUMENT_ID_PATTERN = /^doc-[a-f0-9]{24}$/;
 const CURRENT_TASK_FILE = 'CURRENT_TASK.md';
 const REQUIRED_LEGACY_DOCUMENTS: readonly WorkflowDocName[] = [
   'CONTRACTS.md',
@@ -65,7 +67,57 @@ const VNEXT_REQUIRED_DAILY_ENTRIES = [
   'capture-work-item',
   'close-task',
 ] as const;
+// The old public surface is deliberately kept as a closed list at the
+// migration boundary.  Target projects normally provide the same names in
+// `templates/skills`, but bundle validation must still reject legacy routes
+// when a separately assembled vNext source tree no longer carries those
+// templates.
+const LEGACY_SKILL_IDS = [
+  'adopt-existing-project',
+  'archive-task',
+  'capture-lessons',
+  'capture-work-item',
+  'classify-decisions',
+  'close-current-task',
+  'continue-current-step',
+  'create-current-task',
+  'debug-and-fix-current-task',
+  'decompose-task',
+  'design-baseline-init',
+  'execute-current-task',
+  'greenfield-init',
+  'implement-current-step',
+  'interrupt-current-task',
+  'investigate-root-cause',
+  'legacy-inventory',
+  'lock-scope',
+  'pause-current-task',
+  'plan-implementation',
+  'prepare-delivery-summary',
+  'realign-workflow-assets',
+  'resume-interrupted-task',
+  'resume-paused-task',
+  'review-current-diff',
+  'review-current-task',
+  'review-diff',
+  'review-implementation',
+  'run-regression',
+  'supersede-current-task',
+  'sync-contracts',
+  'sync-current-task',
+  'sync-decisions',
+  'sync-host-guidance',
+  'sync-review-findings',
+  'sync-status',
+  'verify-contracts',
+] as const;
 const VNEXT_FORBIDDEN_PATH_PARTS = new Set(['compat', 'compatibility', 'aliases', 'adapters', 'legacy']);
+const VNEXT_FORBIDDEN_TARGET_PREFIXES = [
+  'templates/skills/',
+  'templates/docs/',
+  'docs/workflow/generated/workflow-skills/',
+  'dist/workflow-system/',
+] as const;
 const TERMINAL_FINDING_STATUSES = new Set([
   'closed',
   'done',
@@ -132,6 +184,7 @@ export type MigrationIssueCode =
   | 'LEGACY_SCHEMA_MISSING'
   | 'LEGACY_SCHEMA_UNSUPPORTED'
   | 'VNEXT_ALREADY_PRESENT'
+  | 'VNEXT_INSTALL_IN_PROGRESS'
   | 'CURRENT_TASK_MISSING'
   | 'CURRENT_TASK_INVALID'
   | 'CURRENT_TASK_NON_IDLE'
@@ -208,7 +261,7 @@ export type LegacySurfaceEntry = {
 export type MigrationPreflight = {
   kind: 'migration-preflight';
   eligible: boolean;
-  state: 'idle' | 'non-idle' | 'ambiguous' | 'unsupported' | 'already-vnext';
+  state: 'idle' | 'non-idle' | 'ambiguous' | 'unsupported' | 'already-vnext' | 'install-in-progress';
   source: SourceIdentity;
   target: TargetIdentity | null;
   target_snapshot: TargetSnapshot | null;
@@ -232,6 +285,22 @@ export type PathReference = {
   adjusted: boolean;
 };
 
+type CanonicalMarkdownHeader = {
+  schema_version: typeof VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION;
+  kind: typeof VNEXT_CANONICAL_DOCUMENT_KIND;
+  document_kind: 'governance-document' | 'task-archive' | 'target-owned-preserved';
+  document_id: string;
+  source_path: string;
+  source_sha256: string;
+  legacy_source_revision: string;
+  legacy_source_tree_hash: string;
+  legacy_protocol_version: string;
+  conversion_rule: typeof VNEXT_CANONICAL_CONVERSION_RULE;
+  original_text_preserved: true;
+  heading_index: Array<{ id: string; level: number; text: string }>;
+  path_references: PathReference[];
+};
+
 export type MigrationArtifactKind =
   | 'governance-document'
   | 'project-profile'
@@ -244,6 +313,9 @@ export type MigrationArtifact = {
   source_path: string;
   target_path: string;
   content_path: string;
+  original_content_path: string;
+  canonical_schema_version: typeof VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION;
+  conversion_rule: typeof VNEXT_CANONICAL_CONVERSION_RULE;
   source_sha256: string;
   content_sha256: string;
   byte_length: number;
@@ -255,7 +327,7 @@ export type MigrationArtifact = {
     legacy_source_tree_hash: string;
     source_path: string;
     source_sha256: string;
-    conversion_rule: 'copy-preserving-v1';
+    conversion_rule: typeof VNEXT_CANONICAL_CONVERSION_RULE;
   };
 };
 
@@ -276,7 +348,7 @@ export type MigrationPackManifest = {
     checked_at: string;
   };
   conversion: {
-    mode: 'offline-copy';
+    mode: 'offline-structural';
     preserves_original_text: true;
     semantic_reinterpretation: false;
     allowed_surfaces: string[];
@@ -291,6 +363,7 @@ export type MigrationPackManifest = {
     requires_vnext_bundle: true;
     install_state_path: string;
     migration_receipt_path: string;
+    in_progress_path: string;
     old_current_task_replaced_by_bundle: true;
     old_protocol_and_schema_replaced_by_bundle: true;
     old_compatibility_surface_removed: true;
@@ -328,6 +401,19 @@ export type VNextInstallState = {
   managed_files: Array<{ path: string; checksum: string; category: string }>;
   removed_legacy_files: string[];
   legacy_compatibility: 'absent';
+  recovery_boundary: 'in-progress-marker';
+};
+
+type VNextMigrationInProgress = {
+  schema_version: 1;
+  kind: 'vnext-migration-in-progress';
+  migration_pack_id: string;
+  bundle_id: string;
+  target_identity: string;
+  started_at: string;
+  planned_writes: string[];
+  planned_deletes: string[];
+  recovery: 'fail-closed-explicit-recovery';
 };
 
 export type MigrationOperationResult = {
@@ -653,8 +739,7 @@ function findingAdmissionBlockers(content: string): string[] {
     const idMatch = /^\s*-\s*Finding ID\s*[：:]\s*(.*?)\s*$/.exec(line);
     if (idMatch) {
       if (current) findings.push(current);
-      const id = idMatch[1].trim();
-      current = id && !/^\{\{.*\}\}$/.test(id) ? { id, status: null } : null;
+      current = { id: idMatch[1].trim(), status: null };
       continue;
     }
     if (current) {
@@ -664,6 +749,12 @@ function findingAdmissionBlockers(content: string): string[] {
   }
   if (current) findings.push(current);
   return findings.flatMap(finding => {
+    const hasConcreteId = finding.id.length > 0 && !/^\{\{.*\}\}$/.test(finding.id);
+    // The untouched template contains an empty Finding ID/status skeleton;
+    // ignore that one placeholder, but fail closed if someone filled a
+    // status without supplying a stable finding identity.
+    if (!hasConcreteId && !finding.status) return [];
+    if (!hasConcreteId) return ['a finding has a status but no stable Finding ID'];
     if (!finding.status) return [`finding ${finding.id} has no terminal admission status`];
     const status = finding.status.toLowerCase();
     if (OPEN_FINDING_STATUSES.has(status) || !TERMINAL_FINDING_STATUSES.has(status)) {
@@ -765,16 +856,20 @@ function readLegacySkillNames(targetRoot: string): string[] {
   for (const relativeDir of KNOWN_HOST_SKILL_DIRS) {
     const directory = path.join(targetRoot, ...relativeDir.split('/'));
     if (!fs.existsSync(directory)) continue;
-    for (const file of fs.readdirSync(directory)) {
-      const match = /^workflow-system-(.+)\.SKILL\.md$/.exec(file);
-      if (match) names.add(match[1]);
+    for (const filePath of listFiles(directory)) {
+      const basename = path.basename(filePath);
+      const parentName = path.basename(path.dirname(filePath));
+      const directMatch = /^workflow-system-(.+)\.SKILL\.md$/.exec(basename);
+      const nestedMatch = basename === 'SKILL.md' ? /^workflow-system-(.+)$/.exec(parentName) : null;
+      if (directMatch) names.add(directMatch[1]);
+      if (nestedMatch) names.add(nestedMatch[1]);
     }
   }
   return [...names].sort();
 }
 
 function mergeLegacySkillNames(sourceRoot: string, packNames: readonly string[]): string[] {
-  const names = new Set(packNames);
+  const names = new Set<string>([...LEGACY_SKILL_IDS, ...packNames]);
   const templateDir = path.join(sourceRoot, 'templates', 'skills');
   if (fs.existsSync(templateDir)) {
     for (const file of fs.readdirSync(templateDir)) {
@@ -799,7 +894,13 @@ function addSurfaceEntry(
   }
   const existing = entries.get(normalized);
   const checksum = fs.existsSync(fullPath) && fs.statSync(fullPath).isFile() ? readSha256(fullPath) : null;
-  entries.set(normalized, existing ?? { path: normalized, sha256: checksum, source, action });
+  if (existing) {
+    // A generated scan can discover CURRENT_TASK before the explicit
+    // current-task pass.  Preserve the stronger replace intent in that case.
+    if (action === 'replace' && existing.action !== 'replace') entries.set(normalized, { ...existing, action: 'replace' });
+    return;
+  }
+  entries.set(normalized, { path: normalized, sha256: checksum, source, action });
 }
 
 function collectLegacySurface(
@@ -809,6 +910,7 @@ function collectLegacySurface(
 ): { entries: LegacySurfaceEntry[]; legacySkillNames: string[]; issues: MigrationIssue[] } {
   const entries = new Map<string, LegacySurfaceEntry>();
   const issues: MigrationIssue[] = [];
+  const legacySkillNames = readLegacySkillNames(targetRoot);
   const installStatePath = path.join(targetRoot, '.workflow-system', 'install-state.json');
   if (fs.existsSync(installStatePath)) {
     try {
@@ -836,6 +938,7 @@ function collectLegacySurface(
     '.workflow-system/FILE_SCHEMAS.md',
     '.workflow-system/WORKFLOW_CAPABILITIES.yaml',
     '.workflow-system/install-state.json',
+    '.workflow-system/vnext/MIGRATION_PACK_SCHEMA.yaml',
     registry,
   ]) {
     addSurfaceEntry(entries, targetRoot, candidate, 'known-managed', candidate === currentTaskPath ? 'replace' : 'remove');
@@ -857,7 +960,11 @@ function collectLegacySurface(
     const directory = path.join(targetRoot, ...relativeDir.split('/'));
     if (!fs.existsSync(directory)) continue;
     for (const filePath of listFiles(directory)) {
-      if (/^workflow-system-.+\.SKILL\.md$/.test(path.basename(filePath))) {
+      const basename = path.basename(filePath);
+      const parentName = path.basename(path.dirname(filePath));
+      const isPrefixedLegacy = /^workflow-system-.+\.SKILL\.md$/.test(basename) || (basename === 'SKILL.md' && /^workflow-system-.+$/.test(parentName));
+      const isFlatAlias = legacySkillNames.some(name => basename === `${name}.SKILL.md` || (basename === 'SKILL.md' && parentName === name));
+      if (isPrefixedLegacy || isFlatAlias) {
         addSurfaceEntry(entries, targetRoot, path.relative(targetRoot, filePath), 'host-scan', 'remove');
       }
     }
@@ -879,10 +986,13 @@ function collectLegacySurface(
       }
     }
   }
+  const legacyBundleOutput = path.join(targetRoot, 'dist', 'workflow-system');
+  for (const filePath of listFiles(legacyBundleOutput)) {
+    addSurfaceEntry(entries, targetRoot, path.relative(targetRoot, filePath), 'generated-scan', 'remove');
+  }
 
-  const legacySkillNames = readLegacySkillNames(targetRoot);
   if (legacySkillNames.length === 0) {
-    issues.push({ severity: 'warning', code: 'LEGACY_SURFACE_AMBIGUOUS', message: 'No legacy Skill names were discoverable; the vNext bundle must still prove that its executable surface contains no compatibility aliases.' });
+    issues.push({ severity: 'error', code: 'LEGACY_SURFACE_AMBIGUOUS', message: 'No legacy Skill names were discoverable; the old installation surface cannot be proven safe to replace.' });
   }
   return { entries: [...entries.values()].sort((a, b) => a.path.localeCompare(b.path)), legacySkillNames, issues };
 }
@@ -915,24 +1025,240 @@ function extractPathReferences(content: string): PathReference[] {
     const value = match[1].trim();
     if (/[\\/]/.test(value) && !/\s/.test(value)) candidates.add(value);
   }
-  return [...candidates].map(raw => {
-    if (/^(?:https?:|mailto:|ftp:)/i.test(raw)) return { raw, normalized: raw, kind: 'external', adjusted: false };
-    if (raw.startsWith('#')) return { raw, normalized: raw, kind: 'anchor', adjusted: false };
-    // Legacy workflow documents commonly link to slash-prefixed Skill
-    // commands (for example `/review-current-diff`).  Those are executable
-    // names, not filesystem paths, and must be preserved as opaque references.
-    if (/^\/[a-z][a-z0-9-]*$/.test(raw)) return { raw, normalized: raw, kind: 'unclassified', adjusted: false };
-    const normalized = raw.replace(/\\/g, '/').replace(/^\.\//, '');
-    if (
-      normalized.startsWith('/') ||
-      /^[A-Za-z]:\//.test(normalized) ||
-      normalized.split('/').some(part => part === '..') ||
-      /[\0-\x1F\x7F]/.test(normalized)
-    ) {
-      throw new MigrationPackError('UNSAFE_PATH', `unsafe path reference in migrated document: ${raw}`);
+  return [...candidates].map(raw => normalizePathReference(raw)).sort((left, right) => left.raw.localeCompare(right.raw));
+}
+
+function normalizePathReference(raw: string): PathReference {
+  if (/^(?:https?:|mailto:|ftp:)/i.test(raw)) return { raw, normalized: raw, kind: 'external', adjusted: false };
+  if (raw.startsWith('#')) return { raw, normalized: raw, kind: 'anchor', adjusted: false };
+  // Legacy workflow documents commonly link to slash-prefixed Skill
+  // commands (for example `/review-current-diff`).  Those are executable
+  // names, not filesystem paths, and must be preserved as opaque references.
+  // Workflow documents also annotate command references inline (for
+  // example `/run-regression(report-only terminal report)`).  These are
+  // executable route names, not filesystem paths; preserve the whole token
+  // as an opaque reference while still rejecting arbitrary slash paths.
+  if (/^\/[a-z][a-z0-9-]*(?:\([^)\n]*\))?$/.test(raw)) return { raw, normalized: raw, kind: 'unclassified', adjusted: false };
+  const normalized = raw.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (
+    normalized.startsWith('/') ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.split('/').some(part => part === '..') ||
+    /[\0-\x1F\x7F]/.test(normalized)
+  ) {
+    throw new MigrationPackError('UNSAFE_PATH', `unsafe path reference in migrated document: ${raw}`);
+  }
+  return { raw, normalized, kind: 'repo-relative', adjusted: normalized !== raw };
+}
+
+function rewritePathReferences(content: string): string {
+  const rewrite = (rawValue: string): string => {
+    const leading = rawValue.startsWith('<') ? '<' : '';
+    const trailing = rawValue.endsWith('>') ? '>' : '';
+    const raw = rawValue.slice(leading.length, rawValue.length - trailing.length || undefined);
+    const reference = normalizePathReference(raw.trim());
+    if (reference.kind !== 'repo-relative' || reference.normalized === raw.trim()) return rawValue;
+    const leftWhitespace = raw.match(/^\s*/)?.[0] ?? '';
+    const rightWhitespace = raw.match(/\s*$/)?.[0] ?? '';
+    return `${leading}${leftWhitespace}${reference.normalized}${rightWhitespace}${trailing}`;
+  };
+  let rewritten = content.replace(/\]\(([^)]+)\)/g, (whole, raw: string) => `](${rewrite(raw)})`);
+  rewritten = rewritten.replace(/`([^`\n]+)`/g, (whole, raw: string) => `\`${rewrite(raw)}\``);
+  return rewritten;
+}
+
+function canonicalDocumentKind(kind: MigrationArtifactKind): CanonicalMarkdownHeader['document_kind'] | 'project-profile' {
+  if (kind === 'project-profile') return 'project-profile';
+  return kind;
+}
+
+function canonicalDocumentId(kind: MigrationArtifactKind, sourcePath: string, sourceSha: string): string {
+  return `doc-${sha256(`${kind}\0${sourcePath}\0${sourceSha}`).slice(0, 24)}`;
+}
+
+function extractHeadingIndex(content: string, sourcePath: string): Array<{ id: string; level: number; text: string }> {
+  const headings: Array<{ id: string; level: number; text: string }> = [];
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (!match) continue;
+    const text = match[2].trim();
+    const ordinal = headings.length;
+    headings.push({ id: `heading-${sha256(`${sourcePath}\0${ordinal}\0${text}`).slice(0, 16)}`, level: match[1].length, text });
+  }
+  return headings;
+}
+
+function canonicalMarkdownHeader(
+  kind: Exclude<MigrationArtifactKind, 'project-profile'>,
+  sourcePath: string,
+  content: string,
+  sourceSha: string,
+  pathReferences: PathReference[],
+  legacyProtocolVersion: string,
+  legacySource: TargetSnapshot,
+): CanonicalMarkdownHeader {
+  return {
+    schema_version: VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION,
+    kind: VNEXT_CANONICAL_DOCUMENT_KIND,
+    document_kind: canonicalDocumentKind(kind) as CanonicalMarkdownHeader['document_kind'],
+    document_id: canonicalDocumentId(kind, sourcePath, sourceSha),
+    source_path: sourcePath,
+    source_sha256: sourceSha,
+    legacy_source_revision: legacySource.revision,
+    legacy_source_tree_hash: legacySource.tree_hash,
+    legacy_protocol_version: legacyProtocolVersion,
+    conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
+    original_text_preserved: true,
+    heading_index: extractHeadingIndex(content, sourcePath),
+    path_references: pathReferences,
+  };
+}
+
+function canonicalizeMarkdownDocument(
+  kind: Exclude<MigrationArtifactKind, 'project-profile'>,
+  sourcePath: string,
+  content: string,
+  sourceSha: string,
+  legacyProtocolVersion: string,
+  legacySource: TargetSnapshot,
+): string {
+  const header = canonicalMarkdownHeader(
+    kind,
+    sourcePath,
+    content,
+    sourceSha,
+    extractPathReferences(content),
+    legacyProtocolVersion,
+    legacySource,
+  );
+  return `---\n${stringifyYaml(header).trimEnd()}\n---\n${rewritePathReferences(content)}`;
+}
+
+function canonicalizeProjectProfile(
+  sourcePath: string,
+  content: string,
+  sourceSha: string,
+  legacyProtocolVersion: string,
+  legacySource: TargetSnapshot,
+): string {
+  const parsed = parseDocument(content, { uniqueKeys: true });
+  const diagnostics = [...parsed.errors, ...parsed.warnings];
+  if (diagnostics.length > 0) {
+    throw new MigrationPackError('DOCUMENT_INVALID', `PROJECT_PROFILE.yaml has invalid YAML: ${diagnostics.map(item => item.message).join('; ')}`);
+  }
+  const value = expectRecord(parsed.toJS(), sourcePath);
+  if ('vnext_migration' in value) {
+    throw new MigrationPackError('DOCUMENT_INVALID', `${sourcePath} already contains vnext_migration metadata.`);
+  }
+  const metadata = {
+    schema_version: VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION,
+    kind: 'vnext-canonical-profile',
+    document_id: canonicalDocumentId('project-profile', sourcePath, sourceSha),
+    source_path: sourcePath,
+    source_sha256: sourceSha,
+    legacy_source_revision: legacySource.revision,
+    legacy_source_tree_hash: legacySource.tree_hash,
+    legacy_protocol_version: legacyProtocolVersion,
+    conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
+    original_text_preserved: true,
+    path_references: extractPathReferences(content),
+  };
+  const suffix = stringifyYaml({ vnext_migration: metadata }).trimEnd();
+  return `${content.endsWith('\n') ? content : `${content}\n`}\n${suffix}\n`;
+}
+
+function canonicalizeArtifactContent(
+  kind: MigrationArtifactKind,
+  sourcePath: string,
+  content: string,
+  sourceSha: string,
+  legacyProtocolVersion: string,
+  legacySource: TargetSnapshot,
+): string {
+  if (kind === 'project-profile') {
+    return canonicalizeProjectProfile(sourcePath, content, sourceSha, legacyProtocolVersion, legacySource);
+  }
+  return canonicalizeMarkdownDocument(kind, sourcePath, content, sourceSha, legacyProtocolVersion, legacySource);
+}
+
+function parseCanonicalFrontmatter(content: string, location: string): { header: Record<string, unknown>; body: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/.exec(content);
+  if (!match) throw new MigrationPackError('PACK_INVALID', `${location} is missing the vNext canonical frontmatter envelope.`);
+  const document = parseDocument(match[1], { uniqueKeys: true });
+  const diagnostics = [...document.errors, ...document.warnings];
+  if (diagnostics.length > 0) throw new MigrationPackError('PACK_INVALID', `${location} has invalid canonical frontmatter: ${diagnostics.map(item => item.message).join('; ')}`);
+  return { header: expectRecord(document.toJS(), `${location} frontmatter`), body: match[2] };
+}
+
+function validatePathReferenceList(value: unknown, location: string): PathReference[] {
+  if (!Array.isArray(value)) throw new MigrationPackError('PACK_INVALID', `${location} must be a list.`);
+  return value.map((raw, index) => {
+    const ref = expectRecord(raw, `${location}[${index}]`);
+    expectExactKeys(ref, ['raw', 'normalized', 'kind', 'adjusted'], `${location}[${index}]`);
+    const rawValue = expectString(ref.raw, `${location}[${index}].raw`);
+    const normalized = expectString(ref.normalized, `${location}[${index}].normalized`);
+    const refKind = expectString(ref.kind, `${location}[${index}].kind`);
+    if (!['repo-relative', 'external', 'anchor', 'unclassified'].includes(refKind)) throw new MigrationPackError('PACK_INVALID', `${location}[${index}].kind is unsupported.`);
+    const adjusted = expectBoolean(ref.adjusted, `${location}[${index}].adjusted`);
+    return { raw: rawValue, normalized, kind: refKind as PathReference['kind'], adjusted };
+  });
+}
+
+function validateCanonicalArtifactContent(
+  artifact: MigrationArtifact,
+  canonicalContent: string,
+  originalContent: string,
+  legacyProtocolVersion: string,
+  legacySource: TargetSnapshot,
+  location: string,
+): void {
+  const expectedCanonicalContent = canonicalizeArtifactContent(
+    artifact.kind,
+    artifact.source_path,
+    originalContent,
+    artifact.source_sha256,
+    legacyProtocolVersion,
+    legacySource,
+  );
+  if (canonicalContent !== expectedCanonicalContent) {
+    throw new MigrationPackError('PACK_INVALID', `${location} does not match the deterministic canonical conversion.`);
+  }
+  if (artifact.kind === 'project-profile') {
+    if (!canonicalContent.startsWith(originalContent)) throw new MigrationPackError('PACK_INVALID', `${location} does not preserve the original profile text as its prefix.`);
+    const parsed = parseDocument(canonicalContent, { uniqueKeys: true });
+    const diagnostics = [...parsed.errors, ...parsed.warnings];
+    if (diagnostics.length > 0) throw new MigrationPackError('PACK_INVALID', `${location} has invalid canonical profile YAML: ${diagnostics.map(item => item.message).join('; ')}`);
+    const root = expectRecord(parsed.toJS(), location);
+    const metadata = expectRecord(root.vnext_migration, `${location}.vnext_migration`);
+    expectExactKeys(metadata, ['schema_version', 'kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'path_references'], `${location}.vnext_migration`);
+    if (metadata.schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION || metadata.kind !== 'vnext-canonical-profile' || metadata.document_id !== canonicalDocumentId(artifact.kind, artifact.source_path, artifact.source_sha256) || metadata.source_path !== artifact.source_path || metadata.source_sha256 !== artifact.source_sha256 || metadata.legacy_source_revision !== legacySource.revision || metadata.legacy_source_tree_hash !== legacySource.tree_hash || metadata.legacy_protocol_version !== legacyProtocolVersion || metadata.conversion_rule !== VNEXT_CANONICAL_CONVERSION_RULE || metadata.original_text_preserved !== true) {
+      throw new MigrationPackError('PACK_INVALID', `${location}.vnext_migration does not bind to the artifact/legacy snapshot.`);
     }
-    return { raw, normalized, kind: 'repo-relative', adjusted: normalized !== raw };
-  }).sort((left, right) => left.raw.localeCompare(right.raw));
+    const references = validatePathReferenceList(metadata.path_references, `${location}.vnext_migration.path_references`);
+    if (JSON.stringify(references) !== JSON.stringify(artifact.path_references)) throw new MigrationPackError('PACK_INVALID', `${location}.vnext_migration.path_references do not match the artifact inventory.`);
+    return;
+  }
+
+  const parsed = parseCanonicalFrontmatter(canonicalContent, location);
+  const header = parsed.header;
+  expectExactKeys(header, ['schema_version', 'kind', 'document_kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'heading_index', 'path_references'], `${location} frontmatter`);
+  if (header.schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION || header.kind !== VNEXT_CANONICAL_DOCUMENT_KIND || header.document_kind !== artifact.kind || header.document_id !== canonicalDocumentId(artifact.kind, artifact.source_path, artifact.source_sha256) || header.source_path !== artifact.source_path || header.source_sha256 !== artifact.source_sha256 || header.legacy_source_revision !== legacySource.revision || header.legacy_source_tree_hash !== legacySource.tree_hash || header.legacy_protocol_version !== legacyProtocolVersion || header.conversion_rule !== VNEXT_CANONICAL_CONVERSION_RULE || header.original_text_preserved !== true) {
+    throw new MigrationPackError('PACK_INVALID', `${location} canonical frontmatter does not bind to the artifact/legacy snapshot.`);
+  }
+  if (!Array.isArray(header.heading_index)) throw new MigrationPackError('PACK_INVALID', `${location}.heading_index must be a list.`);
+  const headingIndex = header.heading_index.map((raw, index) => {
+    const heading = expectRecord(raw, `${location}.heading_index[${index}]`);
+    expectExactKeys(heading, ['id', 'level', 'text'], `${location}.heading_index[${index}]`);
+    const id = expectString(heading.id, `${location}.heading_index[${index}].id`);
+    const level = heading.level;
+    const text = expectString(heading.text, `${location}.heading_index[${index}].text`);
+    if (!/^heading-[a-f0-9]{16}$/.test(id) || typeof level !== 'number' || !Number.isInteger(level) || level < 1 || level > 6) throw new MigrationPackError('PACK_INVALID', `${location}.heading_index[${index}] is invalid.`);
+    return { id, level, text };
+  });
+  const references = validatePathReferenceList(header.path_references, `${location}.path_references`);
+  if (JSON.stringify(references) !== JSON.stringify(artifact.path_references)) throw new MigrationPackError('PACK_INVALID', `${location}.path_references do not match the artifact inventory.`);
+  if (parsed.body !== rewritePathReferences(originalContent)) throw new MigrationPackError('PACK_INVALID', `${location} does not preserve the original Markdown body apart from deterministic path normalization.`);
+  if (JSON.stringify(headingIndex) !== JSON.stringify(extractHeadingIndex(originalContent, artifact.source_path))) throw new MigrationPackError('PACK_INVALID', `${location}.heading_index does not match the preserved Markdown headings.`);
 }
 
 function validateLegacyDocument(file: string, content: string): MigrationIssue[] {
@@ -964,27 +1290,34 @@ function createArtifact(
   content: string,
   source: SourceIdentity,
   legacySource: TargetSnapshot,
+  legacyProtocolVersion: string,
 ): MigrationArtifact {
+  const normalizedSourcePath = normalizeRepoPath(sourcePath, 'artifact.source_path');
+  const normalizedTargetPath = normalizeRepoPath(targetPath, 'artifact.target_path');
   const sourceSha = sha256(content);
-  const stableId = `artifact-${sha256(`${kind}\0${sourcePath}\0${sourceSha}`).slice(0, 24)}`;
+  const stableId = `artifact-${sha256(`${kind}\0${normalizedSourcePath}\0${sourceSha}`).slice(0, 24)}`;
+  const canonicalContent = canonicalizeArtifactContent(kind, normalizedSourcePath, content, sourceSha, legacyProtocolVersion, legacySource);
   return {
     stable_id: stableId,
     kind,
-    source_path: normalizeRepoPath(sourcePath, 'artifact.source_path'),
-    target_path: normalizeRepoPath(targetPath, 'artifact.target_path'),
+    source_path: normalizedSourcePath,
+    target_path: normalizedTargetPath,
     content_path: `artifacts/${stableId}.content`,
+    original_content_path: `originals/${stableId}.source`,
+    canonical_schema_version: VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION,
+    conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
     source_sha256: sourceSha,
-    content_sha256: sourceSha,
-    byte_length: Buffer.byteLength(content, 'utf8'),
+    content_sha256: sha256(canonicalContent),
+    byte_length: Buffer.byteLength(canonicalContent, 'utf8'),
     path_references: extractPathReferences(content),
     provenance: {
       source_revision: source.revision,
       source_tree_hash: source.tree_hash,
       legacy_source_revision: legacySource.revision,
       legacy_source_tree_hash: legacySource.tree_hash,
-      source_path: normalizeRepoPath(sourcePath, 'artifact.provenance.source_path'),
+      source_path: normalizedSourcePath,
       source_sha256: sourceSha,
-      conversion_rule: 'copy-preserving-v1',
+      conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
     },
   };
 }
@@ -1022,7 +1355,7 @@ export function preflightMigration(options: PreflightOptions): MigrationPrefligh
     blockers.push({ severity: 'error', code: 'PROFILE_MISSING', message: 'Target PROJECT_PROFILE.yaml is required.', path: '.workflow-system/PROJECT_PROFILE.yaml' });
   } else {
     try {
-      profile = loadProfile(targetProfilePath);
+      profile = parseStrictYaml(targetProfilePath) as JsonObject;
       target = getProjectIdentity(profile, targetRoot);
       workflowHome = getWorkflowHome(profile);
     } catch (error) {
@@ -1032,8 +1365,11 @@ export function preflightMigration(options: PreflightOptions): MigrationPrefligh
 
   const vnextStatePath = path.join(targetRoot, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/'));
   const vnextReceiptPath = path.join(targetRoot, ...VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH.split('/'));
+  const vnextInProgressPath = path.join(targetRoot, ...VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH.split('/'));
   if (fs.existsSync(vnextStatePath) || fs.existsSync(vnextReceiptPath)) {
     blockers.push({ severity: 'error', code: 'VNEXT_ALREADY_PRESENT', message: 'A vNext install marker is already present; do not run a second conversion.', path: VNEXT_INSTALL_STATE_RELATIVE_PATH });
+  } else if (fs.existsSync(vnextInProgressPath)) {
+    blockers.push({ severity: 'error', code: 'VNEXT_INSTALL_IN_PROGRESS', message: 'An interrupted vNext installation marker is present; inspect or explicitly recover it before retrying migration.', path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH });
   } else {
     const vnextDirectory = path.join(targetRoot, '.workflow-system', 'vnext');
     const partialFiles = listFiles(vnextDirectory).filter(filePath => path.basename(filePath) !== 'MIGRATION_PACK_SCHEMA.yaml');
@@ -1084,17 +1420,22 @@ export function preflightMigration(options: PreflightOptions): MigrationPrefligh
   }
 
   const eligible = blockers.length === 0;
-  const state: MigrationPreflight['state'] = blockers.some(issue => issue.code === 'VNEXT_ALREADY_PRESENT')
-    ? 'already-vnext'
-    : blockers.some(issue => issue.code.includes('PROTOCOL') || issue.code.includes('SCHEMA'))
-      ? 'unsupported'
-      : !target || !currentTask
-        ? 'ambiguous'
-        : blockers.some(issue => issue.code === 'CURRENT_TASK_NON_IDLE' || issue.code === 'CURRENT_TASK_FINDING_OPEN' || issue.code === 'SUSPENDED_WORK_PRESENT')
-          ? 'non-idle'
-          : eligible
-            ? 'idle'
-            : 'ambiguous';
+  let state: MigrationPreflight['state'];
+  if (blockers.some(issue => issue.code === 'VNEXT_ALREADY_PRESENT')) {
+    state = 'already-vnext';
+  } else if (blockers.some(issue => issue.code === 'VNEXT_INSTALL_IN_PROGRESS')) {
+    state = 'install-in-progress';
+  } else if (blockers.some(issue => issue.code.includes('PROTOCOL') || issue.code.includes('SCHEMA'))) {
+    state = 'unsupported';
+  } else if (!target || !currentTask) {
+    state = 'ambiguous';
+  } else if (blockers.some(issue => issue.code === 'CURRENT_TASK_NON_IDLE' || issue.code === 'CURRENT_TASK_FINDING_OPEN' || issue.code === 'SUSPENDED_WORK_PRESENT')) {
+    state = 'non-idle';
+  } else if (eligible) {
+    state = 'idle';
+  } else {
+    state = 'ambiguous';
+  }
 
   return {
     kind: 'migration-preflight',
@@ -1124,6 +1465,7 @@ function collectConversionArtifacts(
   profile: JsonObject,
   source: SourceIdentity,
   legacySource: TargetSnapshot,
+  legacyProtocolVersion: string,
   issues: MigrationIssue[],
 ): MigrationArtifact[] {
   const artifacts: MigrationArtifact[] = [];
@@ -1140,7 +1482,7 @@ function collectConversionArtifacts(
     }
     const content = fs.readFileSync(filePath, 'utf8');
     issues.push(...validateLegacyDocument(relativeName, content));
-    artifacts.push(createArtifact('governance-document', relativePath, relativePath, content, source, legacySource));
+    artifacts.push(createArtifact('governance-document', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
   }
 
   const profileRelativePath = '.workflow-system/PROJECT_PROFILE.yaml';
@@ -1153,7 +1495,7 @@ function collectConversionArtifacts(
   } catch (error) {
     issues.push({ severity: 'error', code: 'DOCUMENT_INVALID', message: error instanceof Error ? error.message : String(error), path: profileRelativePath });
   }
-  artifacts.push(createArtifact('project-profile', profileRelativePath, profileRelativePath, profileContent, source, legacySource));
+  artifacts.push(createArtifact('project-profile', profileRelativePath, profileRelativePath, profileContent, source, legacySource, legacyProtocolVersion));
 
   const tasksDir = path.join(targetRoot, 'TASKS');
   if (fs.existsSync(tasksDir)) {
@@ -1164,11 +1506,11 @@ function collectConversionArtifacts(
       if (/^TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(basename)) {
         const content = fs.readFileSync(filePath, 'utf8');
         issues.push(...validateLegacyDocument(relativePath, content));
-        artifacts.push(createArtifact('task-archive', relativePath, relativePath, content, source, legacySource));
+        artifacts.push(createArtifact('task-archive', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
       } else if (basename !== 'README.md' && basename !== '.gitkeep') {
         const content = fs.readFileSync(filePath, 'utf8');
         issues.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Unclassified TASKS content is preserved as target-owned content.', path: relativePath });
-        artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource));
+        artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
       }
     }
   }
@@ -1188,7 +1530,7 @@ function collectConversionArtifacts(
     if (path.basename(filePath).endsWith('.md')) {
       const content = fs.readFileSync(filePath, 'utf8');
       issues.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Unclassified workflow document is preserved verbatim; no semantic rewrite was attempted.', path: relativePath });
-      artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource));
+      artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
     }
   }
   return artifacts.sort((left, right) => left.target_path.localeCompare(right.target_path));
@@ -1208,7 +1550,13 @@ function packIdFor(manifest: Omit<MigrationPackManifest, 'pack_id' | 'created_at
       current_task: manifest.preflight.current_task,
       current_task_excluded: manifest.preflight.current_task_excluded,
     },
-    artifacts: manifest.artifacts.map(artifact => ({ stable_id: artifact.stable_id, source_sha256: artifact.source_sha256, target_path: artifact.target_path })),
+    artifacts: manifest.artifacts.map(artifact => ({
+      stable_id: artifact.stable_id,
+      source_sha256: artifact.source_sha256,
+      content_sha256: artifact.content_sha256,
+      target_path: artifact.target_path,
+      conversion_rule: artifact.conversion_rule,
+    })),
     legacy_surface: manifest.legacy_surface.entries.map(entry => ({ path: entry.path, sha256: entry.sha256, action: entry.action })),
   };
   return `migration-${sha256(JSON.stringify(identity)).slice(0, 24)}`;
@@ -1245,9 +1593,16 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
       preflight.blockers,
     );
   }
-  const profile = loadProfile(profilePath(targetRoot));
+  const profile = parseStrictYaml(profilePath(targetRoot)) as JsonObject;
   const conversionIssues: MigrationIssue[] = [...preflight.warnings];
-  const artifacts = collectConversionArtifacts(targetRoot, profile, preflight.source, preflight.target_snapshot, conversionIssues);
+  const artifacts = collectConversionArtifacts(
+    targetRoot,
+    profile,
+    preflight.source,
+    preflight.target_snapshot,
+    preflight.legacy_protocol.protocol_version,
+    conversionIssues,
+  );
   const requiredPaths = requiredDocumentPaths(targetRoot, profile);
   for (const requiredPath of requiredPaths) {
     if (!fs.existsSync(requiredPath)) {
@@ -1275,7 +1630,7 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
       checked_at: preflight.checked_at,
     },
     conversion: {
-      mode: 'offline-copy',
+      mode: 'offline-structural',
       preserves_original_text: true,
       semantic_reinterpretation: false,
       allowed_surfaces: ['CONTRACTS', 'DECISIONS', 'LESSONS', 'STATUS', 'BASELINES', 'other long-term governance documents', 'TASK archives', 'PROJECT_PROFILE metadata'],
@@ -1290,6 +1645,7 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
       requires_vnext_bundle: true,
       install_state_path: VNEXT_INSTALL_STATE_RELATIVE_PATH,
       migration_receipt_path: VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH,
+      in_progress_path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH,
       old_current_task_replaced_by_bundle: true,
       old_protocol_and_schema_replaced_by_bundle: true,
       old_compatibility_surface_removed: true,
@@ -1305,10 +1661,24 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
   ensureOutputDirectory(path.resolve(options.outDir), options.overwrite ?? false);
   const outputDir = path.resolve(options.outDir);
   for (const artifact of artifacts) {
-    const content = fs.readFileSync(resolveRepoPath(targetRoot, artifact.source_path, 'artifact source path'), 'utf8');
+    const sourceContent = fs.readFileSync(resolveRepoPath(targetRoot, artifact.source_path, 'artifact source path'), 'utf8');
+    const canonicalContent = canonicalizeArtifactContent(
+      artifact.kind,
+      artifact.source_path,
+      sourceContent,
+      artifact.source_sha256,
+      preflight.legacy_protocol.protocol_version,
+      preflight.target_snapshot,
+    );
+    if (sha256(sourceContent) !== artifact.source_sha256 || sha256(canonicalContent) !== artifact.content_sha256) {
+      throw new MigrationPackError('PACK_STALE', `Source changed while writing converted artifact: ${artifact.source_path}`);
+    }
     const outputPath = resolveRepoPath(outputDir, artifact.content_path, 'pack artifact content path');
+    const originalPath = resolveRepoPath(outputDir, artifact.original_content_path, 'pack original content path');
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-    fs.writeFileSync(outputPath, content, 'utf8');
+    fs.mkdirSync(path.dirname(originalPath), { recursive: true });
+    fs.writeFileSync(outputPath, canonicalContent, 'utf8');
+    fs.writeFileSync(originalPath, sourceContent, 'utf8');
   }
   fs.writeFileSync(path.join(outputDir, MIGRATION_PACK_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   const report: MigrationOperationResult = {
@@ -1433,7 +1803,7 @@ function validateSurfaceEntries(value: unknown, location: string): LegacySurface
 
 function validateArtifactShape(value: unknown, location: string): MigrationArtifact {
   const record = expectRecord(value, location);
-  expectExactKeys(record, ['stable_id', 'kind', 'source_path', 'target_path', 'content_path', 'source_sha256', 'content_sha256', 'byte_length', 'path_references', 'provenance'], location);
+  expectExactKeys(record, ['stable_id', 'kind', 'source_path', 'target_path', 'content_path', 'original_content_path', 'canonical_schema_version', 'conversion_rule', 'source_sha256', 'content_sha256', 'byte_length', 'path_references', 'provenance'], location);
   const stableId = expectString(record.stable_id, `${location}.stable_id`);
   if (!STABLE_ID_PATTERN.test(stableId)) throw new MigrationPackError('PACK_INVALID', `${location}.stable_id is invalid.`);
   const kind = expectString(record.kind, `${location}.kind`);
@@ -1441,26 +1811,35 @@ function validateArtifactShape(value: unknown, location: string): MigrationArtif
   const sourcePath = normalizeRepoPath(expectString(record.source_path, `${location}.source_path`), `${location}.source_path`);
   const targetPath = normalizeRepoPath(expectString(record.target_path, `${location}.target_path`), `${location}.target_path`);
   const contentPath = normalizeRepoPath(expectString(record.content_path, `${location}.content_path`), `${location}.content_path`);
+  const originalContentPath = normalizeRepoPath(expectString(record.original_content_path, `${location}.original_content_path`), `${location}.original_content_path`);
+  if ([VNEXT_INSTALL_STATE_RELATIVE_PATH, VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH].includes(targetPath)) {
+    throw new MigrationPackError('PACK_INVALID', `${location}.target_path cannot own Migration Pack state: ${targetPath}`);
+  }
+  if (
+    KNOWN_HOST_SKILL_DIRS.some(prefix => targetPath === prefix || targetPath.startsWith(`${prefix}/`)) ||
+    targetPath.endsWith('/SKILL_REGISTRY.md') ||
+    targetPath === 'SKILL_REGISTRY.md'
+  ) {
+    throw new MigrationPackError('PACK_INVALID', `${location}.target_path cannot preserve a legacy host or registry surface: ${targetPath}`);
+  }
+  const expectedStableId = `artifact-${sha256(`${kind}\0${sourcePath}\0${expectString(record.source_sha256, `${location}.source_sha256`)}`).slice(0, 24)}`;
+  if (stableId !== expectedStableId) throw new MigrationPackError('PACK_INVALID', `${location}.stable_id is not derived from kind/source_path/source_sha256.`);
+  if (contentPath !== `artifacts/${stableId}.content`) throw new MigrationPackError('PACK_INVALID', `${location}.content_path must match its stable_id.`);
+  if (originalContentPath !== `originals/${stableId}.source`) throw new MigrationPackError('PACK_INVALID', `${location}.original_content_path must match its stable_id.`);
   if (!contentPath.startsWith('artifacts/')) throw new MigrationPackError('PACK_INVALID', `${location}.content_path must stay under artifacts/.`);
+  if (!originalContentPath.startsWith('originals/')) throw new MigrationPackError('PACK_INVALID', `${location}.original_content_path must stay under originals/.`);
+  if (record.canonical_schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION) throw new MigrationPackError('PACK_INVALID', `${location}.canonical_schema_version is unsupported.`);
+  const conversionRule = expectString(record.conversion_rule, `${location}.conversion_rule`);
+  if (conversionRule !== VNEXT_CANONICAL_CONVERSION_RULE) throw new MigrationPackError('PACK_INVALID', `${location}.conversion_rule must be ${VNEXT_CANONICAL_CONVERSION_RULE}.`);
   const sourceSha = expectString(record.source_sha256, `${location}.source_sha256`);
   const contentSha = expectString(record.content_sha256, `${location}.content_sha256`);
-  if (!/^[a-f0-9]{64}$/.test(sourceSha) || !/^[a-f0-9]{64}$/.test(contentSha) || sourceSha !== contentSha) throw new MigrationPackError('PACK_INVALID', `${location} checksum fields are invalid or do not preserve original text.`);
+  if (!/^[a-f0-9]{64}$/.test(sourceSha) || !/^[a-f0-9]{64}$/.test(contentSha)) throw new MigrationPackError('PACK_INVALID', `${location} checksum fields are invalid.`);
   if (typeof record.byte_length !== 'number' || !Number.isInteger(record.byte_length) || record.byte_length < 0) throw new MigrationPackError('PACK_INVALID', `${location}.byte_length must be a non-negative integer.`);
-  if (!Array.isArray(record.path_references)) throw new MigrationPackError('PACK_INVALID', `${location}.path_references must be a list.`);
-  const pathReferences = record.path_references.map((raw, index) => {
-    const ref = expectRecord(raw, `${location}.path_references[${index}]`);
-    expectExactKeys(ref, ['raw', 'normalized', 'kind', 'adjusted'], `${location}.path_references[${index}]`);
-    const rawValue = expectString(ref.raw, `${location}.path_references[${index}].raw`);
-    const normalized = expectString(ref.normalized, `${location}.path_references[${index}].normalized`);
-    const refKind = expectString(ref.kind, `${location}.path_references[${index}].kind`);
-    if (!['repo-relative', 'external', 'anchor', 'unclassified'].includes(refKind)) throw new MigrationPackError('PACK_INVALID', `${location}.path_references[${index}].kind is unsupported.`);
-    const adjusted = expectBoolean(ref.adjusted, `${location}.path_references[${index}].adjusted`);
-    return { raw: rawValue, normalized, kind: refKind as PathReference['kind'], adjusted };
-  });
+  const pathReferences = validatePathReferenceList(record.path_references, `${location}.path_references`);
   const provenance = expectRecord(record.provenance, `${location}.provenance`);
   expectExactKeys(provenance, ['source_revision', 'source_tree_hash', 'legacy_source_revision', 'legacy_source_tree_hash', 'source_path', 'source_sha256', 'conversion_rule'], `${location}.provenance`);
-  const conversionRule = expectString(provenance.conversion_rule, `${location}.provenance.conversion_rule`);
-  if (conversionRule !== 'copy-preserving-v1') throw new MigrationPackError('PACK_INVALID', `${location}.provenance.conversion_rule must be copy-preserving-v1.`);
+  const provenanceConversionRule = expectString(provenance.conversion_rule, `${location}.provenance.conversion_rule`);
+  if (provenanceConversionRule !== VNEXT_CANONICAL_CONVERSION_RULE) throw new MigrationPackError('PACK_INVALID', `${location}.provenance.conversion_rule must be ${VNEXT_CANONICAL_CONVERSION_RULE}.`);
   const provenanceSourceRevision = expectString(provenance.source_revision, `${location}.provenance.source_revision`);
   const provenanceSourceTreeHash = expectString(provenance.source_tree_hash, `${location}.provenance.source_tree_hash`);
   const legacySourceRevision = expectString(provenance.legacy_source_revision, `${location}.provenance.legacy_source_revision`);
@@ -1469,12 +1848,18 @@ function validateArtifactShape(value: unknown, location: string): MigrationArtif
   if (!/^[a-f0-9]{64}$/.test(provenanceSourceTreeHash) || !/^[a-f0-9]{64}$/.test(legacySourceTreeHash) || provenanceSourceSha !== sourceSha) {
     throw new MigrationPackError('PACK_INVALID', `${location}.provenance hash binding is invalid.`);
   }
+  if (normalizeRepoPath(expectString(provenance.source_path, `${location}.provenance.source_path`), `${location}.provenance.source_path`) !== sourcePath) {
+    throw new MigrationPackError('PACK_INVALID', `${location}.provenance.source_path must match source_path.`);
+  }
   return {
     stable_id: stableId,
     kind: kind as MigrationArtifactKind,
     source_path: sourcePath,
     target_path: targetPath,
     content_path: contentPath,
+    original_content_path: originalContentPath,
+    canonical_schema_version: VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION,
+    conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
     source_sha256: sourceSha,
     content_sha256: contentSha,
     byte_length: record.byte_length,
@@ -1484,9 +1869,9 @@ function validateArtifactShape(value: unknown, location: string): MigrationArtif
       source_tree_hash: provenanceSourceTreeHash,
       legacy_source_revision: legacySourceRevision,
       legacy_source_tree_hash: legacySourceTreeHash,
-      source_path: normalizeRepoPath(expectString(provenance.source_path, `${location}.provenance.source_path`), `${location}.provenance.source_path`),
+      source_path: sourcePath,
       source_sha256: provenanceSourceSha,
-      conversion_rule: 'copy-preserving-v1',
+      conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
     },
   };
 }
@@ -1509,7 +1894,7 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
   const currentTask = validateCurrentTaskSnapshot(preflight.current_task, 'migration pack.preflight.current_task');
   const conversion = expectRecord(raw.conversion, 'migration pack.conversion');
   expectExactKeys(conversion, ['mode', 'preserves_original_text', 'semantic_reinterpretation', 'allowed_surfaces', 'issues'], 'migration pack.conversion');
-  if (conversion.mode !== 'offline-copy' || conversion.preserves_original_text !== true || conversion.semantic_reinterpretation !== false) throw new MigrationPackError('PACK_INVALID', 'Migration Pack conversion must be copy-preserving and non-semantic.');
+  if (conversion.mode !== 'offline-structural' || conversion.preserves_original_text !== true || conversion.semantic_reinterpretation !== false) throw new MigrationPackError('PACK_INVALID', 'Migration Pack conversion must be structural, preserve original text, and avoid semantic reinterpretation.');
   expectStringArray(conversion.allowed_surfaces, 'migration pack.conversion.allowed_surfaces');
   if (!Array.isArray(conversion.issues)) throw new MigrationPackError('PACK_INVALID', 'migration pack.conversion.issues must be a list.');
   const conversionIssues = conversion.issues.map((rawIssue, index) => {
@@ -1525,6 +1910,9 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
     const issuePath = issue.path === undefined ? undefined : expectString(issue.path, `migration pack.conversion.issues[${index}].path`);
     return { severity: severity as MigrationIssueSeverity, code: code as MigrationIssueCode, message, ...(issuePath ? { path: issuePath } : {}) };
   });
+  if (conversionIssues.some(issue => issue.severity === 'error')) {
+    throw new MigrationPackError('PACK_INVALID', 'Migration Pack contains unresolved conversion errors.');
+  }
   const artifactsRaw = raw.artifacts;
   if (!Array.isArray(artifactsRaw) || artifactsRaw.length === 0) throw new MigrationPackError('PACK_INVALID', 'migration pack.artifacts must be a non-empty list.');
   const artifactIds = new Set<string>();
@@ -1536,13 +1924,18 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
     artifactIds.add(artifact.stable_id);
     artifactTargets.add(artifact.target_path);
     const contentPath = resolveRepoPath(packDir, artifact.content_path, `migration pack.artifacts[${index}].content_path`);
+    const originalContentPath = resolveRepoPath(packDir, artifact.original_content_path, `migration pack.artifacts[${index}].original_content_path`);
     if (!fs.existsSync(contentPath)) throw new MigrationPackError('PACK_INVALID', `artifact content is missing: ${artifact.content_path}`);
+    if (!fs.existsSync(originalContentPath)) throw new MigrationPackError('PACK_INVALID', `original artifact content is missing: ${artifact.original_content_path}`);
     const content = fs.readFileSync(contentPath);
-    if (sha256(content) !== artifact.content_sha256 || content.byteLength !== artifact.byte_length) throw new MigrationPackError('PACK_INVALID', `artifact checksum/length mismatch: ${artifact.target_path}`);
+    const originalContent = fs.readFileSync(originalContentPath);
+    if (sha256(content) !== artifact.content_sha256 || content.byteLength !== artifact.byte_length) throw new MigrationPackError('PACK_INVALID', `canonical artifact checksum/length mismatch: ${artifact.target_path}`);
+    if (sha256(originalContent) !== artifact.source_sha256) throw new MigrationPackError('PACK_INVALID', `original artifact checksum mismatch: ${artifact.target_path}`);
     if (artifact.target_path === currentTask.path || artifact.target_path === legacyProtocol.protocol_path || artifact.target_path === legacyProtocol.schema_path) throw new MigrationPackError('PACK_INVALID', `Migration Pack must not convert CURRENT_TASK/protocol/schema directly: ${artifact.target_path}`);
     if (artifact.provenance.source_revision !== source.revision || artifact.provenance.source_tree_hash !== source.tree_hash || artifact.provenance.legacy_source_revision !== legacySource.revision || artifact.provenance.legacy_source_tree_hash !== legacySource.tree_hash) {
       throw new MigrationPackError('PACK_INVALID', `artifact provenance does not bind to the pack source/legacy snapshot: ${artifact.target_path}`);
     }
+    validateCanonicalArtifactContent(artifact, content.toString('utf8'), originalContent.toString('utf8'), legacyProtocol.protocol_version, legacySource, `migration pack.artifacts[${index}]`);
     return artifact;
   });
   const legacySurfaceRaw = expectRecord(raw.legacy_surface, 'migration pack.legacy_surface');
@@ -1550,10 +1943,11 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
   const legacySurfaceEntries = validateSurfaceEntries(legacySurfaceRaw.entries, 'migration pack.legacy_surface.entries');
   const legacySkillNames = expectStringArray(legacySurfaceRaw.legacy_skill_names, 'migration pack.legacy_surface.legacy_skill_names', true);
   const installation = expectRecord(raw.installation, 'migration pack.installation');
-  expectExactKeys(installation, ['requires_vnext_bundle', 'install_state_path', 'migration_receipt_path', 'old_current_task_replaced_by_bundle', 'old_protocol_and_schema_replaced_by_bundle', 'old_compatibility_surface_removed'], 'migration pack.installation');
+  expectExactKeys(installation, ['requires_vnext_bundle', 'install_state_path', 'migration_receipt_path', 'in_progress_path', 'old_current_task_replaced_by_bundle', 'old_protocol_and_schema_replaced_by_bundle', 'old_compatibility_surface_removed'], 'migration pack.installation');
   if (installation.requires_vnext_bundle !== true || installation.old_current_task_replaced_by_bundle !== true || installation.old_protocol_and_schema_replaced_by_bundle !== true || installation.old_compatibility_surface_removed !== true) throw new MigrationPackError('PACK_INVALID', 'Migration Pack installation boundary is incomplete.');
   if (normalizeRepoPath(expectString(installation.install_state_path, 'migration pack.installation.install_state_path'), 'install_state_path') !== VNEXT_INSTALL_STATE_RELATIVE_PATH) throw new MigrationPackError('PACK_INVALID', 'Migration Pack install_state_path is not canonical.');
   if (normalizeRepoPath(expectString(installation.migration_receipt_path, 'migration pack.installation.migration_receipt_path'), 'migration_receipt_path') !== VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH) throw new MigrationPackError('PACK_INVALID', 'Migration Pack migration_receipt_path is not canonical.');
+  if (normalizeRepoPath(expectString(installation.in_progress_path, 'migration pack.installation.in_progress_path'), 'in_progress_path') !== VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH) throw new MigrationPackError('PACK_INVALID', 'Migration Pack in_progress_path is not canonical.');
   const base = {
     schema_version: MIGRATION_PACK_SCHEMA_VERSION,
     kind: MIGRATION_PACK_KIND,
@@ -1562,13 +1956,14 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
     legacy_source: legacySource,
     legacy_protocol: legacyProtocol,
     preflight: { state: 'idle' as const, current_task: currentTask, current_task_excluded: true as const, checked_at: expectString(preflight.checked_at, 'migration pack.preflight.checked_at') },
-    conversion: { mode: 'offline-copy' as const, preserves_original_text: true as const, semantic_reinterpretation: false as const, allowed_surfaces: expectStringArray(conversion.allowed_surfaces, 'migration pack.conversion.allowed_surfaces'), issues: conversionIssues },
+    conversion: { mode: 'offline-structural' as const, preserves_original_text: true as const, semantic_reinterpretation: false as const, allowed_surfaces: expectStringArray(conversion.allowed_surfaces, 'migration pack.conversion.allowed_surfaces'), issues: conversionIssues },
     artifacts,
     legacy_surface: { entries: legacySurfaceEntries, legacy_skill_names: legacySkillNames },
     installation: {
       requires_vnext_bundle: true as const,
       install_state_path: VNEXT_INSTALL_STATE_RELATIVE_PATH,
       migration_receipt_path: VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH,
+      in_progress_path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH,
       old_current_task_replaced_by_bundle: true as const,
       old_protocol_and_schema_replaced_by_bundle: true as const,
       old_compatibility_surface_removed: true as const,
@@ -1585,7 +1980,31 @@ export function validateMigrationPack(options: ValidatePackOptions): MigrationPa
   validateSourceIdentity(pack.source, getSourceIdentity(sourceRoot), 'Migration Pack source');
   const targetRoot = path.resolve(options.targetRoot ?? pack.target.root_path);
   const targetIdentity = validateTargetIdentityShape(pack.target, 'Migration Pack target');
-  if (targetIdentity.root_identity !== getProjectIdentity(loadProfile(profilePath(targetRoot)), targetRoot).root_identity) throw new MigrationPackError('PACK_STALE', 'Migration Pack target identity does not match target PROJECT_PROFILE.yaml.');
+  const actualProfilePath = profilePath(targetRoot);
+  if (!fs.existsSync(actualProfilePath)) {
+    throw new MigrationPackError('PACK_STALE', 'Target PROJECT_PROFILE.yaml is missing after conversion.');
+  }
+  let actualProfile: JsonObject;
+  try {
+    actualProfile = parseStrictYaml(actualProfilePath) as JsonObject;
+  } catch (error) {
+    throw new MigrationPackError('PACK_STALE', `Target PROJECT_PROFILE.yaml is no longer valid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let actualTargetIdentity: TargetIdentity;
+  try {
+    actualTargetIdentity = getProjectIdentity(actualProfile, targetRoot);
+  } catch (error) {
+    throw new MigrationPackError('PACK_STALE', `Target PROJECT_PROFILE.yaml no longer contains a valid project identity: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (targetIdentity.root_identity !== actualTargetIdentity.root_identity) throw new MigrationPackError('PACK_STALE', 'Migration Pack target identity does not match target PROJECT_PROFILE.yaml.');
+  const artifactTargets = new Set(pack.artifacts.map(artifact => artifact.target_path));
+  const requiredTargets = [
+    '.workflow-system/PROJECT_PROFILE.yaml',
+    ...requiredDocumentPaths(targetRoot, actualProfile).map(filePath => path.relative(targetRoot, filePath).replace(/\\/g, '/')),
+  ];
+  for (const requiredTarget of requiredTargets) {
+    if (!artifactTargets.has(requiredTarget)) throw new MigrationPackError('PACK_INVALID', `Migration Pack is missing required converted artifact: ${requiredTarget}`);
+  }
   const preflight = preflightMigration({ sourceRoot, targetRoot });
   if (!preflight.eligible || !preflight.current_task || !preflight.target || !preflight.target_snapshot) throw new MigrationPackError('PACK_STALE', 'Target is no longer an eligible idle old project.', preflight.blockers);
   if (preflight.current_task.sha256 !== pack.preflight.current_task.sha256) throw new MigrationPackError('PACK_STALE', 'CURRENT_TASK.md changed after conversion.');
@@ -1614,7 +2033,175 @@ function validateBundleArtifactShape(value: unknown, location: string): VNextBun
   return { source_path: sourcePath, target_path: targetPath, category: category as VNextBundleArtifact['category'], required: expectBoolean(record.required, `${location}.required`), checksum };
 }
 
+const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
+  'prepare-task': ['default', 'replan'],
+  'review-change': ['default', 'report-only'],
+  'execute-step': ['default', 'repair'],
+  'debug-task': ['investigate-only', 'resolve'],
+  'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
+  'capture-work-item': [],
+  'close-task': ['preview'],
+};
+const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
+  'prepare-task': 'prepared-task',
+  'review-change': 'report',
+  'execute-step': 'change-result',
+  'debug-task': 'debug-result',
+  'task-lifecycle': 'lifecycle-result',
+  'capture-work-item': 'capture-result',
+  'close-task': 'closure-result',
+};
+const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
+  'prepare-task': 'user',
+  'review-change': 'none',
+  'execute-step': 'task',
+  'debug-task': 'task',
+  'task-lifecycle': 'task',
+  'capture-work-item': 'none',
+  'close-task': 'task',
+};
+const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
+  'prepare-task': ['task-state-transaction'],
+  'review-change': [],
+  'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
+  'debug-task': ['task-state-transaction'],
+  'task-lifecycle': ['lifecycle-transaction', 'task-state-transaction'],
+  'capture-work-item': ['inbox-record-transaction'],
+  'close-task': ['task-state-transaction', 'project-status-transaction', 'archive-transaction', 'lesson-record-transaction'],
+};
+const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
+  'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy'],
+};
+
+const BUNDLE_CURRENT_TASK_HEADINGS = ['## 任务信息', '## 验收标准', '## 允许修改范围', '## 实施步骤'];
+const BUNDLE_CURRENT_TASK_FIELDS = ['任务 ID', '当前状态', '生命周期状态', '恢复需审查'];
+
+function readBundleFrontmatter(content: string, location: string): { frontmatter: Record<string, unknown>; body: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content);
+  if (!match) throw new MigrationPackError('BUNDLE_INVALID', `${location} is missing a YAML frontmatter block.`);
+  const document = parseDocument(match[1], { uniqueKeys: true });
+  const diagnostics = [...document.errors, ...document.warnings];
+  if (diagnostics.length > 0) throw new MigrationPackError('BUNDLE_INVALID', `${location} has invalid frontmatter YAML: ${diagnostics.map(item => item.message).join('; ')}`);
+  return { frontmatter: expectRecord(document.toJS(), `${location} frontmatter`), body: match[2] };
+}
+
+function validateVNextSkillBundleContent(entry: string, content: string, location: string): void {
+  const { frontmatter } = readBundleFrontmatter(content, location);
+  expectExactKeys(frontmatter, ['entry_contract'], `${location} frontmatter`);
+  const contract = expectRecord(frontmatter.entry_contract, `${location}.entry_contract`);
+  expectExactKeys(contract, ['entry', 'mode', 'intent', 'input_contract', 'authority_owner', 'mutation_boundary', 'internal_capabilities', 'runtime_operations', 'stop_conditions', 'output_kind'], `${location}.entry_contract`);
+  if (contract.entry !== entry) throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.entry must be ${entry}.`);
+  const modes = expectStringArray(contract.mode, `${location}.entry_contract.mode`, true);
+  const expectedModes = BUNDLE_ENTRY_MODES[entry];
+  if (!expectedModes || JSON.stringify([...modes].sort()) !== JSON.stringify([...expectedModes].sort())) throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.mode is not the canonical closed set for ${entry}.`);
+  if (modes.includes('discovery') || modes.includes('verification')) throw new MigrationPackError('BUNDLE_INVALID', `${location} promotes review cycle phases into modes.`);
+  expectString(contract.intent, `${location}.entry_contract.intent`);
+  const input = expectRecord(contract.input_contract, `${location}.entry_contract.input_contract`);
+  const inputKeys = entry === 'review-change' ? ['required', 'optional', 'cycle_phase'] : ['required', 'optional'];
+  expectExactKeys(input, inputKeys, `${location}.entry_contract.input_contract`);
+  expectStringArray(input.required, `${location}.entry_contract.input_contract.required`);
+  expectStringArray(input.optional, `${location}.entry_contract.input_contract.optional`, true);
+  if (entry === 'review-change') {
+    expectStringArray(input.cycle_phase, `${location}.entry_contract.input_contract.cycle_phase`);
+    if (JSON.stringify([...input.cycle_phase as string[]].sort()) !== JSON.stringify(['discovery', 'verification'])) throw new MigrationPackError('BUNDLE_INVALID', `${location} has an invalid review cycle phase set.`);
+  }
+  if (contract.authority_owner !== BUNDLE_ENTRY_AUTHORITY_OWNERS[entry]) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.authority_owner must be ${BUNDLE_ENTRY_AUTHORITY_OWNERS[entry]}.`);
+  }
+  const boundary = expectRecord(contract.mutation_boundary, `${location}.entry_contract.mutation_boundary`);
+  expectExactKeys(boundary, ['product_files', 'governance_sources', 'forbidden_targets'], `${location}.mutation_boundary`);
+  expectStringArray(boundary.product_files, `${location}.mutation_boundary.product_files`, true);
+  expectStringArray(boundary.governance_sources, `${location}.mutation_boundary.governance_sources`, true);
+  expectStringArray(boundary.forbidden_targets, `${location}.mutation_boundary.forbidden_targets`);
+  const productFiles = boundary.product_files as string[];
+  const governanceSources = boundary.governance_sources as string[];
+  const expectedProductFiles = entry === 'execute-step' ? ['admitted_scope'] : [];
+  if (JSON.stringify([...productFiles].sort()) !== JSON.stringify(expectedProductFiles)) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.mutation_boundary.product_files is not valid for ${entry}.`);
+  }
+  if (governanceSources.length > 0) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.mutation_boundary.governance_sources must be empty.`);
+  }
+  const capabilityRefs = expectStringArray(contract.internal_capabilities, `${location}.entry_contract.internal_capabilities`);
+  for (const requiredCapability of BUNDLE_REQUIRED_ENTRY_CAPABILITIES[entry] ?? []) {
+    if (!capabilityRefs.includes(requiredCapability)) {
+      throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract must declare mandatory capability ${requiredCapability}.`);
+    }
+  }
+  const runtimeOperations = expectStringArray(contract.runtime_operations, `${location}.entry_contract.runtime_operations`, true);
+  const expectedRuntimeOperations = BUNDLE_ENTRY_RUNTIME_OPERATIONS[entry] ?? [];
+  if (JSON.stringify([...runtimeOperations].sort()) !== JSON.stringify([...expectedRuntimeOperations].sort())) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.runtime_operations is not valid for ${entry}.`);
+  }
+  if (entry === 'review-change' && runtimeOperations.length !== 0) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.review-change must not declare Runtime operations.`);
+  }
+  expectStringArray(contract.stop_conditions, `${location}.entry_contract.stop_conditions`);
+  if (contract.output_kind !== BUNDLE_ENTRY_OUTPUT_KINDS[entry]) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.output_kind must be ${BUNDLE_ENTRY_OUTPUT_KINDS[entry]}.`);
+  }
+  for (const forbidden of ['stage', 'handoff', 'conditional_handoff', 'benefits-from']) {
+    if (forbidden in frontmatter || new RegExp(`^\\s*${forbidden}\\s*:`, 'im').test(content)) {
+      throw new MigrationPackError('BUNDLE_INVALID', `${location} contains forbidden legacy field ${forbidden}.`);
+    }
+  }
+}
+
+function validateVNextProtocolBundleContent(content: string, location: string): void {
+  if (/Protocol-Version\s*:\s*0\./i.test(content) || !VNEXT_SCHEMA_VERSION_PATTERN.test(content) || !/^\s*kind\s*:\s*vnext-protocol\s*$/im.test(content)) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location} is not an explicit vNext protocol document.`);
+  }
+}
+
+function validateVNextSchemaBundleContent(content: string, location: string): void {
+  if (/Protocol-Version\s*:\s*0\./i.test(content) || !VNEXT_SCHEMA_VERSION_PATTERN.test(content) || !/^\s*kind\s*:\s*vnext-file-schema\s*$/im.test(content) || !/CURRENT_TASK\.md/i.test(content)) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location} is not an explicit vNext File Schema document.`);
+  }
+}
+
+function validateVNextCurrentTaskBundleContent(content: string, location: string): void {
+  const { frontmatter, body } = readBundleFrontmatter(content, location);
+  expectExactKeys(frontmatter, ['schema_version', 'kind', 'document_id'], `${location} frontmatter`);
+  if (frontmatter.schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION || frontmatter.kind !== 'vnext-current-task' || typeof frontmatter.document_id !== 'string' || !DOCUMENT_ID_PATTERN.test(frontmatter.document_id)) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location} does not declare the vNext current-task schema.`);
+  }
+  for (const heading of BUNDLE_CURRENT_TASK_HEADINGS) {
+    if (!body.includes(heading)) throw new MigrationPackError('BUNDLE_INVALID', `${location} is missing required heading ${heading}.`);
+  }
+  for (const field of BUNDLE_CURRENT_TASK_FIELDS) {
+    if (!new RegExp(`^\\s*-\\s*${field}\\s*[：:]`, 'm').test(body)) throw new MigrationPackError('BUNDLE_INVALID', `${location} is missing required task field ${field}.`);
+  }
+  if (/Protocol-Version\s*:\s*0\./i.test(body)) throw new MigrationPackError('BUNDLE_INVALID', `${location} still embeds legacy protocol metadata.`);
+}
+
+function validateVNextBundleArtifactContent(artifact: VNextBundleArtifact, content: string, location: string): void {
+  if (artifact.category === 'protocol') validateVNextProtocolBundleContent(content, location);
+  if (artifact.category === 'schema') validateVNextSchemaBundleContent(content, location);
+  if (artifact.category === 'skill') {
+    const entry = path.posix.basename(artifact.target_path).replace(/\.SKILL\.md$/, '');
+    if (!(entry in BUNDLE_ENTRY_MODES)) throw new MigrationPackError('BUNDLE_INVALID', `${location} targets an unknown vNext Skill entry.`);
+    validateVNextSkillBundleContent(entry, content, location);
+  }
+  if (artifact.target_path.endsWith('/CURRENT_TASK.md') && artifact.category !== 'protocol' && artifact.category !== 'schema') validateVNextCurrentTaskBundleContent(content, location);
+  if (artifact.target_path === '.workflow-system/PROJECT_PROFILE.yaml') {
+    const parsed = parseDocument(content, { uniqueKeys: true });
+    const diagnostics = [...parsed.errors, ...parsed.warnings];
+    if (diagnostics.length > 0 || !expectRecord(parsed.toJS(), location).project) throw new MigrationPackError('BUNDLE_INVALID', `${location} is not a valid vNext project profile.`);
+  }
+}
+
+function validateSourceContractIfPresent(sourceRoot: string): void {
+  const contractPath = path.join(sourceRoot, '.workflow-system', 'vnext', 'SOURCE_CONTRACT.yaml');
+  if (!fs.existsSync(contractPath)) return;
+  try {
+    validateVNextSource(sourceRoot);
+  } catch (error) {
+    throw new MigrationPackError('BUNDLE_INVALID', `vNext source contract is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkillNames: readonly string[]): VNextBundleManifest {
+  validateSourceContractIfPresent(sourceRoot);
   const manifestPath = path.join(path.resolve(bundleDir), VNEXT_BUNDLE_FILE);
   if (!fs.existsSync(manifestPath)) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle manifest is missing: ${manifestPath}`);
   let raw: Record<string, unknown>;
@@ -1643,10 +2230,17 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle artifact is missing: ${artifact.source_path}`);
     if (readSha256(fullPath) !== artifact.checksum) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle artifact checksum mismatch: ${artifact.source_path}`);
     const content = fs.readFileSync(fullPath, 'utf8');
+    validateVNextBundleArtifactContent(artifact, content, `vNext bundle.artifacts[${index}]`);
     const lowerPath = artifact.target_path.toLowerCase();
-    if ([...VNEXT_FORBIDDEN_PATH_PARTS].some(part => lowerPath.split('/').includes(part))) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle target path contains a compatibility surface: ${artifact.target_path}`);
-    if (artifact.target_path === VNEXT_INSTALL_STATE_RELATIVE_PATH || artifact.target_path === VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH) {
+    const pathParts = lowerPath.split('/');
+    if ([...VNEXT_FORBIDDEN_PATH_PARTS].some(part => pathParts.some(pathPart => pathPart === part || pathPart.startsWith(`${part}-`) || pathPart.startsWith(`${part}_`)))) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle target path contains a compatibility surface: ${artifact.target_path}`);
+    if (VNEXT_FORBIDDEN_TARGET_PREFIXES.some(prefix => lowerPath.startsWith(prefix))) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle target path is an old source/generated surface: ${artifact.target_path}`);
+    if (artifact.target_path === VNEXT_INSTALL_STATE_RELATIVE_PATH || artifact.target_path === VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH || artifact.target_path === VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH) {
       throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle must not own Migration Pack state: ${artifact.target_path}`);
+    }
+    if (artifact.category === 'skill') {
+      const skillBasename = path.posix.basename(artifact.target_path);
+      if (!/^[a-z][a-z0-9-]*\.SKILL\.md$/.test(skillBasename) || skillBasename.startsWith('workflow-system-')) throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use a canonical unprefixed entry filename: ${artifact.target_path}`);
     }
     for (const legacyName of legacySkillNames) {
       // `capture-work-item` is intentionally retained as a vNext public
@@ -1654,21 +2248,51 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
       // legacy compatibility route.  All other legacy IDs remain forbidden.
       const canonicalCaptureEntry = legacyName === 'capture-work-item' &&
         ((artifact.category === 'skill' && path.posix.basename(artifact.target_path) === 'capture-work-item.SKILL.md') || artifact.category === 'registry');
-      if (canonicalCaptureEntry) continue;
-      if (artifact.target_path.includes(legacyName) || (artifact.category === 'skill' || artifact.category === 'registry') && content.includes(legacyName)) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
+      if (artifact.target_path.includes(legacyName) && !canonicalCaptureEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
+      if ((artifact.category === 'skill' || artifact.category === 'registry') && content.includes(legacyName)) {
+        if (!canonicalCaptureEntry || artifact.category === 'registry') {
+          if (!canonicalCaptureEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
+        } else {
+          const executableCaptureLines = content.split(/\r?\n/).filter(line => line.includes(legacyName));
+          if (executableCaptureLines.some(line => !/^\s*entry:\s*capture-work-item\s*$/.test(line) && !/^# vNext Skill:\s*capture-work-item\s*$/.test(line))) {
+            throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName} outside its canonical entry declaration.`);
+          }
+        }
+      }
     }
     artifacts.push(artifact);
   }
+  const sortedArtifacts = [...artifacts].sort((left, right) => left.target_path.localeCompare(right.target_path));
+  if (JSON.stringify(artifacts) !== JSON.stringify(sortedArtifacts)) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle artifacts must be sorted by target_path for deterministic replay.');
+  const expectedBundleId = `bundle-${sha256(JSON.stringify({ source, artifacts })).slice(0, 24)}`;
+  if (bundleId !== expectedBundleId) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle.bundle_id does not match its deterministic source/artifact identity.');
   for (const category of VNEXT_REQUIRED_BUNDLE_CATEGORIES) {
     if (!categories.has(category)) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required category ${category}.`);
+  }
+  const protocolArtifacts = artifacts.filter(artifact => artifact.category === 'protocol');
+  const schemaArtifacts = artifacts.filter(artifact => artifact.category === 'schema');
+  if (protocolArtifacts.length !== 1 || protocolArtifacts[0]?.target_path !== '.workflow-system/WORKFLOW_PROTOCOL.md' || protocolArtifacts[0]?.required !== true) {
+    throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must contain exactly one protocol artifact at .workflow-system/WORKFLOW_PROTOCOL.md.');
+  }
+  if (schemaArtifacts.length !== 1 || schemaArtifacts[0]?.target_path !== '.workflow-system/FILE_SCHEMAS.md' || schemaArtifacts[0]?.required !== true) {
+    throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must contain exactly one schema artifact at .workflow-system/FILE_SCHEMAS.md.');
+  }
+  const currentTaskArtifacts = artifacts.filter(artifact => artifact.target_path === 'CURRENT_TASK.md' || artifact.target_path.endsWith('/CURRENT_TASK.md'));
+  if (currentTaskArtifacts.length !== 1 || currentTaskArtifacts[0]?.required !== true) {
+    throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must contain exactly one required canonical CURRENT_TASK.md artifact.');
+  }
+  if (['protocol', 'schema', 'skill', 'registry'].includes(currentTaskArtifacts[0].category)) {
+    throw new MigrationPackError('BUNDLE_INVALID', 'CURRENT_TASK.md must be a document artifact, not a protocol, schema, Skill, or registry artifact.');
   }
   const skillNames = new Set(
     artifacts
       .filter(artifact => artifact.category === 'skill')
       .map(artifact => path.posix.basename(artifact.target_path).replace(/\.SKILL\.md$/, '')),
   );
+  if (skillNames.size !== artifacts.filter(artifact => artifact.category === 'skill').length) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must not expose duplicate Skill entry IDs across host paths.');
   for (const entry of VNEXT_REQUIRED_DAILY_ENTRIES) {
-    if (!skillNames.has(entry)) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing daily entry Skill ${entry}.SKILL.md.`);
+    const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
+    if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required daily entry Skill ${entry}.SKILL.md.`);
   }
   return { schema_version: VNEXT_BUNDLE_SCHEMA_VERSION, kind: VNEXT_BUNDLE_KIND, bundle_id: bundleId, status: 'validated', legacy_compatibility: 'absent', source, artifacts };
 }
@@ -1703,6 +2327,7 @@ export function buildVNextBundle(options: {
     fs.copyFileSync(inputPath, outputPath);
     artifacts.push({ source_path: sourcePath, target_path: targetPath, category: spec.category, required: spec.required ?? true, checksum: readSha256(outputPath) });
   }
+  artifacts.sort((left, right) => left.target_path.localeCompare(right.target_path));
   const bundleId = `bundle-${sha256(JSON.stringify({ source, artifacts })).slice(0, 24)}`;
   const manifest: VNextBundleManifest = { schema_version: 1, kind: VNEXT_BUNDLE_KIND, bundle_id: bundleId, status: 'validated', legacy_compatibility: 'absent', source, artifacts };
   fs.writeFileSync(path.join(bundleDir, VNEXT_BUNDLE_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
@@ -1729,7 +2354,12 @@ function validateNoLegacySurface(
   for (const relativeDir of KNOWN_HOST_SKILL_DIRS) {
     const directory = path.join(targetRoot, ...relativeDir.split('/'));
     for (const filePath of listFiles(directory)) {
-      if (/^workflow-system-.+\.SKILL\.md$/.test(path.basename(filePath))) throw new MigrationPackError('POST_INSTALL_LEGACY_SURFACE', `Legacy host Skill remains: ${path.relative(targetRoot, filePath)}`);
+      const basename = path.basename(filePath);
+      const parentName = path.basename(path.dirname(filePath));
+      const isPrefixedLegacy = /^workflow-system-.+\.SKILL\.md$/.test(basename) || (basename === 'SKILL.md' && /^workflow-system-.+$/.test(parentName));
+      const isFlatAlias = legacySkillNames.some(name => basename === `${name}.SKILL.md` || (basename === 'SKILL.md' && parentName === name));
+      const relativePath = path.relative(targetRoot, filePath).replace(/\\/g, '/');
+      if (!replaced.has(relativePath) && (isPrefixedLegacy || isFlatAlias)) throw new MigrationPackError('POST_INSTALL_LEGACY_SURFACE', `Legacy host Skill remains: ${relativePath}`);
     }
   }
   const generatedSkillDir = path.join(targetRoot, ...[workflowHome, 'generated', 'workflow-skills'].filter(Boolean).join('/').split('/'));
@@ -1739,6 +2369,120 @@ function validateNoLegacySurface(
 }
 
 type AtomicWrite = { path: string; content: string };
+
+function writeInProgressMarker(targetRoot: string, marker: VNextMigrationInProgress): void {
+  const markerPath = resolveRepoPath(targetRoot, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH, 'migration in-progress marker');
+  fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+  const tempPath = `${markerPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(marker, null, 2)}\n`, 'utf8');
+  fs.renameSync(tempPath, markerPath);
+}
+
+function removeInProgressMarker(targetRoot: string): void {
+  const markerPath = resolveRepoPath(targetRoot, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH, 'migration in-progress marker');
+  if (fs.existsSync(markerPath)) fs.rmSync(markerPath, { force: true });
+}
+
+function validateInProgressMarker(targetRoot: string): VNextMigrationInProgress {
+  const markerPath = resolveRepoPath(targetRoot, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH, 'migration in-progress marker');
+  if (!fs.existsSync(markerPath)) throw new MigrationPackError('VNEXT_INSTALL_IN_PROGRESS', 'No vNext migration interruption marker is present.');
+  const marker = parseStrictJson(markerPath);
+  expectExactKeys(marker, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'target_identity', 'started_at', 'planned_writes', 'planned_deletes', 'recovery'], 'migration in-progress marker');
+  if (marker.schema_version !== 1 || marker.kind !== 'vnext-migration-in-progress' || marker.recovery !== 'fail-closed-explicit-recovery') throw new MigrationPackError('VNEXT_INSTALL_IN_PROGRESS', 'Migration interruption marker is invalid; do not retry automatically.');
+  const result: VNextMigrationInProgress = {
+    schema_version: 1,
+    kind: 'vnext-migration-in-progress',
+    migration_pack_id: expectString(marker.migration_pack_id, 'migration in-progress marker.migration_pack_id'),
+    bundle_id: expectString(marker.bundle_id, 'migration in-progress marker.bundle_id'),
+    target_identity: expectString(marker.target_identity, 'migration in-progress marker.target_identity'),
+    started_at: expectString(marker.started_at, 'migration in-progress marker.started_at'),
+    planned_writes: expectStringArray(marker.planned_writes, 'migration in-progress marker.planned_writes', true),
+    planned_deletes: expectStringArray(marker.planned_deletes, 'migration in-progress marker.planned_deletes', true),
+    recovery: 'fail-closed-explicit-recovery',
+  };
+  return result;
+}
+
+function validateVNextInstallState(value: unknown, location: string): VNextInstallState {
+  const state = expectRecord(value, location);
+  expectExactKeys(
+    state,
+    ['schema_version', 'kind', 'mode', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'installed_at', 'managed_files', 'removed_legacy_files', 'legacy_compatibility', 'recovery_boundary'],
+    location,
+  );
+  if (state.schema_version !== 1 || state.kind !== 'vnext-install-state' || state.mode !== 'pure-vnext' || state.legacy_compatibility !== 'absent' || state.recovery_boundary !== 'in-progress-marker') {
+    throw new MigrationPackError('INSTALL_CONFLICT', `${location} is not a pure-vNext install state.`);
+  }
+  const migrationPackId = expectString(state.migration_pack_id, `${location}.migration_pack_id`);
+  const bundleId = expectString(state.bundle_id, `${location}.bundle_id`);
+  if (!/^migration-[a-f0-9]{24}$/.test(migrationPackId) || !/^bundle-[a-f0-9]{24}$/.test(bundleId)) {
+    throw new MigrationPackError('INSTALL_CONFLICT', `${location} has invalid migration or bundle identity.`);
+  }
+  const sourceRevision = expectString(state.source_revision, `${location}.source_revision`);
+  const sourceTreeHash = expectString(state.source_tree_hash, `${location}.source_tree_hash`);
+  const targetIdentity = expectString(state.target_identity, `${location}.target_identity`);
+  if (!/^[a-f0-9]{64}$/.test(sourceTreeHash) || !/^[a-f0-9]{32}$/.test(targetIdentity)) {
+    throw new MigrationPackError('INSTALL_CONFLICT', `${location} has invalid source/target identity fields.`);
+  }
+  const installedAt = expectString(state.installed_at, `${location}.installed_at`);
+  if (!Array.isArray(state.managed_files)) throw new MigrationPackError('INSTALL_CONFLICT', `${location}.managed_files must be a list.`);
+  const managedPaths = new Set<string>();
+  const managedFiles = state.managed_files.map((raw, index) => {
+    const item = expectRecord(raw, `${location}.managed_files[${index}]`);
+    expectExactKeys(item, ['path', 'checksum', 'category'], `${location}.managed_files[${index}]`);
+    const relativePath = normalizeRepoPath(expectString(item.path, `${location}.managed_files[${index}].path`), `${location}.managed_files[${index}].path`);
+    if (managedPaths.has(relativePath)) throw new MigrationPackError('INSTALL_CONFLICT', `${location}.managed_files contains duplicate path ${relativePath}.`);
+    managedPaths.add(relativePath);
+    const checksum = item.checksum === '' ? '' : expectString(item.checksum, `${location}.managed_files[${index}].checksum`);
+    if (!/^[a-f0-9]{64}$/.test(checksum) && !(relativePath === VNEXT_INSTALL_STATE_RELATIVE_PATH && checksum === '')) {
+      throw new MigrationPackError('INSTALL_CONFLICT', `${location}.managed_files[${index}].checksum is invalid.`);
+    }
+    return { path: relativePath, checksum, category: expectString(item.category, `${location}.managed_files[${index}].category`) };
+  });
+  const removedLegacyFiles = expectStringArray(state.removed_legacy_files, `${location}.removed_legacy_files`, true).map((item, index) => normalizeRepoPath(item, `${location}.removed_legacy_files[${index}]`));
+  if (new Set(removedLegacyFiles).size !== removedLegacyFiles.length) throw new MigrationPackError('INSTALL_CONFLICT', `${location}.removed_legacy_files contains duplicates.`);
+  return {
+    schema_version: 1,
+    kind: 'vnext-install-state',
+    mode: 'pure-vnext',
+    migration_pack_id: migrationPackId,
+    bundle_id: bundleId,
+    source_revision: sourceRevision,
+    source_tree_hash: sourceTreeHash,
+    target_identity: targetIdentity,
+    installed_at: installedAt,
+    managed_files: managedFiles,
+    removed_legacy_files: removedLegacyFiles,
+    legacy_compatibility: 'absent',
+    recovery_boundary: 'in-progress-marker',
+  };
+}
+
+function validateVNextMigrationReceipt(value: unknown, location: string): { migration_pack_id: string; bundle_id: string; source_revision: string; source_tree_hash: string; target_identity: string; installed_at: string; converted_artifact_ids: string[] } {
+  const receipt = expectRecord(value, location);
+  expectExactKeys(receipt, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility'], location);
+  if (receipt.schema_version !== 1 || receipt.kind !== 'vnext-migration-receipt' || receipt.legacy_compatibility !== 'absent') {
+    throw new MigrationPackError('INSTALL_CONFLICT', `${location} is not a pure-vNext migration receipt.`);
+  }
+  const migrationPackId = expectString(receipt.migration_pack_id, `${location}.migration_pack_id`);
+  const bundleId = expectString(receipt.bundle_id, `${location}.bundle_id`);
+  const sourceTreeHash = expectString(receipt.source_tree_hash, `${location}.source_tree_hash`);
+  const targetIdentity = expectString(receipt.target_identity, `${location}.target_identity`);
+  if (!/^migration-[a-f0-9]{24}$/.test(migrationPackId) || !/^bundle-[a-f0-9]{24}$/.test(bundleId) || !/^[a-f0-9]{64}$/.test(sourceTreeHash) || !/^[a-f0-9]{32}$/.test(targetIdentity)) {
+    throw new MigrationPackError('INSTALL_CONFLICT', `${location} has invalid identity fields.`);
+  }
+  const convertedArtifactIds = expectStringArray(receipt.converted_artifact_ids, `${location}.converted_artifact_ids`, true);
+  if (convertedArtifactIds.some(item => !STABLE_ID_PATTERN.test(item))) throw new MigrationPackError('INSTALL_CONFLICT', `${location}.converted_artifact_ids contains an invalid artifact ID.`);
+  return {
+    migration_pack_id: migrationPackId,
+    bundle_id: bundleId,
+    source_revision: expectString(receipt.source_revision, `${location}.source_revision`),
+    source_tree_hash: sourceTreeHash,
+    target_identity: targetIdentity,
+    installed_at: expectString(receipt.installed_at, `${location}.installed_at`),
+    converted_artifact_ids: convertedArtifactIds,
+  };
+}
 
 function applyAtomicFileTransaction(
   targetRoot: string,
@@ -1750,10 +2494,9 @@ function applyAtomicFileTransaction(
   const normalizedWrites = new Map<string, AtomicWrite>();
   for (const write of writes) {
     const relative = normalizeRepoPath(write.path, 'transaction write path');
-    const fullPath = resolveRepoPath(resolvedTargetRoot, relative, 'transaction write path');
+    resolveRepoPath(resolvedTargetRoot, relative, 'transaction write path');
     if (normalizedWrites.has(relative)) throw new MigrationPackError('INSTALL_CONFLICT', `duplicate transaction write path: ${relative}`);
     normalizedWrites.set(relative, { path: relative, content: write.content });
-    void fullPath;
   }
   const deleteSet = new Set<string>();
   for (const relativeValue of deletes) {
@@ -1815,6 +2558,25 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   }
 
   const existingStatePath = path.join(targetRoot, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/'));
+  const existingInProgressPath = path.join(targetRoot, ...VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH.split('/'));
+  if (!fs.existsSync(existingStatePath) && fs.existsSync(existingInProgressPath)) {
+    try {
+      const marker = validateInProgressMarker(targetRoot);
+      return {
+        status: 'rejected',
+        target_root: targetRoot,
+        pack_id: marker.migration_pack_id,
+        bundle_id: marker.bundle_id,
+        blockers: [{ severity: 'error', code: 'VNEXT_INSTALL_IN_PROGRESS', message: 'An interrupted vNext installation is recorded; inspect the marker and recover explicitly before retrying.', path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH }],
+        warnings,
+        planned_writes: marker.planned_writes,
+        planned_deletes: marker.planned_deletes,
+      };
+    } catch (error) {
+      const issue = error instanceof MigrationPackError ? { severity: 'error' as const, code: 'VNEXT_INSTALL_IN_PROGRESS' as const, message: error.message, path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH } : { severity: 'error' as const, code: 'VNEXT_INSTALL_IN_PROGRESS' as const, message: String(error), path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH };
+      return { status: 'rejected', target_root: targetRoot, blockers: [issue], warnings, planned_writes: [], planned_deletes: [] };
+    }
+  }
   if (fs.existsSync(existingStatePath)) {
     try {
       // A completed installation is deliberately no longer an old project,
@@ -1824,14 +2586,21 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
       const candidatePack = loadAndValidatePack(options.packDir);
       validateSourceIdentity(candidatePack.source, getSourceIdentity(sourceRoot), 'Migration Pack source');
       const candidateTarget = validateTargetIdentityShape(candidatePack.target, 'Migration Pack target');
-      const actualTarget = getProjectIdentity(loadProfile(profilePath(targetRoot)), targetRoot);
-      const existing = parseStrictJson(existingStatePath) as Partial<VNextInstallState>;
-      const bundleId = typeof existing.bundle_id === 'string' ? existing.bundle_id : '';
+      const actualTarget = getProjectIdentity(parseStrictYaml(profilePath(targetRoot)) as JsonObject, targetRoot);
+      const existing = validateVNextInstallState(parseStrictJson(existingStatePath), 'vNext install state');
+      const receiptPath = path.join(targetRoot, ...VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH.split('/'));
+      if (!fs.existsSync(receiptPath)) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed vNext installation is missing its migration receipt.');
+      const receipt = validateVNextMigrationReceipt(parseStrictJson(receiptPath), 'vNext migration receipt');
       const samePack = existing.migration_pack_id === candidatePack.pack_id && existing.target_identity === candidatePack.target.root_identity && actualTarget.root_identity === candidateTarget.root_identity;
-      if (samePack && bundleId) {
+      const bundleId = existing.bundle_id;
+      if (samePack && receipt.migration_pack_id === candidatePack.pack_id && receipt.bundle_id === bundleId && receipt.source_revision === candidatePack.source.revision && receipt.source_tree_hash === candidatePack.source.tree_hash && receipt.target_identity === candidatePack.target.root_identity) {
         const knownLegacyNames = mergeLegacySkillNames(sourceRoot, candidatePack.legacy_surface.legacy_skill_names);
         const bundle = loadAndValidateBundle(options.bundleDir, sourceRoot, knownLegacyNames);
         if (bundle.bundle_id === bundleId) {
+          const expectedArtifactIds = candidatePack.artifacts.map(artifact => artifact.stable_id);
+          if (JSON.stringify(receipt.converted_artifact_ids) !== JSON.stringify(expectedArtifactIds)) {
+            throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt does not match the candidate Pack artifacts.');
+          }
           for (const artifact of candidatePack.artifacts) {
             const targetPath = resolveRepoPath(targetRoot, artifact.target_path, 'replay artifact target');
             if (!fs.existsSync(targetPath) || readSha256(targetPath) !== artifact.content_sha256) {
@@ -1844,8 +2613,12 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
               throw new MigrationPackError('INSTALL_CONFLICT', `Replay vNext bundle artifact drifted: ${artifact.target_path}`);
             }
           }
-          const replayProfile = loadProfile(profilePath(targetRoot));
+          const replayProfile = parseStrictYaml(profilePath(targetRoot)) as JsonObject;
           validateNoLegacySurface(targetRoot, knownLegacyNames, candidatePack.legacy_surface.entries.filter(entry => entry.action === 'remove').map(entry => entry.path), bundle.artifacts.map(artifact => artifact.target_path), getWorkflowHome(replayProfile));
+          if (fs.existsSync(existingInProgressPath)) {
+            if (isFrozenPath(targetRoot, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH)) throw new MigrationPackError('INSTALL_CONFLICT', 'The completed install marker is frozen and cannot be cleared.');
+            removeInProgressMarker(targetRoot);
+          }
           return { status: 'replayed', pack_id: candidatePack.pack_id, bundle_id: bundle.bundle_id, target_root: targetRoot, blockers: [], warnings, planned_writes: [], planned_deletes: [] };
         }
       }
@@ -1873,10 +2646,10 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     const issue = bundleError ? { severity: 'error' as const, code: bundleError.code, message: bundleError.message } : { severity: 'error' as const, code: 'BUNDLE_INVALID' as const, message: String(error) };
     return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, blockers: [issue], warnings, planned_writes: [], planned_deletes: [] };
   }
-  const profile = loadProfile(profilePath(targetRoot));
+  const profile = parseStrictYaml(profilePath(targetRoot)) as JsonObject;
   const currentTaskPath = [getWorkflowHome(profile), CURRENT_TASK_FILE].filter(Boolean).join('/');
   const bundleCurrentTask = bundle.artifacts.find(artifact => artifact.target_path === currentTaskPath);
-  if (!bundleCurrentTask) {
+  if (!bundleCurrentTask || bundleCurrentTask.required !== true) {
     return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'BUNDLE_INVALID', message: `vNext bundle must provide the pure-vNext ${currentTaskPath} document.` }], warnings, planned_writes: [], planned_deletes: [] };
   }
   const bundleTargetPaths = new Set(bundle.artifacts.map(artifact => artifact.target_path));
@@ -1897,7 +2670,6 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     }
   }
   const removedLegacyPaths = pack.legacy_surface.entries.filter(entry => entry.action === 'remove').map(entry => entry.path);
-  const replacedLegacyPaths = pack.legacy_surface.entries.filter(entry => entry.action === 'replace').map(entry => entry.path);
   const installState: VNextInstallState = {
     schema_version: 1,
     kind: 'vnext-install-state',
@@ -1911,6 +2683,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     managed_files: [...writes.map(write => ({ path: write.path, checksum: sha256(write.content), category: bundle.artifacts.find(artifact => artifact.target_path === write.path)?.category ?? 'migrated-document' })), { path: VNEXT_INSTALL_STATE_RELATIVE_PATH, checksum: '', category: 'vnext-install-state' }],
     removed_legacy_files: removedLegacyPaths,
     legacy_compatibility: 'absent',
+    recovery_boundary: 'in-progress-marker',
   };
   const receipt = {
     schema_version: 1,
@@ -1930,15 +2703,61 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   const plannedDeletes = removedLegacyPaths.filter(relative => !bundleTargetPaths.has(relative) && !writes.some(write => write.path === relative));
   if (options.dryRun) return { status: 'ready', pack_id: pack.pack_id, bundle_id: bundle.bundle_id, target_root: targetRoot, blockers, warnings, planned_writes: plannedWrites, planned_deletes: plannedDeletes };
 
+  if (isFrozenPath(targetRoot, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH)) {
+    return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Migration cannot create or clear a frozen interruption marker.', path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH }], warnings, planned_writes: [], planned_deletes: [] };
+  }
+  const inProgressMarker: VNextMigrationInProgress = {
+    schema_version: 1,
+    kind: 'vnext-migration-in-progress',
+    migration_pack_id: pack.pack_id,
+    bundle_id: bundle.bundle_id,
+    target_identity: pack.target.root_identity,
+    started_at: installState.installed_at,
+    planned_writes: plannedWrites,
+    planned_deletes: plannedDeletes,
+    recovery: 'fail-closed-explicit-recovery',
+  };
   try {
+    writeInProgressMarker(targetRoot, inProgressMarker);
     applyAtomicFileTransaction(targetRoot, writes, plannedDeletes, () => {
       validateNoLegacySurface(targetRoot, knownLegacyNames, plannedDeletes, [...bundleTargetPaths], getWorkflowHome(profile));
       const statePath = path.join(targetRoot, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/'));
       if (!fs.existsSync(statePath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext install state was not promoted.');
-      const installedState = parseStrictJson(statePath);
+      const installedState = validateVNextInstallState(parseStrictJson(statePath), 'vNext install state');
       if (installedState.migration_pack_id !== pack.pack_id || installedState.bundle_id !== bundle.bundle_id || installedState.target_identity !== pack.target.root_identity) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext install state read-back identity mismatch.');
+      const receiptPath = path.join(targetRoot, ...VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH.split('/'));
+      if (!fs.existsSync(receiptPath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt was not promoted.');
+      const installedReceipt = validateVNextMigrationReceipt(parseStrictJson(receiptPath), 'vNext migration receipt');
+      if (installedReceipt.migration_pack_id !== pack.pack_id || installedReceipt.bundle_id !== bundle.bundle_id || installedReceipt.target_identity !== pack.target.root_identity || JSON.stringify(installedReceipt.converted_artifact_ids) !== JSON.stringify(pack.artifacts.map(artifact => artifact.stable_id))) {
+        throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt read-back identity mismatch.');
+      }
     });
+    // The marker is intentionally outside the file transaction so a process
+    // interruption leaves an explicit, discoverable recovery boundary. If a
+    // completed transaction cannot clear it, replay will clear it after
+    // re-validating every installed artifact.
+    try {
+      removeInProgressMarker(targetRoot);
+    } catch (error) {
+      warnings.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: `Completed install left its interruption marker for replay cleanup: ${error instanceof Error ? error.message : String(error)}`, path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH });
+    }
   } catch (error) {
+    let rollbackVerified = false;
+    try {
+      rollbackVerified = getTargetSnapshot(targetRoot).tree_hash === pack.legacy_source.tree_hash;
+    } catch {
+      // If the target cannot be re-snapshotted, its rollback state is unknown.
+    }
+    if (rollbackVerified) {
+      try {
+        removeInProgressMarker(targetRoot);
+      } catch {
+        // Preserve a marker when cleanup itself fails; the next invocation
+        // will fail closed instead of assuming the target is safe to retry.
+      }
+    } else {
+      warnings.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Rollback could not be verified against the pre-install target snapshot; the interruption marker was retained for explicit recovery.', path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH });
+    }
     const issue = error instanceof MigrationPackError ? { severity: 'error' as const, code: error.code, message: error.message } : { severity: 'error' as const, code: 'INSTALL_CONFLICT' as const, message: String(error) };
     return { status: 'rejected', pack_id: pack.pack_id, bundle_id: bundle.bundle_id, target_root: targetRoot, blockers: [issue], warnings, planned_writes: [], planned_deletes: [] };
   }
