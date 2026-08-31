@@ -50,9 +50,12 @@
 ```yaml
 entry_contract:
   entry: <vNext-entry>
-  mode: <default-or-explicit-mode>
+  mode: [<closed-mode>]
   intent: <caller-visible-intent>
-  input_contract: []
+  input_contract:
+    required: []
+    optional: []
+    cycle_phase: [] # review-change only
   authority_owner: <user|task|contract|runtime|none>
   mutation_boundary:
     product_files: []
@@ -63,6 +66,8 @@ entry_contract:
   stop_conditions: []
   output_kind: <report|prepared-task|change-result|proposal|lifecycle-result>
 ```
+
+`mode` 在模板中声明该 entry 的闭集；一次调用只能选择其中一个值。它不是内部阶段列表，也不是可自由扩展的字符串。`cycle_phase` 若存在，只能作为 `review-change` 的输入字段，取 `discovery | verification`，不得出现在 `mode` 或任何 handoff 字段中。
 
 Skill 的共同执行形状是：
 
@@ -86,6 +91,94 @@ read back canonical Markdown/YAML and return structured result
 - adaptive depth 只决定可选规划与证据的深度，不能跳过 authority、scope、decision、dangerous、evidence 等必需 gate。
 - capability 之间可以共同评估或按需加载，不能再写成 `scope-review → implementation-review → contract-review` 一类 public BPM 链。
 - `review-change`、`validate-change`、`debug-task` 的 report-only 分支都必须有明确 terminal result，不得隐式发起 handoff 或写入状态。
+
+### 3.1 Phase 1A locked source contract
+
+Phase 1A 只实现三个 vNext entry，每个 entry 只有一个模板文件，且模板位于独立的 vNext source namespace：
+
+```text
+templates/vnext/skills/prepare-task.SKILL.md.tmpl
+templates/vnext/skills/review-change.SKILL.md.tmpl
+templates/vnext/skills/execute-step.SKILL.md.tmpl
+```
+
+该 namespace 与 `templates/skills/`、当前 37 个旧 Skill 的 generator、registry、pack、install 和 host sync 完全分离。Phase 1A 不修改旧模板生产链，也不把 vNext source namespace 纳入现有安装面。
+
+三个 entry 的 mode 闭集固定如下：
+
+| Entry | Closed mode set | Input-only cycle phase | Output kind | Direct mutation boundary | Phase 1A Runtime status |
+|---|---|---|---|---|---|
+| `prepare-task` | `default`, `replan` | none | `prepared-task` | `product_files: []`; no direct governance writes | `task-state-transaction` may be referenced as `contract-only / unbound / Phase 2` |
+| `review-change` | `default`, `report-only` | `discovery`, `verification` | `report` | `product_files: []`; `governance_sources: []` | `runtime_operations: []` |
+| `execute-step` | `default`, `repair` | none | `change-result` | product files only inside the admitted scope; no direct governance writes | governance operations remain `contract-only / unbound / Phase 2` |
+
+For `review-change`, both direct mutation lists and `runtime_operations` must be empty. `discovery` and `verification` describe the review cycle input; they are never public modes, executable handoffs, or automatic stage transitions. `execute-step:repair` consumes an admitted finding or confirmed root cause and a bounded repair budget; it does not silently acquire review, debug, or Runtime write authority.
+
+`mutation_boundary` means only direct Skill writes. Durable governance proposals are declared separately in `runtime_operations`. The Phase 1A templates may describe those proposals so their future contract is reviewable, but no Phase 1A entry is bound to a Runtime handler and no template may imply that it can write `CURRENT_TASK`, a finding queue, Contracts, Decisions, or Lessons.
+
+The Runtime operation catalog uses the following closed status tuple for Phase 1A:
+
+```yaml
+runtime_operation:
+  status: contract-only
+  binding: unbound
+  implementation_phase: Phase 2
+```
+
+`contract-only` means that the operation identity and write boundary are declared; `unbound` means no Phase 1A entry may execute it; `Phase 2` is the earliest implementation/binding phase. At minimum, `task-state-transaction` and `finding-queue-transaction` must be present in the catalog with exact source/write targets and their Phase 1A non-executable status.
+
+### 3.2 Phase 1A capability closure and exposure
+
+Capability references in the three core entries are a closed set. The source catalog must contain every referenced ID with a lightweight contract for trigger, input, output, and stop condition. It is not sufficient to register only the six initially highlighted capabilities. The minimum union referenced by the three entries is:
+
+```text
+project-context-resolver
+source-authority-policy
+task-identity-guard
+scope-guard
+decision-authority-gate
+adaptive-depth-policy
+propagation-evidence-validator
+design-evidence-gate
+release-evidence-gate
+external-documentation-gate
+resume-review-gate
+read-only-review-guard
+diff-target-resolver
+evidence-admission-policy
+finding-admission
+review-convergence-policy
+dangerous-operation-gate
+```
+
+`knowledge-admission-policy` may be declared in the shared catalog as an internal policy contract for later entries, but none of the three Phase 1A entries may use it to write durable knowledge. Every capability record is `exposure: internal`, has no public Skill handoff, and lives under the capability/policy namespace rather than as a `.SKILL.md.tmpl` public entry. An internal capability ID must never appear in the public entry catalog.
+
+The validator must fail closed when:
+
+- an entry or mode falls outside the closed Phase 1A sets;
+- a `review-change` contract has any direct write target or Runtime operation;
+- a capability or Runtime reference is missing from its catalog;
+- a capability is exposed as a public `.SKILL.md.tmpl` entry;
+- `cycle_phase` is promoted into a mode or handoff;
+- a Phase 1A template contains old-style `stage`, `handoff`, `conditional_handoff`, or `benefits-from` fields;
+- an old 37-Skill ID is used as a vNext executable target or handoff.
+
+The validator may scan the vNext template frontmatter and body for these forbidden executable references. Historical responsibility mappings remain in the blueprint and audit documents; they must not be copied into the executable vNext template namespace.
+
+### 3.3 Phase 1A source-contract tests
+
+The source contract and templates require tests. The test scope is deliberately small and structural; it does not test model prose, build a shadow runner, or create a legacy-vs-vNext behavior matrix.
+
+Phase 1A must provide one source validator and a focused test file covering at least:
+
+1. exactly three public vNext templates, unique entry IDs, required contract fields, and the closed mode sets;
+2. `cycle_phase` as review input only, never a mode or handoff;
+3. the per-entry direct mutation/runtime-operation matrix above, including `review-change` zero-write/zero-runtime behavior;
+4. complete capability and Runtime reference closure, internal capability exposure, and `contract-only / unbound / Phase 2` Runtime status;
+5. rejection of old frontmatter fields and all old 37-Skill executable targets;
+6. rejection of missing, duplicate, or mis-exposed capability and Runtime records.
+
+These tests should use small in-memory mutations or a few temporary contract files for negative cases. They must not reuse the historical shadow fixture matrix or the experimental shadow tests as vNext evidence. Once the validator and templates exist, a dedicated `test:workflow-vnext-source` command must join `test:workflow-all` as a real source-contract gate; `test:workflow-vnext-shadow` remains standalone and excluded from the formal gate.
 
 ## 4. 关键宏观路由
 
@@ -190,7 +283,8 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 
 | 阶段 | 直接实施内容 | 不做什么 |
 |---|---|---|
-| Phase 1 | 固定 entry contract；建立七个 daily entry 的最小模板/Capability 引用面；确定 Runtime operation contract；先重写 `prepare-task`、`review-change`、`execute-step` 的边界，再补齐 `debug-task`、`capture-work-item`、`close-task` 的最小结构 | 不扩张 shadow runner；不把旧 Skill 安装到 target；不让 vNext reader 解析旧 schema；不实现非 idle state migration |
+| Phase 1A | 固定 entry contract；建立独立 vNext source namespace；只实现 `prepare-task`、`review-change`、`execute-step` 三个单文件模板及其闭合 capability/Runtime catalog；通过 source-contract validator 与人工去流程化审查后停止 | 不扩张 shadow runner；不把旧 Skill 安装到 target；不让 vNext reader 解析旧 schema；不绑定 Runtime 写入；不实现非 idle state migration |
+| Phase 1（后续） | 在 Phase 1A 检查点通过后，补齐其余 daily entry 的最小结构，并保持同一 contract/capability/runtime 边界 | 不把外围入口提前混入 Phase 1A；不以新增测试基础设施作为交付目标 |
 | Migration Pack | 实现 idle preflight、离线副本转换、stable ID/provenance/path-reference、完整 validation 和 pure-vNext atomic installation | 不关闭/归档 active task；不恢复 paused/interrupted；不做语义去重或 AI 历史重写 |
 | Phase 2 | 以纯 vNext schema 开始 `execute-step` 的 state-changing workflow；接入 task-state/finding queue；落实 evidence admission、finding admission、Review Convergence 和 read-back | 不保留 legacy fallback；不把 review/validation 变成修复入口 |
 | 后续 | 逐步实现 vNext 自己创建的 `task-lifecycle`，再实现 `close-task`、`bootstrap-project` 及明确授权的新 capability | 不把 lifecycle/close/bootstrap 的缺失补成兼容旧协议的临时路径 |
@@ -209,5 +303,6 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 - 每一项治理持久化写入都映射到一个 exact Runtime handler，且没有 generic document editor；
 - Migration Pack 与 vNext runtime 完全分离，旧 schema 在 vNext 中只能得到 `migration-required → stop`；
 - 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是纯 vNext。
+- Phase 1A source validator 对三个模板、闭集 mode、零写入 review、引用闭合、内部 capability exposure 和旧 Skill 禁止规则有直接测试；测试不替代人工检查模板是否真正表达单一 intent。
 
-本文件不记录脚本已实现或测试已通过；那属于实现后的验证报告，不属于 Target Architecture 或本 implementation blueprint。
+本文件不记录运行时行为测试或模型质量评分；Phase 1A 的 source-contract 结构测试是实施 DoD 的一部分，实际通过结果属于实现后的验证报告。

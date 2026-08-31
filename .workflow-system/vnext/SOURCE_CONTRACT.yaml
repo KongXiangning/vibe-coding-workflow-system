@@ -1,0 +1,291 @@
+schema_version: 1
+kind: vnext-source-contract
+phase: Phase 1A
+
+source_namespace:
+  root: templates/vnext
+  skill_templates: templates/vnext/skills
+  contract_file: .workflow-system/vnext/SOURCE_CONTRACT.yaml
+  installable: false
+  generated: false
+  host_sync: false
+
+entries:
+  - id: prepare-task
+    exposure: daily
+    template: templates/vnext/skills/prepare-task.SKILL.md.tmpl
+  - id: review-change
+    exposure: daily
+    template: templates/vnext/skills/review-change.SKILL.md.tmpl
+  - id: execute-step
+    exposure: daily
+    template: templates/vnext/skills/execute-step.SKILL.md.tmpl
+
+capabilities:
+  - id: project-context-resolver
+    exposure: internal
+    trigger:
+      - every entry that needs canonical project truth
+    input_contract:
+      - target root identity
+      - intent and task identity
+      - scope, changed surfaces, claims, and risk triggers
+      - local Markdown/YAML sources, path/symbol queries, and heading/ID locators
+    output_contract:
+      - relevant source locators
+      - authority, relevance, freshness, conflicts, and exclusions
+    stop_conditions:
+      - unsupported schema
+      - unresolved mandatory authority conflict
+      - unsafe locator or missing required context
+
+  - id: source-authority-policy
+    exposure: internal
+    trigger:
+      - a decision, fact, or evidence source may govern the intent
+    input_contract:
+      - candidate sources and their source revisions
+      - authority class and precedence
+    output_contract:
+      - authoritative source selection
+      - explicit conflict and unresolved-fact report
+    stop_conditions:
+      - authority cannot be established
+      - a lower-authority source would be required to override a higher one
+
+  - id: task-identity-guard
+    exposure: internal
+    trigger:
+      - a request may create, replan, or mutate a task
+    input_contract:
+      - task identity and active-owner tuple
+      - requested intent and caller authority
+    output_contract:
+      - verified task identity
+      - allowed owner transition or non-mutation result
+    stop_conditions:
+      - missing or ambiguous identity
+      - multiple active owners
+      - caller is not authorized for the requested task mutation
+
+  - id: scope-guard
+    exposure: internal
+    trigger:
+      - product or governance mutation is proposed
+    input_contract:
+      - allowed, conditional, and forbidden scope
+      - proposed files, symbols, and operation targets
+    output_contract:
+      - admitted scope and any widening requirement
+      - exact excluded targets
+    stop_conditions:
+      - target is outside admitted scope
+      - forbidden target is requested
+      - scope widening lacks authority
+
+  - id: decision-authority-gate
+    exposure: internal
+    trigger:
+      - implementation requires a non-mechanical choice
+    input_contract:
+      - decision candidate, constraints, and existing authority
+      - user-owned, contract-owned, and mechanical categories
+    output_contract:
+      - classified decision
+      - authorized choice or explicit user blocker
+    stop_conditions:
+      - user-owned choice is unresolved
+      - proposed choice conflicts with a confirmed Contract or Decision
+
+  - id: adaptive-depth-policy
+    exposure: internal
+    trigger:
+      - every Phase 1A entry invocation
+    input_contract:
+      - risk surface, uncertainty, changed surfaces, and evidence needs
+    output_contract:
+      - selected risk profile
+      - triggered conditional capabilities and skipped-capability reasons
+    stop_conditions:
+      - a mandatory gate would be skipped
+      - risk evidence is insufficient to select a safe depth
+
+  - id: propagation-evidence-validator
+    exposure: internal
+    trigger:
+      - shared API, DTO, event, schema, or generated surface is affected
+    input_contract:
+      - changed contract surface and known consumers
+      - compatibility and linked-regression claims
+    output_contract:
+      - propagation impact map
+      - claim-bound compatibility and regression evidence gaps
+    stop_conditions:
+      - impacted consumer or contract cannot be identified
+      - required propagation evidence is unavailable
+
+  - id: design-evidence-gate
+    exposure: internal
+    trigger:
+      - UI or visual acceptance is in scope
+    input_contract:
+      - confirmed design source, anchors, and acceptance claims
+    output_contract:
+      - design evidence requirements and verdict
+      - visual deviation or missing-evidence report
+    stop_conditions:
+      - no confirmed design authority exists
+      - visual acceptance cannot be verified
+
+  - id: release-evidence-gate
+    exposure: internal
+    trigger:
+      - deployment, migration, release, benchmark, or canary behavior is affected
+    input_contract:
+      - release claims, rollback plan, observation window, and health checks
+    output_contract:
+      - release evidence plan and rollback/observation verdict
+    stop_conditions:
+      - rollback or observation authority is missing
+      - release evidence is incomplete for the claimed outcome
+
+  - id: external-documentation-gate
+    exposure: internal
+    trigger:
+      - current third-party library, framework, SDK, API, CLI, or cloud behavior affects correctness
+    input_contract:
+      - affected dependency behavior and exact current documentation claim
+      - dependency/version context and source revision
+    output_contract:
+      - current authoritative documentation evidence
+      - applicability and unresolved documentation conflict
+    stop_conditions:
+      - required current documentation cannot be obtained
+      - documentation evidence does not support the implementation assumption
+
+  - id: resume-review-gate
+    exposure: internal
+    trigger:
+      - replan or recovery is requested against an existing task snapshot
+    input_contract:
+      - exact task identity, checkpoint, dirty attribution, and recovery package
+    output_contract:
+      - readiness decision and verified next intent
+    stop_conditions:
+      - snapshot identity or source revision mismatches
+      - recovery package is incomplete or ambiguous
+
+  - id: read-only-review-guard
+    exposure: internal
+    trigger:
+      - review-change is invoked in any mode
+    input_contract:
+      - review request and declared side-effect policy
+    output_contract:
+      - read-only execution boundary
+      - governed mutation count and ephemeral-effects accounting
+    stop_conditions:
+      - a product, governance, queue, registry, install, or host write is requested
+
+  - id: diff-target-resolver
+    exposure: internal
+    trigger:
+      - review or execution needs a change target
+    input_contract:
+      - task base/checkpoint and current revision
+      - requested path, symbol, or logical diff target
+    output_contract:
+      - one verified logical diff target and comparable revisions
+    stop_conditions:
+      - target is missing, stale, ambiguous, or mismatched
+
+  - id: evidence-admission-policy
+    exposure: internal
+    trigger:
+      - a claim, evidence gap, or persistent-test decision is evaluated
+    input_contract:
+      - claim identity, owner, certainty, impact, and existing evidence
+      - proposed evidence type and expected disposition
+    output_contract:
+      - minimum-sufficient evidence plan
+      - persistent-test admission, defer, or rejection decision
+    stop_conditions:
+      - claim has no authorized owner
+      - evidence is insufficient or unrelated to the claim
+
+  - id: finding-admission
+    exposure: internal
+    trigger:
+      - review or repair proposes a finding for the current task
+    input_contract:
+      - evidence, owner route, scope, root-cause confidence, and fingerprint
+      - existing open/resolved findings and repair budget
+    output_contract:
+      - admitted, deferred, rejected, or duplicate finding disposition
+      - stable fingerprint and authorized route
+    stop_conditions:
+      - owner, scope, authority, evidence, root cause, or deduplication gate fails
+
+  - id: review-convergence-policy
+    exposure: internal
+    trigger:
+      - a repair is followed by review verification
+    input_contract:
+      - review cycle, finding fingerprints, attempt counters, and remaining budget
+      - verification evidence and newly observed issues
+    output_contract:
+      - resolved, continue, debug, user, or blocked convergence verdict
+      - updated bounded repair route
+    stop_conditions:
+      - per-fingerprint, repair-round, or new-finding-wave budget is exhausted
+      - the next route requires unknown root cause or user-owned authority
+
+  - id: dangerous-operation-gate
+    exposure: internal
+    trigger:
+      - a command or product operation has a dangerous or destructive surface
+    input_contract:
+      - exact command/target, risk, scope, and rollback/recovery plan
+      - required confirmation and authority evidence
+    output_contract:
+      - authorized operation or explicit stop
+    stop_conditions:
+      - target or rollback is unclear
+      - required confirmation or authority evidence is absent
+
+  - id: knowledge-admission-policy
+    exposure: internal
+    trigger:
+      - a durable Contract, Decision, or Lesson candidate is proposed
+    input_contract:
+      - candidate kind, statement, provenance, applicability, authority, stability, and evidence
+      - semantic fingerprint and conflict set
+    output_contract:
+      - admit, merge, supersede, defer, reject, or no-op disposition
+      - permitted uses and provenance-preserving reason
+    stop_conditions:
+      - authority, stability, reuse, conflict, or deduplication requirements fail
+
+runtime_operations:
+  - id: task-state-transaction
+    status: contract-only
+    binding: unbound
+    implementation_phase: Phase 2
+    source_targets:
+      - CURRENT_TASK.md
+    write_targets:
+      - CURRENT_TASK.md
+    allowed_callers:
+      - prepare-task
+      - execute-step
+
+  - id: finding-queue-transaction
+    status: contract-only
+    binding: unbound
+    implementation_phase: Phase 2
+    source_targets:
+      - CURRENT_TASK.md
+    write_targets:
+      - CURRENT_TASK.md
+    allowed_callers:
+      - execute-step

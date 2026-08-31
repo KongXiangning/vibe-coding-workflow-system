@@ -1,0 +1,77 @@
+---
+entry_contract:
+  entry: prepare-task
+  mode:
+    - default
+    - replan
+  intent: Turn a request or an existing task into one bounded, executable intent.
+  input_contract:
+    required:
+      - request
+    optional:
+      - existing_task
+      - acceptance_hints
+      - caller_context
+  authority_owner: user
+  mutation_boundary:
+    product_files: []
+    governance_sources: []
+    forbidden_targets:
+      - product files
+      - Contracts
+      - Decisions
+      - Lessons
+      - host guidance
+  internal_capabilities:
+    - project-context-resolver
+    - source-authority-policy
+    - task-identity-guard
+    - scope-guard
+    - decision-authority-gate
+    - adaptive-depth-policy
+    - propagation-evidence-validator
+    - design-evidence-gate
+    - release-evidence-gate
+    - external-documentation-gate
+    - resume-review-gate
+  runtime_operations:
+    - task-state-transaction
+  stop_conditions:
+    - required project context or task identity is missing or conflicted
+    - requested scope is ambiguous, forbidden, or requires unauthorized widening
+    - a user-owned, contract-owned, or release decision remains unresolved
+    - required evidence or rollback conditions cannot be stated
+    - the request uses an old or unsupported workflow schema
+  output_kind: prepared-task
+---
+
+# vNext Skill: prepare-task
+
+## Intent
+
+Turn the caller's request into one bounded executable intent. This entry may work from a new request or an existing task in `replan` mode. It performs the necessary context resolution, identity check, scope admission, authority classification, planning, and decomposition as one adaptive reasoning pass. Those evaluations are not public stages and do not produce an internal handoff chain.
+
+## Operating rules
+
+1. Resolve only the relevant canonical project context. Record exact locators, authority, relevance, freshness, conflicts, and exclusions; do not load all historical knowledge.
+2. Establish the task identity and active-owner tuple before preparing or replanning anything. In `replan`, preserve the existing task history and explain the changed goal, scope, acceptance, or evidence contract.
+3. Admit `Allowed`, `Conditional`, and `Forbidden` scope. A conditional or forbidden target is a blocker until the appropriate authority explicitly changes the scope.
+4. Classify decisions as mechanical, contract/decision-owned, or user-owned. Choose local mechanical details only; stop at unresolved user-owned or conflicting authority.
+5. Select planning and evidence depth from explicit risk triggers. Keep the smallest plan that makes each step independently verifiable, while retaining rollback, UI/release, propagation, external-documentation, and dangerous-operation requirements when triggered.
+6. Return a single prepared intent. Do not present create, review, scope, classify, plan, or decompose as callable stages.
+
+## Required result
+
+Return a structured `prepared-task` result containing:
+
+- task identity and active owner;
+- one goal and acceptance claims;
+- admitted `Allowed / Conditional / Forbidden` scope;
+- authority classification and unresolved decisions;
+- independently verifiable implementation steps, only to the depth justified by risk;
+- triggered capabilities and skipped-capability reasons;
+- evidence plan, rollback/recovery conditions, and stop conditions;
+- relevant context locators and conflict/exclusion trace;
+- a typed `task-state-transaction` proposal only when the caller has authorized durable task preparation.
+
+The Phase 1A source contract declares that Runtime operation as `contract-only / unbound / Phase 2`. Do not claim that `CURRENT_TASK.md` was written, updated, or committed. If a durable proposal is not authorized or cannot pass its preconditions, return the prepared result with the blocker and stop.

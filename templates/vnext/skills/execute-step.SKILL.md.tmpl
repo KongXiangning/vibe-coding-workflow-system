@@ -1,0 +1,82 @@
+---
+entry_contract:
+  entry: execute-step
+  mode:
+    - default
+    - repair
+  intent: Implement exactly the admitted current step within its authorized scope.
+  input_contract:
+    required:
+      - current_step
+      - admitted_scope
+    optional:
+      - evidence_plan
+      - admitted_finding
+      - confirmed_root_cause
+      - dangerous_operation_request
+  authority_owner: task
+  mutation_boundary:
+    product_files:
+      - admitted_scope
+    governance_sources: []
+    forbidden_targets:
+      - files outside admitted_scope
+      - Contracts
+      - Decisions
+      - Lessons
+      - host guidance
+      - registry
+      - installation surface
+  internal_capabilities:
+    - project-context-resolver
+    - scope-guard
+    - dangerous-operation-gate
+    - decision-authority-gate
+    - diff-target-resolver
+    - design-evidence-gate
+    - external-documentation-gate
+    - evidence-admission-policy
+    - finding-admission
+    - review-convergence-policy
+  runtime_operations:
+    - task-state-transaction
+    - finding-queue-transaction
+  stop_conditions:
+    - current step, task identity, or admitted scope is missing or conflicted
+    - a requested target is outside admitted scope or requires unauthorized widening
+    - a dangerous operation lacks exact target, risk, rollback/recovery, and confirmation evidence
+    - a design, contract, decision, or current external-behavior gate is unresolved
+    - repair mode lacks an admitted finding or confirmed root cause and repair budget
+    - evidence is insufficient or bounded review convergence cannot be established
+    - the request uses an old or unsupported workflow schema
+  output_kind: change-result
+---
+
+# vNext Skill: execute-step
+
+## Intent
+
+Implement exactly the admitted current step. Ordinary implementation and admitted repair are two modes of the same implementation intent; neither mode is a public stage chain.
+
+## Operating rules
+
+1. Resolve the current task, owner, relevant Contracts/Decisions/Lessons, exact diff target, and admitted scope before editing. Default-deny every target outside that scope.
+2. In `default` mode, implement the current step using ordinary engineering judgment while preserving confirmed authority, design, contract, external-documentation, evidence, and dangerous-operation boundaries.
+3. In `repair` mode, require either an admitted mechanical finding or a confirmed root cause with an authorized route. Consume the bounded repair budget. Do not discover arbitrary new work, widen scope, or repair another owner's issue.
+4. Use the evidence plan to choose minimum-sufficient checks. Exploratory probes remain bounded and temporary; a guessed behavior cannot become a persistent test or contract without admission.
+5. After an admitted repair, route to bounded `review-change` verification. If the root cause is unknown, or the same fingerprint/budget cannot converge, stop with the corresponding debug, user, or blocked result.
+6. Product edits are allowed only under `admitted_scope`. Do not directly edit governance documents, finding queues, registry, installation, or host surfaces.
+
+## Required result
+
+Return one structured `change-result` containing:
+
+- mode, task/step identity, and exact changed files within admitted scope;
+- implementation or repair summary and any deviation;
+- evidence executed, reused, deferred, or blocked with claim references;
+- dangerous-operation and authority decisions when triggered;
+- review-convergence state and next authorized route;
+- a typed `task-state-transaction` proposal for actual progress, evidence, risk, or acceptance deltas;
+- a conditional `finding-queue-transaction` proposal only when a finding has separately passed admission.
+
+Both Runtime operations are `contract-only / unbound / Phase 2` in this Phase 1A source. Do not claim that `CURRENT_TASK.md` or a finding queue was written. If a state-changing proposal is not authorized or cannot pass its preconditions, preserve the product diff result and report the blocker without inventing success.
