@@ -592,7 +592,7 @@ The converted output remains Markdown/YAML canonical knowledge and project truth
 Conversion must:
 
 - preserve original text, authoritative facts, and provenance;
-- convert headings and schemas, assign stable IDs, adjust paths/references, and validate the resulting structure;
+- mechanically wrap legacy Markdown/YAML in the vNext canonical schema, assign stable document and heading identities, normalize structural paths/references, preserve the original body, and validate the resulting structure;
 - preserve unknown target-owned content or report it as an explicit conversion issue rather than overwriting it;
 - reject ambiguous identity, conflicting authority, unsupported fields, missing required structural facts, unsafe paths, and frozen/generated-boundary violations;
 - produce a complete validated pack before any vNext installation is attempted.
