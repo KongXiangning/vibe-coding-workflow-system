@@ -9,28 +9,62 @@ export const VNEXT_SKILL_TEMPLATE_RELATIVE_PATH = 'templates/vnext/skills';
 export const PHASE_1A_ENTRIES = ['prepare-task', 'review-change', 'execute-step'] as const;
 export type Phase1AEntry = (typeof PHASE_1A_ENTRIES)[number];
 
+export const PHASE_1_ENTRIES = [
+  ...PHASE_1A_ENTRIES,
+  'debug-task',
+  'task-lifecycle',
+  'capture-work-item',
+  'close-task',
+] as const;
+export type Phase1Entry = (typeof PHASE_1_ENTRIES)[number];
+
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'replan'],
   'review-change': ['default', 'report-only'],
   'execute-step': ['default', 'repair'],
 };
 
-const EXPECTED_OUTPUT_KINDS: Record<Phase1AEntry, string> = {
+export const PHASE_1_MODES: Record<Phase1Entry, readonly string[]> = {
+  ...PHASE_1A_MODES,
+  'debug-task': ['investigate-only', 'resolve'],
+  'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
+  'capture-work-item': [],
+  'close-task': ['preview'],
+};
+
+const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
   'prepare-task': 'prepared-task',
   'review-change': 'report',
   'execute-step': 'change-result',
+  'debug-task': 'debug-result',
+  'task-lifecycle': 'lifecycle-result',
+  'capture-work-item': 'capture-result',
+  'close-task': 'closure-result',
 };
 
-const EXPECTED_AUTHORITY_OWNERS: Record<Phase1AEntry, string> = {
+const EXPECTED_AUTHORITY_OWNERS: Record<Phase1Entry, string> = {
   'prepare-task': 'user',
   'review-change': 'none',
   'execute-step': 'task',
+  'debug-task': 'task',
+  'task-lifecycle': 'task',
+  'capture-work-item': 'none',
+  'close-task': 'task',
 };
 
-const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1AEntry, readonly string[]> = {
+const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
   'review-change': [],
   'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
+  'debug-task': ['task-state-transaction'],
+  'task-lifecycle': ['lifecycle-transaction', 'task-state-transaction'],
+  'capture-work-item': ['inbox-record-transaction'],
+  'close-task': [
+    'task-state-transaction',
+    'project-status-transaction',
+    'archive-transaction',
+    'lesson-record-transaction',
+  ],
 };
 
 const FORBIDDEN_TOP_LEVEL_FIELDS = new Set([
@@ -59,17 +93,27 @@ const REQUIRED_CAPABILITIES = [
   'review-convergence-policy',
   'dangerous-operation-gate',
   'knowledge-admission-policy',
+  'root-cause-loop',
+  'owner-route-resolver',
+  'lifecycle-transition-guard',
+  'record-only-intake-guard',
+  'closure-eligibility-gate',
 ] as const;
 
 const REQUIRED_RUNTIME_OPERATIONS = [
   'task-state-transaction',
   'finding-queue-transaction',
+  'lifecycle-transaction',
+  'inbox-record-transaction',
+  'project-status-transaction',
+  'archive-transaction',
+  'lesson-record-transaction',
 ] as const;
 
 type UnknownRecord = Record<string, unknown>;
 
 export type VNextSourceValidationResult = {
-  entries: Phase1AEntry[];
+  entries: Phase1Entry[];
   capabilities: string[];
   runtimeOperations: string[];
   legacySkillNames: string[];
@@ -162,7 +206,7 @@ function validateSourceNamespace(contract: UnknownRecord): void {
   expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'source_namespace', 'entries', 'capabilities', 'runtime_operations'], 'contract');
   if (contract.schema_version !== 1) fail('contract.schema_version must be 1');
   if (contract.kind !== 'vnext-source-contract') fail('contract.kind must be vnext-source-contract');
-  if (contract.phase !== 'Phase 1A') fail('contract.phase must be Phase 1A');
+  if (contract.phase !== 'Phase 1') fail('contract.phase must be Phase 1');
 
   const namespace = expectRecord(contract.source_namespace, 'contract.source_namespace');
   expectExactKeys(namespace, ['root', 'skill_templates', 'contract_file', 'installable', 'generated', 'host_sync'], 'contract.source_namespace');
@@ -170,39 +214,39 @@ function validateSourceNamespace(contract: UnknownRecord): void {
   assertRelativePath(namespace.skill_templates, VNEXT_SKILL_TEMPLATE_RELATIVE_PATH, 'contract.source_namespace.skill_templates');
   assertRelativePath(namespace.contract_file, VNEXT_SOURCE_CONTRACT_RELATIVE_PATH, 'contract.source_namespace.contract_file');
   if (expectBoolean(namespace.installable, 'contract.source_namespace.installable')) {
-    fail('Phase 1A source namespace must not be installable');
+    fail('Phase 1 source namespace must not be installable');
   }
   if (expectBoolean(namespace.generated, 'contract.source_namespace.generated')) {
-    fail('Phase 1A source namespace must not be generated');
+    fail('Phase 1 source namespace must not be generated');
   }
   if (expectBoolean(namespace.host_sync, 'contract.source_namespace.host_sync')) {
-    fail('Phase 1A source namespace must not be host-synced');
+    fail('Phase 1 source namespace must not be host-synced');
   }
 }
 
-function validateCatalogEntries(root: string, contract: UnknownRecord): Map<Phase1AEntry, string> {
+function validateCatalogEntries(root: string, contract: UnknownRecord): Map<Phase1Entry, string> {
   const rawEntries = contract.entries;
   if (!Array.isArray(rawEntries)) fail('contract.entries must be a list');
-  if (rawEntries.length !== PHASE_1A_ENTRIES.length) {
-    fail(`contract.entries must contain exactly ${PHASE_1A_ENTRIES.length} Phase 1A entries`);
+  if (rawEntries.length !== PHASE_1_ENTRIES.length) {
+    fail(`contract.entries must contain exactly ${PHASE_1_ENTRIES.length} Phase 1 entries`);
   }
 
-  const entryTemplates = new Map<Phase1AEntry, string>();
+  const entryTemplates = new Map<Phase1Entry, string>();
   for (const [index, rawEntry] of rawEntries.entries()) {
     const entry = expectRecord(rawEntry, `contract.entries[${index}]`);
     expectExactKeys(entry, ['id', 'exposure', 'template'], `contract.entries[${index}]`);
     const id = expectString(entry.id, `contract.entries[${index}].id`);
-    if (!(PHASE_1A_ENTRIES as readonly string[]).includes(id)) {
-      fail(`contract.entries[${index}].id "${id}" is not a Phase 1A entry`);
+    if (!(PHASE_1_ENTRIES as readonly string[]).includes(id)) {
+      fail(`contract.entries[${index}].id "${id}" is not a Phase 1 entry`);
     }
-    if (entryTemplates.has(id as Phase1AEntry)) fail(`duplicate entry id "${id}"`);
+    if (entryTemplates.has(id as Phase1Entry)) fail(`duplicate entry id "${id}"`);
     if (entry.exposure !== 'daily') fail(`entry "${id}" must have exposure daily`);
     const expectedTemplate = `templates/vnext/skills/${id}.SKILL.md.tmpl`;
     assertRelativePath(entry.template, expectedTemplate, `contract.entries[${index}].template`);
-    entryTemplates.set(id as Phase1AEntry, expectedTemplate);
+    entryTemplates.set(id as Phase1Entry, expectedTemplate);
   }
 
-  for (const entry of PHASE_1A_ENTRIES) {
+  for (const entry of PHASE_1_ENTRIES) {
     const templatePath = path.join(root, ...entryTemplates.get(entry)!.split('/'));
     if (!fs.existsSync(templatePath)) fail(`missing template for ${entry}: ${templatePath}`);
   }
@@ -210,7 +254,7 @@ function validateCatalogEntries(root: string, contract: UnknownRecord): Map<Phas
   const skillDir = path.join(root, ...VNEXT_SKILL_TEMPLATE_RELATIVE_PATH.split('/'));
   if (!fs.existsSync(skillDir)) fail(`missing vNext skill template directory: ${skillDir}`);
   const actualFiles = fs.readdirSync(skillDir).filter(file => file.endsWith('.SKILL.md.tmpl')).sort();
-  const expectedFiles = PHASE_1A_ENTRIES.map(entry => `${entry}.SKILL.md.tmpl`).sort();
+  const expectedFiles = PHASE_1_ENTRIES.map(entry => `${entry}.SKILL.md.tmpl`).sort();
   expectSetEqual(actualFiles, expectedFiles, 'vNext skill template files');
   return entryTemplates;
 }
@@ -256,15 +300,15 @@ function validateRuntimeCatalog(contract: UnknownRecord): Map<string, UnknownRec
     const id = expectString(operation.id, `contract.runtime_operations[${index}].id`);
     if (operations.has(id)) fail(`duplicate Runtime operation id "${id}"`);
     operations.set(id, operation);
-    if (operation.status !== 'contract-only') fail(`Runtime operation "${id}" must be contract-only in Phase 1A`);
-    if (operation.binding !== 'unbound') fail(`Runtime operation "${id}" must be unbound in Phase 1A`);
+    if (operation.status !== 'contract-only') fail(`Runtime operation "${id}" must be contract-only in Phase 1`);
+    if (operation.binding !== 'unbound') fail(`Runtime operation "${id}" must be unbound in Phase 1`);
     if (operation.implementation_phase !== 'Phase 2') fail(`Runtime operation "${id}" must have implementation_phase Phase 2`);
     expectStringArray(operation.source_targets, `Runtime operation "${id}".source_targets`);
     expectStringArray(operation.write_targets, `Runtime operation "${id}".write_targets`);
     const callers = expectStringArray(operation.allowed_callers, `Runtime operation "${id}".allowed_callers`);
     for (const caller of callers) {
-      if (!(PHASE_1A_ENTRIES as readonly string[]).includes(caller)) {
-        fail(`Runtime operation "${id}" has a non-Phase-1A caller "${caller}"`);
+      if (!(PHASE_1_ENTRIES as readonly string[]).includes(caller)) {
+        fail(`Runtime operation "${id}" has a non-Phase-1 caller "${caller}"`);
       }
     }
   }
@@ -289,7 +333,7 @@ function readLegacySkillNames(root: string): string[] {
   });
 }
 
-function validateInputContract(input: UnknownRecord, entry: Phase1AEntry): void {
+function validateInputContract(input: UnknownRecord, entry: Phase1Entry): void {
   expectExactKeys(
     input,
     entry === 'review-change' ? ['required', 'optional', 'cycle_phase'] : ['required', 'optional'],
@@ -303,9 +347,36 @@ function validateInputContract(input: UnknownRecord, entry: Phase1AEntry): void 
   }
 }
 
+function validateLegacyExecutableTargets(content: string, entry: Phase1Entry, legacySkillNames: readonly string[]): void {
+  const lines = content.split(/\r?\n/);
+  for (const legacyName of legacySkillNames) {
+    const escapedName = legacyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let inFrontmatter = false;
+    for (const [lineIndex, line] of lines.entries()) {
+      if (lineIndex === 0 && line.trim() === '---') {
+        inFrontmatter = true;
+        continue;
+      }
+      if (inFrontmatter && line.trim() === '---') {
+        inFrontmatter = false;
+        continue;
+      }
+      if (!line.includes(legacyName)) continue;
+      if (
+        legacyName === entry &&
+        ((inFrontmatter && /^\s*entry:\s*.+\s*$/.test(line) && line.trim().slice('entry:'.length).trim() === legacyName) ||
+          new RegExp(`^# vNext Skill:\\s*${escapedName}\\s*$`).test(line))
+      ) {
+        continue;
+      }
+      fail(`${entry} contains legacy Skill ID "${legacyName}" as executable source`);
+    }
+  }
+}
+
 function validateTemplate(
   root: string,
-  entry: Phase1AEntry,
+  entry: Phase1Entry,
   templateRelativePath: string,
   capabilities: Set<string>,
   runtimeOperations: Map<string, UnknownRecord>,
@@ -319,11 +390,7 @@ function validateTemplate(
     if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
   }
 
-  for (const legacyName of legacySkillNames) {
-    if (content.includes(legacyName)) {
-      fail(`${entry} contains legacy Skill ID "${legacyName}" as executable source`);
-    }
-  }
+  validateLegacyExecutableTargets(content, entry, legacySkillNames);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(
@@ -332,8 +399,8 @@ function validateTemplate(
     `${entry}.entry_contract`,
   );
   if (contract.entry !== entry) fail(`${entry}.entry_contract.entry must be "${entry}"`);
-  const modes = expectStringArray(contract.mode, `${entry}.entry_contract.mode`);
-  expectSetEqual(modes, PHASE_1A_MODES[entry], `${entry}.entry_contract.mode`);
+  const modes = expectStringArray(contract.mode, `${entry}.entry_contract.mode`, true);
+  expectSetEqual(modes, PHASE_1_MODES[entry], `${entry}.entry_contract.mode`);
   if (modes.some(mode => mode === 'discovery' || mode === 'verification')) {
     fail(`${entry}.entry_contract.mode must not contain review cycle phases`);
   }
@@ -369,7 +436,7 @@ function validateTemplate(
     if (!runtimeOperations.has(operation)) fail(`${entry} references missing Runtime operation "${operation}"`);
     const status = runtimeOperations.get(operation)!;
     if (status.status !== 'contract-only' || status.binding !== 'unbound' || status.implementation_phase !== 'Phase 2') {
-      fail(`${entry} references Runtime operation "${operation}" outside the Phase 1A contract-only boundary`);
+      fail(`${entry} references Runtime operation "${operation}" outside the Phase 1 contract-only boundary`);
     }
   }
   if (entry === 'review-change' && runtimeRefs.length !== 0) {
@@ -391,7 +458,7 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
   const runtimeOperations = validateRuntimeCatalog(sourceContract);
   const legacySkillNames = readLegacySkillNames(resolvedRoot);
 
-  for (const entry of PHASE_1A_ENTRIES) {
+  for (const entry of PHASE_1_ENTRIES) {
     validateTemplate(
       resolvedRoot,
       entry,
@@ -403,7 +470,7 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
   }
 
   return {
-    entries: [...PHASE_1A_ENTRIES],
+    entries: [...PHASE_1_ENTRIES],
     capabilities: [...capabilityIds].sort(),
     runtimeOperations: [...runtimeOperations.keys()].sort(),
     legacySkillNames,

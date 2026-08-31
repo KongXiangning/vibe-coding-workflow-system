@@ -1,0 +1,79 @@
+---
+entry_contract:
+  entry: debug-task
+  mode:
+    - investigate-only
+    - resolve
+  intent: Establish a reproducible root cause and select one authorized recovery route.
+  input_contract:
+    required:
+      - symptom
+      - affected_target
+    optional:
+      - task_identity
+      - admitted_scope
+      - evidence_plan
+      - reproduction_steps
+      - investigation_budget
+      - caller_context
+  authority_owner: task
+  mutation_boundary:
+    product_files: []
+    governance_sources: []
+    forbidden_targets:
+      - product files
+      - Contracts
+      - Decisions
+      - Lessons
+      - task state without an admitted proposal
+      - finding queues
+      - registry
+      - installation surface
+      - host surface
+  internal_capabilities:
+    - project-context-resolver
+    - root-cause-loop
+    - owner-route-resolver
+    - source-authority-policy
+    - scope-guard
+    - decision-authority-gate
+    - evidence-admission-policy
+    - external-documentation-gate
+    - review-convergence-policy
+  runtime_operations:
+    - task-state-transaction
+  stop_conditions:
+    - symptom, target, or task ownership is missing or conflicted
+    - reproduction cannot be established within the bounded investigation budget
+    - root cause remains a hypothesis after the allowed attempts
+    - the proposed route requires scope widening, another owner, or user authority
+    - the request uses an old or unsupported workflow schema
+  output_kind: debug-result
+---
+
+# vNext Skill: debug-task
+
+## Intent
+
+Establish a reproducible root cause and select one authorized recovery route. Investigation and resolution are modes of this single diagnostic intent; debugging never edits product code directly.
+
+## Operating rules
+
+1. Resolve the relevant project context, task identity, active owner, affected target, and admitted scope before forming a repair hypothesis.
+2. Reproduce the symptom or establish a bounded, evidence-backed reason reproduction is unavailable. Separate observed facts from hypotheses and validate each hypothesis against the smallest useful probe.
+3. In `investigate-only`, return a terminal diagnostic result without proposing a repair route that has not passed evidence and authority checks. In `resolve`, require a confirmed root cause, current-owner route, admitted scope, and an available repair budget before recommending the repair intent.
+4. Use current external documentation only when dependency behavior affects correctness. Route other-owner defects, scope widening, user-owned choices, and unrelated work through their owner result instead of treating them as current-task repairs.
+5. A current-task diagnostic evidence update may be described as a `task-state-transaction` proposal. It remains `contract-only / unbound / Phase 2`; this entry never claims that task state was written.
+
+## Required result
+
+Return one structured `debug_result` containing:
+
+- symptom, affected target, task identity, owner route, and admitted scope;
+- reproduction evidence, hypotheses tested, root-cause confidence, and unresolved alternatives;
+- investigation attempts and remaining bounded budget;
+- `investigate-only` or `resolve` disposition and the one authorized next route;
+- evidence gaps, user/other-owner blockers, and stop conditions;
+- a conditional task-state proposal only when current-task diagnostic evidence is admitted.
+
+`resolve` may recommend `execute-step:repair` as a result field after proof and authority. It does not invoke that entry or write product files itself.

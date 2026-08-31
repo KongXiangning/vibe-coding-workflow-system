@@ -49,7 +49,7 @@ entry_contract:
 
 ## Intent
 
-Turn the caller's request into one bounded executable intent. This entry may work from a new request or an existing task in `replan` mode. It performs the necessary context resolution, identity check, scope admission, authority classification, planning, and decomposition as one adaptive reasoning pass. Those evaluations are not public stages and do not produce an internal handoff chain.
+Turn the caller's request into one bounded executable intent. This entry may work from a new request or an existing task in `replan` mode. It performs the necessary context resolution, identity check, scope admission, authority classification, planning, and decomposition as one adaptive reasoning pass. Those evaluations are internal and do not produce another entry.
 
 ## Operating rules
 
@@ -58,7 +58,7 @@ Turn the caller's request into one bounded executable intent. This entry may wor
 3. Admit `Allowed`, `Conditional`, and `Forbidden` scope. A conditional or forbidden target is a blocker until the appropriate authority explicitly changes the scope.
 4. Classify decisions as mechanical, contract/decision-owned, or user-owned. Choose local mechanical details only; stop at unresolved user-owned or conflicting authority.
 5. Select planning and evidence depth from explicit risk triggers. Keep the smallest plan that makes each step independently verifiable, while retaining rollback, UI/release, propagation, external-documentation, and dangerous-operation requirements when triggered.
-6. Return a single prepared intent. Do not present create, review, scope, classify, plan, or decompose as callable stages.
+6. Return a single prepared intent. Do not present create, review, scope, classify, plan, or decompose as separate callable operations.
 
 ## Required result
 
@@ -74,4 +74,4 @@ Return a structured `prepared-task` result containing:
 - relevant context locators and conflict/exclusion trace;
 - a typed `task-state-transaction` proposal only when the caller has authorized durable task preparation.
 
-The Phase 1A source contract declares that Runtime operation as `contract-only / unbound / Phase 2`. Do not claim that `CURRENT_TASK.md` was written, updated, or committed. If a durable proposal is not authorized or cannot pass its preconditions, return the prepared result with the blocker and stop.
+The Phase 1 source contract declares that Runtime operation as `contract-only / unbound / Phase 2`. Do not claim that `CURRENT_TASK.md` was written, updated, or committed. If a durable proposal is not authorized or cannot pass its preconditions, return the prepared result with the blocker and stop.

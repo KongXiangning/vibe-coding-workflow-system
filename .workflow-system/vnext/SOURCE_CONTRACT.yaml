@@ -1,6 +1,6 @@
 schema_version: 1
 kind: vnext-source-contract
-phase: Phase 1A
+phase: Phase 1
 
 source_namespace:
   root: templates/vnext
@@ -20,6 +20,18 @@ entries:
   - id: execute-step
     exposure: daily
     template: templates/vnext/skills/execute-step.SKILL.md.tmpl
+  - id: debug-task
+    exposure: daily
+    template: templates/vnext/skills/debug-task.SKILL.md.tmpl
+  - id: task-lifecycle
+    exposure: daily
+    template: templates/vnext/skills/task-lifecycle.SKILL.md.tmpl
+  - id: capture-work-item
+    exposure: daily
+    template: templates/vnext/skills/capture-work-item.SKILL.md.tmpl
+  - id: close-task
+    exposure: daily
+    template: templates/vnext/skills/close-task.SKILL.md.tmpl
 
 capabilities:
   - id: project-context-resolver
@@ -100,7 +112,7 @@ capabilities:
   - id: adaptive-depth-policy
     exposure: internal
     trigger:
-      - every Phase 1A entry invocation
+      - every Phase 1 entry invocation
     input_contract:
       - risk surface, uncertainty, changed surfaces, and evidence needs
     output_contract:
@@ -266,6 +278,91 @@ capabilities:
     stop_conditions:
       - authority, stability, reuse, conflict, or deduplication requirements fail
 
+  - id: root-cause-loop
+    exposure: internal
+    trigger:
+      - a defect, regression, or unexpected behavior needs a bounded causal investigation
+    input_contract:
+      - reproducible symptom and affected target
+      - current task owner, scope, and evidence
+      - hypotheses, attempts, and investigation budget
+    output_contract:
+      - reproduced or unavailable result
+      - validated root-cause statement or unresolved hypothesis set
+      - authorized recovery route and remaining budget
+    stop_conditions:
+      - reproduction is unavailable after bounded attempts
+      - root cause remains unvalidated after the investigation budget
+      - proposed repair requires user, scope, or other-owner authority
+
+  - id: owner-route-resolver
+    exposure: internal
+    trigger:
+      - an observation, finding, lifecycle event, or work item may belong to different owners
+    input_contract:
+      - task identity and active-owner tuple
+      - evidence, scope, and candidate owner routes
+      - current lifecycle and authority state
+    output_contract:
+      - one canonical owner route
+      - route evidence and guard-aware next action
+      - explicit user or blocked result when no route is authorized
+    stop_conditions:
+      - owner cannot be established from authoritative evidence
+      - route would cross task, scope, or lifecycle ownership
+      - a guard-required transition is missing its evidence
+
+  - id: lifecycle-transition-guard
+    exposure: internal
+    trigger:
+      - a task pause, interruption, resume, supersede, or recovery transition is requested
+    input_contract:
+      - exact task identity and current workflow/lifecycle tuple
+      - requested transition, snapshot, checkpoint, and dirty attribution
+      - recovery strategy, rollback conditions, and authority evidence
+    output_contract:
+      - legal transition decision
+      - complete snapshot/checkpoint/recovery requirements
+      - normalized next lifecycle tuple or fail-closed result
+    stop_conditions:
+      - identity or current tuple is missing, stale, or ambiguous
+      - transition is illegal or recovery evidence is incomplete
+      - the request attempts hot migration of unsupported legacy state
+
+  - id: record-only-intake-guard
+    exposure: internal
+    trigger:
+      - a new work item is proposed while an active task exists
+    input_contract:
+      - relation to the active task and supporting evidence
+      - proposed inbox record and duplicate/scope checks
+      - owner route and record-only constraints
+    output_contract:
+      - unrelated, record-only admission decision
+      - at most one inbox record proposal
+      - explicit ask-user or blocked route for uncertainty or scope widening
+    stop_conditions:
+      - relation is uncertain or duplicate suspicion is unresolved
+      - item belongs to the active task or requires scope widening
+      - proposal would mutate task identity, lifecycle, catalog, or active state
+
+  - id: closure-eligibility-gate
+    exposure: internal
+    trigger:
+      - a task is proposed for preview, closure, delivery summary, or archive
+    input_contract:
+      - task identity, acceptance claims, validation evidence, and remaining risks
+      - release/rollback/observation evidence when applicable
+      - status, archive path, and explicit lesson candidates
+    output_contract:
+      - closure eligibility verdict
+      - complete delivery/closure summary inputs
+      - admitted Runtime proposals or a truthful blocker
+    stop_conditions:
+      - acceptance, validation, release, rollback, or observation evidence is incomplete
+      - unresolved blocker is being presented as completion
+      - identity, archive path, or remaining risk cannot be verified
+
 runtime_operations:
   - id: task-state-transaction
     status: contract-only
@@ -278,6 +375,9 @@ runtime_operations:
     allowed_callers:
       - prepare-task
       - execute-step
+      - debug-task
+      - task-lifecycle
+      - close-task
 
   - id: finding-queue-transaction
     status: contract-only
@@ -289,3 +389,63 @@ runtime_operations:
       - CURRENT_TASK.md
     allowed_callers:
       - execute-step
+
+  - id: lifecycle-transaction
+    status: contract-only
+    binding: unbound
+    implementation_phase: Phase 2
+    source_targets:
+      - vNext lifecycle marker
+      - vNext snapshot
+      - vNext recovery package
+    write_targets:
+      - vNext lifecycle marker
+      - vNext snapshot
+      - vNext recovery package
+    allowed_callers:
+      - task-lifecycle
+
+  - id: inbox-record-transaction
+    status: contract-only
+    binding: unbound
+    implementation_phase: Phase 2
+    source_targets:
+      - TASKS/inbox/**
+    write_targets:
+      - TASKS/inbox/**
+    allowed_callers:
+      - capture-work-item
+
+  - id: project-status-transaction
+    status: contract-only
+    binding: unbound
+    implementation_phase: Phase 2
+    source_targets:
+      - STATUS
+      - approved status baseline
+    write_targets:
+      - STATUS
+    allowed_callers:
+      - close-task
+
+  - id: archive-transaction
+    status: contract-only
+    binding: unbound
+    implementation_phase: Phase 2
+    source_targets:
+      - canonical task archive
+    write_targets:
+      - canonical task archive
+    allowed_callers:
+      - close-task
+
+  - id: lesson-record-transaction
+    status: contract-only
+    binding: unbound
+    implementation_phase: Phase 2
+    source_targets:
+      - LESSONS
+    write_targets:
+      - LESSONS
+    allowed_callers:
+      - close-task

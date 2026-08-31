@@ -180,6 +180,10 @@ Phase 1A must provide one source validator and a focused test file covering at l
 
 These tests should use small in-memory mutations or a few temporary contract files for negative cases. They must not reuse the historical shadow fixture matrix or the experimental shadow tests as vNext evidence. Once the validator and templates exist, a dedicated `test:workflow-vnext-source` command must join `test:workflow-all` as a real source-contract gate; `test:workflow-vnext-shadow` remains standalone and excluded from the formal gate.
 
+### 3.4 Phase 1 follow-up source checkpoint
+
+After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The current source contract is now `Phase 1` with seven daily templates, a closed capability union, and contract-only Runtime operations. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, Migration Pack boundary, or Runtime binding plan.
+
 ## 4. 关键宏观路由
 
 入口之间只保留改变 intent、authority、lifecycle 或 mutation phase 的宏观转换：

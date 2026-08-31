@@ -1,0 +1,81 @@
+---
+entry_contract:
+  entry: close-task
+  mode:
+    - preview
+  intent: Prove closure eligibility and finish one task with truthful delivery, status, archive, and lesson proposals.
+  input_contract:
+    required:
+      - task_identity
+      - acceptance_claims
+      - validation_evidence
+    optional:
+      - release_evidence
+      - rollback_plan
+      - observation_window
+      - remaining_risks
+      - status_baseline
+      - archive_target
+      - lesson_candidates
+      - caller_context
+  authority_owner: task
+  mutation_boundary:
+    product_files: []
+    governance_sources: []
+    forbidden_targets:
+      - product files
+      - Contracts
+      - Decisions
+      - Lessons
+      - task state without a Runtime proposal
+      - project status without a Runtime proposal
+      - archive without a Runtime proposal
+      - registry
+      - installation surface
+      - host surface
+  internal_capabilities:
+    - project-context-resolver
+    - closure-eligibility-gate
+    - task-identity-guard
+    - evidence-admission-policy
+    - release-evidence-gate
+    - knowledge-admission-policy
+  runtime_operations:
+    - task-state-transaction
+    - project-status-transaction
+    - archive-transaction
+    - lesson-record-transaction
+  stop_conditions:
+    - task identity, acceptance, or validation evidence is missing or conflicted
+    - release, rollback, observation, or remaining-risk evidence is incomplete when triggered
+    - a blocker, open finding, or evidence gap would make completion untruthful
+    - status, archive identity/path, or lesson admission cannot be verified
+    - the request uses an old or unsupported workflow schema
+  output_kind: closure-result
+---
+
+# vNext Skill: close-task
+
+## Intent
+
+Prove closure eligibility and finish one task with a truthful delivery summary. Ordinary closure is the default entry intent; `preview` is the explicit terminal, non-mutating variant.
+
+## Operating rules
+
+1. Verify immutable task identity, acceptance claims, validation evidence, open findings, remaining risks, and the exact closure/archive target before preparing any proposal.
+2. Evaluate release health, rollback, canary, and observation evidence when the task risk triggers them. A missing or unresolved requirement yields a blocked or observing result; it cannot be summarized as complete.
+3. In `preview`, return the complete closure summary and eligibility verdict with zero Runtime proposals. In ordinary closure, prepare only the typed proposals justified by the eligibility result: task state, project status, archive, and, after explicit knowledge admission, a lesson record.
+4. Keep task status descriptive and preserve acceptance, verification, release/rollback, observation, and remaining-risk facts. Do not rewrite history or infer a stable archive path from an ambiguous identity.
+5. All four Runtime operations are `contract-only / unbound / Phase 2`; this entry never claims that task state, status, archive, or lessons were written.
+
+## Required result
+
+Return one structured `closure_result` containing:
+
+- exact task identity, acceptance and validation verdict, and closure eligibility;
+- delivery summary with release/rollback/observation evidence and remaining risks;
+- preview or ordinary closure semantics and the exact status/archive targets;
+- explicit lesson admission, defer, or no-op decision;
+- typed Runtime proposals only when each operation's preconditions pass.
+
+Closure is not complete until the later Runtime phase validates and commits the authorized proposals.

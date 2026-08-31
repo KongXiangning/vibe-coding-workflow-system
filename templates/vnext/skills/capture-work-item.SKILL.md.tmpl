@@ -1,0 +1,68 @@
+---
+entry_contract:
+  entry: capture-work-item
+  mode: []
+  intent: Record one work item proven unrelated to the active task without promoting or switching it.
+  input_contract:
+    required:
+      - work_item
+      - relation_to_current_task
+    optional:
+      - evidence
+      - duplicate_check
+      - proposed_owner
+      - caller_context
+  authority_owner: none
+  mutation_boundary:
+    product_files: []
+    governance_sources: []
+    forbidden_targets:
+      - product files
+      - Contracts
+      - Decisions
+      - Lessons
+      - CURRENT_TASK.md
+      - task identity
+      - lifecycle state
+      - task catalog
+      - archive
+      - registry
+      - installation surface
+      - host surface
+  internal_capabilities:
+    - record-only-intake-guard
+    - owner-route-resolver
+    - scope-guard
+    - project-context-resolver
+  runtime_operations:
+    - inbox-record-transaction
+  stop_conditions:
+    - relation to the active task is uncertain or duplicate suspicion is unresolved
+    - the item belongs to the active task or requires scope widening
+    - owner or record identity cannot be established
+    - the proposal would create, switch, or mutate task, lifecycle, identity, catalog, or archive state
+    - the request uses an old or unsupported workflow schema
+  output_kind: capture-result
+---
+
+# vNext Skill: capture-work-item
+
+## Intent
+
+Record one work item proven unrelated to the active task. This is a record-only intake intent, not a task-creation or task-switching path.
+
+## Operating rules
+
+1. Resolve the active task and owner only far enough to prove the new item is unrelated. Treat `scope widening`, `uncertain`, and duplicate-suspected relations as fail-closed results.
+2. Admit at most one inbox record with a stable identity, evidence, proposed owner route, and clear relation statement. Do not create a task, change the active task, change lifecycle or identity, or alter a catalog.
+3. The only durable action this entry may propose is one `inbox-record-transaction` for `TASKS/inbox/**`. It is `contract-only / unbound / Phase 2`; this entry never claims that an inbox file was written.
+4. After a valid record proposal, return the result to an explicit user decision. Do not auto-promote the record or start another intent.
+
+## Required result
+
+Return one structured `capture_result` containing:
+
+- work-item identity, relation evidence, duplicate check, and owner route;
+- record-only admission verdict and exact inbox target;
+- a single inbox Runtime proposal or a truthful blocked/user result;
+- explicit confirmation that active task, lifecycle, identity, catalog, and archive state were not mutated.

@@ -45,13 +45,29 @@ afterEach(() => {
   }
 });
 
-describe('vNext Phase 1A source contract', () => {
-  test('accepts exactly the three core entries and closed catalogs', () => {
+describe('vNext Phase 1 source contract', () => {
+  test('accepts exactly the seven daily entries and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 
-    expect(result.entries).toEqual(['prepare-task', 'review-change', 'execute-step']);
-    expect(result.capabilities).toHaveLength(18);
-    expect(result.runtimeOperations).toEqual(['finding-queue-transaction', 'task-state-transaction']);
+    expect(result.entries).toEqual([
+      'prepare-task',
+      'review-change',
+      'execute-step',
+      'debug-task',
+      'task-lifecycle',
+      'capture-work-item',
+      'close-task',
+    ]);
+    expect(result.capabilities).toHaveLength(23);
+    expect(result.runtimeOperations).toEqual([
+      'archive-transaction',
+      'finding-queue-transaction',
+      'inbox-record-transaction',
+      'lesson-record-transaction',
+      'lifecycle-transaction',
+      'project-status-transaction',
+      'task-state-transaction',
+    ]);
     expect(result.legacySkillNames).toHaveLength(37);
   });
 
@@ -97,6 +113,32 @@ describe('vNext Phase 1A source contract', () => {
     );
 
     expect(() => validateVNextSource(root)).toThrow(/review-change.*mode/i);
+  });
+
+  test('rejects a lifecycle mode outside its closed set', () => {
+    const root = copyFixture();
+    replaceIn(
+      root,
+      'templates/vnext/skills/task-lifecycle.SKILL.md.tmpl',
+      '    - supersede',
+      '    - replan',
+    );
+
+    expect(() => validateVNextSource(root)).toThrow(/task-lifecycle.*mode/i);
+  });
+
+  test('accepts capture-work-item as a vNext entry while keeping its record-only boundary', () => {
+    const result = validateVNextSource(ROOT);
+
+    expect(result.entries).toContain('capture-work-item');
+  });
+
+  test('rejects capture-work-item when its legacy-name collision is used as an executable target', () => {
+    const root = copyFixture();
+    const file = fixtureFile(root, 'templates/vnext/skills/capture-work-item.SKILL.md.tmpl');
+    fs.appendFileSync(file, '\nRoute this work to capture-work-item.\n');
+
+    expect(() => validateVNextSource(root)).toThrow(/legacy Skill ID "capture-work-item"/i);
   });
 
   test('rejects missing capability references and public capability exposure', () => {

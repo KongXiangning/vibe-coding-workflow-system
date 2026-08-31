@@ -56,7 +56,7 @@ entry_contract:
 
 ## Intent
 
-Implement exactly the admitted current step. Ordinary implementation and admitted repair are two modes of the same implementation intent; neither mode is a public stage chain.
+Implement exactly the admitted current step. Ordinary implementation and admitted repair are two modes of the same implementation intent; neither mode creates a public sequence.
 
 ## Operating rules
 
@@ -79,4 +79,4 @@ Return one structured `change-result` containing:
 - a typed `task-state-transaction` proposal for actual progress, evidence, risk, or acceptance deltas;
 - a conditional `finding-queue-transaction` proposal only when a finding has separately passed admission.
 
-Both Runtime operations are `contract-only / unbound / Phase 2` in this Phase 1A source. Do not claim that `CURRENT_TASK.md` or a finding queue was written. If a state-changing proposal is not authorized or cannot pass its preconditions, preserve the product diff result and report the blocker without inventing success.
+Both Runtime operations remain `contract-only / unbound` with implementation deferred to Phase 2. Do not claim that `CURRENT_TASK.md` or a finding queue was written. If a state-changing proposal is not authorized or cannot pass its preconditions, preserve the product diff result and report the blocker without inventing success.
