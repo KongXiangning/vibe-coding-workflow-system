@@ -103,6 +103,26 @@ describe('vNext Phase 1 source contract', () => {
     expect(() => validateVNextSource(executeRoot)).toThrow(/execute-step.*governance sources/i);
   });
 
+  test('keeps non-admitted review findings reportable instead of making them entry blockers', () => {
+    const file = fixtureFile(ROOT, 'templates/vnext/skills/review-change.SKILL.md.tmpl');
+    const content = fs.readFileSync(file, 'utf8');
+
+    expect(content).not.toContain('a finding lacks sufficient evidence or an authorized owner route');
+    expect(content).toContain('findings, evidence gaps, and finding-admission dispositions');
+  });
+
+  test('requires source authority, task identity, and adaptive depth for execute-step', () => {
+    const root = copyFixture();
+    replaceIn(
+      root,
+      'templates/vnext/skills/execute-step.SKILL.md.tmpl',
+      '    - source-authority-policy\n',
+      '',
+    );
+
+    expect(() => validateVNextSource(root)).toThrow(/execute-step.*mandatory capability "source-authority-policy"/i);
+  });
+
   test('rejects cycle phases promoted into a mode', () => {
     const root = copyFixture();
     replaceIn(

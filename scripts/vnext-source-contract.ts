@@ -67,6 +67,10 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   ],
 };
 
+const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
+  'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy'],
+};
+
 const FORBIDDEN_TOP_LEVEL_FIELDS = new Set([
   'stage',
   'handoff',
@@ -429,6 +433,11 @@ function validateTemplate(
   const capabilityRefs = expectStringArray(contract.internal_capabilities, `${entry}.entry_contract.internal_capabilities`);
   for (const capability of capabilityRefs) {
     if (!capabilities.has(capability)) fail(`${entry} references missing capability "${capability}"`);
+  }
+  for (const requiredCapability of REQUIRED_ENTRY_CAPABILITIES[entry] ?? []) {
+    if (!capabilityRefs.includes(requiredCapability)) {
+      fail(`${entry} must declare mandatory capability "${requiredCapability}"`);
+    }
   }
   const runtimeRefs = expectStringArray(contract.runtime_operations, `${entry}.entry_contract.runtime_operations`, true);
   expectSetEqual(runtimeRefs, EXPECTED_RUNTIME_OPERATIONS[entry], `${entry}.entry_contract.runtime_operations`);
