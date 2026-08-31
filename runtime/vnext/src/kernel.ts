@@ -549,7 +549,7 @@ function validateRuntimeDistributionContract(value: unknown): RuntimeDistributio
 export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
   const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'proposal', 'canonical_current_task', 'operations', 'unbound_operations'], 'vNext Runtime contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'proposal', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations'], 'vNext Runtime contract');
   if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
   }
@@ -608,6 +608,15 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must count each repair wave once per review cycle.');
   }
   if (canonical.source_of_truth !== 'same-canonical-CURRENT_TASK-document' || canonical.legacy_schema_behavior !== 'migration-required') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must keep CURRENT_TASK as the only state source and stop on legacy schema.');
+  const concurrency = expectRecord(contract.concurrency, 'Runtime contract.concurrency');
+  expectExactKeys(concurrency, ['model', 'concurrent_state_changing_writers', 'stale_detection'], 'Runtime contract.concurrency');
+  if (
+    concurrency.model !== 'single-authorized-writer'
+    || concurrency.concurrent_state_changing_writers !== 'forbidden'
+    || concurrency.stale_detection !== 'source-revision'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must require a single authorized state-changing writer and source-revision stale detection.');
+  }
   const operations = contract.operations;
   if (!Array.isArray(operations) || operations.length !== RUNTIME_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare exactly the two Phase 2 bound operations.');
   const bound: RuntimeOperationKind[] = [];
@@ -1124,6 +1133,10 @@ function applyFindingQueueDelta(
       fail('FINDING_DUPLICATE_CONFLICT', `finding fingerprint ${candidate.fingerprint} already exists with different semantics.`);
     }
     if (reviewCycle.id !== candidate.review_cycle_id) {
+      const hasOpenFindings = findings.some(item => item.status === 'admitted' || item.status === 'in-progress');
+      if (hasOpenFindings) {
+        fail('REVIEW_CYCLE_NOT_CONVERGED', 'A new review cycle may start only after all admitted and in-progress findings in the current cycle are terminal.');
+      }
       reviewCycle = { id: candidate.review_cycle_id, repair_round: 0, counted_repair_wave_ids: [] };
     }
     const finding: FindingRecord = {
@@ -1144,13 +1157,11 @@ function applyFindingQueueDelta(
       if (proposal.mode !== 'repair') fail('RUNTIME_MODE_INVALID', 'record-repair-attempt requires execute-step:repair.');
       if (!['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_STATE_INVALID', `finding ${finding.fingerprint} is not repairable from ${finding.status}.`);
       if (finding.repair_attempts >= finding.max_repair_attempts) fail('REPAIR_BUDGET_EXHAUSTED', `finding ${finding.fingerprint} has exhausted its repair budget.`);
-      // A new cycle is explicit in the proposal; reset only the cycle-scoped
-      // wave ledger while keeping each finding's attempt counter independent.
       if (delta.review_cycle_id !== reviewCycle.id) {
-        reviewCycle = { id: delta.review_cycle_id, repair_round: 0, counted_repair_wave_ids: [] };
+        fail('REVIEW_CYCLE_CONFLICT', 'record-repair-attempt must target the current review cycle; only finding admission may start a new cycle.');
       }
-      if (finding.review_cycle_id !== delta.review_cycle_id) {
-        finding.review_cycle_id = delta.review_cycle_id;
+      if (finding.review_cycle_id !== reviewCycle.id) {
+        fail('REVIEW_CYCLE_CONFLICT', `finding ${finding.fingerprint} does not belong to the current review cycle.`);
       }
       if (!reviewCycle.counted_repair_wave_ids.includes(delta.repair_wave_id)) {
         if (reviewCycle.repair_round >= MAX_REPAIR_ROUNDS) fail('REPAIR_BUDGET_EXHAUSTED', 'review-cycle repair round budget is exhausted.');

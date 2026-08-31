@@ -74,6 +74,11 @@ canonical_current_task:
   source_of_truth: same-canonical-CURRENT_TASK-document
   legacy_schema_behavior: migration-required
 
+concurrency:
+  model: single-authorized-writer
+  concurrent_state_changing_writers: forbidden
+  stale_detection: source-revision
+
 operations:
   - id: task-state-transaction
     status: bound

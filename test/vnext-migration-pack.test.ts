@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -53,7 +54,7 @@ function copyFixtureTarget(): string {
 
 type BundleFile = readonly [string, string, 'protocol' | 'schema' | 'generated' | 'skill' | 'config' | 'runtime'];
 
-function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, extraFiles: readonly BundleFile[] = [], phase2 = false): void {
+function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, extraFiles: readonly BundleFile[] = [], phase2 = false, phase2WorkflowStatus: 'active' | 'draft' = 'active'): void {
   if (phase2) {
     fs.cpSync(path.join(ROOT, 'templates', 'skills'), path.join(sourceRoot, 'templates', 'skills'), { recursive: true });
     fs.cpSync(path.join(ROOT, 'templates', 'vnext'), path.join(sourceRoot, 'templates', 'vnext'), { recursive: true });
@@ -139,7 +140,7 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
         '## 任务信息',
         `- 任务 ID：${phase2 ? '010' : 'none'}`,
         `- 任务 slug：${phase2 ? 'migration-fixture' : 'none'}`,
-        '- 当前状态：draft',
+        `- 当前状态：${phase2 ? phase2WorkflowStatus : 'draft'}`,
         '- 生命周期状态：active',
         '- 恢复需审查：false',
         '## 验收标准',
@@ -337,6 +338,36 @@ describe('one-time vNext Migration Pack', () => {
     expect(result.planned_writes).toContain('.workflow-system/runtime/node_modules');
     expect(fs.existsSync(path.join(target, '.workflow-system', 'runtime'))).toBe(false);
     expect(fs.existsSync(path.join(target, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/')))).toBe(false);
+  });
+
+  test('rejects a Phase 2 bundle when CURRENT_TASK body diverges from runtime_state', () => {
+    const source = tempRoot('workflow-vnext-phase2-source-');
+    const target = copyFixtureTarget();
+    const packDir = tempRoot('workflow-vnext-migration-pack-');
+    const bundleDir = tempRoot('workflow-vnext-phase2-bundle-');
+    writeBundle(source, target, bundleDir, [], true);
+    createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });
+    const currentTaskPath = path.join(bundleDir, 'bundle', 'current-task.md');
+    const currentTask = fs.readFileSync(currentTaskPath, 'utf8');
+    fs.writeFileSync(currentTaskPath, currentTask.replace('- 当前状态：active', '- 当前状态：draft'), 'utf8');
+    const bundleManifestPath = path.join(bundleDir, 'vnext-bundle.json');
+    const bundleManifest = JSON.parse(fs.readFileSync(bundleManifestPath, 'utf8')) as {
+      source: unknown;
+      bundle_id: string;
+      artifacts: Array<{ source_path: string; checksum: string }>;
+    };
+    const currentTaskArtifact = bundleManifest.artifacts.find(artifact => artifact.source_path === 'bundle/current-task.md');
+    if (!currentTaskArtifact) throw new Error('test fixture is missing the CURRENT_TASK bundle artifact');
+    currentTaskArtifact.checksum = createHash('sha256').update(fs.readFileSync(currentTaskPath)).digest('hex');
+    bundleManifest.bundle_id = `bundle-${createHash('sha256').update(JSON.stringify({ source: bundleManifest.source, artifacts: bundleManifest.artifacts })).digest('hex').slice(0, 24)}`;
+    fs.writeFileSync(bundleManifestPath, `${JSON.stringify(bundleManifest, null, 2)}\n`, 'utf8');
+
+    const result = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target, dryRun: true });
+
+    expect(result.status).toBe('rejected');
+    expect(result.blockers[0]?.code).toBe('BUNDLE_INVALID');
+    expect(result.blockers[0]?.message).toContain('body/runtime_state consistency check failed');
+    expect(fs.existsSync(path.join(target, '.workflow-system', 'runtime'))).toBe(false);
   });
 
   test('fails closed when an interrupted installation marker is present', () => {

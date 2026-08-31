@@ -230,7 +230,7 @@ review / evidence / acceptance complete
 close-task
 ```
 
-Review Convergence 的默认边界由 Target Architecture 负责：同一 fingerprint 最多两次 repair attempt，review cycle 最多三轮；每个 repair proposal 必须绑定 `review_cycle_id` 与 `repair_wave_id`，同一 wave 的多个 admitted finding 只计一轮，新的 review cycle 从零开始。无法收敛、需要用户决定或根因未知时 stop。`review-change` 不自己写 queue；在当前 Phase 2 首个切片中，`execute-step` 是唯一绑定的 finding-queue caller，后续再由 `sync-state` 的 typed operation 扩展其他调用面。
+Review Convergence 的默认边界由 Target Architecture 负责：同一 fingerprint 最多两次 repair attempt，review cycle 最多三轮；每个 repair proposal 必须绑定当前 `review_cycle_id` 与 `repair_wave_id`，同一 wave 的多个 admitted finding 只计一轮。`execute-step` 不能通过修改 cycle ID 重置预算；只有当前 cycle 的 admitted/in-progress findings 全部进入终态后，新的 finding admission 才能建立一个从零开始的新 review cycle。无法收敛、需要用户决定或根因未知时 stop。`review-change` 不自己写 queue；在当前 Phase 2 首个切片中，`execute-step` 是唯一绑定的 finding-queue caller，后续再由 `sync-state` 的 typed operation 扩展其他调用面。
 
 ## 5. Runtime 写入矩阵
 

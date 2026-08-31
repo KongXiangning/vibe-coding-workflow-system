@@ -26,6 +26,7 @@ import {
 } from './workflow-doc-contracts';
 import {
   classifyTaskIdentityFromCurrentTask,
+  extractTaskIdentityFromCurrentTask,
   extractCurrentTaskStateFromCurrentTask,
   validateCurrentTaskStatusTuple,
 } from './task-identity';
@@ -2101,7 +2102,7 @@ const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
 };
 
 const BUNDLE_CURRENT_TASK_HEADINGS = ['## 任务信息', '## 验收标准', '## 允许修改范围', '## 实施步骤'];
-const BUNDLE_CURRENT_TASK_FIELDS = ['任务 ID', '当前状态', '生命周期状态', '恢复需审查'];
+const BUNDLE_CURRENT_TASK_FIELDS = ['任务 ID', '任务 slug', '当前状态', '生命周期状态', '恢复需审查'];
 
 function readBundleFrontmatter(content: string, location: string): { frontmatter: Record<string, unknown>; body: string } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content);
@@ -2197,9 +2198,10 @@ function validateVNextCurrentTaskBundleContent(content: string, location: string
   if (frontmatter.schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION || frontmatter.kind !== 'vnext-current-task' || typeof frontmatter.document_id !== 'string' || !DOCUMENT_ID_PATTERN.test(frontmatter.document_id)) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location} does not declare the vNext current-task schema.`);
   }
+  let runtimeState: ReturnType<typeof validateVNextRuntimeState> | undefined;
   if ('runtime_state' in frontmatter) {
     try {
-      validateVNextRuntimeState(frontmatter.runtime_state);
+      runtimeState = validateVNextRuntimeState(frontmatter.runtime_state);
     } catch (error) {
       throw new MigrationPackError('BUNDLE_INVALID', `${location}.runtime_state is invalid: ${error instanceof Error ? error.message : String(error)}.`);
     }
@@ -2209,6 +2211,20 @@ function validateVNextCurrentTaskBundleContent(content: string, location: string
   }
   for (const field of BUNDLE_CURRENT_TASK_FIELDS) {
     if (!new RegExp(`^\\s*-\\s*${field}\\s*[：:]`, 'm').test(body)) throw new MigrationPackError('BUNDLE_INVALID', `${location} is missing required task field ${field}.`);
+  }
+  if (runtimeState) {
+    try {
+      const identity = extractTaskIdentityFromCurrentTask(body);
+      const bodyState = extractCurrentTaskStateFromCurrentTask(body);
+      if (identity.id !== runtimeState.task_id || identity.slug !== runtimeState.task_slug) {
+        throw new Error('body task identity conflicts with runtime_state.');
+      }
+      if (bodyState.workflowStatus !== runtimeState.workflow_status || bodyState.lifecycleState !== runtimeState.lifecycle_state) {
+        throw new Error('body lifecycle tuple conflicts with runtime_state.');
+      }
+    } catch (error) {
+      throw new MigrationPackError('BUNDLE_INVALID', `${location} body/runtime_state consistency check failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   if (/Protocol-Version\s*:\s*0\./i.test(body)) throw new MigrationPackError('BUNDLE_INVALID', `${location} still embeds legacy protocol metadata.`);
 }
