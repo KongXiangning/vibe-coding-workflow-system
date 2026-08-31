@@ -198,9 +198,18 @@ var RUNTIME_STATE_FIELDS = [
   "execution_log",
   "applied_proposals"
 ];
-var REVIEW_CYCLE_FIELDS = ["id", "repair_round", "counted_repair_wave_ids"];
+var REVIEW_CYCLE_FIELDS = [
+  "id",
+  "cycle_phase",
+  "repair_round",
+  "counted_repair_wave_ids",
+  "active_repair_wave_id",
+  "verification_new_finding_wave_used",
+  "verification_new_finding_wave_id"
+];
 var RUNTIME_RESULT_STATES = ["success", "no-op", "conflict", "blocked"];
 var VNEXT_EXECUTE_STEP_MODES = ["default", "repair"];
+var REVIEW_CYCLE_PHASES = ["discovery", "verification"];
 var STEP_STATUSES = ["ready", "in-progress", "completed", "blocked"];
 var FINDING_STATUSES = ["admitted", "in-progress", "resolved", "deferred", "rejected"];
 var DOCUMENT_ID_PATTERN = /^doc-[a-f0-9]{24}$/;
@@ -252,6 +261,11 @@ function expectString(value, location, pattern) {
     fail("RUNTIME_SCHEMA_INVALID", `${location} has an invalid value.`);
   }
   return normalized;
+}
+function expectNullableString(value, location, pattern) {
+  if (value === null)
+    return null;
+  return expectString(value, location, pattern);
 }
 function expectText(value, location, maxLength = MAX_TEXT_LENGTH) {
   const text = expectString(value, location);
@@ -458,7 +472,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord(contract.proposal, "Runtime contract.proposal");
-  expectExactKeys(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_repair"], "Runtime contract.proposal");
+  expectExactKeys(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair"], "Runtime contract.proposal");
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND || proposal.caller !== "execute-step")
     fail("RUNTIME_CONTRACT_INVALID", "Runtime proposal contract has an invalid envelope marker.");
   expectSetEqual(expectStringArray(proposal.operation_kinds, "Runtime contract.proposal.operation_kinds"), [...RUNTIME_OPERATION_KINDS], "Runtime contract operation kinds");
@@ -467,6 +481,9 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const findingQueueRepair = expectRecord(proposal.finding_queue_repair, "Runtime contract.proposal.finding_queue_repair");
   expectExactKeys(findingQueueRepair, ["required"], "Runtime contract.proposal.finding_queue_repair");
   expectSetEqual(expectStringArray(findingQueueRepair.required, "Runtime contract.proposal.finding_queue_repair.required"), ["review_cycle_id", "repair_wave_id"], "Runtime contract finding-queue repair fields");
+  const findingQueueAdmission = expectRecord(proposal.finding_queue_admission, "Runtime contract.proposal.finding_queue_admission");
+  expectExactKeys(findingQueueAdmission, ["required"], "Runtime contract.proposal.finding_queue_admission");
+  expectSetEqual(expectStringArray(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const canonical = expectRecord(contract.canonical_current_task, "Runtime contract.canonical_current_task");
   expectExactKeys(canonical, ["frontmatter", "runtime_state", "source_of_truth", "legacy_schema_behavior"], "Runtime contract.canonical_current_task");
   const frontmatter = expectRecord(canonical.frontmatter, "Runtime contract.canonical_current_task.frontmatter");
@@ -480,13 +497,16 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     fail("RUNTIME_CONTRACT_INVALID", "Runtime contract runtime-state marker is invalid.");
   expectSetEqual(expectStringArray(runtimeState.fields, "Runtime contract.canonical_current_task.runtime_state.fields"), [...RUNTIME_STATE_FIELDS], "Runtime contract runtime-state fields");
   const reviewCycleContract = expectRecord(runtimeState.review_cycle, "Runtime contract.canonical_current_task.runtime_state.review_cycle");
-  expectExactKeys(reviewCycleContract, ["fields", "repair_round_max", "same_repair_wave_counts_once"], "Runtime contract.canonical_current_task.runtime_state.review_cycle");
+  expectExactKeys(reviewCycleContract, ["fields", "repair_round_max", "same_repair_wave_counts_once", "verification_new_finding_wave_max"], "Runtime contract.canonical_current_task.runtime_state.review_cycle");
   expectSetEqual(expectStringArray(reviewCycleContract.fields, "Runtime contract.canonical_current_task.runtime_state.review_cycle.fields"), [...REVIEW_CYCLE_FIELDS], "Runtime contract review-cycle fields");
   if (expectInteger(reviewCycleContract.repair_round_max, "Runtime contract review-cycle repair_round_max", 0, MAX_REPAIR_ROUNDS) !== MAX_REPAIR_ROUNDS) {
     fail("RUNTIME_CONTRACT_INVALID", "Runtime contract review-cycle repair_round_max must be 3.");
   }
   if (expectBoolean(reviewCycleContract.same_repair_wave_counts_once, "Runtime contract review-cycle same_repair_wave_counts_once") !== true) {
     fail("RUNTIME_CONTRACT_INVALID", "Runtime contract must count each repair wave once per review cycle.");
+  }
+  if (expectInteger(reviewCycleContract.verification_new_finding_wave_max, "Runtime contract review-cycle verification_new_finding_wave_max", 0, 1) !== 1) {
+    fail("RUNTIME_CONTRACT_INVALID", "Runtime contract must allow at most one verification new-finding admission wave per review cycle.");
   }
   if (canonical.source_of_truth !== "same-canonical-CURRENT_TASK-document" || canonical.legacy_schema_behavior !== "migration-required")
     fail("RUNTIME_CONTRACT_INVALID", "Runtime contract must keep CURRENT_TASK as the only state source and stop on legacy schema.");
@@ -593,7 +613,7 @@ function validateTaskStateDelta(value) {
 }
 function validateFindingRecord(value, location) {
   const record = expectRecord(value, location);
-  expectExactKeys(record, ["kind", "action", "finding"], location);
+  expectExactKeys(record, ["kind", "action", "cycle_phase", "finding_admission_wave_id", "finding"], location);
   expectEnum(record.kind, ["finding-queue"], `${location}.kind`);
   expectEnum(record.action, ["admit"], `${location}.action`);
   const finding = expectRecord(record.finding, `${location}.finding`);
@@ -619,6 +639,8 @@ function validateFindingRecord(value, location) {
   const result = {
     kind: "finding-queue",
     action: "admit",
+    cycle_phase: expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
+    finding_admission_wave_id: expectString(record.finding_admission_wave_id, `${location}.finding_admission_wave_id`, SAFE_KEY_PATTERN),
     finding: {
       fingerprint: expectString(finding.fingerprint, `${location}.finding.fingerprint`, FINGERPRINT_PATTERN),
       category: expectText(finding.category, `${location}.finding.category`, 256),
@@ -720,7 +742,7 @@ function validateRuntimeProposal(value) {
 }
 function validateFinding(value, location) {
   const finding = expectRecord(value, location);
-  expectExactKeys(finding, ["fingerprint", "category", "owner_task_id", "scope", "decision", "file", "failure_condition", "violated_invariant", "root_cause_status", "status", "repair_attempts", "max_repair_attempts", "evidence_refs", "review_cycle_id", "admitted_at", "updated_at"], location);
+  expectExactKeys(finding, ["fingerprint", "category", "owner_task_id", "scope", "decision", "file", "failure_condition", "violated_invariant", "root_cause_status", "status", "repair_attempts", "max_repair_attempts", "evidence_refs", "review_cycle_id", "last_repair_wave_id", "admitted_at", "updated_at"], location);
   return {
     fingerprint: expectString(finding.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
     category: expectText(finding.category, `${location}.category`, 256),
@@ -736,6 +758,7 @@ function validateFinding(value, location) {
     max_repair_attempts: expectInteger(finding.max_repair_attempts, `${location}.max_repair_attempts`, 1, MAX_REPAIR_ATTEMPTS),
     evidence_refs: validateEvidenceRefs(finding.evidence_refs, `${location}.evidence_refs`),
     review_cycle_id: expectString(finding.review_cycle_id, `${location}.review_cycle_id`, SAFE_KEY_PATTERN),
+    last_repair_wave_id: expectNullableString(finding.last_repair_wave_id, `${location}.last_repair_wave_id`, SAFE_KEY_PATTERN),
     admitted_at: expectString(finding.admitted_at, `${location}.admitted_at`),
     updated_at: expectString(finding.updated_at, `${location}.updated_at`)
   };
@@ -744,6 +767,7 @@ function validateReviewCycle(value, location = "runtime_state.review_cycle") {
   const reviewCycle = expectRecord(value, location);
   expectExactKeys(reviewCycle, [...REVIEW_CYCLE_FIELDS], location);
   const id = expectString(reviewCycle.id, `${location}.id`, SAFE_KEY_PATTERN);
+  const cyclePhase = expectEnum(reviewCycle.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`);
   const repairRound = expectInteger(reviewCycle.repair_round, `${location}.repair_round`, 0, MAX_REPAIR_ROUNDS);
   const countedRepairWaveIds = expectStringArray(reviewCycle.counted_repair_wave_ids, `${location}.counted_repair_wave_ids`, true, MAX_REPAIR_ROUNDS);
   if (new Set(countedRepairWaveIds).size !== countedRepairWaveIds.length) {
@@ -752,7 +776,33 @@ function validateReviewCycle(value, location = "runtime_state.review_cycle") {
   if (repairRound !== countedRepairWaveIds.length) {
     fail("RUNTIME_STATE_CONFLICT", `${location}.repair_round must equal the number of counted repair waves.`);
   }
-  return { id, repair_round: repairRound, counted_repair_wave_ids: countedRepairWaveIds };
+  const activeRepairWaveId = expectNullableString(reviewCycle.active_repair_wave_id, `${location}.active_repair_wave_id`, SAFE_KEY_PATTERN);
+  if (activeRepairWaveId !== null && !countedRepairWaveIds.includes(activeRepairWaveId)) {
+    fail("RUNTIME_STATE_CONFLICT", `${location}.active_repair_wave_id must be one of counted_repair_wave_ids.`);
+  }
+  if (activeRepairWaveId !== null && countedRepairWaveIds[countedRepairWaveIds.length - 1] !== activeRepairWaveId) {
+    fail("RUNTIME_STATE_CONFLICT", `${location}.active_repair_wave_id must be the latest counted repair wave.`);
+  }
+  const verificationNewFindingWaveUsed = expectBoolean(reviewCycle.verification_new_finding_wave_used, `${location}.verification_new_finding_wave_used`);
+  const verificationNewFindingWaveId = expectNullableString(reviewCycle.verification_new_finding_wave_id, `${location}.verification_new_finding_wave_id`, SAFE_KEY_PATTERN);
+  if (!verificationNewFindingWaveUsed && verificationNewFindingWaveId !== null) {
+    fail("RUNTIME_STATE_CONFLICT", `${location}.verification_new_finding_wave_id must be null before the verification admission wave is used.`);
+  }
+  if (verificationNewFindingWaveId !== null && activeRepairWaveId !== null) {
+    fail("RUNTIME_STATE_CONFLICT", `${location}.verification_new_finding_wave_id cannot remain open while a repair wave is active.`);
+  }
+  if (verificationNewFindingWaveUsed && cyclePhase !== "verification") {
+    fail("RUNTIME_STATE_CONFLICT", `${location}.cycle_phase must be verification after the verification admission wave is used.`);
+  }
+  return {
+    id,
+    cycle_phase: cyclePhase,
+    repair_round: repairRound,
+    counted_repair_wave_ids: countedRepairWaveIds,
+    active_repair_wave_id: activeRepairWaveId,
+    verification_new_finding_wave_used: verificationNewFindingWaveUsed,
+    verification_new_finding_wave_id: verificationNewFindingWaveId
+  };
 }
 function validateVNextRuntimeState(value) {
   const runtime = expectRecord(value, "runtime_state");
@@ -1002,12 +1052,43 @@ function applyFindingQueueDelta(current, proposal, now) {
       if (hasOpenFindings) {
         fail("REVIEW_CYCLE_NOT_CONVERGED", "A new review cycle may start only after all admitted and in-progress findings in the current cycle are terminal.");
       }
-      reviewCycle = { id: candidate.review_cycle_id, repair_round: 0, counted_repair_wave_ids: [] };
+      reviewCycle = {
+        id: candidate.review_cycle_id,
+        cycle_phase: "discovery",
+        repair_round: 0,
+        counted_repair_wave_ids: [],
+        active_repair_wave_id: null,
+        verification_new_finding_wave_used: false,
+        verification_new_finding_wave_id: null
+      };
+    }
+    if (delta.cycle_phase === "discovery") {
+      if (reviewCycle.cycle_phase !== "discovery" || reviewCycle.repair_round > 0) {
+        fail("REVIEW_CYCLE_PHASE_CONFLICT", "Discovery admission is closed after repair or verification; use the bounded verification admission wave.");
+      }
+    } else {
+      if (reviewCycle.repair_round === 0) {
+        fail("REVIEW_CYCLE_PHASE_CONFLICT", "Verification admission requires at least one completed repair round.");
+      }
+      if (reviewCycle.verification_new_finding_wave_used) {
+        if (reviewCycle.verification_new_finding_wave_id !== delta.finding_admission_wave_id) {
+          fail("NEW_FINDING_WAVE_BUDGET_EXHAUSTED", "This review cycle has already used its one verification new-finding admission wave.");
+        }
+      } else {
+        reviewCycle = {
+          ...reviewCycle,
+          cycle_phase: "verification",
+          active_repair_wave_id: null,
+          verification_new_finding_wave_used: true,
+          verification_new_finding_wave_id: delta.finding_admission_wave_id
+        };
+      }
     }
     const finding = {
       ...candidate,
       status: "admitted",
       repair_attempts: 0,
+      last_repair_wave_id: null,
       admitted_at: now,
       updated_at: now,
       evidence_refs: [...candidate.evidence_refs]
@@ -1032,16 +1113,27 @@ function applyFindingQueueDelta(current, proposal, now) {
       if (finding.review_cycle_id !== reviewCycle.id) {
         fail("REVIEW_CYCLE_CONFLICT", `finding ${finding.fingerprint} does not belong to the current review cycle.`);
       }
-      if (!reviewCycle.counted_repair_wave_ids.includes(delta.repair_wave_id)) {
+      if (reviewCycle.counted_repair_wave_ids.includes(delta.repair_wave_id) && reviewCycle.active_repair_wave_id !== delta.repair_wave_id) {
+        fail("REPAIR_WAVE_CLOSED", `repair wave ${delta.repair_wave_id} has already ended and cannot be reused.`);
+      }
+      if (finding.last_repair_wave_id === delta.repair_wave_id) {
+        fail("REPAIR_WAVE_FINDING_DUPLICATE", `finding ${finding.fingerprint} already has an attempt in repair wave ${delta.repair_wave_id}.`);
+      }
+      if (reviewCycle.active_repair_wave_id !== delta.repair_wave_id) {
         if (reviewCycle.repair_round >= MAX_REPAIR_ROUNDS)
           fail("REPAIR_BUDGET_EXHAUSTED", "review-cycle repair round budget is exhausted.");
         reviewCycle = {
           ...reviewCycle,
           repair_round: reviewCycle.repair_round + 1,
-          counted_repair_wave_ids: [...reviewCycle.counted_repair_wave_ids, delta.repair_wave_id]
+          counted_repair_wave_ids: [...reviewCycle.counted_repair_wave_ids, delta.repair_wave_id],
+          active_repair_wave_id: delta.repair_wave_id
         };
       }
+      if (reviewCycle.verification_new_finding_wave_id !== null) {
+        reviewCycle = { ...reviewCycle, verification_new_finding_wave_id: null };
+      }
       finding.repair_attempts += 1;
+      finding.last_repair_wave_id = delta.repair_wave_id;
       finding.status = "in-progress";
       finding.updated_at = now;
       finding.evidence_refs = [...new Set([...finding.evidence_refs, ...delta.evidence_refs])];

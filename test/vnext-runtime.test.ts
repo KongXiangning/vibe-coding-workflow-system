@@ -33,8 +33,12 @@ function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     finding_queue_revision: 0,
     review_cycle: {
       id: 'review-cycle-0',
+      cycle_phase: 'discovery',
       repair_round: 0,
       counted_repair_wave_ids: [],
+      active_repair_wave_id: null,
+      verification_new_finding_wave_used: false,
+      verification_new_finding_wave_id: null,
     },
     findings: [],
     execution_log: [],
@@ -109,10 +113,12 @@ function taskProposal(root: string, overrides: Partial<Parameters<typeof createT
   });
 }
 
-function admittedFinding(fingerprint: string, reviewCycleId: string): FindingQueueDelta {
+function admittedFinding(fingerprint: string, reviewCycleId: string, cyclePhase: 'discovery' | 'verification' = 'discovery', findingAdmissionWaveId = `finding-wave-${fingerprint}`): FindingQueueDelta {
   return {
     kind: 'finding-queue',
     action: 'admit',
+    cycle_phase: cyclePhase,
+    finding_admission_wave_id: findingAdmissionWaveId,
     finding: {
       fingerprint,
       category: 'correctness',
@@ -275,6 +281,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     const finding: FindingQueueDelta = {
       kind: 'finding-queue',
       action: 'admit',
+      cycle_phase: 'discovery',
+      finding_admission_wave_id: 'finding-admission-wave-1',
       finding: {
         fingerprint: 'finding-regression-1',
         category: 'correctness',
@@ -346,12 +354,17 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     expect(applyFindingDelta(admittedFinding('finding-wave-1', 'review-cycle-1'), 'admit-wave-1').status).toBe('success');
     expect(applyFindingDelta(admittedFinding('finding-wave-2', 'review-cycle-1'), 'admit-wave-2').status).toBe('success');
+    expect(applyFindingDelta(admittedFinding('finding-wave-3', 'review-cycle-1'), 'admit-wave-3').status).toBe('success');
 
     expect(applyFindingDelta(repairAttempt('finding-wave-1', 'review-cycle-1', 'repair-wave-1'), 'repair-wave-1-f1').status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
       id: 'review-cycle-1',
+      cycle_phase: 'discovery',
       repair_round: 1,
       counted_repair_wave_ids: ['repair-wave-1'],
+      active_repair_wave_id: 'repair-wave-1',
+      verification_new_finding_wave_used: false,
+      verification_new_finding_wave_id: null,
     });
 
     expect(applyFindingDelta(repairAttempt('finding-wave-2', 'review-cycle-1', 'repair-wave-1'), 'repair-wave-1-f2').status).toBe('success');
@@ -365,12 +378,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.review_cycle.repair_round).toBe(2);
 
     expect(applyFindingDelta(repairAttempt('finding-wave-2', 'review-cycle-1', 'repair-wave-2'), 'repair-wave-2-f2').status).toBe('success');
-    expect(applyFindingDelta(admittedFinding('finding-wave-3', 'review-cycle-1'), 'admit-wave-3').status).toBe('success');
     expect(applyFindingDelta(repairAttempt('finding-wave-3', 'review-cycle-1', 'repair-wave-3'), 'repair-wave-3-f3').status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
       id: 'review-cycle-1',
+      cycle_phase: 'discovery',
       repair_round: 3,
       counted_repair_wave_ids: ['repair-wave-1', 'repair-wave-2', 'repair-wave-3'],
+      active_repair_wave_id: 'repair-wave-3',
+      verification_new_finding_wave_used: false,
+      verification_new_finding_wave_id: null,
     });
 
     const cycleResetAttempt = applyFindingDelta(repairAttempt('finding-wave-3', 'review-cycle-2', 'repair-wave-1'), 'repair-cycle-2-wave-1');
@@ -378,8 +394,12 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(cycleResetAttempt.code).toBe('REVIEW_CYCLE_CONFLICT');
     expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
       id: 'review-cycle-1',
+      cycle_phase: 'discovery',
       repair_round: 3,
       counted_repair_wave_ids: ['repair-wave-1', 'repair-wave-2', 'repair-wave-3'],
+      active_repair_wave_id: 'repair-wave-3',
+      verification_new_finding_wave_used: false,
+      verification_new_finding_wave_id: null,
     });
 
     expect(applyFindingDelta({ kind: 'finding-queue', action: 'resolve', fingerprint: 'finding-wave-1', evidence_refs: ['test:evidence:resolve-wave-1'] }, 'resolve-wave-1').status).toBe('success');
@@ -389,16 +409,24 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(applyFindingDelta(admittedFinding('finding-new-cycle', 'review-cycle-2'), 'admit-cycle-2').status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
       id: 'review-cycle-2',
+      cycle_phase: 'discovery',
       repair_round: 0,
       counted_repair_wave_ids: [],
+      active_repair_wave_id: null,
+      verification_new_finding_wave_used: false,
+      verification_new_finding_wave_id: null,
     });
     expect(applyFindingDelta(repairAttempt('finding-new-cycle', 'review-cycle-2', 'repair-wave-1'), 'repair-cycle-2-wave-1').status).toBe('success');
 
     const state = readCanonicalCurrentTask(root).runtimeState;
     expect(state.review_cycle).toEqual({
       id: 'review-cycle-2',
+      cycle_phase: 'discovery',
       repair_round: 1,
       counted_repair_wave_ids: ['repair-wave-1'],
+      active_repair_wave_id: 'repair-wave-1',
+      verification_new_finding_wave_used: false,
+      verification_new_finding_wave_id: null,
     });
     expect(state.findings.find(item => item.fingerprint === 'finding-wave-1')?.repair_attempts).toBe(2);
     expect(state.findings.find(item => item.fingerprint === 'finding-wave-2')?.repair_attempts).toBe(2);
@@ -406,6 +434,59 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(state.findings.find(item => item.fingerprint === 'finding-wave-2')?.review_cycle_id).toBe('review-cycle-1');
     expect(state.findings.find(item => item.fingerprint === 'finding-wave-3')?.review_cycle_id).toBe('review-cycle-1');
     expect(state.findings.find(item => item.fingerprint === 'finding-new-cycle')?.repair_attempts).toBe(1);
+  });
+
+  test('bounds verification admission and closes repair waves without allowing reuse', () => {
+    const root = makeRoot();
+    const applyFindingDelta = (delta: FindingQueueDelta, idempotencyKey: string) => {
+      const current = readCanonicalCurrentTask(root);
+      return applyVNextRuntimeProposal(root, createFindingQueueProposal(current, {
+        mode: 'repair',
+        delta,
+        idempotency_key: idempotencyKey,
+        authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+        evidence_refs: delta.action === 'admit' ? delta.finding.evidence_refs : delta.evidence_refs,
+      }));
+    };
+
+    expect(applyFindingDelta(admittedFinding('finding-verification-a', 'review-cycle-1'), 'admit-a').status).toBe('success');
+    expect(applyFindingDelta(repairAttempt('finding-verification-a', 'review-cycle-1', 'repair-wave-1'), 'repair-a-wave-1').status).toBe('success');
+    expect(applyFindingDelta({ kind: 'finding-queue', action: 'resolve', fingerprint: 'finding-verification-a', evidence_refs: ['test:evidence:resolve-a'] }, 'resolve-a').status).toBe('success');
+
+    expect(applyFindingDelta(admittedFinding('finding-verification-b', 'review-cycle-1', 'verification', 'verification-wave-1'), 'admit-b').status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
+      id: 'review-cycle-1',
+      cycle_phase: 'verification',
+      repair_round: 1,
+      counted_repair_wave_ids: ['repair-wave-1'],
+      active_repair_wave_id: null,
+      verification_new_finding_wave_used: true,
+      verification_new_finding_wave_id: 'verification-wave-1',
+    });
+    expect(applyFindingDelta(admittedFinding('finding-verification-c', 'review-cycle-1', 'verification', 'verification-wave-1'), 'admit-c').status).toBe('success');
+
+    const closedWaveReuse = applyFindingDelta(repairAttempt('finding-verification-b', 'review-cycle-1', 'repair-wave-1'), 'repair-b-closed-wave');
+    expect(closedWaveReuse.status).toBe('blocked');
+    expect(closedWaveReuse.code).toBe('REPAIR_WAVE_CLOSED');
+
+    expect(applyFindingDelta(repairAttempt('finding-verification-b', 'review-cycle-1', 'repair-wave-2'), 'repair-b-wave-2').status).toBe('success');
+    expect(applyFindingDelta(repairAttempt('finding-verification-c', 'review-cycle-1', 'repair-wave-2'), 'repair-c-wave-2').status).toBe('success');
+    const duplicateWaveAttempt = applyFindingDelta(repairAttempt('finding-verification-c', 'review-cycle-1', 'repair-wave-2'), 'repair-c-wave-2-repeat');
+    expect(duplicateWaveAttempt.status).toBe('blocked');
+    expect(duplicateWaveAttempt.code).toBe('REPAIR_WAVE_FINDING_DUPLICATE');
+
+    const secondVerificationWave = applyFindingDelta(admittedFinding('finding-verification-d', 'review-cycle-1', 'verification', 'verification-wave-2'), 'admit-d');
+    expect(secondVerificationWave.status).toBe('blocked');
+    expect(secondVerificationWave.code).toBe('NEW_FINDING_WAVE_BUDGET_EXHAUSTED');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
+      id: 'review-cycle-1',
+      cycle_phase: 'verification',
+      repair_round: 2,
+      counted_repair_wave_ids: ['repair-wave-1', 'repair-wave-2'],
+      active_repair_wave_id: 'repair-wave-2',
+      verification_new_finding_wave_used: true,
+      verification_new_finding_wave_id: null,
+    });
   });
 
   test('stops on a legacy CURRENT_TASK schema before any mutation', () => {

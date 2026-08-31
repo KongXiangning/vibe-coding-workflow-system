@@ -37,6 +37,10 @@ proposal:
     - evidence_refs
     - idempotency_key
     - requested_write_targets
+  finding_queue_admission:
+    required:
+      - cycle_phase
+      - finding_admission_wave_id
   finding_queue_repair:
     required:
       - review_cycle_id
@@ -67,10 +71,15 @@ canonical_current_task:
     review_cycle:
       fields:
         - id
+        - cycle_phase
         - repair_round
         - counted_repair_wave_ids
+        - active_repair_wave_id
+        - verification_new_finding_wave_used
+        - verification_new_finding_wave_id
       repair_round_max: 3
       same_repair_wave_counts_once: true
+      verification_new_finding_wave_max: 1
   source_of_truth: same-canonical-CURRENT_TASK-document
   legacy_schema_behavior: migration-required
 
