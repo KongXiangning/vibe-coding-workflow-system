@@ -284,7 +284,8 @@ capabilities:
       - a defect, regression, or unexpected behavior needs a bounded causal investigation
     input_contract:
       - reproducible symptom and affected target
-      - current task owner, scope, and evidence
+      - current task owner, admitted scope, and task evidence when the investigation is task-bound
+      - available evidence and owner context for an independent or new-bug investigation
       - hypotheses, attempts, and investigation budget
     output_contract:
       - reproduced or unavailable result
@@ -300,7 +301,7 @@ capabilities:
     trigger:
       - an observation, finding, lifecycle event, or work item may belong to different owners
     input_contract:
-      - task identity and active-owner tuple
+      - task identity and active-owner tuple when the route is task-bound
       - evidence, scope, and candidate owner routes
       - current lifecycle and authority state
     output_contract:
@@ -353,7 +354,7 @@ capabilities:
     input_contract:
       - task identity, acceptance claims, validation evidence, and remaining risks
       - release/rollback/observation evidence when applicable
-      - status, archive path, and explicit lesson candidates
+      - status, archive path, and explicit lesson candidates when supplied
     output_contract:
       - closure eligibility verdict
       - complete delivery/closure summary inputs

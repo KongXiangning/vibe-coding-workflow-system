@@ -43,7 +43,7 @@ entry_contract:
   runtime_operations:
     - task-state-transaction
   stop_conditions:
-    - symptom, target, or task ownership is missing or conflicted
+    - task ownership is required for a task-state proposal or resolve route but is missing or conflicted
     - reproduction cannot be established within the bounded investigation budget
     - root cause remains a hypothesis after the allowed attempts
     - the proposed route requires scope widening, another owner, or user authority
@@ -59,7 +59,7 @@ Establish a reproducible root cause and select one authorized recovery route. In
 
 ## Operating rules
 
-1. Resolve the relevant project context, task identity, active owner, affected target, and admitted scope before forming a repair hypothesis.
+1. Resolve the relevant project context and affected target before forming a repair hypothesis. For a current-task proposal or `resolve`, also verify task identity, active owner, and admitted scope.
 2. Reproduce the symptom or establish a bounded, evidence-backed reason reproduction is unavailable. Separate observed facts from hypotheses and validate each hypothesis against the smallest useful probe.
 3. In `investigate-only`, return a terminal diagnostic result without proposing a repair route that has not passed evidence and authority checks. In `resolve`, require a confirmed root cause, current-owner route, admitted scope, and an available repair budget before recommending the repair intent.
 4. Use current external documentation only when dependency behavior affects correctness. Route other-owner defects, scope widening, user-owned choices, and unrelated work through their owner result instead of treating them as current-task repairs.
@@ -69,7 +69,7 @@ Establish a reproducible root cause and select one authorized recovery route. In
 
 Return one structured `debug_result` containing:
 
-- symptom, affected target, task identity, owner route, and admitted scope;
+- symptom and affected target; task identity, owner route, and admitted scope when the investigation concerns a current task;
 - reproduction evidence, hypotheses tested, root-cause confidence, and unresolved alternatives;
 - investigation attempts and remaining bounded budget;
 - `investigate-only` or `resolve` disposition and the one authorized next route;

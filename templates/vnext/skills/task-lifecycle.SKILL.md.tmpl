@@ -50,7 +50,7 @@ entry_contract:
   stop_conditions:
     - exact task identity or current workflow/lifecycle tuple is missing, stale, or ambiguous
     - requested transition is illegal or lacks required authority
-    - snapshot, checkpoint, dirty attribution, or recovery evidence is incomplete
+    - required evidence for the selected lifecycle transition is incomplete
     - resume cannot identify one explicit matching recovery package and pass review readiness
     - the request attempts to hot-migrate unsupported legacy state
   output_kind: lifecycle-result

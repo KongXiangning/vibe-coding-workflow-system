@@ -123,6 +123,33 @@ describe('vNext Phase 1 source contract', () => {
     expect(() => validateVNextSource(root)).toThrow(/execute-step.*mandatory capability "source-authority-policy"/i);
   });
 
+  test('keeps debug ownership conditional and lesson admission non-blocking for closure', () => {
+    const debug = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/debug-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(debug).toContain('task ownership is required for a task-state proposal or resolve route');
+    expect(debug).toContain('For a current-task proposal or `resolve`');
+    expect(debug).not.toContain('symptom, target, or task ownership is missing or conflicted');
+
+    const close = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/close-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(close).toContain('Lesson admission may return `admit`, `defer`, or `no-op`');
+    expect(close).toContain('never blocks an otherwise eligible closure');
+    expect(close).not.toContain('or lesson admission cannot be verified');
+  });
+
+  test('scopes lifecycle evidence requirements to the selected transition', () => {
+    const lifecycle = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/task-lifecycle.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(lifecycle).toContain('required evidence for the selected lifecycle transition is incomplete');
+    expect(lifecycle).not.toContain('snapshot, checkpoint, dirty attribution, or recovery evidence is incomplete');
+  });
+
   test('rejects cycle phases promoted into a mode', () => {
     const root = copyFixture();
     replaceIn(

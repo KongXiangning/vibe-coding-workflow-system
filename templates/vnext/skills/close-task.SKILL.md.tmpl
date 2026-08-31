@@ -49,7 +49,7 @@ entry_contract:
     - task identity, acceptance, or validation evidence is missing or conflicted
     - release, rollback, observation, or remaining-risk evidence is incomplete when triggered
     - a blocker, open finding, or evidence gap would make completion untruthful
-    - status, archive identity/path, or lesson admission cannot be verified
+    - status or archive identity/path cannot be verified
     - the request uses an old or unsupported workflow schema
   output_kind: closure-result
 ---
@@ -66,7 +66,8 @@ Prove closure eligibility and finish one task with a truthful delivery summary. 
 2. Evaluate release health, rollback, canary, and observation evidence when the task risk triggers them. A missing or unresolved requirement yields a blocked or observing result; it cannot be summarized as complete.
 3. In `preview`, return the complete closure summary and eligibility verdict with zero Runtime proposals. In ordinary closure, prepare only the typed proposals justified by the eligibility result: task state, project status, archive, and, after explicit knowledge admission, a lesson record.
 4. Keep task status descriptive and preserve acceptance, verification, release/rollback, observation, and remaining-risk facts. Do not rewrite history or infer a stable archive path from an ambiguous identity.
-5. All four Runtime operations are `contract-only / unbound / Phase 2`; this entry never claims that task state, status, archive, or lessons were written.
+5. Lesson admission may return `admit`, `defer`, or `no-op`; it only controls whether a `lesson-record-transaction` proposal exists and never blocks an otherwise eligible closure.
+6. All four Runtime operations are `contract-only / unbound / Phase 2`; this entry never claims that task state, status, archive, or lessons were written.
 
 ## Required result
 
