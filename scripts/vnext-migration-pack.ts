@@ -616,12 +616,14 @@ function getGitRevision(root: string): string | null {
   }
 }
 
-export function computeTreeHash(root: string): string {
+export function computeTreeHash(root: string, ignoredRelativePaths: readonly string[] = []): string {
   const resolvedRoot = path.resolve(root);
   const files = listFiles(resolvedRoot, { skipDirectories: SKIP_TREE_DIRECTORIES });
+  const ignored = new Set(ignoredRelativePaths.map(relativePath => normalizeRepoPath(relativePath, 'tree hash ignored path')));
   const hash = crypto.createHash('sha256');
   for (const filePath of files) {
     const relative = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+    if (ignored.has(relative)) continue;
     const content = fs.readFileSync(filePath);
     hash.update(relative);
     hash.update('\0');
@@ -2744,7 +2746,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   } catch (error) {
     let rollbackVerified = false;
     try {
-      rollbackVerified = getTargetSnapshot(targetRoot).tree_hash === pack.legacy_source.tree_hash;
+      rollbackVerified = computeTreeHash(targetRoot, [VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH]) === pack.legacy_source.tree_hash;
     } catch {
       // If the target cannot be re-snapshotted, its rollback state is unknown.
     }

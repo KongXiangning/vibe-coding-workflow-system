@@ -284,8 +284,9 @@ Installation also creates an atomic
 If the process is interrupted, a later preflight/install fails closed on this
 marker instead of guessing whether the target is safe to retry. Once the
 completed install state and all artifact hashes validate, an explicit replay
-clears the stale marker; an incomplete marker remains an operator-recovery
-blocker.
+clears the stale marker. A failed transaction clears the marker only after the
+target tree matches the pre-install snapshot with that marker excluded from
+the comparison; otherwise the marker remains an operator-recovery blocker.
 
 The machine-readable pack boundary is recorded in
 `.workflow-system/vnext/MIGRATION_PACK_SCHEMA.yaml`. The schema and focused

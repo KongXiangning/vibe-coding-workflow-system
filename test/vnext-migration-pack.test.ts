@@ -50,8 +50,10 @@ function copyFixtureTarget(): string {
   return target;
 }
 
-function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string): void {
-  const files = [
+type BundleFile = readonly [string, string, 'protocol' | 'schema' | 'generated' | 'skill' | 'config'];
+
+function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, extraFiles: readonly BundleFile[] = []): void {
+  const files: BundleFile[] = [
     ['bundle/protocol.md', '.workflow-system/WORKFLOW_PROTOCOL.md', 'protocol'],
     ['bundle/schema.md', '.workflow-system/FILE_SCHEMAS.md', 'schema'],
     ['bundle/current-task.md', 'docs/workflow/CURRENT_TASK.md', 'generated'],
@@ -62,7 +64,8 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string):
     ['bundle/task-lifecycle.SKILL.md', '.claude/skills/task-lifecycle.SKILL.md', 'skill'],
     ['bundle/capture-work-item.SKILL.md', '.claude/skills/capture-work-item.SKILL.md', 'skill'],
     ['bundle/close-task.SKILL.md', '.claude/skills/close-task.SKILL.md', 'skill'],
-  ] as const;
+    ...extraFiles,
+  ];
   for (const [relative, target, category] of files) {
     const file = path.join(sourceRoot, ...relative.split('/'));
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -275,5 +278,28 @@ describe('one-time vNext Migration Pack', () => {
     expect(result.status).toBe('rejected');
     expect(result.blockers[0]?.code).toBe('VNEXT_INSTALL_IN_PROGRESS');
     expect(preflightMigration({ sourceRoot: source, targetRoot: target }).state).toBe('install-in-progress');
+  });
+
+  test('clears the interruption marker after a successful rollback', () => {
+    const source = tempRoot('workflow-vnext-migration-source-');
+    const target = copyFixtureTarget();
+    const packDir = tempRoot('workflow-vnext-migration-pack-');
+    const bundleDir = tempRoot('workflow-vnext-bundle-');
+    const blockedParent = path.join(target, 'migration-write-parent');
+    fs.writeFileSync(blockedParent, 'a file where a directory is expected\n', 'utf8');
+    writeBundle(source, target, bundleDir, [
+      ['bundle/conflicting-target.txt', 'migration-write-parent/child.txt', 'config'],
+    ]);
+    const manifest = createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });
+
+    const result = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target });
+
+    expect(result.status).toBe('rejected');
+    expect(result.blockers[0]?.code).toBe('INSTALL_CONFLICT');
+    expect(fs.existsSync(path.join(target, ...VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH.split('/')))).toBe(false);
+    const restored = preflightMigration({ sourceRoot: source, targetRoot: target });
+    expect(restored.eligible).toBe(true);
+    expect(restored.state).toBe('idle');
+    expect(restored.target_snapshot?.tree_hash).toBe(manifest.legacy_source.tree_hash);
   });
 });
