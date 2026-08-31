@@ -1,0 +1,98 @@
+schema_version: 1
+kind: workflow-vnext-migration-pack-schema
+status: contract
+
+# This file is the machine-readable boundary for the one-time migration
+# tool.  It is not a vNext Runtime schema and is never installed as a legacy
+# compatibility surface.
+pack:
+  manifest_file: migration-pack.json
+  artifact_directory: artifacts/
+  required_fields:
+    - schema_version
+    - kind
+    - pack_id
+    - status
+    - source
+    - target
+    - legacy_source
+    - legacy_protocol
+    - preflight
+    - conversion
+    - artifacts
+    - legacy_surface
+    - installation
+  schema_version: 1
+  status: validated
+  conversion:
+    mode: offline-copy
+    preserves_original_text: true
+    semantic_reinterpretation: false
+  current_task:
+    precondition_only: true
+    required_state: archived/archived
+    excluded_from_artifacts: true
+  replay_identity:
+    - source.root_identity
+    - source.revision
+    - source.tree_hash
+    - target.root_identity
+    - legacy_source.revision
+    - legacy_source.tree_hash
+    - pack_id
+
+artifact:
+  required_fields:
+    - stable_id
+    - kind
+    - source_path
+    - target_path
+    - content_path
+    - source_sha256
+    - content_sha256
+    - byte_length
+    - path_references
+    - provenance
+  stable_id: artifact-<24 lowercase hex>
+  conversion_rule: copy-preserving-v1
+  provenance:
+    - source.revision
+    - source.tree_hash
+    - legacy_source.revision
+    - legacy_source.tree_hash
+  allowed_kinds:
+    - governance-document
+    - project-profile
+    - task-archive
+    - target-owned-preserved
+
+vnext_bundle:
+  manifest_file: vnext-bundle.json
+  schema_version: 1
+  kind: workflow-vnext-bundle
+  status: validated
+  legacy_compatibility: absent
+  required_categories:
+    - protocol
+    - schema
+    - skill
+  required_daily_entries:
+    - prepare-task
+    - review-change
+    - execute-step
+    - debug-task
+    - task-lifecycle
+    - capture-work-item
+    - close-task
+  source_binding:
+    - root_identity
+    - revision
+    - tree_hash
+
+installation:
+  mode: pure-vnext
+  all_or_nothing: true
+  install_state: .workflow-system/vnext/INSTALL_STATE.json
+  receipt: .workflow-system/vnext/MIGRATION_RECEIPT.json
+  no_legacy_surface: true
+  replay: exact-pack-and-target-identity-no-op

@@ -224,4 +224,53 @@ The only dual track permitted is the temporary source-repository development arr
 
 ## 8. Next boundary
 
-The next implementation task is Phase 1: define and implement the minimum vNext Skill/Capability structure. Do not expand the shadow runner, add legacy-aware vNext readers, or design state migration for non-idle projects. The Migration Pack is the separate follow-on boundary between an idle old project and a pure vNext installation.
+Phase 1's minimum vNext Skill/Capability structure and the independent
+Migration Pack boundary are now implemented in the source repository. The next
+product boundary is Phase 2: bind the vNext Runtime transaction kernel for the
+state-changing `execute-step` slice. Do not add legacy-aware vNext readers,
+runtime hot migration, or a long-lived compatibility surface.
+
+## 9. Migration Pack implementation contract
+
+The one-time implementation lives in `scripts/vnext-migration-pack.ts`; it is
+not an additional Skill and is not called by `workflow-runtime.ts`. The command
+surface is intentionally small:
+
+```text
+bun run scripts/vnext-migration-pack.ts preflight --target <old-project>
+bun run scripts/vnext-migration-pack.ts convert --target <old-project> --out <pack-dir>
+bun run scripts/vnext-migration-pack.ts validate --pack <pack-dir> --target <old-project>
+bun run scripts/vnext-migration-pack.ts install --pack <pack-dir> --bundle <vnext-bundle-dir> --target <old-project> --write
+```
+
+`convert` performs only read-only inspection of the old project and writes an
+external pack directory. The directory contains `migration-pack.json`,
+`migration-report.json`, and `artifacts/<stable-id>.content`. Every converted
+artifact has a deterministic stable ID, source/content SHA-256, source
+revision/tree hash, legacy-target revision/tree hash, source/target path,
+path-reference inventory, and provenance. `CURRENT_TASK.md`, protocol/schema source files, paused packages,
+interrupted packages, and active finding/repair state are never conversion
+artifacts. Original document bytes are copied verbatim; semantic deduplication,
+Lesson applicability inference, and AI rewriting are out of scope.
+
+`install` requires both a validated pack and a separately validated
+`vnext-bundle.json`. The bundle is bound to the exact source root identity,
+revision, and tree hash and must declare `legacy_compatibility: absent` plus
+protocol, schema, and all seven daily-entry Skill artifacts. The target must still match the pack's
+project identity, archived/archived idle snapshot, source checksums, and legacy
+installation surface. A changed target or source is stale and stops before any
+write.
+
+Installation writes a pure-vNext surface through one rollback-capable file
+transaction, replaces the old `CURRENT_TASK.md` and protocol/schema with the
+bundle artifacts, removes the old managed host/generated/registry surface, and
+writes `.workflow-system/vnext/INSTALL_STATE.json` plus
+`.workflow-system/vnext/MIGRATION_RECEIPT.json`. It never writes or closes the
+old task during preflight/conversion. An exact pack/bundle/target identity
+replay is a no-op; a different marker is a conflict. Any post-install legacy
+Skill or compatibility surface causes the transaction to roll back.
+
+The machine-readable pack boundary is recorded in
+`.workflow-system/vnext/MIGRATION_PACK_SCHEMA.yaml`. The schema and focused
+tests are source-repository conformance evidence only; neither the pack nor
+its reports become vNext project truth or a long-lived compatibility layer.

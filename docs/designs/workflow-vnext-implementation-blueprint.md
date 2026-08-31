@@ -295,6 +295,14 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 
 后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再 state-changing Runtime”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。
 
+Migration Pack 的独立实现现位于 `scripts/vnext-migration-pack.ts`，其
+`preflight → convert → validate → install` 命令链、Pack/Bundle schema、
+source/target identity 绑定、idle-only 检查和回滚式安装细节以
+`docs/product/workflow-vnext-migration-plan.md §9` 及
+`.workflow-system/vnext/MIGRATION_PACK_SCHEMA.yaml` 为实施记录。该状态
+说明不改变上表的架构边界：Pack 仍不是 vNext entry、Runtime handler 或
+legacy compatibility layer。
+
 ## 8. Blueprint 完成标准
 
 本蓝图可作为 Skill 重写入口的前提是：
