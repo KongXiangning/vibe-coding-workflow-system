@@ -2,6 +2,16 @@ schema_version: 1
 kind: vnext-runtime-contract
 phase: Phase 2
 
+runtime_distribution:
+  kind: project-local-node
+  package_path: .workflow-system/runtime
+  entrypoint: .workflow-system/runtime/dist/cli.js
+  package_manifest: .workflow-system/runtime/package.json
+  lockfile: .workflow-system/runtime/package-lock.json
+  package_name: vibe-coding-vnext-runtime
+  package_version: 0.14.5
+  node_min_version: ">=20.0.0"
+
 proposal:
   schema_version: 1
   kind: vnext-runtime-proposal
@@ -27,6 +37,10 @@ proposal:
     - evidence_refs
     - idempotency_key
     - requested_write_targets
+  finding_queue_repair:
+    required:
+      - review_cycle_id
+      - repair_wave_id
 
 canonical_current_task:
   frontmatter:
@@ -46,10 +60,17 @@ canonical_current_task:
       - active_step_id
       - active_step_status
       - finding_queue_revision
-      - repair_round
+      - review_cycle
       - findings
       - execution_log
       - applied_proposals
+    review_cycle:
+      fields:
+        - id
+        - repair_round
+        - counted_repair_wave_ids
+      repair_round_max: 3
+      same_repair_wave_counts_once: true
   source_of_truth: same-canonical-CURRENT_TASK-document
   legacy_schema_behavior: migration-required
 
@@ -57,7 +78,7 @@ operations:
   - id: task-state-transaction
     status: bound
     binding: vnext-runtime
-    handler: scripts/vnext-runtime.ts
+    operation: task-state-transaction
     source_targets:
       - CURRENT_TASK.md
     write_targets:
@@ -76,7 +97,7 @@ operations:
   - id: finding-queue-transaction
     status: bound
     binding: vnext-runtime
-    handler: scripts/vnext-runtime.ts
+    operation: finding-queue-transaction
     source_targets:
       - CURRENT_TASK.md
     write_targets:

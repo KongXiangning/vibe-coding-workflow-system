@@ -709,8 +709,10 @@ A Runtime operation must not introduce a database, cache, manifest field, or der
 
 Phase 2 binds `task-state-transaction` and `finding-queue-transaction` only for the
 pure-vNext `execute-step` caller. Their implementation is
-`scripts/vnext-runtime.ts`, and the machine-readable proposal/state contract is
-`.workflow-system/vnext/RUNTIME_CONTRACT.yaml`. Both handlers use the same
+the project-local Node entrypoint `.workflow-system/runtime/dist/cli.js`, and
+the machine-readable proposal/state contract is
+`.workflow-system/vnext/RUNTIME_CONTRACT.yaml`. The source repository's
+`scripts/vnext-runtime.ts` is only a development wrapper. Both handlers use the same
 canonical vNext `CURRENT_TASK.md` document as their only state source and write
 only that exact document path resolved from the target Project Profile.
 
@@ -724,10 +726,13 @@ and never lets one operation borrow another operation's write boundary.
 Each accepted proposal is rendered in memory, committed with an atomic file
 transaction, and read back before `success` is returned. Replays with the same
 idempotency key and proposal digest are `no-op`; a reused key with a different
-proposal is `conflict`. Handler failures, missing authority/evidence, illegal
-step transitions, duplicate findings, and exhausted repair budgets are
-`blocked` without a partial write. The remaining lifecycle, inbox, status,
-archive, and lesson operations stay `contract-only / unbound / Phase 2`.
+proposal is `conflict`. The canonical `review_cycle` state records the active
+cycle, its repair round, and counted repair-wave identities; multiple findings
+in one wave consume one round, while a new cycle starts at round zero. Handler
+failures, missing authority/evidence, illegal step transitions, duplicate
+findings, and exhausted repair budgets are `blocked` without a partial write.
+The remaining lifecycle, inbox, status, archive, and lesson operations stay
+`contract-only / unbound / Phase 2`.
 
 ### 4c.5 Compatibility alias rules
 

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { stringify } from 'yaml';
 import {
   buildVNextBundle,
   createMigrationPack,
@@ -50,9 +51,15 @@ function copyFixtureTarget(): string {
   return target;
 }
 
-type BundleFile = readonly [string, string, 'protocol' | 'schema' | 'generated' | 'skill' | 'config'];
+type BundleFile = readonly [string, string, 'protocol' | 'schema' | 'generated' | 'skill' | 'config' | 'runtime'];
 
-function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, extraFiles: readonly BundleFile[] = []): void {
+function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, extraFiles: readonly BundleFile[] = [], phase2 = false): void {
+  if (phase2) {
+    fs.cpSync(path.join(ROOT, 'templates', 'skills'), path.join(sourceRoot, 'templates', 'skills'), { recursive: true });
+    fs.cpSync(path.join(ROOT, 'templates', 'vnext'), path.join(sourceRoot, 'templates', 'vnext'), { recursive: true });
+    fs.mkdirSync(path.join(sourceRoot, '.workflow-system', 'vnext'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, '.workflow-system', 'vnext', 'SOURCE_CONTRACT.yaml'), path.join(sourceRoot, '.workflow-system', 'vnext', 'SOURCE_CONTRACT.yaml'));
+  }
   const files: BundleFile[] = [
     ['bundle/protocol.md', '.workflow-system/WORKFLOW_PROTOCOL.md', 'protocol'],
     ['bundle/schema.md', '.workflow-system/FILE_SCHEMAS.md', 'schema'],
@@ -64,12 +71,28 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
     ['bundle/task-lifecycle.SKILL.md', '.claude/skills/task-lifecycle.SKILL.md', 'skill'],
     ['bundle/capture-work-item.SKILL.md', '.claude/skills/capture-work-item.SKILL.md', 'skill'],
     ['bundle/close-task.SKILL.md', '.claude/skills/close-task.SKILL.md', 'skill'],
+    ...(phase2 ? [
+      ['bundle/runtime-cli.js', '.workflow-system/runtime/dist/cli.js', 'runtime'],
+      ['bundle/runtime-package.json', '.workflow-system/runtime/package.json', 'runtime'],
+      ['bundle/runtime-package-lock.json', '.workflow-system/runtime/package-lock.json', 'runtime'],
+      ['bundle/runtime-cli.ts', '.workflow-system/runtime/src/cli.ts', 'runtime'],
+      ['bundle/runtime-current-task.ts', '.workflow-system/runtime/src/current-task.ts', 'runtime'],
+      ['bundle/runtime-task-state-transaction.ts', '.workflow-system/runtime/src/task-state-transaction.ts', 'runtime'],
+      ['bundle/runtime-finding-queue-transaction.ts', '.workflow-system/runtime/src/finding-queue-transaction.ts', 'runtime'],
+      ['bundle/runtime-kernel.ts', '.workflow-system/runtime/src/kernel.ts', 'runtime'],
+      ['bundle/runtime-io.ts', '.workflow-system/runtime/src/runtime-io.ts', 'runtime'],
+      ['bundle/runtime-task-identity.ts', '.workflow-system/runtime/src/task-identity.ts', 'runtime'],
+      ['bundle/runtime-contract.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', 'protocol'],
+    ] as BundleFile[] : []),
     ...extraFiles,
   ];
   for (const [relative, target, category] of files) {
     const file = path.join(sourceRoot, ...relative.split('/'));
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    if (category === 'protocol') {
+    if (category === 'runtime') {
+      const runtimeRelative = target.slice('.workflow-system/runtime/'.length);
+      fs.copyFileSync(path.join(ROOT, 'runtime', 'vnext', ...runtimeRelative.split('/')), file);
+    } else if (category === 'protocol') {
       if (target === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') {
         fs.copyFileSync(path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml'), file);
       } else {
@@ -78,17 +101,44 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
     } else if (category === 'schema') {
       fs.writeFileSync(file, 'schema_version: 1\nkind: vnext-file-schema\n\n# vNext File Schema\nCURRENT_TASK.md\n', 'utf8');
     } else if (target.endsWith('CURRENT_TASK.md')) {
-      fs.writeFileSync(file, [
+      const currentTaskFrontmatter = phase2 ? {
+        schema_version: 1,
+        kind: 'vnext-current-task',
+        document_id: 'doc-000000000000000000000000',
+        runtime_state: {
+          schema_version: 1,
+          kind: 'vnext-current-task-runtime-state',
+          task_id: '010',
+          task_slug: 'migration-fixture',
+          workflow_status: 'active',
+          lifecycle_state: 'active',
+          active_step_id: 'step-1',
+          active_step_status: 'ready',
+          finding_queue_revision: 0,
+          review_cycle: {
+            id: 'review-cycle-0',
+            repair_round: 0,
+            counted_repair_wave_ids: [],
+          },
+          findings: [],
+          execution_log: [],
+          applied_proposals: [],
+        },
+      } : null;
+      const body = [
         '---',
-        'schema_version: 1',
-        'kind: vnext-current-task',
-        'document_id: doc-000000000000000000000000',
+        ...(currentTaskFrontmatter ? stringify(currentTaskFrontmatter).trimEnd().split(/\r?\n/) : [
+          'schema_version: 1',
+          'kind: vnext-current-task',
+          'document_id: doc-000000000000000000000000',
+        ]),
         '---',
         '',
         '# vNext CURRENT_TASK',
         '',
         '## 任务信息',
-        '- 任务 ID：none',
+        `- 任务 ID：${phase2 ? '010' : 'none'}`,
+        `- 任务 slug：${phase2 ? 'migration-fixture' : 'none'}`,
         '- 当前状态：draft',
         '- 生命周期状态：active',
         '- 恢复需审查：false',
@@ -96,7 +146,8 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
         '## 允许修改范围',
         '## 实施步骤',
         '',
-      ].join('\n'), 'utf8');
+      ].join('\n');
+      fs.writeFileSync(file, body, 'utf8');
     } else if (category === 'skill') {
       const entry = path.posix.basename(target).replace(/\.SKILL\.md$/, '');
       fs.copyFileSync(path.join(ROOT, 'templates', 'vnext', 'skills', `${entry}.SKILL.md.tmpl`), file);
@@ -268,6 +319,24 @@ describe('one-time vNext Migration Pack', () => {
 
     const manifest = JSON.parse(fs.readFileSync(path.join(bundleDir, 'vnext-bundle.json'), 'utf8')) as { artifacts: Array<{ target_path: string }> };
     expect(manifest.artifacts.some(artifact => artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml')).toBe(true);
+  });
+
+  test('validates a Phase 2 bundle and plans project-local Runtime dependencies without writing in dry-run', () => {
+    const source = tempRoot('workflow-vnext-phase2-source-');
+    const target = copyFixtureTarget();
+    const packDir = tempRoot('workflow-vnext-migration-pack-');
+    const bundleDir = tempRoot('workflow-vnext-phase2-bundle-');
+    writeBundle(source, target, bundleDir, [], true);
+    const manifest = createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });
+
+    const result = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target, dryRun: true });
+
+    expect(result.status).toBe('ready');
+    expect(result.pack_id).toBe(manifest.pack_id);
+    expect(result.planned_writes).toContain('.workflow-system/runtime/dist/cli.js');
+    expect(result.planned_writes).toContain('.workflow-system/runtime/node_modules');
+    expect(fs.existsSync(path.join(target, '.workflow-system', 'runtime'))).toBe(false);
+    expect(fs.existsSync(path.join(target, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/')))).toBe(false);
   });
 
   test('fails closed when an interrupted installation marker is present', () => {

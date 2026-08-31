@@ -243,7 +243,7 @@ capabilities:
     trigger:
       - a repair is followed by review verification
     input_contract:
-      - review cycle, finding fingerprints, attempt counters, and remaining budget
+      - review cycle, repair-wave identities, finding fingerprints, attempt counters, and remaining budget
       - verification evidence and newly observed issues
     output_contract:
       - resolved, continue, debug, user, or blocked convergence verdict

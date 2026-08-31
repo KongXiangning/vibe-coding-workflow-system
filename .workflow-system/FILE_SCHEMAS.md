@@ -842,7 +842,10 @@ runtime_state:
   active_step_id: <stable-step-id>
   active_step_status: ready | in-progress | completed | blocked
   finding_queue_revision: <non-negative integer>
-  repair_round: <0..3>
+  review_cycle:
+    id: <review-cycle-id>
+    repair_round: <0..3>
+    counted_repair_wave_ids: []
   findings: []
   execution_log: []
   applied_proposals: []
@@ -851,9 +854,10 @@ runtime_state:
 Runtime state 与正文中的任务 identity / lifecycle tuple 必须一致；不一致
 即为 source conflict。`findings` 以稳定 fingerprint 唯一标识，只有
 `current-owner + admitted scope + mechanical decision + evidence + bounded
-root cause` 的记录才能进入 repair；每个 fingerprint 最多两次 repair
-attempt，review cycle 最多三轮。`applied_proposals` 只用于同一 canonical
-文档内的幂等回放，不构成第二状态源。
+root cause` 的记录才能进入 repair。`review_cycle` 记录当前 review cycle、
+已计数的 repair wave 与其 round；每个 fingerprint 最多两次 repair attempt，
+review cycle 最多三轮，同一 repair wave 可包含多个 finding 但只计一轮；
+`applied_proposals` 只用于同一 canonical 文档内的幂等回放，不构成第二状态源。
 
 Phase 2 proposal 的写目标必须精确解析为当前 Project Profile 指定的
 `CURRENT_TASK.md`，禁止 broad glob、跨 operation 写入或直接编辑其他治理

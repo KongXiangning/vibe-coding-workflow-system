@@ -121,11 +121,37 @@ vnext_bundle:
   phase2_runtime:
     required_when_source_phase: Phase 2
     canonical_current_task_requires_runtime_state: true
+    distribution:
+      kind: project-local-node
+      package_path: .workflow-system/runtime
+      entrypoint: .workflow-system/runtime/dist/cli.js
+      dependency_install: npm-ci-omit-dev
+      dependency_scope: runtime-package-local-only
+      node_min_version: ">=20.0.0"
+      version_binding: package-lock-and-entrypoint-checksum
     bound_operations:
       - task-state-transaction
       - finding-queue-transaction
     required_artifacts:
-      - target_path: scripts/vnext-runtime.ts
+      - target_path: .workflow-system/runtime/dist/cli.js
+        category: runtime
+      - target_path: .workflow-system/runtime/package.json
+        category: runtime
+      - target_path: .workflow-system/runtime/package-lock.json
+        category: runtime
+      - target_path: .workflow-system/runtime/src/cli.ts
+        category: runtime
+      - target_path: .workflow-system/runtime/src/current-task.ts
+        category: runtime
+      - target_path: .workflow-system/runtime/src/task-state-transaction.ts
+        category: runtime
+      - target_path: .workflow-system/runtime/src/finding-queue-transaction.ts
+        category: runtime
+      - target_path: .workflow-system/runtime/src/kernel.ts
+        category: runtime
+      - target_path: .workflow-system/runtime/src/runtime-io.ts
+        category: runtime
+      - target_path: .workflow-system/runtime/src/task-identity.ts
         category: runtime
       - target_path: .workflow-system/vnext/RUNTIME_CONTRACT.yaml
         category: protocol
@@ -143,3 +169,20 @@ installation:
   interruption_boundary: fail-closed-marker-requires-explicit-recovery
   no_legacy_surface: true
   replay: exact-pack-and-target-identity-no-op
+  runtime_distribution:
+    recorded_in:
+      - .workflow-system/vnext/INSTALL_STATE.json
+      - .workflow-system/vnext/MIGRATION_RECEIPT.json
+    identity_fields:
+      - kind
+      - package_path
+      - entrypoint
+      - package_version
+      - node_min_version
+      - package_lock_sha256
+      - entrypoint_sha256
+  runtime_promotion:
+    stage_dependencies_before_marker: true
+    self_check_before_promote: true
+    atomic_directory_replace: .workflow-system/runtime/node_modules
+    rollback_includes_runtime_directory: true

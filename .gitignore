@@ -4,6 +4,8 @@
 !.env.example
 node_modules/
 dist/
+!runtime/vnext/dist/
+!runtime/vnext/dist/**
 tmp/
 .tmp/
 *.log

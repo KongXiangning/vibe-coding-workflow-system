@@ -186,8 +186,11 @@ After the Phase 1A three-entry manual review passed, the same independent namesp
 
 ### 3.5 Phase 2 bound Runtime slice
 
-The first state-changing slice is implemented by `scripts/vnext-runtime.ts` and
-described by `.workflow-system/vnext/RUNTIME_CONTRACT.yaml`. It accepts only a
+The first state-changing slice is implemented by the project-local Node Runtime
+package at `.workflow-system/runtime/` (the source repository keeps its
+authoritative implementation in `runtime/vnext/src/`, while
+`scripts/vnext-runtime.ts` is only a development wrapper) and described by
+`.workflow-system/vnext/RUNTIME_CONTRACT.yaml`. It accepts only a
 pure-vNext canonical `CURRENT_TASK.md` with an in-document `runtime_state`,
 validates the exact source tuple and authority/evidence envelope, and commits
 typed task-state or finding-queue deltas through one shared atomic kernel. The
@@ -195,6 +198,11 @@ kernel owns deterministic schema, path, conflict, idempotency, repair-budget,
 and read-back checks; the model remains responsible for semantic admission.
 `prepare-task`, `debug-task`, `task-lifecycle`, `close-task`, and all later
 operation callers still receive proposal-only contracts until their own phase.
+The Runtime package, lockfile, generated Node entrypoint, and Skill artifacts
+are promoted from one source-bound bundle; installation stages its own
+`node_modules` with `npm ci --omit=dev` and runs the Node self-check before
+atomic promotion. The target's business package and `node_modules` are outside
+this boundary.
 
 ## 4. 关键宏观路由
 
@@ -222,7 +230,7 @@ review / evidence / acceptance complete
 close-task
 ```
 
-Review Convergence 的默认边界由 Target Architecture 负责：同一 fingerprint 最多两次 repair attempt，repair wave 有上限；无法收敛、需要用户决定或根因未知时 stop。`review-change` 不自己写 queue；在当前 Phase 2 首个切片中，`execute-step` 是唯一绑定的 finding-queue caller，后续再由 `sync-state` 的 typed operation 扩展其他调用面。
+Review Convergence 的默认边界由 Target Architecture 负责：同一 fingerprint 最多两次 repair attempt，review cycle 最多三轮；每个 repair proposal 必须绑定 `review_cycle_id` 与 `repair_wave_id`，同一 wave 的多个 admitted finding 只计一轮，新的 review cycle 从零开始。无法收敛、需要用户决定或根因未知时 stop。`review-change` 不自己写 queue；在当前 Phase 2 首个切片中，`execute-step` 是唯一绑定的 finding-queue caller，后续再由 `sync-state` 的 typed operation 扩展其他调用面。
 
 ## 5. Runtime 写入矩阵
 

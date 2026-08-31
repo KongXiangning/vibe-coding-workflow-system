@@ -67,8 +67,8 @@ Implement exactly the admitted current step. Ordinary implementation and admitte
 2. In `default` mode, implement the current step using ordinary engineering judgment while preserving confirmed authority, design, contract, external-documentation, evidence, and dangerous-operation boundaries.
 3. In `repair` mode, require either an admitted mechanical finding or a confirmed root cause with an authorized route. Consume the bounded repair budget. Do not discover arbitrary new work, widen scope, or repair another owner's issue.
 4. Use the evidence plan to choose minimum-sufficient checks. Exploratory probes remain bounded and temporary; a guessed behavior cannot become a persistent test or contract without admission.
-5. After an admitted repair, route to bounded `review-change` verification. If the root cause is unknown, or the same fingerprint/budget cannot converge, stop with the corresponding debug, user, or blocked result.
-6. Product edits are allowed only under `admitted_scope`. Do not directly edit governance documents, finding queues, registry, installation, or host surfaces; durable task/finding state goes through the bound Runtime handlers below.
+5. After an admitted repair, request a bounded `review-change` input with `cycle_phase: verification`; this is review input, not a new mode or handoff. If the root cause is unknown, or the same fingerprint/budget cannot converge, stop with the corresponding debug, user, or blocked result.
+6. Product edits are allowed only under `admitted_scope`. Do not directly edit governance documents, finding queues, registry, installation, or host surfaces; durable task/finding state goes through the bound Runtime handlers below. For a bound proposal, invoke `node .workflow-system/runtime/dist/cli.js apply --root .` with the JSON proposal on stdin (or use `--proposal-file`); treat stdout as the machine-readable `RuntimeResult` and never infer a commit from the command's absence of an error.
 
 ## Required result
 

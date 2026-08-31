@@ -8,6 +8,7 @@
  */
 
 import { execFileSync } from 'child_process';
+import * as os from 'os';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -29,7 +30,18 @@ import {
   validateCurrentTaskStatusTuple,
 } from './task-identity';
 import { validateVNextSource } from './vnext-source-contract';
-import { validateVNextRuntimeContract, validateVNextRuntimeState } from './vnext-runtime';
+import {
+  validateVNextRuntimeContract,
+  validateVNextRuntimeState,
+  VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH,
+  VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH,
+  VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH,
+  VNEXT_RUNTIME_PACKAGE_NAME,
+  VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
+  VNEXT_RUNTIME_NODE_MIN_VERSION,
+  VNEXT_RUNTIME_PACKAGE_VERSION,
+  validateRuntimeEnvironment,
+} from './vnext-runtime';
 
 export const MIGRATION_PACK_SCHEMA_VERSION = 1 as const;
 export const MIGRATION_PACK_KIND = 'workflow-vnext-migration-pack' as const;
@@ -155,6 +167,7 @@ const KNOWN_HOST_SKILL_DIRS = [
   path.posix.join('.factory', 'skills'),
 ] as const;
 const KNOWN_LEGACY_SCRIPT_PATHS = [
+  'scripts/vnext-runtime.ts',
   'scripts/workflow-core.ts',
   'scripts/workflow-doc-contracts.ts',
   'scripts/workflow-runtime.ts',
@@ -389,6 +402,16 @@ export type VNextBundleManifest = {
   artifacts: VNextBundleArtifact[];
 };
 
+export type RuntimeDistributionIdentity = {
+  kind: 'project-local-node';
+  package_path: string;
+  entrypoint: string;
+  package_version: string;
+  node_min_version: string;
+  package_lock_sha256: string;
+  entrypoint_sha256: string;
+};
+
 export type VNextInstallState = {
   schema_version: 1;
   kind: 'vnext-install-state';
@@ -398,6 +421,7 @@ export type VNextInstallState = {
   source_revision: string;
   source_tree_hash: string;
   target_identity: string;
+  runtime_distribution: RuntimeDistributionIdentity | null;
   installed_at: string;
   managed_files: Array<{ path: string; checksum: string; category: string }>;
   removed_legacy_files: string[];
@@ -2189,6 +2213,59 @@ function validateVNextCurrentTaskBundleContent(content: string, location: string
   if (/Protocol-Version\s*:\s*0\./i.test(body)) throw new MigrationPackError('BUNDLE_INVALID', `${location} still embeds legacy protocol metadata.`);
 }
 
+
+const REQUIRED_RUNTIME_BUNDLE_TARGETS = [
+  VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH,
+  VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH,
+  VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH,
+  '.workflow-system/runtime/src/cli.ts',
+  '.workflow-system/runtime/src/current-task.ts',
+  '.workflow-system/runtime/src/task-state-transaction.ts',
+  '.workflow-system/runtime/src/finding-queue-transaction.ts',
+  '.workflow-system/runtime/src/kernel.ts',
+  '.workflow-system/runtime/src/runtime-io.ts',
+  '.workflow-system/runtime/src/task-identity.ts',
+] as const;
+
+function parseRuntimeBundleJson(content: string, location: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    throw new MigrationPackError('BUNDLE_INVALID', location + ' is not valid JSON: ' + (error instanceof Error ? error.message : String(error)));
+  }
+  return expectRecord(parsed, location);
+}
+
+function validateRuntimePackageBundleContent(content: string, location: string): void {
+  const packageManifest = parseRuntimeBundleJson(content, location);
+  if (packageManifest.name !== VNEXT_RUNTIME_PACKAGE_NAME || packageManifest.version !== VNEXT_RUNTIME_PACKAGE_VERSION || packageManifest.private !== true || packageManifest.type !== 'module') {
+    throw new MigrationPackError('BUNDLE_INVALID', location + ' must declare the canonical private Node Runtime package identity.');
+  }
+  const engines = expectRecord(packageManifest.engines, location + '.engines');
+  if (engines.node !== VNEXT_RUNTIME_NODE_MIN_VERSION) throw new MigrationPackError('BUNDLE_INVALID', location + '.engines.node does not match the Runtime contract.');
+  const dependencies = expectRecord(packageManifest.dependencies, location + '.dependencies');
+  if (dependencies.yaml !== '2.8.3') throw new MigrationPackError('BUNDLE_INVALID', location + '.dependencies.yaml must pin 2.8.3.');
+}
+
+function validateRuntimeLockfileBundleContent(content: string, location: string): void {
+  const lockfile = parseRuntimeBundleJson(content, location);
+  if (lockfile.name !== VNEXT_RUNTIME_PACKAGE_NAME || lockfile.version !== VNEXT_RUNTIME_PACKAGE_VERSION || lockfile.lockfileVersion !== 3) {
+    throw new MigrationPackError('BUNDLE_INVALID', location + ' has an invalid Runtime lockfile identity.');
+  }
+  const packages = expectRecord(lockfile.packages, location + '.packages');
+  const rootPackage = expectRecord(packages[''], location + '.packages[""]');
+  if (rootPackage.version !== VNEXT_RUNTIME_PACKAGE_VERSION) throw new MigrationPackError('BUNDLE_INVALID', location + ' root package version does not match the Runtime package.');
+  const yamlPackage = expectRecord(packages['node_modules/yaml'], location + '.packages[node_modules/yaml]');
+  if (yamlPackage.version !== '2.8.3') throw new MigrationPackError('BUNDLE_INVALID', location + ' must lock yaml to 2.8.3.');
+}
+
+function validateRuntimeEntrypointBundleContent(content: string, location: string): void {
+  if (!content.includes('vnext-runtime-proposal') || !content.includes('runCli')) {
+    throw new MigrationPackError('BUNDLE_INVALID', location + ' is not the generated vNext Runtime Node entrypoint.');
+  }
+}
+
 function validateVNextBundleArtifactContent(artifact: VNextBundleArtifact, content: string, location: string): void {
   const isRuntimeContract = artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml';
   if (artifact.category === 'protocol' && !isRuntimeContract) validateVNextProtocolBundleContent(content, location);
@@ -2198,11 +2275,9 @@ function validateVNextBundleArtifactContent(artifact: VNextBundleArtifact, conte
     if (!(entry in BUNDLE_ENTRY_MODES)) throw new MigrationPackError('BUNDLE_INVALID', `${location} targets an unknown vNext Skill entry.`);
     validateVNextSkillBundleContent(entry, content, location);
   }
-  if (artifact.category === 'runtime' && artifact.target_path === 'scripts/vnext-runtime.ts') {
-    if (!content.includes('GovernanceTransactionKernel') || !content.includes('applyVNextRuntimeProposal')) {
-      throw new MigrationPackError('BUNDLE_INVALID', `${location} does not contain the Phase 2 Runtime kernel.`);
-    }
-  }
+  if (artifact.category === 'runtime' && artifact.target_path === VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) validateRuntimeEntrypointBundleContent(content, location);
+  if (artifact.category === 'runtime' && artifact.target_path === VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH) validateRuntimePackageBundleContent(content, location);
+  if (artifact.category === 'runtime' && artifact.target_path === VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH) validateRuntimeLockfileBundleContent(content, location);
   if (artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') {
     if (artifact.category !== 'protocol') throw new MigrationPackError('BUNDLE_INVALID', `${location} Runtime contract must be a protocol artifact.`);
     const parsed = parseDocument(content, { uniqueKeys: true });
@@ -2269,6 +2344,9 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
     const pathParts = lowerPath.split('/');
     if ([...VNEXT_FORBIDDEN_PATH_PARTS].some(part => pathParts.some(pathPart => pathPart === part || pathPart.startsWith(`${part}-`) || pathPart.startsWith(`${part}_`)))) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle target path contains a compatibility surface: ${artifact.target_path}`);
     if (VNEXT_FORBIDDEN_TARGET_PREFIXES.some(prefix => lowerPath.startsWith(prefix))) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle target path is an old source/generated surface: ${artifact.target_path}`);
+    const runtimeNodeModulesPrefix = `${VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH}/node_modules/`;
+    if (lowerPath === VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH + '/node_modules' || lowerPath.startsWith(runtimeNodeModulesPrefix)) throw new MigrationPackError('BUNDLE_INVALID', 'Runtime node_modules is generated by npm ci and must not be included in the vNext source bundle.');
+    if (artifact.category === 'runtime' && artifact.target_path === 'scripts/vnext-runtime.ts') throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must not install the source-repository Runtime wrapper.');
     if (artifact.target_path === VNEXT_INSTALL_STATE_RELATIVE_PATH || artifact.target_path === VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH || artifact.target_path === VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH) {
       throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle must not own Migration Pack state: ${artifact.target_path}`);
     }
@@ -2321,21 +2399,42 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
     throw new MigrationPackError('BUNDLE_INVALID', 'CURRENT_TASK.md must be a document artifact, not a protocol, schema, Skill, or registry artifact.');
   }
   if (sourceDeclaresPhase2Runtime(sourceRoot)) {
-    const runtimeKernel = artifacts.find(artifact => artifact.category === 'runtime' && artifact.target_path === 'scripts/vnext-runtime.ts');
+    const runtimeArtifacts = artifacts.filter(artifact => artifact.category === 'runtime');
+    for (const requiredTarget of REQUIRED_RUNTIME_BUNDLE_TARGETS) {
+      const runtimeArtifact = runtimeArtifacts.find(artifact => artifact.target_path === requiredTarget);
+      if (!runtimeArtifact || runtimeArtifact.required !== true) throw new MigrationPackError('BUNDLE_INVALID', 'Phase 2 vNext bundles must include required Runtime artifact ' + requiredTarget + '.');
+    }
     const runtimeContractArtifacts = artifacts.filter(artifact => artifact.category === 'protocol' && artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml');
     const runtimeContract = runtimeContractArtifacts[0];
-    if (!runtimeKernel || runtimeKernel.required !== true || runtimeContractArtifacts.length !== 1 || !runtimeContract || runtimeContract.required !== true) {
-      throw new MigrationPackError('BUNDLE_INVALID', 'Phase 2 vNext bundles must include the bound Runtime kernel and RUNTIME_CONTRACT.yaml.');
+    if (runtimeContractArtifacts.length !== 1 || !runtimeContract || runtimeContract.required !== true) {
+      throw new MigrationPackError('BUNDLE_INVALID', 'Phase 2 vNext bundles must include exactly one RUNTIME_CONTRACT.yaml.');
     }
     const currentTaskContent = readBundleContent(bundleDir, currentTaskArtifacts[0]);
     const { frontmatter: currentTaskFrontmatter } = readBundleFrontmatter(currentTaskContent, currentTaskArtifacts[0].source_path);
     if (!('runtime_state' in currentTaskFrontmatter)) {
       throw new MigrationPackError('BUNDLE_INVALID', 'Phase 2 vNext bundles must include runtime_state in the canonical CURRENT_TASK frontmatter.');
     }
+    const runtimeValidationRoot = fs.mkdtempSync(path.join(os.tmpdir(), '.workflow-vnext-runtime-bundle-'));
     try {
-      validateVNextRuntimeContract(bundleDir);
-    } catch (error) {
-      throw new MigrationPackError('BUNDLE_INVALID', `Phase 2 Runtime contract is invalid: ${error instanceof Error ? error.message : String(error)}.`);
+      const writeRuntimeArtifact = (targetPath: string): void => {
+        const artifact = artifacts.find(item => item.target_path === targetPath);
+        if (!artifact) throw new MigrationPackError('BUNDLE_INVALID', 'Missing Runtime artifact ' + targetPath + '.');
+        const sourcePath = resolveRepoPath(bundleDir, artifact.source_path, 'Runtime artifact ' + targetPath);
+        const destination = resolveRepoPath(runtimeValidationRoot, targetPath, 'Runtime validation artifact ' + targetPath);
+        fs.mkdirSync(path.dirname(destination), { recursive: true });
+        fs.copyFileSync(sourcePath, destination);
+      };
+      writeRuntimeArtifact('.workflow-system/vnext/RUNTIME_CONTRACT.yaml');
+      writeRuntimeArtifact(VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH);
+      writeRuntimeArtifact(VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH);
+      writeRuntimeArtifact(VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH);
+      try {
+        validateVNextRuntimeContract(runtimeValidationRoot);
+      } catch (error) {
+        throw new MigrationPackError('BUNDLE_INVALID', 'Phase 2 Runtime contract is invalid: ' + (error instanceof Error ? error.message : String(error)) + '.');
+      }
+    } finally {
+      fs.rmSync(runtimeValidationRoot, { recursive: true, force: true });
     }
   }
   const skillNames = new Set(
@@ -2390,6 +2489,89 @@ export function buildVNextBundle(options: {
 
 function readBundleContent(bundleDir: string, artifact: VNextBundleArtifact): string {
   return fs.readFileSync(resolveRepoPath(bundleDir, artifact.source_path, 'vNext bundle source path'), 'utf8');
+}
+
+
+type PreparedRuntimeDistribution = {
+  sourceNodeModulesPath: string;
+  targetNodeModulesPath: string;
+  identity: RuntimeDistributionIdentity;
+  stagingRoot: string;
+};
+
+function prepareRuntimeDistribution(bundleDir: string, artifacts: readonly VNextBundleArtifact[]): PreparedRuntimeDistribution {
+  const stagingRoot = fs.mkdtempSync(path.join(os.tmpdir(), '.workflow-vnext-runtime-stage-'));
+  try {
+    const stageRoot = path.join(stagingRoot, 'project');
+    const runtimeDirectory = path.join(stageRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split('/'));
+    const requiredTargets = [
+      VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH,
+      VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH,
+      VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH,
+      '.workflow-system/runtime/src/cli.ts',
+      '.workflow-system/runtime/src/current-task.ts',
+      '.workflow-system/runtime/src/task-state-transaction.ts',
+      '.workflow-system/runtime/src/finding-queue-transaction.ts',
+      '.workflow-system/runtime/src/kernel.ts',
+      '.workflow-system/runtime/src/runtime-io.ts',
+      '.workflow-system/runtime/src/task-identity.ts',
+      '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
+    ];
+    for (const targetPath of requiredTargets) {
+      const artifact = artifacts.find(item => item.target_path === targetPath);
+      if (!artifact) throw new MigrationPackError('BUNDLE_INVALID', 'Missing Runtime staging artifact: ' + targetPath);
+      const sourcePath = resolveRepoPath(bundleDir, artifact.source_path, 'Runtime staging source');
+      const destination = resolveRepoPath(stageRoot, targetPath, 'Runtime staging target');
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(sourcePath, destination);
+    }
+    const nodeCommand = process.platform === 'win32' ? 'node.exe' : 'node';
+    let nodeVersion: string;
+    try {
+      nodeVersion = execFileSync(nodeCommand, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim().replace(/^v/, '');
+    } catch (error) {
+      throw new MigrationPackError('INSTALL_CONFLICT', 'Node.js is required for the project-local Runtime: ' + (error instanceof Error ? error.message : String(error)));
+    }
+    try {
+      validateRuntimeEnvironment(nodeVersion, VNEXT_RUNTIME_NODE_MIN_VERSION);
+    } catch (error) {
+      throw new MigrationPackError('INSTALL_CONFLICT', error instanceof Error ? error.message : String(error));
+    }
+    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    try {
+      execFileSync(npmCommand, ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], {
+        cwd: runtimeDirectory,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, NODE_PATH: undefined, npm_config_update_notifier: 'false' },
+      });
+    } catch (error) {
+      const detail = error && typeof error === 'object' && 'stderr' in error ? String((error as { stderr?: unknown }).stderr ?? '') : '';
+      throw new MigrationPackError('INSTALL_CONFLICT', 'Runtime dependency installation failed in staging: ' + (detail.trim() || (error instanceof Error ? error.message : String(error))));
+    }
+    const identity = validateVNextRuntimeContract(stageRoot, true).runtime_distribution;
+    const entrypointPath = path.join(runtimeDirectory, 'dist', 'cli.js');
+    try {
+      execFileSync(nodeCommand, [entrypointPath, 'validate-contract', '--root', stageRoot], {
+        cwd: stageRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, NODE_PATH: undefined },
+      });
+    } catch (error) {
+      const detail = error && typeof error === 'object' && 'stderr' in error ? String((error as { stderr?: unknown }).stderr ?? '') : '';
+      throw new MigrationPackError('INSTALL_CONFLICT', 'Runtime self-check failed in staging: ' + (detail.trim() || (error instanceof Error ? error.message : String(error))));
+    }
+    return {
+      sourceNodeModulesPath: path.join(runtimeDirectory, 'node_modules'),
+      targetNodeModulesPath: VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH + '/node_modules',
+      identity,
+      stagingRoot,
+    };
+  } catch (error) {
+    fs.rmSync(stagingRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function validateNoLegacySurface(
@@ -2457,11 +2639,34 @@ function validateInProgressMarker(targetRoot: string): VNextMigrationInProgress 
   return result;
 }
 
+function validateRuntimeDistributionIdentity(value: unknown, location: string): RuntimeDistributionIdentity | null {
+  if (value === null) return null;
+  const distribution = expectRecord(value, location);
+  expectExactKeys(distribution, ['kind', 'package_path', 'entrypoint', 'package_version', 'node_min_version', 'package_lock_sha256', 'entrypoint_sha256'], location);
+  const packageLockSha = expectString(distribution.package_lock_sha256, location + '.package_lock_sha256');
+  const entrypointSha = expectString(distribution.entrypoint_sha256, location + '.entrypoint_sha256');
+  if (!/^[a-f0-9]{64}$/.test(packageLockSha) || !/^[a-f0-9]{64}$/.test(entrypointSha)) {
+    throw new MigrationPackError('INSTALL_CONFLICT', location + ' checksum fields are invalid.');
+  }
+  if (distribution.kind !== 'project-local-node' || distribution.package_path !== VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH || distribution.entrypoint !== VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH || distribution.package_version !== VNEXT_RUNTIME_PACKAGE_VERSION || distribution.node_min_version !== VNEXT_RUNTIME_NODE_MIN_VERSION) {
+    throw new MigrationPackError('INSTALL_CONFLICT', location + ' does not declare the canonical Runtime distribution identity.');
+  }
+  return {
+    kind: 'project-local-node',
+    package_path: VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
+    entrypoint: VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH,
+    package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
+    node_min_version: VNEXT_RUNTIME_NODE_MIN_VERSION,
+    package_lock_sha256: packageLockSha,
+    entrypoint_sha256: entrypointSha,
+  };
+}
+
 function validateVNextInstallState(value: unknown, location: string): VNextInstallState {
   const state = expectRecord(value, location);
   expectExactKeys(
     state,
-    ['schema_version', 'kind', 'mode', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'installed_at', 'managed_files', 'removed_legacy_files', 'legacy_compatibility', 'recovery_boundary'],
+    ['schema_version', 'kind', 'mode', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'managed_files', 'removed_legacy_files', 'legacy_compatibility', 'recovery_boundary'],
     location,
   );
   if (state.schema_version !== 1 || state.kind !== 'vnext-install-state' || state.mode !== 'pure-vnext' || state.legacy_compatibility !== 'absent' || state.recovery_boundary !== 'in-progress-marker') {
@@ -2475,6 +2680,7 @@ function validateVNextInstallState(value: unknown, location: string): VNextInsta
   const sourceRevision = expectString(state.source_revision, `${location}.source_revision`);
   const sourceTreeHash = expectString(state.source_tree_hash, `${location}.source_tree_hash`);
   const targetIdentity = expectString(state.target_identity, `${location}.target_identity`);
+  const runtimeDistribution = validateRuntimeDistributionIdentity(state.runtime_distribution, `${location}.runtime_distribution`);
   if (!/^[a-f0-9]{64}$/.test(sourceTreeHash) || !/^[a-f0-9]{32}$/.test(targetIdentity)) {
     throw new MigrationPackError('INSTALL_CONFLICT', `${location} has invalid source/target identity fields.`);
   }
@@ -2504,6 +2710,7 @@ function validateVNextInstallState(value: unknown, location: string): VNextInsta
     source_revision: sourceRevision,
     source_tree_hash: sourceTreeHash,
     target_identity: targetIdentity,
+    runtime_distribution: runtimeDistribution,
     installed_at: installedAt,
     managed_files: managedFiles,
     removed_legacy_files: removedLegacyFiles,
@@ -2512,9 +2719,9 @@ function validateVNextInstallState(value: unknown, location: string): VNextInsta
   };
 }
 
-function validateVNextMigrationReceipt(value: unknown, location: string): { migration_pack_id: string; bundle_id: string; source_revision: string; source_tree_hash: string; target_identity: string; installed_at: string; converted_artifact_ids: string[] } {
+function validateVNextMigrationReceipt(value: unknown, location: string): { migration_pack_id: string; bundle_id: string; source_revision: string; source_tree_hash: string; target_identity: string; runtime_distribution: RuntimeDistributionIdentity | null; installed_at: string; converted_artifact_ids: string[] } {
   const receipt = expectRecord(value, location);
-  expectExactKeys(receipt, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility'], location);
+  expectExactKeys(receipt, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility'], location);
   if (receipt.schema_version !== 1 || receipt.kind !== 'vnext-migration-receipt' || receipt.legacy_compatibility !== 'absent') {
     throw new MigrationPackError('INSTALL_CONFLICT', `${location} is not a pure-vNext migration receipt.`);
   }
@@ -2522,6 +2729,7 @@ function validateVNextMigrationReceipt(value: unknown, location: string): { migr
   const bundleId = expectString(receipt.bundle_id, `${location}.bundle_id`);
   const sourceTreeHash = expectString(receipt.source_tree_hash, `${location}.source_tree_hash`);
   const targetIdentity = expectString(receipt.target_identity, `${location}.target_identity`);
+  const runtimeDistribution = validateRuntimeDistributionIdentity(receipt.runtime_distribution, `${location}.runtime_distribution`);
   if (!/^migration-[a-f0-9]{24}$/.test(migrationPackId) || !/^bundle-[a-f0-9]{24}$/.test(bundleId) || !/^[a-f0-9]{64}$/.test(sourceTreeHash) || !/^[a-f0-9]{32}$/.test(targetIdentity)) {
     throw new MigrationPackError('INSTALL_CONFLICT', `${location} has invalid identity fields.`);
   }
@@ -2533,46 +2741,70 @@ function validateVNextMigrationReceipt(value: unknown, location: string): { migr
     source_revision: expectString(receipt.source_revision, `${location}.source_revision`),
     source_tree_hash: sourceTreeHash,
     target_identity: targetIdentity,
+    runtime_distribution: runtimeDistribution,
     installed_at: expectString(receipt.installed_at, `${location}.installed_at`),
     converted_artifact_ids: convertedArtifactIds,
   };
 }
+
+type AtomicDirectoryWrite = { path: string; sourcePath: string };
 
 function applyAtomicFileTransaction(
   targetRoot: string,
   writes: AtomicWrite[],
   deletes: string[],
   verify: () => void,
+  directories: AtomicDirectoryWrite[] = [],
 ): void {
   const resolvedTargetRoot = path.resolve(targetRoot);
   const normalizedWrites = new Map<string, AtomicWrite>();
   for (const write of writes) {
     const relative = normalizeRepoPath(write.path, 'transaction write path');
     resolveRepoPath(resolvedTargetRoot, relative, 'transaction write path');
-    if (normalizedWrites.has(relative)) throw new MigrationPackError('INSTALL_CONFLICT', `duplicate transaction write path: ${relative}`);
+    if (normalizedWrites.has(relative)) throw new MigrationPackError('INSTALL_CONFLICT', 'duplicate transaction write path: ' + relative);
     normalizedWrites.set(relative, { path: relative, content: write.content });
+  }
+  const normalizedDirectories = new Map<string, AtomicDirectoryWrite>();
+  for (const directory of directories) {
+    const relative = normalizeRepoPath(directory.path, 'transaction directory path');
+    resolveRepoPath(resolvedTargetRoot, relative, 'transaction directory path');
+    if (!fs.existsSync(directory.sourcePath) || !fs.statSync(directory.sourcePath).isDirectory()) throw new MigrationPackError('INSTALL_CONFLICT', 'transaction directory source is missing: ' + directory.sourcePath);
+    if (normalizedDirectories.has(relative) || normalizedWrites.has(relative)) throw new MigrationPackError('INSTALL_CONFLICT', 'duplicate transaction directory path: ' + relative);
+    normalizedDirectories.set(relative, { path: relative, sourcePath: directory.sourcePath });
+  }
+  for (const directoryPath of normalizedDirectories.keys()) {
+    for (const writePath of normalizedWrites.keys()) {
+      if (writePath.startsWith(directoryPath + '/') || directoryPath.startsWith(writePath + '/')) throw new MigrationPackError('INSTALL_CONFLICT', 'transaction file and directory paths overlap: ' + directoryPath + ' / ' + writePath);
+    }
   }
   const deleteSet = new Set<string>();
   for (const relativeValue of deletes) {
     const relative = normalizeRepoPath(relativeValue, 'transaction delete path');
-    if (!normalizedWrites.has(relative)) deleteSet.add(relative);
+    if (!normalizedWrites.has(relative) && !normalizedDirectories.has(relative)) deleteSet.add(relative);
   }
   const stagingRoot = fs.mkdtempSync(path.join(path.dirname(resolvedTargetRoot), '.workflow-vnext-migration-'));
   const staged = new Map<string, string>();
+  const stagedDirectories = new Map<string, string>();
   const backups: Array<{ target: string; backup: string }> = [];
   const newlyWritten: string[] = [];
   try {
     for (const [relative, write] of normalizedWrites.entries()) {
-      const tempPath = path.join(stagingRoot, 'staged', `${staged.size}.tmp`);
+      const tempPath = path.join(stagingRoot, 'staged', 'files', staged.size + '.tmp');
       fs.mkdirSync(path.dirname(tempPath), { recursive: true });
       fs.writeFileSync(tempPath, write.content, 'utf8');
       staged.set(relative, tempPath);
     }
-    const touched = [...new Set([...normalizedWrites.keys(), ...deleteSet])];
+    for (const [relative, directory] of normalizedDirectories.entries()) {
+      const stagedPath = path.join(stagingRoot, 'staged', 'directories', stagedDirectories.size.toString());
+      fs.mkdirSync(path.dirname(stagedPath), { recursive: true });
+      fs.cpSync(directory.sourcePath, stagedPath, { recursive: true });
+      stagedDirectories.set(relative, stagedPath);
+    }
+    const touched = [...new Set([...normalizedWrites.keys(), ...stagedDirectories.keys(), ...deleteSet])];
     for (const relative of touched) {
       const targetPath = resolveRepoPath(resolvedTargetRoot, relative, 'transaction target');
       if (!fs.existsSync(targetPath)) continue;
-      const backupPath = path.join(stagingRoot, 'backup', `${backups.length}.bak`);
+      const backupPath = path.join(stagingRoot, 'backup', backups.length + '.bak');
       fs.mkdirSync(path.dirname(backupPath), { recursive: true });
       fs.renameSync(targetPath, backupPath);
       backups.push({ target: targetPath, backup: backupPath });
@@ -2583,14 +2815,20 @@ function applyAtomicFileTransaction(
       fs.renameSync(tempPath, targetPath);
       newlyWritten.push(targetPath);
     }
+    for (const [relative, stagedPath] of stagedDirectories.entries()) {
+      const targetPath = resolveRepoPath(resolvedTargetRoot, relative, 'transaction target');
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.renameSync(stagedPath, targetPath);
+      newlyWritten.push(targetPath);
+    }
     verify();
     fs.rmSync(stagingRoot, { recursive: true, force: true });
   } catch (error) {
     for (const targetPath of newlyWritten.reverse()) {
-      if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true });
+      if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { recursive: true, force: true });
     }
     for (const entry of backups.reverse()) {
-      if (fs.existsSync(entry.target)) fs.rmSync(entry.target, { force: true });
+      if (fs.existsSync(entry.target)) fs.rmSync(entry.target, { recursive: true, force: true });
       if (fs.existsSync(entry.backup)) {
         fs.mkdirSync(path.dirname(entry.target), { recursive: true });
         fs.renameSync(entry.backup, entry.target);
@@ -2651,6 +2889,11 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
         const knownLegacyNames = mergeLegacySkillNames(sourceRoot, candidatePack.legacy_surface.legacy_skill_names);
         const bundle = loadAndValidateBundle(options.bundleDir, sourceRoot, knownLegacyNames);
         if (bundle.bundle_id === bundleId) {
+          if (sourceDeclaresPhase2Runtime(sourceRoot)) {
+            if (!existing.runtime_distribution) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed vNext installation is missing Runtime distribution identity.');
+            const replayRuntime = validateVNextRuntimeContract(targetRoot, true).runtime_distribution;
+            if (JSON.stringify(replayRuntime) !== JSON.stringify(existing.runtime_distribution)) throw new MigrationPackError('INSTALL_CONFLICT', 'Project-local Runtime distribution drifted from install state.');
+          }
           const expectedArtifactIds = candidatePack.artifacts.map(artifact => artifact.stable_id);
           if (JSON.stringify(receipt.converted_artifact_ids) !== JSON.stringify(expectedArtifactIds)) {
             throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt does not match the candidate Pack artifacts.');
@@ -2700,30 +2943,51 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     const issue = bundleError ? { severity: 'error' as const, code: bundleError.code, message: bundleError.message } : { severity: 'error' as const, code: 'BUNDLE_INVALID' as const, message: String(error) };
     return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, blockers: [issue], warnings, planned_writes: [], planned_deletes: [] };
   }
+  const phase2Runtime = sourceDeclaresPhase2Runtime(sourceRoot);
+  let preparedRuntime: PreparedRuntimeDistribution | undefined;
+  if (!options.dryRun && phase2Runtime) {
+    try {
+      preparedRuntime = prepareRuntimeDistribution(options.bundleDir, bundle.artifacts);
+    } catch (error) {
+      const issue = error instanceof MigrationPackError
+        ? { severity: 'error' as const, code: error.code, message: error.message }
+        : { severity: 'error' as const, code: 'INSTALL_CONFLICT' as const, message: String(error) };
+      return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [issue], warnings, planned_writes: [], planned_deletes: [] };
+    }
+  }
   const profile = parseStrictYaml(profilePath(targetRoot)) as JsonObject;
   const currentTaskPath = [getWorkflowHome(profile), CURRENT_TASK_FILE].filter(Boolean).join('/');
   const bundleCurrentTask = bundle.artifacts.find(artifact => artifact.target_path === currentTaskPath);
   if (!bundleCurrentTask || bundleCurrentTask.required !== true) {
-    return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'BUNDLE_INVALID', message: `vNext bundle must provide the pure-vNext ${currentTaskPath} document.` }], warnings, planned_writes: [], planned_deletes: [] };
+    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+    return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'BUNDLE_INVALID', message: 'vNext bundle must provide the pure-vNext ' + currentTaskPath + ' document.' }], warnings, planned_writes: [], planned_deletes: [] };
   }
   const bundleTargetPaths = new Set(bundle.artifacts.map(artifact => artifact.target_path));
   for (const artifact of pack.artifacts) {
     if (bundleTargetPaths.has(artifact.target_path)) {
-      return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'BUNDLE_TARGET_CONFLICT', message: `Pack and vNext bundle both target ${artifact.target_path}.`, path: artifact.target_path }], warnings, planned_writes: [], planned_deletes: [] };
+      if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+      return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'BUNDLE_TARGET_CONFLICT', message: 'Pack and vNext bundle both target ' + artifact.target_path + '.', path: artifact.target_path }], warnings, planned_writes: [], planned_deletes: [] };
     }
   }
   const writes: AtomicWrite[] = [];
   for (const artifact of pack.artifacts) {
-    const contentPath = resolveRepoPath(options.packDir, artifact.content_path, `pack artifact ${artifact.content_path}`);
+    const contentPath = resolveRepoPath(options.packDir, artifact.content_path, 'pack artifact ' + artifact.content_path);
     writes.push({ path: artifact.target_path, content: fs.readFileSync(contentPath, 'utf8') });
   }
   for (const artifact of bundle.artifacts) writes.push({ path: artifact.target_path, content: readBundleContent(options.bundleDir, artifact) });
   for (const write of writes) {
     if (isFrozenPath(targetRoot, write.path)) {
+      if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
       return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Migration cannot replace a frozen vNext target path.', path: write.path }], warnings, planned_writes: [], planned_deletes: [] };
     }
   }
+  const runtimeTargetNodeModulesPath = preparedRuntime?.targetNodeModulesPath ?? (phase2Runtime ? VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH + '/node_modules' : undefined);
+  if (runtimeTargetNodeModulesPath && isFrozenPath(targetRoot, runtimeTargetNodeModulesPath)) {
+    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+    return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Migration cannot replace a frozen Runtime dependency directory.', path: runtimeTargetNodeModulesPath }], warnings, planned_writes: [], planned_deletes: [] };
+  }
   const removedLegacyPaths = pack.legacy_surface.entries.filter(entry => entry.action === 'remove').map(entry => entry.path);
+  const runtimeDistribution = preparedRuntime?.identity ?? null;
   const installState: VNextInstallState = {
     schema_version: 1,
     kind: 'vnext-install-state',
@@ -2733,6 +2997,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     source_revision: pack.source.revision,
     source_tree_hash: pack.source.tree_hash,
     target_identity: pack.target.root_identity,
+    runtime_distribution: runtimeDistribution,
     installed_at: now(),
     managed_files: [...writes.map(write => ({ path: write.path, checksum: sha256(write.content), category: bundle.artifacts.find(artifact => artifact.target_path === write.path)?.category ?? 'migrated-document' })), { path: VNEXT_INSTALL_STATE_RELATIVE_PATH, checksum: '', category: 'vnext-install-state' }],
     removed_legacy_files: removedLegacyPaths,
@@ -2747,17 +3012,19 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     source_revision: pack.source.revision,
     source_tree_hash: pack.source.tree_hash,
     target_identity: pack.target.root_identity,
+    runtime_distribution: runtimeDistribution,
     installed_at: installState.installed_at,
     converted_artifact_ids: pack.artifacts.map(artifact => artifact.stable_id),
     legacy_compatibility: 'absent',
   };
-  writes.push({ path: VNEXT_INSTALL_STATE_RELATIVE_PATH, content: `${JSON.stringify(installState, null, 2)}\n` });
-  writes.push({ path: VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH, content: `${JSON.stringify(receipt, null, 2)}\n` });
-  const plannedWrites = writes.map(write => write.path);
+  writes.push({ path: VNEXT_INSTALL_STATE_RELATIVE_PATH, content: JSON.stringify(installState, null, 2) + '\n' });
+  writes.push({ path: VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH, content: JSON.stringify(receipt, null, 2) + '\n' });
+  const plannedWrites = [...writes.map(write => write.path), ...(runtimeTargetNodeModulesPath ? [runtimeTargetNodeModulesPath] : [])];
   const plannedDeletes = removedLegacyPaths.filter(relative => !bundleTargetPaths.has(relative) && !writes.some(write => write.path === relative));
   if (options.dryRun) return { status: 'ready', pack_id: pack.pack_id, bundle_id: bundle.bundle_id, target_root: targetRoot, blockers, warnings, planned_writes: plannedWrites, planned_deletes: plannedDeletes };
 
   if (isFrozenPath(targetRoot, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH)) {
+    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
     return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Migration cannot create or clear a frozen interruption marker.', path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH }], warnings, planned_writes: [], planned_deletes: [] };
   }
   const inProgressMarker: VNextMigrationInProgress = {
@@ -2773,29 +3040,37 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   };
   try {
     writeInProgressMarker(targetRoot, inProgressMarker);
-    applyAtomicFileTransaction(targetRoot, writes, plannedDeletes, () => {
-      validateNoLegacySurface(targetRoot, knownLegacyNames, plannedDeletes, [...bundleTargetPaths], getWorkflowHome(profile));
-      const statePath = path.join(targetRoot, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/'));
-      if (!fs.existsSync(statePath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext install state was not promoted.');
-      const installedState = validateVNextInstallState(parseStrictJson(statePath), 'vNext install state');
-      if (installedState.migration_pack_id !== pack.pack_id || installedState.bundle_id !== bundle.bundle_id || installedState.target_identity !== pack.target.root_identity) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext install state read-back identity mismatch.');
-      const receiptPath = path.join(targetRoot, ...VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH.split('/'));
-      if (!fs.existsSync(receiptPath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt was not promoted.');
-      const installedReceipt = validateVNextMigrationReceipt(parseStrictJson(receiptPath), 'vNext migration receipt');
-      if (installedReceipt.migration_pack_id !== pack.pack_id || installedReceipt.bundle_id !== bundle.bundle_id || installedReceipt.target_identity !== pack.target.root_identity || JSON.stringify(installedReceipt.converted_artifact_ids) !== JSON.stringify(pack.artifacts.map(artifact => artifact.stable_id))) {
-        throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt read-back identity mismatch.');
-      }
-    });
-    // The marker is intentionally outside the file transaction so a process
-    // interruption leaves an explicit, discoverable recovery boundary. If a
-    // completed transaction cannot clear it, replay will clear it after
-    // re-validating every installed artifact.
+    applyAtomicFileTransaction(
+      targetRoot,
+      writes,
+      plannedDeletes,
+      () => {
+        validateNoLegacySurface(targetRoot, knownLegacyNames, plannedDeletes, [...bundleTargetPaths], getWorkflowHome(profile));
+        const statePath = path.join(targetRoot, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/'));
+        if (!fs.existsSync(statePath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext install state was not promoted.');
+        const installedState = validateVNextInstallState(parseStrictJson(statePath), 'vNext install state');
+        if (installedState.migration_pack_id !== pack.pack_id || installedState.bundle_id !== bundle.bundle_id || installedState.target_identity !== pack.target.root_identity || JSON.stringify(installedState.runtime_distribution) !== JSON.stringify(runtimeDistribution)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext install state read-back identity mismatch.');
+        const receiptPath = path.join(targetRoot, ...VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH.split('/'));
+        if (!fs.existsSync(receiptPath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt was not promoted.');
+        const installedReceipt = validateVNextMigrationReceipt(parseStrictJson(receiptPath), 'vNext migration receipt');
+        if (installedReceipt.migration_pack_id !== pack.pack_id || installedReceipt.bundle_id !== bundle.bundle_id || installedReceipt.target_identity !== pack.target.root_identity || JSON.stringify(installedReceipt.runtime_distribution) !== JSON.stringify(runtimeDistribution) || JSON.stringify(installedReceipt.converted_artifact_ids) !== JSON.stringify(pack.artifacts.map(artifact => artifact.stable_id))) {
+          throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt read-back identity mismatch.');
+        }
+        if (phase2Runtime) {
+          const installedRuntime = validateVNextRuntimeContract(targetRoot, true).runtime_distribution;
+          if (JSON.stringify(installedRuntime) !== JSON.stringify(runtimeDistribution)) throw new MigrationPackError('INSTALL_CONFLICT', 'Project-local Runtime distribution read-back identity mismatch.');
+        }
+      },
+      preparedRuntime ? [{ path: preparedRuntime.targetNodeModulesPath, sourcePath: preparedRuntime.sourceNodeModulesPath }] : [],
+    );
+    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
     try {
       removeInProgressMarker(targetRoot);
     } catch (error) {
-      warnings.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: `Completed install left its interruption marker for replay cleanup: ${error instanceof Error ? error.message : String(error)}`, path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH });
+      warnings.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Completed install left its interruption marker for replay cleanup: ' + (error instanceof Error ? error.message : String(error)), path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH });
     }
   } catch (error) {
+    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
     let rollbackVerified = false;
     try {
       rollbackVerified = computeTreeHash(targetRoot, [VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH]) === pack.legacy_source.tree_hash;

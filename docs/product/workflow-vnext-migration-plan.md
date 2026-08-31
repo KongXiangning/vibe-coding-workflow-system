@@ -158,7 +158,7 @@ Migration is fail-closed and all-or-nothing with respect to vNext installation:
 
 ## 4. Phase 2 — Pure vNext state-changing workflow
 
-After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The first Phase 2 slice is implemented in `scripts/vnext-runtime.ts` and is bound only to the pure-vNext `execute-step` caller.
+After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The first Phase 2 slice is implemented as the project-local Node package under `.workflow-system/runtime/` (with the source-repository implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper) and is bound only to the pure-vNext `execute-step` caller.
 
 Phase 2 introduces the first state-changing slice behind typed Runtime proposals and exact handlers:
 
@@ -211,7 +211,9 @@ Each later phase must preserve the seven-intent daily surface, adaptive internal
 
 The implemented Phase 2 slice additionally requires:
 
-- `scripts/vnext-runtime.ts` and `.workflow-system/vnext/RUNTIME_CONTRACT.yaml` validate as the bound Runtime contract;
+- `.workflow-system/runtime/package.json`, its lockfile, generated `dist/cli.js`, and `.workflow-system/vnext/RUNTIME_CONTRACT.yaml` validate as one versioned project-local Node Runtime distribution;
+- the Runtime executes with its own locked dependency tree and does not resolve dependencies from the target project's business `node_modules`;
+- the declared Node minimum is checked before any Runtime operation, and the staged package passes a Node self-check before promotion;
 - only `task-state-transaction` and `finding-queue-transaction` are bound, both with exact `CURRENT_TASK.md` source/write boundaries;
 - canonical runtime state remains inside `CURRENT_TASK.md`, with body/frontmatter consistency checks;
 - dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests;
@@ -279,10 +281,19 @@ project identity, archived/archived idle snapshot, source checksums, and legacy
 installation surface. A changed target or source is stale and stops before any
 write.
 
-The Phase 2 Runtime kernel and `RUNTIME_CONTRACT.yaml` are vNext-bundle
-artifacts only; they are intentionally not part of the legacy `workflow:pack`
-or legacy host installer artifact set. A legacy target therefore never receives
-the Phase 2 Runtime as a partial vNext surface.
+After promotion, a bound state-changing entry invokes the installed Runtime
+with `node .workflow-system/runtime/dist/cli.js apply --root .` and sends the
+typed proposal on stdin (or via `--proposal-file`). The Runtime package owns
+its dependency tree under `.workflow-system/runtime/node_modules`; it does not
+borrow the business project's package or `node_modules`.
+
+The Phase 2 Runtime package, generated Node entrypoint, lockfile, source
+references, and `RUNTIME_CONTRACT.yaml` are vNext-bundle artifacts only; they
+are intentionally not part of the legacy `workflow:pack` or legacy host
+installer artifact set. A legacy target therefore never receives the Phase 2
+Runtime as a partial vNext surface. Promotion stages the package and runs
+`npm ci --omit=dev` plus the Runtime self-check before the project-local
+`.workflow-system/runtime/` directory is atomically promoted.
 
 Installation writes a pure-vNext surface through one rollback-capable file
 transaction, replaces the old `CURRENT_TASK.md` and protocol/schema with the

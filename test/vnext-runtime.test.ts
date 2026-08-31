@@ -7,7 +7,9 @@ import {
   applyVNextRuntimeProposal,
   createFindingQueueProposal,
   createTaskStateProposal,
+  GovernanceTransactionKernel,
   readCanonicalCurrentTask,
+  validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
   type FindingQueueDelta,
@@ -29,7 +31,11 @@ function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     active_step_id: 'step-1',
     active_step_status: 'ready',
     finding_queue_revision: 0,
-    repair_round: 0,
+    review_cycle: {
+      id: 'review-cycle-0',
+      repair_round: 0,
+      counted_repair_wave_ids: [],
+    },
     findings: [],
     execution_log: [],
     applied_proposals: [],
@@ -103,6 +109,38 @@ function taskProposal(root: string, overrides: Partial<Parameters<typeof createT
   });
 }
 
+function admittedFinding(fingerprint: string, reviewCycleId: string): FindingQueueDelta {
+  return {
+    kind: 'finding-queue',
+    action: 'admit',
+    finding: {
+      fingerprint,
+      category: 'correctness',
+      owner_task_id: '010',
+      scope: 'admitted',
+      decision: 'mechanical',
+      file: 'scripts/example.ts',
+      failure_condition: `the admitted invariant fails for ${fingerprint}`,
+      violated_invariant: `INV-${fingerprint}`,
+      root_cause_status: 'confirmed',
+      max_repair_attempts: 2,
+      evidence_refs: [`test:evidence:${fingerprint}`],
+      review_cycle_id: reviewCycleId,
+    },
+  };
+}
+
+function repairAttempt(fingerprint: string, reviewCycleId: string, repairWaveId: string): FindingQueueDelta {
+  return {
+    kind: 'finding-queue',
+    action: 'record-repair-attempt',
+    fingerprint,
+    review_cycle_id: reviewCycleId,
+    repair_wave_id: repairWaveId,
+    evidence_refs: ['test:evidence:repair'],
+  };
+}
+
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -119,6 +157,37 @@ describe('vNext Phase 2 Runtime contract', () => {
       'archive-transaction',
       'lesson-record-transaction',
     ]);
+  });
+
+  test('binds distribution identity to the project-local package, not business node_modules', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-vnext-runtime-distribution-'));
+    temporaryRoots.push(root);
+    const runtimeRoot = path.join(root, '.workflow-system', 'runtime');
+    fs.mkdirSync(path.join(root, '.workflow-system', 'vnext'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml'), path.join(root, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml'));
+    fs.mkdirSync(path.join(runtimeRoot, 'dist'), { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'runtime', 'vnext', 'package.json'), path.join(runtimeRoot, 'package.json'));
+    fs.copyFileSync(path.join(ROOT, 'runtime', 'vnext', 'package-lock.json'), path.join(runtimeRoot, 'package-lock.json'));
+    fs.copyFileSync(path.join(ROOT, 'runtime', 'vnext', 'dist', 'cli.js'), path.join(runtimeRoot, 'dist', 'cli.js'));
+    const localYaml = path.join(runtimeRoot, 'node_modules', 'yaml', 'package.json');
+    fs.mkdirSync(path.dirname(localYaml), { recursive: true });
+    fs.writeFileSync(localYaml, JSON.stringify({ name: 'yaml', version: '2.8.3' }), 'utf8');
+    const businessYaml = path.join(root, 'node_modules', 'yaml', 'package.json');
+    fs.mkdirSync(path.dirname(businessYaml), { recursive: true });
+    fs.writeFileSync(businessYaml, JSON.stringify({ name: 'yaml', version: '99.0.0' }), 'utf8');
+
+    const identity = validateVNextRuntimeContract(root, true).runtime_distribution;
+    expect(identity.package_path).toBe('.workflow-system/runtime');
+    expect(identity.entrypoint).toBe('.workflow-system/runtime/dist/cli.js');
+    expect(identity.package_lock_sha256).toMatch(/^[a-f0-9]{64}$/);
+
+    fs.rmSync(path.dirname(localYaml), { recursive: true, force: true });
+    expect(() => validateVNextRuntimeContract(root, true)).toThrow(/RUNTIME_DEPENDENCY_MISSING/);
+  });
+
+  test('rejects a Node runtime below the declared minimum', () => {
+    expect(() => validateRuntimeEnvironment('19.9.0')).toThrow(/RUNTIME_ENV_UNSUPPORTED/);
+    expect(() => validateRuntimeEnvironment('20.0.0')).not.toThrow();
   });
 
   test('commits a task-state proposal atomically and replays it as a no-op', () => {
@@ -140,6 +209,31 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(replay.status).toBe('no-op');
     expect(replay.committed).toBe(false);
     expect(readCanonicalCurrentTask(root).runtimeState.execution_log).toHaveLength(1);
+  });
+
+  test('rolls back and verifies the original CURRENT_TASK when post-commit read-back throws', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    const proposal = taskProposal(root);
+    const before = fs.readFileSync(current.filePath, 'utf8');
+    let readCount = 0;
+    const kernel = new GovernanceTransactionKernel(root, targetRoot => {
+      readCount += 1;
+      if (readCount === 2) throw new Error('simulated post-commit read-back failure');
+      return readCanonicalCurrentTask(targetRoot);
+    });
+
+    const result = kernel.apply(proposal, { now: () => '2026-08-31T00:00:00.000Z' });
+
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('READ_BACK_FAILED');
+    expect(result.committed).toBe(false);
+    expect(result.read_back_verified).toBe(false);
+    expect(result.governed_mutation_count).toBe(0);
+    expect(result.message).toContain('rollback read-back verified');
+    expect(readCount).toBe(3);
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+    expect(readCanonicalCurrentTask(root).raw).toBe(before);
   });
 
   test('dry-run and stale source tuple never mutate CURRENT_TASK', () => {
@@ -208,7 +302,14 @@ describe('vNext Phase 2 Runtime contract', () => {
     current = readCanonicalCurrentTask(root);
     const attempt = (key: string) => applyVNextRuntimeProposal(root, createFindingQueueProposal(current, {
       mode: 'repair',
-      delta: { kind: 'finding-queue', action: 'record-repair-attempt', fingerprint: 'finding-regression-1', evidence_refs: ['test:evidence:repair'] },
+      delta: {
+        kind: 'finding-queue',
+        action: 'record-repair-attempt',
+        fingerprint: 'finding-regression-1',
+        review_cycle_id: 'review-cycle-1',
+        repair_wave_id: 'repair-wave-1',
+        evidence_refs: ['test:evidence:repair'],
+      },
       idempotency_key: key,
       authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
       evidence_refs: ['test:evidence:repair'],
@@ -230,11 +331,100 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(after.finding_queue_revision).toBe(3);
   });
 
+  test('counts each repair wave once and resets the round budget for a new review cycle', () => {
+    const root = makeRoot();
+    const applyFindingDelta = (delta: FindingQueueDelta, idempotencyKey: string) => {
+      const current = readCanonicalCurrentTask(root);
+      return applyVNextRuntimeProposal(root, createFindingQueueProposal(current, {
+        mode: 'repair',
+        delta,
+        idempotency_key: idempotencyKey,
+        authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+        evidence_refs: delta.action === 'admit' ? delta.finding.evidence_refs : delta.evidence_refs,
+      }));
+    };
+
+    expect(applyFindingDelta(admittedFinding('finding-wave-1', 'review-cycle-1'), 'admit-wave-1').status).toBe('success');
+    expect(applyFindingDelta(admittedFinding('finding-wave-2', 'review-cycle-1'), 'admit-wave-2').status).toBe('success');
+
+    expect(applyFindingDelta(repairAttempt('finding-wave-1', 'review-cycle-1', 'repair-wave-1'), 'repair-wave-1-f1').status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
+      id: 'review-cycle-1',
+      repair_round: 1,
+      counted_repair_wave_ids: ['repair-wave-1'],
+    });
+
+    expect(applyFindingDelta(repairAttempt('finding-wave-2', 'review-cycle-1', 'repair-wave-1'), 'repair-wave-1-f2').status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle.repair_round).toBe(1);
+
+    expect(applyFindingDelta(repairAttempt('finding-wave-1', 'review-cycle-1', 'repair-wave-2'), 'repair-wave-2-f1').status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle.repair_round).toBe(2);
+    const overFingerprintBudget = applyFindingDelta(repairAttempt('finding-wave-1', 'review-cycle-1', 'repair-wave-2'), 'repair-wave-2-f1-repeat');
+    expect(overFingerprintBudget.status).toBe('blocked');
+    expect(overFingerprintBudget.code).toBe('REPAIR_BUDGET_EXHAUSTED');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle.repair_round).toBe(2);
+
+    expect(applyFindingDelta(repairAttempt('finding-wave-2', 'review-cycle-1', 'repair-wave-2'), 'repair-wave-2-f2').status).toBe('success');
+    expect(applyFindingDelta(admittedFinding('finding-wave-3', 'review-cycle-1'), 'admit-wave-3').status).toBe('success');
+    expect(applyFindingDelta(repairAttempt('finding-wave-3', 'review-cycle-1', 'repair-wave-3'), 'repair-wave-3-f3').status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
+      id: 'review-cycle-1',
+      repair_round: 3,
+      counted_repair_wave_ids: ['repair-wave-1', 'repair-wave-2', 'repair-wave-3'],
+    });
+
+    expect(applyFindingDelta(repairAttempt('finding-wave-3', 'review-cycle-2', 'repair-wave-1'), 'repair-cycle-2-wave-1').status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
+      id: 'review-cycle-2',
+      repair_round: 1,
+      counted_repair_wave_ids: ['repair-wave-1'],
+    });
+
+    expect(applyFindingDelta(admittedFinding('finding-new-cycle', 'review-cycle-3'), 'admit-cycle-3').status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual({
+      id: 'review-cycle-3',
+      repair_round: 0,
+      counted_repair_wave_ids: [],
+    });
+    expect(applyFindingDelta(repairAttempt('finding-new-cycle', 'review-cycle-3', 'repair-wave-1'), 'repair-cycle-3-wave-1').status).toBe('success');
+
+    const state = readCanonicalCurrentTask(root).runtimeState;
+    expect(state.review_cycle).toEqual({
+      id: 'review-cycle-3',
+      repair_round: 1,
+      counted_repair_wave_ids: ['repair-wave-1'],
+    });
+    expect(state.findings.find(item => item.fingerprint === 'finding-wave-1')?.repair_attempts).toBe(2);
+    expect(state.findings.find(item => item.fingerprint === 'finding-wave-2')?.repair_attempts).toBe(2);
+    expect(state.findings.find(item => item.fingerprint === 'finding-wave-3')?.review_cycle_id).toBe('review-cycle-2');
+    expect(state.findings.find(item => item.fingerprint === 'finding-new-cycle')?.repair_attempts).toBe(1);
+  });
+
   test('stops on a legacy CURRENT_TASK schema before any mutation', () => {
     const root = makeRoot();
     const current = readCanonicalCurrentTask(root);
     const proposal = taskProposal(root);
     fs.writeFileSync(current.filePath, current.body, 'utf8');
+    const result = applyVNextRuntimeProposal(root, proposal);
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('MIGRATION_REQUIRED');
+  });
+
+  test('stops on an unsupported CURRENT_TASK frontmatter kind before any mutation', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    const proposal = taskProposal(root);
+    fs.writeFileSync(current.filePath, `---\nschema_version: 1\nkind: legacy-current-task\n---\n${current.body}`, 'utf8');
+    const result = applyVNextRuntimeProposal(root, proposal);
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('MIGRATION_REQUIRED');
+  });
+
+  test('keeps malformed self-declared vNext CURRENT_TASK documents as schema errors', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    const proposal = taskProposal(root);
+    fs.writeFileSync(current.filePath, `---\nschema_version: 1\nkind: vnext-current-task\ndocument_id: broken\n---\n${current.body}`, 'utf8');
     const result = applyVNextRuntimeProposal(root, proposal);
     expect(result.status).toBe('blocked');
     expect(result.code).toBe('RUNTIME_SCHEMA_INVALID');
