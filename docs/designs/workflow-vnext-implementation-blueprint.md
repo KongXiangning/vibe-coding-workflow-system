@@ -182,7 +182,19 @@ These tests should use small in-memory mutations or a few temporary contract fil
 
 ### 3.4 Phase 1 follow-up source checkpoint
 
-After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The current source contract is now `Phase 1` with seven daily templates, a closed capability union, and contract-only Runtime operations. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, Migration Pack boundary, or Runtime binding plan.
+After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates, a closed capability union, and contract-only Runtime operations. Phase 2 now binds only `task-state-transaction` and `finding-queue-transaction` for `execute-step`; the other operations remain contract-only and unbound. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, or Migration Pack boundary.
+
+### 3.5 Phase 2 bound Runtime slice
+
+The first state-changing slice is implemented by `scripts/vnext-runtime.ts` and
+described by `.workflow-system/vnext/RUNTIME_CONTRACT.yaml`. It accepts only a
+pure-vNext canonical `CURRENT_TASK.md` with an in-document `runtime_state`,
+validates the exact source tuple and authority/evidence envelope, and commits
+typed task-state or finding-queue deltas through one shared atomic kernel. The
+kernel owns deterministic schema, path, conflict, idempotency, repair-budget,
+and read-back checks; the model remains responsible for semantic admission.
+`prepare-task`, `debug-task`, `task-lifecycle`, `close-task`, and all later
+operation callers still receive proposal-only contracts until their own phase.
 
 ## 4. 关键宏观路由
 
@@ -195,7 +207,7 @@ execute-step
     ↓ change-ready
 review-change (discovery)
     ├─ clean / needs-evidence → validate-change（按 evidence plan）
-    ├─ admitted mechanical finding → sync-state:finding → execute-step:repair
+    ├─ admitted mechanical finding → execute-step:repair（first slice 可提交已准入 finding）
     │                                  ↓
     │                             review-change (verification)
     ├─ unknown root cause → debug-task
@@ -210,7 +222,7 @@ review / evidence / acceptance complete
 close-task
 ```
 
-Review Convergence 的默认边界由 Target Architecture 负责：同一 fingerprint 最多两次 repair attempt，repair wave 有上限；无法收敛、需要用户决定或根因未知时 stop。`review-change` 不自己写 queue；准入结果由 `sync-state` 的 typed operation 持久化。
+Review Convergence 的默认边界由 Target Architecture 负责：同一 fingerprint 最多两次 repair attempt，repair wave 有上限；无法收敛、需要用户决定或根因未知时 stop。`review-change` 不自己写 queue；在当前 Phase 2 首个切片中，`execute-step` 是唯一绑定的 finding-queue caller，后续再由 `sync-state` 的 typed operation 扩展其他调用面。
 
 ## 5. Runtime 写入矩阵
 
@@ -290,10 +302,10 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 | Phase 1A | 固定 entry contract；建立独立 vNext source namespace；只实现 `prepare-task`、`review-change`、`execute-step` 三个单文件模板及其闭合 capability/Runtime catalog；通过 source-contract validator 与人工去流程化审查后停止 | 不扩张 shadow runner；不把旧 Skill 安装到 target；不让 vNext reader 解析旧 schema；不绑定 Runtime 写入；不实现非 idle state migration |
 | Phase 1（后续） | 在 Phase 1A 检查点通过后，补齐其余 daily entry 的最小结构，并保持同一 contract/capability/runtime 边界 | 不把外围入口提前混入 Phase 1A；不以新增测试基础设施作为交付目标 |
 | Migration Pack | 实现 idle preflight、离线副本转换、stable ID/provenance/path-reference、完整 validation 和 pure-vNext atomic installation | 不关闭/归档 active task；不恢复 paused/interrupted；不做语义去重或 AI 历史重写 |
-| Phase 2 | 以纯 vNext schema 开始 `execute-step` 的 state-changing workflow；接入 task-state/finding queue；落实 evidence admission、finding admission、Review Convergence 和 read-back | 不保留 legacy fallback；不把 review/validation 变成修复入口 |
+| Phase 2 | 以纯 vNext schema 开始 `execute-step` 的 state-changing workflow；接入 task-state/finding queue；落实 evidence admission、finding admission、Review Convergence 和 read-back（首个切片已实现） | 不保留 legacy fallback；不把 review/validation 变成修复入口 |
 | 后续 | 逐步实现 vNext 自己创建的 `task-lifecycle`，再实现 `close-task`、`bootstrap-project` 及明确授权的新 capability | 不把 lifecycle/close/bootstrap 的缺失补成兼容旧协议的临时路径 |
 
-后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再 state-changing Runtime”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。
+后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再补齐剩余 state-changing Runtime handlers”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。
 
 Migration Pack 的独立实现现位于 `scripts/vnext-migration-pack.ts`，其
 `preflight → convert → validate → install` 命令链、Pack/Bundle schema、

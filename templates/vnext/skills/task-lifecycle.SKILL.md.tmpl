@@ -68,7 +68,7 @@ Perform one explicit, identity-safe task ownership or lifecycle transition. The 
 2. For `pause` and `interrupt`, preserve the full snapshot, checkpoint, dirty attribution, environment, recovery strategy, and rollback conditions. Do not collapse the two lifecycle reasons into one state.
 3. For `resume-paused` and `resume-interrupted`, require one explicit matching recovery package, complete evidence, and a passed resume review gate. Never infer a recovery target from a latest or merely similar package.
 4. For `supersede`, require evidence that goal, scope, or acceptance is no longer valid. Preserve the original task history and route preparation of the replacement intent separately; do not silently overwrite the active task identity.
-5. Describe `lifecycle-transaction` and any conditional `task-state-transaction` as proposals only. Both are `contract-only / unbound / Phase 2`; this entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
+5. Describe `lifecycle-transaction` and any conditional `task-state-transaction` as proposals only. Phase 2 binds `task-state-transaction` only for `execute-step`; lifecycle writes remain unbound. This entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
 
 ## Required result
 

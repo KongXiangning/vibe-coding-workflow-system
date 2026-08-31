@@ -68,7 +68,7 @@ Implement exactly the admitted current step. Ordinary implementation and admitte
 3. In `repair` mode, require either an admitted mechanical finding or a confirmed root cause with an authorized route. Consume the bounded repair budget. Do not discover arbitrary new work, widen scope, or repair another owner's issue.
 4. Use the evidence plan to choose minimum-sufficient checks. Exploratory probes remain bounded and temporary; a guessed behavior cannot become a persistent test or contract without admission.
 5. After an admitted repair, route to bounded `review-change` verification. If the root cause is unknown, or the same fingerprint/budget cannot converge, stop with the corresponding debug, user, or blocked result.
-6. Product edits are allowed only under `admitted_scope`. Do not directly edit governance documents, finding queues, registry, installation, or host surfaces.
+6. Product edits are allowed only under `admitted_scope`. Do not directly edit governance documents, finding queues, registry, installation, or host surfaces; durable task/finding state goes through the bound Runtime handlers below.
 
 ## Required result
 
@@ -82,4 +82,4 @@ Return one structured `change-result` containing:
 - a typed `task-state-transaction` proposal for actual progress, evidence, risk, or acceptance deltas;
 - a conditional `finding-queue-transaction` proposal only when a finding has separately passed admission.
 
-Both Runtime operations remain `contract-only / unbound` with implementation deferred to Phase 2. Do not claim that `CURRENT_TASK.md` or a finding queue was written. If a state-changing proposal is not authorized or cannot pass its preconditions, preserve the product diff result and report the blocker without inventing success.
+In Phase 2 these two operations are bound only for the `execute-step` caller. The Runtime validates the canonical source tuple, authority evidence, exact `CURRENT_TASK.md` write target, repair budget, idempotency key, and read-back before reporting `success`. Do not claim that `CURRENT_TASK.md` or a finding queue was written unless the corresponding Runtime result is `success`; a dry-run, `no-op`, `conflict`, or `blocked` result is not a commit. If a state-changing proposal is not authorized or cannot pass its preconditions, preserve the product diff result and report the blocker without inventing success.

@@ -29,6 +29,7 @@ import {
   validateCurrentTaskStatusTuple,
 } from './task-identity';
 import { validateVNextSource } from './vnext-source-contract';
+import { validateVNextRuntimeContract, validateVNextRuntimeState } from './vnext-runtime';
 
 export const MIGRATION_PACK_SCHEMA_VERSION = 1 as const;
 export const MIGRATION_PACK_KIND = 'workflow-vnext-migration-pack' as const;
@@ -2163,9 +2164,21 @@ function validateVNextSchemaBundleContent(content: string, location: string): vo
 
 function validateVNextCurrentTaskBundleContent(content: string, location: string): void {
   const { frontmatter, body } = readBundleFrontmatter(content, location);
-  expectExactKeys(frontmatter, ['schema_version', 'kind', 'document_id'], `${location} frontmatter`);
+  const frontmatterKeys = Object.keys(frontmatter);
+  const unexpectedFrontmatterKeys = frontmatterKeys.filter(key => !['schema_version', 'kind', 'document_id', 'runtime_state'].includes(key));
+  if (unexpectedFrontmatterKeys.length > 0) throw new MigrationPackError('BUNDLE_INVALID', `${location} frontmatter contains unsupported keys: ${unexpectedFrontmatterKeys.join(', ')}.`);
+  for (const requiredKey of ['schema_version', 'kind', 'document_id']) {
+    if (!(requiredKey in frontmatter)) throw new MigrationPackError('BUNDLE_INVALID', `${location} frontmatter is missing ${requiredKey}.`);
+  }
   if (frontmatter.schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION || frontmatter.kind !== 'vnext-current-task' || typeof frontmatter.document_id !== 'string' || !DOCUMENT_ID_PATTERN.test(frontmatter.document_id)) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location} does not declare the vNext current-task schema.`);
+  }
+  if ('runtime_state' in frontmatter) {
+    try {
+      validateVNextRuntimeState(frontmatter.runtime_state);
+    } catch (error) {
+      throw new MigrationPackError('BUNDLE_INVALID', `${location}.runtime_state is invalid: ${error instanceof Error ? error.message : String(error)}.`);
+    }
   }
   for (const heading of BUNDLE_CURRENT_TASK_HEADINGS) {
     if (!body.includes(heading)) throw new MigrationPackError('BUNDLE_INVALID', `${location} is missing required heading ${heading}.`);
@@ -2177,12 +2190,24 @@ function validateVNextCurrentTaskBundleContent(content: string, location: string
 }
 
 function validateVNextBundleArtifactContent(artifact: VNextBundleArtifact, content: string, location: string): void {
-  if (artifact.category === 'protocol') validateVNextProtocolBundleContent(content, location);
+  const isRuntimeContract = artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml';
+  if (artifact.category === 'protocol' && !isRuntimeContract) validateVNextProtocolBundleContent(content, location);
   if (artifact.category === 'schema') validateVNextSchemaBundleContent(content, location);
   if (artifact.category === 'skill') {
     const entry = path.posix.basename(artifact.target_path).replace(/\.SKILL\.md$/, '');
     if (!(entry in BUNDLE_ENTRY_MODES)) throw new MigrationPackError('BUNDLE_INVALID', `${location} targets an unknown vNext Skill entry.`);
     validateVNextSkillBundleContent(entry, content, location);
+  }
+  if (artifact.category === 'runtime' && artifact.target_path === 'scripts/vnext-runtime.ts') {
+    if (!content.includes('GovernanceTransactionKernel') || !content.includes('applyVNextRuntimeProposal')) {
+      throw new MigrationPackError('BUNDLE_INVALID', `${location} does not contain the Phase 2 Runtime kernel.`);
+    }
+  }
+  if (artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') {
+    if (artifact.category !== 'protocol') throw new MigrationPackError('BUNDLE_INVALID', `${location} Runtime contract must be a protocol artifact.`);
+    const parsed = parseDocument(content, { uniqueKeys: true });
+    const diagnostics = [...parsed.errors, ...parsed.warnings];
+    if (diagnostics.length > 0 || !expectRecord(parsed.toJS(), location).operations) throw new MigrationPackError('BUNDLE_INVALID', `${location} is not a valid Phase 2 Runtime contract.`);
   }
   if (artifact.target_path.endsWith('/CURRENT_TASK.md') && artifact.category !== 'protocol' && artifact.category !== 'schema') validateVNextCurrentTaskBundleContent(content, location);
   if (artifact.target_path === '.workflow-system/PROJECT_PROFILE.yaml') {
@@ -2200,6 +2225,13 @@ function validateSourceContractIfPresent(sourceRoot: string): void {
   } catch (error) {
     throw new MigrationPackError('BUNDLE_INVALID', `vNext source contract is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function sourceDeclaresPhase2Runtime(sourceRoot: string): boolean {
+  const contractPath = path.join(sourceRoot, '.workflow-system', 'vnext', 'SOURCE_CONTRACT.yaml');
+  if (!fs.existsSync(contractPath)) return false;
+  const parsed = parseDocument(fs.readFileSync(contractPath, 'utf8'), { uniqueKeys: true });
+  return parsed.errors.length === 0 && parsed.toJS()?.phase === 'Phase 2';
 }
 
 function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkillNames: readonly string[]): VNextBundleManifest {
@@ -2271,7 +2303,9 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
   for (const category of VNEXT_REQUIRED_BUNDLE_CATEGORIES) {
     if (!categories.has(category)) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required category ${category}.`);
   }
-  const protocolArtifacts = artifacts.filter(artifact => artifact.category === 'protocol');
+  const protocolArtifacts = artifacts.filter(
+    artifact => artifact.category === 'protocol' && artifact.target_path !== '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
+  );
   const schemaArtifacts = artifacts.filter(artifact => artifact.category === 'schema');
   if (protocolArtifacts.length !== 1 || protocolArtifacts[0]?.target_path !== '.workflow-system/WORKFLOW_PROTOCOL.md' || protocolArtifacts[0]?.required !== true) {
     throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must contain exactly one protocol artifact at .workflow-system/WORKFLOW_PROTOCOL.md.');
@@ -2285,6 +2319,24 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
   }
   if (['protocol', 'schema', 'skill', 'registry'].includes(currentTaskArtifacts[0].category)) {
     throw new MigrationPackError('BUNDLE_INVALID', 'CURRENT_TASK.md must be a document artifact, not a protocol, schema, Skill, or registry artifact.');
+  }
+  if (sourceDeclaresPhase2Runtime(sourceRoot)) {
+    const runtimeKernel = artifacts.find(artifact => artifact.category === 'runtime' && artifact.target_path === 'scripts/vnext-runtime.ts');
+    const runtimeContractArtifacts = artifacts.filter(artifact => artifact.category === 'protocol' && artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml');
+    const runtimeContract = runtimeContractArtifacts[0];
+    if (!runtimeKernel || runtimeKernel.required !== true || runtimeContractArtifacts.length !== 1 || !runtimeContract || runtimeContract.required !== true) {
+      throw new MigrationPackError('BUNDLE_INVALID', 'Phase 2 vNext bundles must include the bound Runtime kernel and RUNTIME_CONTRACT.yaml.');
+    }
+    const currentTaskContent = readBundleContent(bundleDir, currentTaskArtifacts[0]);
+    const { frontmatter: currentTaskFrontmatter } = readBundleFrontmatter(currentTaskContent, currentTaskArtifacts[0].source_path);
+    if (!('runtime_state' in currentTaskFrontmatter)) {
+      throw new MigrationPackError('BUNDLE_INVALID', 'Phase 2 vNext bundles must include runtime_state in the canonical CURRENT_TASK frontmatter.');
+    }
+    try {
+      validateVNextRuntimeContract(bundleDir);
+    } catch (error) {
+      throw new MigrationPackError('BUNDLE_INVALID', `Phase 2 Runtime contract is invalid: ${error instanceof Error ? error.message : String(error)}.`);
+    }
   }
   const skillNames = new Set(
     artifacts

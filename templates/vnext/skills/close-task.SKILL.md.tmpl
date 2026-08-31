@@ -67,7 +67,7 @@ Prove closure eligibility and finish one task with a truthful delivery summary. 
 3. In `preview`, return the complete closure summary and eligibility verdict with zero Runtime proposals. In ordinary closure, prepare only the typed proposals justified by the eligibility result: task state, project status, archive, and, after explicit knowledge admission, a lesson record.
 4. Keep task status descriptive and preserve acceptance, verification, release/rollback, observation, and remaining-risk facts. Do not rewrite history or infer a stable archive path from an ambiguous identity.
 5. Lesson admission may return `admit`, `defer`, or `no-op`; it only controls whether a `lesson-record-transaction` proposal exists and never blocks an otherwise eligible closure.
-6. All four Runtime operations are `contract-only / unbound / Phase 2`; this entry never claims that task state, status, archive, or lessons were written.
+6. All four Runtime operations remain proposal-only for this caller in Phase 2; `task-state-transaction` is bound only for `execute-step`. This entry never claims that task state, status, archive, or lessons were written.
 
 ## Required result
 

@@ -63,7 +63,7 @@ Establish a reproducible root cause and select one authorized recovery route. In
 2. Reproduce the symptom or establish a bounded, evidence-backed reason reproduction is unavailable. Separate observed facts from hypotheses and validate each hypothesis against the smallest useful probe.
 3. In `investigate-only`, return a terminal diagnostic result without proposing a repair route that has not passed evidence and authority checks. In `resolve`, require a confirmed root cause, current-owner route, admitted scope, and an available repair budget before recommending the repair intent.
 4. Use current external documentation only when dependency behavior affects correctness. Route other-owner defects, scope widening, user-owned choices, and unrelated work through their owner result instead of treating them as current-task repairs.
-5. A current-task diagnostic evidence update may be described as a `task-state-transaction` proposal. It remains `contract-only / unbound / Phase 2`; this entry never claims that task state was written.
+5. A current-task diagnostic evidence update may be described as a `task-state-transaction` proposal. Phase 2 binds that operation only for `execute-step`; this entry never claims that task state was written.
 
 ## Required result
 

@@ -1,6 +1,6 @@
 schema_version: 1
 kind: vnext-source-contract
-phase: Phase 1
+phase: Phase 2
 
 source_namespace:
   root: templates/vnext
@@ -366,8 +366,8 @@ capabilities:
 
 runtime_operations:
   - id: task-state-transaction
-    status: contract-only
-    binding: unbound
+    status: bound
+    binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
       - CURRENT_TASK.md
@@ -379,16 +379,20 @@ runtime_operations:
       - debug-task
       - task-lifecycle
       - close-task
+    bound_callers:
+      - execute-step
 
   - id: finding-queue-transaction
-    status: contract-only
-    binding: unbound
+    status: bound
+    binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
       - CURRENT_TASK.md
     write_targets:
       - CURRENT_TASK.md
     allowed_callers:
+      - execute-step
+    bound_callers:
       - execute-step
 
   - id: lifecycle-transaction
@@ -405,6 +409,7 @@ runtime_operations:
       - vNext recovery package
     allowed_callers:
       - task-lifecycle
+    bound_callers: []
 
   - id: inbox-record-transaction
     status: contract-only
@@ -416,6 +421,7 @@ runtime_operations:
       - TASKS/inbox/**
     allowed_callers:
       - capture-work-item
+    bound_callers: []
 
   - id: project-status-transaction
     status: contract-only
@@ -428,6 +434,7 @@ runtime_operations:
       - STATUS
     allowed_callers:
       - close-task
+    bound_callers: []
 
   - id: archive-transaction
     status: contract-only
@@ -439,6 +446,7 @@ runtime_operations:
       - canonical task archive
     allowed_callers:
       - close-task
+    bound_callers: []
 
   - id: lesson-record-transaction
     status: contract-only
@@ -450,3 +458,4 @@ runtime_operations:
       - LESSONS
     allowed_callers:
       - close-task
+    bound_callers: []

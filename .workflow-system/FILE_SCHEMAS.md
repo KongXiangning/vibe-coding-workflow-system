@@ -821,6 +821,47 @@ runtime_operations:
 
 Phase 0 只校验 declaration，不执行 commit。
 
+### Phase 2 vNext Runtime state-changing slice
+
+Phase 2 的 `execute-step` 只绑定 `task-state-transaction` 与
+`finding-queue-transaction`；两者均以同一个 pure-vNext
+`CURRENT_TASK.md` 为 canonical state source，具体 proposal、runtime state
+和 handler contract 见 `.workflow-system/vnext/RUNTIME_CONTRACT.yaml`。
+
+`CURRENT_TASK.md` 的 frontmatter 在保持原有 `schema_version`、`kind`、
+`document_id` 的基础上，必须包含 `runtime_state`：
+
+```yaml
+runtime_state:
+  schema_version: 1
+  kind: vnext-current-task-runtime-state
+  task_id: <materialized-task-id>
+  task_slug: <materialized-task-slug>
+  workflow_status: active
+  lifecycle_state: active
+  active_step_id: <stable-step-id>
+  active_step_status: ready | in-progress | completed | blocked
+  finding_queue_revision: <non-negative integer>
+  repair_round: <0..3>
+  findings: []
+  execution_log: []
+  applied_proposals: []
+```
+
+Runtime state 与正文中的任务 identity / lifecycle tuple 必须一致；不一致
+即为 source conflict。`findings` 以稳定 fingerprint 唯一标识，只有
+`current-owner + admitted scope + mechanical decision + evidence + bounded
+root cause` 的记录才能进入 repair；每个 fingerprint 最多两次 repair
+attempt，review cycle 最多三轮。`applied_proposals` 只用于同一 canonical
+文档内的幂等回放，不构成第二状态源。
+
+Phase 2 proposal 的写目标必须精确解析为当前 Project Profile 指定的
+`CURRENT_TASK.md`，禁止 broad glob、跨 operation 写入或直接编辑其他治理
+文档。Runtime 结果闭集为 `success / no-op / conflict / blocked`；只有
+`success` 且 read-back 校验通过时才计为治理写入。dry-run 不写文件，stale
+source、重复 idempotency key、旧 schema、缺失 authority/evidence、非法
+状态转换、重复 finding 或超出 repair budget 均 fail-closed。
+
 ### Compatibility alias 最小结构
 
 ```yaml

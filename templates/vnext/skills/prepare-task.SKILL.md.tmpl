@@ -74,4 +74,4 @@ Return a structured `prepared-task` result containing:
 - relevant context locators and conflict/exclusion trace;
 - a typed `task-state-transaction` proposal only when the caller has authorized durable task preparation.
 
-The Phase 1 source contract declares that Runtime operation as `contract-only / unbound / Phase 2`. Do not claim that `CURRENT_TASK.md` was written, updated, or committed. If a durable proposal is not authorized or cannot pass its preconditions, return the prepared result with the blocker and stop.
+The Phase 2 source contract keeps this caller proposal-only: `task-state-transaction` is bound only for `execute-step`; `prepare-task` does not execute a Runtime write. Do not claim that `CURRENT_TASK.md` was written, updated, or committed. If a durable proposal is not authorized or cannot pass its preconditions, return the prepared result with the blocker and stop.

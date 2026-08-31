@@ -158,7 +158,7 @@ Migration is fail-closed and all-or-nothing with respect to vNext installation:
 
 ## 4. Phase 2 — Pure vNext state-changing workflow
 
-After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch.
+After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The first Phase 2 slice is implemented in `scripts/vnext-runtime.ts` and is bound only to the pure-vNext `execute-step` caller.
 
 Phase 2 introduces the first state-changing slice behind typed Runtime proposals and exact handlers:
 
@@ -168,7 +168,7 @@ Phase 2 introduces the first state-changing slice behind typed Runtime proposals
 - task-state and finding-queue commits through the shared Runtime kernel;
 - fail-closed authority, scope, evidence, and dangerous-operation gates.
 
-The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface.
+The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. The remaining lifecycle, inbox, status, archive, and lesson operations stay contract-only and unbound until their own phases.
 
 ## 5. Subsequent vNext phases
 
@@ -209,6 +209,14 @@ Each later phase must preserve the seven-intent daily surface, adaptive internal
 - partial writes, guessed authority, unbounded repair, and success-shaped failure are impossible;
 - lifecycle, closure, and bootstrap additions do not widen the daily surface or reintroduce legacy fallback.
 
+The implemented Phase 2 slice additionally requires:
+
+- `scripts/vnext-runtime.ts` and `.workflow-system/vnext/RUNTIME_CONTRACT.yaml` validate as the bound Runtime contract;
+- only `task-state-transaction` and `finding-queue-transaction` are bound, both with exact `CURRENT_TASK.md` source/write boundaries;
+- canonical runtime state remains inside `CURRENT_TASK.md`, with body/frontmatter consistency checks;
+- dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests;
+- `execute-step` does not report a governance write unless the corresponding Runtime result is `success`.
+
 ## 7. Explicitly removed from the product architecture
 
 The following are not migration features or rollout goals:
@@ -225,10 +233,11 @@ The only dual track permitted is the temporary source-repository development arr
 ## 8. Next boundary
 
 Phase 1's minimum vNext Skill/Capability structure and the independent
-Migration Pack boundary are now implemented in the source repository. The next
-product boundary is Phase 2: bind the vNext Runtime transaction kernel for the
-state-changing `execute-step` slice. Do not add legacy-aware vNext readers,
-runtime hot migration, or a long-lived compatibility surface.
+Migration Pack boundary are implemented in the source repository. Phase 2's
+first product slice now binds the shared Runtime transaction kernel for
+state-changing `execute-step` task-state and finding-queue proposals. Do not
+add legacy-aware vNext readers, runtime hot migration, or a long-lived
+compatibility surface.
 
 ## 9. Migration Pack implementation contract
 
@@ -269,6 +278,11 @@ entry contracts, and all seven daily-entry Skill artifacts. The target must stil
 project identity, archived/archived idle snapshot, source checksums, and legacy
 installation surface. A changed target or source is stale and stops before any
 write.
+
+The Phase 2 Runtime kernel and `RUNTIME_CONTRACT.yaml` are vNext-bundle
+artifacts only; they are intentionally not part of the legacy `workflow:pack`
+or legacy host installer artifact set. A legacy target therefore never receives
+the Phase 2 Runtime as a partial vNext surface.
 
 Installation writes a pure-vNext surface through one rollback-capable file
 transaction, replaces the old `CURRENT_TASK.md` and protocol/schema with the

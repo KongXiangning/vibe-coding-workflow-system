@@ -70,7 +70,11 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
     const file = path.join(sourceRoot, ...relative.split('/'));
     fs.mkdirSync(path.dirname(file), { recursive: true });
     if (category === 'protocol') {
-      fs.writeFileSync(file, 'schema_version: 1\nkind: vnext-protocol\n\n# vNext Protocol\n', 'utf8');
+      if (target === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') {
+        fs.copyFileSync(path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml'), file);
+      } else {
+        fs.writeFileSync(file, 'schema_version: 1\nkind: vnext-protocol\n\n# vNext Protocol\n', 'utf8');
+      }
     } else if (category === 'schema') {
       fs.writeFileSync(file, 'schema_version: 1\nkind: vnext-file-schema\n\n# vNext File Schema\nCURRENT_TASK.md\n', 'utf8');
     } else if (target.endsWith('CURRENT_TASK.md')) {
@@ -251,6 +255,19 @@ describe('one-time vNext Migration Pack', () => {
     const identity = getSourceIdentity(source);
     expect(identity.root_identity).toMatch(/^[a-f0-9]{32}$/);
     expect(identity.tree_hash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  test('treats the Phase 2 Runtime contract as a separate protocol artifact', () => {
+    const source = tempRoot('workflow-vnext-migration-source-');
+    const target = copyFixtureTarget();
+    const bundleDir = tempRoot('workflow-vnext-bundle-');
+
+    writeBundle(source, target, bundleDir, [
+      ['bundle/runtime-contract.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', 'protocol'],
+    ]);
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(bundleDir, 'vnext-bundle.json'), 'utf8')) as { artifacts: Array<{ target_path: string }> };
+    expect(manifest.artifacts.some(artifact => artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml')).toBe(true);
   });
 
   test('fails closed when an interrupted installation marker is present', () => {

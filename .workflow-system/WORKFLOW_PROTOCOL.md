@@ -699,11 +699,35 @@ Every Runtime operation must declare:
 
 Runtime operations do not decide whether a proposed contract, decision, lesson, finding, lifecycle change, or status change is semantically authorized. The model and user-authority gates produce the proposal and evidence; Runtime validates schema, current source tuple, path, authority marker, conflict, and atomicity before commit.
 
-`runtime-proposal-envelope` requires at least proposal kind, canonical source revision / lifecycle tuple, authority evidence, intended exact writes, conflict key, and idempotency identity. Phase 0 declares this envelope and write boundary only; it does not implement state-changing transactions.
+`runtime-proposal-envelope` requires at least proposal kind, canonical source revision / lifecycle tuple, authority evidence, intended exact writes, conflict key, and idempotency identity. The legacy §4c manifest remains a declaration-only compatibility baseline; the independent vNext Phase 2 slice binds only the two operations documented below.
 
 The Phase 0 Runtime canonical-source allowlist is closed to the five live governance documents (`CURRENT_TASK`, `STATUS`, `CONTRACTS`, `DECISIONS`, `LESSONS`), paired `AGENTS.md` / `CLAUDE.md`, bounded `TASKS/paused`, `TASKS/interrupted`, `TASKS/inbox`, and the materialized canonical task archive path. The write-target allowlist uses the same exact documents plus bounded family patterns for paused / interrupted / inbox artifacts. Broad sources or targets such as `TASKS`, `**`, `docs/**`, or `TASKS/**` are invalid.
 
 A Runtime operation must not introduce a database, cache, manifest field, or derived projection as an independent source of target-project truth. A projection may be returned for validation or display, but canonical project facts remain in the existing live governance sources.
+
+### 4c.4a Phase 2 bound vNext Runtime slice
+
+Phase 2 binds `task-state-transaction` and `finding-queue-transaction` only for the
+pure-vNext `execute-step` caller. Their implementation is
+`scripts/vnext-runtime.ts`, and the machine-readable proposal/state contract is
+`.workflow-system/vnext/RUNTIME_CONTRACT.yaml`. Both handlers use the same
+canonical vNext `CURRENT_TASK.md` document as their only state source and write
+only that exact document path resolved from the target Project Profile.
+
+The bound proposal envelope is closed: it carries the canonical source tuple,
+authority evidence, typed semantic delta, preconditions, claim-bound evidence
+references, an idempotency key, and exactly one requested write target. The
+kernel rejects legacy or unsupported CURRENT_TASK schemas with
+`migration-required`, rejects stale source tuples and wrong operation paths,
+and never lets one operation borrow another operation's write boundary.
+
+Each accepted proposal is rendered in memory, committed with an atomic file
+transaction, and read back before `success` is returned. Replays with the same
+idempotency key and proposal digest are `no-op`; a reused key with a different
+proposal is `conflict`. Handler failures, missing authority/evidence, illegal
+step transitions, duplicate findings, and exhausted repair budgets are
+`blocked` without a partial write. The remaining lifecycle, inbox, status,
+archive, and lesson operations stay `contract-only / unbound / Phase 2`.
 
 ### 4c.5 Compatibility alias rules
 
@@ -2431,7 +2455,7 @@ The following contracts remain outside the currently implemented workflow-system
 
 - default host exposure of the §4c shadow public entries
 - retirement or deletion of any §4c compatibility alias
-- state-changing Runtime implementations for §4c Runtime operation declarations
+- state-changing Runtime implementations for lifecycle, inbox, status, archive, lesson, and other unbound operation declarations
 - target-project-specific command bindings for optional project-level validation slots
 - production-environment credentials, secret rotation procedures, and deploy implementations
 - extraction-time release governance beyond the documented roadmap and baseline contracts

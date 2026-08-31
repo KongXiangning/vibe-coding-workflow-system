@@ -45,10 +45,11 @@ afterEach(() => {
   }
 });
 
-describe('vNext Phase 1 source contract', () => {
+describe('vNext Phase 2 source contract', () => {
   test('accepts exactly the seven daily entries and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 
+    expect(result.phase).toBe('Phase 2');
     expect(result.entries).toEqual([
       'prepare-task',
       'review-change',

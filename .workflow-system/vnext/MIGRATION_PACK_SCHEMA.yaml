@@ -118,6 +118,17 @@ vnext_bundle:
     - task-lifecycle
     - capture-work-item
     - close-task
+  phase2_runtime:
+    required_when_source_phase: Phase 2
+    canonical_current_task_requires_runtime_state: true
+    bound_operations:
+      - task-state-transaction
+      - finding-queue-transaction
+    required_artifacts:
+      - target_path: scripts/vnext-runtime.ts
+        category: runtime
+      - target_path: .workflow-system/vnext/RUNTIME_CONTRACT.yaml
+        category: protocol
   source_binding:
     - root_identity
     - revision

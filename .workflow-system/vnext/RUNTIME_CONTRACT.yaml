@@ -1,0 +1,100 @@
+schema_version: 1
+kind: vnext-runtime-contract
+phase: Phase 2
+
+proposal:
+  schema_version: 1
+  kind: vnext-runtime-proposal
+  caller: execute-step
+  operation_kinds:
+    - task-state-transaction
+    - finding-queue-transaction
+  source_tuple:
+    - path
+    - revision
+    - document_id
+    - task_id
+    - task_slug
+    - workflow_status
+    - lifecycle_state
+    - active_step_id
+    - active_step_status
+    - finding_queue_revision
+  required_envelope:
+    - authority_evidence
+    - semantic_delta
+    - preconditions
+    - evidence_refs
+    - idempotency_key
+    - requested_write_targets
+
+canonical_current_task:
+  frontmatter:
+    schema_version: 1
+    kind: vnext-current-task
+    required:
+      - document_id
+      - runtime_state
+  runtime_state:
+    schema_version: 1
+    kind: vnext-current-task-runtime-state
+    fields:
+      - task_id
+      - task_slug
+      - workflow_status
+      - lifecycle_state
+      - active_step_id
+      - active_step_status
+      - finding_queue_revision
+      - repair_round
+      - findings
+      - execution_log
+      - applied_proposals
+  source_of_truth: same-canonical-CURRENT_TASK-document
+  legacy_schema_behavior: migration-required
+
+operations:
+  - id: task-state-transaction
+    status: bound
+    binding: vnext-runtime
+    handler: scripts/vnext-runtime.ts
+    source_targets:
+      - CURRENT_TASK.md
+    write_targets:
+      - CURRENT_TASK.md
+    allowed_callers:
+      - execute-step
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
+  - id: finding-queue-transaction
+    status: bound
+    binding: vnext-runtime
+    handler: scripts/vnext-runtime.ts
+    source_targets:
+      - CURRENT_TASK.md
+    write_targets:
+      - CURRENT_TASK.md
+    allowed_callers:
+      - execute-step
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
+unbound_operations:
+  - lifecycle-transaction
+  - inbox-record-transaction
+  - project-status-transaction
+  - archive-transaction
+  - lesson-record-transaction
