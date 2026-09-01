@@ -6,6 +6,8 @@ import { stringify } from 'yaml';
 import {
   applyVNextRuntimeProposal,
   createFindingQueueProposal,
+  createLifecycleProposal,
+  createPrepareTaskResumeReviewProposal,
   createTaskStateProposal,
   GovernanceTransactionKernel,
   readCanonicalCurrentTask,
@@ -13,6 +15,7 @@ import {
   validateVNextRuntimeContract,
   type AuthorityEvidence,
   type FindingQueueDelta,
+  type LifecycleDelta,
   type RuntimeProposal,
   type RuntimeState,
 } from '../scripts/vnext-runtime';
@@ -28,6 +31,8 @@ function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     task_slug: 'runtime-fixture',
     workflow_status: 'active',
     lifecycle_state: 'active',
+    resume_requires_review: false,
+    resume_review_reasons: [],
     active_step_id: 'step-1',
     active_step_status: 'ready',
     finding_queue_revision: 0,
@@ -58,8 +63,8 @@ function makeBody(state: RuntimeState): string {
     `- 任务 slug：${state.task_slug}`,
     `- 当前状态：${state.workflow_status}`,
     `- 生命周期状态：${state.lifecycle_state}`,
-    '- 恢复需审查：false',
-    '- 恢复审查原因：',
+    `- 恢复需审查：${state.resume_requires_review ? 'true' : 'false'}`,
+    `- 恢复审查原因：${state.resume_review_reasons.join(', ')}`,
     '',
     '## 验收标准',
     '',
@@ -147,6 +152,42 @@ function repairAttempt(fingerprint: string, reviewCycleId: string, repairWaveId:
   };
 }
 
+function pauseDelta(overrides: Partial<Extract<LifecycleDelta, { action: 'pause' }>> = {}): Extract<LifecycleDelta, { action: 'pause' }> {
+  return {
+    kind: 'lifecycle',
+    action: 'pause',
+    lifecycle_state: 'paused_pending_closure',
+    suspension_reason: 'validation and manual review are pending',
+    task_start_base: 'main@abc123',
+    last_reviewed_checkpoint: 'checkpoint-1',
+    current_diff_review_target: 'HEAD~1..HEAD',
+    rollback_conditions: 'restore the current task snapshot if package read-back fails',
+    resume_review_reasons: ['manual_review_pending'],
+    evidence_refs: ['test:evidence:pause'],
+    ...overrides,
+  };
+}
+
+function interruptDelta(overrides: Partial<Extract<LifecycleDelta, { action: 'interrupt' }>> = {}): Extract<LifecycleDelta, { action: 'interrupt' }> {
+  return {
+    kind: 'lifecycle',
+    action: 'interrupt',
+    lifecycle_state: 'interrupted',
+    suspension_reason: 'environment stopped unexpectedly',
+    task_start_base: 'main@abc123',
+    last_reviewed_checkpoint: 'checkpoint-2',
+    current_diff_review_target: 'HEAD~1..HEAD',
+    rollback_conditions: 'restore the current task snapshot if package read-back fails',
+    resume_review_reasons: ['environment_recovery_pending'],
+    evidence_refs: ['test:evidence:interrupt'],
+    checkpoint_evidence: 'checkpoint-2 recorded before interruption',
+    dirty_attribution: 'task-owned changes are listed in the checkpoint',
+    environment_state: 'runner was stopped after the checkpoint',
+    recovery_strategy: 'rehydrate the checkpoint and review the diff before execution',
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -155,9 +196,8 @@ describe('vNext Phase 2 Runtime contract', () => {
   test('validates the bound execute-step slice and keeps later operations unbound', () => {
     const result = validateVNextRuntimeContract(ROOT);
     expect(result.phase).toBe('Phase 2');
-    expect(result.bound_operations).toEqual(['task-state-transaction', 'finding-queue-transaction']);
+    expect(result.bound_operations).toEqual(['task-state-transaction', 'finding-queue-transaction', 'lifecycle-transaction']);
     expect(result.unbound_operations).toEqual([
-      'lifecycle-transaction',
       'inbox-record-transaction',
       'project-status-transaction',
       'archive-transaction',
@@ -273,6 +313,185 @@ describe('vNext Phase 2 Runtime contract', () => {
     const blockedTarget = applyVNextRuntimeProposal(root, wrongTarget);
     expect(blockedTarget.status).toBe('blocked');
     expect(blockedTarget.code).toBe('RUNTIME_PATH_INVALID');
+  });
+
+  test('commits pause and explicit resume, then requires prepare-task to clear the review gate', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    const paused = applyVNextRuntimeProposal(root, createLifecycleProposal(current, {
+      mode: 'pause',
+      delta: pauseDelta(),
+      idempotency_key: 'lifecycle-pause-1',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:pause'],
+    }));
+    expect(paused.status).toBe('success');
+    expect(paused.governed_mutation_count).toBe(2);
+    expect(paused.planned_writes).toEqual([
+      'docs/workflow/CURRENT_TASK.md',
+      'TASKS/paused/TASK-010-runtime-fixture.md',
+    ]);
+
+    const suspended = readCanonicalCurrentTask(root);
+    expect(suspended.runtimeState.workflow_status).toBe('suspended');
+    expect(suspended.runtimeState.lifecycle_state).toBe('paused_pending_closure');
+    expect(suspended.runtimeState.resume_requires_review).toBe(true);
+    expect(suspended.body).toContain('- 当前状态：suspended');
+    expect(suspended.body).toContain('- 生命周期状态：paused_pending_closure');
+    const packagePath = path.join(root, 'TASKS', 'paused', 'TASK-010-runtime-fixture.md');
+    const packageBeforeResume = fs.readFileSync(packagePath, 'utf8');
+    expect(packageBeforeResume).toContain('rehydration_status: ready_for_resume');
+    expect(packageBeforeResume).toContain('BEGIN vNext CURRENT_TASK snapshot');
+
+    const resumed = applyVNextRuntimeProposal(root, createLifecycleProposal(suspended, {
+      mode: 'resume-paused',
+      delta: {
+        kind: 'lifecycle',
+        action: 'resume-paused',
+        artifact_kind: 'paused',
+        recovery_package_path: 'TASKS/paused/TASK-010-runtime-fixture.md',
+        resume_review_reasons: ['manual_review_pending'],
+        evidence_refs: ['test:evidence:resume'],
+      },
+      idempotency_key: 'lifecycle-resume-1',
+      authority_evidence: evidence('resume-review', 'evidence-admission'),
+      evidence_refs: ['test:evidence:resume'],
+    }));
+    expect(resumed.status).toBe('success');
+    const resumedCurrent = readCanonicalCurrentTask(root);
+    expect(resumedCurrent.runtimeState.workflow_status).toBe('active');
+    expect(resumedCurrent.runtimeState.lifecycle_state).toBe('active');
+    expect(resumedCurrent.runtimeState.resume_requires_review).toBe(true);
+    expect(resumedCurrent.runtimeState.resume_review_reasons).toEqual(['manual_review_pending']);
+    expect(resumedCurrent.runtimeState.applied_proposals.map(item => item.idempotency_key)).toEqual([
+      'lifecycle-pause-1',
+      'lifecycle-resume-1',
+    ]);
+    expect(fs.readFileSync(packagePath, 'utf8')).toContain('rehydration_status: rehydrated');
+    expect(fs.readFileSync(packagePath, 'utf8')).toContain('ownership_state: rehydrated');
+
+    const blockedExecution = applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'step-before-resume-review' }));
+    expect(blockedExecution.status).toBe('blocked');
+    expect(blockedExecution.code).toBe('RESUME_REVIEW_REQUIRED');
+
+    const cleared = applyVNextRuntimeProposal(root, createPrepareTaskResumeReviewProposal(resumedCurrent, {
+      mode: 'default',
+      evidence_refs: ['test:evidence:resume-review'],
+      idempotency_key: 'resume-review-cleared-1',
+      authority_evidence: evidence('active-task-owner', 'resume-review', 'evidence-admission'),
+    }));
+    expect(cleared.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.resume_requires_review).toBe(false);
+    expect(readCanonicalCurrentTask(root).runtimeState.resume_review_reasons).toEqual([]);
+
+    const staleGateProposal = createTaskStateProposal(resumedCurrent, {
+      mode: 'default',
+      status: 'completed',
+      evidence_refs: ['test:evidence:stale-gate'],
+      idempotency_key: 'stale-gate-source',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    const staleGate = applyVNextRuntimeProposal(root, staleGateProposal);
+    expect(staleGate.status).toBe('conflict');
+    expect(staleGate.code).toBe('SOURCE_TUPLE_MISMATCH');
+  });
+
+  test('keeps interrupt distinct and requires its recovery evidence', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    const interrupted = applyVNextRuntimeProposal(root, createLifecycleProposal(current, {
+      mode: 'interrupt',
+      delta: interruptDelta(),
+      idempotency_key: 'lifecycle-interrupt-1',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:interrupt'],
+    }));
+    expect(interrupted.status).toBe('success');
+    const packagePath = path.join(root, 'TASKS', 'interrupted', 'TASK-010-runtime-fixture.md');
+    const packageContent = fs.readFileSync(packagePath, 'utf8');
+    expect(packageContent).toContain('artifact_kind: interrupted');
+    expect(packageContent).toContain('lifecycle_state: interrupted');
+    expect(packageContent).toContain('checkpoint_evidence: checkpoint-2 recorded before interruption');
+    expect(packageContent).toContain('dirty_attribution: task-owned changes are listed in the checkpoint');
+    expect(packageContent).toContain('environment_state: runner was stopped after the checkpoint');
+    expect(packageContent).toContain('recovery_strategy: rehydrate the checkpoint and review the diff before execution');
+    expect(readCanonicalCurrentTask(root).runtimeState.lifecycle_state).toBe('interrupted');
+
+    const resumed = createLifecycleProposal(readCanonicalCurrentTask(root), {
+      mode: 'resume-interrupted',
+      delta: {
+        kind: 'lifecycle',
+        action: 'resume-interrupted',
+        artifact_kind: 'interrupted',
+        recovery_package_path: 'TASKS/interrupted/TASK-010-runtime-fixture.md',
+        resume_review_reasons: ['environment_recovery_pending'],
+        evidence_refs: ['test:evidence:resume-interrupted'],
+      },
+      idempotency_key: 'lifecycle-resume-interrupted-1',
+      authority_evidence: evidence('resume-review', 'evidence-admission'),
+      evidence_refs: ['test:evidence:resume-interrupted'],
+    });
+    expect(applyVNextRuntimeProposal(root, resumed).status).toBe('success');
+  });
+
+  test('keeps supersede proposal-only until Slice B', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    const proposal = createLifecycleProposal(current, {
+      mode: 'supersede',
+      delta: {
+        kind: 'lifecycle',
+        action: 'supersede',
+        invalidation_reason: 'the accepted goal is no longer valid',
+        evidence_refs: ['test:evidence:supersede'],
+      },
+      idempotency_key: 'lifecycle-supersede-slice-a',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    const before = fs.readFileSync(current.filePath, 'utf8');
+    const result = applyVNextRuntimeProposal(root, proposal);
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('LIFECYCLE_MODE_UNBOUND');
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+  });
+
+  test('requires the explicit identity-derived package and rolls back both lifecycle files on read-back failure', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    const wrongPackage = createLifecycleProposal(current, {
+      mode: 'pause',
+      delta: pauseDelta(),
+      idempotency_key: 'lifecycle-pause-wrong-package',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:pause'],
+    });
+    wrongPackage.requested_write_targets = [current.relativePath, 'TASKS/paused/TASK-010-other.md'];
+    const wrongTarget = applyVNextRuntimeProposal(root, wrongPackage);
+    expect(wrongTarget.status).toBe('blocked');
+    expect(wrongTarget.code).toBe('RUNTIME_PATH_INVALID');
+
+    const before = fs.readFileSync(current.filePath, 'utf8');
+    let readCount = 0;
+    const kernel = new GovernanceTransactionKernel(root, targetRoot => {
+      readCount += 1;
+      if (readCount === 2) throw new Error('simulated lifecycle post-commit read-back failure');
+      return readCanonicalCurrentTask(targetRoot);
+    });
+    const proposal = createLifecycleProposal(current, {
+      mode: 'pause',
+      delta: pauseDelta(),
+      idempotency_key: 'lifecycle-pause-read-back-failure',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:pause'],
+    });
+    const result = kernel.apply(proposal);
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('READ_BACK_FAILED');
+    expect(result.governed_mutation_count).toBe(0);
+    expect(readCount).toBe(3);
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(root, 'TASKS', 'paused', 'TASK-010-runtime-fixture.md'))).toBe(false);
   });
 
   test('admits a finding, records bounded repair attempts, and resolves it', () => {

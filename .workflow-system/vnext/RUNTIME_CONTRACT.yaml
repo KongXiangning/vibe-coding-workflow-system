@@ -15,10 +15,14 @@ runtime_distribution:
 proposal:
   schema_version: 1
   kind: vnext-runtime-proposal
-  caller: execute-step
+  caller:
+    - execute-step
+    - prepare-task
+    - task-lifecycle
   operation_kinds:
     - task-state-transaction
     - finding-queue-transaction
+    - lifecycle-transaction
   source_tuple:
     - path
     - revision
@@ -30,6 +34,8 @@ proposal:
     - active_step_id
     - active_step_status
     - finding_queue_revision
+    - resume_requires_review
+    - resume_review_reasons
   required_envelope:
     - authority_evidence
     - semantic_delta
@@ -45,6 +51,57 @@ proposal:
     required:
       - review_cycle_id
       - repair_wave_id
+  prepare_task:
+    bound_actions:
+      - clear-resume-review-gate
+  lifecycle:
+    modes:
+      - pause
+      - interrupt
+      - resume-paused
+      - resume-interrupted
+      - supersede
+    bound_modes:
+      - pause
+      - interrupt
+      - resume-paused
+      - resume-interrupted
+    proposal_only_modes:
+      - supersede
+    pause_required:
+      required:
+        - lifecycle_state
+        - suspension_reason
+        - task_start_base
+        - last_reviewed_checkpoint
+        - current_diff_review_target
+        - rollback_conditions
+        - resume_review_reasons
+        - evidence_refs
+    interrupt_required:
+      required:
+        - lifecycle_state
+        - suspension_reason
+        - task_start_base
+        - last_reviewed_checkpoint
+        - current_diff_review_target
+        - rollback_conditions
+        - resume_review_reasons
+        - checkpoint_evidence
+        - dirty_attribution
+        - environment_state
+        - recovery_strategy
+        - evidence_refs
+    resume_required:
+      required:
+        - artifact_kind
+        - recovery_package_path
+        - resume_review_reasons
+        - evidence_refs
+    supersede_required:
+      required:
+        - invalidation_reason
+        - evidence_refs
 
 canonical_current_task:
   frontmatter:
@@ -61,6 +118,8 @@ canonical_current_task:
       - task_slug
       - workflow_status
       - lifecycle_state
+      - resume_requires_review
+      - resume_review_reasons
       - active_step_id
       - active_step_status
       - finding_queue_revision
@@ -99,6 +158,7 @@ operations:
       - CURRENT_TASK.md
     allowed_callers:
       - execute-step
+      - prepare-task
     result_states:
       - success
       - no-op
@@ -127,8 +187,30 @@ operations:
     idempotence: fail-closed
     conflict_policy: fail-closed
 
+  - id: lifecycle-transaction
+    status: bound
+    binding: vnext-runtime
+    operation: lifecycle-transaction
+    source_targets:
+      - CURRENT_TASK.md
+      - TASKS/paused/**
+      - TASKS/interrupted/**
+    write_targets:
+      - CURRENT_TASK.md
+      - TASKS/paused/**
+      - TASKS/interrupted/**
+    allowed_callers:
+      - task-lifecycle
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
 unbound_operations:
-  - lifecycle-transaction
   - inbox-record-transaction
   - project-status-transaction
   - archive-transaction

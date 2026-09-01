@@ -132,6 +132,7 @@ vnext_bundle:
     bound_operations:
       - task-state-transaction
       - finding-queue-transaction
+      - lifecycle-transaction
     required_artifacts:
       - target_path: .workflow-system/runtime/dist/cli.js
         category: runtime

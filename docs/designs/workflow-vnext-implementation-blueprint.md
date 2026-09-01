@@ -182,7 +182,7 @@ These tests should use small in-memory mutations or a few temporary contract fil
 
 ### 3.4 Phase 1 follow-up source checkpoint
 
-After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates, a closed capability union, and contract-only Runtime operations. Phase 2 now binds only `task-state-transaction` and `finding-queue-transaction` for `execute-step`; the other operations remain contract-only and unbound. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, or Migration Pack boundary.
+After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates, a closed capability union, and contract-only Runtime operations. Phase 2 initially bound `task-state-transaction` and `finding-queue-transaction` for `execute-step`; Slice A now additionally binds `lifecycle-transaction` for `task-lifecycle` pause/interrupt/resume modes and the minimal `prepare-task` resume-review gate clear action. `supersede` and durable `prepare-task:replan` remain contract-only for Slice B, while inbox/status/archive/lesson operations remain unbound. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, or Migration Pack boundary.
 
 ### 3.5 Phase 2 bound Runtime slice
 
@@ -193,11 +193,16 @@ authoritative implementation in `runtime/vnext/src/`, while
 `.workflow-system/vnext/RUNTIME_CONTRACT.yaml`. It accepts only a
 pure-vNext canonical `CURRENT_TASK.md` with an in-document `runtime_state`,
 validates the exact source tuple and authority/evidence envelope, and commits
-typed task-state or finding-queue deltas through one shared atomic kernel. The
-kernel owns deterministic schema, path, conflict, idempotency, repair-budget,
-and read-back checks; the model remains responsible for semantic admission.
-`prepare-task`, `debug-task`, `task-lifecycle`, `close-task`, and all later
-operation callers still receive proposal-only contracts until their own phase.
+typed task-state, finding-queue, or lifecycle deltas through one shared atomic
+kernel. The kernel owns deterministic schema, path, conflict, idempotency,
+package-marker, rollback, and read-back checks; the model remains responsible
+for semantic admission. Slice A's lifecycle handler covers only pause,
+interrupt, and the two explicit resume modes. `prepare-task` may call the
+Runtime only to clear `resume_requires_review` after readiness/resume review;
+it cannot use that binding to mutate other task facts. `supersede`, durable
+replan, `debug-task`, `close-task`, and all later operation callers remain
+proposal-only until their own phase. The Runtime never parses or hot-migrates
+legacy paused/interrupted artifacts.
 The Runtime package, lockfile, generated Node entrypoint, and Skill artifacts
 are promoted from one source-bound bundle; installation stages its own
 `node_modules` with `npm ci --omit=dev` and runs the Node self-check before
@@ -221,6 +226,12 @@ review-change (discovery)
     ├─ unknown root cause → debug-task
     └─ user-owned / scope / contract decision → stop and ask or replan
 
+task-lifecycle:resume-paused / resume-interrupted
+    ↓ lifecycle transaction success + resume_requires_review=true
+prepare-task (readiness/resume review; only clear-resume-review-gate)
+    ↓ gate clear
+execute-step
+
 debug-task:resolve
     ↓ root-cause-confirmed + authorized
 execute-step:repair
@@ -238,8 +249,8 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 
 | Operation | Canonical source / write target | 允许的 caller | 关键限制 |
 |---|---|---|---|
-| `task-state-transaction` | `CURRENT_TASK.md` 及其 vNext task state | `prepare-task`、`execute-step`、`debug-task`、`close-task`、受控 replan | 只记录实际进度、evidence、deviation、risk、acceptance、handoff；不得把失败写成完成 |
-| `lifecycle-transaction` | vNext lifecycle marker、snapshot、recovery package | `task-lifecycle` | exact task identity、合法 tuple、原子读回；不读取或热迁移旧 paused/interrupted runtime |
+| `task-state-transaction` | `CURRENT_TASK.md` 及其 vNext task state | `execute-step`；`prepare-task` 仅用于清除 resume-review gate | 只记录实际进度、evidence、deviation、risk、acceptance、handoff；Slice A 的 prepare 绑定不得改动其他 task facts |
+| `lifecycle-transaction` | `CURRENT_TASK.md` 与 `TASKS/paused/...` / `TASKS/interrupted/...` vNext snapshot/recovery package | `task-lifecycle` | pause/interrupt/explicit resume only；exact task identity、合法 tuple、显式唯一包、原子读回与双文件 rollback；不读取或热迁移旧 paused/interrupted runtime |
 | `inbox-record-transaction` | `TASKS/inbox/**` | `capture-work-item` | record-only；不升级成 task、catalog、lifecycle 或 archive |
 | `finding-queue-transaction` | admitted finding queue | `sync-state`、`execute-step` 的 admitted repair | 先过 finding admission；current-owner/in-scope/mechanical；稳定 fingerprint 与 provenance；去重 |
 | `project-status-transaction` | `STATUS` / approved status baseline | `sync-state`、`close-task`、`bootstrap-project` | status 是 descriptive；缺 evidence 时只能是 blocked/observing 等真实状态 |
@@ -311,6 +322,7 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 | Phase 1（后续） | 在 Phase 1A 检查点通过后，补齐其余 daily entry 的最小结构，并保持同一 contract/capability/runtime 边界 | 不把外围入口提前混入 Phase 1A；不以新增测试基础设施作为交付目标 |
 | Migration Pack | 实现 idle preflight、离线副本转换、stable ID/provenance/path-reference、完整 validation 和 pure-vNext atomic installation | 不关闭/归档 active task；不恢复 paused/interrupted；不做语义去重或 AI 历史重写 |
 | Phase 2 | 以纯 vNext schema 开始 `execute-step` 的 state-changing workflow；接入 task-state/finding queue；落实 evidence admission、finding admission、Review Convergence 和 read-back（首个切片已实现） | 不保留 legacy fallback；不把 review/validation 变成修复入口 |
+| Phase 2 Slice A | 实现 `task-lifecycle` 的 pause、interrupt、resume-paused、resume-interrupted lifecycle transaction；在 resume 后经 `prepare-task` readiness/resume review 清除 gate；落实双文件原子提交、read-back 与 rollback | 不实现通用 lifecycle framework、recovery registry、legacy 多阶段事务、close/archive/inbox/status、完整 supersede/replan |
 | 后续 | 逐步实现 vNext 自己创建的 `task-lifecycle`，再实现 `close-task`、`bootstrap-project` 及明确授权的新 capability | 不把 lifecycle/close/bootstrap 的缺失补成兼容旧协议的临时路径 |
 
 后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再补齐剩余 state-changing Runtime handlers”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。

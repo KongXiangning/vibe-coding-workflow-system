@@ -158,7 +158,7 @@ Migration is fail-closed and all-or-nothing with respect to vNext installation:
 
 ## 4. Phase 2 — Pure vNext state-changing workflow
 
-After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The first Phase 2 slice is implemented as the project-local Node package under `.workflow-system/runtime/` (with the source-repository implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper) and is bound only to the pure-vNext `execute-step` caller.
+After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The first Phase 2 slice is implemented as the project-local Node package under `.workflow-system/runtime/` (with the source-repository implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper). The initial execution slice is bound to the pure-vNext `execute-step` caller; Slice A additionally binds the lifecycle handler to `task-lifecycle` and the minimal resume-review gate clear action to `prepare-task`.
 
 Phase 2 introduces the first state-changing slice behind typed Runtime proposals and exact handlers:
 
@@ -166,9 +166,13 @@ Phase 2 introduces the first state-changing slice behind typed Runtime proposals
 - finding admission and bounded repair through Review Convergence;
 - Evidence Admission and claim-bound validation;
 - task-state and finding-queue commits through the shared Runtime kernel;
+- pause, interrupt, and explicit paused/interrupted resume through `lifecycle-transaction`;
+- `prepare-task` readiness/resume review through the minimal `clear-resume-review-gate` task-state action;
 - fail-closed authority, scope, evidence, and dangerous-operation gates.
 
-The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. The remaining lifecycle, inbox, status, archive, and lesson operations stay contract-only and unbound until their own phases.
+The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. The `supersede` lifecycle mode and durable `prepare-task:replan` path remain contract-only for Slice B; inbox, status, archive, and lesson operations stay contract-only and unbound until their own phases.
+
+Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`. `supersede` and durable `prepare-task:replan` remain proposal-only for Slice B. The lifecycle transaction owns the exact `CURRENT_TASK.md` plus identity-derived suspended-package pair, including atomic write, read-back, rollback, and fail-closed idempotence; it never reads or hot-migrates an old paused/interrupted runtime.
 
 ## 5. Subsequent vNext phases
 
@@ -214,9 +218,11 @@ The implemented Phase 2 slice additionally requires:
 - `.workflow-system/runtime/package.json`, its lockfile, generated `dist/cli.js`, and `.workflow-system/vnext/RUNTIME_CONTRACT.yaml` validate as one versioned project-local Node Runtime distribution;
 - the Runtime executes with its own locked dependency tree and does not resolve dependencies from the target project's business `node_modules`;
 - the declared Node minimum is checked before any Runtime operation, and the staged package passes a Node self-check before promotion;
-- only `task-state-transaction` and `finding-queue-transaction` are bound, both with exact `CURRENT_TASK.md` source/write boundaries;
+- `task-state-transaction` is bound to `execute-step` and only the minimal `prepare-task` resume-review gate clear action; `finding-queue-transaction` remains bound to `execute-step`;
+- `lifecycle-transaction` is bound to `task-lifecycle` for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`, with exact `CURRENT_TASK.md` plus `TASKS/paused/...` or `TASKS/interrupted/...` boundaries;
+- `supersede` and durable `prepare-task:replan` remain contract-only until Slice B;
 - canonical runtime state remains inside `CURRENT_TASK.md`, with body/frontmatter consistency checks;
-- dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests;
+- dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for both the single-file and lifecycle transactions;
 - `execute-step` does not report a governance write unless the corresponding Runtime result is `success`.
 
 ## 7. Explicitly removed from the product architecture
@@ -236,10 +242,12 @@ The only dual track permitted is the temporary source-repository development arr
 
 Phase 1's minimum vNext Skill/Capability structure and the independent
 Migration Pack boundary are implemented in the source repository. Phase 2's
-first product slice now binds the shared Runtime transaction kernel for
-state-changing `execute-step` task-state and finding-queue proposals. Do not
-add legacy-aware vNext readers, runtime hot migration, or a long-lived
-compatibility surface.
+first product slice binds the shared Runtime transaction kernel for
+state-changing `execute-step` task-state and finding-queue proposals. Slice A
+also binds the thin `task-lifecycle` proposals for pause, interrupt, and the
+two explicit resume modes, plus the minimal `prepare-task` action that clears
+the post-resume review gate. Do not add legacy-aware vNext readers, runtime
+hot migration, or a long-lived compatibility surface.
 
 ## 9. Migration Pack implementation contract
 

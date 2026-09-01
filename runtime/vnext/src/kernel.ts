@@ -2,11 +2,11 @@
 /**
  * Pure-vNext state-changing Runtime slice.
  *
- * Phase 2 intentionally binds only the two operations needed by
- * `execute-step`: task-state and finding-queue.  The Runtime accepts typed
- * proposals, validates the canonical source tuple and exact write target,
- * renders one canonical CURRENT_TASK document in memory, commits atomically,
- * and reads the result back before reporting success.
+ * Phase 2 binds the execute-step task/finding slice plus the Slice A lifecycle
+ * transaction. The Runtime accepts typed proposals, validates the canonical
+ * source tuple and exact write targets, renders canonical Markdown/YAML in
+ * memory, commits an atomic file set, and reads the result back before
+ * reporting success.
  */
 
 import * as crypto from 'crypto';
@@ -20,10 +20,22 @@ import {
   loadProfile,
 } from './runtime-io';
 import {
+  CURRENT_TASK_WORKFLOW_STATUSES,
+  RESUME_REVIEW_REASON_ORDER,
+  TASK_LIFECYCLE_STATES,
+  getTaskArtifactPath,
   extractCurrentTaskStateFromCurrentTask,
   extractTaskIdentityFromCurrentTask,
+  normalizeResumeReviewReasons,
+  parseBooleanField,
   validateTaskId,
   validateTaskSlug,
+  validateCurrentTaskResumeGate,
+  validateCurrentTaskStatusTuple,
+  type CurrentTaskWorkflowStatus,
+  type ResumeReviewReason,
+  type TaskArtifactKind,
+  type TaskLifecycleState,
 } from './task-identity';
 
 export const VNEXT_RUNTIME_SCHEMA_VERSION = 1 as const;
@@ -42,6 +54,7 @@ export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.14.5';
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
   'finding-queue-transaction',
+  'lifecycle-transaction',
 ] as const;
 export type RuntimeOperationKind = (typeof RUNTIME_OPERATION_KINDS)[number];
 
@@ -56,6 +69,8 @@ const RUNTIME_SOURCE_TUPLE_FIELDS = [
   'active_step_id',
   'active_step_status',
   'finding_queue_revision',
+  'resume_requires_review',
+  'resume_review_reasons',
 ] as const;
 const RUNTIME_REQUIRED_ENVELOPE_FIELDS = [
   'authority_evidence',
@@ -70,6 +85,8 @@ const RUNTIME_STATE_FIELDS = [
   'task_slug',
   'workflow_status',
   'lifecycle_state',
+  'resume_requires_review',
+  'resume_review_reasons',
   'active_step_id',
   'active_step_status',
   'finding_queue_revision',
@@ -93,6 +110,11 @@ export type RuntimeResultState = (typeof RUNTIME_RESULT_STATES)[number];
 
 export const VNEXT_EXECUTE_STEP_MODES = ['default', 'repair'] as const;
 export type VNextExecuteStepMode = (typeof VNEXT_EXECUTE_STEP_MODES)[number];
+export const PREPARE_TASK_MODES = ['default', 'replan'] as const;
+export type PrepareTaskMode = (typeof PREPARE_TASK_MODES)[number];
+
+export const LIFECYCLE_MODES = ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'] as const;
+export type LifecycleMode = (typeof LIFECYCLE_MODES)[number];
 
 export const REVIEW_CYCLE_PHASES = ['discovery', 'verification'] as const;
 export type ReviewCyclePhase = (typeof REVIEW_CYCLE_PHASES)[number];
@@ -122,7 +144,7 @@ const CURRENT_TASK_RELATIVE_FALLBACK = 'docs/workflow/CURRENT_TASK.md';
 type AnyRecord = Record<string, unknown>;
 
 export type AuthorityEvidence = {
-  kind: 'active-task-owner' | 'scope-admission' | 'finding-admission' | 'evidence-admission' | 'dangerous-operation';
+  kind: 'active-task-owner' | 'scope-admission' | 'finding-admission' | 'evidence-admission' | 'dangerous-operation' | 'resume-review';
   source: string;
   subject: string;
 };
@@ -133,22 +155,74 @@ export type RuntimeSourceTuple = {
   document_id: string;
   task_id: string;
   task_slug: string;
-  workflow_status: string;
-  lifecycle_state: string;
+  workflow_status: CurrentTaskWorkflowStatus;
+  lifecycle_state: TaskLifecycleState;
   active_step_id: string;
   active_step_status: StepStatus;
   finding_queue_revision: number;
+  resume_requires_review: boolean;
+  resume_review_reasons: ResumeReviewReason[];
 };
 
-export type TaskStateDelta = {
-  kind: 'task-state';
-  action: 'step-progress';
-  step_id: string;
-  status: StepStatus;
+export type TaskStateDelta =
+  | {
+      kind: 'task-state';
+      action: 'step-progress';
+      step_id: string;
+      status: StepStatus;
+      evidence_refs: string[];
+      note?: string;
+      repair_fingerprint?: string;
+    }
+  | {
+      kind: 'task-state';
+      action: 'clear-resume-review-gate';
+      evidence_refs: string[];
+    };
+
+type LifecycleSnapshotEvidence = {
+  kind: 'lifecycle';
+  task_start_base: string;
+  last_reviewed_checkpoint: string;
+  current_diff_review_target: string;
+  rollback_conditions: string;
+  resume_review_reasons: ResumeReviewReason[];
   evidence_refs: string[];
-  note?: string;
-  repair_fingerprint?: string;
 };
+
+export type LifecycleDelta =
+  | (LifecycleSnapshotEvidence & {
+      action: 'pause';
+      lifecycle_state: Extract<TaskLifecycleState, 'paused_pending_closure' | 'paused_blocked'>;
+      suspension_reason: string;
+      blocker_status?: string;
+      blocking_evidence?: string;
+      remaining_acceptance?: string;
+      failed_checks?: string[];
+    })
+  | (LifecycleSnapshotEvidence & {
+      action: 'interrupt';
+      lifecycle_state: 'interrupted';
+      suspension_reason: string;
+      checkpoint_evidence: string;
+      dirty_attribution: string;
+      environment_state: string;
+      recovery_strategy: string;
+    })
+  | {
+      kind: 'lifecycle';
+      action: 'resume-paused' | 'resume-interrupted';
+      artifact_kind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>;
+      recovery_package_path: string;
+      resume_review_reasons: ResumeReviewReason[];
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'lifecycle';
+      action: 'supersede';
+      invalidation_reason: string;
+      evidence_refs: string[];
+    };
 
 export type FindingRecord = {
   fingerprint: string;
@@ -198,7 +272,7 @@ export type FindingQueueDelta =
       note?: string;
     };
 
-export type RuntimeSemanticDelta = TaskStateDelta | FindingQueueDelta;
+export type RuntimeSemanticDelta = TaskStateDelta | FindingQueueDelta | LifecycleDelta;
 
 export type ReviewCycleState = {
   id: string;
@@ -214,8 +288,8 @@ export type RuntimeProposal = {
   schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
   kind: typeof VNEXT_RUNTIME_PROPOSAL_KIND;
   operation_kind: RuntimeOperationKind;
-  caller: 'execute-step';
-  mode: VNextExecuteStepMode;
+  caller: 'execute-step' | 'prepare-task' | 'task-lifecycle';
+  mode: VNextExecuteStepMode | PrepareTaskMode | LifecycleMode;
   source_tuple: RuntimeSourceTuple;
   authority_evidence: AuthorityEvidence[];
   semantic_delta: RuntimeSemanticDelta;
@@ -225,13 +299,22 @@ export type RuntimeProposal = {
   requested_write_targets: string[];
 };
 
+export type LifecycleProposal = RuntimeProposal & {
+  operation_kind: 'lifecycle-transaction';
+  caller: 'task-lifecycle';
+  mode: LifecycleMode;
+  semantic_delta: LifecycleDelta;
+};
+
 export type RuntimeState = {
   schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
   kind: typeof VNEXT_RUNTIME_STATE_KIND;
   task_id: string;
   task_slug: string;
-  workflow_status: 'active';
-  lifecycle_state: 'active';
+  workflow_status: CurrentTaskWorkflowStatus;
+  lifecycle_state: TaskLifecycleState;
+  resume_requires_review: boolean;
+  resume_review_reasons: ResumeReviewReason[];
   active_step_id: string;
   active_step_status: StepStatus;
   finding_queue_revision: number;
@@ -280,12 +363,17 @@ export type RuntimeResult = {
   read_back_verified: boolean;
   state?: {
     task_id: string;
+    workflow_status: CurrentTaskWorkflowStatus;
+    lifecycle_state: TaskLifecycleState;
+    resume_requires_review: boolean;
+    resume_review_reasons: ResumeReviewReason[];
     active_step_id: string;
     active_step_status: StepStatus;
     finding_queue_revision: number;
     review_cycle_id: string;
     repair_round: number;
     finding_status?: FindingStatus;
+    recovery_package_path?: string;
   };
 };
 
@@ -579,8 +667,9 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord(contract.proposal, 'Runtime contract.proposal');
-  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair'], 'Runtime contract.proposal');
-  if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND || proposal.caller !== 'execute-step') fail('RUNTIME_CONTRACT_INVALID', 'Runtime proposal contract has an invalid envelope marker.');
+  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'prepare_task', 'lifecycle'], 'Runtime contract.proposal');
+  if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime proposal contract has an invalid envelope marker.');
+  expectSetEqual(expectStringArray(proposal.caller, 'Runtime contract.proposal.caller'), ['execute-step', 'prepare-task', 'task-lifecycle'], 'Runtime contract proposal callers');
   expectSetEqual(expectStringArray(proposal.operation_kinds, 'Runtime contract.proposal.operation_kinds'), [...RUNTIME_OPERATION_KINDS], 'Runtime contract operation kinds');
   expectSetEqual(
     expectStringArray(proposal.source_tuple, 'Runtime contract.proposal.source_tuple'),
@@ -606,6 +695,37 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['cycle_phase', 'finding_admission_wave_id'],
     'Runtime contract finding-queue admission fields',
   );
+  const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
+  expectExactKeys(prepareTaskContract, ['bound_actions'], 'Runtime contract.proposal.prepare_task');
+  expectSetEqual(
+    expectStringArray(prepareTaskContract.bound_actions, 'Runtime contract.proposal.prepare_task.bound_actions'),
+    ['clear-resume-review-gate'],
+    'Runtime contract prepare-task bound actions',
+  );
+  const lifecycleContract = expectRecord(proposal.lifecycle, 'Runtime contract.proposal.lifecycle');
+  expectExactKeys(lifecycleContract, ['modes', 'bound_modes', 'proposal_only_modes', 'pause_required', 'interrupt_required', 'resume_required', 'supersede_required'], 'Runtime contract.proposal.lifecycle');
+  expectSetEqual(expectStringArray(lifecycleContract.modes, 'Runtime contract.proposal.lifecycle.modes'), [...LIFECYCLE_MODES], 'Runtime contract lifecycle modes');
+  expectSetEqual(
+    expectStringArray(lifecycleContract.bound_modes, 'Runtime contract.proposal.lifecycle.bound_modes'),
+    ['pause', 'interrupt', 'resume-paused', 'resume-interrupted'],
+    'Runtime contract bound lifecycle modes',
+  );
+  expectSetEqual(
+    expectStringArray(lifecycleContract.proposal_only_modes, 'Runtime contract.proposal.lifecycle.proposal_only_modes'),
+    ['supersede'],
+    'Runtime contract proposal-only lifecycle modes',
+  );
+  const lifecycleRequiredFields: Record<string, string[]> = {
+    pause_required: ['lifecycle_state', 'suspension_reason', 'task_start_base', 'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions', 'resume_review_reasons', 'evidence_refs'],
+    interrupt_required: ['lifecycle_state', 'suspension_reason', 'task_start_base', 'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions', 'resume_review_reasons', 'checkpoint_evidence', 'dirty_attribution', 'environment_state', 'recovery_strategy', 'evidence_refs'],
+    resume_required: ['artifact_kind', 'recovery_package_path', 'resume_review_reasons', 'evidence_refs'],
+    supersede_required: ['invalidation_reason', 'evidence_refs'],
+  };
+  for (const [field, expected] of Object.entries(lifecycleRequiredFields)) {
+    const required = expectRecord(lifecycleContract[field], `Runtime contract.proposal.lifecycle.${field}`);
+    expectExactKeys(required, ['required'], `Runtime contract.proposal.lifecycle.${field}`);
+    expectSetEqual(expectStringArray(required.required, `Runtime contract.proposal.lifecycle.${field}.required`), expected, `Runtime contract lifecycle ${field}`);
+  }
   const canonical = expectRecord(contract.canonical_current_task, 'Runtime contract.canonical_current_task');
   expectExactKeys(canonical, ['frontmatter', 'runtime_state', 'source_of_truth', 'legacy_schema_behavior'], 'Runtime contract.canonical_current_task');
   const frontmatter = expectRecord(canonical.frontmatter, 'Runtime contract.canonical_current_task.frontmatter');
@@ -651,7 +771,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must require a single authorized state-changing writer and source-revision stale detection.');
   }
   const operations = contract.operations;
-  if (!Array.isArray(operations) || operations.length !== RUNTIME_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare exactly the two Phase 2 bound operations.');
+  if (!Array.isArray(operations) || operations.length !== RUNTIME_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare exactly the three Phase 2 bound operations.');
   const bound: RuntimeOperationKind[] = [];
   for (const [index, rawOperation] of operations.entries()) {
     const operation = expectRecord(rawOperation, `Runtime contract.operations[${index}]`);
@@ -661,23 +781,31 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     bound.push(id);
     if (operation.status !== 'bound' || operation.binding !== 'vnext-runtime') fail('RUNTIME_CONTRACT_INVALID', `Runtime contract operation ${id} must be bound to vnext-runtime.`);
     if (operation.operation !== id) fail('RUNTIME_CONTRACT_INVALID', `Runtime contract operation ${id} must identify its logical operation.`);
+    const expectedTargets = id === 'lifecycle-transaction'
+      ? ['CURRENT_TASK.md', 'TASKS/paused/**', 'TASKS/interrupted/**']
+      : ['CURRENT_TASK.md'];
+    const expectedCallers = id === 'task-state-transaction'
+      ? ['execute-step', 'prepare-task']
+      : id === 'finding-queue-transaction'
+        ? ['execute-step']
+        : ['task-lifecycle'];
     expectSetEqual(
       expectStringArray(operation.source_targets, `Runtime contract.operations[${index}].source_targets`),
-      ['CURRENT_TASK.md'],
+      expectedTargets,
       `Runtime contract operation ${id}.source_targets`,
     );
     expectSetEqual(
       expectStringArray(operation.write_targets, `Runtime contract.operations[${index}].write_targets`),
-      ['CURRENT_TASK.md'],
+      expectedTargets,
       `Runtime contract operation ${id}.write_targets`,
     );
-    expectSetEqual(expectStringArray(operation.allowed_callers, `Runtime contract.operations[${index}].allowed_callers`), ['execute-step'], `Runtime contract operation ${id}.allowed_callers`);
+    expectSetEqual(expectStringArray(operation.allowed_callers, `Runtime contract.operations[${index}].allowed_callers`), expectedCallers, `Runtime contract operation ${id}.allowed_callers`);
     expectSetEqual(expectStringArray(operation.result_states, `Runtime contract.operations[${index}].result_states`), [...RUNTIME_RESULT_STATES], `Runtime contract operation ${id}.result_states`);
     if (operation.atomic !== true || operation.idempotence !== 'fail-closed' || operation.conflict_policy !== 'fail-closed') fail('RUNTIME_CONTRACT_INVALID', `Runtime contract operation ${id} must be atomic, fail-closed, and conflict-safe.`);
   }
   expectSetEqual(bound, [...RUNTIME_OPERATION_KINDS], 'Runtime contract bound operations');
   const unbound = expectStringArray(contract.unbound_operations, 'Runtime contract.unbound_operations');
-  expectSetEqual(unbound, ['lifecycle-transaction', 'inbox-record-transaction', 'project-status-transaction', 'archive-transaction', 'lesson-record-transaction'], 'Runtime contract unbound operations');
+  expectSetEqual(unbound, ['inbox-record-transaction', 'project-status-transaction', 'archive-transaction', 'lesson-record-transaction'], 'Runtime contract unbound operations');
   return { phase: 'Phase 2', runtime_distribution: distributionIdentity, bound_operations: bound, unbound_operations: unbound };
 }
 
@@ -688,7 +816,7 @@ function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
     const record = expectRecord(raw, `authority_evidence[${index}]`);
     expectExactKeys(record, ['kind', 'source', 'subject'], `authority_evidence[${index}]`);
     result.push({
-      kind: expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation'], `authority_evidence[${index}].kind`),
+      kind: expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation', 'resume-review'], `authority_evidence[${index}].kind`),
       source: normalizeRepoPath(expectString(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`),
       subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256),
     });
@@ -700,7 +828,7 @@ function validateSourceTuple(value: unknown): RuntimeSourceTuple {
   const record = expectRecord(value, 'source_tuple');
   expectExactKeys(
     record,
-    ['path', 'revision', 'document_id', 'task_id', 'task_slug', 'workflow_status', 'lifecycle_state', 'active_step_id', 'active_step_status', 'finding_queue_revision'],
+    ['path', 'revision', 'document_id', 'task_id', 'task_slug', 'workflow_status', 'lifecycle_state', 'active_step_id', 'active_step_status', 'finding_queue_revision', 'resume_requires_review', 'resume_review_reasons'],
     'source_tuple',
   );
   const taskId = expectString(record.task_id, 'source_tuple.task_id');
@@ -715,17 +843,40 @@ function validateSourceTuple(value: unknown): RuntimeSourceTuple {
   if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', 'source_tuple.document_id is invalid.');
   const revision = expectString(record.revision, 'source_tuple.revision');
   if (!/^[a-f0-9]{64}$/.test(revision)) fail('RUNTIME_SCHEMA_INVALID', 'source_tuple.revision must be SHA-256.');
+  const workflowStatus = expectEnum(record.workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, 'source_tuple.workflow_status');
+  const lifecycleState = expectEnum(record.lifecycle_state, TASK_LIFECYCLE_STATES, 'source_tuple.lifecycle_state');
+  try {
+    validateCurrentTaskStatusTuple(workflowStatus, lifecycleState);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  const resumeRequiresReview = expectBoolean(record.resume_requires_review, 'source_tuple.resume_requires_review');
+  const rawResumeReasons = expectStringArray(record.resume_review_reasons, 'source_tuple.resume_review_reasons', true, RESUME_REVIEW_REASON_ORDER.length);
+  const resumeReviewReasons = normalizeResumeReviewReasons(rawResumeReasons);
+  if (rawResumeReasons.join('|') !== resumeReviewReasons.join('|')) {
+    fail('RUNTIME_SCHEMA_INVALID', 'source_tuple.resume_review_reasons must use the canonical closed-set order.');
+  }
+  try {
+    validateCurrentTaskResumeGate(lifecycleState, resumeRequiresReview, resumeReviewReasons);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  if (workflowStatus === 'suspended' && !resumeRequiresReview) {
+    fail('RUNTIME_STATE_CONFLICT', 'suspended CURRENT_TASK state must remain behind a non-empty resume review gate.');
+  }
   return {
     path: normalizeRepoPath(expectString(record.path, 'source_tuple.path'), 'source_tuple.path'),
     revision,
     document_id: documentId,
     task_id: taskId,
     task_slug: taskSlug,
-    workflow_status: expectString(record.workflow_status, 'source_tuple.workflow_status'),
-    lifecycle_state: expectString(record.lifecycle_state, 'source_tuple.lifecycle_state'),
+    workflow_status: workflowStatus,
+    lifecycle_state: lifecycleState,
     active_step_id: expectString(record.active_step_id, 'source_tuple.active_step_id', STEP_ID_PATTERN),
     active_step_status: expectEnum(record.active_step_status, STEP_STATUSES, 'source_tuple.active_step_status'),
     finding_queue_revision: expectInteger(record.finding_queue_revision, 'source_tuple.finding_queue_revision'),
+    resume_requires_review: resumeRequiresReview,
+    resume_review_reasons: resumeReviewReasons,
   };
 }
 
@@ -735,15 +886,23 @@ function validateEvidenceRefs(value: unknown, location: string): string[] {
 
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
+  const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
+  const action = expectEnum(record.action, ['step-progress', 'clear-resume-review-gate'], 'semantic_delta.action');
+  if (action === 'clear-resume-review-gate') {
+    expectExactKeys(record, ['kind', 'action', 'evidence_refs'], 'semantic_delta');
+    return {
+      kind,
+      action: 'clear-resume-review-gate',
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+    };
+  }
   const keys = Object.keys(record);
   if (keys.some(key => !['kind', 'action', 'step_id', 'status', 'evidence_refs', 'note', 'repair_fingerprint'].includes(key))) {
     fail('RUNTIME_SCHEMA_INVALID', 'task-state semantic_delta contains unsupported fields.');
   }
-  const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
-  const action = expectEnum(record.action, ['step-progress'], 'semantic_delta.action');
-  const result: TaskStateDelta = {
+  const result: Extract<TaskStateDelta, { action: 'step-progress' }> = {
     kind,
-    action,
+    action: 'step-progress',
     step_id: expectString(record.step_id, 'semantic_delta.step_id', STEP_ID_PATTERN),
     status: expectEnum(record.status, STEP_STATUSES, 'semantic_delta.status'),
     evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
@@ -751,6 +910,120 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
   if (record.note !== undefined) result.note = expectText(record.note, 'semantic_delta.note');
   if (record.repair_fingerprint !== undefined) result.repair_fingerprint = expectString(record.repair_fingerprint, 'semantic_delta.repair_fingerprint', FINGERPRINT_PATTERN);
   return result;
+}
+
+function validateLifecycleReasons(value: unknown, location: string): ResumeReviewReason[] {
+  const raw = expectStringArray(value, location, false, RESUME_REVIEW_REASON_ORDER.length);
+  const normalized = normalizeResumeReviewReasons(raw);
+  if (normalized.length !== raw.length || !normalized.every((reason: ResumeReviewReason, index: number) => reason === raw[index])) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} must use the canonical closed-set order without duplicates.`);
+  }
+  return normalized;
+}
+
+function validateLifecycleDelta(value: unknown): LifecycleDelta {
+  const record = expectRecord(value, 'semantic_delta');
+  const kind = expectEnum(record.kind, ['lifecycle'], 'semantic_delta.kind');
+  const action = expectEnum(record.action, LIFECYCLE_MODES, 'semantic_delta.action');
+  if (action === 'pause') {
+    const allowedKeys = [
+      'kind', 'action', 'lifecycle_state', 'suspension_reason', 'task_start_base',
+      'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions',
+      'resume_review_reasons', 'evidence_refs', 'blocker_status', 'blocking_evidence',
+      'remaining_acceptance', 'failed_checks',
+    ];
+    if (Object.keys(record).some(key => !allowedKeys.includes(key))) fail('RUNTIME_SCHEMA_INVALID', 'pause lifecycle semantic_delta contains unsupported fields.');
+    const lifecycleState = expectEnum(record.lifecycle_state, ['paused_pending_closure', 'paused_blocked'], 'semantic_delta.lifecycle_state');
+    const common = {
+      kind,
+      action,
+      lifecycle_state: lifecycleState,
+      suspension_reason: expectText(record.suspension_reason, 'semantic_delta.suspension_reason'),
+      task_start_base: expectText(record.task_start_base, 'semantic_delta.task_start_base'),
+      last_reviewed_checkpoint: expectText(record.last_reviewed_checkpoint, 'semantic_delta.last_reviewed_checkpoint'),
+      current_diff_review_target: expectText(record.current_diff_review_target, 'semantic_delta.current_diff_review_target'),
+      rollback_conditions: expectText(record.rollback_conditions, 'semantic_delta.rollback_conditions'),
+      resume_review_reasons: validateLifecycleReasons(record.resume_review_reasons, 'semantic_delta.resume_review_reasons'),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+    } as const;
+    try {
+      validateCurrentTaskResumeGate(lifecycleState, true, common.resume_review_reasons);
+    } catch (error) {
+      fail('RUNTIME_LIFECYCLE_EVIDENCE_INVALID', error instanceof Error ? error.message : String(error));
+    }
+    if (lifecycleState === 'paused_blocked') {
+      return {
+        ...common,
+        lifecycle_state: lifecycleState,
+        blocker_status: expectText(record.blocker_status, 'semantic_delta.blocker_status'),
+        blocking_evidence: expectText(record.blocking_evidence, 'semantic_delta.blocking_evidence'),
+        remaining_acceptance: expectText(record.remaining_acceptance, 'semantic_delta.remaining_acceptance'),
+        ...(record.failed_checks === undefined
+          ? {}
+          : { failed_checks: expectStringArray(record.failed_checks, 'semantic_delta.failed_checks', false, 32) }),
+      };
+    }
+    const forbiddenFields = ['blocker_status', 'blocking_evidence', 'remaining_acceptance', 'failed_checks'];
+    if (forbiddenFields.some(field => record[field] !== undefined)) fail('RUNTIME_SCHEMA_INVALID', 'paused_pending_closure must not carry paused_blocked-only evidence.');
+    return common;
+  }
+
+  if (action === 'interrupt') {
+    const allowedKeys = [
+      'kind', 'action', 'lifecycle_state', 'suspension_reason', 'task_start_base',
+      'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions',
+      'resume_review_reasons', 'evidence_refs', 'checkpoint_evidence', 'dirty_attribution',
+      'environment_state', 'recovery_strategy',
+    ];
+    if (Object.keys(record).some(key => !allowedKeys.includes(key))) fail('RUNTIME_SCHEMA_INVALID', 'interrupt lifecycle semantic_delta contains unsupported fields.');
+    const lifecycleState = expectEnum(record.lifecycle_state, ['interrupted'], 'semantic_delta.lifecycle_state');
+    const resumeReviewReasons = validateLifecycleReasons(record.resume_review_reasons, 'semantic_delta.resume_review_reasons');
+    try {
+      validateCurrentTaskResumeGate(lifecycleState, true, resumeReviewReasons);
+    } catch (error) {
+      fail('RUNTIME_LIFECYCLE_EVIDENCE_INVALID', error instanceof Error ? error.message : String(error));
+    }
+    return {
+      kind,
+      action,
+      lifecycle_state: lifecycleState,
+      suspension_reason: expectText(record.suspension_reason, 'semantic_delta.suspension_reason'),
+      task_start_base: expectText(record.task_start_base, 'semantic_delta.task_start_base'),
+      last_reviewed_checkpoint: expectText(record.last_reviewed_checkpoint, 'semantic_delta.last_reviewed_checkpoint'),
+      current_diff_review_target: expectText(record.current_diff_review_target, 'semantic_delta.current_diff_review_target'),
+      rollback_conditions: expectText(record.rollback_conditions, 'semantic_delta.rollback_conditions'),
+      resume_review_reasons: resumeReviewReasons,
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+      checkpoint_evidence: expectText(record.checkpoint_evidence, 'semantic_delta.checkpoint_evidence'),
+      dirty_attribution: expectText(record.dirty_attribution, 'semantic_delta.dirty_attribution'),
+      environment_state: expectText(record.environment_state, 'semantic_delta.environment_state'),
+      recovery_strategy: expectText(record.recovery_strategy, 'semantic_delta.recovery_strategy'),
+    };
+  }
+
+  if (action === 'resume-paused' || action === 'resume-interrupted') {
+    expectExactKeys(record, ['kind', 'action', 'artifact_kind', 'recovery_package_path', 'resume_review_reasons', 'evidence_refs'], 'semantic_delta');
+    const artifactKind = expectEnum(record.artifact_kind, ['paused', 'interrupted'], 'semantic_delta.artifact_kind');
+    if ((action === 'resume-paused' && artifactKind !== 'paused') || (action === 'resume-interrupted' && artifactKind !== 'interrupted')) {
+      fail('RUNTIME_LIFECYCLE_EVIDENCE_INVALID', `${action} must target the matching ${action === 'resume-paused' ? 'paused' : 'interrupted'} artifact kind.`);
+    }
+    return {
+      kind,
+      action,
+      artifact_kind: artifactKind,
+      recovery_package_path: normalizeRepoPath(expectString(record.recovery_package_path, 'semantic_delta.recovery_package_path'), 'semantic_delta.recovery_package_path'),
+      resume_review_reasons: validateLifecycleReasons(record.resume_review_reasons, 'semantic_delta.resume_review_reasons'),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+    };
+  }
+
+  expectExactKeys(record, ['kind', 'action', 'invalidation_reason', 'evidence_refs'], 'semantic_delta');
+  return {
+    kind,
+    action: 'supersede',
+    invalidation_reason: expectText(record.invalidation_reason, 'semantic_delta.invalidation_reason'),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+  };
 }
 
 function validateFindingRecord(value: unknown, location: string): FindingQueueDelta & { action: 'admit' } {
@@ -839,8 +1112,12 @@ function validateSemanticDelta(value: unknown, operationKind: RuntimeOperationKi
     if (kind !== 'task-state') fail('RUNTIME_SCHEMA_INVALID', 'task-state-transaction requires task-state semantic_delta.');
     return validateTaskStateDelta(value);
   }
+  if (operationKind === 'lifecycle-transaction') {
+    if (kind !== 'lifecycle') fail('RUNTIME_SCHEMA_INVALID', 'lifecycle-transaction requires lifecycle semantic_delta.');
+    return validateLifecycleDelta(value);
+  }
   if (kind !== 'finding-queue') fail('RUNTIME_SCHEMA_INVALID', 'finding-queue-transaction requires finding-queue semantic_delta.');
-  return record.action === 'admit' ? validateFindingRecord(value) : validateFindingAction(value);
+  return record.action === 'admit' ? validateFindingRecord(value, 'semantic_delta') : validateFindingAction(value);
 }
 
 export function validateRuntimeProposal(value: unknown): RuntimeProposal {
@@ -853,8 +1130,8 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
   if (proposal.schema_version !== VNEXT_RUNTIME_SCHEMA_VERSION) fail('RUNTIME_SCHEMA_INVALID', 'proposal.schema_version must be 1.');
   if (proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_SCHEMA_INVALID', `proposal.kind must be ${VNEXT_RUNTIME_PROPOSAL_KIND}.`);
   const operationKind = expectEnum(proposal.operation_kind, RUNTIME_OPERATION_KINDS, 'proposal.operation_kind');
-  if (proposal.caller !== 'execute-step') fail('RUNTIME_CALLER_NOT_BOUND', 'Phase 2 Runtime is bound only to execute-step.');
-  const mode = expectEnum(proposal.mode, VNEXT_EXECUTE_STEP_MODES, 'proposal.mode');
+  const caller = expectEnum(proposal.caller, ['execute-step', 'prepare-task', 'task-lifecycle'], 'proposal.caller');
+  const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES], 'proposal.mode');
   const sourceTuple = validateSourceTuple(proposal.source_tuple);
   const authorityEvidence = validateAuthorityEvidence(proposal.authority_evidence);
   const preconditions = expectStringArray(proposal.preconditions, 'proposal.preconditions', false, 32);
@@ -862,16 +1139,31 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
   const idempotencyKey = expectString(proposal.idempotency_key, 'proposal.idempotency_key', SAFE_KEY_PATTERN);
   const requestedTargets = expectStringArray(proposal.requested_write_targets, 'proposal.requested_write_targets', false, 4)
     .map((target, index) => normalizeRepoPath(target, `proposal.requested_write_targets[${index}]`));
-  if (requestedTargets.length !== 1) fail('RUNTIME_PATH_INVALID', 'Phase 2 proposals must name exactly one CURRENT_TASK write target.');
+  const targetCount = operationKind === 'lifecycle-transaction' && mode !== 'supersede' ? 2 : 1;
+  if (requestedTargets.length !== targetCount) fail('RUNTIME_PATH_INVALID', `This Runtime proposal must name exactly ${targetCount} exact write target${targetCount === 1 ? '' : 's'}.`);
   const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
-  if (mode === 'repair' && operationKind === 'finding-queue-transaction' && semanticDelta.kind !== 'finding-queue') {
-    fail('RUNTIME_MODE_INVALID', 'repair mode requires a finding-queue proposal or a task repair delta.');
+  if (operationKind === 'task-state-transaction') {
+    if (caller === 'prepare-task') {
+      if (mode !== 'default' && mode !== 'replan') fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default or replan mode.');
+      if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'clear-resume-review-gate') fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task is bound only to clear-resume-review-gate.');
+    } else if (caller === 'execute-step') {
+      if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
+      if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'step-progress') fail('RUNTIME_MODE_INVALID', 'execute-step is bound only to step-progress task-state deltas.');
+    } else {
+      fail('RUNTIME_CALLER_NOT_BOUND', 'task-state-transaction is not bound to task-lifecycle.');
+    }
+  } else if (operationKind === 'finding-queue-transaction') {
+    if (caller !== 'execute-step' || mode !== 'repair') fail('RUNTIME_CALLER_NOT_BOUND', 'finding-queue-transaction is bound only to execute-step:repair.');
+    if (semanticDelta.kind !== 'finding-queue') fail('RUNTIME_MODE_INVALID', 'repair mode requires a finding-queue proposal.');
+  } else {
+    if (caller !== 'task-lifecycle' || !LIFECYCLE_MODES.includes(mode as LifecycleMode)) fail('RUNTIME_CALLER_NOT_BOUND', 'lifecycle-transaction is bound only to task-lifecycle lifecycle modes.');
+    if (semanticDelta.kind !== 'lifecycle' || semanticDelta.action !== mode) fail('RUNTIME_MODE_INVALID', 'lifecycle mode and semantic transition must match.');
   }
   const result: RuntimeProposal = {
     schema_version: 1,
     kind: VNEXT_RUNTIME_PROPOSAL_KIND,
     operation_kind: operationKind,
-    caller: 'execute-step',
+    caller,
     mode,
     source_tuple: sourceTuple,
     authority_evidence: authorityEvidence,
@@ -962,7 +1254,7 @@ export function validateVNextRuntimeState(value: unknown): RuntimeState {
   const runtime = expectRecord(value, 'runtime_state');
   expectExactKeys(
     runtime,
-    ['schema_version', 'kind', 'task_id', 'task_slug', 'workflow_status', 'lifecycle_state', 'active_step_id', 'active_step_status', 'finding_queue_revision', 'review_cycle', 'findings', 'execution_log', 'applied_proposals'],
+    ['schema_version', 'kind', 'task_id', 'task_slug', 'workflow_status', 'lifecycle_state', 'resume_requires_review', 'resume_review_reasons', 'active_step_id', 'active_step_status', 'finding_queue_revision', 'review_cycle', 'findings', 'execution_log', 'applied_proposals'],
     'runtime_state',
   );
   if (runtime.schema_version !== VNEXT_RUNTIME_SCHEMA_VERSION) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.schema_version must be 1.');
@@ -975,8 +1267,23 @@ export function validateVNextRuntimeState(value: unknown): RuntimeState {
   } catch (error) {
     fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
   }
-  if (runtime.workflow_status !== 'active' || runtime.lifecycle_state !== 'active') {
-    fail('RUNTIME_STATE_NOT_ACTIVE', 'Phase 2 execute-step requires workflow_status=active and lifecycle_state=active.');
+  const workflowStatus = expectEnum(runtime.workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, 'runtime_state.workflow_status');
+  const lifecycleState = expectEnum(runtime.lifecycle_state, TASK_LIFECYCLE_STATES, 'runtime_state.lifecycle_state');
+  try {
+    validateCurrentTaskStatusTuple(workflowStatus, lifecycleState);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  const resumeRequiresReview = expectBoolean(runtime.resume_requires_review, 'runtime_state.resume_requires_review');
+  const rawResumeReasons = expectStringArray(runtime.resume_review_reasons, 'runtime_state.resume_review_reasons', true, RESUME_REVIEW_REASON_ORDER.length);
+  const resumeReviewReasons = normalizeResumeReviewReasons(rawResumeReasons);
+  if (rawResumeReasons.join('|') !== resumeReviewReasons.join('|')) {
+    fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.resume_review_reasons must use the canonical closed-set order.');
+  }
+  try {
+    validateCurrentTaskResumeGate(lifecycleState, resumeRequiresReview, resumeReviewReasons);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
   }
   const activeStepId = expectString(runtime.active_step_id, 'runtime_state.active_step_id', STEP_ID_PATTERN);
   const activeStepStatus = expectEnum(runtime.active_step_status, STEP_STATUSES, 'runtime_state.active_step_status');
@@ -1030,8 +1337,10 @@ export function validateVNextRuntimeState(value: unknown): RuntimeState {
     kind: VNEXT_RUNTIME_STATE_KIND,
     task_id: taskId,
     task_slug: taskSlug,
-    workflow_status: 'active',
-    lifecycle_state: 'active',
+    workflow_status: workflowStatus,
+    lifecycle_state: lifecycleState,
+    resume_requires_review: resumeRequiresReview,
+    resume_review_reasons: resumeReviewReasons,
     active_step_id: activeStepId,
     active_step_status: activeStepStatus,
     finding_queue_revision: expectInteger(runtime.finding_queue_revision, 'runtime_state.finding_queue_revision'),
@@ -1044,7 +1353,34 @@ export function validateVNextRuntimeState(value: unknown): RuntimeState {
 
 function renderCanonicalCurrentTask(frontmatter: AnyRecord, body: string, runtimeState: RuntimeState): string {
   const nextFrontmatter: AnyRecord = { ...frontmatter, runtime_state: runtimeState };
-  return `---\n${stringify(nextFrontmatter).trimEnd()}\n---\n${body}`;
+  const nextBody = renderCurrentTaskLifecycleFields(body, runtimeState);
+  return `---\n${stringify(nextFrontmatter).trimEnd()}\n---\n${nextBody}`;
+}
+
+function replaceTaskInfoField(body: string, label: string, value: string): string {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^-\\s*${escapedLabel}：[^\\r\\n]*$`, 'gm');
+  const matches = body.match(pattern) ?? [];
+  if (matches.length !== 1) fail('RUNTIME_SCHEMA_INVALID', `CURRENT_TASK must contain exactly one task-info field "${label}".`);
+  return body.replace(pattern, `- ${label}：${value}`);
+}
+
+function renderCurrentTaskLifecycleFields(body: string, runtimeState: RuntimeState): string {
+  const headingMatch = /^## 任务信息\s*$/m.exec(body);
+  if (!headingMatch || headingMatch.index === undefined) fail('RUNTIME_SCHEMA_INVALID', 'CURRENT_TASK is missing ## 任务信息.');
+  const sectionStart = headingMatch.index + headingMatch[0].length;
+  const sectionRemainder = body.slice(sectionStart);
+  const nextHeading = /\r?\n##\s/.exec(sectionRemainder);
+  const sectionEnd = nextHeading?.index ?? sectionRemainder.length;
+  const section = sectionRemainder.slice(0, sectionEnd);
+  const nextSection = [
+    ['当前状态', runtimeState.workflow_status],
+    ['生命周期状态', runtimeState.lifecycle_state],
+    ['恢复需审查', runtimeState.resume_requires_review ? 'true' : 'false'],
+    ['恢复审查原因', runtimeState.resume_review_reasons.join(', ')],
+  ] as const;
+  const renderedSection = nextSection.reduce((current, [label, value]) => replaceTaskInfoField(current, label, value), section);
+  return body.slice(0, sectionStart) + renderedSection + body.slice(sectionStart + sectionEnd);
 }
 
 function currentTaskPathForRoot(root: string): { filePath: string; relativePath: string } {
@@ -1058,10 +1394,7 @@ function currentTaskPathForRoot(root: string): { filePath: string; relativePath:
   return { filePath, relativePath: relativePath || CURRENT_TASK_RELATIVE_FALLBACK };
 }
 
-export function readCanonicalCurrentTask(root: string): CanonicalCurrentTask {
-  const { filePath, relativePath } = currentTaskPathForRoot(root);
-  if (!fs.existsSync(filePath)) fail('RUNTIME_SOURCE_MISSING', `CURRENT_TASK.md is missing: ${relativePath}`);
-  const raw = fs.readFileSync(filePath, 'utf8');
+function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativePath: string): CanonicalCurrentTask {
   const { frontmatter, body } = parseYamlFrontmatter(raw, relativePath);
   if (frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) {
     fail('MIGRATION_REQUIRED', `${relativePath} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
@@ -1079,6 +1412,18 @@ export function readCanonicalCurrentTask(root: string): CanonicalCurrentTask {
   if (bodyState.workflowStatus !== runtimeState.workflow_status || bodyState.lifecycleState !== runtimeState.lifecycle_state) {
     fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body lifecycle tuple conflicts with runtime_state.');
   }
+  if (bodyState.resumeRequiresReview !== runtimeState.resume_requires_review) {
+    fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body resume gate conflicts with runtime_state.');
+  }
+  let bodyResumeReasons: ResumeReviewReason[];
+  try {
+    bodyResumeReasons = normalizeResumeReviewReasons(bodyState.resumeReviewReasons);
+  } catch (error) {
+    fail('RUNTIME_SOURCE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  if (bodyResumeReasons.join('|') !== runtimeState.resume_review_reasons.join('|')) {
+    fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body resume review reasons conflict with runtime_state.');
+  }
   const sourceTuple: RuntimeSourceTuple = {
     path: relativePath,
     revision: sha256(raw),
@@ -1090,8 +1435,16 @@ export function readCanonicalCurrentTask(root: string): CanonicalCurrentTask {
     active_step_id: runtimeState.active_step_id,
     active_step_status: runtimeState.active_step_status,
     finding_queue_revision: runtimeState.finding_queue_revision,
+    resume_requires_review: runtimeState.resume_requires_review,
+    resume_review_reasons: [...runtimeState.resume_review_reasons],
   };
   return { filePath, relativePath, raw, frontmatter, body, runtimeState, sourceTuple };
+}
+
+export function readCanonicalCurrentTask(root: string): CanonicalCurrentTask {
+  const { filePath, relativePath } = currentTaskPathForRoot(root);
+  if (!fs.existsSync(filePath)) fail('RUNTIME_SOURCE_MISSING', `CURRENT_TASK.md is missing: ${relativePath}`);
+  return parseCanonicalCurrentTaskContent(fs.readFileSync(filePath, 'utf8'), filePath, relativePath);
 }
 
 function ensureAuthorityKinds(proposal: RuntimeProposal, required: readonly AuthorityEvidence['kind'][]): void {
@@ -1112,11 +1465,33 @@ function compareSourceTuple(expected: RuntimeSourceTuple, actual: RuntimeSourceT
     'active_step_id',
     'active_step_status',
     'finding_queue_revision',
+    'resume_requires_review',
+    'resume_review_reasons',
   ];
   for (const field of fields) {
-    if (expected[field] !== actual[field]) return field;
+    if (field === 'resume_review_reasons') {
+      if (expected[field].join('|') !== actual[field].join('|')) return field;
+    } else if (expected[field] !== actual[field]) {
+      return field;
+    }
   }
   return null;
+}
+
+function appendAppliedProposal(
+  current: RuntimeState,
+  proposal: RuntimeProposal,
+  sourceRevision: string,
+): RuntimeState['applied_proposals'] {
+  return [
+    ...current.applied_proposals,
+    {
+      idempotency_key: proposal.idempotency_key,
+      operation_kind: proposal.operation_kind,
+      proposal_digest: digest(proposal),
+      source_revision: sourceRevision,
+    },
+  ].slice(-MAX_APPLIED_PROPOSALS);
 }
 
 function applyTaskStateDelta(
@@ -1125,10 +1500,29 @@ function applyTaskStateDelta(
   now: string,
 ): { next: RuntimeState; findingStatus?: FindingStatus } {
   if (proposal.semantic_delta.kind !== 'task-state') fail('RUNTIME_SCHEMA_INVALID', 'Expected task-state delta.');
-  ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
   const delta = proposal.semantic_delta;
+  if (delta.action === 'clear-resume-review-gate') {
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'resume-review', 'evidence-admission']);
+    if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('TASK_STATE_NOT_ACTIVE', 'resume review can be cleared only after the task has resumed to active + active.');
+    }
+    if (!current.runtimeState.resume_requires_review) return { next: current.runtimeState };
+    return {
+      next: {
+        ...current.runtimeState,
+        resume_requires_review: false,
+        resume_review_reasons: [],
+        applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+      },
+    };
+  }
+  ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
+  if (current.runtimeState.resume_requires_review) {
+    fail('RESUME_REVIEW_REQUIRED', 'execute-step cannot proceed until prepare-task clears the resume review gate.');
+  }
   if (delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'Proposal step_id does not match the admitted current step.');
-  if (proposal.mode === 'repair') {
+  const executionMode = proposal.mode as VNextExecuteStepMode;
+  if (executionMode === 'repair') {
     if (!delta.repair_fingerprint) fail('FINDING_ADMISSION_REQUIRED', 'repair mode requires repair_fingerprint.');
     const finding = current.runtimeState.findings.find(item => item.fingerprint === delta.repair_fingerprint);
     if (!finding || !['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_ADMISSION_REQUIRED', 'repair fingerprint is not an admitted current-task finding.');
@@ -1138,13 +1532,13 @@ function applyTaskStateDelta(
   const legal = oldStatus === newStatus
     || (oldStatus === 'ready' && ['in-progress', 'completed', 'blocked'].includes(newStatus))
     || (oldStatus === 'in-progress' && ['completed', 'blocked'].includes(newStatus))
-    || (oldStatus === 'blocked' && proposal.mode === 'repair' && ['in-progress', 'completed'].includes(newStatus));
+    || (oldStatus === 'blocked' && executionMode === 'repair' && ['in-progress', 'completed'].includes(newStatus));
   if (!legal) fail('TASK_STATE_TRANSITION_INVALID', `Cannot transition active step from ${oldStatus} to ${newStatus}.`);
   const executionLog = [
     ...current.runtimeState.execution_log,
     {
       idempotency_key: proposal.idempotency_key,
-      mode: proposal.mode,
+      mode: executionMode,
       step_id: delta.step_id,
       status: newStatus,
       evidence_refs: [...delta.evidence_refs],
@@ -1156,15 +1550,7 @@ function applyTaskStateDelta(
     ...current.runtimeState,
     active_step_status: newStatus,
     execution_log: executionLog,
-    applied_proposals: [
-      ...current.runtimeState.applied_proposals,
-      {
-        idempotency_key: proposal.idempotency_key,
-        operation_kind: proposal.operation_kind,
-        proposal_digest: digest(proposal),
-        source_revision: current.sourceTuple.revision,
-      },
-    ].slice(-MAX_APPLIED_PROPOSALS),
+    applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };
   return { next, findingStatus: delta.repair_fingerprint ? current.runtimeState.findings.find(item => item.fingerprint === delta.repair_fingerprint)?.status : undefined };
 }
@@ -1176,6 +1562,9 @@ function applyFindingQueueDelta(
 ): { next: RuntimeState; findingStatus?: FindingStatus } {
   if (proposal.semantic_delta.kind !== 'finding-queue') fail('RUNTIME_SCHEMA_INVALID', 'Expected finding-queue delta.');
   ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission']);
+  if (current.runtimeState.resume_requires_review) {
+    fail('RESUME_REVIEW_REQUIRED', 'finding queue changes are blocked until prepare-task clears the resume review gate.');
+  }
   const delta = proposal.semantic_delta;
   let findings = current.runtimeState.findings.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] }));
   let findingStatus: FindingStatus | undefined;
@@ -1292,7 +1681,7 @@ function applyFindingQueueDelta(
     } else {
       if (proposal.mode !== 'repair') fail('RUNTIME_MODE_INVALID', `${delta.action} requires execute-step:repair.`);
       if (!['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_STATE_INVALID', `finding ${finding.fingerprint} cannot be ${delta.action} from ${finding.status}.`);
-      finding.status = delta.action;
+      finding.status = delta.action === 'defer' ? 'deferred' : 'rejected';
       finding.updated_at = now;
       finding.evidence_refs = [...new Set([...finding.evidence_refs, ...delta.evidence_refs])];
     }
@@ -1303,17 +1692,367 @@ function applyFindingQueueDelta(
     finding_queue_revision: current.runtimeState.finding_queue_revision + 1,
     review_cycle: reviewCycle,
     findings,
-    applied_proposals: [
-      ...current.runtimeState.applied_proposals,
-      {
-        idempotency_key: proposal.idempotency_key,
-        operation_kind: proposal.operation_kind,
-        proposal_digest: digest(proposal),
-        source_revision: current.sourceTuple.revision,
-      },
-    ].slice(-MAX_APPLIED_PROPOSALS),
+    applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };
   return { next, findingStatus };
+}
+
+const SUSPENDED_PACKAGE_BEGIN = '<!-- BEGIN vNext CURRENT_TASK snapshot -->';
+const SUSPENDED_PACKAGE_END = '<!-- END vNext CURRENT_TASK snapshot -->';
+
+type ParsedSuspendedPackage = {
+  filePath: string;
+  relativePath: string;
+  raw: string;
+  taskId: string;
+  taskTitle: string;
+  taskSlug: string;
+  artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>;
+  lifecycleState: Extract<TaskLifecycleState, 'paused_pending_closure' | 'paused_blocked' | 'interrupted'>;
+  suspensionReason: string;
+  taskStartBase: string;
+  lastReviewedCheckpoint: string;
+  currentDiffReviewTarget: string;
+  rollbackConditions: string;
+  resumeRequiresReview: boolean;
+  resumeReviewReasons: ResumeReviewReason[];
+  rehydrationStatus: 'write_incomplete' | 'ready_for_resume' | 'rehydrated';
+  ownershipState: 'recovery_only' | 'rehydrated';
+  documentId: string;
+  snapshotSha256: string;
+  snapshot: CanonicalCurrentTask;
+};
+
+type LifecycleTransactionPlan = {
+  next: RuntimeState;
+  nextContent: string;
+  packageFilePath: string;
+  packageRelativePath: string;
+  nextPackageContent: string;
+  originalPackageContent?: string;
+};
+
+function packageText(value: unknown, location: string): string {
+  const result = expectText(value, location);
+  if (/[\r\n]/.test(result)) fail('RUNTIME_SCHEMA_INVALID', `${location} must be a single-line value in a suspended package.`);
+  return result;
+}
+
+function extractSuspendedPackageFields(header: string, location: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const line of header.split(/\r?\n/)) {
+    const match = /^\s*-\s*([a-z][a-z0-9_]*)\s*:\s*(.*?)\s*$/.exec(line);
+    if (!match) continue;
+    if (match[1] in fields) fail('RUNTIME_SCHEMA_INVALID', `${location} contains duplicate field ${match[1]}.`);
+    fields[match[1]] = match[2].trim();
+  }
+  return fields;
+}
+
+function requiredPackageField(fields: Record<string, string>, field: string, location: string): string {
+  const value = fields[field];
+  if (value === undefined || value.trim().length === 0) fail('RUNTIME_SCHEMA_INVALID', `${location} is missing required field ${field}.`);
+  return value.trim();
+}
+
+function packagePathForTask(root: string, taskId: string, taskSlug: string, artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>): { filePath: string; relativePath: string } {
+  let relativePath: string;
+  try {
+    relativePath = getTaskArtifactPath(taskId, taskSlug, artifactKind);
+  } catch (error) {
+    fail('RUNTIME_PATH_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const filePath = path.resolve(path.resolve(root), ...relativePath.split('/'));
+  const resolvedRoot = path.resolve(root);
+  const relativeCheck = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+  if (relativeCheck !== relativePath || relativeCheck.startsWith('../') || path.isAbsolute(relativeCheck)) {
+    fail('RUNTIME_PATH_INVALID', `suspended package path escapes the target root: ${relativePath}`);
+  }
+  return { filePath, relativePath };
+}
+
+function replacePackageField(content: string, field: string, value: string): string {
+  const pattern = new RegExp(`^-\\s*${field.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\s*:\\s*[^\\r\\n]*$`, 'gm');
+  const matches = content.match(pattern) ?? [];
+  if (matches.length !== 1) fail('RUNTIME_SCHEMA_INVALID', `suspended package must contain exactly one ${field} field.`);
+  return content.replace(pattern, `- ${field}: ${value}`);
+}
+
+function parseSuspendedPackage(
+  root: string,
+  current: CanonicalCurrentTask,
+  relativePath: string,
+  expectedKind?: Extract<TaskArtifactKind, 'paused' | 'interrupted'>,
+): ParsedSuspendedPackage {
+  const normalizedPath = normalizeRepoPath(relativePath, 'suspended package path');
+  const pathMatch = /^TASKS\/(paused|interrupted)\/TASK-([0-9]{3,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/.exec(normalizedPath);
+  if (!pathMatch) fail('RUNTIME_PATH_INVALID', `suspended package path is outside the paused/interrupted contract: ${normalizedPath}`);
+  const pathKind = pathMatch[1] as Extract<TaskArtifactKind, 'paused' | 'interrupted'>;
+  const pathTaskId = pathMatch[2];
+  const pathTaskSlug = pathMatch[3];
+  if (expectedKind && pathKind !== expectedKind) fail('RUNTIME_PATH_INVALID', `suspended package path kind ${pathKind} does not match ${expectedKind}.`);
+  if (pathTaskId !== current.runtimeState.task_id || pathTaskSlug !== current.runtimeState.task_slug) {
+    fail('RUNTIME_IDENTITY_CONFLICT', 'suspended package path identity does not match the canonical current task.');
+  }
+  const canonicalExpectedPath = packagePathForTask(root, pathTaskId, pathTaskSlug, pathKind);
+  if (normalizedPath !== canonicalExpectedPath.relativePath) fail('RUNTIME_PATH_INVALID', 'suspended package path is not the canonical identity-derived path.');
+  const filePath = canonicalExpectedPath.filePath;
+  if (!fs.existsSync(filePath)) fail('SUSPENDED_PACKAGE_MISSING', `suspended package is missing: ${normalizedPath}`);
+  const raw = fs.readFileSync(filePath, 'utf8');
+  if (raw.split(SUSPENDED_PACKAGE_BEGIN).length !== 2 || raw.split(SUSPENDED_PACKAGE_END).length !== 2) {
+    fail('SUSPENDED_PACKAGE_INVALID', `${normalizedPath} must contain exactly one complete CURRENT_TASK snapshot.`);
+  }
+  const beginIndex = raw.indexOf(SUSPENDED_PACKAGE_BEGIN);
+  const endIndex = raw.indexOf(SUSPENDED_PACKAGE_END);
+  if (beginIndex < 0 || endIndex <= beginIndex) fail('SUSPENDED_PACKAGE_INVALID', `${normalizedPath} has an invalid snapshot marker order.`);
+  const header = raw.slice(0, beginIndex);
+  const fields = extractSuspendedPackageFields(header, normalizedPath);
+  const taskId = requiredPackageField(fields, 'task_id', normalizedPath);
+  const taskTitle = packageText(requiredPackageField(fields, 'task_title', normalizedPath), `${normalizedPath}.task_title`);
+  const taskSlug = requiredPackageField(fields, 'task_slug', normalizedPath);
+  try {
+    validateTaskId(taskId);
+    validateTaskSlug(taskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  if (taskId !== pathTaskId || taskSlug !== pathTaskSlug) fail('RUNTIME_IDENTITY_CONFLICT', 'suspended package fields do not match its canonical path.');
+  const artifactKind = expectEnum(requiredPackageField(fields, 'artifact_kind', normalizedPath), ['paused', 'interrupted'], `${normalizedPath}.artifact_kind`);
+  if (artifactKind !== pathKind) fail('SUSPENDED_PACKAGE_INVALID', 'suspended package artifact_kind does not match its path.');
+  const lifecycleState = expectEnum(requiredPackageField(fields, 'lifecycle_state', normalizedPath), ['paused_pending_closure', 'paused_blocked', 'interrupted'], `${normalizedPath}.lifecycle_state`);
+  if ((artifactKind === 'paused' && !['paused_pending_closure', 'paused_blocked'].includes(lifecycleState)) || (artifactKind === 'interrupted' && lifecycleState !== 'interrupted')) {
+    fail('SUSPENDED_PACKAGE_INVALID', 'suspended package lifecycle_state does not match artifact_kind.');
+  }
+  const resumeRequiresReview = parseBooleanField(requiredPackageField(fields, 'resume_requires_review', normalizedPath), `${normalizedPath}.resume_requires_review`);
+  const rawResumeReviewReasons = requiredPackageField(fields, 'resume_review_reasons', normalizedPath)
+    .split(',')
+    .map(reason => reason.trim())
+    .filter(Boolean);
+  const resumeReviewReasons = normalizeResumeReviewReasons(rawResumeReviewReasons);
+  if (rawResumeReviewReasons.join('|') !== resumeReviewReasons.join('|')) {
+    fail('SUSPENDED_PACKAGE_INVALID', `${normalizedPath}.resume_review_reasons must use the canonical closed-set order without duplicates.`);
+  }
+  try {
+    validateCurrentTaskResumeGate(lifecycleState, resumeRequiresReview, resumeReviewReasons);
+  } catch (error) {
+    fail('SUSPENDED_PACKAGE_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const rehydrationStatus = expectEnum(requiredPackageField(fields, 'rehydration_status', normalizedPath), ['write_incomplete', 'ready_for_resume', 'rehydrated'], `${normalizedPath}.rehydration_status`);
+  const ownershipState = expectEnum(requiredPackageField(fields, 'ownership_state', normalizedPath), ['recovery_only', 'rehydrated'], `${normalizedPath}.ownership_state`);
+  if (rehydrationStatus === 'write_incomplete' && ownershipState !== 'recovery_only') fail('SUSPENDED_PACKAGE_INVALID', 'write_incomplete package must remain recovery_only.');
+  if (rehydrationStatus === 'ready_for_resume' && (ownershipState !== 'recovery_only' || !resumeRequiresReview)) fail('SUSPENDED_PACKAGE_INVALID', 'ready_for_resume package must be recovery_only and review-gated.');
+  if (rehydrationStatus === 'rehydrated' && ownershipState !== 'rehydrated') fail('SUSPENDED_PACKAGE_INVALID', 'rehydrated package must use ownership_state=rehydrated.');
+  const documentId = requiredPackageField(fields, 'document_id', normalizedPath);
+  if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `${normalizedPath}.document_id is invalid.`);
+  const snapshotSha256 = requiredPackageField(fields, 'snapshot_sha256', normalizedPath);
+  if (!/^[a-f0-9]{64}$/.test(snapshotSha256)) fail('RUNTIME_SCHEMA_INVALID', `${normalizedPath}.snapshot_sha256 must be SHA-256.`);
+  let snapshotStart = beginIndex + SUSPENDED_PACKAGE_BEGIN.length;
+  if (raw.startsWith('\r\n', snapshotStart)) snapshotStart += 2;
+  else if (raw.startsWith('\n', snapshotStart)) snapshotStart += 1;
+  const snapshotRegion = raw.slice(snapshotStart, endIndex);
+  const snapshotCandidates = [snapshotRegion, snapshotRegion.endsWith('\n') ? snapshotRegion.slice(0, -1) : snapshotRegion];
+  const snapshotRaw = snapshotCandidates.find(candidate => sha256(candidate) === snapshotSha256);
+  if (snapshotRaw === undefined) fail('SUSPENDED_PACKAGE_INVALID', `${normalizedPath} snapshot_sha256 does not match the embedded CURRENT_TASK snapshot.`);
+  const snapshot = parseCanonicalCurrentTaskContent(snapshotRaw, current.filePath, current.relativePath);
+  if (snapshot.frontmatter.document_id !== documentId || snapshot.frontmatter.document_id !== current.frontmatter.document_id) {
+    fail('RUNTIME_SOURCE_CONFLICT', 'suspended package document_id conflicts with CURRENT_TASK or its snapshot.');
+  }
+  if (snapshot.runtimeState.task_id !== taskId || snapshot.runtimeState.task_slug !== taskSlug || snapshot.runtimeState.workflow_status !== 'active' || snapshot.runtimeState.lifecycle_state !== 'active') {
+    fail('SUSPENDED_PACKAGE_INVALID', 'suspended package snapshot must preserve the same active task before suspension.');
+  }
+  const snapshotIdentity = extractTaskIdentityFromCurrentTask(snapshot.body);
+  if (snapshotIdentity.title !== taskTitle) fail('RUNTIME_SOURCE_CONFLICT', 'suspended package task_title conflicts with its snapshot.');
+  const taskStartBase = packageText(requiredPackageField(fields, 'task_start_base', normalizedPath), `${normalizedPath}.task_start_base`);
+  const lastReviewedCheckpoint = packageText(requiredPackageField(fields, 'last_reviewed_checkpoint', normalizedPath), `${normalizedPath}.last_reviewed_checkpoint`);
+  const currentDiffReviewTarget = packageText(requiredPackageField(fields, 'current_diff_review_target', normalizedPath), `${normalizedPath}.current_diff_review_target`);
+  const rollbackConditions = packageText(requiredPackageField(fields, 'rollback_conditions', normalizedPath), `${normalizedPath}.rollback_conditions`);
+  const suspensionReason = packageText(requiredPackageField(fields, 'suspension_reason', normalizedPath), `${normalizedPath}.suspension_reason`);
+  if (lifecycleState === 'paused_blocked') {
+    packageText(requiredPackageField(fields, 'blocker_status', normalizedPath), `${normalizedPath}.blocker_status`);
+    packageText(requiredPackageField(fields, 'blocking_evidence', normalizedPath), `${normalizedPath}.blocking_evidence`);
+    packageText(requiredPackageField(fields, 'remaining_acceptance', normalizedPath), `${normalizedPath}.remaining_acceptance`);
+  }
+  if (artifactKind === 'interrupted') {
+    packageText(requiredPackageField(fields, 'checkpoint_evidence', normalizedPath), `${normalizedPath}.checkpoint_evidence`);
+    packageText(requiredPackageField(fields, 'dirty_attribution', normalizedPath), `${normalizedPath}.dirty_attribution`);
+    packageText(requiredPackageField(fields, 'environment_state', normalizedPath), `${normalizedPath}.environment_state`);
+    packageText(requiredPackageField(fields, 'recovery_strategy', normalizedPath), `${normalizedPath}.recovery_strategy`);
+  }
+  return {
+    filePath,
+    relativePath: normalizedPath,
+    raw,
+    taskId,
+    taskTitle,
+    taskSlug,
+    artifactKind,
+    lifecycleState,
+    suspensionReason,
+    taskStartBase,
+    lastReviewedCheckpoint,
+    currentDiffReviewTarget,
+    rollbackConditions,
+    resumeRequiresReview,
+    resumeReviewReasons,
+    rehydrationStatus,
+    ownershipState,
+    documentId,
+    snapshotSha256,
+    snapshot,
+  };
+}
+
+function renderSuspendedPackage(current: CanonicalCurrentTask, delta: Extract<LifecycleDelta, { action: 'pause' | 'interrupt' }>, artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>): string {
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  const taskTitle = packageText(identity.title, 'CURRENT_TASK task title');
+  const fields: string[] = [
+    '# vNext suspended task package',
+    '',
+    `- task_id: ${current.runtimeState.task_id}`,
+    `- task_title: ${taskTitle}`,
+    `- task_slug: ${current.runtimeState.task_slug}`,
+    `- artifact_kind: ${artifactKind}`,
+    `- lifecycle_state: ${delta.lifecycle_state}`,
+    `- suspension_reason: ${packageText(delta.suspension_reason, 'semantic_delta.suspension_reason')}`,
+    `- task_start_base: ${packageText(delta.task_start_base, 'semantic_delta.task_start_base')}`,
+    `- last_reviewed_checkpoint: ${packageText(delta.last_reviewed_checkpoint, 'semantic_delta.last_reviewed_checkpoint')}`,
+    `- current_diff_review_target: ${packageText(delta.current_diff_review_target, 'semantic_delta.current_diff_review_target')}`,
+    `- rollback_conditions: ${packageText(delta.rollback_conditions, 'semantic_delta.rollback_conditions')}`,
+    '- resume_requires_review: true',
+    `- resume_review_reasons: ${delta.resume_review_reasons.join(', ')}`,
+    '- rehydration_status: ready_for_resume',
+    '- ownership_state: recovery_only',
+    `- document_id: ${String(current.frontmatter.document_id)}`,
+    `- snapshot_sha256: ${sha256(current.raw)}`,
+  ];
+  if (delta.action === 'pause' && delta.lifecycle_state === 'paused_blocked') {
+    fields.push(`- blocker_status: ${packageText(delta.blocker_status, 'semantic_delta.blocker_status')}`);
+    fields.push(`- blocking_evidence: ${packageText(delta.blocking_evidence, 'semantic_delta.blocking_evidence')}`);
+    fields.push(`- remaining_acceptance: ${packageText(delta.remaining_acceptance, 'semantic_delta.remaining_acceptance')}`);
+    if (delta.failed_checks && delta.failed_checks.length > 0) fields.push(`- failed_checks: ${delta.failed_checks.join(', ')}`);
+  }
+  if (delta.action === 'interrupt') {
+    fields.push(`- checkpoint_evidence: ${packageText(delta.checkpoint_evidence, 'semantic_delta.checkpoint_evidence')}`);
+    fields.push(`- dirty_attribution: ${packageText(delta.dirty_attribution, 'semantic_delta.dirty_attribution')}`);
+    fields.push(`- environment_state: ${packageText(delta.environment_state, 'semantic_delta.environment_state')}`);
+    fields.push(`- recovery_strategy: ${packageText(delta.recovery_strategy, 'semantic_delta.recovery_strategy')}`);
+  }
+  const snapshot = current.raw;
+  return `${fields.join('\n')}\n\n${SUSPENDED_PACKAGE_BEGIN}\n${snapshot}${snapshot.endsWith('\n') ? '' : '\n'}${SUSPENDED_PACKAGE_END}\n`;
+}
+
+function renderRehydratedPackage(packageArtifact: ParsedSuspendedPackage): string {
+  let content = packageArtifact.raw;
+  content = replacePackageField(content, 'rehydration_status', 'rehydrated');
+  content = replacePackageField(content, 'ownership_state', 'rehydrated');
+  return content;
+}
+
+function assertSuspendedSourceMatchesSnapshot(current: CanonicalCurrentTask, snapshot: CanonicalCurrentTask): void {
+  const currentRuntimeState = {
+    ...current.runtimeState,
+    workflow_status: snapshot.runtimeState.workflow_status,
+    lifecycle_state: snapshot.runtimeState.lifecycle_state,
+    resume_requires_review: snapshot.runtimeState.resume_requires_review,
+    resume_review_reasons: [...snapshot.runtimeState.resume_review_reasons],
+    applied_proposals: [...snapshot.runtimeState.applied_proposals],
+  };
+  if (digest(currentRuntimeState) !== digest(snapshot.runtimeState)) {
+    fail('LIFECYCLE_SOURCE_CONFLICT', 'suspended CURRENT_TASK runtime_state differs from the recovery snapshot.');
+  }
+  const currentFrontmatter = { ...current.frontmatter };
+  const snapshotFrontmatter = { ...snapshot.frontmatter };
+  delete currentFrontmatter.runtime_state;
+  delete snapshotFrontmatter.runtime_state;
+  if (digest(currentFrontmatter) !== digest(snapshotFrontmatter)) {
+    fail('LIFECYCLE_SOURCE_CONFLICT', 'suspended CURRENT_TASK frontmatter differs from the recovery snapshot.');
+  }
+  const normalizedCurrentBody = renderCurrentTaskLifecycleFields(current.body, snapshot.runtimeState);
+  const normalizedSnapshotBody = renderCurrentTaskLifecycleFields(snapshot.body, snapshot.runtimeState);
+  if (normalizedCurrentBody !== normalizedSnapshotBody) {
+    fail('LIFECYCLE_SOURCE_CONFLICT', 'suspended CURRENT_TASK body differs from the recovery snapshot.');
+  }
+}
+
+function assertRequestedLifecycleTargets(root: string, current: CanonicalCurrentTask, proposal: LifecycleProposal): { packageFilePath?: string; packageRelativePath?: string } {
+  if (proposal.requested_write_targets[0] !== current.relativePath) fail('RUNTIME_PATH_INVALID', 'lifecycle proposal must target the exact canonical CURRENT_TASK path first.');
+  const delta = proposal.semantic_delta;
+  if (delta.action === 'supersede') {
+    if (proposal.requested_write_targets.length !== 1) fail('RUNTIME_PATH_INVALID', 'supersede remains a proposal-only current-task route in Slice A.');
+    return {};
+  }
+  const artifactKind = delta.action === 'pause' ? 'paused' : delta.action === 'interrupt' ? 'interrupted' : delta.artifact_kind;
+  const expected = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
+  if (delta.action === 'resume-paused' || delta.action === 'resume-interrupted') {
+    if (delta.recovery_package_path !== expected.relativePath) fail('RUNTIME_PATH_INVALID', 'resume must use the exact identity-derived suspended package path.');
+  }
+  if (proposal.requested_write_targets.length !== 2 || proposal.requested_write_targets[1] !== expected.relativePath) {
+    fail('RUNTIME_PATH_INVALID', 'lifecycle proposal must name exactly CURRENT_TASK.md and its identity-derived suspended package path.');
+  }
+  return { packageFilePath: expected.filePath, packageRelativePath: expected.relativePath };
+}
+
+function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask, proposal: LifecycleProposal): LifecycleTransactionPlan {
+  const delta = proposal.semantic_delta;
+  if (delta.action === 'supersede') {
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'evidence-admission']);
+    fail('LIFECYCLE_MODE_UNBOUND', 'supersede remains contract-only until Slice B with prepare-task:replan.');
+  }
+  const target = assertRequestedLifecycleTargets(root, current, proposal);
+  const packageFilePath = target.packageFilePath!;
+  const packageRelativePath = target.packageRelativePath!;
+  const activeTuple = current.runtimeState.workflow_status === 'active' && current.runtimeState.lifecycle_state === 'active';
+  if (delta.action === 'pause' || delta.action === 'interrupt') {
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
+    if (!activeTuple) fail('LIFECYCLE_TRANSITION_INVALID', `${delta.action} requires the current task to be active + active.`);
+    if (fs.existsSync(packageFilePath)) fail('SUSPENDED_PACKAGE_CONFLICT', `suspended package already exists: ${packageRelativePath}`);
+    const next: RuntimeState = {
+      ...current.runtimeState,
+      workflow_status: 'suspended',
+      lifecycle_state: delta.lifecycle_state,
+      resume_requires_review: true,
+      resume_review_reasons: [...delta.resume_review_reasons],
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+    };
+    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next);
+    const nextPackageContent = renderSuspendedPackage(current, delta, delta.action === 'pause' ? 'paused' : 'interrupted');
+    return { next, nextContent, packageFilePath, packageRelativePath, nextPackageContent };
+  }
+
+  ensureAuthorityKinds(proposal, ['resume-review', 'evidence-admission']);
+  if (current.runtimeState.workflow_status !== 'suspended') fail('LIFECYCLE_TRANSITION_INVALID', 'resume requires a suspended CURRENT_TASK source.');
+  const expectedLifecycle = delta.action === 'resume-paused' ? ['paused_pending_closure', 'paused_blocked'] : ['interrupted'];
+  if (!expectedLifecycle.includes(current.runtimeState.lifecycle_state)) fail('LIFECYCLE_TRANSITION_INVALID', 'resume mode does not match the current suspended lifecycle state.');
+  if (!fs.existsSync(packageFilePath)) fail('SUSPENDED_PACKAGE_MISSING', `suspended package is missing: ${packageRelativePath}`);
+  const packageArtifact = parseSuspendedPackage(root, current, packageRelativePath, delta.artifact_kind);
+  if (packageArtifact.rehydrationStatus !== 'ready_for_resume' || packageArtifact.ownershipState !== 'recovery_only') {
+    fail('SUSPENDED_PACKAGE_NOT_READY', 'resume accepts only ready_for_resume + recovery_only packages.');
+  }
+  assertSuspendedSourceMatchesSnapshot(current, packageArtifact.snapshot);
+  if (packageArtifact.lifecycleState !== current.runtimeState.lifecycle_state) fail('LIFECYCLE_SOURCE_CONFLICT', 'package lifecycle state conflicts with CURRENT_TASK.');
+  if (packageArtifact.resumeReviewReasons.join('|') !== delta.resume_review_reasons.join('|')) fail('RESUME_GATE_DRIFT', 'resume review reasons drifted between proposal and suspended package.');
+  const otherKind = delta.artifact_kind === 'paused' ? 'interrupted' : 'paused';
+  const otherPackage = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, otherKind);
+  if (fs.existsSync(otherPackage.filePath)) fail('SUSPENDED_PACKAGE_AMBIGUOUS', 'another suspended package for the same task is present; choose a single recovery record and reconcile the sibling first.');
+  if (packageArtifact.documentId !== String(current.frontmatter.document_id)) fail('RUNTIME_SOURCE_CONFLICT', 'resume package document_id conflicts with CURRENT_TASK.');
+  const next: RuntimeState = {
+    ...packageArtifact.snapshot.runtimeState,
+    workflow_status: 'active',
+    lifecycle_state: 'active',
+    resume_requires_review: true,
+    resume_review_reasons: [...packageArtifact.resumeReviewReasons],
+    applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+  };
+  const nextContent = renderCanonicalCurrentTask(packageArtifact.snapshot.frontmatter, packageArtifact.snapshot.body, next);
+  const nextPackageContent = renderRehydratedPackage(packageArtifact);
+  return {
+    next,
+    nextContent,
+    packageFilePath,
+    packageRelativePath,
+    nextPackageContent,
+    originalPackageContent: packageArtifact.raw,
+  };
 }
 
 function buildResult(
@@ -1332,10 +2071,31 @@ function buildResult(
     dry_run: options.dryRun === true,
     committed: false,
     message,
-    planned_writes: [current.relativePath],
+    planned_writes: [...proposal.requested_write_targets],
     governed_mutation_count: 0,
     read_back_verified: false,
     ...extras,
+  };
+}
+
+function resultState(
+  state: RuntimeState,
+  findingStatus?: FindingStatus,
+  recoveryPackagePath?: string,
+): NonNullable<RuntimeResult['state']> {
+  return {
+    task_id: state.task_id,
+    workflow_status: state.workflow_status,
+    lifecycle_state: state.lifecycle_state,
+    resume_requires_review: state.resume_requires_review,
+    resume_review_reasons: [...state.resume_review_reasons],
+    active_step_id: state.active_step_id,
+    active_step_status: state.active_step_status,
+    finding_queue_revision: state.finding_queue_revision,
+    review_cycle_id: state.review_cycle.id,
+    repair_round: state.review_cycle.repair_round,
+    ...(findingStatus === undefined ? {} : { finding_status: findingStatus }),
+    ...(recoveryPackagePath === undefined ? {} : { recovery_package_path: recoveryPackagePath }),
   };
 }
 
@@ -1380,6 +2140,45 @@ function rollbackCurrentTaskAndVerify(
   }
 }
 
+function rollbackLifecycleTransactionAndVerify(
+  root: string,
+  current: CanonicalCurrentTask,
+  plan: LifecycleTransactionPlan,
+  readCurrentTask: CurrentTaskReader,
+): RollbackVerification {
+  try {
+    const rollbackOperations = [{ path: current.filePath, content: current.raw }];
+    if (plan.originalPackageContent !== undefined) {
+      rollbackOperations.push({ path: plan.packageFilePath, content: plan.originalPackageContent });
+    }
+    executeWrites(rollbackOperations, false, 'vNext Runtime lifecycle rollback after read-back failure');
+    if (plan.originalPackageContent === undefined && fs.existsSync(plan.packageFilePath)) {
+      fs.rmSync(plan.packageFilePath, { force: true });
+    }
+  } catch (error) {
+    return {
+      verified: false,
+      detail: `rollback failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  try {
+    const rollbackReadBack = readCurrentTask(root);
+    if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
+      return { verified: false, detail: 'rollback read-back did not restore the original canonical CURRENT_TASK document.' };
+    }
+    const packageExists = fs.existsSync(plan.packageFilePath);
+    if (plan.originalPackageContent === undefined) {
+      if (packageExists) return { verified: false, detail: 'rollback read-back left a newly-created suspended package behind.' };
+    } else if (!packageExists || fs.readFileSync(plan.packageFilePath, 'utf8') !== plan.originalPackageContent) {
+      return { verified: false, detail: 'rollback read-back did not restore the original suspended package.' };
+    }
+    return { verified: true, detail: 'rollback read-back verified.' };
+  } catch (error) {
+    return { verified: false, detail: `rollback read-back failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
 export class GovernanceTransactionKernel {
   readonly root: string;
   private readonly readCurrentTask: CurrentTaskReader;
@@ -1387,6 +2186,78 @@ export class GovernanceTransactionKernel {
   constructor(root: string, readCurrentTask: CurrentTaskReader = readCanonicalCurrentTask) {
     this.root = path.resolve(root);
     this.readCurrentTask = readCurrentTask;
+  }
+
+  private commitLifecycleTransaction(
+    current: CanonicalCurrentTask,
+    proposal: LifecycleProposal,
+    plan: LifecycleTransactionPlan,
+    options: RuntimeApplyOptions,
+  ): RuntimeResult {
+    const nextRevision = sha256(plan.nextContent);
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed lifecycle proposal validated; atomic CURRENT_TASK + suspended package write planned (dry-run).', {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        state: resultState(plan.next, undefined, plan.packageRelativePath),
+      });
+    }
+
+    try {
+      executeWrites(
+        [
+          { path: current.filePath, content: plan.nextContent },
+          { path: plan.packageFilePath, content: plan.nextPackageContent },
+        ],
+        false,
+        `vNext Runtime ${proposal.mode} lifecycle transaction committed`,
+      );
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: 'ATOMIC_COMMIT_FAILED' });
+    }
+
+    try {
+      const readBack = this.readCurrentTask(this.root);
+      if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
+        throw new Error('canonical CURRENT_TASK read-back did not match the staged lifecycle document.');
+      }
+      if (!fs.existsSync(plan.packageFilePath) || fs.readFileSync(plan.packageFilePath, 'utf8') !== plan.nextPackageContent) {
+        throw new Error('suspended package read-back did not match the staged lifecycle artifact.');
+      }
+      const lifecycleDelta = proposal.semantic_delta;
+      const artifactKind = lifecycleDelta.action === 'pause'
+        ? 'paused'
+        : lifecycleDelta.action === 'interrupt'
+          ? 'interrupted'
+          : lifecycleDelta.action === 'resume-paused' || lifecycleDelta.action === 'resume-interrupted'
+            ? lifecycleDelta.artifact_kind
+            : 'paused';
+      const parsedPackage = parseSuspendedPackage(this.root, readBack, plan.packageRelativePath, artifactKind);
+      const expectedStatus = proposal.mode === 'resume-paused' || proposal.mode === 'resume-interrupted' ? 'rehydrated' : 'ready_for_resume';
+      if (parsedPackage.rehydrationStatus !== expectedStatus || parsedPackage.ownershipState !== (expectedStatus === 'rehydrated' ? 'rehydrated' : 'recovery_only')) {
+        throw new Error('suspended package marker read-back did not match the lifecycle transaction.');
+      }
+      return buildResult('success', proposal, current, options, 'typed lifecycle proposal committed; CURRENT_TASK and suspended package read-back verified.', {
+        committed: true,
+        governed_mutation_count: 2,
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        read_back_verified: true,
+        state: resultState(readBack.runtimeState, undefined, plan.packageRelativePath),
+      });
+    } catch (error) {
+      const rollback = rollbackLifecycleTransactionAndVerify(this.root, current, plan, this.readCurrentTask);
+      return buildResult(
+        'blocked',
+        proposal,
+        current,
+        options,
+        rollback.verified
+          ? `Runtime lifecycle read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.`
+          : `Runtime lifecycle read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`,
+        { code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED' },
+      );
+    }
   }
 
   apply(rawProposal: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
@@ -1433,8 +2304,15 @@ export class GovernanceTransactionKernel {
       };
     }
 
-    if (proposal.requested_write_targets[0] !== current.relativePath || proposal.source_tuple.path !== current.relativePath) {
-      return buildResult('blocked', proposal, current, options, 'proposal write target is not the exact canonical CURRENT_TASK path.', { code: 'RUNTIME_PATH_INVALID' });
+    try {
+      if (proposal.source_tuple.path !== current.relativePath) fail('RUNTIME_PATH_INVALID', 'proposal source path is not the exact canonical CURRENT_TASK path.');
+      if (proposal.operation_kind === 'lifecycle-transaction') {
+        assertRequestedLifecycleTargets(this.root, current, proposal as LifecycleProposal);
+      } else if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== current.relativePath) {
+        fail('RUNTIME_PATH_INVALID', 'proposal write target is not the exact canonical CURRENT_TASK path.');
+      }
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_PATH_INVALID' });
     }
     const proposalDigest = digest(proposal);
     const prior = current.runtimeState.applied_proposals.find(item => item.idempotency_key === proposal.idempotency_key);
@@ -1446,14 +2324,7 @@ export class GovernanceTransactionKernel {
         previous_revision: current.sourceTuple.revision,
         resulting_revision: current.sourceTuple.revision,
         read_back_verified: true,
-        state: {
-          task_id: current.runtimeState.task_id,
-          active_step_id: current.runtimeState.active_step_id,
-          active_step_status: current.runtimeState.active_step_status,
-          finding_queue_revision: current.runtimeState.finding_queue_revision,
-          review_cycle_id: current.runtimeState.review_cycle.id,
-          repair_round: current.runtimeState.review_cycle.repair_round,
-        },
+        state: resultState(current.runtimeState),
       });
     }
     const conflictField = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
@@ -1464,6 +2335,14 @@ export class GovernanceTransactionKernel {
     const now = options.now?.() ?? new Date().toISOString();
     if (Number.isNaN(Date.parse(now))) {
       return buildResult('blocked', proposal, current, options, 'Runtime clock returned an invalid timestamp.', { code: 'RUNTIME_CLOCK_INVALID' });
+    }
+    if (proposal.operation_kind === 'lifecycle-transaction') {
+      try {
+        const plan = prepareLifecycleTransaction(this.root, current, proposal as LifecycleProposal);
+        return this.commitLifecycleTransaction(current, proposal as LifecycleProposal, plan, options);
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED' });
+      }
     }
     let transition: { next: RuntimeState; findingStatus?: FindingStatus };
     try {
@@ -1487,15 +2366,7 @@ export class GovernanceTransactionKernel {
       return buildResult('success', proposal, current, options, 'typed proposal validated; atomic write planned (dry-run).', {
         previous_revision: current.sourceTuple.revision,
         resulting_revision: nextRevision,
-        state: {
-          task_id: transition.next.task_id,
-          active_step_id: transition.next.active_step_id,
-          active_step_status: transition.next.active_step_status,
-          finding_queue_revision: transition.next.finding_queue_revision,
-          review_cycle_id: transition.next.review_cycle.id,
-          repair_round: transition.next.review_cycle.repair_round,
-          finding_status: transition.findingStatus,
-        },
+        state: resultState(transition.next, transition.findingStatus),
       });
     }
 
@@ -1530,15 +2401,7 @@ export class GovernanceTransactionKernel {
         previous_revision: current.sourceTuple.revision,
         resulting_revision: nextRevision,
         read_back_verified: true,
-        state: {
-          task_id: readBack.runtimeState.task_id,
-          active_step_id: readBack.runtimeState.active_step_id,
-          active_step_status: readBack.runtimeState.active_step_status,
-          finding_queue_revision: readBack.runtimeState.finding_queue_revision,
-          review_cycle_id: readBack.runtimeState.review_cycle.id,
-          repair_round: readBack.runtimeState.review_cycle.repair_round,
-          finding_status: transition.findingStatus,
-        },
+        state: resultState(readBack.runtimeState, transition.findingStatus),
       });
     } catch (error) {
       const rollback = rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
@@ -1594,6 +2457,77 @@ export function createTaskStateProposal(
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath],
   });
+}
+
+export function createPrepareTaskResumeReviewProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    mode: PrepareTaskMode;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'clear-resume-review-gate',
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-active', 'resume-review-complete'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createLifecycleProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    mode: LifecycleMode;
+    delta: LifecycleDelta;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): LifecycleProposal {
+  let artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'> | null = null;
+  if (input.mode === 'pause') artifactKind = 'paused';
+  else if (input.mode === 'interrupt') artifactKind = 'interrupted';
+  else if (input.mode === 'resume-paused' || input.mode === 'resume-interrupted') {
+    if (!('artifact_kind' in input.delta)) throw new VNextRuntimeError('RUNTIME_SCHEMA_INVALID', 'resume lifecycle proposal is missing artifact_kind.');
+    artifactKind = input.delta.artifact_kind;
+  }
+  const requestedWriteTargets = artifactKind === null
+    ? [current.relativePath]
+    : [current.relativePath, input.mode === 'resume-paused' || input.mode === 'resume-interrupted'
+      ? 'recovery_package_path' in input.delta ? input.delta.recovery_package_path : ''
+      : getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind)];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'lifecycle-transaction',
+    caller: 'task-lifecycle',
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: input.mode === 'supersede'
+      ? ['current-task-is-active', 'supersede-evidence-present']
+      : input.mode === 'pause' || input.mode === 'interrupt'
+        ? ['current-task-is-active', 'lifecycle-transition-legal', 'recovery-evidence-complete']
+        : ['explicit-recovery-package', 'resume-review-complete', 'lifecycle-transition-legal'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: requestedWriteTargets,
+  }) as LifecycleProposal;
 }
 
 export function createFindingQueueProposal(

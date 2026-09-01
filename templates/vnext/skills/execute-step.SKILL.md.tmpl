@@ -41,6 +41,7 @@ entry_contract:
     - evidence-admission-policy
     - finding-admission
     - review-convergence-policy
+    - resume-review-gate
   runtime_operations:
     - task-state-transaction
     - finding-queue-transaction
@@ -49,6 +50,7 @@ entry_contract:
     - a requested target is outside admitted scope or requires unauthorized widening
     - a dangerous operation lacks exact target, risk, rollback/recovery, and confirmation evidence
     - a design, contract, decision, or current external-behavior gate is unresolved
+    - the current task carries an active resume-review gate; readiness review must complete first
     - repair mode lacks an admitted finding or confirmed root cause and repair budget
     - evidence is insufficient or bounded review convergence cannot be established
     - the request uses an old or unsupported workflow schema
@@ -63,7 +65,7 @@ Implement exactly the admitted current step. Ordinary implementation and admitte
 
 ## Operating rules
 
-1. Resolve the current task, owner, relevant Contracts/Decisions/Lessons, exact diff target, and admitted scope before editing. Default-deny every target outside that scope.
+1. Resolve the current task, owner, relevant Contracts/Decisions/Lessons, exact diff target, and admitted scope before editing. If `resume_requires_review` is active, stop and route through `prepare-task` readiness/resume review; do not implement directly. Default-deny every target outside that scope.
 2. In `default` mode, implement the current step using ordinary engineering judgment while preserving confirmed authority, design, contract, external-documentation, evidence, and dangerous-operation boundaries.
 3. In `repair` mode, require either an admitted mechanical finding or a confirmed root cause with an authorized route. Consume the bounded repair budget. Do not discover arbitrary new work, widen scope, or repair another owner's issue.
 4. Use the evidence plan to choose minimum-sufficient checks. Exploratory probes remain bounded and temporary; a guessed behavior cannot become a persistent test or contract without admission.
@@ -82,4 +84,4 @@ Return one structured `change-result` containing:
 - a typed `task-state-transaction` proposal for actual progress, evidence, risk, or acceptance deltas;
 - a conditional `finding-queue-transaction` proposal only when a finding has separately passed admission.
 
-In Phase 2 these two operations are bound only for the `execute-step` caller. The Runtime validates the canonical source tuple, authority evidence, exact `CURRENT_TASK.md` write target, repair budget, idempotency key, and read-back before reporting `success`. Do not claim that `CURRENT_TASK.md` or a finding queue was written unless the corresponding Runtime result is `success`; a dry-run, `no-op`, `conflict`, or `blocked` result is not a commit. If a state-changing proposal is not authorized or cannot pass its preconditions, preserve the product diff result and report the blocker without inventing success.
+In Phase 2 this entry is bound to both operations; `task-state-transaction` also has a separate, minimal `prepare-task` gate-clear action. The Runtime validates the canonical source tuple, authority evidence, exact `CURRENT_TASK.md` write target, repair budget, idempotency key, and read-back before reporting `success`. Do not claim that `CURRENT_TASK.md` or a finding queue was written unless the corresponding Runtime result is `success`; a dry-run, `no-op`, `conflict`, or `blocked` result is not a commit. If a state-changing proposal is not authorized or cannot pass its preconditions, preserve the product diff result and report the blocker without inventing success.

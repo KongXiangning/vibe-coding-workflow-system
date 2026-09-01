@@ -16,8 +16,8 @@ entry_contract:
       - current_lifecycle_tuple
       - checkpoint
       - dirty_attribution
-      - snapshot
       - recovery_package
+      - recovery_package_path
       - rollback_conditions
       - authority_evidence
       - caller_context
@@ -46,7 +46,6 @@ entry_contract:
     - scope-guard
   runtime_operations:
     - lifecycle-transaction
-    - task-state-transaction
   stop_conditions:
     - exact task identity or current workflow/lifecycle tuple is missing, stale, or ambiguous
     - requested transition is illegal or lacks required authority
@@ -65,19 +64,19 @@ Perform one explicit, identity-safe task ownership or lifecycle transition. The 
 ## Operating rules
 
 1. Verify the immutable task identity, active owner, current workflow status, current lifecycle tuple, and requested mode before proposing any transition.
-2. For `pause` and `interrupt`, preserve the full snapshot, checkpoint, dirty attribution, environment, recovery strategy, and rollback conditions. Do not collapse the two lifecycle reasons into one state.
-3. For `resume-paused` and `resume-interrupted`, require one explicit matching recovery package, complete evidence, and a passed resume review gate. Never infer a recovery target from a latest or merely similar package.
-4. For `supersede`, require evidence that goal, scope, or acceptance is no longer valid. Preserve the original task history and route preparation of the replacement intent separately; do not silently overwrite the active task identity.
-5. Describe `lifecycle-transaction` and any conditional `task-state-transaction` as proposals only. Phase 2 binds `task-state-transaction` only for `execute-step`; lifecycle writes remain unbound. This entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
+2. For `pause` and `interrupt`, collect the transition-specific checkpoint, dirty attribution, environment, recovery, rollback, and review evidence. Keep pause and interrupt as distinct modes; do not construct snapshots or package markers in the Skill.
+3. For `resume-paused` and `resume-interrupted`, confirm one explicit matching recovery package reference and complete review evidence. Never infer a recovery target from a latest or merely similar package.
+4. For `supersede`, require evidence that goal, scope, or acceptance is no longer valid. Preserve the original task history and route preparation of the replacement intent separately; this mode remains proposal-only in Slice A.
+5. Emit one typed `LifecycleProposal` for the selected mode. The Runtime resolves canonical paths, validates package/state markers, constructs or restores the snapshot, and owns every durable write; this entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
 
 ## Required result
 
 Return one structured `lifecycle_result` containing:
 
 - exact task identity, current tuple, requested mode, and authority evidence;
-- legal-transition verdict and the complete snapshot/checkpoint/recovery requirements;
+- legal-transition verdict and the selected transition's checkpoint/recovery evidence;
 - normalized next workflow/lifecycle tuple or a truthful blocked/user result;
 - rollback and recovery conditions, owner route, and review readiness;
-- typed Runtime proposals only when all transition preconditions pass.
+- one typed `LifecycleProposal` only when all model-visible transition preconditions pass.
 
-No transition is complete merely because a proposal was described. Runtime binding and durable state changes belong to a later phase.
+No transition is complete merely because a proposal was described. Slice A binds `lifecycle-transaction` for pause, interrupt, and the two explicit resume modes; `supersede` remains contract-only until Slice B.

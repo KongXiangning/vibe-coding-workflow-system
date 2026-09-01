@@ -205,6 +205,16 @@ suspended package 的最小字段为：
 - `resume_review_reasons`
 - `rehydration_status`
 - `ownership_state`
+- `document_id`
+- `snapshot_sha256`
+
+其中 `document_id` 必须与 live `CURRENT_TASK.md` 及 embedded snapshot 一致，
+`snapshot_sha256` 必须精确匹配 embedded snapshot 的字节内容；这两个字段是
+Runtime 用于防止 package 与 canonical task 串线的完整性标记，不是第二状态源。
+Slice A Runtime 另外要求 package 恰好包含一对
+`BEGIN vNext CURRENT_TASK snapshot` / `END vNext CURRENT_TASK snapshot`
+marker，并嵌入完整、可独立校验的 vNext `CURRENT_TASK.md` snapshot；marker
+缺失、重复、顺序错误或 hash 不匹配时必须 fail-closed。
 
 其中闭合集合为：
 
@@ -823,10 +833,12 @@ Phase 0 只校验 declaration，不执行 commit。
 
 ### Phase 2 vNext Runtime state-changing slice
 
-Phase 2 的 `execute-step` 只绑定 `task-state-transaction` 与
-`finding-queue-transaction`；两者均以同一个 pure-vNext
-`CURRENT_TASK.md` 为 canonical state source，具体 proposal、runtime state
-和 handler contract 见 `.workflow-system/vnext/RUNTIME_CONTRACT.yaml`。
+Phase 2 的 `execute-step` 绑定 `task-state-transaction` 与
+`finding-queue-transaction`；Slice A 另外绑定 `task-state-transaction` 给
+`prepare-task`，但仅允许 `clear-resume-review-gate`，以及绑定
+`lifecycle-transaction` 给 `task-lifecycle` 的 `pause`、`interrupt`、
+`resume-paused`、`resume-interrupted`。具体 proposal、runtime state 和
+handler contract 见 `.workflow-system/vnext/RUNTIME_CONTRACT.yaml`。
 
 `CURRENT_TASK.md` 的 frontmatter 在保持原有 `schema_version`、`kind`、
 `document_id` 的基础上，必须包含 `runtime_state`：
@@ -839,6 +851,8 @@ runtime_state:
   task_slug: <materialized-task-slug>
   workflow_status: active
   lifecycle_state: active
+  resume_requires_review: false
+  resume_review_reasons: []
   active_step_id: <stable-step-id>
   active_step_status: ready | in-progress | completed | blocked
   finding_queue_revision: <non-negative integer>
@@ -859,12 +873,26 @@ root cause` 的记录才能进入 repair。`review_cycle` 记录当前 review cy
 review cycle 最多三轮，同一 repair wave 可包含多个 finding 但只计一轮；
 `applied_proposals` 只用于同一 canonical 文档内的幂等回放，不构成第二状态源。
 
-Phase 2 proposal 的写目标必须精确解析为当前 Project Profile 指定的
+`task-state-transaction` 的写目标必须精确解析为当前 Project Profile 指定的
 `CURRENT_TASK.md`，禁止 broad glob、跨 operation 写入或直接编辑其他治理
-文档。Runtime 结果闭集为 `success / no-op / conflict / blocked`；只有
-`success` 且 read-back 校验通过时才计为治理写入。dry-run 不写文件，stale
-source、重复 idempotency key、旧 schema、缺失 authority/evidence、非法
-状态转换、重复 finding 或超出 repair budget 均 fail-closed。
+文档。`lifecycle-transaction` 的每次写入必须精确解析为同一
+`CURRENT_TASK.md` 与一个由 task identity 推导的
+`TASKS/paused/TASK-<id>-<slug>.md` 或
+`TASKS/interrupted/TASK-<id>-<slug>.md`；resume 不得从 latest 或模糊候选
+猜测 package。Runtime 结果闭集为 `success / no-op / conflict / blocked`；
+只有 `success` 且 read-back 校验通过时才计为治理写入。dry-run 不写文件，
+stale source、重复 idempotency key、旧 schema、缺失 authority/evidence、
+非法状态转换、重复 finding 或超出 repair budget 均 fail-closed。
+
+Lifecycle Slice A 的恢复规则为：pause 与 interrupt 使用不同的 lifecycle
+state 和证据集；resume 必须恢复到 `active + active` 并保留
+`resume_requires_review=true` 及非空规范化 reasons；在
+`prepare-task` 完成 readiness/resume review 前，`execute-step` 与 finding
+admission 不得提交。`prepare-task` 的 Runtime action 只能清除 gate 与
+reasons，不能借此修改 identity、scope、plan、step 或其他 task facts。
+生命周期 transaction 对 live task 与 suspended package 使用同一 atomic
+commit，提交后 read-back；任一校验失败时 rollback 两个路径并再次 read-back
+验证。`supersede` 与 durable `replan` 不属于本 Slice 的 Runtime mutation。
 
 ### Compatibility alias 最小结构
 

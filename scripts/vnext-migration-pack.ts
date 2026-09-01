@@ -2093,7 +2093,7 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'review-change': [],
   'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
   'debug-task': ['task-state-transaction'],
-  'task-lifecycle': ['lifecycle-transaction', 'task-state-transaction'],
+  'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
   'close-task': ['task-state-transaction', 'project-status-transaction', 'archive-transaction', 'lesson-record-transaction'],
 };
@@ -2102,7 +2102,7 @@ const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
 };
 
 const BUNDLE_CURRENT_TASK_HEADINGS = ['## 任务信息', '## 验收标准', '## 允许修改范围', '## 实施步骤'];
-const BUNDLE_CURRENT_TASK_FIELDS = ['任务 ID', '任务 slug', '当前状态', '生命周期状态', '恢复需审查'];
+const BUNDLE_CURRENT_TASK_FIELDS = ['任务 ID', '任务 slug', '当前状态', '生命周期状态', '恢复需审查', '恢复审查原因'];
 
 function readBundleFrontmatter(content: string, location: string): { frontmatter: Record<string, unknown>; body: string } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content);
@@ -2221,6 +2221,13 @@ function validateVNextCurrentTaskBundleContent(content: string, location: string
       }
       if (bodyState.workflowStatus !== runtimeState.workflow_status || bodyState.lifecycleState !== runtimeState.lifecycle_state) {
         throw new Error('body lifecycle tuple conflicts with runtime_state.');
+      }
+      const bodyResumeReviewReasons = bodyState.resumeReviewReasons
+        ? bodyState.resumeReviewReasons.split(',').map(reason => reason.trim()).filter(Boolean)
+        : [];
+      if (bodyState.resumeRequiresReview !== runtimeState.resume_requires_review
+        || JSON.stringify(bodyResumeReviewReasons) !== JSON.stringify(runtimeState.resume_review_reasons)) {
+        throw new Error('body resume-review gate conflicts with runtime_state.');
       }
     } catch (error) {
       throw new MigrationPackError('BUNDLE_INVALID', `${location} body/runtime_state consistency check failed: ${error instanceof Error ? error.message : String(error)}`);

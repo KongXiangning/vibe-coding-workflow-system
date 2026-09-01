@@ -381,6 +381,7 @@ runtime_operations:
       - close-task
     bound_callers:
       - execute-step
+      - prepare-task
 
   - id: finding-queue-transaction
     status: bound
@@ -396,8 +397,8 @@ runtime_operations:
       - execute-step
 
   - id: lifecycle-transaction
-    status: contract-only
-    binding: unbound
+    status: bound
+    binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
       - vNext lifecycle marker
@@ -409,7 +410,8 @@ runtime_operations:
       - vNext recovery package
     allowed_callers:
       - task-lifecycle
-    bound_callers: []
+    bound_callers:
+      - task-lifecycle
 
   - id: inbox-record-transaction
     status: contract-only

@@ -57,7 +57,7 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   'review-change': [],
   'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
   'debug-task': ['task-state-transaction'],
-  'task-lifecycle': ['lifecycle-transaction', 'task-state-transaction'],
+  'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
   'close-task': [
     'task-state-transaction',
@@ -113,6 +113,12 @@ const REQUIRED_RUNTIME_OPERATIONS = [
   'archive-transaction',
   'lesson-record-transaction',
 ] as const;
+
+const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
+  'task-state-transaction': ['execute-step', 'prepare-task'],
+  'finding-queue-transaction': ['execute-step'],
+  'lifecycle-transaction': ['task-lifecycle'],
+};
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -306,7 +312,8 @@ function validateRuntimeCatalog(contract: UnknownRecord, phase: 'Phase 1' | 'Pha
     const id = expectString(operation.id, `contract.runtime_operations[${index}].id`);
     if (operations.has(id)) fail(`duplicate Runtime operation id "${id}"`);
     operations.set(id, operation);
-    const isPhase2Bound = id === 'task-state-transaction' || id === 'finding-queue-transaction';
+    const expectedBoundCallers = PHASE_2_BOUND_CALLERS[id];
+    const isPhase2Bound = expectedBoundCallers !== undefined;
     if (phase === 'Phase 1') {
       if (operation.status !== 'contract-only') fail(`Runtime operation "${id}" must be contract-only in Phase 1`);
       if (operation.binding !== 'unbound') fail(`Runtime operation "${id}" must be unbound in Phase 1`);
@@ -330,8 +337,8 @@ function validateRuntimeCatalog(contract: UnknownRecord, phase: 'Phase 1' | 'Pha
     for (const caller of boundCallers) {
       if (!callers.includes(caller)) fail(`Runtime operation "${id}" bound caller "${caller}" is not listed in allowed_callers`);
     }
-    if (phase === 'Phase 2' && isPhase2Bound && !boundCallers.includes('execute-step')) {
-      fail(`Runtime operation "${id}" must bind execute-step in Phase 2`);
+    if (phase === 'Phase 2' && isPhase2Bound) {
+      expectSetEqual(boundCallers, expectedBoundCallers!, `Runtime operation "${id}" bound callers`);
     }
     if ((!isPhase2Bound || phase === 'Phase 1') && boundCallers.length > 0) {
       fail(`Runtime operation "${id}" has bound callers outside the active Phase 2 slice`);

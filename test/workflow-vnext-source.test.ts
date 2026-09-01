@@ -149,6 +149,30 @@ describe('vNext Phase 2 source contract', () => {
     );
     expect(lifecycle).toContain('required evidence for the selected lifecycle transition is incomplete');
     expect(lifecycle).not.toContain('snapshot, checkpoint, dirty attribution, or recovery evidence is incomplete');
+    expect(lifecycle).toContain('one typed `LifecycleProposal`');
+    expect(lifecycle).toContain('Runtime resolves canonical paths');
+    expect(lifecycle).not.toContain('write_incomplete');
+    expect(lifecycle).not.toContain('read-back');
+    expect(lifecycle).not.toContain('atomic write');
+  });
+
+  test('keeps prepare-task resume-review handling to the minimal Runtime action', () => {
+    const prepare = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(prepare).toContain('clear-resume-review-gate');
+    expect(prepare).toContain('only to that gate-clear action');
+    expect(prepare).toContain('must not be used to mutate task identity, scope, plan, or any other task state');
+  });
+
+  test('keeps execute-step behind the resume-review gate', () => {
+    const execute = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(execute).toContain('resume_requires_review');
+    expect(execute).toContain('route through `prepare-task` readiness/resume review');
   });
 
   test('rejects cycle phases promoted into a mode', () => {
