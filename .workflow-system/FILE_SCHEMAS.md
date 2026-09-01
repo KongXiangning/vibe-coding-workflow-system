@@ -173,6 +173,46 @@
 - `paused_blocked` 至少包含 `blocker_recheck_required`
 - `interrupted` 至少包含与 checkpoint / diff / dirty attribution / environment / recovery strategy 对应的 interrupt reason
 
+### Same-task supersede / replan 承载约束
+
+Slice B 复用同一份 canonical `CURRENT_TASK.md`。`TASK_ID`、`TASK_SLUG` 和
+`document_id` 在 supersede / replan 中必须保持不变；新 identity 只能由独立
+新任务的 default path 生成。`blocked_by_replan + active` 与
+`superseded + active` 都是 durable non-active owner 状态，不是 public mode。
+两者均禁止 `execute-step`、pause、interrupt；前者可由权威证据清除回到
+`active + active`，或在 invalidation 确认后进入 `superseded + active`；后者
+只能由成功的 `prepare-task:replan` replacement 回到 `active + active`。
+
+未来 task-state transaction action 的闭集为：
+
+- `mark-replan-blocked`: `active + active` → `blocked_by_replan + active`
+- `clear-replan-block`: `blocked_by_replan + active` → `active + active`，仅当新权威证据证明旧 definition 仍成立
+- `commit-replan`: `superseded + active` → `active + active`，仅提交同一 identity 的合法 replacement
+
+ReplanDelta 只能替换以下既有 task-definition sections：
+
+- background/context；acceptance；Allowed / Conditional / Forbidden scope
+- affected contracts；confirmed decisions；open questions
+- implementation plan；implementation steps
+- regression / validation checks；rollback points
+- conditional design constraints；conditional post-release validation
+- 被触发的 propagation governance 内容
+
+以下 preservation fields 不得被 ReplanDelta 覆盖：`TASK_ID`、`TASK_SLUG`、
+`document_id`、历史 `## 执行记录`、既有 supersede/invalidation evidence、
+partial-diff provenance/disposition、historical findings、applied proposal/
+audit history 及其他 canonical provenance。旧 finding 不自动获得新 definition
+下的 repair authority；若仍适用，必须重新经过现有 finding admission。不得创建
+第二份 CURRENT_TASK snapshot、replan history object、新的 artifact family，或
+使用 arbitrary Markdown heading/path patch。
+
+`## 执行记录` 中的最小 audit record 必须能识别 action（`supersede`、
+`mark-replan-blocked`、`clear-replan-block` 或 `commit-replan`）、旧/新状态、
+同一 task identity、proposal/idempotency identity、source revision、authority /
+evidence refs，以及 partial-diff disposition（若 action 产生该字段）。
+supersede 成功后即使 replan blocked 也保留 superseded 状态，不得用回滚恢复旧
+definition 的执行权。
+
 ### Suspended package 承载约束
 
 suspended package 是 task artifact，不是新增治理文档类型，也不是 governance catalog 常驻对象。其 path contract 固定如下：

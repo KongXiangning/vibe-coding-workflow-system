@@ -184,6 +184,28 @@ Ordinary preparation, implementation, review, capture, validation, and closure a
 
 The Migration Pack may validate the old exact mode set while converting legacy documents, but vNext validation applies only the target mode-admission policy. No vNext Skill or Runtime handler interprets the old stage graph.
 
+### 5.3 Slice B design freeze — task-definition invalidation and replacement
+
+Slice B freezes a same-task identity model. `TASK_ID`, `TASK_SLUG`, and document identity are immutable across supersede/replan. Supersede applies to the current frozen task definition; it does not create a new task or silently choose a new goal, scope, or acceptance.
+
+`blocked_by_replan + active` means execution is unsafe but the evidence, authority, or user-owned decision needed to invalidate the definition is incomplete. It is a non-active owner, so `execute-step`, pause, and interrupt are forbidden; the old definition is not yet formally invalidated. It may return to `active + active` only when authoritative evidence proves the definition remains valid, or move to `superseded + active` when invalidation is confirmed.
+
+`superseded + active` means the old definition is formally invalidated by sufficient authority and evidence. It is a non-active owner, so `execute-step`, pause, and interrupt are forbidden, and it can never be restored as execution authority. Its only normal exit is a successful same-task `prepare-task:replan` commit.
+
+The legal transition matrix is:
+
+| From | Action | To | Required semantic condition |
+|---|---|---|---|
+| `active + active` | `mark-replan-blocked` | `blocked_by_replan + active` | continuation is unsafe and replan authority/evidence/decision is incomplete |
+| `blocked_by_replan + active` | `clear-replan-block` | `active + active` | new authoritative evidence proves the original definition remains valid |
+| `active + active` | `supersede` | `superseded + active` | goal, scope, or acceptance is formally invalidated |
+| `blocked_by_replan + active` | `supersede` | `superseded + active` | invalidation becomes confirmed |
+| `superseded + active` | `commit-replan` | `active + active` | closed replacement definition passes Runtime validation and commit |
+
+`task-lifecycle:supersede` owns the invalidation decision and emits only a typed SupersedeDelta: invalidation kind, reason, evidence references, and partial-diff disposition. It removes execution authority from the old definition, but does not write replacement task facts. `prepare-task:replan` owns context resolution, authority handling, bounded definition formation, and typed ReplanDelta creation. These are two transactions; a blocked replan never rolls back a successful supersede.
+
+Replan is a closed task-definition section replacement. It may replace only the existing sections for context/background, acceptance, Allowed/Conditional/Forbidden scope, affected contracts, decisions/open questions, implementation plan/steps, validation/regression, rollback/recovery, conditional design/release validation, and triggered propagation governance. It must preserve identity, execution history, prior invalidation evidence, partial-diff provenance/disposition, historical findings, applied-proposal/audit history, and other canonical provenance. Old findings retain history but do not inherit repair authority; a still-relevant finding requires fresh finding admission.
+
 ## 6. Adaptive capability selection
 
 ### 6.1 Mandatory evaluations
@@ -639,6 +661,9 @@ An “automatic” route is execution permission, not merely a recommendation. I
 - validation failure synchronizing success-shaped task state;
 - finding discovery entering repair before admission;
 - resume entering implementation before readiness review;
+- `superseded` or `blocked_by_replan` entering `execute-step`, pause, or interrupt;
+- restoring `superseded` directly to `active` without a successful `commit-replan`;
+- changing task identity during replan or silently creating replacement task facts during supersede;
 - optional sync categories being invoked as a user-visible checklist.
 
 ## 13. Runtime transaction architecture
@@ -694,6 +719,27 @@ proposal:
 - Partial writes and success-shaped failure are forbidden.
 
 The exact command/API syntax remains deferred until this architecture is confirmed.
+
+### 13.3 Slice B transaction actions and proposal boundaries
+
+The future task-state transaction catalog contains the closed actions `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These actions are contract-only until Slice B implementation; they do not authorize arbitrary active-task rewriting.
+
+The minimum SupersedeDelta shape is:
+
+```yaml
+semantic_delta:
+  kind: lifecycle
+  action: supersede
+  invalidation_kind: goal | scope | acceptance
+  invalidation_reason: <text>
+  evidence_refs: []
+  partial_diff_disposition:
+    reusable: []
+    rollback_required: []
+    stop_propagation: []
+```
+
+ReplanDelta names a typed replacement of the allowlisted existing task-definition sections and carries the unchanged task identity plus source revision. Arbitrary Markdown heading/path patches, a new task-definition store, a durable replan object, and a second state source are forbidden. Runtime validates the closed schema, source tuple, identity, transition, authority marker, exact section boundary, and atomic read-back; semantic goal/scope/acceptance and disposition decisions remain with the model/user authority layer.
 
 ## 14. Target architecture acceptance cases
 

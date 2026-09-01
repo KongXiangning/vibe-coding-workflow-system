@@ -759,6 +759,34 @@ active recovery ambiguity.
 the remaining inbox, status, archive, and lesson operations stay
 `contract-only / unbound / Phase 2`.
 
+The Slice B contract-only task-state action set is closed to
+`mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These names
+declare future Runtime transaction actions only; they do not bind a caller or
+make `blocked_by_replan` a public mode. `blocked_by_replan + active` and
+`superseded + active` are durable non-active owner states. Both reject
+`execute-step`, `pause`, and `interrupt`. The former may clear only when new
+authoritative evidence proves the current definition remains valid; the latter
+may clear only through a successful same-task `commit-replan`.
+
+Slice B preserves `TASK_ID`, `TASK_SLUG`, and document identity across replan.
+The `supersede` caller may submit only a typed lifecycle delta describing
+invalidation kind (`goal | scope | acceptance`), reason, evidence references,
+and partial-diff disposition. It removes execution authority from the old
+definition and cannot write replacement task facts. `prepare-task:replan`
+produces the replacement definition in a separate transaction. Runtime owns
+closed-schema validation, exact source/identity/transition/authority checks,
+atomic commit, idempotence, rollback, and read-back; semantic invalidation and
+disposition remain outside Runtime.
+
+The replacement is a closed allowlist of existing CURRENT_TASK task-definition
+sections. Identity, execution history, prior invalidation evidence,
+partial-diff provenance/disposition, historical findings, applied proposal
+history, and canonical provenance are preserved. An old finding does not carry
+repair authority into the replacement; it must pass finding admission again if
+still applicable. No generic Markdown patch, second task-definition store,
+replan object, or second state source is permitted. A successful supersede is
+never rolled back merely because a later replan is blocked.
+
 ### 4c.5 Compatibility alias rules
 
 Every current `templates/skills/*.SKILL.md.tmpl` name must appear exactly once in `compatibility_aliases` while Phase 0 is active.

@@ -43,6 +43,20 @@
 
 `execute-current-task` 与 `debug-and-fix-current-task` 都按语义边界拆分到多个新入口；这表示拆责任，不表示保留两个旧 wrapper。其余旧 Skill 由上表唯一归属，旧文件、旧 registry entry 和旧 public route 在纯 vNext 安装中均不存在。
 
+### 2.1 Slice B frozen owner map
+
+`task-lifecycle:supersede` and `prepare-task:replan` are separate transactions under one task identity. `TASK_ID`, `TASK_SLUG`, and document identity remain unchanged. A new identity is allowed only through the ordinary new-task path for a genuinely independent user request.
+
+| Caller | Owns | Does not own |
+|---|---|---|
+| `task-lifecycle:supersede` | invalidation kind (`goal | scope | acceptance`), reason, authority/evidence, partial-diff disposition, removal of old execution authority, typed SupersedeDelta | replacement goal, acceptance, scope, implementation plan, or steps |
+| `prepare-task:replan` | relevant context, new goal/acceptance/scope, affected contracts, decisions/open questions, bounded approach/steps, validation, rollback/recovery, conditional design/release/propagation requirements, typed ReplanDelta | generic Markdown patching, state transition mechanics, history mutation, idempotence, rollback, or read-back |
+| Runtime | schema/source/identity/transition/authority validation, closed section replacement, atomic commit, idempotence, rollback, read-back | deciding whether invalidation or partial-diff disposition is semantically correct |
+
+The durable statuses are deliberately not public modes. `blocked_by_replan + active` is a non-active owner state for unsafe continuation without sufficient authority/evidence/decision to invalidate; `superseded + active` is a non-active owner state after formal invalidation. Both forbid `execute-step`, pause, and interrupt. The first may clear to `active + active` when authoritative evidence proves the old definition valid, or supersede when invalidation is confirmed. The second can only return to `active + active` through successful `commit-replan`. A blocked replan never rolls back a successful supersede.
+
+The future task-state actions are the closed set `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. Slice B does not make `commit-replan` an arbitrary active-task replanning writer.
+
 ## 3. Skill 重写的统一契约
 
 每个 vNext entry 的模板都应先声明以下信息，再写模型行为说明：

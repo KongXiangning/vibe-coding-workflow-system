@@ -174,6 +174,31 @@ The old Skill implementation may remain in the source repository for comparison 
 
 Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`. `supersede` and durable `prepare-task:replan` remain proposal-only for Slice B. The lifecycle transaction owns the exact `CURRENT_TASK.md` plus identity-derived suspended-package pair, including atomic write, read-back, rollback, and fail-closed idempotence. A resume proposal carries the observed SHA-256 `recovery_package_revision`; Runtime compares it with the package bytes read at apply time and checks the live resume gate against the package header before snapshot normalization. Replays revalidate the secondary package before returning `no-op`; a consumed `rehydrated` package may be replaced by the next suspend cycle, while ready/incomplete sibling packages remain blocking. It never reads or hot-migrates an old paused/interrupted runtime.
 
+### 4.1 Slice B — same-task supersede and replan design freeze
+
+Slice B uses same-task replan: `TASK_ID`, `TASK_SLUG`, and the canonical `CURRENT_TASK.md` document identity do not change. Supersede invalidates the current task definition, not the task identity. Only a genuinely independent user request may enter the new-task path and create a new identity.
+
+The two non-active workflow statuses are distinct and both retain the active owner:
+
+| State | Meaning | Execution | Legal exits |
+|---|---|---|---|
+| `blocked_by_replan + active` | continuation is unsafe, but authority, evidence, or a user-owned decision is insufficient to declare the definition invalid | `execute-step`, pause, and interrupt fail closed | evidence proves the old definition remains valid → `active + active`; invalidation is confirmed → `superseded + active` |
+| `superseded + active` | sufficient authority/evidence has formally invalidated the old definition | `execute-step`, pause, and interrupt fail closed; the old definition can never be restored | successful `prepare-task:replan` replacement only → `active + active` |
+
+The legal transitions are:
+
+```text
+active + active → mark-replan-blocked → blocked_by_replan + active
+blocked_by_replan + active → clear-replan-block → active + active
+active + active → supersede → superseded + active
+blocked_by_replan + active → supersede → superseded + active
+superseded + active → commit-replan → active + active
+```
+
+`task-lifecycle:supersede` produces only a typed Supersede proposal containing invalidation kind (`goal | scope | acceptance`), reason, evidence references, and partial-diff disposition (`reusable`, `rollback_required`, `stop_propagation`; each may be empty). It removes execution authority from the old definition and does not write a new goal, acceptance, scope, plan, or steps. `prepare-task:replan` independently resolves context and authority, forms a bounded replacement definition, and produces a typed Replan proposal. Runtime validates schema, identity, source revision, transition, authority marker, and deterministic commit; it does not decide semantic disposition.
+
+Supersede and replan are separate transactions. If replan is blocked after supersede, the task remains `superseded + active`; supersede is never rolled back to restore the old plan. Replan uses a closed replacement of existing task-definition sections and preserves identity, historical execution/provenance/audit records, prior invalidation evidence, and finding history. An old finding never automatically receives repair authority under the replacement definition; if still applicable it must pass finding admission again.
+
 ## 5. Subsequent vNext phases
 
 After the first state-changing slice is stable, add the remaining intents incrementally:
@@ -221,6 +246,7 @@ The implemented Phase 2 slice additionally requires:
 - `task-state-transaction` is bound to `execute-step` and only the minimal `prepare-task` resume-review gate clear action; `finding-queue-transaction` remains bound to `execute-step`;
 - `lifecycle-transaction` is bound to `task-lifecycle` for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`, with exact `CURRENT_TASK.md` plus `TASKS/paused/...` or `TASKS/interrupted/...` boundaries;
 - `supersede` and durable `prepare-task:replan` remain contract-only until Slice B;
+- Slice B acceptance requires the same-task identity rule, the two non-active statuses, the separate supersede/replan transactions, and fail-closed execution/lifecycle prohibitions to be documented before implementation binding;
 - canonical runtime state remains inside `CURRENT_TASK.md`, with body/frontmatter consistency checks;
 - dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for both the single-file and lifecycle transactions;
 - `execute-step` does not report a governance write unless the corresponding Runtime result is `success`.
