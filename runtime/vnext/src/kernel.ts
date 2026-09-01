@@ -214,6 +214,7 @@ export type LifecycleDelta =
       action: 'resume-paused' | 'resume-interrupted';
       artifact_kind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>;
       recovery_package_path: string;
+      recovery_package_revision: string;
       resume_review_reasons: ResumeReviewReason[];
       evidence_refs: string[];
     }
@@ -718,7 +719,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const lifecycleRequiredFields: Record<string, string[]> = {
     pause_required: ['lifecycle_state', 'suspension_reason', 'task_start_base', 'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions', 'resume_review_reasons', 'evidence_refs'],
     interrupt_required: ['lifecycle_state', 'suspension_reason', 'task_start_base', 'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions', 'resume_review_reasons', 'checkpoint_evidence', 'dirty_attribution', 'environment_state', 'recovery_strategy', 'evidence_refs'],
-    resume_required: ['artifact_kind', 'recovery_package_path', 'resume_review_reasons', 'evidence_refs'],
+    resume_required: ['artifact_kind', 'recovery_package_path', 'recovery_package_revision', 'resume_review_reasons', 'evidence_refs'],
     supersede_required: ['invalidation_reason', 'evidence_refs'],
   };
   for (const [field, expected] of Object.entries(lifecycleRequiredFields)) {
@@ -766,9 +767,9 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (
     concurrency.model !== 'single-authorized-writer'
     || concurrency.concurrent_state_changing_writers !== 'forbidden'
-    || concurrency.stale_detection !== 'source-revision'
+    || concurrency.stale_detection !== 'source-revision-and-explicit-recovery-package-revision'
   ) {
-    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must require a single authorized state-changing writer and source-revision stale detection.');
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must require a single authorized state-changing writer plus explicit recovery package revision stale detection.');
   }
   const operations = contract.operations;
   if (!Array.isArray(operations) || operations.length !== RUNTIME_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare exactly the three Phase 2 bound operations.');
@@ -1002,16 +1003,19 @@ function validateLifecycleDelta(value: unknown): LifecycleDelta {
   }
 
   if (action === 'resume-paused' || action === 'resume-interrupted') {
-    expectExactKeys(record, ['kind', 'action', 'artifact_kind', 'recovery_package_path', 'resume_review_reasons', 'evidence_refs'], 'semantic_delta');
+    expectExactKeys(record, ['kind', 'action', 'artifact_kind', 'recovery_package_path', 'recovery_package_revision', 'resume_review_reasons', 'evidence_refs'], 'semantic_delta');
     const artifactKind = expectEnum(record.artifact_kind, ['paused', 'interrupted'], 'semantic_delta.artifact_kind');
     if ((action === 'resume-paused' && artifactKind !== 'paused') || (action === 'resume-interrupted' && artifactKind !== 'interrupted')) {
       fail('RUNTIME_LIFECYCLE_EVIDENCE_INVALID', `${action} must target the matching ${action === 'resume-paused' ? 'paused' : 'interrupted'} artifact kind.`);
     }
+    const recoveryPackageRevision = expectString(record.recovery_package_revision, 'semantic_delta.recovery_package_revision');
+    if (!/^[a-f0-9]{64}$/.test(recoveryPackageRevision)) fail('RUNTIME_SCHEMA_INVALID', 'semantic_delta.recovery_package_revision must be SHA-256.');
     return {
       kind,
       action,
       artifact_kind: artifactKind,
       recovery_package_path: normalizeRepoPath(expectString(record.recovery_package_path, 'semantic_delta.recovery_package_path'), 'semantic_delta.recovery_package_path'),
+      recovery_package_revision: recoveryPackageRevision,
       resume_review_reasons: validateLifecycleReasons(record.resume_review_reasons, 'semantic_delta.resume_review_reasons'),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
     };
@@ -1704,6 +1708,7 @@ type ParsedSuspendedPackage = {
   filePath: string;
   relativePath: string;
   raw: string;
+  revision: string;
   taskId: string;
   taskTitle: string;
   taskSlug: string;
@@ -1882,6 +1887,7 @@ function parseSuspendedPackage(
     filePath,
     relativePath: normalizedPath,
     raw,
+    revision: sha256(raw),
     taskId,
     taskTitle,
     taskSlug,
@@ -1974,6 +1980,81 @@ function assertSuspendedSourceMatchesSnapshot(current: CanonicalCurrentTask, sna
   }
 }
 
+function assertSuspendedGateMatchesPackage(current: CanonicalCurrentTask, packageArtifact: ParsedSuspendedPackage): void {
+  if (current.runtimeState.resume_requires_review !== packageArtifact.resumeRequiresReview
+    || current.runtimeState.resume_review_reasons.join('|') !== packageArtifact.resumeReviewReasons.join('|')) {
+    fail('RESUME_GATE_DRIFT', 'CURRENT_TASK resume gate differs from the suspended package gate.');
+  }
+}
+
+function lifecycleArtifactKind(delta: LifecycleDelta): Extract<TaskArtifactKind, 'paused' | 'interrupted'> | null {
+  if (delta.action === 'pause') return 'paused';
+  if (delta.action === 'interrupt') return 'interrupted';
+  if (delta.action === 'resume-paused' || delta.action === 'resume-interrupted') return delta.artifact_kind;
+  return null;
+}
+
+function assertLifecycleReplayArtifacts(root: string, current: CanonicalCurrentTask, proposal: LifecycleProposal): void {
+  const delta = proposal.semantic_delta;
+  const artifactKind = lifecycleArtifactKind(delta);
+  if (artifactKind === null) return;
+
+  const expected = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
+  const packageArtifact = parseSuspendedPackage(root, current, expected.relativePath, artifactKind);
+
+  if (delta.action === 'pause' || delta.action === 'interrupt') {
+    if (packageArtifact.rehydrationStatus !== 'ready_for_resume' || packageArtifact.ownershipState !== 'recovery_only') {
+      fail('LIFECYCLE_REPLAY_INCOMPLETE', 'lifecycle replay requires the original suspended package to remain ready_for_resume + recovery_only.');
+    }
+    if (current.runtimeState.workflow_status !== 'suspended' || current.runtimeState.lifecycle_state !== delta.lifecycle_state) {
+      fail('LIFECYCLE_REPLAY_INCOMPLETE', 'lifecycle replay no longer has the original suspended CURRENT_TASK tuple.');
+    }
+    if (packageArtifact.lifecycleState !== delta.lifecycle_state) {
+      fail('LIFECYCLE_REPLAY_INCOMPLETE', 'lifecycle replay package marker does not match the original transition.');
+    }
+    assertSuspendedGateMatchesPackage(current, packageArtifact);
+    return;
+  }
+
+  if (packageArtifact.rehydrationStatus !== 'rehydrated' || packageArtifact.ownershipState !== 'rehydrated') {
+    fail('LIFECYCLE_REPLAY_INCOMPLETE', 'resume replay requires the suspended package to remain rehydrated + rehydrated.');
+  }
+  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+    fail('LIFECYCLE_REPLAY_INCOMPLETE', 'resume replay no longer has an active + active CURRENT_TASK tuple.');
+  }
+}
+
+function assertSiblingRecoveryIsReconciled(
+  root: string,
+  current: CanonicalCurrentTask,
+  artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>,
+): void {
+  const siblingKind = artifactKind === 'paused' ? 'interrupted' : 'paused';
+  const sibling = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, siblingKind);
+  if (!fs.existsSync(sibling.filePath)) return;
+
+  const siblingArtifact = parseSuspendedPackage(root, current, sibling.relativePath, siblingKind);
+  if (siblingArtifact.rehydrationStatus === 'rehydrated' && siblingArtifact.ownershipState === 'rehydrated') return;
+  fail('SUSPENDED_PACKAGE_AMBIGUOUS', 'another ready or incomplete suspended package for the same task is present; reconcile the sibling before continuing.');
+}
+
+function prepareExistingPackageForReplacement(
+  root: string,
+  current: CanonicalCurrentTask,
+  packageRelativePath: string,
+  artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>,
+): string | undefined {
+  const expected = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
+  if (!fs.existsSync(expected.filePath)) return undefined;
+
+  const existing = parseSuspendedPackage(root, current, packageRelativePath, artifactKind);
+  if (existing.rehydrationStatus === 'rehydrated' && existing.ownershipState === 'rehydrated') return existing.raw;
+  if (existing.rehydrationStatus === 'write_incomplete') {
+    fail('SUSPENDED_PACKAGE_RECOVERY_REQUIRED', 'the existing suspended package is write_incomplete and requires explicit recovery before replacement.');
+  }
+  fail('SUSPENDED_PACKAGE_CONFLICT', `suspended package is already ready_for_resume: ${packageRelativePath}`);
+}
+
 function assertRequestedLifecycleTargets(root: string, current: CanonicalCurrentTask, proposal: LifecycleProposal): { packageFilePath?: string; packageRelativePath?: string } {
   if (proposal.requested_write_targets[0] !== current.relativePath) fail('RUNTIME_PATH_INVALID', 'lifecycle proposal must target the exact canonical CURRENT_TASK path first.');
   const delta = proposal.semantic_delta;
@@ -2005,7 +2086,13 @@ function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask
   if (delta.action === 'pause' || delta.action === 'interrupt') {
     ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
     if (!activeTuple) fail('LIFECYCLE_TRANSITION_INVALID', `${delta.action} requires the current task to be active + active.`);
-    if (fs.existsSync(packageFilePath)) fail('SUSPENDED_PACKAGE_CONFLICT', `suspended package already exists: ${packageRelativePath}`);
+    assertSiblingRecoveryIsReconciled(root, current, delta.action === 'pause' ? 'paused' : 'interrupted');
+    const originalPackageContent = prepareExistingPackageForReplacement(
+      root,
+      current,
+      packageRelativePath,
+      delta.action === 'pause' ? 'paused' : 'interrupted',
+    );
     const next: RuntimeState = {
       ...current.runtimeState,
       workflow_status: 'suspended',
@@ -2016,7 +2103,7 @@ function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask
     };
     const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next);
     const nextPackageContent = renderSuspendedPackage(current, delta, delta.action === 'pause' ? 'paused' : 'interrupted');
-    return { next, nextContent, packageFilePath, packageRelativePath, nextPackageContent };
+    return { next, nextContent, packageFilePath, packageRelativePath, nextPackageContent, ...(originalPackageContent === undefined ? {} : { originalPackageContent }) };
   }
 
   ensureAuthorityKinds(proposal, ['resume-review', 'evidence-admission']);
@@ -2028,12 +2115,14 @@ function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask
   if (packageArtifact.rehydrationStatus !== 'ready_for_resume' || packageArtifact.ownershipState !== 'recovery_only') {
     fail('SUSPENDED_PACKAGE_NOT_READY', 'resume accepts only ready_for_resume + recovery_only packages.');
   }
+  if (packageArtifact.revision !== delta.recovery_package_revision) {
+    fail('RECOVERY_PACKAGE_STALE', 'the suspended package changed after the resume proposal was created.');
+  }
+  assertSuspendedGateMatchesPackage(current, packageArtifact);
   assertSuspendedSourceMatchesSnapshot(current, packageArtifact.snapshot);
   if (packageArtifact.lifecycleState !== current.runtimeState.lifecycle_state) fail('LIFECYCLE_SOURCE_CONFLICT', 'package lifecycle state conflicts with CURRENT_TASK.');
   if (packageArtifact.resumeReviewReasons.join('|') !== delta.resume_review_reasons.join('|')) fail('RESUME_GATE_DRIFT', 'resume review reasons drifted between proposal and suspended package.');
-  const otherKind = delta.artifact_kind === 'paused' ? 'interrupted' : 'paused';
-  const otherPackage = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, otherKind);
-  if (fs.existsSync(otherPackage.filePath)) fail('SUSPENDED_PACKAGE_AMBIGUOUS', 'another suspended package for the same task is present; choose a single recovery record and reconcile the sibling first.');
+  assertSiblingRecoveryIsReconciled(root, current, delta.artifact_kind);
   if (packageArtifact.documentId !== String(current.frontmatter.document_id)) fail('RUNTIME_SOURCE_CONFLICT', 'resume package document_id conflicts with CURRENT_TASK.');
   const next: RuntimeState = {
     ...packageArtifact.snapshot.runtimeState,
@@ -2319,6 +2408,15 @@ export class GovernanceTransactionKernel {
     if (prior) {
       if (prior.proposal_digest !== proposalDigest) {
         return buildResult('conflict', proposal, current, options, 'idempotency key was already used by a different proposal.', { code: 'IDEMPOTENCY_CONFLICT', previous_revision: current.sourceTuple.revision });
+      }
+      if (proposal.operation_kind === 'lifecycle-transaction') {
+        try {
+          assertLifecycleReplayArtifacts(this.root, current, proposal as LifecycleProposal);
+        } catch (error) {
+          return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+            code: error instanceof VNextRuntimeError ? error.code : 'LIFECYCLE_REPLAY_INCOMPLETE',
+          });
+        }
       }
       return buildResult('no-op', proposal, current, options, 'proposal replay is an idempotent no-op.', {
         previous_revision: current.sourceTuple.revision,

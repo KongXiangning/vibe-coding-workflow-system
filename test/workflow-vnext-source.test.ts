@@ -151,6 +151,7 @@ describe('vNext Phase 2 source contract', () => {
     expect(lifecycle).not.toContain('snapshot, checkpoint, dirty attribution, or recovery evidence is incomplete');
     expect(lifecycle).toContain('one typed `LifecycleProposal`');
     expect(lifecycle).toContain('Runtime resolves canonical paths');
+    expect(lifecycle).toContain('recovery_package_revision');
     expect(lifecycle).not.toContain('write_incomplete');
     expect(lifecycle).not.toContain('read-back');
     expect(lifecycle).not.toContain('atomic write');

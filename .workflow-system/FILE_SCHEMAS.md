@@ -211,6 +211,9 @@ suspended package 的最小字段为：
 其中 `document_id` 必须与 live `CURRENT_TASK.md` 及 embedded snapshot 一致，
 `snapshot_sha256` 必须精确匹配 embedded snapshot 的字节内容；这两个字段是
 Runtime 用于防止 package 与 canonical task 串线的完整性标记，不是第二状态源。
+resume proposal 还必须携带 `recovery_package_revision`，其值是 Skill 读取
+package 后观察到的完整 package 原始字节 SHA-256；Runtime apply 时必须将它
+与实际重新读取的 package revision 精确比较。
 Slice A Runtime 另外要求 package 恰好包含一对
 `BEGIN vNext CURRENT_TASK snapshot` / `END vNext CURRENT_TASK snapshot`
 marker，并嵌入完整、可独立校验的 vNext `CURRENT_TASK.md` snapshot；marker
@@ -248,6 +251,12 @@ marker，并嵌入完整、可独立校验的 vNext `CURRENT_TASK.md` snapshot�
   - `recovery_strategy`
 
 `write_incomplete` package、marker 不自洽 package、或不满足上述最小字段的 package 都不得作为恢复输入。
+同 kind package 已存在时，`ready_for_resume + recovery_only` 必须返回
+conflict，`write_incomplete` 必须进入 recovery-required / blocked，只有
+`rehydrated + rehydrated` package 可以被下一轮同 kind suspend 覆盖；覆盖时
+原始内容必须进入同一 transaction 的 rollback 原像。另一个 kind 的 sibling
+package 只有在 `ready_for_resume` 或 `write_incomplete` 时构成 ambiguity；
+`rehydrated + rehydrated` sibling 不阻断新的 suspend/resume cycle。
 
 ### Inbox / record-only artifact 承载约束
 
@@ -883,6 +892,13 @@ review cycle 最多三轮，同一 repair wave 可包含多个 finding 但只计
 只有 `success` 且 read-back 校验通过时才计为治理写入。dry-run 不写文件，
 stale source、重复 idempotency key、旧 schema、缺失 authority/evidence、
 非法状态转换、重复 finding 或超出 repair budget 均 fail-closed。
+
+Lifecycle replay 在返回 `no-op` 前必须重新验证对应 secondary package 的存在、
+task identity、artifact kind 与 action marker；package 缺失、marker 损坏、
+rehydration 状态不匹配或 gate 漂移时必须返回 `conflict` / `blocked`，不能返回
+success-shaped no-op。resume 还必须在 snapshot normalization 前比较
+`CURRENT_TASK.md` 当前的 `resume_requires_review` / `resume_review_reasons`
+与 package header 的对应字段。
 
 Lifecycle Slice A 的恢复规则为：pause 与 interrupt 使用不同的 lifecycle
 state 和证据集；resume 必须恢复到 `active + active` 并保留

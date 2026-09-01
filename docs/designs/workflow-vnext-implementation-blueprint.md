@@ -195,7 +195,7 @@ pure-vNext canonical `CURRENT_TASK.md` with an in-document `runtime_state`,
 validates the exact source tuple and authority/evidence envelope, and commits
 typed task-state, finding-queue, or lifecycle deltas through one shared atomic
 kernel. The kernel owns deterministic schema, path, conflict, idempotency,
-package-marker, rollback, and read-back checks; the model remains responsible
+package-marker, package-revision, rollback, and read-back checks; the model remains responsible
 for semantic admission. Slice A's lifecycle handler covers only pause,
 interrupt, and the two explicit resume modes. `prepare-task` may call the
 Runtime only to clear `resume_requires_review` after readiness/resume review;
@@ -250,7 +250,7 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 | Operation | Canonical source / write target | 允许的 caller | 关键限制 |
 |---|---|---|---|
 | `task-state-transaction` | `CURRENT_TASK.md` 及其 vNext task state | `execute-step`；`prepare-task` 仅用于清除 resume-review gate | 只记录实际进度、evidence、deviation、risk、acceptance、handoff；Slice A 的 prepare 绑定不得改动其他 task facts |
-| `lifecycle-transaction` | `CURRENT_TASK.md` 与 `TASKS/paused/...` / `TASKS/interrupted/...` vNext snapshot/recovery package | `task-lifecycle` | pause/interrupt/explicit resume only；exact task identity、合法 tuple、显式唯一包、原子读回与双文件 rollback；不读取或热迁移旧 paused/interrupted runtime |
+| `lifecycle-transaction` | `CURRENT_TASK.md` 与 `TASKS/paused/...` / `TASKS/interrupted/...` vNext snapshot/recovery package | `task-lifecycle` | pause/interrupt/explicit resume only；resume proposal 必须携带 package SHA-256 revision；exact task identity、合法 tuple、显式唯一包、原子读回与双文件 rollback；rehydrated package 可被下一轮同 kind suspend 覆盖；不读取或热迁移旧 paused/interrupted runtime |
 | `inbox-record-transaction` | `TASKS/inbox/**` | `capture-work-item` | record-only；不升级成 task、catalog、lifecycle 或 archive |
 | `finding-queue-transaction` | admitted finding queue | `sync-state`、`execute-step` 的 admitted repair | 先过 finding admission；current-owner/in-scope/mechanical；稳定 fingerprint 与 provenance；去重 |
 | `project-status-transaction` | `STATUS` / approved status baseline | `sync-state`、`close-task`、`bootstrap-project` | status 是 descriptive；缺 evidence 时只能是 blocked/observing 等真实状态 |

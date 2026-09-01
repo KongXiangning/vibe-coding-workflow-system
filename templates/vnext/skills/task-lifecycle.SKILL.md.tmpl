@@ -18,6 +18,7 @@ entry_contract:
       - dirty_attribution
       - recovery_package
       - recovery_package_path
+      - recovery_package_revision
       - rollback_conditions
       - authority_evidence
       - caller_context
@@ -65,9 +66,9 @@ Perform one explicit, identity-safe task ownership or lifecycle transition. The 
 
 1. Verify the immutable task identity, active owner, current workflow status, current lifecycle tuple, and requested mode before proposing any transition.
 2. For `pause` and `interrupt`, collect the transition-specific checkpoint, dirty attribution, environment, recovery, rollback, and review evidence. Keep pause and interrupt as distinct modes; do not construct snapshots or package markers in the Skill.
-3. For `resume-paused` and `resume-interrupted`, confirm one explicit matching recovery package reference and complete review evidence. Never infer a recovery target from a latest or merely similar package.
+3. For `resume-paused` and `resume-interrupted`, confirm one explicit matching recovery package reference, its observed SHA-256 revision, and complete review evidence. Never infer a recovery target from a latest or merely similar package.
 4. For `supersede`, require evidence that goal, scope, or acceptance is no longer valid. Preserve the original task history and route preparation of the replacement intent separately; this mode remains proposal-only in Slice A.
-5. Emit one typed `LifecycleProposal` for the selected mode. The Runtime resolves canonical paths, validates package/state markers, constructs or restores the snapshot, and owns every durable write; this entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
+5. Emit one typed `LifecycleProposal` for the selected mode. For resume, include the observed `recovery_package_revision` in the typed delta. The Runtime resolves canonical paths, re-reads and compares the package revision, validates package/state markers, constructs or restores the snapshot, and owns every durable write; this entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
 
 ## Required result
 

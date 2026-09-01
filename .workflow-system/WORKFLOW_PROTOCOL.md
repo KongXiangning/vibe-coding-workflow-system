@@ -347,6 +347,9 @@ The v1 lifecycle contract uses fail-closed idempotence:
 
 - repeating pause / interrupt / resume / archive against the wrong source tuple, wrong artifact set, or mismatched markers must fail rather than returning a success-shaped no-op
 - lifecycle helpers must not silently normalize or discard contradictory marker combinations
+- a resume proposal must carry the observed SHA-256 revision of its explicit recovery package; Runtime apply must compare that revision with the package it re-reads
+- before resume snapshot normalization, the live `CURRENT_TASK.md` resume gate and reasons must exactly match the recovery package header
+- an idempotent lifecycle replay may return `no-op` only after revalidating the secondary package's existence, identity, artifact kind, and action marker
 
 Partial-failure recovery rules:
 
@@ -743,6 +746,15 @@ the latest package: it requires the explicit identity-derived package, restores
 `active + active`, and sets `resume_requires_review=true` with normalized
 reasons. Direct `execute-step` and finding admission remain blocked until the
 minimal `prepare-task` gate-clear proposal passes readiness/resume review.
+For resume, `recovery_package_revision` is part of the typed delta and must
+match the actual package bytes at apply time. A lifecycle replay must re-read
+its secondary package before returning `no-op`; missing, malformed, or
+incorrectly marked packages return `blocked` / `conflict`. A same-kind
+`rehydrated` package may be replaced by the next suspend transaction, with its
+original bytes kept for rollback; `ready_for_resume` conflicts and
+`write_incomplete` requires explicit recovery. A sibling package blocks only
+while it is ready or incomplete; an already `rehydrated` sibling is not an
+active recovery ambiguity.
 `supersede` and durable `prepare-task:replan` remain contract-only for Slice B;
 the remaining inbox, status, archive, and lesson operations stay
 `contract-only / unbound / Phase 2`.

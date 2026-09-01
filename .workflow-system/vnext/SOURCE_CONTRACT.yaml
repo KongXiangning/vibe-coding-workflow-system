@@ -403,7 +403,7 @@ runtime_operations:
     source_targets:
       - vNext lifecycle marker
       - vNext snapshot
-      - vNext recovery package
+      - vNext recovery package and its observed content revision
     write_targets:
       - vNext lifecycle marker
       - vNext snapshot
