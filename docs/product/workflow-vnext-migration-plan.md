@@ -210,6 +210,13 @@ After the first state-changing slice is stable, add the remaining intents increm
 3. `bootstrap-project` for design, greenfield, inventory, adopt, and realign flows for projects that are not being upgraded through the Migration Pack;
 4. additional project-specific gates and operations only when their authority, evidence, and rollback boundaries are explicit.
 
+The successful `close-task` boundary is frozen separately from the Slice B
+replan boundary: `active + active` passes closure eligibility, then
+`archive-transaction` atomically produces the canonical task archive and
+changes the live tuple to `closed + archived`; only afterward may STATUS and
+optional Lesson reconciliation run. This phase does not add non-success
+terminal dispositions or a durable `TASK_SUMMARY.md` output.
+
 Each later phase must preserve the seven-intent daily surface, adaptive internal capabilities, Review Convergence, Evidence Admission, canonical Markdown/YAML knowledge, and the Runtime kernel. It must not reintroduce a legacy compatibility runtime.
 
 ## 6. Acceptance gates

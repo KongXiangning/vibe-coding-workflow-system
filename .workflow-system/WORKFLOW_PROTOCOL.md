@@ -262,7 +262,7 @@ The v1 live workflow-status set is:
 - `draft`
 - `active`
 - `suspended`
-- `archived`
+- `closed`
 - `superseded`
 - `replaced`
 - `blocked_by_replan`
@@ -303,7 +303,7 @@ Active ownership rules:
 
 - only `draft + active` and `active + active` are active-owner tuples
 - `suspended + paused_pending_closure`, `suspended + paused_blocked`, and `suspended + interrupted` are non-active suspended markers
-- `archived + archived` is a terminal archive tuple
+- `closed + archived` is the successful terminal closure/archive tuple
 - `superseded + active`, `replaced + active`, and `blocked_by_replan + active` are non-active replacement / replan markers and are not resumable
 
 Dual-active protection:
@@ -337,7 +337,7 @@ Forbidden v1 transitions:
 - `paused_pending_closure -> archived`
 - `paused_blocked -> archived`
 - `interrupted -> archived`
-- `archived -> active`
+- `closed + archived` has no outgoing lifecycle or workflow transition
 - any suspended-to-active transition without complete resume-gate metadata
 - any transition that encodes paused / interrupted lifecycle values by overwriting `当前状态`
 
@@ -362,6 +362,42 @@ Compatibility boundary:
 
 - this protocol revision does not change runtime manifest / install / health report contracts
 - if lifecycle artifact semantics prove that those runtime contracts must change, the implementation must stop and split follow-up work instead of widening the current task
+
+### 3.4.4a Successful close-task terminal contract
+
+Successful closure uses `workflow_status = closed` and `lifecycle_state = archived`.
+`closed` means the task workflow completed and no longer owns execution;
+`archived` means the task lifecycle entered its terminal archive state.
+`completed` is not a workflow-status value and remains reserved for
+`active_step_status`.
+
+The only successful closure route is `active + active` → closure eligibility →
+`archive-transaction` → `closed + archived`. Eligibility requires materialized
+and consistent identity, a cleared resume gate, completed current step,
+satisfied acceptance, completed required validation, no admitted/in-progress
+finding, no unresolved closure blocker, complete triggered release/rollback/
+observation evidence, explicit non-blocking remaining risks, and a uniquely
+verified archive path. Suspended/paused/interrupted, `blocked_by_replan`,
+`superseded`, and `draft` states cannot use this route.
+
+`close-task:preview` is read-only. `archive-transaction` exclusively owns the
+terminal mutation and atomically writes `CURRENT_TASK.md` plus the exact
+identity-derived `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`; any write, integrity,
+or read-back failure rolls both paths back to pre-close `active + active`.
+After success, `CURRENT_TASK.md` remains complete and is not deleted, cleared,
+reset, or used to create the next task. The terminal tuple is non-owner,
+non-resumable, non-replanable, and non-executable.
+
+`project-status-transaction` runs after archive as a separate `STATUS`-only
+transaction, followed by optional lesson admission (`admit`, `defer`, or
+`no-op`). STATUS or Lesson failure never rolls back archive. Archive replay may
+return `no-op` only when tuple, identity/document ID, closure audit, exact path,
+archive hash/revision, and source-revision provenance all match; otherwise it
+fails closed. No `closing`, `close_pending`, `closure_state`, `closure_id`, or
+`archive_history` state/object is introduced. `TASK_SUMMARY.md` remains a
+legacy/source-repository schema and is not a vNext close-task durable output.
+Close-task does not implicitly synchronize Contracts, Decisions, or host
+guidance; missing prerequisite authoritative facts block closure.
 
 ### 3.4.5 Record-only intake artifacts
 

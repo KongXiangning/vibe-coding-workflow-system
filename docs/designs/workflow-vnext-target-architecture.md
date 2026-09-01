@@ -206,6 +206,25 @@ The legal transition matrix is:
 
 Replan is a closed task-definition section replacement. It may replace only the existing sections for context/background, acceptance, Allowed/Conditional/Forbidden scope, affected contracts, decisions/open questions, implementation plan/steps, validation/regression, rollback/recovery, conditional design/release validation, and triggered propagation governance. It must preserve identity, execution history, prior invalidation evidence, partial-diff provenance/disposition, historical findings, applied-proposal/audit history, and other canonical provenance. Old findings retain history but do not inherit repair authority; a still-relevant finding requires fresh finding admission.
 
+### 5.4 Successful close-task terminal semantics
+
+The successful terminal tuple is `closed + archived`: `closed` is the workflow
+status meaning the task completed and no longer owns execution, while
+`archived` is the lifecycle state meaning terminal archive was entered.
+`completed` remains an `active_step_status` value, not a workflow status. The
+only successful route is `active + active` → closure eligibility →
+`archive-transaction` → `closed + archived`; suspended/paused/interrupted,
+`blocked_by_replan`, `superseded`, and `draft` cannot use it.
+
+`archive-transaction` exclusively and atomically writes the preserved
+`CURRENT_TASK.md` plus the exact identity-derived task archive. It rolls both
+paths back to pre-close `active + active` on any write, integrity, or read-back
+failure. After success, STATUS reconciliation is a separate
+`project-status-transaction`, followed by optional lesson admission; neither
+failure rolls back the archive. Close-task has no close-specific task-state
+transaction, pending closure state, closure ID, or independent durable
+`TASK_SUMMARY.md` output.
+
 ## 6. Adaptive capability selection
 
 ### 6.1 Mandatory evaluations

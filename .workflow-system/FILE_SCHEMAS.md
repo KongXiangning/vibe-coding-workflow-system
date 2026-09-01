@@ -77,6 +77,13 @@
 - `## 回滚点`
 - `## 执行记录`
 
+Successful vNext close-task writes the terminal tuple `workflow_status: closed`
+and `lifecycle_state: archived`; `completed` remains an `active_step_status`
+value only. The live `CURRENT_TASK.md` is preserved intact after archive and
+must not be cleared, deleted, reset to a template, or used to create the next
+task. `TASK_SUMMARY.md` is retained as a legacy/source-repository schema and is
+not a vNext close-task durable output.
+
 ### 条件必填章节
 
 - `## 设计约束`：UI / 视觉 / 交互任务必须填写；非 UI 任务可保留默认 `Design mode: none`
@@ -577,6 +584,10 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 ### 作用
 
 总结单个任务的交付结果，供验收、回顾和归档使用。
+
+在 vNext 中，本 schema 仅用于 legacy/source-repository 兼容和历史材料说明；
+`close-task` 不生成独立持久化的 `TASK_SUMMARY.md`。交付摘要由
+`closure_result` 提供，canonical task archive 负责持久保存。
 
 ### 必填章节
 
