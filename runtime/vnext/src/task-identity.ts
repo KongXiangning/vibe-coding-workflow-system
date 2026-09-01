@@ -5,9 +5,8 @@ export type ExtractedTaskIdentity = { id: string | null; title: string | null; s
 export type CurrentTaskWorkflowStatus =
   | 'draft'
   | 'active'
-  | 'closed'
   | 'suspended'
-  | 'archived'
+  | 'closed'
   | 'superseded'
   | 'replaced'
   | 'blocked_by_replan';
@@ -29,9 +28,8 @@ export type ResumeReviewReason =
 export const CURRENT_TASK_WORKFLOW_STATUSES: CurrentTaskWorkflowStatus[] = [
   'draft',
   'active',
-  'closed',
   'suspended',
-  'archived',
+  'closed',
   'superseded',
   'replaced',
   'blocked_by_replan',
@@ -79,7 +77,6 @@ const CURRENT_TASK_STATUS_TUPLES = new Map<string, 'active_owner' | 'non_active_
   ['suspended|paused_pending_closure', 'non_active_owner'],
   ['suspended|paused_blocked', 'non_active_owner'],
   ['suspended|interrupted', 'non_active_owner'],
-  ['archived|archived', 'non_active_owner'],
   ['superseded|active', 'non_active_owner'],
   ['replaced|active', 'non_active_owner'],
   ['blocked_by_replan|active', 'non_active_owner'],

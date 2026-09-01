@@ -34,6 +34,7 @@ import {
   type RuntimeState,
   type ProjectStatusDelta,
 } from '../scripts/vnext-runtime';
+import { validateCurrentTaskStatusTuple as validatePureVNextStatusTuple } from '../runtime/vnext/src/task-identity';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const temporaryRoots: string[] = [];
@@ -465,8 +466,12 @@ function archiveDelta(overrides: Partial<ArchiveDelta> = {}): ArchiveDelta {
   };
 }
 
-function closeAuthority(): AuthorityEvidence[] {
+function archiveAuthority(): AuthorityEvidence[] {
   return evidence('active-task-owner', 'evidence-admission');
+}
+
+function reconciliationAuthority(): AuthorityEvidence[] {
+  return evidence('evidence-admission');
 }
 
 function archiveProposal(root: string, delta: ArchiveDelta = archiveDelta(), idempotencyKey = 'archive-close-1'): RuntimeProposal {
@@ -474,7 +479,7 @@ function archiveProposal(root: string, delta: ArchiveDelta = archiveDelta(), ide
   return createArchiveProposal(current, {
     delta,
     idempotency_key: idempotencyKey,
-    authority_evidence: closeAuthority(),
+    authority_evidence: archiveAuthority(),
     evidence_refs: delta.evidence_refs,
   });
 }
@@ -484,7 +489,7 @@ function statusProposal(root: string, delta: ProjectStatusDelta = statusDelta(),
   return createProjectStatusProposal(current, {
     delta,
     idempotency_key: idempotencyKey,
-    authority_evidence: closeAuthority(),
+    authority_evidence: reconciliationAuthority(),
     evidence_refs: delta.evidence_refs,
   });
 }
@@ -494,7 +499,7 @@ function lessonProposal(root: string, delta: LessonRecordDelta = lessonDelta(), 
   return createLessonRecordProposal(current, {
     delta,
     idempotency_key: idempotencyKey,
-    authority_evidence: closeAuthority(),
+    authority_evidence: reconciliationAuthority(),
     evidence_refs: delta.evidence_refs,
   });
 }
@@ -549,6 +554,10 @@ describe('vNext Phase 2 Runtime contract', () => {
       'lesson-record-transaction',
     ]);
     expect(result.unbound_operations).toEqual(['inbox-record-transaction']);
+  });
+
+  test('pure vNext rejects the legacy archived + archived workflow tuple', () => {
+    expect(() => validatePureVNextStatusTuple('archived', 'archived')).toThrow(/当前状态 must use one of/);
   });
 
   test('binds distribution identity to the project-local package, not business node_modules', () => {
@@ -1756,7 +1765,12 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(statusResult.planned_writes).toEqual(['docs/workflow/STATUS.md']);
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeStatus);
     expect(fs.readFileSync(currentPath, 'utf8')).toBe(currentBeforeStatus);
-    expect(fs.readFileSync(path.join(root, 'docs', 'workflow', 'STATUS.md'), 'utf8')).toContain('runtime fixture task completed');
+    const statusAfter = fs.readFileSync(path.join(root, 'docs', 'workflow', 'STATUS.md'), 'utf8');
+    expect(statusAfter).toContain('- 当前状态：completed');
+    expect(statusAfter).toContain('runtime fixture task completed');
+    expect(statusAfter).toContain('- runtime fixture task');
+    expect(statusAfter).toContain('- none beyond the completed task');
+    expect(statusAfter).toContain('- observe the next project checkpoint');
 
     const lessonsBefore = fs.readFileSync(path.join(root, 'docs', 'workflow', 'LESSONS.md'), 'utf8');
     const lesson = lessonProposal(root);
@@ -1773,6 +1787,72 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(applyVNextRuntimeProposal(root, status).status).toBe('no-op');
     expect(applyVNextRuntimeProposal(root, lesson).status).toBe('no-op');
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeStatus);
+  });
+
+  test('projects completed status items into the fixed STATUS sections and fails on ambiguous in-progress records', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    const statusBeforeArchive = fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      '## 🔨 正在开发\n\n- [ ] runtime fixture task',
+    );
+    fs.writeFileSync(statusPath, statusBeforeArchive, 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-projection')).status).toBe('success');
+
+    const statusResult = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-projection'));
+    expect(statusResult.status).toBe('success');
+    const projected = fs.readFileSync(statusPath, 'utf8');
+    expect(projected).toContain('## ✅ 已完成且稳定\n\n- [ ] baseline\n- runtime fixture task');
+    expect(projected).toContain('## 🔨 正在开发\n\n## 📋 待开发');
+    fs.writeFileSync(statusPath, projected.replace('- runtime fixture task\n\n## 🔨 正在开发', '- drifted completed item\n\n## 🔨 正在开发'), 'utf8');
+    const statusReplay = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-projection'));
+    expect(statusReplay.status).toBe('blocked');
+    expect(statusReplay.code).toBe('STATUS_PROVENANCE_MISMATCH');
+
+    const ambiguousRoot = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const ambiguousStatusPath = path.join(ambiguousRoot, 'docs', 'workflow', 'STATUS.md');
+    const ambiguousStatus = fs.readFileSync(ambiguousStatusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      '## 🔨 正在开发\n\n- [ ] runtime fixture task\n- [x] runtime fixture task',
+    );
+    fs.writeFileSync(ambiguousStatusPath, ambiguousStatus, 'utf8');
+    expect(applyVNextRuntimeProposal(ambiguousRoot, archiveProposal(ambiguousRoot, archiveDelta(), 'archive-status-ambiguous')).status).toBe('success');
+    const ambiguousBefore = fs.readFileSync(ambiguousStatusPath, 'utf8');
+    const ambiguousResult = applyVNextRuntimeProposal(ambiguousRoot, statusProposal(ambiguousRoot, statusDelta(), 'status-ambiguous'));
+    expect(ambiguousResult.status).toBe('blocked');
+    expect(ambiguousResult.code).toBe('STATUS_RECONCILIATION_CONFLICT');
+    expect(fs.readFileSync(ambiguousStatusPath, 'utf8')).toBe(ambiguousBefore);
+  });
+
+  test('fails Lesson replay when the provenance marker survives but its visible record drifts', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const archiveDeltaWithLesson = archiveDelta({
+      lesson_admission: {
+        decision: 'admit',
+        candidate_refs: ['lesson-runtime-close'],
+        evidence_refs: ['test:evidence:lesson'],
+      },
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+    });
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDeltaWithLesson, 'archive-lesson-integrity')).status).toBe('success');
+    const lesson = lessonProposal(root);
+    expect(applyVNextRuntimeProposal(root, lesson).status).toBe('success');
+
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const beforeDrift = fs.readFileSync(lessonsPath, 'utf8');
+    expect(beforeDrift).toContain('vNext lesson record');
+    fs.writeFileSync(
+      lessonsPath,
+      beforeDrift.replace(
+        '  - 结论："Keep archive, status, and lesson writes independently retryable."',
+        '  - 结论：drifted visible conclusion',
+      ),
+      'utf8',
+    );
+    const replay = applyVNextRuntimeProposal(root, lesson);
+    expect(replay.status).toBe('blocked');
+    expect(replay.code).toBe('LESSON_PROVENANCE_MISMATCH');
+    expect(fs.readFileSync(lessonsPath, 'utf8')).toContain('drifted visible conclusion');
   });
 
   test('persists defer and no-op lesson admission without allowing a Lesson write', () => {

@@ -3029,6 +3029,170 @@ function matchingStatusReceipt(content: string, location: string, archive: Archi
   return matches[0] ?? null;
 }
 
+const STATUS_PLACEHOLDER_VALUES = new Set(['none', 'n/a', '无', '暂无']);
+
+function statusItemText(line: string): string | null {
+  const match = /^-\s+(?:\[[ xX]\]\s*)?(.+?)\s*$/.exec(line);
+  if (!match) return null;
+  const value = match[1]!.trim();
+  if (value.length === 0 || STATUS_PLACEHOLDER_VALUES.has(value.toLowerCase())) return null;
+  return value;
+}
+
+function isStatusPlaceholderLine(line: string): boolean {
+  const match = /^-\s+(?:\[[ xX]\]\s*)?(.+?)\s*$/.exec(line);
+  return match !== null && STATUS_PLACEHOLDER_VALUES.has(match[1]!.trim().toLowerCase());
+}
+
+function validateStatusProjectionText(value: string, location: string): string {
+  if (value.includes('\n') || value.includes('\r')) {
+    fail('STATUS_RECONCILIATION_CONFLICT', `${location} cannot contain a line break.`);
+  }
+  return value.trim();
+}
+
+function readStatusSectionLines(content: string, title: string, location: string): string[] {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), [title], 2);
+  if (!section) fail('STATUS_INVALID', `${location} is missing the required ## ${title} section.`);
+  const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trim();
+  return body.length > 0 ? body.split('\n') : [];
+}
+
+function replaceStatusSectionBody(content: string, title: string, lines: readonly string[], location: string): string {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), [title], 2);
+  if (!section) fail('STATUS_INVALID', `${location} is missing the required ## ${title} section.`);
+  const body = lines.join('\n').trim();
+  return content.slice(0, section.contentStart) + `${body.length > 0 ? `\n${body}\n\n` : '\n'}` + content.slice(section.contentEnd);
+}
+
+function statusItemMatchCount(lines: readonly string[], item: string): number {
+  return lines.filter(line => statusItemText(line) === item).length;
+}
+
+function projectStatusOverview(content: string, delta: ProjectStatusDelta, location: string): string {
+  const lines = readStatusSectionLines(content, '项目概览', location);
+  const statusFieldPattern = /^-\s*(?:当前状态|status)\s*[:：]\s*.*$/i;
+  const matches = lines
+    .map((line, index) => ({ line, index }))
+    .filter(item => statusFieldPattern.test(item.line));
+  if (matches.length > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains multiple project status fields.`);
+  const statusLine = `- 当前状态：${delta.status}`;
+  if (matches.length === 1) {
+    const next = [...lines];
+    next[matches[0]!.index] = statusLine;
+    return replaceStatusSectionBody(content, '项目概览', next, location);
+  }
+  return replaceStatusSectionBody(content, '项目概览', [...lines, statusLine], location);
+}
+
+function projectStatusCompletedItems(content: string, delta: ProjectStatusDelta, location: string): string {
+  const completedLines = readStatusSectionLines(content, '✅ 已完成且稳定', location);
+  const developmentLines = readStatusSectionLines(content, '🔨 正在开发', location);
+  const unsupportedDevelopmentLines = developmentLines.filter(line =>
+    line.trim().length > 0
+    && statusItemText(line) === null
+    && !isStatusPlaceholderLine(line),
+  );
+  if (unsupportedDevelopmentLines.length > 0) {
+    fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains unsupported content in the in-progress section; the old record cannot be identified deterministically.`);
+  }
+  const meaningfulDevelopment = developmentLines
+    .map(statusItemText)
+    .filter((item): item is string => item !== null);
+  const removeDevelopmentIndexes = new Set<number>();
+  const appendCompleted: string[] = [];
+
+  for (const rawItem of delta.completed_items) {
+    const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
+    const completedMatches = statusItemMatchCount(completedLines, item);
+    if (completedMatches > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains duplicate completed item "${item}".`);
+    const developmentMatches = developmentLines
+      .map((line, index) => ({ line, index }))
+      .filter(entry => statusItemText(entry.line) === item);
+    if (developmentMatches.length > 1) {
+      fail('STATUS_RECONCILIATION_CONFLICT', `${location} cannot determine which in-progress record to remove for "${item}".`);
+    }
+    if (developmentMatches.length === 0 && completedMatches === 0 && meaningfulDevelopment.length > 0) {
+      fail('STATUS_RECONCILIATION_CONFLICT', `${location} cannot deterministically map completed item "${item}" to the existing in-progress records.`);
+    }
+    if (developmentMatches.length === 1) removeDevelopmentIndexes.add(developmentMatches[0]!.index);
+    if (completedMatches === 0) appendCompleted.push(item);
+  }
+
+  const nextDevelopmentLines = developmentLines.filter((_, index) => !removeDevelopmentIndexes.has(index));
+  let nextCompletedLines = [...completedLines];
+  if (appendCompleted.length > 0) {
+    nextCompletedLines = nextCompletedLines.filter(line => !isStatusPlaceholderLine(line));
+    while (nextCompletedLines.length > 0 && nextCompletedLines[nextCompletedLines.length - 1]!.trim() === '') nextCompletedLines.pop();
+    nextCompletedLines.push(...appendCompleted.map(item => `- ${item}`));
+  }
+  let next = replaceStatusSectionBody(content, '🔨 正在开发', nextDevelopmentLines, location);
+  return replaceStatusSectionBody(next, '✅ 已完成且稳定', nextCompletedLines, location);
+}
+
+function projectStatusRemainingRisks(content: string, delta: ProjectStatusDelta, location: string): string {
+  const riskItems = delta.remaining_risks.map(item => validateStatusProjectionText(item, `${location}.remaining_risks`));
+  if (riskItems.length === 0) return content;
+  const lines = readStatusSectionLines(content, '⚠️ 已知风险 / 观察点', location);
+  const appendItems = riskItems.filter(item => {
+    const matches = statusItemMatchCount(lines, item);
+    if (matches > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains duplicate remaining risk "${item}".`);
+    return matches === 0;
+  });
+  if (appendItems.length === 0) return content;
+  const nextLines = lines.filter(line => !isStatusPlaceholderLine(line));
+  while (nextLines.length > 0 && nextLines[nextLines.length - 1]!.trim() === '') nextLines.pop();
+  nextLines.push(...appendItems.map(item => `- ${item}`));
+  return replaceStatusSectionBody(content, '⚠️ 已知风险 / 观察点', nextLines, location);
+}
+
+function projectStatusCheckpoint(content: string, delta: ProjectStatusDelta, location: string): string {
+  const checkpoint = validateStatusProjectionText(delta.next_checkpoint, `${location}.next_checkpoint`);
+  const lines = readStatusSectionLines(content, '🔜 下一检查点', location);
+  const nonEmpty = lines.filter(line => line.trim().length > 0);
+  if (nonEmpty.some(line => statusItemText(line) === null && !isStatusPlaceholderLine(line))) {
+    fail('STATUS_RECONCILIATION_CONFLICT', `${location} next checkpoint section contains unsupported non-list content.`);
+  }
+  if (nonEmpty.filter(line => statusItemText(line) !== null).length > 1) {
+    fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains multiple next checkpoint records.`);
+  }
+  return replaceStatusSectionBody(content, '🔜 下一检查点', [`- ${checkpoint}`], location);
+}
+
+function projectStatusDelta(content: string, delta: ProjectStatusDelta, location: string): string {
+  let next = projectStatusOverview(content, delta, location);
+  next = projectStatusCompletedItems(next, delta, location);
+  next = projectStatusRemainingRisks(next, delta, location);
+  return projectStatusCheckpoint(next, delta, location);
+}
+
+function assertStatusProjection(content: string, delta: ProjectStatusDelta, location: string): void {
+  const overviewLines = readStatusSectionLines(content, '项目概览', location);
+  const statusLines = overviewLines.filter(line => /^-\s*(?:当前状态|status)\s*[:：]\s*.*$/i.test(line));
+  if (statusLines.length !== 1 || statusLines[0] !== `- 当前状态：${delta.status}`) {
+    fail('STATUS_PROVENANCE_MISMATCH', `${location} project status projection no longer matches the typed status delta.`);
+  }
+  const completedLines = readStatusSectionLines(content, '✅ 已完成且稳定', location);
+  const developmentLines = readStatusSectionLines(content, '🔨 正在开发', location);
+  for (const rawItem of delta.completed_items) {
+    const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
+    if (statusItemMatchCount(completedLines, item) !== 1 || statusItemMatchCount(developmentLines, item) !== 0) {
+      fail('STATUS_PROVENANCE_MISMATCH', `${location} completed item projection no longer matches "${item}".`);
+    }
+  }
+  const riskLines = readStatusSectionLines(content, '⚠️ 已知风险 / 观察点', location);
+  for (const rawItem of delta.remaining_risks) {
+    const item = validateStatusProjectionText(rawItem, `${location}.remaining_risks`);
+    if (statusItemMatchCount(riskLines, item) !== 1) {
+      fail('STATUS_PROVENANCE_MISMATCH', `${location} remaining risk projection no longer matches "${item}".`);
+    }
+  }
+  const checkpointLines = readStatusSectionLines(content, '🔜 下一检查点', location);
+  if (checkpointLines.filter(line => statusItemText(line) !== null).length !== 1 || statusItemText(checkpointLines.find(line => statusItemText(line) !== null) ?? '') !== delta.next_checkpoint) {
+    fail('STATUS_PROVENANCE_MISMATCH', `${location} next checkpoint projection no longer matches the typed status delta.`);
+  }
+}
+
 function appendStatusReconciliation(content: string, marker: string, location: string): string {
   const section = findUniqueMarkdownSection(scanMarkdownSections(content), ['最近更新记录', 'Recent Updates'], 2);
   if (!section) fail('STATUS_INVALID', `${location} is missing the required ## 最近更新记录 section.`);
@@ -3037,7 +3201,7 @@ function appendStatusReconciliation(content: string, marker: string, location: s
 }
 
 function prepareProjectStatusTransaction(root: string, current: CanonicalCurrentTask, proposal: ProjectStatusProposal): ProjectStatusTransactionPlan | null {
-  ensureAuthorityKinds(proposal, ['active-task-owner', 'evidence-admission']);
+  ensureAuthorityKinds(proposal, ['evidence-admission']);
   const { receipt } = matchingArchiveReceipt(root, current);
   const target = workflowDocPathForRoot(root, 'STATUS.md');
   if (!fs.existsSync(target.filePath)) fail('RUNTIME_SOURCE_MISSING', `STATUS.md is missing: ${target.relativePath}`);
@@ -3058,10 +3222,12 @@ function prepareProjectStatusTransaction(root: string, current: CanonicalCurrent
     if (digest(statusDeltaFromReceipt(existingReceipt)) !== deltaDigest) {
       fail('STATUS_RECONCILIATION_CONFLICT', 'STATUS reconciliation receipt no longer matches its typed status delta.');
     }
+    assertStatusProjection(originalStatusContent, proposal.semantic_delta, target.relativePath);
     return null;
   }
   const marker = renderStatusReconciliation(proposal, proposal.semantic_delta, receipt);
-  const nextStatusContent = appendStatusReconciliation(originalStatusContent, marker, target.relativePath);
+  const projectedStatusContent = projectStatusDelta(originalStatusContent, proposal.semantic_delta, target.relativePath);
+  const nextStatusContent = appendStatusReconciliation(projectedStatusContent, marker, target.relativePath);
   return {
     statusFilePath: target.filePath,
     statusRelativePath: target.relativePath,
@@ -3142,6 +3308,140 @@ function renderLessonCandidate(candidate: LessonCandidate, archive: ArchiveRecei
   ].join('\n');
 }
 
+type DurableLessonRecord = {
+  marker: LessonMarker;
+  candidate: LessonCandidate;
+};
+
+function countExactOccurrences(content: string, value: string): number {
+  if (value.length === 0) return 0;
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const index = content.indexOf(value, offset);
+    if (index < 0) return count;
+    count += 1;
+    offset = index + value.length;
+  }
+}
+
+function renderLessonMarkerFromData(marker: LessonMarker): string {
+  return `<!-- vNext lesson record: ${JSON.stringify({
+    task_id: marker.task_id,
+    task_slug: marker.task_slug,
+    document_id: marker.document_id,
+    archive_path: marker.archive_path,
+    archive_revision: marker.archive_revision,
+    source_revision: marker.source_revision,
+    candidate_ref: marker.candidate_ref,
+    candidate_digest: marker.candidate_digest,
+    evidence_refs: marker.evidence_refs,
+  })} -->`;
+}
+
+function archiveReceiptFromLessonMarker(marker: LessonMarker): ArchiveReceipt {
+  return {
+    filePath: '',
+    relativePath: marker.archive_path,
+    raw: '',
+    revision: marker.archive_revision,
+    taskId: marker.task_id,
+    taskSlug: marker.task_slug,
+    taskTitle: '',
+    documentId: marker.document_id,
+    sourceRevision: marker.source_revision,
+    archivePath: marker.archive_path,
+    idempotencyKey: 'lesson-marker-replay',
+    closureDeltaDigest: '0'.repeat(64),
+    lessonAdmission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
+  };
+}
+
+function parseLessonRenderedScalar(raw: string, location: string): string {
+  const value = raw.trim();
+  if (value.startsWith('"')) {
+    try {
+      return expectText(JSON.parse(value), location);
+    } catch (error) {
+      if (error instanceof VNextRuntimeError) throw error;
+      fail('LESSON_INVALID', `${location} is not a valid rendered scalar.`);
+    }
+  }
+  return expectText(value, location);
+}
+
+function readLessonRenderedField(block: string, label: string, indent: string, location: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`^${indent}-\\s*${escaped}：(.+?)\\s*$`, 'm').exec(block);
+  if (!match) fail('LESSON_INVALID', `${location} is missing the visible ${label} field.`);
+  return parseLessonRenderedScalar(match[1]!, `${location}.${label}`);
+}
+
+function readLessonRenderedEvidenceRefs(block: string, location: string): string[] {
+  const match = /^\s{2}-\s*证据引用：(.+?)\s*$/m.exec(block);
+  if (!match) fail('LESSON_INVALID', `${location} is missing the visible 证据引用 field.`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[1]!.trim());
+  } catch {
+    fail('LESSON_INVALID', `${location}.evidence_refs is not a JSON array.`);
+  }
+  return validateEvidenceRefs(parsed, `${location}.evidence_refs`);
+}
+
+function readDurableLessonRecord(content: string, marker: LessonMarker, location: string): DurableLessonRecord {
+  const markerText = renderLessonMarkerFromData(marker);
+  if (countExactOccurrences(content, markerText) !== 1) {
+    fail('LESSON_INVALID', `${location} contains a non-canonical or duplicate lesson provenance marker.`);
+  }
+  const markerStart = content.indexOf(markerText);
+  const sections = scanMarkdownSections(content);
+  const categorySection = sections.find(section =>
+    section.level === 2
+    && LESSON_CATEGORIES.includes(section.title as LessonCandidate['category'])
+    && markerStart >= section.contentStart
+    && markerStart < section.contentEnd,
+  );
+  if (!categorySection) fail('LESSON_INVALID', `${location} lesson marker is not inside a canonical lesson category section.`);
+
+  const nextMarker = content.indexOf('<!-- vNext lesson record:', markerStart + markerText.length);
+  const nextSection = sections
+    .filter(section => section.level === 2 && section.headingStart > markerStart)
+    .map(section => section.headingStart)
+    .sort((left, right) => left - right)[0];
+  const candidateEnd = Math.min(
+    nextMarker < 0 ? content.length : nextMarker,
+    nextSection === undefined ? content.length : nextSection,
+  );
+  const block = content.slice(markerStart, candidateEnd).replace(/\r\n?/g, '\n');
+  const candidate: LessonCandidate = {
+    candidate_ref: marker.candidate_ref,
+    category: categorySection.title as LessonCandidate['category'],
+    scene: readLessonRenderedField(block, '场景', '', `${location}.${marker.candidate_ref}`),
+    conclusion: readLessonRenderedField(block, '结论', '  ', `${location}.${marker.candidate_ref}`),
+    trigger: readLessonRenderedField(block, '触发信号', '  ', `${location}.${marker.candidate_ref}`),
+    cause: readLessonRenderedField(block, '原因', '  ', `${location}.${marker.candidate_ref}`),
+    action: readLessonRenderedField(block, '应对动作', '  ', `${location}.${marker.candidate_ref}`),
+    consumer: readLessonRenderedField(block, '消费者', '  ', `${location}.${marker.candidate_ref}`),
+    evidence_refs: readLessonRenderedEvidenceRefs(block, `${location}.${marker.candidate_ref}`),
+  };
+  if (marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|')) {
+    fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} marker evidence_refs do not match the visible Lesson record.`);
+  }
+  if (digest(candidate) !== marker.candidate_digest) {
+    fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} marker digest does not match the visible Lesson record.`);
+  }
+  const archive = archiveReceiptFromLessonMarker(marker);
+  if (countExactOccurrences(content, renderLessonCandidate(candidate, archive)) !== 1) {
+    fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} visible Lesson record drifted from its deterministic rendering.`);
+  }
+  return { marker, candidate };
+}
+
+function readDurableLessonRecords(content: string, location: string): DurableLessonRecord[] {
+  return readLessonMarkers(content, location).map((marker, index) => readDurableLessonRecord(content, marker, `${location}.lesson[${index}]`));
+}
+
 function appendLessonCandidates(content: string, candidates: readonly LessonCandidate[], archive: ArchiveReceipt, location: string): { content: string; candidateCount: number } {
   const additions = new Map<LessonCandidate['category'], LessonCandidate[]>();
   for (const candidate of candidates) {
@@ -3165,7 +3465,7 @@ function appendLessonCandidates(content: string, candidates: readonly LessonCand
 }
 
 function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: LessonRecordProposal): LessonRecordTransactionPlan | null {
-  ensureAuthorityKinds(proposal, ['active-task-owner', 'evidence-admission']);
+  ensureAuthorityKinds(proposal, ['evidence-admission']);
   const { receipt } = matchingArchiveReceipt(root, current);
   if (receipt.lessonAdmission.decision !== 'admit') {
     fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record-transaction is allowed only when the durable archive lesson admission is admit.');
@@ -3186,19 +3486,23 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
   for (const heading of ['使用规则', '通用', '数据与存储', '前端与交互', '后端与服务', '测试与回归', '部署与运行时']) {
     if (!findUniqueMarkdownSection(sections, [heading], 2)) fail('LESSON_INVALID', `LESSONS.md is missing the required ## ${heading} section.`);
   }
-  const existingMarkers = readLessonMarkers(originalLessonsContent, target.relativePath);
+  const existingRecords = readDurableLessonRecords(originalLessonsContent, target.relativePath);
   const newCandidates: LessonCandidate[] = [];
   for (const candidate of delta.candidates) {
-    const matchingRefs = existingMarkers.filter(marker => marker.candidate_ref === candidate.candidate_ref);
+    const matchingRefs = existingRecords.filter(record => record.marker.candidate_ref === candidate.candidate_ref);
+    if (matchingRefs.length > 1) {
+      fail('LESSON_INVALID', `LESSONS contains duplicate durable records for candidate ${candidate.candidate_ref}.`);
+    }
     if (matchingRefs.length > 0) {
       for (const existing of matchingRefs) {
-        if (existing.task_id !== receipt.taskId || existing.task_slug !== receipt.taskSlug || existing.document_id !== receipt.documentId || existing.archive_path !== receipt.relativePath || existing.archive_revision !== receipt.revision || existing.source_revision !== receipt.sourceRevision || existing.candidate_digest !== digest(candidate) || existing.evidence_refs.join('|') !== candidate.evidence_refs.join('|')) {
+        const marker = existing.marker;
+        if (marker.task_id !== receipt.taskId || marker.task_slug !== receipt.taskSlug || marker.document_id !== receipt.documentId || marker.archive_path !== receipt.relativePath || marker.archive_revision !== receipt.revision || marker.source_revision !== receipt.sourceRevision || marker.candidate_digest !== digest(candidate) || marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|') || digest(existing.candidate) !== digest(candidate)) {
           fail('LESSON_PROVENANCE_MISMATCH', `lesson candidate ${candidate.candidate_ref} has conflicting durable provenance.`);
         }
       }
       continue;
     }
-    const semanticDuplicate = existingMarkers.some(marker => marker.candidate_digest === digest(candidate));
+    const semanticDuplicate = existingRecords.some(record => record.marker.candidate_digest === digest(candidate));
     if (semanticDuplicate) continue;
     newCandidates.push(candidate);
   }
@@ -4460,6 +4764,7 @@ export class GovernanceTransactionKernel {
       if (receipt === null || receipt.archivePath !== plan.archive.relativePath || receipt.archiveRevision !== plan.archive.revision || receipt.sourceRevision !== plan.archive.sourceRevision || receipt.deltaDigest !== digest(proposal.semantic_delta)) {
         throw new Error('STATUS read-back receipt did not match the canonical archive.');
       }
+      assertStatusProjection(readBack, proposal.semantic_delta, plan.statusRelativePath);
       return buildResult('success', proposal, current, options, 'project-status transaction committed; STATUS-only read-back verified.', {
         target_path: plan.statusRelativePath,
         committed: true,
@@ -4517,7 +4822,7 @@ export class GovernanceTransactionKernel {
     try {
       const readBack = fs.readFileSync(plan.lessonsFilePath, 'utf8');
       if (readBack !== plan.nextLessonsContent) throw new Error('LESSONS read-back did not match the staged typed lesson record.');
-      readLessonMarkers(readBack, plan.lessonsRelativePath);
+      readDurableLessonRecords(readBack, plan.lessonsRelativePath);
       return buildResult('success', proposal, current, options, 'lesson-record transaction committed; LESSONS-only read-back verified.', {
         target_path: plan.lessonsRelativePath,
         committed: true,
