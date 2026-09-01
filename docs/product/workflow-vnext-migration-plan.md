@@ -347,14 +347,10 @@ Phase 2 execute / finding slice
 Slice A lifecycle
 Slice B supersede / same-task replan
 close-task design + implementation
+three daily-execution semantics docs-only design freeze
 ```
 
-The current boundary is this **docs-only design freeze** for the three daily
-execution semantics: Evidence-first / Persistent Test Admission,
-Mutation-oriented Scope, and Task / Step / Review Checkpoint / Repair / Step
-Advancement.
-
-The next implementation slice is:
+The current implementation boundary is:
 
 ```text
 Core Daily Execution Semantics Stabilization
@@ -366,9 +362,15 @@ bootstrap-project
 remaining expert / internal / intake surfaces
 ```
 
+Core Daily Execution Semantics Stabilization implements the three frozen daily
+execution semantics: Evidence-first / Persistent Test Admission,
+Mutation-oriented Scope, and Task / Step / Review Checkpoint / Repair / Step
+Advancement.
+
 The frozen semantics are a Phase 2 completion / stabilization boundary and are
 not an optional future follow-up. They must be implemented before
 `bootstrap-project`, without mixing in the existing Runtime robustness backlog.
+
 Do not add legacy-aware vNext readers, runtime hot migration, a long-lived
 compatibility surface, or a new public daily entry / mode for this work.
 

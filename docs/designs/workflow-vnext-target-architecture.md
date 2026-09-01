@@ -68,7 +68,12 @@ A target mode is admitted only when at least one of these changes:
 
 Historical Skill identity, implementation ordering, output wording, or a desire to preserve an old handoff is not sufficient reason to create a target mode.
 
-Every retained target mode must also declare an independently testable input/output contract, authority owner, mutation/write boundary, stop/terminal behavior, at least one regression case, and a caller-visible reason for existing. If two proposed modes cannot be distinguished by those properties, they are internal dimensions or parameters rather than modes.
+Every retained target mode must also declare an independently testable
+input/output contract, authority owner, mutation/write boundary,
+stop/terminal behavior, at least one regression or evidence scenario, and a
+caller-visible reason for existing. A regression or evidence scenario is a
+validation obligation, not an automatic admission of a new persistent
+automated test; any such test remains governed by P-12. If two proposed modes cannot be distinguished by those properties, they are internal dimensions or parameters rather than modes.
 
 ### P-03 — Adaptive depth never bypasses mandatory governance
 
