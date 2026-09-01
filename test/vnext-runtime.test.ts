@@ -8,15 +8,20 @@ import {
   applyVNextRuntimeProposal,
   createFindingQueueProposal,
   createLifecycleProposal,
+  createPrepareTaskReplanProposal,
   createPrepareTaskResumeReviewProposal,
   createTaskStateProposal,
+  createReviewCycleZero,
   GovernanceTransactionKernel,
   readCanonicalCurrentTask,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
+  type FindingRecord,
   type FindingQueueDelta,
   type LifecycleDelta,
+  type ReplanReplacementDefinition,
+  type ReplanTaskStateAction,
   type RuntimeProposal,
   type RuntimeState,
 } from '../scripts/vnext-runtime';
@@ -67,17 +72,77 @@ function makeBody(state: RuntimeState): string {
     `- 恢复需审查：${state.resume_requires_review ? 'true' : 'false'}`,
     `- 恢复审查原因：${state.resume_review_reasons.join(', ')}`,
     '',
+    '## 背景与上下文',
+    '',
+    '- original background',
+    '',
     '## 验收标准',
     '',
-    '- [ ] Runtime state is committed atomically',
+    '- [ ] original acceptance',
     '',
     '## 允许修改范围',
     '',
+    '### Allowed Files',
+    '',
     '- scripts/**',
+    '',
+    '### Conditional Files',
+    '',
+    '- docs/** when evidence is present',
+    '',
+    '## 禁止修改范围',
+    '',
+    '### Forbidden Files',
+    '',
+    '- .git/**',
+    '',
+    '## 受影响的契约',
+    '',
+    '- original contract',
+    '',
+    '## 已确认决策',
+    '',
+    '- original decision',
+    '',
+    '## 待确认问题',
+    '',
+    '- original question',
+    '',
+    '## 实现方案',
+    '',
+    '- original implementation plan',
+    '',
+    '## 审查问题队列',
+    '',
+    '- historical review queue entry',
+    '',
+    '## 传播治理记录',
+    '',
+    '- historical propagation evidence',
     '',
     '## 实施步骤',
     '',
     `- ${state.active_step_id}: implement runtime`,
+    '',
+    '## 回归检查项',
+    '',
+    '- original regression check',
+    '',
+    '## 回滚点',
+    '',
+    '- original rollback point',
+    '',
+    '## 设计约束',
+    '',
+    '- original design constraint',
+    '',
+    '## 发布后验证',
+    '',
+    '- original release validation',
+    '',
+    '## 执行记录',
+    '',
+    '- historical execution record',
     '',
   ].join('\n');
 }
@@ -187,6 +252,94 @@ function interruptDelta(overrides: Partial<Extract<LifecycleDelta, { action: 'in
     recovery_strategy: 'rehydrate the checkpoint and review the diff before execution',
     ...overrides,
   };
+}
+
+function replacementDefinition(overrides: Partial<ReplanReplacementDefinition> = {}): ReplanReplacementDefinition {
+  return {
+    background_context: '- replanned background',
+    acceptance: '- [ ] replanned acceptance',
+    allowed_scope: '- runtime/**',
+    conditional_scope: '- docs/** when the new evidence is admitted',
+    forbidden_scope: '- .git/**\n- secrets/**',
+    affected_contracts: '- Runtime contract',
+    confirmed_decisions: '- keep the same task identity',
+    open_questions: '- none for this replacement',
+    implementation_plan: '- implement the replacement plan',
+    implementation_steps: '- step-2: implement the replacement',
+    regression_checks: '- [ ] run the replacement regression suite',
+    rollback_points: '- restore the replacement commit if validation fails',
+    design_constraints: '- no visual changes',
+    post_release_validation: '- no release validation is required',
+    propagation_governance: '- propagation evidence is retained',
+    ...overrides,
+  };
+}
+
+function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
+  return {
+    fingerprint,
+    category: 'correctness',
+    owner_task_id: '010',
+    scope: 'admitted',
+    decision: 'mechanical',
+    file: 'scripts/example.ts',
+    failure_condition: `failure condition for ${fingerprint}`,
+    violated_invariant: `INV-${fingerprint}`,
+    root_cause_status: 'confirmed',
+    status,
+    repair_attempts: status === 'in-progress' ? 1 : 0,
+    max_repair_attempts: 2,
+    evidence_refs: [`test:evidence:${fingerprint}`],
+    review_cycle_id: 'review-cycle-9',
+    last_repair_wave_id: status === 'in-progress' ? 'repair-wave-9' : null,
+    admitted_at: '2026-08-31T00:00:00.000Z',
+    updated_at: '2026-08-31T00:01:00.000Z',
+    ...overrides,
+  };
+}
+
+function supersedeDelta(overrides: Partial<Extract<LifecycleDelta, { action: 'supersede' }>> = {}): Extract<LifecycleDelta, { action: 'supersede' }> {
+  return {
+    kind: 'lifecycle',
+    action: 'supersede',
+    invalidation_kind: 'scope',
+    invalidation_reason: 'the old scope is no longer valid',
+    evidence_refs: ['test:evidence:supersede'],
+    partial_diff_disposition: {
+      reusable: ['history'],
+      rollback_required: ['old implementation'],
+      stop_propagation: ['old consumers'],
+    },
+    ...overrides,
+  };
+}
+
+function replanProposal(
+  root: string,
+  action: ReplanTaskStateAction,
+  idempotencyKey: string,
+  overrides: { definition?: ReplanReplacementDefinition; active_step_id?: string; authority?: AuthorityEvidence[]; evidence_refs?: string[] } = {},
+): RuntimeProposal {
+  const current = readCanonicalCurrentTask(root);
+  const delta = action === 'commit-replan'
+    ? {
+      kind: 'task-state' as const,
+      action,
+      replacement_definition: overrides.definition ?? replacementDefinition(),
+      active_step_id: overrides.active_step_id ?? 'step-2',
+      evidence_refs: overrides.evidence_refs ?? ['test:evidence:replan'],
+    }
+    : {
+      kind: 'task-state' as const,
+      action,
+      evidence_refs: overrides.evidence_refs ?? ['test:evidence:replan'],
+    };
+  return createPrepareTaskReplanProposal(current, {
+    delta: delta as Parameters<typeof createPrepareTaskReplanProposal>[1]['delta'],
+    idempotency_key: idempotencyKey,
+    authority_evidence: overrides.authority ?? evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    evidence_refs: overrides.evidence_refs ?? ['test:evidence:replan'],
+  });
 }
 
 function fileRevision(filePath: string): string {
@@ -630,26 +783,366 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.lifecycle_state).toBe('active');
   });
 
-  test('keeps supersede proposal-only until Slice B', () => {
+  test('commits active supersede with invalidation evidence and no replacement write', () => {
     const root = makeRoot();
     const current = readCanonicalCurrentTask(root);
+    const beforeDefinition = current.body;
     const proposal = createLifecycleProposal(current, {
       mode: 'supersede',
       delta: {
         kind: 'lifecycle',
         action: 'supersede',
+        invalidation_kind: 'goal',
         invalidation_reason: 'the accepted goal is no longer valid',
         evidence_refs: ['test:evidence:supersede'],
+        partial_diff_disposition: {
+          reusable: ['existing test evidence'],
+          rollback_required: ['discard the stale implementation path'],
+          stop_propagation: ['do not publish the stale contract change'],
+        },
       },
-      idempotency_key: 'lifecycle-supersede-slice-a',
+      idempotency_key: 'lifecycle-supersede-active',
       authority_evidence: evidence('active-task-owner', 'evidence-admission'),
       evidence_refs: ['test:evidence:supersede'],
     });
-    const before = fs.readFileSync(current.filePath, 'utf8');
     const result = applyVNextRuntimeProposal(root, proposal);
+    expect(result.status).toBe('success');
+    expect(result.governed_mutation_count).toBe(1);
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.workflow_status).toBe('superseded');
+    expect(after.runtimeState.lifecycle_state).toBe('active');
+    expect(after.runtimeState.task_id).toBe(current.runtimeState.task_id);
+    expect(after.runtimeState.task_slug).toBe(current.runtimeState.task_slug);
+    expect(after.frontmatter.document_id).toBe(current.frontmatter.document_id);
+    expect(after.body).toContain('original background');
+    expect(after.body).toContain('original implementation plan');
+    expect(after.body).toContain('action: supersede');
+    expect(after.runtimeState.execution_log).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'supersede',
+        invalidation_kind: 'goal',
+        invalidation_reason: 'the accepted goal is no longer valid',
+        partial_diff_disposition: expect.objectContaining({ reusable: ['existing test evidence'] }),
+      }),
+    ]));
+    expect(after.runtimeState.applied_proposals.map(item => item.idempotency_key)).toContain('lifecycle-supersede-active');
+    const replay = applyVNextRuntimeProposal(root, proposal);
+    expect(replay.status).toBe('no-op');
+    expect(readCanonicalCurrentTask(root).body).toContain(beforeDefinition.slice(beforeDefinition.indexOf('## 背景与上下文'), beforeDefinition.indexOf('## 执行记录')));
+  });
+
+  test('transitions active to blocked_by_replan, blocks execution and lifecycle pause/interrupt, then clears the block', () => {
+    const root = makeRoot();
+    const marked = applyVNextRuntimeProposal(root, replanProposal(root, 'mark-replan-blocked', 'replan-mark-blocked'));
+    expect(marked.status).toBe('success');
+    expect(marked.state?.workflow_status).toBe('blocked_by_replan');
+    const blocked = readCanonicalCurrentTask(root);
+    expect(blocked.runtimeState.lifecycle_state).toBe('active');
+    expect(blocked.body).toContain('action: mark-replan-blocked');
+
+    const blockedExecution = applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'step-while-replan-blocked' }));
+    expect(blockedExecution.status).toBe('blocked');
+    expect(blockedExecution.code).toBe('TASK_STATE_NOT_ACTIVE');
+
+    const blockedPause = applyVNextRuntimeProposal(root, createLifecycleProposal(blocked, {
+      mode: 'pause',
+      delta: pauseDelta(),
+      idempotency_key: 'pause-while-replan-blocked',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:pause'],
+    }));
+    expect(blockedPause.status).toBe('blocked');
+    expect(blockedPause.code).toBe('LIFECYCLE_TRANSITION_INVALID');
+
+    const blockedInterrupt = applyVNextRuntimeProposal(root, createLifecycleProposal(blocked, {
+      mode: 'interrupt',
+      delta: interruptDelta(),
+      idempotency_key: 'interrupt-while-replan-blocked',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:interrupt'],
+    }));
+    expect(blockedInterrupt.status).toBe('blocked');
+    expect(blockedInterrupt.code).toBe('LIFECYCLE_TRANSITION_INVALID');
+
+    const clearProposal = replanProposal(root, 'clear-replan-block', 'replan-clear-blocked');
+    const cleared = applyVNextRuntimeProposal(root, clearProposal);
+    expect(cleared.status).toBe('success');
+    const active = readCanonicalCurrentTask(root);
+    expect(active.runtimeState.workflow_status).toBe('active');
+    expect(active.runtimeState.lifecycle_state).toBe('active');
+    expect(active.body).toContain('action: clear-replan-block');
+    expect(applyVNextRuntimeProposal(root, clearProposal).status).toBe('no-op');
+  });
+
+  test('allows blocked_by_replan to supersede and never writes a replacement definition', () => {
+    const root = makeRoot();
+    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'mark-replan-blocked', 'replan-mark-before-supersede')).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const beforeDefinition = blocked.body.slice(blocked.body.indexOf('## 背景与上下文'), blocked.body.indexOf('## 执行记录'));
+    const superseded = applyVNextRuntimeProposal(root, createLifecycleProposal(blocked, {
+      mode: 'supersede',
+      delta: supersedeDelta(),
+      idempotency_key: 'lifecycle-supersede-blocked',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    }));
+    expect(superseded.status).toBe('success');
+    expect(superseded.planned_writes).toEqual(['docs/workflow/CURRENT_TASK.md']);
+    expect(superseded.governed_mutation_count).toBe(1);
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.workflow_status).toBe('superseded');
+    expect(after.runtimeState.lifecycle_state).toBe('active');
+    expect(after.body).toContain(beforeDefinition);
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'step-after-supersede' })).code).toBe('TASK_STATE_NOT_ACTIVE');
+    const supersededPause = applyVNextRuntimeProposal(root, createLifecycleProposal(after, {
+      mode: 'pause',
+      delta: pauseDelta(),
+      idempotency_key: 'pause-after-supersede',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:pause'],
+    }));
+    expect(supersededPause.status).toBe('blocked');
+    expect(supersededPause.code).toBe('LIFECYCLE_TRANSITION_INVALID');
+    const supersededInterrupt = applyVNextRuntimeProposal(root, createLifecycleProposal(after, {
+      mode: 'interrupt',
+      delta: interruptDelta(),
+      idempotency_key: 'interrupt-after-supersede',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:interrupt'],
+    }));
+    expect(supersededInterrupt.status).toBe('blocked');
+    expect(supersededInterrupt.code).toBe('LIFECYCLE_TRANSITION_INVALID');
+  });
+
+  test('commits same-task replan with closed sections, deterministic normalization, history and identity preservation', () => {
+    const state = makeRuntimeState({
+      active_step_id: 'old-step',
+      active_step_status: 'in-progress',
+      finding_queue_revision: 7,
+      findings: [
+        runtimeFinding('finding-open-admitted', 'admitted'),
+        runtimeFinding('finding-open-progress', 'in-progress'),
+        runtimeFinding('finding-resolved', 'resolved'),
+        runtimeFinding('finding-rejected', 'rejected'),
+        runtimeFinding('finding-deferred', 'deferred'),
+      ],
+      execution_log: [{
+        idempotency_key: 'historical-step',
+        mode: 'default',
+        step_id: 'old-step',
+        status: 'in-progress',
+        evidence_refs: ['test:evidence:historical-step'],
+        recorded_at: '2026-08-31T00:00:00.000Z',
+      }],
+    });
+    const root = makeRoot(state);
+    const initial = readCanonicalCurrentTask(root);
+    const documentId = initial.frontmatter.document_id;
+    const supersedeProposal = createLifecycleProposal(initial, {
+      mode: 'supersede',
+      delta: supersedeDelta({ invalidation_kind: 'acceptance' }),
+      idempotency_key: 'lifecycle-supersede-before-replan',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    expect(applyVNextRuntimeProposal(root, supersedeProposal).status).toBe('success');
+
+    const superseded = readCanonicalCurrentTask(root);
+    const committed = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-commit-1', {
+      active_step_id: 'replacement-step',
+      definition: replacementDefinition(),
+      evidence_refs: ['test:evidence:replan-commit'],
+    }), { now: () => '2026-08-31T01:00:00.000Z' });
+    expect(committed.status).toBe('success');
+    expect(committed.governed_mutation_count).toBe(1);
+
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.task_id).toBe(initial.runtimeState.task_id);
+    expect(after.runtimeState.task_slug).toBe(initial.runtimeState.task_slug);
+    expect(after.frontmatter.document_id).toBe(documentId);
+    expect(after.runtimeState.workflow_status).toBe('active');
+    expect(after.runtimeState.lifecycle_state).toBe('active');
+    expect(after.runtimeState.active_step_id).toBe('replacement-step');
+    expect(after.runtimeState.active_step_status).toBe('ready');
+    expect(after.runtimeState.resume_requires_review).toBe(false);
+    expect(after.runtimeState.resume_review_reasons).toEqual([]);
+    expect(after.runtimeState.review_cycle).toEqual(createReviewCycleZero());
+    expect(after.runtimeState.finding_queue_revision).toBe(8);
+    expect(after.runtimeState.findings.map(item => [item.fingerprint, item.status])).toEqual([
+      ['finding-open-admitted', 'deferred'],
+      ['finding-open-progress', 'deferred'],
+      ['finding-resolved', 'resolved'],
+      ['finding-rejected', 'rejected'],
+      ['finding-deferred', 'deferred'],
+    ]);
+    expect(after.runtimeState.execution_log).toEqual(expect.arrayContaining([
+      expect.objectContaining({ idempotency_key: 'historical-step' }),
+      expect.objectContaining({ action: 'supersede', invalidation_kind: 'acceptance' }),
+      expect.objectContaining({ action: 'commit-replan', source_revision: superseded.sourceTuple.revision }),
+    ]));
+    expect(after.runtimeState.applied_proposals.map(item => item.idempotency_key)).toEqual([
+      'lifecycle-supersede-before-replan',
+      'replan-commit-1',
+    ]);
+    expect(after.body).toContain('- replanned background');
+    expect(after.body).toContain('- step-2: implement the replacement');
+    expect(after.body).toContain('historical review queue entry');
+    expect(after.body).toContain('action: commit-replan');
+    expect(after.body).not.toContain('- original background');
+
+    const oldSupersedeReplay = applyVNextRuntimeProposal(root, supersedeProposal);
+    expect(oldSupersedeReplay.status).toBe('blocked');
+    expect(oldSupersedeReplay.code).toBe('LIFECYCLE_REPLAY_INCOMPLETE');
+    const oldDefinitionCommit = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-illegal-from-active'));
+    expect(oldDefinitionCommit.status).toBe('blocked');
+    expect(oldDefinitionCommit.code).toBe('REPLAN_TRANSITION_INVALID');
+
+    const historical = after.runtimeState.findings[0];
+    const readmitted = applyVNextRuntimeProposal(root, createFindingQueueProposal(after, {
+      mode: 'repair',
+      delta: {
+        kind: 'finding-queue',
+        action: 'admit',
+        cycle_phase: 'discovery',
+        finding_admission_wave_id: 'finding-wave-after-replan',
+        finding: {
+          fingerprint: historical.fingerprint,
+          category: historical.category,
+          owner_task_id: historical.owner_task_id,
+          scope: historical.scope,
+          decision: historical.decision,
+          file: historical.file,
+          failure_condition: historical.failure_condition,
+          violated_invariant: historical.violated_invariant,
+          root_cause_status: historical.root_cause_status,
+          max_repair_attempts: historical.max_repair_attempts,
+          evidence_refs: ['test:evidence:re-admission'],
+          review_cycle_id: 'review-cycle-after-replan',
+        },
+      },
+      idempotency_key: 'finding-readmission-after-replan',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:re-admission'],
+    }));
+    expect(readmitted.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.findings[0]?.status).toBe('admitted');
+  });
+
+  test('rejects replan definition patches outside the closed section and identity allowlist', () => {
+    const root = makeRoot();
+    const valid = replanProposal(root, 'mark-replan-blocked', 'replan-schema-valid');
+    const invalidReplacement = {
+      kind: 'task-state',
+      action: 'commit-replan',
+      replacement_definition: { ...replacementDefinition(), arbitrary_heading: '## do not patch this' },
+      active_step_id: 'replacement-step',
+      evidence_refs: ['test:evidence:replan-schema'],
+    };
+    const invalid = applyVNextRuntimeProposal(root, {
+      ...valid,
+      idempotency_key: 'replan-schema-extra-field',
+      semantic_delta: invalidReplacement,
+    });
+    expect(invalid.status).toBe('blocked');
+    expect(invalid.code).toBe('RUNTIME_SCHEMA_INVALID');
+
+    const identityPatch = applyVNextRuntimeProposal(root, {
+      ...valid,
+      idempotency_key: 'replan-schema-identity-field',
+      semantic_delta: {
+        kind: 'task-state',
+        action: 'commit-replan',
+        replacement_definition: { ...replacementDefinition(), task_id: '999' },
+        active_step_id: 'replacement-step',
+        evidence_refs: ['test:evidence:replan-schema'],
+      },
+    });
+    expect(identityPatch.status).toBe('blocked');
+    expect(identityPatch.code).toBe('RUNTIME_SCHEMA_INVALID');
+
+    const headingPatch = applyVNextRuntimeProposal(root, {
+      ...valid,
+      idempotency_key: 'replan-schema-arbitrary-heading',
+      semantic_delta: {
+        kind: 'task-state',
+        action: 'commit-replan',
+        replacement_definition: { ...replacementDefinition(), background_context: '## arbitrary patch' },
+        active_step_id: 'replacement-step',
+        evidence_refs: ['test:evidence:replan-schema'],
+      },
+    });
+    expect(headingPatch.status).toBe('blocked');
+    expect(headingPatch.code).toBe('RUNTIME_SCHEMA_INVALID');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('active');
+  });
+
+  test('fails closed for stale, caller/mode/action mismatches and replan replay after a later transition', () => {
+    const root = makeRoot();
+    const mark = replanProposal(root, 'mark-replan-blocked', 'replan-stale-source');
+    const stale = applyVNextRuntimeProposal(root, { ...mark, source_tuple: { ...mark.source_tuple, revision: 'a'.repeat(64) } });
+    expect(stale.status).toBe('conflict');
+    expect(stale.code).toBe('SOURCE_TUPLE_MISMATCH');
+
+    const callerMismatch = applyVNextRuntimeProposal(root, {
+      ...mark,
+      idempotency_key: 'replan-wrong-caller',
+      caller: 'task-lifecycle',
+    });
+    expect(callerMismatch.status).toBe('blocked');
+    expect(callerMismatch.code).toBe('RUNTIME_CALLER_NOT_BOUND');
+
+    const modeMismatch = applyVNextRuntimeProposal(root, {
+      ...mark,
+      idempotency_key: 'replan-wrong-mode',
+      mode: 'default',
+    });
+    expect(modeMismatch.status).toBe('blocked');
+    expect(modeMismatch.code).toBe('RUNTIME_CALLER_NOT_BOUND');
+
+    const actionMismatch = applyVNextRuntimeProposal(root, {
+      ...mark,
+      idempotency_key: 'replan-wrong-action',
+      semantic_delta: { kind: 'task-state', action: 'clear-resume-review-gate', evidence_refs: ['test:evidence:replan'] },
+    });
+    expect(actionMismatch.status).toBe('blocked');
+    expect(actionMismatch.code).toBe('RUNTIME_CALLER_NOT_BOUND');
+
+    expect(applyVNextRuntimeProposal(root, mark).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, mark).status).toBe('no-op');
+    const clear = replanProposal(root, 'clear-replan-block', 'replan-clear-after-mark');
+    expect(applyVNextRuntimeProposal(root, clear).status).toBe('success');
+    const staleReplay = applyVNextRuntimeProposal(root, mark);
+    expect(staleReplay.status).toBe('blocked');
+    expect(staleReplay.code).toBe('RUNTIME_REPLAY_INCOMPLETE');
+  });
+
+  test('rolls back a commit-replan when canonical read-back fails', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createLifecycleProposal(current, {
+      mode: 'supersede',
+      delta: supersedeDelta(),
+      idempotency_key: 'supersede-before-replan-rollback',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    })).status).toBe('success');
+    const superseded = readCanonicalCurrentTask(root);
+    const proposal = replanProposal(root, 'commit-replan', 'replan-read-back-failure');
+    const before = fs.readFileSync(superseded.filePath, 'utf8');
+    let readCount = 0;
+    const kernel = new GovernanceTransactionKernel(root, targetRoot => {
+      readCount += 1;
+      if (readCount === 2) throw new Error('simulated replan post-commit read-back failure');
+      return readCanonicalCurrentTask(targetRoot);
+    });
+    const result = kernel.apply(proposal, { now: () => '2026-08-31T02:00:00.000Z' });
     expect(result.status).toBe('blocked');
-    expect(result.code).toBe('LIFECYCLE_MODE_UNBOUND');
-    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+    expect(result.code).toBe('READ_BACK_FAILED');
+    expect(result.governed_mutation_count).toBe(0);
+    expect(result.message).toContain('rollback read-back verified');
+    expect(readCount).toBe(3);
+    expect(fs.readFileSync(superseded.filePath, 'utf8')).toBe(before);
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
   });
 
   test('requires the explicit identity-derived package and rolls back both lifecycle files on read-back failure', () => {

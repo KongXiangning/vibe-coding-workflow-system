@@ -382,6 +382,12 @@ runtime_operations:
     bound_callers:
       - execute-step
       - prepare-task
+    bound_actions:
+      - execute-step:step-progress
+      - prepare-task:default:clear-resume-review-gate
+      - prepare-task:replan:mark-replan-blocked
+      - prepare-task:replan:clear-replan-block
+      - prepare-task:replan:commit-replan
 
   - id: finding-queue-transaction
     status: bound
@@ -395,6 +401,12 @@ runtime_operations:
       - execute-step
     bound_callers:
       - execute-step
+    bound_actions:
+      - execute-step:repair:admit
+      - execute-step:repair:record-repair-attempt
+      - execute-step:repair:resolve
+      - execute-step:repair:defer
+      - execute-step:repair:reject
 
   - id: lifecycle-transaction
     status: bound
@@ -412,6 +424,12 @@ runtime_operations:
       - task-lifecycle
     bound_callers:
       - task-lifecycle
+    bound_actions:
+      - task-lifecycle:pause
+      - task-lifecycle:interrupt
+      - task-lifecycle:resume-paused
+      - task-lifecycle:resume-interrupted
+      - task-lifecycle:supersede
 
   - id: inbox-record-transaction
     status: contract-only
@@ -424,6 +442,7 @@ runtime_operations:
     allowed_callers:
       - capture-work-item
     bound_callers: []
+    bound_actions: []
 
   - id: project-status-transaction
     status: contract-only
@@ -437,6 +456,7 @@ runtime_operations:
     allowed_callers:
       - close-task
     bound_callers: []
+    bound_actions: []
 
   - id: archive-transaction
     status: contract-only
@@ -449,6 +469,7 @@ runtime_operations:
     allowed_callers:
       - close-task
     bound_callers: []
+    bound_actions: []
 
   - id: lesson-record-transaction
     status: contract-only
@@ -461,3 +482,4 @@ runtime_operations:
     allowed_callers:
       - close-task
     bound_callers: []
+    bound_actions: []

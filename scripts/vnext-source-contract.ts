@@ -120,6 +120,30 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
   'lifecycle-transaction': ['task-lifecycle'],
 };
 
+const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
+  'task-state-transaction': [
+    'execute-step:step-progress',
+    'prepare-task:default:clear-resume-review-gate',
+    'prepare-task:replan:mark-replan-blocked',
+    'prepare-task:replan:clear-replan-block',
+    'prepare-task:replan:commit-replan',
+  ],
+  'finding-queue-transaction': [
+    'execute-step:repair:admit',
+    'execute-step:repair:record-repair-attempt',
+    'execute-step:repair:resolve',
+    'execute-step:repair:defer',
+    'execute-step:repair:reject',
+  ],
+  'lifecycle-transaction': [
+    'task-lifecycle:pause',
+    'task-lifecycle:interrupt',
+    'task-lifecycle:resume-paused',
+    'task-lifecycle:resume-interrupted',
+    'task-lifecycle:supersede',
+  ],
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 export type VNextSourceValidationResult = {
@@ -306,7 +330,7 @@ function validateRuntimeCatalog(contract: UnknownRecord, phase: 'Phase 1' | 'Pha
     const operation = expectRecord(rawOperation, `contract.runtime_operations[${index}]`);
     expectExactKeys(
       operation,
-      ['id', 'status', 'binding', 'implementation_phase', 'source_targets', 'write_targets', 'allowed_callers', 'bound_callers'],
+      ['id', 'status', 'binding', 'implementation_phase', 'source_targets', 'write_targets', 'allowed_callers', 'bound_callers', 'bound_actions'],
       `contract.runtime_operations[${index}]`,
     );
     const id = expectString(operation.id, `contract.runtime_operations[${index}].id`);
@@ -343,6 +367,9 @@ function validateRuntimeCatalog(contract: UnknownRecord, phase: 'Phase 1' | 'Pha
     if ((!isPhase2Bound || phase === 'Phase 1') && boundCallers.length > 0) {
       fail(`Runtime operation "${id}" has bound callers outside the active Phase 2 slice`);
     }
+    const boundActions = expectStringArray(operation.bound_actions, `Runtime operation "${id}".bound_actions`, true);
+    const expectedBoundActions = isPhase2Bound && phase === 'Phase 2' ? PHASE_2_BOUND_ACTIONS[id] ?? [] : [];
+    expectSetEqual(boundActions, expectedBoundActions, `Runtime operation "${id}" bound actions`);
   }
   for (const required of REQUIRED_RUNTIME_OPERATIONS) {
     if (!operations.has(required)) fail(`Runtime operation catalog is missing required "${required}"`);

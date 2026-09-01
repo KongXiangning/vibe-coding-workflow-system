@@ -54,6 +54,14 @@ proposal:
   prepare_task:
     bound_actions:
       - clear-resume-review-gate
+      - mark-replan-blocked
+      - clear-replan-block
+      - commit-replan
+    replan_mode: replan
+    replan_actions:
+      - mark-replan-blocked
+      - clear-replan-block
+      - commit-replan
   lifecycle:
     modes:
       - pause
@@ -66,8 +74,8 @@ proposal:
       - interrupt
       - resume-paused
       - resume-interrupted
-    proposal_only_modes:
       - supersede
+    proposal_only_modes: []
     pause_required:
       required:
         - lifecycle_state
@@ -101,8 +109,10 @@ proposal:
         - evidence_refs
     supersede_required:
       required:
+        - invalidation_kind
         - invalidation_reason
         - evidence_refs
+        - partial_diff_disposition
 
 canonical_current_task:
   frontmatter:

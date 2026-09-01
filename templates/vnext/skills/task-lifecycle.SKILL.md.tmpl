@@ -67,7 +67,7 @@ Perform one explicit, identity-safe task ownership or lifecycle transition. The 
 1. Verify the immutable task identity, active owner, current workflow status, current lifecycle tuple, and requested mode before proposing any transition.
 2. For `pause` and `interrupt`, collect the transition-specific checkpoint, dirty attribution, environment, recovery, rollback, and review evidence. Keep pause and interrupt as distinct modes; do not construct snapshots or package markers in the Skill.
 3. For `resume-paused` and `resume-interrupted`, confirm one explicit matching recovery package reference, its observed SHA-256 revision, and complete review evidence. Never infer a recovery target from a latest or merely similar package.
-4. For `supersede`, require evidence that goal, scope, or acceptance is no longer valid. Preserve the original task history and route preparation of the replacement intent separately; this mode remains proposal-only in Slice A.
+4. For `supersede`, require typed invalidation evidence for `goal`, `scope`, or `acceptance`, including an invalidation reason and `partial_diff_disposition`. Preserve the original task identity, definition history, provenance, and invalidation evidence; supersede never carries or writes a replacement definition.
 5. Emit one typed `LifecycleProposal` for the selected mode. For resume, include the observed `recovery_package_revision` in the typed delta. The Runtime resolves canonical paths, re-reads and compares the package revision, validates package/state markers, constructs or restores the snapshot, and owns every durable write; this entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
 
 ## Required result
@@ -80,4 +80,4 @@ Return one structured `lifecycle_result` containing:
 - rollback and recovery conditions, owner route, and review readiness;
 - one typed `LifecycleProposal` only when all model-visible transition preconditions pass.
 
-No transition is complete merely because a proposal was described. Slice A binds `lifecycle-transaction` for pause, interrupt, and the two explicit resume modes; `supersede` remains contract-only until Slice B.
+No transition is complete merely because a proposal was described. Slice B binds `lifecycle-transaction` for pause, interrupt, the two explicit resume modes, and `supersede`. Supersede only invalidates the old definition; use `prepare-task` in `replan` mode for a later same-task replacement, and report a truthful blocked result if that replacement cannot be committed.

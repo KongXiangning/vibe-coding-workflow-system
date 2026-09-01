@@ -58,7 +58,8 @@ Turn the caller's request into one bounded executable intent. This entry may wor
 3. Admit `Allowed`, `Conditional`, and `Forbidden` scope. A conditional or forbidden target is a blocker until the appropriate authority explicitly changes the scope.
 4. Classify decisions as mechanical, contract/decision-owned, or user-owned. Choose local mechanical details only; stop at unresolved user-owned or conflicting authority.
 5. Select planning and evidence depth from explicit risk triggers. Keep the smallest plan that makes each step independently verifiable, while retaining rollback, UI/release, propagation, external-documentation, and dangerous-operation requirements when triggered.
-6. Return a single prepared intent. Do not present create, review, scope, classify, plan, or decompose as separate callable operations.
+6. In `replan`, emit only the closed `ReplanDelta` replacement for existing task-definition sections plus the new `active_step_id`; never patch arbitrary Markdown headings or paths, add a new identity, or overwrite execution history, invalidation evidence, provenance, or finding history. Use `mark-replan-blocked`, `clear-replan-block`, and `commit-replan` only with caller `prepare-task` and mode `replan`.
+7. Return a single prepared intent. Do not present create, review, scope, classify, plan, or decompose as separate callable operations.
 
 ## Required result
 
@@ -72,6 +73,6 @@ Return a structured `prepared-task` result containing:
 - triggered capabilities and skipped-capability reasons;
 - evidence plan, rollback/recovery conditions, and stop conditions;
 - relevant context locators and conflict/exclusion trace;
-- a typed `task-state-transaction` proposal only for the minimal `clear-resume-review-gate` action after readiness/resume review evidence is complete; ordinary preparation remains proposal-only.
+- a typed `task-state-transaction` proposal for the minimal `clear-resume-review-gate` action after readiness/resume review evidence is complete, or for one of the three closed `replan` actions after the corresponding identity, scope, evidence, and replacement checks pass; ordinary preparation remains proposal-only.
 
-The Phase 2 Runtime binds `prepare-task` only to that gate-clear action. It must not be used to mutate task identity, scope, plan, or any other task state. Do not claim that `CURRENT_TASK.md` was written, updated, or committed unless the Runtime result explicitly reports a successful read-back-verified commit. If readiness evidence is absent or the proposal cannot pass its preconditions, return the prepared result with the blocker and stop.
+The Phase 2 Runtime binds `prepare-task` default mode only to that gate-clear action and `replan` mode to the three closed replan actions. For the default gate route, it must not be used to mutate task identity, scope, plan, or any other task state. In `replan`, it must not create a second snapshot or perform arbitrary definition patches; Runtime owns transition, normalization, canonical write, rollback, and idempotence. Do not claim that `CURRENT_TASK.md` was written, updated, or committed unless the Runtime result explicitly reports a successful read-back-verified commit. If readiness evidence is absent or the proposal cannot pass its preconditions, return the prepared result with the blocker and stop.
