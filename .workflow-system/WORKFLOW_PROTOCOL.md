@@ -795,6 +795,25 @@ history, `review_cycle` resets to the initial no-active-cycle baseline,
 `resume_requires_review` becomes `false`, `resume_review_reasons` becomes `[]`,
 and `execution_log` / `applied_proposals` are preserved.
 
+The canonical initial no-active-cycle `ReviewCycleState` is:
+
+```yaml
+review_cycle:
+  id: review-cycle-0
+  cycle_phase: discovery
+  repair_round: 0
+  counted_repair_wave_ids: []
+  active_repair_wave_id: null
+  verification_new_finding_wave_used: false
+  verification_new_finding_wave_id: null
+```
+
+This is the empty baseline meaning that no new review cycle has started.
+`cycle_phase: discovery` identifies the initial state only; it does not mean a
+discovery review has already executed. After `commit-replan`, Runtime must reset
+`review_cycle` to this exact baseline. A subsequent finding admission creates a
+new review cycle and is the point at which new review authority is established.
+
 ### 4c.5 Compatibility alias rules
 
 Every current `templates/skills/*.SKILL.md.tmpl` name must appear exactly once in `compatibility_aliases` while Phase 0 is active.

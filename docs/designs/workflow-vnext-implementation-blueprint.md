@@ -302,7 +302,7 @@ semantic_delta:
   evidence_refs: []
 ```
 
-Successful `commit-replan` sets `active_step_id` from the replacement and `active_step_status: ready`; moves admitted/in-progress findings to deferred/non-actionable; preserves resolved/rejected/already-deferred findings as history; resets `review_cycle` to the initial no-active-cycle baseline; sets `resume_requires_review: false` and `resume_review_reasons: []`; and preserves `execution_log` plus `applied_proposals`.
+Successful `commit-replan` sets `active_step_id` from the replacement and `active_step_status: ready`; moves admitted/in-progress findings to deferred/non-actionable; preserves resolved/rejected/already-deferred findings as history; resets `review_cycle` to the canonical `ReviewCycleState` baseline `review-cycle-0` defined in `.workflow-system/WORKFLOW_PROTOCOL.md`; sets `resume_requires_review: false` and `resume_review_reasons: []`; and preserves `execution_log` plus `applied_proposals`. A subsequent finding admission establishes new review authority.
 
 ## 6. Migration Pack 与 vNext 的硬边界
 
