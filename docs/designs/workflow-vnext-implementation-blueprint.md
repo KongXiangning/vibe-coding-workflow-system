@@ -55,7 +55,7 @@
 
 The durable statuses are deliberately not public modes. `blocked_by_replan + active` is a non-active owner state for unsafe continuation without sufficient authority/evidence/decision to invalidate; `superseded + active` is a non-active owner state after formal invalidation. Both forbid `execute-step`, pause, and interrupt. The first may clear to `active + active` when authoritative evidence proves the old definition valid, or supersede when invalidation is confirmed. The second can only return to `active + active` through successful `commit-replan`. A blocked replan never rolls back a successful supersede.
 
-The future task-state actions are the closed set `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. Slice B does not make `commit-replan` an arbitrary active-task replanning writer.
+The future task-state actions are the closed set `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. All three have `caller: prepare-task` and `mode: replan`; Slice B does not make `commit-replan` an arbitrary active-task replanning writer. `supersede` remains `caller: task-lifecycle`, `operation: lifecycle-transaction`.
 
 ## 3. Skill 重写的统一契约
 
@@ -263,7 +263,7 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 
 | Operation | Canonical source / write target | 允许的 caller | 关键限制 |
 |---|---|---|---|
-| `task-state-transaction` | `CURRENT_TASK.md` 及其 vNext task state | `execute-step`；`prepare-task` 仅用于清除 resume-review gate | 只记录实际进度、evidence、deviation、risk、acceptance、handoff；Slice A 的 prepare 绑定不得改动其他 task facts |
+| `task-state-transaction` | `CURRENT_TASK.md` 及其 vNext task state | `execute-step`；`prepare-task` 仅用于清除 resume-review gate，或在 `replan` mode 使用 `mark-replan-blocked`、`clear-replan-block`、`commit-replan` | replan actions 只接受同一 task identity；`commit-replan` 使用 closed replacement；旧 active/in-progress findings 变为 deferred/non-actionable；不得任意改写其他 task facts |
 | `lifecycle-transaction` | `CURRENT_TASK.md` 与 `TASKS/paused/...` / `TASKS/interrupted/...` vNext snapshot/recovery package | `task-lifecycle` | pause/interrupt/explicit resume only；resume proposal 必须携带 package SHA-256 revision；exact task identity、合法 tuple、显式唯一包、原子读回与双文件 rollback；rehydrated package 可被下一轮同 kind suspend 覆盖；不读取或热迁移旧 paused/interrupted runtime |
 | `inbox-record-transaction` | `TASKS/inbox/**` | `capture-work-item` | record-only；不升级成 task、catalog、lifecycle 或 archive |
 | `finding-queue-transaction` | admitted finding queue | `sync-state`、`execute-step` 的 admitted repair | 先过 finding admission；current-owner/in-scope/mechanical；稳定 fingerprint 与 provenance；去重 |
@@ -275,6 +275,34 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 | `archive-transaction` | canonical `TASK` archive | `close-task` | task identity、acceptance、validation、release/rollback、remaining risk 均满足后才 archive；路径精确且可重放 |
 
 Runtime kernel 只负责 deterministic validation、conflict、idempotence、atomic commit 和 read-back；语义判断仍由 entry、用户和 capability policy 共同完成。不存在一个可以随意写任意治理文档的 generic editor。
+
+Slice B 的 ReplanDelta 使用浅层 typed shape，不携带 arbitrary Markdown patch：
+
+```yaml
+semantic_delta:
+  kind: task-state
+  action: commit-replan
+  replacement_definition:
+    background_context: <existing-section-content>
+    acceptance: <existing-section-content>
+    allowed_scope: <existing-section-content>
+    conditional_scope: <existing-section-content>
+    forbidden_scope: <existing-section-content>
+    affected_contracts: <existing-section-content>
+    confirmed_decisions: <existing-section-content>
+    open_questions: <existing-section-content>
+    implementation_plan: <existing-section-content>
+    implementation_steps: <existing-section-content>
+    regression_checks: <existing-section-content>
+    rollback_points: <existing-section-content>
+    design_constraints: <existing-section-content-or-null>
+    post_release_validation: <existing-section-content-or-null>
+    propagation_governance: <existing-section-content-or-null>
+  active_step_id: <replacement-step-id>
+  evidence_refs: []
+```
+
+Successful `commit-replan` sets `active_step_id` from the replacement and `active_step_status: ready`; moves admitted/in-progress findings to deferred/non-actionable; preserves resolved/rejected/already-deferred findings as history; resets `review_cycle` to the initial no-active-cycle baseline; sets `resume_requires_review: false` and `resume_review_reasons: []`; and preserves `execution_log` plus `applied_proposals`.
 
 ## 6. Migration Pack 与 vNext 的硬边界
 

@@ -761,8 +761,10 @@ the remaining inbox, status, archive, and lesson operations stay
 
 The Slice B contract-only task-state action set is closed to
 `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These names
-declare future Runtime transaction actions only; they do not bind a caller or
-make `blocked_by_replan` a public mode. `blocked_by_replan + active` and
+declare future Runtime transaction actions only; all three are called by
+`prepare-task` in `replan` mode. `supersede` remains a `task-lifecycle` caller
+of `lifecycle-transaction`. They do not make `blocked_by_replan` a public mode.
+`blocked_by_replan + active` and
 `superseded + active` are durable non-active owner states. Both reject
 `execute-step`, `pause`, and `interrupt`. The former may clear only when new
 authoritative evidence proves the current definition remains valid; the latter
@@ -785,7 +787,13 @@ history, and canonical provenance are preserved. An old finding does not carry
 repair authority into the replacement; it must pass finding admission again if
 still applicable. No generic Markdown patch, second task-definition store,
 replan object, or second state source is permitted. A successful supersede is
-never rolled back merely because a later replan is blocked.
+never rolled back merely because a later replan is blocked. On successful
+`commit-replan`, the replacement supplies `active_step_id`,
+`active_step_status` becomes `ready`, admitted/in-progress findings become
+`deferred` and non-actionable, resolved/rejected/already-deferred findings stay
+history, `review_cycle` resets to the initial no-active-cycle baseline,
+`resume_requires_review` becomes `false`, `resume_review_reasons` becomes `[]`,
+and `execution_log` / `applied_proposals` are preserved.
 
 ### 4c.5 Compatibility alias rules
 

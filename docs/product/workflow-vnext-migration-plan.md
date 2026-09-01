@@ -178,7 +178,7 @@ Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-pau
 
 Slice B uses same-task replan: `TASK_ID`, `TASK_SLUG`, and the canonical `CURRENT_TASK.md` document identity do not change. Supersede invalidates the current task definition, not the task identity. Only a genuinely independent user request may enter the new-task path and create a new identity.
 
-The two non-active workflow statuses are distinct and both retain the active owner:
+The two non-active owner tuples are distinct and both retain `lifecycle_state = active`:
 
 | State | Meaning | Execution | Legal exits |
 |---|---|---|---|
@@ -198,6 +198,8 @@ superseded + active → commit-replan → active + active
 `task-lifecycle:supersede` produces only a typed Supersede proposal containing invalidation kind (`goal | scope | acceptance`), reason, evidence references, and partial-diff disposition (`reusable`, `rollback_required`, `stop_propagation`; each may be empty). It removes execution authority from the old definition and does not write a new goal, acceptance, scope, plan, or steps. `prepare-task:replan` independently resolves context and authority, forms a bounded replacement definition, and produces a typed Replan proposal. Runtime validates schema, identity, source revision, transition, authority marker, and deterministic commit; it does not decide semantic disposition.
 
 Supersede and replan are separate transactions. If replan is blocked after supersede, the task remains `superseded + active`; supersede is never rolled back to restore the old plan. Replan uses a closed replacement of existing task-definition sections and preserves identity, historical execution/provenance/audit records, prior invalidation evidence, and finding history. An old finding never automatically receives repair authority under the replacement definition; if still applicable it must pass finding admission again.
+
+On a successful `commit-replan`, Runtime applies deterministic task-state normalization: the replacement definition supplies `active_step_id`, `active_step_status` becomes `ready`, old admitted or in-progress findings become `deferred` / non-actionable and require fresh finding admission if still applicable, resolved/rejected/already-deferred findings remain history, `review_cycle` resets to the initial no-active-cycle baseline, `resume_requires_review` becomes `false`, and `resume_review_reasons` becomes `[]`. `execution_log` and `applied_proposals` are preserved.
 
 ## 5. Subsequent vNext phases
 

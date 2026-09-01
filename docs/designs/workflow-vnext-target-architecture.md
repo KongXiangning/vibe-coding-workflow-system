@@ -722,7 +722,7 @@ The exact command/API syntax remains deferred until this architecture is confirm
 
 ### 13.3 Slice B transaction actions and proposal boundaries
 
-The future task-state transaction catalog contains the closed actions `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These actions are contract-only until Slice B implementation; they do not authorize arbitrary active-task rewriting.
+The future task-state transaction catalog contains the closed actions `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These actions are contract-only until Slice B implementation; they do not authorize arbitrary active-task rewriting. All three are called only by `prepare-task` in `replan` mode. `supersede` remains a `task-lifecycle` caller of `lifecycle-transaction`.
 
 The minimum SupersedeDelta shape is:
 
@@ -739,7 +739,33 @@ semantic_delta:
     stop_propagation: []
 ```
 
-ReplanDelta names a typed replacement of the allowlisted existing task-definition sections and carries the unchanged task identity plus source revision. Arbitrary Markdown heading/path patches, a new task-definition store, a durable replan object, and a second state source are forbidden. Runtime validates the closed schema, source tuple, identity, transition, authority marker, exact section boundary, and atomic read-back; semantic goal/scope/acceptance and disposition decisions remain with the model/user authority layer.
+ReplanDelta uses the following intentionally shallow closed shape:
+
+```yaml
+semantic_delta:
+  kind: task-state
+  action: commit-replan
+  replacement_definition:
+    background_context: <existing-section-content>
+    acceptance: <existing-section-content>
+    allowed_scope: <existing-section-content>
+    conditional_scope: <existing-section-content>
+    forbidden_scope: <existing-section-content>
+    affected_contracts: <existing-section-content>
+    confirmed_decisions: <existing-section-content>
+    open_questions: <existing-section-content>
+    implementation_plan: <existing-section-content>
+    implementation_steps: <existing-section-content>
+    regression_checks: <existing-section-content>
+    rollback_points: <existing-section-content>
+    design_constraints: <existing-section-content-or-null>
+    post_release_validation: <existing-section-content-or-null>
+    propagation_governance: <existing-section-content-or-null>
+  active_step_id: <replacement-step-id>
+  evidence_refs: []
+```
+
+The replacement carries the unchanged task identity and source revision. On successful commit, Runtime sets `active_step_id` from the replacement, sets `active_step_status: ready`, marks admitted/in-progress findings deferred and non-actionable, preserves resolved/rejected/already-deferred findings as history, resets `review_cycle` to its initial no-active-cycle baseline, clears `resume_requires_review` and `resume_review_reasons`, and preserves `execution_log` and `applied_proposals`. Arbitrary Markdown heading/path patches, a new task-definition store, a durable replan object, and a second state source are forbidden. Runtime validates the closed schema, source tuple, identity, transition, authority marker, exact section boundary, and atomic read-back; semantic goal/scope/acceptance and disposition decisions remain with the model/user authority layer.
 
 ## 14. Target architecture acceptance cases
 

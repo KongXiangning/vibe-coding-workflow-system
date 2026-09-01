@@ -213,6 +213,15 @@ evidence refs，以及 partial-diff disposition（若 action 产生该字段）�
 supersede 成功后即使 replan blocked 也保留 superseded 状态，不得用回滚恢复旧
 definition 的执行权。
 
+`commit-replan` 的 Runtime normalization 必须是 deterministic：ReplanDelta
+提供新的 `active_step_id`，并将 `active_step_status` 设为 `ready`；旧的
+admitted / in-progress findings 改为 `deferred` 且 non-actionable，若仍适用
+必须重新经过 finding admission；`resolved`、`rejected`、已 `deferred` 的
+findings 保留为 history；`review_cycle` 重置为初始 no-active-cycle baseline；
+`resume_requires_review` 设为 `false`，`resume_review_reasons` 设为 `[]`；
+`execution_log` 与 `applied_proposals` 保留。该 normalization 与 closed
+section replacement 同属一次 atomic commit。
+
 ### Suspended package 承载约束
 
 suspended package 是 task artifact，不是新增治理文档类型，也不是 governance catalog 常驻对象。其 path contract 固定如下：
