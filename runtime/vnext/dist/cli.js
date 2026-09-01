@@ -822,7 +822,7 @@ var REPLAN_REPLACEMENT_FIELDS = [
 function normalizeReplacementSectionContent(value, location) {
   const normalized = value.replace(/\r\n?/g, `
 `).trim();
-  if (/^##\s+\S/m.test(normalized)) {
+  if (/^#{1,2}\s+\S/m.test(normalized)) {
     fail("RUNTIME_SCHEMA_INVALID", `${location} must contain section content, not an arbitrary top-level Markdown heading.`);
   }
   return normalized;
@@ -851,6 +851,33 @@ function validateReplanReplacementDefinition(value, location) {
     result[field] = normalizeReplacementSectionContent(expectText(raw, `${location}.${field}`, MAX_REPLAN_SECTION_CONTENT_LENGTH), `${location}.${field}`);
   }
   return result;
+}
+function replacementStepIds(implementationSteps) {
+  const ids = [];
+  for (const line of implementationSteps.split(`
+`)) {
+    const labelledStep = /^\s*[-*]\s+(?:\[[ xX]\]\s*)?([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\s*[:：]/.exec(line);
+    if (labelledStep) {
+      ids.push(labelledStep[1]);
+      continue;
+    }
+    const numberedStep = /^\s*[-*]\s+(?:\[[ xX]\]\s*)?步骤\s+([0-9]+)\s*[:：]/.exec(line);
+    if (numberedStep)
+      ids.push(`step-${numberedStep[1]}`);
+  }
+  return ids;
+}
+function assertReplacementActiveStep(activeStepId, implementationSteps) {
+  const stepIds = replacementStepIds(implementationSteps);
+  if (stepIds.length === 0) {
+    fail("RUNTIME_SECTION_INVALID", "replacement implementation_steps must contain at least one labelled step ID.");
+  }
+  if (new Set(stepIds).size !== stepIds.length) {
+    fail("RUNTIME_SECTION_INVALID", "replacement implementation_steps contains duplicate step IDs.");
+  }
+  if (!stepIds.includes(activeStepId)) {
+    fail("RUNTIME_SECTION_INVALID", `active_step_id ${activeStepId} does not identify a step in replacement implementation_steps.`);
+  }
 }
 function validateTaskStateDelta(value) {
   const record = expectRecord(value, "semantic_delta");
@@ -1708,7 +1735,7 @@ function renderExecutionAuditRecord(audit) {
 function appendExecutionAuditToBody(body, audit) {
   const section = findUniqueMarkdownSection(scanMarkdownSections(body), ["执行记录", "Execution Log"], 2);
   if (!section)
-    return body;
+    fail("RUNTIME_SECTION_INVALID", "CURRENT_TASK is missing the required ## 执行记录 audit section.");
   const existing = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
 `).trimEnd();
   const auditText = renderExecutionAuditRecord(audit);
@@ -1719,6 +1746,16 @@ function appendExecutionAuditToBody(body, audit) {
 `;
   return body.slice(0, section.contentStart) + `
 ${rendered}` + body.slice(section.contentEnd);
+}
+function assertExecutionAuditInBody(body, audit) {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(body), ["执行记录", "Execution Log"], 2);
+  if (!section)
+    fail("RUNTIME_REPLAY_INCOMPLETE", "replay is missing the required ## 执行记录 audit section.");
+  const content = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
+`);
+  if (!content.includes(renderExecutionAuditRecord(audit))) {
+    fail("RUNTIME_REPLAY_INCOMPLETE", `replay is missing the durable body audit for ${audit.action}.`);
+  }
 }
 function renderCanonicalCurrentTask(frontmatter, body, runtimeState, options = {}) {
   const nextFrontmatter = { ...frontmatter, runtime_state: runtimeState };
@@ -1890,12 +1927,12 @@ function expectedReplanReplayAudit(current, proposal) {
     fail("RUNTIME_REPLAY_INCOMPLETE", "replan replay is missing its durable execution audit record.");
   return entry;
 }
-function assertNoLaterReplanAudit(current, audit) {
+function assertNoLaterReplanAudit(current, audit, failureCode = "RUNTIME_REPLAY_INCOMPLETE") {
   const index = current.runtimeState.execution_log.findIndex((item) => item === audit);
   if (index < 0)
-    fail("RUNTIME_REPLAY_INCOMPLETE", "replan replay audit record is not part of the current execution log.");
+    fail(failureCode, "replay audit record is not part of the current execution log.");
   if (current.runtimeState.execution_log.slice(index + 1).some((item) => ("action" in item))) {
-    fail("RUNTIME_REPLAY_INCOMPLETE", "a later same-task lifecycle or replan transition has changed the replay boundary.");
+    fail(failureCode, "a later same-task lifecycle or replan transition has changed the replay boundary.");
   }
 }
 function assertTaskStateReplay(current, proposal) {
@@ -1903,6 +1940,7 @@ function assertTaskStateReplay(current, proposal) {
     return;
   const delta = proposal.semantic_delta;
   const audit = expectedReplanReplayAudit(current, proposal);
+  assertExecutionAuditInBody(current.body, audit);
   assertNoLaterReplanAudit(current, audit);
   if (delta.action === "mark-replan-blocked") {
     if (current.runtimeState.workflow_status !== "blocked_by_replan" || current.runtimeState.lifecycle_state !== "active")
@@ -1913,6 +1951,7 @@ function assertTaskStateReplay(current, proposal) {
   } else {
     if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active")
       fail("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has the active + active tuple.");
+    assertReplacementActiveStep(delta.active_step_id, delta.replacement_definition.implementation_steps);
     if (current.runtimeState.active_step_id !== delta.active_step_id || current.runtimeState.active_step_status !== "ready")
       fail("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has the replacement active step ready.");
     if (current.runtimeState.resume_requires_review || current.runtimeState.resume_review_reasons.length > 0)
@@ -1983,6 +2022,7 @@ function applyTaskStateDelta(current, proposal, now) {
     if (current.runtimeState.workflow_status !== "superseded" || current.runtimeState.lifecycle_state !== "active") {
       fail("REPLAN_TRANSITION_INVALID", "commit-replan requires superseded + active.");
     }
+    assertReplacementActiveStep(delta.active_step_id, delta.replacement_definition.implementation_steps);
     const findings = current.runtimeState.findings.map((item) => {
       const preserved = { ...item, evidence_refs: [...item.evidence_refs] };
       if (preserved.status === "admitted" || preserved.status === "in-progress") {
@@ -2502,6 +2542,8 @@ function assertLifecycleReplayArtifacts(root, current, proposal) {
       if (!audit || !("action" in audit) || audit.invalidation_kind !== delta.invalidation_kind || audit.invalidation_reason !== delta.invalidation_reason || audit.source_revision !== proposal.source_tuple.revision || audit.evidence_refs.join("|") !== delta.evidence_refs.join("|") || digest(audit.partial_diff_disposition) !== digest(delta.partial_diff_disposition)) {
         fail("LIFECYCLE_REPLAY_INCOMPLETE", "supersede replay is missing its durable invalidation audit record.");
       }
+      assertExecutionAuditInBody(current.body, audit);
+      assertNoLaterReplanAudit(current, audit, "LIFECYCLE_REPLAY_INCOMPLETE");
     }
     return;
   }

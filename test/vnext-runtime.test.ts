@@ -949,7 +949,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const superseded = readCanonicalCurrentTask(root);
     const committed = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-commit-1', {
-      active_step_id: 'replacement-step',
+      active_step_id: 'step-2',
       definition: replacementDefinition(),
       evidence_refs: ['test:evidence:replan-commit'],
     }), { now: () => '2026-08-31T01:00:00.000Z' });
@@ -962,7 +962,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(after.frontmatter.document_id).toBe(documentId);
     expect(after.runtimeState.workflow_status).toBe('active');
     expect(after.runtimeState.lifecycle_state).toBe('active');
-    expect(after.runtimeState.active_step_id).toBe('replacement-step');
+    expect(after.runtimeState.active_step_id).toBe('step-2');
     expect(after.runtimeState.active_step_status).toBe('ready');
     expect(after.runtimeState.resume_requires_review).toBe(false);
     expect(after.runtimeState.resume_review_reasons).toEqual([]);
@@ -1028,6 +1028,92 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.findings[0]?.status).toBe('admitted');
   });
 
+  test('requires active_step_id to uniquely identify a replacement implementation step', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createLifecycleProposal(current, {
+      mode: 'supersede',
+      delta: supersedeDelta(),
+      idempotency_key: 'supersede-before-step-validation',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    })).status).toBe('success');
+
+    const missingStep = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-missing-step', {
+      active_step_id: 'missing-step',
+    }));
+    expect(missingStep.status).toBe('blocked');
+    expect(missingStep.code).toBe('RUNTIME_SECTION_INVALID');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
+
+    const duplicateStep = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-duplicate-step', {
+      active_step_id: 'step-2',
+      definition: replacementDefinition({ implementation_steps: '- step-2: first\n- step-2: duplicate' }),
+    }));
+    expect(duplicateStep.status).toBe('blocked');
+    expect(duplicateStep.code).toBe('RUNTIME_SECTION_INVALID');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
+  });
+
+  test('requires the execution audit section and verifies body audit on replay', () => {
+    const root = makeRoot();
+    const current = readCanonicalCurrentTask(root);
+    fs.writeFileSync(current.filePath, current.raw.replace(/\r?\n## 执行记录[\s\S]*$/, '\n'), 'utf8');
+    const mark = replanProposal(root, 'mark-replan-blocked', 'replan-missing-audit-section');
+    const missingSection = applyVNextRuntimeProposal(root, mark);
+    expect(missingSection.status).toBe('blocked');
+    expect(missingSection.code).toBe('RUNTIME_SECTION_INVALID');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('active');
+
+    fs.writeFileSync(current.filePath, current.raw, 'utf8');
+    const restored = readCanonicalCurrentTask(root);
+    const supersede = createLifecycleProposal(restored, {
+      mode: 'supersede',
+      delta: supersedeDelta(),
+      idempotency_key: 'supersede-body-audit-replay',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    expect(applyVNextRuntimeProposal(root, supersede).status).toBe('success');
+    const superseded = readCanonicalCurrentTask(root);
+    fs.writeFileSync(superseded.filePath, superseded.raw.replace(/\r?\n## 执行记录[\s\S]*$/, '\n'), 'utf8');
+    const replayWithoutBodyAudit = applyVNextRuntimeProposal(root, supersede);
+    expect(replayWithoutBodyAudit.status).toBe('blocked');
+    expect(replayWithoutBodyAudit.code).toBe('RUNTIME_REPLAY_INCOMPLETE');
+  });
+
+  test('blocks replay of a supersede proposal from an earlier definition generation', () => {
+    const root = makeRoot();
+    const initial = readCanonicalCurrentTask(root);
+    const supersedeA = createLifecycleProposal(initial, {
+      mode: 'supersede',
+      delta: supersedeDelta(),
+      idempotency_key: 'supersede-generation-a',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    expect(applyVNextRuntimeProposal(root, supersedeA).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'commit-generation-replan')).status).toBe('success');
+
+    const replanned = readCanonicalCurrentTask(root);
+    const supersedeB = createLifecycleProposal(replanned, {
+      mode: 'supersede',
+      delta: supersedeDelta({
+        invalidation_kind: 'acceptance',
+        invalidation_reason: 'the replacement acceptance is now invalid',
+      }),
+      idempotency_key: 'supersede-generation-b',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    expect(applyVNextRuntimeProposal(root, supersedeB).status).toBe('success');
+
+    const oldGenerationReplay = applyVNextRuntimeProposal(root, supersedeA);
+    expect(oldGenerationReplay.status).toBe('blocked');
+    expect(oldGenerationReplay.code).toBe('LIFECYCLE_REPLAY_INCOMPLETE');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
+  });
+
   test('rejects replan definition patches outside the closed section and identity allowlist', () => {
     const root = makeRoot();
     const valid = replanProposal(root, 'mark-replan-blocked', 'replan-schema-valid');
@@ -1066,7 +1152,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       semantic_delta: {
         kind: 'task-state',
         action: 'commit-replan',
-        replacement_definition: { ...replacementDefinition(), background_context: '## arbitrary patch' },
+        replacement_definition: { ...replacementDefinition(), background_context: '# arbitrary patch' },
         active_step_id: 'replacement-step',
         evidence_refs: ['test:evidence:replan-schema'],
       },
