@@ -388,9 +388,11 @@ After success, `CURRENT_TASK.md` remains complete and is not deleted, cleared,
 reset, or used to create the next task. The terminal tuple is non-owner,
 non-resumable, non-replanable, and non-executable.
 
-`project-status-transaction` runs after archive as a separate `STATUS`-only
-transaction, followed by optional lesson admission (`admit`, `defer`, or
-`no-op`). STATUS or Lesson failure never rolls back archive. Archive replay may
+Closure preparation evaluates knowledge admission before archive. The decision
+may be `admit`, `defer`, or `no-op`; only `admit` permits a later
+`lesson-record-transaction`. `project-status-transaction` runs after archive as
+a separate `STATUS`-only transaction, followed by that optional Lesson write.
+STATUS or Lesson failure never rolls back archive. Archive replay may
 return `no-op` only when tuple, identity/document ID, closure audit, exact path,
 archive hash/revision, and source-revision provenance all match; otherwise it
 fails closed. No `closing`, `close_pending`, `closure_state`, `closure_id`, or
@@ -398,6 +400,14 @@ fails closed. No `closing`, `close_pending`, `closure_state`, `closure_id`, or
 legacy/source-repository schema and is not a vNext close-task durable output.
 Close-task does not implicitly synchronize Contracts, Decisions, or host
 guidance; missing prerequisite authoritative facts block closure.
+
+A default `close-task` invocation against `closed + archived` is not a second
+closure attempt. It may continue only incomplete downstream reconciliation when
+the existing archive exactly matches the committed closure identity and
+provenance. In that case `archive-transaction` is not repeated; only incomplete
+STATUS reconciliation and, when previously admitted, Lesson persistence may
+continue. Any archive receipt, provenance, identity, path, hash, or content
+mismatch fails closed. No recovery-close mode or pending-closure state is added.
 
 ### 3.4.5 Record-only intake artifacts
 

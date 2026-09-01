@@ -219,11 +219,16 @@ only successful route is `active + active` → closure eligibility →
 `archive-transaction` exclusively and atomically writes the preserved
 `CURRENT_TASK.md` plus the exact identity-derived task archive. It rolls both
 paths back to pre-close `active + active` on any write, integrity, or read-back
-failure. After success, STATUS reconciliation is a separate
-`project-status-transaction`, followed by optional lesson admission; neither
-failure rolls back the archive. Close-task has no close-specific task-state
-transaction, pending closure state, closure ID, or independent durable
-`TASK_SUMMARY.md` output.
+failure. Closure preparation evaluates knowledge admission as `admit`, `defer`,
+or `no-op` before archive; only `admit` creates a later
+`lesson-record-transaction`. After success, STATUS reconciliation is a separate
+`project-status-transaction`; neither STATUS nor Lesson failure rolls back the
+archive. A `closed + archived` close-task re-entry is reconciliation-only after
+matching archive receipt/provenance validation: archive is not repeated, and
+only incomplete STATUS reconciliation plus previously admitted Lesson
+persistence may continue. Any archive mismatch fails closed. Close-task has no
+close-specific task-state transaction, pending closure state, closure ID, or
+independent durable `TASK_SUMMARY.md` output.
 
 ## 6. Adaptive capability selection
 

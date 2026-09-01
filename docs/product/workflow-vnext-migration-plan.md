@@ -212,10 +212,13 @@ After the first state-changing slice is stable, add the remaining intents increm
 
 The successful `close-task` boundary is frozen separately from the Slice B
 replan boundary: `active + active` passes closure eligibility, then
-`archive-transaction` atomically produces the canonical task archive and
-changes the live tuple to `closed + archived`; only afterward may STATUS and
-optional Lesson reconciliation run. This phase does not add non-success
-terminal dispositions or a durable `TASK_SUMMARY.md` output.
+closure preparation evaluates knowledge admission (`admit` / `defer` / `no-op`),
+then `archive-transaction` atomically produces the canonical task archive and
+changes the live tuple to `closed + archived`; only afterward may STATUS run,
+and only an `admit` decision may produce a Lesson write. A later invocation on
+`closed + archived` verifies the matching archive receipt and performs only
+incomplete reconciliation; it never repeats archive. This phase does not add
+non-success terminal dispositions or a durable `TASK_SUMMARY.md` output.
 
 Each later phase must preserve the seven-intent daily surface, adaptive internal capabilities, Review Convergence, Evidence Admission, canonical Markdown/YAML knowledge, and the Runtime kernel. It must not reintroduce a legacy compatibility runtime.
 

@@ -276,12 +276,16 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 
 Runtime kernel 只负责 deterministic validation、conflict、idempotence、atomic commit 和 read-back；语义判断仍由 entry、用户和 capability policy 共同完成。不存在一个可以随意写任意治理文档的 generic editor。
 
-Close-task 的 transaction 顺序固定为：closure eligibility →
+Close-task 的 transaction 顺序固定为：closure preparation（包含
+knowledge-admission decision：`admit` / `defer` / `no-op`）→
 `archive-transaction`（`CURRENT_TASK.md` + exact task archive）→
 `project-status-transaction`（`STATUS` only）→ optional
-`lesson-record-transaction`。archive 成功后 STATUS 或 Lesson 失败均不回滚
-terminal archive；不存在 close-specific task-state transaction、
-`closure_id` 或 pending-closure recovery mode。
+`lesson-record-transaction`（仅当 admission 为 `admit`）。archive 成功后
+STATUS 或 Lesson 失败均不回滚 terminal archive；`closed + archived` 的
+再次调用不是第二次 closure，而是在验证 matching archive receipt / provenance
+后只继续未完成的 STATUS reconciliation 和已准入的 Lesson persistence。
+不存在 close-specific task-state transaction、`closure_id` 或 pending-closure
+recovery mode。
 
 Slice B 的 ReplanDelta 使用浅层 typed shape，不携带 arbitrary Markdown patch：
 

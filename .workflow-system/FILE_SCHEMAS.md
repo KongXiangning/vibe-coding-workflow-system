@@ -79,8 +79,9 @@
 
 Successful vNext close-task writes the terminal tuple `workflow_status: closed`
 and `lifecycle_state: archived`; `completed` remains an `active_step_status`
-value only. The live `CURRENT_TASK.md` is preserved intact after archive and
-must not be cleared, deleted, reset to a template, or used to create the next
+value only. The live `CURRENT_TASK.md` is preserved as the complete terminal
+task record after archive. It is updated with the terminal tuple and closure /
+archive audit, but must not be cleared, deleted, reset to a template, or used to create the next
 task. `TASK_SUMMARY.md` is retained as a legacy/source-repository schema and is
 not a vNext close-task durable output.
 
