@@ -1,7 +1,7 @@
 # Workflow vNext Migration Plan
 
-- Status: `Target architecture accepted; simplified rollout plan`
-- Planning date: `2026-08-31`
+- Status: `Target architecture accepted; core daily-semantics freeze accepted`
+- Planning date: `2026-09-02`
 - Target architecture: [workflow-vnext-target-architecture.md](../designs/workflow-vnext-target-architecture.md)
 - Product rule: an installed project runs either the old workflow or pure vNext; it does not run a long-lived legacy/vNext hybrid
 
@@ -158,7 +158,7 @@ Migration is fail-closed and all-or-nothing with respect to vNext installation:
 
 ## 4. Phase 2 — Pure vNext state-changing workflow
 
-After the minimum structure and Migration Pack boundary are defined, Phase 2 begins the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The first Phase 2 slice is implemented as the project-local Node package under `.workflow-system/runtime/` (with the source-repository implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper). The initial execution slice is bound to the pure-vNext `execute-step` caller; Slice A additionally binds the lifecycle handler to `task-lifecycle` and the minimal resume-review gate clear action to `prepare-task`.
+After the minimum structure and Migration Pack boundary were defined, Phase 2 began the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The source-repository Runtime is the project-local Node package under `.workflow-system/runtime/` (with the implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper). The existing Phase 2 execution/finding slice is bound to `execute-step`; Slice A binds lifecycle handling to `task-lifecycle` and the minimal resume-review gate clear action to `prepare-task`; Slice B and close-task are also implemented in the source-repository Runtime.
 
 Phase 2 introduces the first state-changing slice behind typed Runtime proposals and exact handlers:
 
@@ -170,9 +170,9 @@ Phase 2 introduces the first state-changing slice behind typed Runtime proposals
 - `prepare-task` readiness/resume review through the minimal `clear-resume-review-gate` task-state action;
 - fail-closed authority, scope, evidence, and dangerous-operation gates.
 
-The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. The `supersede` lifecycle mode and durable `prepare-task:replan` path remain contract-only for Slice B; inbox, status, archive, and lesson operations stay contract-only and unbound until their own phases.
+The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. Slice B `supersede` / durable `prepare-task:replan` and the close-task status/archive/lesson transaction surface are implemented and remain subject to their existing contracts. `inbox-record-transaction` is still contract-only and unbound; it is not part of the next daily-semantics slice.
 
-Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`. `supersede` and durable `prepare-task:replan` remain proposal-only for Slice B. The lifecycle transaction owns the exact `CURRENT_TASK.md` plus identity-derived suspended-package pair, including atomic write, read-back, rollback, and fail-closed idempotence. A resume proposal carries the observed SHA-256 `recovery_package_revision`; Runtime compares it with the package bytes read at apply time and checks the live resume gate against the package header before snapshot normalization. Replays revalidate the secondary package before returning `no-op`; a consumed `rehydrated` package may be replaced by the next suspend cycle, while ready/incomplete sibling packages remain blocking. It never reads or hot-migrates an old paused/interrupted runtime.
+Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`. Slice B `supersede` and durable `prepare-task:replan` are now Runtime-bound under their existing typed boundaries. The lifecycle transaction owns the exact `CURRENT_TASK.md` plus identity-derived suspended-package pair, including atomic write, read-back, rollback, and fail-closed idempotence. A resume proposal carries the observed SHA-256 `recovery_package_revision`; Runtime compares it with the package bytes read at apply time and checks the live resume gate against the package header before snapshot normalization. Replays revalidate the secondary package before returning `no-op`; a consumed `rehydrated` package may be replaced by the next suspend cycle, while ready/incomplete sibling packages remain blocking. It never reads or hot-migrates an old paused/interrupted runtime.
 
 ### 4.1 Slice B — same-task supersede and replan design freeze
 
@@ -201,14 +201,34 @@ Supersede and replan are separate transactions. If replan is blocked after super
 
 On a successful `commit-replan`, Runtime applies deterministic task-state normalization: the replacement definition supplies `active_step_id`, `active_step_status` becomes `ready`, old admitted or in-progress findings become `deferred` / non-actionable and require fresh finding admission if still applicable, resolved/rejected/already-deferred findings remain history, `review_cycle` resets to the initial no-active-cycle baseline, `resume_requires_review` becomes `false`, and `resume_review_reasons` becomes `[]`. `execution_log` and `applied_proposals` are preserved.
 
+### 4.2 Current Phase 2 implementation status
+
+| Boundary | Current source-repository status |
+|---|---|
+| Phase 2 execute / finding slice | Implemented and Runtime-bound |
+| Slice A lifecycle | Implemented for pause, interrupt, explicit resume, and resume-review gate clear |
+| Slice B supersede / same-task replan | Design and implementation complete; Runtime-bound |
+| close-task | Design and implementation complete; archive, status reconciliation, and admitted Lesson path are Runtime-bound |
+| `inbox-record-transaction` and remaining admin / expert / internal surfaces | Contract-only or unbound until their own phase |
+
+This status correction records progression only. It does not redesign Slice A,
+Slice B, or close-task, and it does not treat the existing Runtime robustness
+backlog as part of the next implementation boundary.
+
 ## 5. Subsequent vNext phases
 
-After the first state-changing slice is stable, add the remaining intents incrementally:
+The current rollout order after the completed boundaries above is:
 
-1. `task-lifecycle` for pause, interrupt, resume, supersede, and related ownership transitions created within vNext;
-2. `close-task` for closure evidence, summary, status, and archive transactions;
-3. `bootstrap-project` for design, greenfield, inventory, adopt, and realign flows for projects that are not being upgraded through the Migration Pack;
-4. additional project-specific gates and operations only when their authority, evidence, and rollback boundaries are explicit.
+1. **Core Daily Execution Semantics Stabilization** — implement the three docs-frozen themes: Evidence-first / Persistent Test Admission; Mutation-oriented Scope; and Multi-step advancement / Review Checkpoint / Repair verification integration.
+2. **bootstrap-project** — implement the formal admin surface only after the daily semantics are stable and verified end to end.
+3. **remaining expert / internal / intake operations** — implement `validate-change`, `sync-state`, `capture-work-item`, and other remaining surfaces only when their authority, evidence, and rollback boundaries are explicit.
+
+Core Daily Execution Semantics Stabilization is a Phase 2 boundary, not a new
+product phase, Migration Pack feature, bootstrap option, optional project gate,
+or Runtime robustness backlog bucket. It contains only the three frozen themes
+above and must not add a Test Skill / registry / state machine, ACL subsystem,
+`review-step` / `advance-step` public surface, or a mandatory full review after
+every step.
 
 The successful `close-task` boundary is frozen separately from the Slice B
 replan boundary: `active + active` passes closure eligibility, then
@@ -253,18 +273,55 @@ Each later phase must preserve the seven-intent daily surface, adaptive internal
 - partial writes, guessed authority, unbounded repair, and success-shaped failure are impossible;
 - lifecycle, closure, and bootstrap additions do not widen the daily surface or reintroduce legacy fallback.
 
-The implemented Phase 2 slice additionally requires:
+The implemented Phase 2 / Slice A / Slice B / close-task boundaries additionally require:
 
 - `.workflow-system/runtime/package.json`, its lockfile, generated `dist/cli.js`, and `.workflow-system/vnext/RUNTIME_CONTRACT.yaml` validate as one versioned project-local Node Runtime distribution;
 - the Runtime executes with its own locked dependency tree and does not resolve dependencies from the target project's business `node_modules`;
 - the declared Node minimum is checked before any Runtime operation, and the staged package passes a Node self-check before promotion;
 - `task-state-transaction` is bound to `execute-step` and only the minimal `prepare-task` resume-review gate clear action; `finding-queue-transaction` remains bound to `execute-step`;
 - `lifecycle-transaction` is bound to `task-lifecycle` for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`, with exact `CURRENT_TASK.md` plus `TASKS/paused/...` or `TASKS/interrupted/...` boundaries;
-- `supersede` and durable `prepare-task:replan` remain contract-only until Slice B;
-- Slice B acceptance requires the same-task identity rule, the two non-active statuses, the separate supersede/replan transactions, and fail-closed execution/lifecycle prohibitions to be documented before implementation binding;
+- `supersede` and durable `prepare-task:replan` are Runtime-bound under the Slice B same-task identity rule, the two non-active statuses, separate supersede/replan transactions, and fail-closed execution/lifecycle prohibitions;
+- close-task is Runtime-bound for its existing `archive-transaction`, `project-status-transaction`, and explicitly admitted Lesson path, with the `closed + archived` terminal and reconciliation contract;
 - canonical runtime state remains inside `CURRENT_TASK.md`, with body/frontmatter consistency checks;
 - dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for both the single-file and lifecycle transactions;
 - `execute-step` does not report a governance write unless the corresponding Runtime result is `success`.
+
+### 6.4 Core Daily Execution Semantics completion gate
+
+Phase 2 core daily execution is not complete until the following business flow
+passes with a real workflow fixture or end-to-end verification:
+
+```text
+prepare one multi-step task
+  → execute first step
+  → advance without unnecessary full review
+  → hit a required review checkpoint
+  → review
+  → admit and repair a finding when present
+  → verification
+  → advance to the next step
+  → complete remaining steps
+  → close-task
+```
+
+The gate must also demonstrate that:
+
+- code modification does not automatically create a persistent test;
+- a task without test admission creates no new persistent test;
+- persistent test admission, when present, has an owner, claim, insufficiency reason, and one of `acceptance` / `regression` / `critical-invariant` / `critical-risk`;
+- an explicit user no-test policy forbids new persistent tests while existing validation remains available;
+- read / discovery context may exceed mutation scope;
+- `execute-step` cannot modify an unadmitted mutation target or silently cross steps;
+- an ordinary low-risk step is not forced through full review;
+- an admitted repair is always followed by verification review;
+- step advancement waits for required evidence and any required checkpoint / repair convergence;
+- advancement is a durable typed Runtime transition and is not performed by a Skill editing `CURRENT_TASK.md`.
+
+This gate is the implementation boundary immediately after close-task and before
+`bootstrap-project`. It must use the minimum sufficient evidence for each claim,
+prefer real business behavior, and must not be implemented by adding a Test
+Runtime, Test Skill, test registry, independent test state machine, ACL subsystem,
+or public `advance-step` / `review-step` surface.
 
 ## 7. Explicitly removed from the product architecture
 
@@ -281,14 +338,39 @@ The only dual track permitted is the temporary source-repository development arr
 
 ## 8. Next boundary
 
-Phase 1's minimum vNext Skill/Capability structure and the independent
-Migration Pack boundary are implemented in the source repository. Phase 2's
-first product slice binds the shared Runtime transaction kernel for
-state-changing `execute-step` task-state and finding-queue proposals. Slice A
-also binds the thin `task-lifecycle` proposals for pause, interrupt, and the
-two explicit resume modes, plus the minimal `prepare-task` action that clears
-the post-resume review gate. Do not add legacy-aware vNext readers, runtime
-hot migration, or a long-lived compatibility surface.
+The source repository has completed the following boundaries:
+
+```text
+Phase 1 structure
+Migration Pack
+Phase 2 execute / finding slice
+Slice A lifecycle
+Slice B supersede / same-task replan
+close-task design + implementation
+```
+
+The current boundary is this **docs-only design freeze** for the three daily
+execution semantics: Evidence-first / Persistent Test Admission,
+Mutation-oriented Scope, and Task / Step / Review Checkpoint / Repair / Step
+Advancement.
+
+The next implementation slice is:
+
+```text
+Core Daily Execution Semantics Stabilization
+        ↓
+daily-loop end-to-end verification
+        ↓
+bootstrap-project
+        ↓
+remaining expert / internal / intake surfaces
+```
+
+The frozen semantics are a Phase 2 completion / stabilization boundary and are
+not an optional future follow-up. They must be implemented before
+`bootstrap-project`, without mixing in the existing Runtime robustness backlog.
+Do not add legacy-aware vNext readers, runtime hot migration, a long-lived
+compatibility surface, or a new public daily entry / mode for this work.
 
 ## 9. Migration Pack implementation contract
 

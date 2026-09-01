@@ -85,6 +85,62 @@ archive audit, but must not be cleared, deleted, reset to a template, or used to
 task. `TASK_SUMMARY.md` is retained as a legacy/source-repository schema and is
 not a vNext close-task durable output.
 
+### 允许修改范围的 vNext 承载语义
+
+`## 允许修改范围` 中的 `Allowed Files`、`Conditional Files` 与
+`## 禁止修改范围` 中的 `Forbidden Files` 只表达当前任务的
+**mutation / write boundary**。任务可以在同一章节另列 `Read / discovery
+context`，用于记录为理解问题、追踪调用链、确认 root cause 而读取的更宽
+范围；该列表不授予任何写权限。普通局部任务的 `Allowed Files` 应优先精确到
+文件，必要时精确到 symbol / responsibility；只有天然是 broad mutation 的
+rename、跨模块迁移或框架级转换才使用目录递归范围。
+
+`Conditional Files` 的每一项必须记录触发条件以及所需的 evidence / authority。
+条件满足前，该目标按禁止修改处理；满足既有条件或由 evidence 证明了有界的
+机械传播后，才允许扩大 mutation boundary。若变化的是 goal、scope 或
+acceptance，应走 supersede / replan，而不是把它当作普通 scope expansion。
+
+### 任务证据与 persistent-test 最小承载
+
+`## 验收标准` 与 `## 回归检查项` 复用现有章节承载 claim 与 evidence，不新增
+Test registry、Test state machine 或 public Test Skill。每个需要证明的业务
+claim 至少应有稳定的 `Claim ID`、claim 描述和 minimum-sufficient evidence；
+回归检查项应引用 Claim ID，并记录复用、执行、暂缓或阻塞的 evidence。
+
+新增长期维护的 automated test 默认不准入。只有在现有章节中明确记录
+`persistent_test_admission` 时才允许写入；该记录的最小内容为：
+
+- `basis`：`acceptance` / `regression` / `critical-invariant` / `critical-risk` 之一
+- `owner`：负责该 admission 的 acceptance、regression、invariant 或 risk owner
+- `proves`：测试证明的具体 claim
+- `existing_evidence_insufficiency`：现有 evidence 不足的具体原因
+
+`persistent_test` 未被明确准入时按 `false` 处理。用户明确要求“不新增测试”
+时，可在现有 `## 已确认决策` 或 `## 回归检查项` 记录
+`test_write_policy: deny`；该策略禁止新增 persistent test，但不禁止运行已有
+validation、build、smoke、static check 或其他 claim-appropriate evidence。若
+更高优先级的 authoritative Contract 明确要求新增测试，按 authority conflict
+停下并报告，不静默覆盖任一方。docs-only / governance-only wording change 的
+默认新增 persistent test 数为 `0`。
+
+### 实施步骤与 Review Checkpoint 最小承载
+
+`## 实施步骤` 中的每个 implementation step 应是同一 TASK 内可独立执行和
+验证的单元，并至少记录以下最小内容：
+
+- `Step ID`：稳定且唯一的步骤标识
+- `Purpose`：该步骤要完成的业务目的
+- `Mutation scope`：引用 `Allowed Files` 或满足条件时的 `Conditional Files`
+- `Required evidence`：该步骤完成前必须取得的 minimum-sufficient evidence
+- `Review checkpoint`：`required` 或 `not-required`；若为 `required`，同时记录触发的 risk / logical boundary
+
+Step 只有在其 required evidence 满足后才能标记完成。`Review checkpoint` 是
+task definition / execution policy 内的事实，不是 lifecycle state、public mode
+或新的文档类型；低风险机械 step 可以标记 `not-required`，但 repair 完成后
+始终需要 `review-change` verification。`active_step_id` 与 durable advancement
+仍由现有 vNext runtime state / typed Runtime transaction 承载；本节不增加新的
+Runtime state 字段，也不授权 Skill 直接编辑 `CURRENT_TASK.md`。
+
 ### 条件必填章节
 
 - `## 设计约束`：UI / 视觉 / 交互任务必须填写；非 UI 任务可保留默认 `Design mode: none`

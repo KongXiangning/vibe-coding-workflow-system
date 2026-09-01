@@ -1,7 +1,7 @@
 # Workflow vNext Implementation Blueprint
 
 - **Status:** `Implementation blueprint`
-- **Date:** `2026-08-31`
+- **Date:** `2026-09-02`
 - **Scope:** 纯 vNext 安装项目的 Skill 重写与 Runtime 责任划分
 - **Purpose:** 把已确认的 Target Architecture 翻译成一张可直接执行的 Skill owner map
 
@@ -30,9 +30,9 @@
 
 | vNext entry | 合并哪些旧 Skill / 责任片段 | 必须保留的治理语义 | Internal capabilities | Runtime 写入 |
 |---|---|---|---|---|
-| `prepare-task` | `create-current-task`、`review-current-task`、`lock-scope`、`classify-decisions`、`plan-implementation`、`decompose-task`；`execute-current-task` 的准备/转换边界 | task identity；单一目标与 acceptance；`Allowed / Conditional / Forbidden` scope；authority 与 decision 分类；planning、替代方案、风险/rollback、validation；UI/release 条件；每个 step 可独立验证；不写产品代码、不覆盖 Profile/Contracts | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`decision-authority-gate`；`adaptive-depth-policy`；条件性的 `propagation-evidence-validator`、`design-evidence-gate`、`release-evidence-gate`、`external-documentation-gate`；恢复/重规划时的 `resume-review-gate` | `task-state-transaction`：只写已确认的任务准备、scope、acceptance、step、风险和 handoff 状态 |
-| `execute-step` | `implement-current-step`；`continue-current-step` 的有效状态转换；`debug-and-fix-current-task` 的 admitted repair 分支；`execute-current-task` 的执行分支 | 只能执行已准备的 current step；共享且明确的 diff target；scope default-deny；dangerous operation 授权；design/decision gate；External Documentation Gate；evidence admission；repair 必须是 current-owner、in-scope、mechanical 且已准入；修复后必须进入 bounded review convergence | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`adaptive-depth-policy`；`dangerous-operation-gate`；`decision-authority-gate`；`diff-target-resolver`；条件性的 `design-evidence-gate`、`external-documentation-gate`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy` | `task-state-transaction`；admitted repair 时条件性写 `finding-queue-transaction`；不直接写 Contracts/Decisions/LESSONS |
-| `review-change` | `review-current-diff`、`review-diff`、`review-implementation`、`verify-contracts` | 一个明确 diff target；统一的 scope、goal/acceptance、implementation、contract/propagation、evidence verdict；严格 read-only；`discovery / verification` 是 review cycle phase，不是 public handoff；finding 先 admission 再 repair；`report-only` 是终态 | `project-context-resolver`；`read-only-review-guard`；`diff-target-resolver`；`scope-guard`；`source-authority-policy`；`propagation-evidence-validator`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；按触发条件启用 `external-documentation-gate` | **无**。可返回结构化 finding/evidence gap，但不直接写 queue、CURRENT_TASK、代码或 knowledge |
+| `prepare-task` | `create-current-task`、`review-current-task`、`lock-scope`、`classify-decisions`、`plan-implementation`、`decompose-task`；`execute-current-task` 的准备/转换边界 | task identity；一个 coherent business goal 与 acceptance claims；足够宽的 read/discovery context；尽可能精确的 `Allowed / Conditional / Forbidden` mutation scope；authority 与 decision 分类；按 claim 规划 minimum-sufficient evidence；persistent test 默认不准入；少量可独立验证 steps；只在 risk/logical boundary 设置 review checkpoint；planning、替代方案、风险/rollback、validation；UI/release 条件；不写产品代码、不覆盖 Profile/Contracts | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`decision-authority-gate`；`adaptive-depth-policy`；`evidence-admission-policy`；条件性的 `propagation-evidence-validator`、`design-evidence-gate`、`release-evidence-gate`、`external-documentation-gate`；恢复/重规划时的 `resume-review-gate` | `task-state-transaction`：只写已确认的任务准备、scope、acceptance、step、风险和 handoff 状态 |
+| `execute-step` | `implement-current-step`；`continue-current-step` 的有效状态转换；`debug-and-fix-current-task` 的 admitted repair 分支；`execute-current-task` 的执行分支 | 只能执行当前已准备且 admitted 的一个 step；可读取更宽的 context 追踪数据流/root cause，但只能写 admitted mutation scope；使用 claim-bound minimum-sufficient evidence；共享且明确的 diff target；scope default-deny；dangerous operation 授权；design/decision gate；External Documentation Gate；persistent test 不得自行准入；repair 必须是 current-owner、in-scope、mechanical 且已准入；普通 step 不自动触发 full review；修复后必须进入 bounded review convergence，并按证据推进下一 step | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`adaptive-depth-policy`；`dangerous-operation-gate`；`decision-authority-gate`；`diff-target-resolver`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；条件性的 `design-evidence-gate`、`external-documentation-gate` | `task-state-transaction`；admitted repair 时条件性写 `finding-queue-transaction`；不直接写 Contracts/Decisions/LESSONS；ordinary step advancement 的 typed Runtime enforcement 属于本冻结之后的 implementation slice |
+| `review-change` | `review-current-diff`、`review-diff`、`review-implementation`、`verify-contracts` | 只在 required risk/logical checkpoint、final review 或 repair verification 时执行；一个明确 diff target；统一的 scope、goal/acceptance、implementation、contract/propagation、evidence verdict；严格 read-only；`discovery / verification` 是 review cycle phase，不是 public handoff；finding 先 admission 再 repair；`report-only` 是终态；repair verification 必须保留，即使普通 step 跳过 full review | `project-context-resolver`；`read-only-review-guard`；`diff-target-resolver`；`scope-guard`；`source-authority-policy`；`propagation-evidence-validator`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；按触发条件启用 `external-documentation-gate` | **无**。可返回结构化 finding/evidence gap，但不直接写 queue、CURRENT_TASK、代码或 knowledge |
 | `debug-task` | `investigate-root-cause`；`debug-and-fix-current-task` 的 investigation、root-cause 和 repair-decision 分支 | 区分新 bug、report-only investigation、current-task debugging；先 reproduce 再提出 hypothesis；current-task debugging 或需要写 task-state/resolve 时确认 owner 与 active task，新 bug 的普通 investigate-only 可无 current task；最多有限次不收敛尝试后 stop；外部行为影响正确性时查当前文档；debug 不直接写产品代码；`resolve` 只负责确认修复路线，修复交给 `execute-step:repair` | `project-context-resolver`；`root-cause-loop`；`owner-route-resolver`；`source-authority-policy`；`scope-guard`；`decision-authority-gate`；`evidence-admission-policy`；条件性的 `external-documentation-gate`、`review-convergence-policy` | current task 调试证据/风险/检查点可写 `task-state-transaction`；新 bug 或 report-only 默认无写入；不由该入口直接提交产品修复 |
 | `task-lifecycle` | `pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task`、`supersede-current-task` | workflow status 与 lifecycle state 分离；pause 与 interrupt 不混淆；保存完整 snapshot、checkpoint、dirty attribution、environment、recovery strategy；各 mode 只要求其所选 transition 的必要 evidence；resume 必须指定唯一包并先过 review gate；supersede 只用于 goal/scope/acceptance 已失效且保留原历史；不从“latest package”猜恢复对象 | `project-context-resolver`；`lifecycle-transition-guard`；`task-identity-guard`；`owner-route-resolver`；`resume-review-gate`；`source-authority-policy`；`decision-authority-gate`；`scope-guard` | `lifecycle-transaction`；supersede/replan 的任务事实条件性写 `task-state-transaction`；不承担旧项目 paused/interrupted 热迁移 |
 | `capture-work-item` | `capture-work-item` | 仅记录已证明与当前任务无关的工作；`TASKS/inbox/**` record-only；scope widening、uncertainty、duplicate suspicion fail closed；绝不创建/切换/修改 CURRENT_TASK、lifecycle、identity、catalog | `record-only-intake-guard`；`owner-route-resolver`；`scope-guard`；必要时使用 `project-context-resolver` 确认当前 owner | `inbox-record-transaction`：最多创建一个 inbox record，不触碰 active task |
@@ -196,7 +196,7 @@ These tests should use small in-memory mutations or a few temporary contract fil
 
 ### 3.4 Phase 1 follow-up source checkpoint
 
-After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates, a closed capability union, and contract-only Runtime operations. Phase 2 initially bound `task-state-transaction` and `finding-queue-transaction` for `execute-step`; Slice A now additionally binds `lifecycle-transaction` for `task-lifecycle` pause/interrupt/resume modes and the minimal `prepare-task` resume-review gate clear action. `supersede` and durable `prepare-task:replan` remain contract-only for Slice B, while inbox/status/archive/lesson operations remain unbound. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, or Migration Pack boundary.
+After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates and a closed capability union. Phase 2 now binds `task-state-transaction` and `finding-queue-transaction` for `execute-step`, the Slice A lifecycle transaction for `task-lifecycle` pause/interrupt/resume modes and the minimal `prepare-task` resume-review gate clear action, the Slice B supersede/replan actions, and the close-task archive/status/lesson transactions. `inbox-record-transaction` remains contract-only and unbound; `bootstrap-project` and other later callers remain outside the current bound surface. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, or Migration Pack boundary.
 
 ### 3.5 Phase 2 bound Runtime slice
 
@@ -213,32 +213,77 @@ package-marker, package-revision, rollback, and read-back checks; the model rema
 for semantic admission. Slice A's lifecycle handler covers only pause,
 interrupt, and the two explicit resume modes. `prepare-task` may call the
 Runtime only to clear `resume_requires_review` after readiness/resume review;
-it cannot use that binding to mutate other task facts. `supersede`, durable
-replan, `debug-task`, `close-task`, and all later operation callers remain
-proposal-only until their own phase. The Runtime never parses or hot-migrates
-legacy paused/interrupted artifacts.
+it cannot use that binding to mutate other task facts. Slice B supersede and
+durable replan, plus the close-task archive/status/lesson handlers, are now
+implemented in the source-repository Runtime. `debug-task` and the remaining
+later operation callers remain proposal-only until their own phase. The Runtime
+never parses or hot-migrates legacy paused/interrupted artifacts.
 The Runtime package, lockfile, generated Node entrypoint, and Skill artifacts
 are promoted from one source-bound bundle; installation stages its own
 `node_modules` with `npm ci --omit=dev` and runs the Node self-check before
 atomic promotion. The target's business package and `node_modules` are outside
 this boundary.
 
+### 3.6 Core Daily Execution Semantics freeze
+
+The following three rules are now the implementation boundary for the next
+daily-execution slice:
+
+1. **Evidence-first / Persistent Test Admission** — `prepare-task` starts from
+   business goal and acceptance claims, then plans risks / invariants and the
+   minimum-sufficient evidence for each claim. Validation, reuse of an existing
+   test, and creation of a persistent test are separate decisions. A new
+   persistent test is not admitted by default and requires an explicit owner,
+   claim, why existing evidence is insufficient, and one of
+   `acceptance` / `regression` / `critical-invariant` / `critical-risk`. An
+   explicit user `test_write_policy: deny` forbids new persistent tests while
+   leaving existing validation available.
+2. **Mutation-oriented Scope** — `project-context-resolver` may read broadly
+   enough to understand callers, consumers, types, configuration, tests, and
+   root cause. `Allowed / Conditional / Forbidden` remains a write boundary.
+   Ordinary `Allowed` scope is exact-file or file-plus-symbol/responsibility
+   where known; broad globs require an inherently broad transformation.
+   Conditional expansion requires its stated evidence / authority. A changed
+   goal, scope, or acceptance is replan work.
+3. **Task / Step / Review Checkpoint / Repair** — one coherent business goal
+   remains one TASK; it is split into a small number of independently verifiable
+   admitted steps. `execute-step` handles only the current step. Minimum evidence
+   may advance a low-risk step without a full review. Contract, lifecycle,
+   security, destructive, release, major UI, broad-propagation, or other
+   critical-invariant boundaries may trigger a review checkpoint. Any admitted
+   repair must be followed by `review-change` verification of the same logical
+   diff before advancement.
+
+The canonical task sections remain the only representation: acceptance /
+regression sections carry claims and evidence; scope sections separate read
+context from mutation targets; and implementation steps carry step identity,
+purpose, bounded scope, required evidence, and checkpoint policy. No new public
+Skill, review BPM stage, test registry, test state machine, or ACL subsystem is
+introduced. The current Runtime does not yet make ordinary
+`STEP-N → STEP-N+1` advancement durable; it remains an implementation
+follow-up to be completed after this docs-only freeze.
+
 ## 4. 关键宏观路由
 
-入口之间只保留改变 intent、authority、lifecycle 或 mutation phase 的宏观转换：
+入口之间只保留改变 intent、authority、lifecycle 或 mutation phase 的宏观转换；
+普通 step 的推进和 review checkpoint 选择属于同一 TASK 内部的执行政策：
 
 ```text
 prepare-task
-    ↓ ready
-execute-step
-    ↓ change-ready
-review-change (discovery)
-    ├─ clean / needs-evidence → validate-change（按 evidence plan）
-    ├─ admitted mechanical finding → execute-step:repair（first slice 可提交已准入 finding）
-    │                                  ↓
-    │                             review-change (verification)
-    ├─ unknown root cause → debug-task
-    └─ user-owned / scope / contract decision → stop and ask or replan
+    ↓ one goal + claims + precise scope + admitted steps/evidence/checkpoints
+execute-step STEP-N
+    ↓ minimum-sufficient evidence
+    ├─ no required checkpoint → durable advancement → execute-step STEP-N+1
+    └─ required checkpoint / final review → review-change (discovery)
+         ├─ clean → durable advancement → execute-step STEP-N+1
+         ├─ admitted mechanical finding → execute-step:repair
+         │                                  ↓
+         │                             review-change (verification)
+         │                                  ├─ clean → durable advancement
+         │                                  └─ bounded stop / debug / user
+         ├─ needs-evidence → provide claim-bound evidence
+         ├─ unknown root cause → debug-task
+         └─ user-owned / scope / contract decision → stop and ask or replan
 
 task-lifecycle:resume-paused / resume-interrupted
     ↓ lifecycle transaction success + resume_requires_review=true
@@ -263,7 +308,7 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 
 | Operation | Canonical source / write target | 允许的 caller | 关键限制 |
 |---|---|---|---|
-| `task-state-transaction` | `CURRENT_TASK.md` 及其 vNext task state | `execute-step`；`prepare-task` 仅用于清除 resume-review gate，或在 `replan` mode 使用 `mark-replan-blocked`、`clear-replan-block`、`commit-replan` | replan actions 只接受同一 task identity；`commit-replan` 使用 closed replacement；旧 active/in-progress findings 变为 deferred/non-actionable；不得任意改写其他 task facts |
+| `task-state-transaction` | `CURRENT_TASK.md` 及其 vNext task state | `execute-step`；`prepare-task` 仅用于清除 resume-review gate，或在 `replan` mode 使用 `mark-replan-blocked`、`clear-replan-block`、`commit-replan` | replan actions 只接受同一 task identity；`commit-replan` 使用 closed replacement；旧 active/in-progress findings 变为 deferred/non-actionable；不得任意改写其他 task facts；普通 step advancement 仍需后续补齐 evidence/checkpoint-aware durable transition |
 | `lifecycle-transaction` | `CURRENT_TASK.md` 与 `TASKS/paused/...` / `TASKS/interrupted/...` vNext snapshot/recovery package | `task-lifecycle` | pause/interrupt/explicit resume only；resume proposal 必须携带 package SHA-256 revision；exact task identity、合法 tuple、显式唯一包、原子读回与双文件 rollback；rehydrated package 可被下一轮同 kind suspend 覆盖；不读取或热迁移旧 paused/interrupted runtime |
 | `inbox-record-transaction` | `TASKS/inbox/**` | `capture-work-item` | record-only；不升级成 task、catalog、lifecycle 或 archive |
 | `finding-queue-transaction` | admitted finding queue | `sync-state`、`execute-step` 的 admitted repair | 先过 finding admission；current-owner/in-scope/mechanical；稳定 fingerprint 与 provenance；去重 |
@@ -275,6 +320,12 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 | `archive-transaction` | `CURRENT_TASK.md` 与 canonical `TASK` archive | `close-task` | 独占 `active + active` → `closed + archived` terminal mutation；task identity、acceptance、validation、release/rollback、remaining risk 均满足后才 archive；两路径原子写、精确回滚且可重放 |
 
 Runtime kernel 只负责 deterministic validation、conflict、idempotence、atomic commit 和 read-back；语义判断仍由 entry、用户和 capability policy 共同完成。不存在一个可以随意写任意治理文档的 generic editor。
+
+本冻结后的实现必须把 `STEP-N completed`、required evidence、required review
+checkpoint、repair verification 和 `STEP-N+1 ready` 闭合在 typed Runtime state
+transaction 中；Skill 不直接修改 `CURRENT_TASK.md`。这项 ordinary step
+advancement / checkpoint enforcement 是下一 implementation slice 的责任，
+不在本次 docs-only diff 内。
 
 Close-task 的 transaction 顺序固定为：closure preparation（包含
 knowledge-admission decision：`admit` / `defer` / `no-op`）→
@@ -377,9 +428,13 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 | Phase 1A | 固定 entry contract；建立独立 vNext source namespace；只实现 `prepare-task`、`review-change`、`execute-step` 三个单文件模板及其闭合 capability/Runtime catalog；通过 source-contract validator 与人工去流程化审查后停止 | 不扩张 shadow runner；不把旧 Skill 安装到 target；不让 vNext reader 解析旧 schema；不绑定 Runtime 写入；不实现非 idle state migration |
 | Phase 1（后续） | 在 Phase 1A 检查点通过后，补齐其余 daily entry 的最小结构，并保持同一 contract/capability/runtime 边界 | 不把外围入口提前混入 Phase 1A；不以新增测试基础设施作为交付目标 |
 | Migration Pack | 实现 idle preflight、离线副本转换、stable ID/provenance/path-reference、完整 validation 和 pure-vNext atomic installation | 不关闭/归档 active task；不恢复 paused/interrupted；不做语义去重或 AI 历史重写 |
-| Phase 2 | 以纯 vNext schema 开始 `execute-step` 的 state-changing workflow；接入 task-state/finding queue；落实 evidence admission、finding admission、Review Convergence 和 read-back（首个切片已实现） | 不保留 legacy fallback；不把 review/validation 变成修复入口 |
-| Phase 2 Slice A | 实现 `task-lifecycle` 的 pause、interrupt、resume-paused、resume-interrupted lifecycle transaction；在 resume 后经 `prepare-task` readiness/resume review 清除 gate；落实双文件原子提交、read-back 与 rollback | 不实现通用 lifecycle framework、recovery registry、legacy 多阶段事务、close/archive/inbox/status、完整 supersede/replan |
-| 后续 | 逐步实现 vNext 自己创建的 `task-lifecycle`，再实现 `close-task`、`bootstrap-project` 及明确授权的新 capability | 不把 lifecycle/close/bootstrap 的缺失补成兼容旧协议的临时路径 |
+| Phase 2 existing execution/finding slice | 纯 vNext `execute-step` state-changing workflow；task-state/finding queue；evidence admission、finding admission、Review Convergence 和 read-back | 不保留 legacy fallback；不把 review/validation 变成修复入口；该 slice 已实现 |
+| Phase 2 Slice A | `task-lifecycle` 的 pause、interrupt、resume-paused、resume-interrupted lifecycle transaction；resume 后经 `prepare-task` readiness/resume review 清除 gate；双文件原子提交、read-back 与 rollback | 不实现通用 lifecycle framework、recovery registry 或 legacy 多阶段事务；该 slice 已实现 |
+| Phase 2 Slice B | same-task supersede / replan：保留 identity，分离 invalidation 与 replacement，closed ReplanDelta，deterministic normalization、rollback、idempotence、read-back | 不创建新 task identity、第二份 CURRENT_TASK 或 arbitrary Markdown editor；该 slice 已实现 |
+| Phase 2 close-task | closure eligibility、`archive-transaction`、`project-status-transaction`、显式 Lesson admission / write；`closed + archived` terminal contract 与 reconciliation | 不引入 pending-closure state、第二次 archive 或 `TASK_SUMMARY` vNext output；design + implementation 已完成 |
+| Core Daily Execution Semantics Stabilization（下一 implementation boundary） | 只实现本次冻结的三项：Evidence-first / Persistent Test Admission、Mutation-oriented Scope、multi-step advancement / risk-based Review Checkpoint / repair verification integration | 不混入现有 Runtime robustness backlog；不新增 Test Skill/registry/state machine、ACL subsystem、review-step/advance-step public surface；不改变 Slice A/B/close-task 语义 |
+| bootstrap-project（之后） | 在上述 daily semantics 完成并通过 E2E gate 后实现 admin surface | 不把未稳定的 prepare/execute/review 行为提前推广到新项目 |
+| remaining expert/internal/intake operations（最后） | 按明确 authority、evidence、rollback boundary 实现剩余 `validate-change` / `sync-state` / `capture-work-item` 等 surface | 不恢复 legacy compatibility fallback 或扩大 daily intent 数量 |
 
 后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再补齐剩余 state-changing Runtime handlers”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。
 
@@ -401,9 +456,13 @@ legacy compatibility layer。
 - 每个 entry 都能写出 input、authority、mutation boundary、capabilities、Runtime operations、stop conditions 和 output；
 - `project-context-resolver`、`knowledge-admission-policy`、Review Convergence、Evidence Admission 均作为内部 policy 使用，而不是新增 public stage；
 - review/validation 的零写入边界、finding admission、owner/handoff 分离、scope/dangerous gate 和 External Documentation Gate 都保留；
+- Evidence-first、persistent-test 默认不准入、read/discovery 与 mutation scope 分离、精确 write scope、risk-based review checkpoint、repair verification 和 durable step advancement 语义均已冻结；
 - 每一项治理持久化写入都映射到一个 exact Runtime handler，且没有 generic document editor；
 - Migration Pack 与 vNext runtime 完全分离，旧 schema 在 vNext 中只能得到 `migration-required → stop`；
 - 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是纯 vNext。
 - Phase 1A source validator 对三个模板、闭集 mode、零写入 review、引用闭合、内部 capability exposure 和旧 Skill 禁止规则有直接测试；测试不替代人工检查模板是否真正表达单一 intent。
 
-本文件不记录运行时行为测试或模型质量评分；Phase 1A 的 source-contract 结构测试是实施 DoD 的一部分，实际通过结果属于实现后的验证报告。
+本文件不记录运行时行为测试或模型质量评分；本次 docs-only freeze 不实现上述
+daily-semantics enforcement。后续 implementation slice 必须以真实 workflow
+fixture / end-to-end behavior 验证 claim、scope、checkpoint、repair 和
+advancement，不因本次冻结新增大量细粒度测试。

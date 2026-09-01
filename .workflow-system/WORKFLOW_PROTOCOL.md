@@ -3,7 +3,7 @@
 ```yaml
 Protocol-Version: 0.4.0
 Status: Formal Spec
-Last-Updated: 2026-08-30
+Last-Updated: 2026-09-02
 ```
 
 This file defines the execution rules for the workflow skill system.
@@ -34,6 +34,8 @@ Interpret this file using the following boundary:
 - the `P1-P6` implemented surface is the current stable baseline
 - `P7a-P11` remain open for future extension and must not be read as already implemented unless execution code and tests exist
 - updates should extend or clarify the protocol without silently rewriting already-aligned `P1-P6` semantics
+- the following vNext daily-execution semantics are now docs-frozen: evidence-first validation and persistent-test admission, mutation-oriented scope, and the Task / Step / Review Checkpoint / Repair execution model
+- this docs-only freeze defines target business behavior; it does not claim that the corresponding Runtime enforcement or ordinary step advancement is already implemented, and it does not alter Slice A, Slice B, or close-task terminal semantics
 
 For the authoritative freeze boundary and update rules, see [`docs/plans/workflow-protocol-freeze-boundary.md`](./docs/plans/workflow-protocol-freeze-boundary.md).
 
@@ -600,6 +602,14 @@ Default rule:
 
 - Any file or contract surface not explicitly listed in `Allowed Files` or eligible through `Conditional Files` is forbidden.
 
+For vNext, these buckets govern the **mutation/write boundary**, not the discovery or reading boundary:
+
+- `Read / discovery context` may include relevant callers, consumers, types, configuration, tests, and governance context needed to understand the problem or establish root cause. Reading a target does not authorize changing it.
+- `Allowed Files` should be as precise as the evidence permits: normally an exact file, and when responsibility is known, an exact file plus symbol / responsibility. A directory-recursive pattern is appropriate only for a task whose mutation is inherently broad, such as a module rename or framework-wide migration.
+- `Conditional Files` are possible propagation targets, not pre-authorized writes. Each condition must identify the evidence or authority that admits the target; until then, the target remains forbidden.
+
+Scope expansion is bounded: a satisfied existing Conditional condition or newly proven mechanical propagation may admit a bounded expansion; a changed goal, scope, or acceptance is a supersede / replan decision rather than ordinary scope expansion. `Read / discovery context` and mutation scope must remain separately auditable.
+
 Task skills must treat an unscoped mutation as a blocker. Review skills must compare the actual diff to the declared mutation scope and stop when an unauthorized file appears.
 
 ### 4b.4 Change Propagation Check
@@ -643,6 +653,90 @@ When a checkpoint commit is created before the task is closed:
 4. report the exact diff source in review output, for example `git diff --cached`, `git diff <task-base>..HEAD`, or an attached patch
 
 The default `git diff` / `git diff --cached` fallback is valid only when there are no recorded task checkpoints and the intended review target is the current uncommitted change set.
+
+### 4b.6 Evidence-first validation and persistent-test admission
+
+For vNext task execution, the following are distinct decisions:
+
+1. validating a business claim;
+2. running or reusing an existing test/check;
+3. adding a new persistent automated test that must be maintained over time.
+
+A claim that needs validation does not, by itself, require a new test. Evidence is selected from the claim and may be an existing test, build / compile / typecheck, lint or static validation, an existing protocol or contract validator, a real API or service smoke, persisted-state inspection, browser or device execution, screenshot / visual evidence, logs / traces, IPC / WebSocket / synchronization behavior, or release / canary / observation evidence. The test type follows the business claim rather than the shape of the changed code.
+
+`persistent_test_admission` is **not admitted by default**. A new persistent test may be admitted only when it has an explicit owner and an admission basis from this closed set:
+
+- `acceptance`
+- `regression`
+- `critical-invariant`
+- `critical-risk`
+
+The admission record must answer which basis and owner apply, which concrete claim the test proves, and why existing evidence cannot prove that claim sufficiently at lower cost or with closer business fidelity. Coverage, robustness, a hypothetical edge case, helper branch count, mock-call assertions, or the fact that code changed are not independent admission bases. No Test Skill, test registry, or independent test state machine is introduced by this rule.
+
+When the user explicitly requests no new tests, the task policy is `test_write_policy: deny`: existing validation, builds, smoke checks, static checks, and other claim-appropriate evidence remain allowed, but no new persistent test may be written. If an authoritative Contract / Decision explicitly requires a test for the change, that is an authority conflict and the workflow must stop and report it rather than silently overriding either source.
+
+For docs-only or governance-only wording changes that do not change parser, Runtime, generator, or other executable semantics, the default number of new persistent tests is zero. Existing docs / protocol / contract / freshness validation may still run.
+
+`prepare-task` must plan in this order: business goal and acceptance claims → risks / invariants → minimum-sufficient evidence for each claim → persistent-test admission only where justified. It must not derive a test list mechanically from implementation steps.
+
+### 4b.7 Task / Step / Review Checkpoint / Repair execution model
+
+A `TASK` represents one coherent business goal, not an implementation step. Complexity, model context, or review convenience is not a reason to create multiple independent tasks. A separate task is justified only when the work has an independent business goal and acceptance, can be independently adopted or deferred, and does not need the same execution / closure identity.
+
+An implementation `STEP` is an independently executable and verifiable unit inside that task. It has a bounded mutation scope, minimum-sufficient evidence, and a completion / blocked decision, while retaining the same task identity. `execute-step` executes only the current admitted step; it must not silently complete later steps, widen scope, complete the whole task, or create another task.
+
+Full review is not required after every step. `prepare-task` selects review checkpoints at logical or risk boundaries. A checkpoint is favored for contract / API, data model / schema, IPC / protocol, lifecycle / ownership / state-machine, security / permission, destructive or high-risk, release / rollback, major UI behavior, broad propagation, or another task-specific critical-invariant boundary. A low-risk mechanical step may continue after its minimum evidence without a full review. A checkpoint is an internal task policy fact, not a public mode, Skill, or BPM stage.
+
+After review discovery admits a finding, repair follows the fixed convergence chain:
+
+```text
+review-change discovery
+        ↓
+admitted finding
+        ↓
+execute-step:repair
+        ↓
+review-change verification
+        ↓
+clean / bounded stop
+```
+
+Repair verification remains mandatory even though ordinary low-risk steps do not automatically require full review. Verification checks the same logical diff and admitted finding; it does not silently restart unlimited discovery.
+
+The target advancement semantics are:
+
+```text
+STEP-N ready
+  → execute-step
+  → completed
+  → required evidence satisfied
+  → if checkpoint required: review-change verdict / evidence
+       → admitted finding: repair → verification convergence
+  → STEP-N+1 becomes the next admitted active / ready step
+```
+
+`active_step_id` must not change because the model wishes to continue. The current step must satisfy its required evidence; a required checkpoint must have a qualifying review verdict / evidence; and any admitted finding must converge through repair and verification before the next step is ready. The durable advancement is ultimately owned by a typed Runtime task-state transaction. A Skill must not edit `CURRENT_TASK.md` directly, and no public `advance-step`, `review-step`, or `checkpoint-review` mode / Skill is added. The current Runtime's ordinary `step-progress` path does not yet provide this complete durable `STEP-N → STEP-N+1` transition; implementing it is a later follow-up under the frozen semantics.
+
+The normal daily rhythm is therefore:
+
+```text
+prepare-task
+  → one coherent goal / acceptance
+  → sufficiently broad read context
+  → precise mutation scope
+  → a small set of independently verifiable steps
+  → claim-bound evidence plans and admitted checkpoints
+  → execute-step(current step)
+  → minimum evidence
+      ├─ no checkpoint → durable advancement to next admitted step
+      └─ checkpoint → review-change
+          ├─ clean → durable advancement
+          └─ admitted finding → execute-step:repair
+                                → review-change verification
+                                → clean / bounded stop
+  → final review when required
+  → close-task
+```
 
 ---
 
@@ -752,7 +846,7 @@ Every Runtime operation must declare:
 
 Runtime operations do not decide whether a proposed contract, decision, lesson, finding, lifecycle change, or status change is semantically authorized. The model and user-authority gates produce the proposal and evidence; Runtime validates schema, current source tuple, path, authority marker, conflict, and atomicity before commit.
 
-`runtime-proposal-envelope` requires at least proposal kind, canonical source revision / lifecycle tuple, authority evidence, intended exact writes, conflict key, and idempotency identity. The legacy §4c manifest remains a declaration-only compatibility baseline; the independent vNext Phase 2 slice binds the three operations documented below.
+`runtime-proposal-envelope` requires at least proposal kind, canonical source revision / lifecycle tuple, authority evidence, intended exact writes, conflict key, and idempotency identity. The legacy §4c manifest remains a declaration-only compatibility baseline; the independent vNext Phase 2 slice binds the operations documented below.
 
 The Phase 0 Runtime canonical-source allowlist is closed to the five live governance documents (`CURRENT_TASK`, `STATUS`, `CONTRACTS`, `DECISIONS`, `LESSONS`), paired `AGENTS.md` / `CLAUDE.md`, bounded `TASKS/paused`, `TASKS/interrupted`, `TASKS/inbox`, and the materialized canonical task archive path. The write-target allowlist uses the same exact documents plus bounded family patterns for paused / interrupted / inbox artifacts. Broad sources or targets such as `TASKS`, `**`, `docs/**`, or `TASKS/**` are invalid.
 
@@ -805,15 +899,18 @@ original bytes kept for rollback; `ready_for_resume` conflicts and
 `write_incomplete` requires explicit recovery. A sibling package blocks only
 while it is ready or incomplete; an already `rehydrated` sibling is not an
 active recovery ambiguity.
-`supersede` and durable `prepare-task:replan` remain contract-only for Slice B;
-the remaining inbox, status, archive, and lesson operations stay
-`contract-only / unbound / Phase 2`.
+Slice B `supersede` and durable `prepare-task:replan` are Runtime-bound under
+the typed same-task identity and fail-closed transition rules below. The
+close-task status, archive, and admitted lesson operations are also
+Runtime-bound under their existing terminal and reconciliation contract.
+`inbox-record-transaction` remains `contract-only / unbound / Phase 2`; other
+operation declarations not named in the bound surface remain unbound.
 
-The Slice B contract-only task-state action set is closed to
+The Slice B task-state action set is closed to
 `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These names
-declare future Runtime transaction actions only; all three are called by
-`prepare-task` in `replan` mode. `supersede` remains a `task-lifecycle` caller
-of `lifecycle-transaction`. They do not make `blocked_by_replan` a public mode.
+are Runtime transaction actions only; all three are called by `prepare-task`
+in `replan` mode. `supersede` remains a `task-lifecycle` caller of
+`lifecycle-transaction`. They do not make `blocked_by_replan` a public mode.
 `blocked_by_replan + active` and
 `superseded + active` are durable non-active owner states. Both reject
 `execute-step`, `pause`, and `interrupt`. The former may clear only when new
@@ -2590,7 +2687,7 @@ The following contracts remain outside the currently implemented workflow-system
 
 - default host exposure of the §4c shadow public entries
 - retirement or deletion of any §4c compatibility alias
-- state-changing Runtime implementations for inbox, status, archive, lesson, supersede/replan, and other unbound operation declarations
+- state-changing Runtime implementations for inbox and other unbound operation declarations
 - target-project-specific command bindings for optional project-level validation slots
 - production-environment credentials, secret rotation procedures, and deploy implementations
 - extraction-time release governance beyond the documented roadmap and baseline contracts

@@ -2,7 +2,7 @@
 
 - Phase: `Target Architecture`
 - Status: `Accepted final design`
-- Date: `2026-08-30`
+- Date: `2026-09-02`
 - Behavior impact: `none`
 - Design references:
   - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
@@ -105,6 +105,18 @@ Only an old project in `idle` state may upgrade. The one-time Migration Pack con
 ### P-11 — Unsupported schema fails closed
 
 If a vNext entry detects an old or otherwise unsupported protocol/schema, it returns `migration-required` and stops before task execution, state mutation, or partial installation. vNext Skills do not attempt to understand or repair the old protocol.
+
+### P-12 — Evidence-first admission determines validation and persistent tests
+
+Validation of a business claim, reuse or execution of an existing test/check, and creation of a new persistent automated test are separate decisions. A claim that needs validation does not automatically require a new test; the claim selects the minimum-sufficient evidence. Persistent tests are not admitted by default. A new persistent test requires an explicit owner, a claim it proves, a reason existing evidence is insufficient, and one closed admission basis: `acceptance`, `regression`, `critical-invariant`, or `critical-risk`. This principle refines P-03, P-05, P-06, and P-09 without introducing a Test Skill, registry, or state machine.
+
+### P-13 — Mutation scope controls writes, not understanding
+
+`Allowed`, `Conditional`, and `Forbidden` scope describe the mutation boundary. Read / discovery context may be broader when needed to understand the problem, trace callers and consumers, or establish root cause. Ordinary write scope is as narrow as evidence permits—normally an exact file and, when known, symbol / responsibility. A directory glob is reserved for inherently broad transformations. Scope expands only through a satisfied Conditional condition or evidence-proven bounded propagation; a changed goal, scope, or acceptance is a supersede / replan decision.
+
+### P-14 — One task, admitted steps, and risk-based review checkpoints
+
+A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each step executes only after admission of its bounded mutation scope and required evidence. Review is placed at logical or risk boundaries rather than after every step; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
 
 ## 4. Recommended exposure model
 
@@ -245,9 +257,9 @@ These evaluations always occur for a mutating task, though a low-risk case may r
 | source authority | authoritative sources read, conflicts, and unresolved facts |
 | project context | relevant Contracts, Decisions, Lessons, Profile, task state, and exact source locators; excluded or conflicted knowledge remains visible in the resolution trace |
 | task identity / active owner | current owner tuple and whether this request may mutate it |
-| scope | allowed change surface and any widening requirement |
+| scope | separate read / discovery context, exact mutation boundary, and any evidence-based widening requirement |
 | decision authority | mechanical / taste / user-owned decisions and unresolved blockers |
-| evidence admission | claims being proved, their owners/certainty, and sufficient evidence |
+| evidence admission | claims being proved, their owners/certainty, minimum-sufficient evidence, and the separate persistent-test decision |
 | dangerous-operation eligibility | detected dangerous surface, authorization, rollback/recovery, or not-applicable reason |
 | adaptive depth | selected risk profile, triggered conditional capabilities, and skipped-capability reasons |
 
@@ -276,6 +288,40 @@ The target may use profiles such as `minimal`, `standard`, and `guarded` to sele
 - `guarded`: cross-module, contract, lifecycle, UI, release, security, destructive, external-current-behavior, or high-uncertainty work.
 
 The selected profile and trigger evidence are part of the structured result. A model may increase depth when evidence warrants it; it may not downgrade a mechanically triggered guard.
+
+### 6.4 Combined daily execution semantics
+
+The three frozen principles compose into one lightweight daily model:
+
+```text
+prepare-task
+  → business goal / acceptance claims
+  → sufficiently broad read context
+  → precise mutation scope
+  → a small set of independently verifiable steps
+  → claim-bound evidence plans
+  → persistent-test admission only when explicitly justified
+  → review checkpoints only at risk / logical boundaries
+        ↓
+execute-step(current admitted step)
+  → read wider context when needed, write only admitted scope
+  → minimum-sufficient evidence
+      ├─ no checkpoint → durable advancement to the next admitted step
+      └─ checkpoint / final review → review-change
+          ├─ clean → durable advancement
+          └─ admitted finding → execute-step:repair
+                                → review-change verification
+                                → clean / bounded stop
+        ↓
+close-task when the complete task is eligible
+```
+
+`execute-step` never advances by model intention alone and never performs another
+step as a convenience. A step is complete only after its required evidence is
+satisfied. A required checkpoint must produce the qualifying `review-change`
+verdict / evidence before advancement; an admitted finding must converge through
+repair and verification first. The checkpoint is an internal task-definition
+policy fact, not a public mode or a new BPM stage.
 
 ## 7. Unified review architecture
 
@@ -333,12 +379,29 @@ review_result:
 
 Review never writes code or governance state. `governed_mutation_count` covers product source, governance records, queues, registry/install/host surfaces, and other task-owned durable files. Validation may create declared ephemeral cache/build/temp artifacts only under the target side-effect policy. Persisting a finding is a separate admission plus Runtime transaction.
 
+### 7.4 Review checkpoint policy
+
+`review-change` is invoked at a required review checkpoint, at final review when
+the task policy requires it, or for repair verification. It is not invoked merely
+because a step exists. Checkpoints are favored for contract / API, data model /
+schema, IPC / protocol, lifecycle / ownership / state-machine, security /
+permission, destructive or high-risk, release / rollback, major UI behavior,
+broad propagation, and task-specific critical-invariant boundaries. Low-risk
+mechanical steps may continue after minimum evidence without a full review.
+
+This policy changes review timing, not the read-only boundary or the existing
+`discovery` / `verification` cycle phases. In particular, repair verification
+remains mandatory even when ordinary step review is skipped.
+
 ## 8. Review convergence policy
 
 ### 8.1 Review-cycle phases
 
 - `discovery`: inspect the admitted breadth and establish the initial finding set.
 - `verification`: verify admitted fingerprints and impacted gates after repair; it is not permission to restart unlimited discovery.
+
+`verification` is required after an admitted repair and uses the same logical diff
+target. It is not optional merely because the repair was small.
 
 ### 8.2 Finding fingerprint
 
@@ -413,6 +476,10 @@ claim:
   existing_evidence: []
 ```
 
+The claim model identifies what is being proved; it does not itself admit a new
+persistent test. Evidence planning must first consider existing evidence and
+claim-appropriate real behavior.
+
 ### 9.2 Evidence-plan decision
 
 The evidence planner decides:
@@ -424,25 +491,39 @@ The evidence planner decides:
 - whether evidence is temporary exploration rather than a product contract;
 - which failure routes to repair, debug, replan, or user decision.
 
+Validation and new persistent-test creation remain separate outputs. A docs-only
+or governance-only wording change defaults to zero new persistent tests.
+
 An exploratory probe also declares a bounded duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule. Harness-level timeouts may enforce the budget, but they cannot silently turn an exhausted probe into sufficient evidence.
 
 Evidence types include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance.
 
 ### 9.3 Persistent-test admission
 
-A new committed test normally requires all of:
+A new committed test is not admitted by default. It may be written only when the
+admission record supplies all of the following:
 
-- a confirmed owner source;
+- an explicit owner;
+- one closed admission basis: `acceptance`, `regression`, `critical-invariant`, or `critical-risk`;
 - a named claim or failure it proves;
-- a reason existing evidence is insufficient;
-- an assertion at the behavioral/contract boundary rather than incidental implementation detail;
+- a concrete reason existing evidence is insufficient;
+- an assertion at the behavioral / contract boundary rather than incidental implementation detail;
 - a clear expected disposition if the test fails.
 
-Valid owner sources include confirmed acceptance, an existing contract, a reproduced bug, a hard invariant, or a concrete regression risk introduced by the diff. A user does not need to approve every mechanical regression test when the owner is already confirmed.
+Confirmed acceptance, an existing Contract, a reproduced bug, a hard invariant, or
+a concrete changed-behavior risk may supply the owner and evidence, but none is an
+admission basis by itself until it is classified into the closed four-value set.
+`risk-analysis` is valid only when it is anchored to an identified changed
+behavior, known failure model, and admitted task scope. A model-generated
+hypothetical by itself is not an owner or admission.
 
-`risk-analysis` is a valid owner source only when it is anchored to an identified changed behavior, known failure model, and admitted task scope. A model-generated hypothetical by itself is not an owner.
-
-If certainty is `provisional` or `exploratory`, the harness may run temporary probes, but it must not silently commit them as permanent contract tests. `owner_source: none` means no new persistent test by default.
+If certainty is `provisional` or `exploratory`, the harness may run temporary probes,
+but it must not silently commit them as permanent contract tests. `owner_source:
+none` means no new persistent test by default. An explicit user no-test instruction
+sets `test_write_policy: deny`; existing validation remains allowed, but no new
+persistent test may be written. An authoritative Contract that independently
+requires a test creates an authority conflict that must be reported rather than
+silently overridden.
 
 When an evidence plan must survive a turn, session, delegation, pause, or interruption, its claim identity, owner, certainty, admitted evidence types, and completion state are persisted through a typed proposal into an existing canonical task record. Harness memory alone cannot reset or widen the plan.
 
@@ -451,6 +532,7 @@ When an evidence plan must survive a turn, session, delegation, pause, or interr
 - Reuse existing evidence before creating a new test.
 - Add the smallest evidence that closes the named gap.
 - Do not generate combinatorial tests for hypothetical behavior without an owner.
+- Do not treat code modification, coverage, robustness, helper branches, mock-call counts, or a speculative edge as a persistent-test admission basis.
 - Do not make a guessed product behavior pass by writing both implementation and test.
 - Do not keep tests whose only purpose is to exercise the workflow-system itself unless that workflow behavior is the task's confirmed subject.
 - Review may question test adequacy but cannot continuously expand the test plan after the admitted claims are proved.
@@ -750,7 +832,12 @@ The exact command/API syntax remains deferred until this architecture is confirm
 
 ### 13.3 Slice B transaction actions and proposal boundaries
 
-The future task-state transaction catalog contains the closed actions `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These actions are contract-only until Slice B implementation; they do not authorize arbitrary active-task rewriting. All three are called only by `prepare-task` in `replan` mode. `supersede` remains a `task-lifecycle` caller of `lifecycle-transaction`.
+The task-state transaction catalog contains the closed actions
+`mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These actions
+were contract-only before Slice B binding and are now implemented in the
+source-repository Runtime; they do not authorize arbitrary active-task
+rewriting. All three are called only by `prepare-task` in `replan` mode.
+`supersede` remains a `task-lifecycle` caller of `lifecycle-transaction`.
 
 The minimum SupersedeDelta shape is:
 
@@ -807,7 +894,7 @@ The following cases define the target behavior:
 | `TA-04` | Report-only failure | terminal report, zero governed mutations and no unexpected workspace diff, zero repair/sync execution |
 | `TA-05` | Same fingerprint survives the repair budget | deterministic `needs-debug`; no third unbounded repair pass |
 | `TA-06` | Verification notices a speculative edge | issue is reported but not admitted into the current repair queue |
-| `TA-07` | Confirmed contract regression | a focused persistent test is admitted with contract owner and expected failure route |
+| `TA-07` | Confirmed contract regression | a focused persistent test is admitted only with an explicit owner, claim, insufficiency reason, and one closed admission basis |
 | `TA-08` | Unconfirmed product behavior guess | temporary exploration may run; no permanent test or implementation contract is created |
 | `TA-09` | Runtime proposal uses a valid path assigned to the wrong operation | operation-specific handler rejects it before mutation |
 | `TA-10` | Interrupted task resumes | atomic restore succeeds, then macro-routes to readiness review rather than implementation |
@@ -835,6 +922,10 @@ The following cases define the target behavior:
 | `TA-32` | Validation command grammar, command revision, context revision, target identity, or diff target is unsafe/stale | subprocess does not execute and the mismatch is reported as a blocker; external-documentation and approval evidence also remain outside subprocess authority |
 | `TA-33` | A vNext project contains only supported canonical Markdown/YAML schemas | the resolver and entries execute against those schemas without any legacy compatibility branch |
 | `TA-34` | A vNext component attempts to fall back to an old Skill or reinterpret an old document | the attempt fails closed with `migration-required` and no governed mutation |
+| `TA-35` | An acceptance claim is sufficiently proved by an existing build, smoke, persisted-state, or other real evidence | the claim is validated without creating a persistent test; test creation is not inferred from code mutation |
+| `TA-36` | Root-cause discovery needs callers, consumers, types, and configuration outside the proposed write set | broad read / discovery is allowed while mutation remains limited to the admitted file / symbol scope |
+| `TA-37` | A multi-step task has two low-risk steps followed by a contract or lifecycle boundary | the first steps advance on minimum evidence, the boundary triggers review, and no full review is forced after every step |
+| `TA-38` | A review admits a finding and repair changes the same logical diff | repair is followed by mandatory `review-change` verification before the next step advances |
 
 ## 15. Success measures
 
@@ -845,7 +936,10 @@ Hard requirements:
 - no internal review or preparation dimension uses an executable public handoff;
 - review and validation remain non-mutating;
 - validation evidence is bound to exact claims, diff/context/command revisions, audited in a disposable environment, and cannot borrow user or external-documentation authority;
-- every persistent test has a traceable owner and claim;
+- every persistent test has a traceable owner, claim, and one of the four explicit admission bases;
+- persistent tests are not admitted by default, and explicit user no-test policy is respected;
+- read / discovery context may exceed the mutation boundary, while ordinary write scope is precise and evidence-based expansion only;
+- step advancement occurs only after required evidence and any required checkpoint / repair convergence;
 - repair loops terminate by policy;
 - every consumed durable knowledge item has an exact locator and relevance reason;
 - knowledge candidates deduplicate, preserve provenance, and cannot bypass authority or stability gates;
@@ -874,7 +968,10 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 - A `report-only` pass or failure executes debug, repair, synchronization, or closure.
 - Runtime accepts an outdated source revision or model-authored text as user approval.
 - The same fingerprint causes an unbounded repair/review loop.
-- Tests with no acceptance, contract, bug, invariant, or risk owner are committed until something fails.
+- A persistent test is committed without an explicit owner, claim, existing-evidence insufficiency, and `acceptance` / `regression` / `critical-invariant` / `critical-risk` admission basis.
+- A task treats broad read context as write permission, or treats an extra file as writable without Conditional evidence / bounded scope admission.
+- Every implementation step is forced through a full review even when no risk or logical checkpoint exists.
+- A step advances before required evidence or repair verification converges, or a Skill edits `CURRENT_TASK.md` to advance it directly.
 - A Runtime handler writes through a broad glob or borrows another operation's valid target.
 - Resume selects the “latest” package or leaves two active owners.
 - Internal `sync-state` becomes a way to overwrite semantic facts without eligibility evidence.
@@ -905,9 +1002,11 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 1. The recommended exposure matrix and entry names are accepted.
 2. The proposed explicit target modes and mode-admission rule are accepted.
 3. The convergence budget is accepted: two attempts per fingerprint, three total repair rounds, and one verification new-finding wave.
-4. The persistent-test admission rule and temporary exploratory-evidence treatment are accepted.
-5. The guarded macro transitions in §12.1 may execute automatically only under an authorized end-to-end request and must stop at user-owned authority changes.
-6. The common Runtime transaction kernel plus exact typed handlers direction is accepted; exact CLI/API syntax remains deferred.
+4. The evidence-first rule, closed persistent-test admission bases, explicit no-test behavior, and temporary exploratory-evidence treatment are accepted.
+5. Mutation scope is write-oriented: broad read / discovery is allowed when relevant, ordinary writes are narrow, and expansion requires evidence or authority.
+6. A coherent task owns a small set of admitted steps; review checkpoints are risk-based, while repair verification remains mandatory.
+7. The guarded macro transitions in §12.1 may execute automatically only under an authorized end-to-end request and must stop at user-owned authority changes.
+8. The common Runtime transaction kernel plus exact typed handlers direction is accepted; exact CLI/API syntax remains deferred.
 
 ### 16.3 Deferred implementation details
 
