@@ -229,6 +229,10 @@ only incomplete STATUS reconciliation plus previously admitted Lesson
 persistence may continue. Any archive mismatch fails closed. Close-task has no
 close-specific task-state transaction, pending closure state, closure ID, or
 independent durable `TASK_SUMMARY.md` output.
+The existing archive `## Lessons 回写` section durably records
+`lesson_admission.decision` (`admit | defer | no-op`), `candidate_refs`, and
+`evidence_refs` at archive commit. This is admission provenance only, not proof
+that `LESSONS.md` was written; no new lesson-pending state or artifact exists.
 
 ## 6. Adaptive capability selection
 

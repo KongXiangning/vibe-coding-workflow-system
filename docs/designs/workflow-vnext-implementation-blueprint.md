@@ -284,6 +284,9 @@ knowledge-admission decision：`admit` / `defer` / `no-op`）→
 STATUS 或 Lesson 失败均不回滚 terminal archive；`closed + archived` 的
 再次调用不是第二次 closure，而是在验证 matching archive receipt / provenance
 后只继续未完成的 STATUS reconciliation 和已准入的 Lesson persistence。
+archive-transaction 必须把 admission verdict/provenance 写入现有 canonical
+task archive 的 `## Lessons 回写`：`lesson_admission.decision`、
+`candidate_refs`、`evidence_refs`；这不等于已写入 `LESSONS.md`。
 不存在 close-specific task-state transaction、`closure_id` 或 pending-closure
 recovery mode。
 

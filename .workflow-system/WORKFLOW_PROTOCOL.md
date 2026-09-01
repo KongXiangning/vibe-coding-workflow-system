@@ -392,6 +392,10 @@ Closure preparation evaluates knowledge admission before archive. The decision
 may be `admit`, `defer`, or `no-op`; only `admit` permits a later
 `lesson-record-transaction`. `project-status-transaction` runs after archive as
 a separate `STATUS`-only transaction, followed by that optional Lesson write.
+The successful `archive-transaction` must persist this admission
+decision/provenance in the existing canonical task archive `## Lessons 回写`
+section as `lesson_admission.decision`, `candidate_refs`, and `evidence_refs`.
+This records the admission verdict, not a completed `LESSONS.md` write.
 STATUS or Lesson failure never rolls back archive. Archive replay may
 return `no-op` only when tuple, identity/document ID, closure audit, exact path,
 archive hash/revision, and source-revision provenance all match; otherwise it

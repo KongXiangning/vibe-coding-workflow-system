@@ -628,6 +628,21 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 - `## Lessons 回写`
 - `## 后续关联`
 
+`## Lessons 回写` 必须在 `archive-transaction` 成功时持久保存本次
+closure preparation 的 admission verdict/provenance：
+
+```yaml
+lesson_admission:
+  decision: admit | defer | no-op
+  candidate_refs: []
+  evidence_refs: []
+```
+
+该记录只证明 admission 决策，不表示 `LESSONS.md` 已经写入。`admit` 允许
+后续 reconciliation 执行 `lesson-record-transaction`；`defer` / `no-op` 证明
+本次 closure 不需要 Lesson write。不得为此新增 `lesson_pending`、closure
+state、artifact 或 runtime object。
+
 ### 更新时机
 
 - 任务收尾、归档进入 `TASKS/` 时生成

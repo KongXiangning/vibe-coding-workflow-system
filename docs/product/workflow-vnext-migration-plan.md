@@ -219,6 +219,9 @@ and only an `admit` decision may produce a Lesson write. A later invocation on
 `closed + archived` verifies the matching archive receipt and performs only
 incomplete reconciliation; it never repeats archive. This phase does not add
 non-success terminal dispositions or a durable `TASK_SUMMARY.md` output.
+The archive preserves the closure preparation Lesson admission verdict in its
+existing `## Lessons 回写` section, so a later reconciliation can distinguish
+`admit` from `defer` / `no-op` without chat context or a second state source.
 
 Each later phase must preserve the seven-intent daily surface, adaptive internal capabilities, Review Convergence, Evidence Admission, canonical Markdown/YAML knowledge, and the Runtime kernel. It must not reintroduce a legacy compatibility runtime.
 
