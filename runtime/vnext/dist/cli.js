@@ -90,6 +90,7 @@ import * as path2 from "path";
 var CURRENT_TASK_WORKFLOW_STATUSES = [
   "draft",
   "active",
+  "closed",
   "suspended",
   "archived",
   "superseded",
@@ -141,7 +142,8 @@ var CURRENT_TASK_STATUS_TUPLES = new Map([
   ["archived|archived", "non_active_owner"],
   ["superseded|active", "non_active_owner"],
   ["replaced|active", "non_active_owner"],
-  ["blocked_by_replan|active", "non_active_owner"]
+  ["blocked_by_replan|active", "non_active_owner"],
+  ["closed|archived", "non_active_owner"]
 ]);
 var TASK_ID_PATTERN = /^[0-9]{3,}$/;
 var TASK_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -302,7 +304,10 @@ var VNEXT_RUNTIME_PACKAGE_VERSION = "0.14.5";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
-  "lifecycle-transaction"
+  "lifecycle-transaction",
+  "project-status-transaction",
+  "archive-transaction",
+  "lesson-record-transaction"
 ];
 var RUNTIME_SOURCE_TUPLE_FIELDS = [
   "path",
@@ -354,6 +359,7 @@ var RUNTIME_RESULT_STATES = ["success", "no-op", "conflict", "blocked"];
 var VNEXT_EXECUTE_STEP_MODES = ["default", "repair"];
 var PREPARE_TASK_MODES = ["default", "replan"];
 var LIFECYCLE_MODES = ["pause", "interrupt", "resume-paused", "resume-interrupted", "supersede"];
+var CLOSE_TASK_MODES = ["default"];
 var REVIEW_CYCLE_PHASES = ["discovery", "verification"];
 var STEP_STATUSES = ["ready", "in-progress", "completed", "blocked"];
 var FINDING_STATUSES = ["admitted", "in-progress", "resolved", "deferred", "rejected"];
@@ -636,10 +642,10 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord(contract.proposal, "Runtime contract.proposal");
-  expectExactKeys(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "prepare_task", "lifecycle"], "Runtime contract.proposal");
+  expectExactKeys(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "prepare_task", "lifecycle", "close_task"], "Runtime contract.proposal");
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail("RUNTIME_CONTRACT_INVALID", "Runtime proposal contract has an invalid envelope marker.");
-  expectSetEqual(expectStringArray(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "prepare-task", "task-lifecycle"], "Runtime contract proposal callers");
+  expectSetEqual(expectStringArray(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "prepare-task", "task-lifecycle", "close-task"], "Runtime contract proposal callers");
   expectSetEqual(expectStringArray(proposal.operation_kinds, "Runtime contract.proposal.operation_kinds"), [...RUNTIME_OPERATION_KINDS], "Runtime contract operation kinds");
   expectSetEqual(expectStringArray(proposal.source_tuple, "Runtime contract.proposal.source_tuple"), [...RUNTIME_SOURCE_TUPLE_FIELDS], "Runtime contract source tuple");
   expectSetEqual(expectStringArray(proposal.required_envelope, "Runtime contract.proposal.required_envelope"), [...RUNTIME_REQUIRED_ENVELOPE_FIELDS], "Runtime contract proposal envelope");
@@ -671,6 +677,14 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     expectExactKeys(required, ["required"], `Runtime contract.proposal.lifecycle.${field}`);
     expectSetEqual(expectStringArray(required.required, `Runtime contract.proposal.lifecycle.${field}.required`), expected, `Runtime contract lifecycle ${field}`);
   }
+  const closeTaskContract = expectRecord(proposal.close_task, "Runtime contract.proposal.close_task");
+  expectExactKeys(closeTaskContract, ["default_mode", "preview_mode", "terminal_from", "terminal_to", "lesson_admission"], "Runtime contract.proposal.close_task");
+  if (closeTaskContract.default_mode !== "default" || closeTaskContract.preview_mode !== "preview") {
+    fail("RUNTIME_CONTRACT_INVALID", "Runtime contract close-task must reserve default closure and preview read-only semantics.");
+  }
+  expectSetEqual(expectStringArray(closeTaskContract.terminal_from, "Runtime contract close-task terminal_from"), ["active + active"], "Runtime contract close-task terminal_from");
+  expectSetEqual(expectStringArray(closeTaskContract.terminal_to, "Runtime contract close-task terminal_to"), ["closed + archived"], "Runtime contract close-task terminal_to");
+  expectSetEqual(expectStringArray(closeTaskContract.lesson_admission, "Runtime contract close-task lesson_admission"), ["admit", "defer", "no-op"], "Runtime contract close-task lesson admission");
   const canonical = expectRecord(contract.canonical_current_task, "Runtime contract.canonical_current_task");
   expectExactKeys(canonical, ["frontmatter", "runtime_state", "source_of_truth", "legacy_schema_behavior"], "Runtime contract.canonical_current_task");
   const frontmatter = expectRecord(canonical.frontmatter, "Runtime contract.canonical_current_task.frontmatter");
@@ -704,7 +718,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   }
   const operations = contract.operations;
   if (!Array.isArray(operations) || operations.length !== RUNTIME_OPERATION_KINDS.length)
-    fail("RUNTIME_CONTRACT_INVALID", "Runtime contract must declare exactly the three Phase 2 bound operations.");
+    fail("RUNTIME_CONTRACT_INVALID", `Runtime contract must declare exactly the ${RUNTIME_OPERATION_KINDS.length} Phase 2 bound operations.`);
   const bound = [];
   for (const [index, rawOperation] of operations.entries()) {
     const operation = expectRecord(rawOperation, `Runtime contract.operations[${index}]`);
@@ -717,18 +731,49 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
       fail("RUNTIME_CONTRACT_INVALID", `Runtime contract operation ${id} must be bound to vnext-runtime.`);
     if (operation.operation !== id)
       fail("RUNTIME_CONTRACT_INVALID", `Runtime contract operation ${id} must identify its logical operation.`);
-    const expectedTargets = id === "lifecycle-transaction" ? ["CURRENT_TASK.md", "TASKS/paused/**", "TASKS/interrupted/**"] : ["CURRENT_TASK.md"];
-    const expectedCallers = id === "task-state-transaction" ? ["execute-step", "prepare-task"] : id === "finding-queue-transaction" ? ["execute-step"] : ["task-lifecycle"];
-    expectSetEqual(expectStringArray(operation.source_targets, `Runtime contract.operations[${index}].source_targets`), expectedTargets, `Runtime contract operation ${id}.source_targets`);
-    expectSetEqual(expectStringArray(operation.write_targets, `Runtime contract.operations[${index}].write_targets`), expectedTargets, `Runtime contract operation ${id}.write_targets`);
-    expectSetEqual(expectStringArray(operation.allowed_callers, `Runtime contract.operations[${index}].allowed_callers`), expectedCallers, `Runtime contract operation ${id}.allowed_callers`);
+    const operationContract = {
+      "task-state-transaction": {
+        source: ["CURRENT_TASK.md"],
+        writes: ["CURRENT_TASK.md"],
+        callers: ["execute-step", "prepare-task"]
+      },
+      "finding-queue-transaction": {
+        source: ["CURRENT_TASK.md"],
+        writes: ["CURRENT_TASK.md"],
+        callers: ["execute-step"]
+      },
+      "lifecycle-transaction": {
+        source: ["CURRENT_TASK.md", "TASKS/paused/**", "TASKS/interrupted/**"],
+        writes: ["CURRENT_TASK.md", "TASKS/paused/**", "TASKS/interrupted/**"],
+        callers: ["task-lifecycle"]
+      },
+      "project-status-transaction": {
+        source: ["CURRENT_TASK.md", "STATUS.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md"],
+        writes: ["STATUS.md"],
+        callers: ["close-task"]
+      },
+      "archive-transaction": {
+        source: ["CURRENT_TASK.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md"],
+        writes: ["CURRENT_TASK.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md"],
+        callers: ["close-task"]
+      },
+      "lesson-record-transaction": {
+        source: ["CURRENT_TASK.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md", "LESSONS.md"],
+        writes: ["LESSONS.md"],
+        callers: ["close-task"]
+      }
+    };
+    const expectedTargets = operationContract[id];
+    expectSetEqual(expectStringArray(operation.source_targets, `Runtime contract.operations[${index}].source_targets`), expectedTargets.source, `Runtime contract operation ${id}.source_targets`);
+    expectSetEqual(expectStringArray(operation.write_targets, `Runtime contract.operations[${index}].write_targets`), expectedTargets.writes, `Runtime contract operation ${id}.write_targets`);
+    expectSetEqual(expectStringArray(operation.allowed_callers, `Runtime contract.operations[${index}].allowed_callers`), expectedTargets.callers, `Runtime contract operation ${id}.allowed_callers`);
     expectSetEqual(expectStringArray(operation.result_states, `Runtime contract.operations[${index}].result_states`), [...RUNTIME_RESULT_STATES], `Runtime contract operation ${id}.result_states`);
     if (operation.atomic !== true || operation.idempotence !== "fail-closed" || operation.conflict_policy !== "fail-closed")
       fail("RUNTIME_CONTRACT_INVALID", `Runtime contract operation ${id} must be atomic, fail-closed, and conflict-safe.`);
   }
   expectSetEqual(bound, [...RUNTIME_OPERATION_KINDS], "Runtime contract bound operations");
   const unbound = expectStringArray(contract.unbound_operations, "Runtime contract.unbound_operations");
-  expectSetEqual(unbound, ["inbox-record-transaction", "project-status-transaction", "archive-transaction", "lesson-record-transaction"], "Runtime contract unbound operations");
+  expectSetEqual(unbound, ["inbox-record-transaction"], "Runtime contract unbound operations");
   return { phase: "Phase 2", runtime_distribution: distributionIdentity, bound_operations: bound, unbound_operations: unbound };
 }
 function validateAuthorityEvidence(value) {
@@ -1136,6 +1181,149 @@ function validateFindingAction(value) {
     result.note = expectText(record.note, "semantic_delta.note");
   return result;
 }
+var CLOSURE_EVIDENCE_FIELDS = [
+  "acceptance_satisfied",
+  "validation_complete",
+  "no_admitted_or_in_progress_findings",
+  "no_unresolved_closure_blocker",
+  "release_evidence",
+  "rollback_evidence",
+  "observation_evidence",
+  "remaining_risks_non_blocking",
+  "archive_path_verified"
+];
+function validateClosureEvidence(value, location) {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, CLOSURE_EVIDENCE_FIELDS, location);
+  const validateEvidenceGate = (raw, field) => {
+    const gate = expectRecord(raw, `${location}.${field}`);
+    expectExactKeys(gate, ["triggered", "complete", "evidence_refs"], `${location}.${field}`);
+    const triggered = expectBoolean(gate.triggered, `${location}.${field}.triggered`);
+    const complete = expectBoolean(gate.complete, `${location}.${field}.complete`);
+    const evidenceRefs = expectStringArray(gate.evidence_refs, `${location}.${field}.evidence_refs`, true, MAX_EVIDENCE_REFS);
+    if (triggered && !complete) {
+      fail("CLOSURE_EVIDENCE_INVALID", `${location}.${field} is triggered but incomplete.`);
+    }
+    return { triggered, complete, evidence_refs: evidenceRefs };
+  };
+  return {
+    acceptance_satisfied: expectBoolean(record.acceptance_satisfied, `${location}.acceptance_satisfied`),
+    validation_complete: expectBoolean(record.validation_complete, `${location}.validation_complete`),
+    no_admitted_or_in_progress_findings: expectBoolean(record.no_admitted_or_in_progress_findings, `${location}.no_admitted_or_in_progress_findings`),
+    no_unresolved_closure_blocker: expectBoolean(record.no_unresolved_closure_blocker, `${location}.no_unresolved_closure_blocker`),
+    release_evidence: validateEvidenceGate(record.release_evidence, "release_evidence"),
+    rollback_evidence: validateEvidenceGate(record.rollback_evidence, "rollback_evidence"),
+    observation_evidence: validateEvidenceGate(record.observation_evidence, "observation_evidence"),
+    remaining_risks_non_blocking: expectBoolean(record.remaining_risks_non_blocking, `${location}.remaining_risks_non_blocking`),
+    archive_path_verified: expectBoolean(record.archive_path_verified, `${location}.archive_path_verified`)
+  };
+}
+function validateDeliverySummary(value, location) {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ["goal", "actual_changes", "verification", "release_evidence", "rollback_evidence", "observation_evidence", "next_action"], location);
+  return {
+    goal: expectText(record.goal, `${location}.goal`, MAX_TEXT_LENGTH),
+    actual_changes: expectStringArray(record.actual_changes, `${location}.actual_changes`, false, 64),
+    verification: expectStringArray(record.verification, `${location}.verification`, false, 64),
+    release_evidence: expectStringArray(record.release_evidence, `${location}.release_evidence`, true, 64),
+    rollback_evidence: expectStringArray(record.rollback_evidence, `${location}.rollback_evidence`, true, 64),
+    observation_evidence: expectStringArray(record.observation_evidence, `${location}.observation_evidence`, true, 64),
+    next_action: expectText(record.next_action, `${location}.next_action`, MAX_TEXT_LENGTH)
+  };
+}
+function validateLessonAdmission(value, location) {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ["decision", "candidate_refs", "evidence_refs"], location);
+  const decision = expectEnum(record.decision, ["admit", "defer", "no-op"], `${location}.decision`);
+  const candidateRefs = expectStringArray(record.candidate_refs, `${location}.candidate_refs`, true, MAX_EVIDENCE_REFS);
+  const evidenceRefs = expectStringArray(record.evidence_refs, `${location}.evidence_refs`, true, MAX_EVIDENCE_REFS);
+  if (decision === "admit" && candidateRefs.length === 0)
+    fail("KNOWLEDGE_ADMISSION_INVALID", `${location}.candidate_refs must be non-empty when decision is admit.`);
+  if (decision === "admit" && evidenceRefs.length === 0)
+    fail("KNOWLEDGE_ADMISSION_INVALID", `${location}.evidence_refs must be non-empty when decision is admit.`);
+  return { decision, candidate_refs: candidateRefs, evidence_refs: evidenceRefs };
+}
+function validateArchiveDelta(value) {
+  const record = expectRecord(value, "semantic_delta");
+  const allowedKeys = ["kind", "action", "closure_evidence", "delivery_summary", "remaining_risks", "lesson_admission", "evidence_refs"];
+  const extra = Object.keys(record).filter((key) => !allowedKeys.includes(key));
+  const required = allowedKeys.filter((key) => !(key in record));
+  if (required.length > 0 || extra.length > 0) {
+    fail("RUNTIME_SCHEMA_INVALID", `semantic_delta keys mismatch; missing=[${required.join(", ")}], unexpected=[${extra.join(", ")}].`);
+  }
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
+  const closureEvidence = validateClosureEvidence(record.closure_evidence, "semantic_delta.closure_evidence");
+  const lessonAdmission = validateLessonAdmission(record.lesson_admission, "semantic_delta.lesson_admission");
+  const referencedEvidence = [
+    ...closureEvidence.release_evidence.evidence_refs,
+    ...closureEvidence.rollback_evidence.evidence_refs,
+    ...closureEvidence.observation_evidence.evidence_refs,
+    ...lessonAdmission.evidence_refs
+  ];
+  if (!referencedEvidence.every((ref) => evidenceRefs.includes(ref))) {
+    fail("RUNTIME_EVIDENCE_INVALID", "archive proposal evidence_refs must cover closure and lesson-admission evidence_refs.");
+  }
+  return {
+    kind: expectEnum(record.kind, ["archive"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["archive"], "semantic_delta.action"),
+    closure_evidence: closureEvidence,
+    delivery_summary: validateDeliverySummary(record.delivery_summary, "semantic_delta.delivery_summary"),
+    remaining_risks: expectStringArray(record.remaining_risks, "semantic_delta.remaining_risks", true, 64),
+    lesson_admission: lessonAdmission,
+    evidence_refs: evidenceRefs
+  };
+}
+var LESSON_CATEGORIES = ["通用", "数据与存储", "前端与交互", "后端与服务", "测试与回归", "部署与运行时"];
+function validateLessonCandidate(value, location) {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ["candidate_ref", "category", "scene", "conclusion", "trigger", "cause", "action", "consumer", "evidence_refs"], location);
+  return {
+    candidate_ref: expectString(record.candidate_ref, `${location}.candidate_ref`, SAFE_KEY_PATTERN),
+    category: expectEnum(record.category, LESSON_CATEGORIES, `${location}.category`),
+    scene: expectText(record.scene, `${location}.scene`),
+    conclusion: expectText(record.conclusion, `${location}.conclusion`),
+    trigger: expectText(record.trigger, `${location}.trigger`),
+    cause: expectText(record.cause, `${location}.cause`),
+    action: expectText(record.action, `${location}.action`),
+    consumer: expectText(record.consumer, `${location}.consumer`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
+  };
+}
+function validateProjectStatusDelta(value) {
+  const record = expectRecord(value, "semantic_delta");
+  expectExactKeys(record, ["kind", "action", "status", "summary", "completed_items", "remaining_risks", "next_checkpoint", "evidence_refs"], "semantic_delta");
+  return {
+    kind: expectEnum(record.kind, ["project-status"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["sync"], "semantic_delta.action"),
+    status: expectEnum(record.status, ["completed", "observing"], "semantic_delta.status"),
+    summary: expectText(record.summary, "semantic_delta.summary"),
+    completed_items: expectStringArray(record.completed_items, "semantic_delta.completed_items", false, 64),
+    remaining_risks: expectStringArray(record.remaining_risks, "semantic_delta.remaining_risks", true, 64),
+    next_checkpoint: expectText(record.next_checkpoint, "semantic_delta.next_checkpoint"),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
+  };
+}
+function validateLessonRecordDelta(value) {
+  const record = expectRecord(value, "semantic_delta");
+  expectExactKeys(record, ["kind", "action", "candidates", "evidence_refs"], "semantic_delta");
+  if (!Array.isArray(record.candidates) || record.candidates.length === 0 || record.candidates.length > 32) {
+    fail("RUNTIME_SCHEMA_INVALID", "semantic_delta.candidates must contain between 1 and 32 candidates.");
+  }
+  const candidates = record.candidates.map((candidate, index) => validateLessonCandidate(candidate, `semantic_delta.candidates[${index}]`));
+  if (new Set(candidates.map((candidate) => candidate.candidate_ref)).size !== candidates.length) {
+    fail("RUNTIME_SCHEMA_INVALID", "semantic_delta.candidates must have unique candidate_ref values.");
+  }
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
+  if (!candidates.every((candidate) => candidate.evidence_refs.every((ref) => evidenceRefs.includes(ref)))) {
+    fail("RUNTIME_EVIDENCE_INVALID", "lesson-record proposal evidence_refs must cover every candidate evidence reference.");
+  }
+  return {
+    kind: expectEnum(record.kind, ["lesson-record"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["record"], "semantic_delta.action"),
+    candidates,
+    evidence_refs: evidenceRefs
+  };
+}
 function validateSemanticDelta(value, operationKind) {
   const record = expectRecord(value, "semantic_delta");
   const kind = expectString(record.kind, "semantic_delta.kind");
@@ -1149,6 +1337,21 @@ function validateSemanticDelta(value, operationKind) {
       fail("RUNTIME_SCHEMA_INVALID", "lifecycle-transaction requires lifecycle semantic_delta.");
     return validateLifecycleDelta(value);
   }
+  if (operationKind === "archive-transaction") {
+    if (kind !== "archive")
+      fail("RUNTIME_SCHEMA_INVALID", "archive-transaction requires archive semantic_delta.");
+    return validateArchiveDelta(value);
+  }
+  if (operationKind === "project-status-transaction") {
+    if (kind !== "project-status")
+      fail("RUNTIME_SCHEMA_INVALID", "project-status-transaction requires project-status semantic_delta.");
+    return validateProjectStatusDelta(value);
+  }
+  if (operationKind === "lesson-record-transaction") {
+    if (kind !== "lesson-record")
+      fail("RUNTIME_SCHEMA_INVALID", "lesson-record-transaction requires lesson-record semantic_delta.");
+    return validateLessonRecordDelta(value);
+  }
   if (kind !== "finding-queue")
     fail("RUNTIME_SCHEMA_INVALID", "finding-queue-transaction requires finding-queue semantic_delta.");
   return record.action === "admit" ? validateFindingRecord(value, "semantic_delta") : validateFindingAction(value);
@@ -1161,7 +1364,7 @@ function validateRuntimeProposal(value) {
   if (proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail("RUNTIME_SCHEMA_INVALID", `proposal.kind must be ${VNEXT_RUNTIME_PROPOSAL_KIND}.`);
   const operationKind = expectEnum(proposal.operation_kind, RUNTIME_OPERATION_KINDS, "proposal.operation_kind");
-  const caller = expectEnum(proposal.caller, ["execute-step", "prepare-task", "task-lifecycle"], "proposal.caller");
+  const caller = expectEnum(proposal.caller, ["execute-step", "prepare-task", "task-lifecycle", "close-task"], "proposal.caller");
   const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES], "proposal.mode");
   const sourceTuple = validateSourceTuple(proposal.source_tuple);
   const authorityEvidence = validateAuthorityEvidence(proposal.authority_evidence);
@@ -1169,7 +1372,7 @@ function validateRuntimeProposal(value) {
   const evidenceRefs = validateEvidenceRefs(proposal.evidence_refs, "proposal.evidence_refs");
   const idempotencyKey = expectString(proposal.idempotency_key, "proposal.idempotency_key", SAFE_KEY_PATTERN);
   const requestedTargets = expectStringArray(proposal.requested_write_targets, "proposal.requested_write_targets", false, 4).map((target, index) => normalizeRepoPath(target, `proposal.requested_write_targets[${index}]`));
-  const targetCount = operationKind === "lifecycle-transaction" && mode !== "supersede" ? 2 : 1;
+  const targetCount = operationKind === "lifecycle-transaction" && mode !== "supersede" || operationKind === "archive-transaction" ? 2 : 1;
   if (requestedTargets.length !== targetCount)
     fail("RUNTIME_PATH_INVALID", `This Runtime proposal must name exactly ${targetCount} exact write target${targetCount === 1 ? "" : "s"}.`);
   const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
@@ -1198,11 +1401,18 @@ function validateRuntimeProposal(value) {
       fail("RUNTIME_CALLER_NOT_BOUND", "finding-queue-transaction is bound only to execute-step:repair.");
     if (semanticDelta.kind !== "finding-queue")
       fail("RUNTIME_MODE_INVALID", "repair mode requires a finding-queue proposal.");
-  } else {
+  } else if (operationKind === "lifecycle-transaction") {
     if (caller !== "task-lifecycle" || !LIFECYCLE_MODES.includes(mode))
       fail("RUNTIME_CALLER_NOT_BOUND", "lifecycle-transaction is bound only to task-lifecycle lifecycle modes.");
     if (semanticDelta.kind !== "lifecycle" || semanticDelta.action !== mode)
       fail("RUNTIME_MODE_INVALID", "lifecycle mode and semantic transition must match.");
+  } else {
+    if (caller !== "close-task" || !CLOSE_TASK_MODES.includes(mode)) {
+      fail("RUNTIME_CALLER_NOT_BOUND", `${operationKind} is bound only to close-task default closure.`);
+    }
+    const expectedKind = operationKind === "archive-transaction" ? "archive" : operationKind === "project-status-transaction" ? "project-status" : "lesson-record";
+    if (semanticDelta.kind !== expectedKind)
+      fail("RUNTIME_MODE_INVALID", `${operationKind} requires a ${expectedKind} semantic_delta.`);
   }
   const result = {
     schema_version: 1,
@@ -1218,7 +1428,7 @@ function validateRuntimeProposal(value) {
     idempotency_key: idempotencyKey,
     requested_write_targets: requestedTargets
   };
-  const deltaRefs = semanticDelta.kind === "task-state" ? semanticDelta.evidence_refs : semanticDelta.action === "admit" ? semanticDelta.finding.evidence_refs : semanticDelta.evidence_refs;
+  const deltaRefs = semanticDelta.kind === "task-state" ? semanticDelta.evidence_refs : semanticDelta.kind === "finding-queue" ? semanticDelta.action === "admit" ? semanticDelta.finding.evidence_refs : semanticDelta.evidence_refs : semanticDelta.evidence_refs;
   if (!deltaRefs.every((ref) => evidenceRefs.includes(ref))) {
     fail("RUNTIME_EVIDENCE_INVALID", "proposal.evidence_refs must cover semantic_delta evidence_refs.");
   }
@@ -1288,8 +1498,85 @@ function validateReviewCycle(value, location = "runtime_state.review_cycle") {
     verification_new_finding_wave_id: verificationNewFindingWaveId
   };
 }
+function validateArchiveAuditLogEntry(value, location, taskId, taskSlug) {
+  expectExactKeys(value, [
+    "action",
+    "idempotency_key",
+    "operation_kind",
+    "caller",
+    "mode",
+    "task_id",
+    "task_slug",
+    "document_id",
+    "from_workflow_status",
+    "from_lifecycle_state",
+    "to_workflow_status",
+    "to_lifecycle_state",
+    "source_revision",
+    "archive_path",
+    "archive_revision",
+    "closure_delta_digest",
+    "authority_evidence",
+    "evidence_refs",
+    "lesson_admission",
+    "recorded_at"
+  ], location);
+  const entryTaskId = expectString(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(entryTaskId);
+    validateTaskSlug(entryTaskSlug);
+  } catch (error) {
+    fail("RUNTIME_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug)
+    fail("RUNTIME_STATE_CONFLICT", `${location} identity does not match runtime_state.`);
+  const documentId = expectString(value.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(documentId))
+    fail("RUNTIME_SCHEMA_INVALID", `${location}.document_id is invalid.`);
+  const sourceRevision = expectString(value.source_revision, `${location}.source_revision`);
+  const archiveRevision = expectString(value.archive_revision, `${location}.archive_revision`);
+  const closureDeltaDigest = expectString(value.closure_delta_digest, `${location}.closure_delta_digest`);
+  if (!/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(closureDeltaDigest)) {
+    fail("RUNTIME_SCHEMA_INVALID", `${location} revisions and digest must be SHA-256.`);
+  }
+  const archivePath = normalizeRepoPath(expectString(value.archive_path, `${location}.archive_path`), `${location}.archive_path`);
+  if (!/^TASKS\/TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(archivePath)) {
+    fail("RUNTIME_PATH_INVALID", `${location}.archive_path must be a canonical task archive path.`);
+  }
+  if (value.action !== "archive" || value.operation_kind !== "archive-transaction" || value.caller !== "close-task" || value.mode !== "default") {
+    fail("RUNTIME_STATE_CONFLICT", `${location} archive audit has an invalid operation binding.`);
+  }
+  if (value.from_workflow_status !== "active" || value.from_lifecycle_state !== "active" || value.to_workflow_status !== "closed" || value.to_lifecycle_state !== "archived") {
+    fail("RUNTIME_STATE_CONFLICT", `${location} archive audit has an invalid terminal transition.`);
+  }
+  return {
+    action: "archive",
+    idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    operation_kind: "archive-transaction",
+    caller: "close-task",
+    mode: "default",
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: "active",
+    from_lifecycle_state: "active",
+    to_workflow_status: "closed",
+    to_lifecycle_state: "archived",
+    source_revision: sourceRevision,
+    archive_path: archivePath,
+    archive_revision: archiveRevision,
+    closure_delta_digest: closureDeltaDigest,
+    authority_evidence: validateAuthorityEvidence(value.authority_evidence),
+    evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`),
+    lesson_admission: validateLessonAdmission(value.lesson_admission, `${location}.lesson_admission`),
+    recorded_at: expectString(value.recorded_at, `${location}.recorded_at`)
+  };
+}
 function validateExecutionLogEntry(value, location, taskId, taskSlug) {
   const record = expectRecord(value, location);
+  if (record.action === "archive")
+    return validateArchiveAuditLogEntry(record, location, taskId, taskSlug);
   if ("action" in record) {
     const requiredKeys = [
       "action",
@@ -1718,15 +2005,25 @@ function renderExecutionAuditRecord(audit) {
     `  authority_refs: ${auditList(authorityRefs)}`,
     `  evidence_refs: ${auditList(audit.evidence_refs)}`
   ];
-  if (audit.invalidation_kind !== undefined)
-    lines.push(`  invalidation_kind: ${audit.invalidation_kind}`);
-  if (audit.invalidation_reason !== undefined)
-    lines.push(`  invalidation_reason: ${audit.invalidation_reason}`);
-  if (audit.partial_diff_disposition !== undefined) {
-    lines.push("  partial_diff_disposition:");
-    lines.push(`    reusable: ${auditList(audit.partial_diff_disposition.reusable)}`);
-    lines.push(`    rollback_required: ${auditList(audit.partial_diff_disposition.rollback_required)}`);
-    lines.push(`    stop_propagation: ${auditList(audit.partial_diff_disposition.stop_propagation)}`);
+  if (audit.action === "archive") {
+    lines.push(`  archive_path: ${audit.archive_path}`);
+    lines.push(`  archive_revision: ${audit.archive_revision}`);
+    lines.push(`  closure_delta_digest: ${audit.closure_delta_digest}`);
+    lines.push("  lesson_admission:");
+    lines.push(`    decision: ${audit.lesson_admission.decision}`);
+    lines.push(`    candidate_refs: ${auditList(audit.lesson_admission.candidate_refs)}`);
+    lines.push(`    evidence_refs: ${auditList(audit.lesson_admission.evidence_refs)}`);
+  } else {
+    if (audit.invalidation_kind !== undefined)
+      lines.push(`  invalidation_kind: ${audit.invalidation_kind}`);
+    if (audit.invalidation_reason !== undefined)
+      lines.push(`  invalidation_reason: ${audit.invalidation_reason}`);
+    if (audit.partial_diff_disposition !== undefined) {
+      lines.push("  partial_diff_disposition:");
+      lines.push(`    reusable: ${auditList(audit.partial_diff_disposition.reusable)}`);
+      lines.push(`    rollback_required: ${auditList(audit.partial_diff_disposition.rollback_required)}`);
+      lines.push(`    stop_propagation: ${auditList(audit.partial_diff_disposition.stop_propagation)}`);
+    }
   }
   lines.push(`  recorded_at: ${audit.recorded_at}`);
   return lines.join(`
@@ -1834,6 +2131,725 @@ function readCanonicalCurrentTask(root) {
     fail("RUNTIME_SOURCE_MISSING", `CURRENT_TASK.md is missing: ${relativePath}`);
   return parseCanonicalCurrentTaskContent(fs2.readFileSync(filePath, "utf8"), filePath, relativePath);
 }
+function workflowDocPathForRoot(root, file, missingCode = "RUNTIME_SOURCE_MISSING") {
+  const resolvedRoot = path3.resolve(root);
+  const profilePath = getWorkflowProfilePath(resolvedRoot);
+  if (!fs2.existsSync(profilePath))
+    fail(missingCode, `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
+  const profile = loadProfile(profilePath);
+  const filePath = getWorkflowDocPath(resolvedRoot, profile, file);
+  const relativePath = path3.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relativePath || relativePath.startsWith("../") || path3.isAbsolute(relativePath)) {
+    fail("RUNTIME_PATH_INVALID", `${file} path escapes the target root.`);
+  }
+  return { filePath, relativePath };
+}
+function archivePathForTask(root, current) {
+  let relativePath;
+  try {
+    relativePath = getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, "archive");
+  } catch (error) {
+    fail("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  const resolvedRoot = path3.resolve(root);
+  const filePath = path3.resolve(resolvedRoot, ...relativePath.split("/"));
+  const relativeCheck = path3.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path3.isAbsolute(relativeCheck)) {
+    fail("RUNTIME_PATH_INVALID", `archive path escapes the target root: ${relativePath}`);
+  }
+  return { filePath, relativePath };
+}
+function yamlScalar(value) {
+  if (/^[A-Za-z0-9][A-Za-z0-9._:/+@ -]*$/.test(value) && !value.endsWith(" ") && !value.includes("  "))
+    return value;
+  return JSON.stringify(value);
+}
+function yamlStringArray(values) {
+  return JSON.stringify(values);
+}
+function readArchiveScalar(section, field, location) {
+  const escaped = field.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
+  const match = new RegExp(`^-\\s*${escaped}\\s*:\\s*(.*?)\\s*$`, "m").exec(section);
+  if (!match)
+    fail("ARCHIVE_INVALID", `${location} is missing ${field}.`);
+  const raw = match[1].trim();
+  if (raw.startsWith('"') || raw.startsWith("'")) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      fail("ARCHIVE_INVALID", `${location}.${field} is not a valid scalar.`);
+    }
+  }
+  return expectString(raw, `${location}.${field}`);
+}
+function readArchiveArray(raw, location) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    fail("ARCHIVE_INVALID", `${location} must be a JSON/YAML inline string array.`);
+  }
+  return expectStringArray(parsed, location, true, MAX_EVIDENCE_REFS);
+}
+function readArchiveLessonAdmission(section, location) {
+  const match = /(?:^|\n)lesson_admission:\s*\n\s+decision:\s*(admit|defer|no-op)\s*\n\s+candidate_refs:\s*(\[[^\r\n]*\])\s*\n\s+evidence_refs:\s*(\[[^\r\n]*\])/m.exec(section);
+  if (!match)
+    fail("ARCHIVE_INVALID", `${location} is missing the durable lesson_admission record.`);
+  return validateLessonAdmission({
+    decision: match[1],
+    candidate_refs: readArchiveArray(match[2], `${location}.candidate_refs`),
+    evidence_refs: readArchiveArray(match[3], `${location}.evidence_refs`)
+  }, location);
+}
+function requiredArchiveSections(raw) {
+  const sections = scanMarkdownSections(raw);
+  const requiredHeadings = [
+    "任务元数据",
+    "原始任务包快照",
+    "实际改动摘要",
+    "契约与决策记录",
+    "验证与交付证据",
+    "Lessons 回写",
+    "后续关联"
+  ];
+  const result = {};
+  for (const heading of requiredHeadings) {
+    const section = findUniqueMarkdownSection(sections, [heading], 2);
+    if (!section)
+      fail("ARCHIVE_INVALID", `canonical task archive is missing ## ${heading}.`);
+    result[heading] = section;
+  }
+  return result;
+}
+function readCanonicalArchive(root, current, expectedPath) {
+  const expected = archivePathForTask(root, current);
+  if (expectedPath !== undefined && expectedPath !== expected.relativePath) {
+    fail("RUNTIME_PATH_INVALID", "archive path is not the exact identity-derived path.");
+  }
+  if (!fs2.existsSync(expected.filePath))
+    fail("ARCHIVE_MISSING", `canonical task archive is missing: ${expected.relativePath}`);
+  const raw = fs2.readFileSync(expected.filePath, "utf8");
+  const sections = requiredArchiveSections(raw);
+  const metadata = raw.slice(sections["任务元数据"].contentStart, sections["任务元数据"].contentEnd);
+  const lessonSection = raw.slice(sections["Lessons 回写"].contentStart, sections["Lessons 回写"].contentEnd);
+  const workflowStatus = readArchiveScalar(metadata, "workflow_status", "archive.任务元数据");
+  const lifecycleState = readArchiveScalar(metadata, "lifecycle_state", "archive.任务元数据");
+  const archiveOperation = readArchiveScalar(metadata, "archive_operation", "archive.任务元数据");
+  const archiveCaller = readArchiveScalar(metadata, "archive_caller", "archive.任务元数据");
+  const receipt = {
+    filePath: expected.filePath,
+    relativePath: expected.relativePath,
+    raw,
+    revision: sha256(raw),
+    taskId: readArchiveScalar(metadata, "task_id", "archive.任务元数据"),
+    taskSlug: readArchiveScalar(metadata, "task_slug", "archive.任务元数据"),
+    taskTitle: readArchiveScalar(metadata, "task_title", "archive.任务元数据"),
+    documentId: readArchiveScalar(metadata, "document_id", "archive.任务元数据"),
+    sourceRevision: readArchiveScalar(metadata, "source_revision", "archive.任务元数据"),
+    archivePath: readArchiveScalar(metadata, "archive_path", "archive.任务元数据"),
+    idempotencyKey: readArchiveScalar(metadata, "proposal_idempotency_key", "archive.任务元数据"),
+    closureDeltaDigest: readArchiveScalar(metadata, "closure_delta_digest", "archive.任务元数据"),
+    lessonAdmission: readArchiveLessonAdmission(lessonSection, "archive.Lessons 回写.lesson_admission")
+  };
+  if (!/^[a-f0-9]{64}$/.test(receipt.revision) || !/^[a-f0-9]{64}$/.test(receipt.sourceRevision) || !/^[a-f0-9]{64}$/.test(receipt.closureDeltaDigest)) {
+    fail("ARCHIVE_INVALID", "canonical task archive contains an invalid revision or digest.");
+  }
+  if (!SAFE_KEY_PATTERN.test(receipt.idempotencyKey) || !DOCUMENT_ID_PATTERN.test(receipt.documentId)) {
+    fail("ARCHIVE_INVALID", "canonical task archive contains an invalid idempotency key or document_id.");
+  }
+  if (workflowStatus !== "closed" || lifecycleState !== "archived" || archiveOperation !== "archive-transaction" || archiveCaller !== "close-task") {
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive metadata does not declare the frozen close-task terminal provenance.");
+  }
+  if (receipt.taskId !== current.runtimeState.task_id || receipt.taskSlug !== current.runtimeState.task_slug) {
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive identity does not match CURRENT_TASK.");
+  }
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  if (identity.title === null || receipt.taskTitle !== identity.title)
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive task_title does not match CURRENT_TASK.");
+  if (receipt.documentId !== String(current.frontmatter.document_id))
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive document_id does not match CURRENT_TASK.");
+  if (receipt.archivePath !== expected.relativePath)
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive metadata path does not match its canonical path.");
+  return receipt;
+}
+function archiveAudits(current) {
+  return current.runtimeState.execution_log.filter((item) => ("action" in item) && item.action === "archive");
+}
+function assertArchiveReceiptMatches(current, receipt, audit) {
+  if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
+    fail("LIFECYCLE_REPLAY_INCOMPLETE", "archive receipt requires the closed + archived CURRENT_TASK tuple.");
+  }
+  if (audit.task_id !== current.runtimeState.task_id || audit.task_slug !== current.runtimeState.task_slug || audit.document_id !== String(current.frontmatter.document_id)) {
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive audit identity does not match CURRENT_TASK.");
+  }
+  if (audit.archive_path !== receipt.relativePath || audit.archive_revision !== receipt.revision || audit.source_revision !== receipt.sourceRevision || audit.idempotency_key !== receipt.idempotencyKey || audit.closure_delta_digest !== receipt.closureDeltaDigest) {
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive receipt does not match the durable CURRENT_TASK archive audit.");
+  }
+  if (audit.lesson_admission.decision !== receipt.lessonAdmission.decision || audit.lesson_admission.candidate_refs.join("|") !== receipt.lessonAdmission.candidate_refs.join("|") || audit.lesson_admission.evidence_refs.join("|") !== receipt.lessonAdmission.evidence_refs.join("|")) {
+    fail("ARCHIVE_PROVENANCE_MISMATCH", "archive lesson admission does not match the durable CURRENT_TASK archive audit.");
+  }
+}
+function matchingArchiveReceipt(root, current) {
+  const audits = archiveAudits(current);
+  if (audits.length !== 1)
+    fail("LIFECYCLE_REPLAY_INCOMPLETE", "CURRENT_TASK must contain exactly one durable archive audit for reconciliation.");
+  const audit = audits[0];
+  assertExecutionAuditInBody(current.body, audit);
+  if (audit.from_workflow_status !== "active" || audit.from_lifecycle_state !== "active" || audit.to_workflow_status !== "closed" || audit.to_lifecycle_state !== "archived") {
+    fail("LIFECYCLE_REPLAY_INCOMPLETE", "archive audit does not describe the frozen active + active to closed + archived transition.");
+  }
+  const receipt = readCanonicalArchive(root, current, audit.archive_path);
+  assertArchiveReceiptMatches(current, receipt, audit);
+  return { audit, receipt };
+}
+function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
+  const blockers = [];
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  if (identity.id === null || identity.slug === null || identity.title === null)
+    blockers.push("task identity is not fully materialized in CURRENT_TASK.");
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active")
+    blockers.push("first successful close requires active + active.");
+  if (current.runtimeState.resume_requires_review || current.runtimeState.resume_review_reasons.length > 0)
+    blockers.push("resume review gate is not cleared.");
+  if (current.runtimeState.active_step_status !== "completed")
+    blockers.push("the admitted current step is not completed.");
+  try {
+    const implementationSection = findUniqueMarkdownSection(scanMarkdownSections(current.body), REPLAN_SECTION_HEADINGS.implementation_steps, 2);
+    if (!implementationSection) {
+      blockers.push("CURRENT_TASK is missing the implementation steps section.");
+    } else {
+      assertReplacementActiveStep(current.runtimeState.active_step_id, current.body.slice(implementationSection.contentStart, implementationSection.contentEnd));
+    }
+  } catch (error) {
+    blockers.push(error instanceof Error ? error.message : String(error));
+  }
+  if (current.runtimeState.findings.some((item) => item.status === "admitted" || item.status === "in-progress"))
+    blockers.push("an admitted or in-progress finding remains unresolved.");
+  if (!delta.closure_evidence.acceptance_satisfied)
+    blockers.push("acceptance evidence is not satisfied.");
+  if (!delta.closure_evidence.validation_complete)
+    blockers.push("required validation evidence is incomplete.");
+  if (!delta.closure_evidence.no_admitted_or_in_progress_findings)
+    blockers.push("closure evidence does not prove the finding queue is clear.");
+  if (!delta.closure_evidence.no_unresolved_closure_blocker)
+    blockers.push("an unresolved closure blocker remains.");
+  for (const [label, gate] of [
+    ["release", delta.closure_evidence.release_evidence],
+    ["rollback", delta.closure_evidence.rollback_evidence],
+    ["observation", delta.closure_evidence.observation_evidence]
+  ]) {
+    if (gate.triggered && !gate.complete)
+      blockers.push(`${label} evidence is triggered but incomplete.`);
+  }
+  if (!delta.closure_evidence.remaining_risks_non_blocking)
+    blockers.push("remaining risks are not explicitly non-blocking.");
+  if (!delta.closure_evidence.archive_path_verified)
+    blockers.push("the archive path has not been uniquely verified.");
+  if (archiveAlreadyExists)
+    blockers.push("the canonical archive path is already occupied before the first close.");
+  return blockers;
+}
+function assertArchiveReplay(root, current, proposal) {
+  const { audit, receipt } = matchingArchiveReceipt(root, current);
+  if (audit.idempotency_key !== proposal.idempotency_key || audit.source_revision !== proposal.source_tuple.revision || audit.task_id !== proposal.source_tuple.task_id || audit.task_slug !== proposal.source_tuple.task_slug || audit.document_id !== proposal.source_tuple.document_id || audit.closure_delta_digest !== digest(proposal.semantic_delta) || audit.evidence_refs.join("|") !== proposal.semantic_delta.evidence_refs.join("|") || digest(audit.authority_evidence) !== digest(proposal.authority_evidence) || receipt.revision !== audit.archive_revision) {
+    fail("LIFECYCLE_REPLAY_INCOMPLETE", "archive replay identity, source revision, closure evidence, or archive revision does not match the committed receipt.");
+  }
+}
+function quotedSnapshot(raw) {
+  return raw.replace(/\r\n?/g, `
+`).split(`
+`).map((line) => `> ${line}`).join(`
+`);
+}
+function renderArchiveList(label, values) {
+  return [
+    `- ${label}:`,
+    ...values.length === 0 ? ["  - none"] : values.map((value) => `  - ${yamlScalar(value)}`)
+  ];
+}
+function renderArchiveDocument(current, proposal, delta, archiveRelativePath, closureDeltaDigest) {
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  if (identity.id === null || identity.slug === null || identity.title === null) {
+    fail("RUNTIME_IDENTITY_INVALID", "CURRENT_TASK task identity is incomplete for archive rendering.");
+  }
+  const closure = delta.closure_evidence;
+  const lines = [
+    "# TASK_ARCHIVE.md",
+    "",
+    "## 任务元数据",
+    "",
+    `- task_id: ${yamlScalar(identity.id)}`,
+    `- task_title: ${yamlScalar(identity.title)}`,
+    `- task_slug: ${yamlScalar(identity.slug)}`,
+    `- document_id: ${yamlScalar(current.sourceTuple.document_id)}`,
+    `- workflow_status: closed`,
+    `- lifecycle_state: archived`,
+    `- source_revision: ${current.sourceTuple.revision}`,
+    `- archive_path: ${archiveRelativePath}`,
+    `- archive_operation: archive-transaction`,
+    `- archive_caller: close-task`,
+    `- proposal_idempotency_key: ${yamlScalar(proposal.idempotency_key)}`,
+    `- closure_delta_digest: ${closureDeltaDigest}`,
+    "",
+    "## 原始任务包快照",
+    "",
+    `- source_document_revision: ${current.sourceTuple.revision}`,
+    "- CURRENT_TASK snapshot:",
+    quotedSnapshot(current.raw),
+    "",
+    "## 实际改动摘要",
+    "",
+    `- goal: ${yamlScalar(delta.delivery_summary.goal)}`,
+    ...renderArchiveList("actual_changes", delta.delivery_summary.actual_changes),
+    "",
+    "## 契约与决策记录",
+    "",
+    "- affected_contracts: preserved in the CURRENT_TASK snapshot; close-task does not mutate CONTRACTS.md.",
+    "- confirmed_decisions: preserved in the CURRENT_TASK snapshot; close-task does not mutate DECISIONS.md.",
+    "",
+    "## 验证与交付证据",
+    "",
+    "- closure_evidence:",
+    `  - acceptance_satisfied: ${String(closure.acceptance_satisfied)}`,
+    `  - validation_complete: ${String(closure.validation_complete)}`,
+    `  - no_admitted_or_in_progress_findings: ${String(closure.no_admitted_or_in_progress_findings)}`,
+    `  - no_unresolved_closure_blocker: ${String(closure.no_unresolved_closure_blocker)}`,
+    "  - release_evidence:",
+    `    - triggered: ${String(closure.release_evidence.triggered)}`,
+    `    - complete: ${String(closure.release_evidence.complete)}`,
+    `    - evidence_refs: ${yamlStringArray(closure.release_evidence.evidence_refs)}`,
+    "  - rollback_evidence:",
+    `    - triggered: ${String(closure.rollback_evidence.triggered)}`,
+    `    - complete: ${String(closure.rollback_evidence.complete)}`,
+    `    - evidence_refs: ${yamlStringArray(closure.rollback_evidence.evidence_refs)}`,
+    "  - observation_evidence:",
+    `    - triggered: ${String(closure.observation_evidence.triggered)}`,
+    `    - complete: ${String(closure.observation_evidence.complete)}`,
+    `    - evidence_refs: ${yamlStringArray(closure.observation_evidence.evidence_refs)}`,
+    `  - remaining_risks_non_blocking: ${String(closure.remaining_risks_non_blocking)}`,
+    `  - archive_path_verified: ${String(closure.archive_path_verified)}`,
+    "",
+    `- acceptance_satisfied: ${String(closure.acceptance_satisfied)}`,
+    `- validation_complete: ${String(closure.validation_complete)}`,
+    ...renderArchiveList("verification", delta.delivery_summary.verification),
+    ...renderArchiveList("release_evidence", delta.delivery_summary.release_evidence),
+    ...renderArchiveList("rollback_evidence", delta.delivery_summary.rollback_evidence),
+    ...renderArchiveList("observation_evidence", delta.delivery_summary.observation_evidence),
+    `- next_action: ${yamlScalar(delta.delivery_summary.next_action)}`,
+    "",
+    "## Lessons 回写",
+    "",
+    "lesson_admission:",
+    `  decision: ${delta.lesson_admission.decision}`,
+    `  candidate_refs: ${yamlStringArray(delta.lesson_admission.candidate_refs)}`,
+    `  evidence_refs: ${yamlStringArray(delta.lesson_admission.evidence_refs)}`,
+    "",
+    "## 后续关联",
+    "",
+    ...renderArchiveList("remaining_risks", delta.remaining_risks),
+    `- remaining_risks_non_blocking: ${String(closure.remaining_risks_non_blocking)}`,
+    "- next_task: none created by close-task.",
+    ""
+  ];
+  return lines.join(`
+`);
+}
+function makeArchiveAudit(current, proposal, delta, archiveRelativePath, archiveRevision, closureDeltaDigest, next, now) {
+  return {
+    action: "archive",
+    idempotency_key: proposal.idempotency_key,
+    operation_kind: "archive-transaction",
+    caller: "close-task",
+    mode: "default",
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    document_id: current.sourceTuple.document_id,
+    from_workflow_status: "active",
+    from_lifecycle_state: "active",
+    to_workflow_status: next.workflow_status,
+    to_lifecycle_state: next.lifecycle_state,
+    source_revision: current.sourceTuple.revision,
+    archive_path: archiveRelativePath,
+    archive_revision: archiveRevision,
+    closure_delta_digest: closureDeltaDigest,
+    authority_evidence: proposal.authority_evidence.map((item) => ({ ...item })),
+    evidence_refs: [...delta.evidence_refs],
+    lesson_admission: {
+      decision: delta.lesson_admission.decision,
+      candidate_refs: [...delta.lesson_admission.candidate_refs],
+      evidence_refs: [...delta.lesson_admission.evidence_refs]
+    },
+    recorded_at: now
+  };
+}
+function prepareArchiveTransaction(root, current, proposal, now) {
+  const delta = proposal.semantic_delta;
+  ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
+  if (current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived") {
+    const { audit: audit2, receipt } = matchingArchiveReceipt(root, current);
+    if (digest(delta) !== audit2.closure_delta_digest) {
+      fail("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation closure evidence does not match the committed archive receipt.");
+    }
+    if (delta.lesson_admission.decision !== audit2.lesson_admission.decision || delta.lesson_admission.candidate_refs.join("|") !== audit2.lesson_admission.candidate_refs.join("|") || delta.lesson_admission.evidence_refs.join("|") !== audit2.lesson_admission.evidence_refs.join("|")) {
+      fail("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation lesson admission does not match the committed archive receipt.");
+    }
+    if (receipt.sourceRevision !== audit2.source_revision)
+      fail("ARCHIVE_PROVENANCE_MISMATCH", "archive source revision does not match the committed archive audit.");
+    return null;
+  }
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+    fail("CLOSURE_TUPLE_INVALID", "first successful close requires active + active.");
+  }
+  const archiveTarget = archivePathForTask(root, current);
+  const blockers = closureEligibilityBlockers(current, delta, fs2.existsSync(archiveTarget.filePath));
+  if (blockers.length > 0)
+    fail("CLOSURE_NOT_ELIGIBLE", blockers.join(" "));
+  const closureDeltaDigest = digest(delta);
+  const nextWithoutAudit = {
+    ...current.runtimeState,
+    workflow_status: "closed",
+    lifecycle_state: "archived",
+    resume_requires_review: false,
+    resume_review_reasons: [],
+    applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
+  };
+  const nextArchiveContent = renderArchiveDocument(current, proposal, delta, archiveTarget.relativePath, closureDeltaDigest);
+  const archiveRevision = sha256(nextArchiveContent);
+  const audit = makeArchiveAudit(current, proposal, delta, archiveTarget.relativePath, archiveRevision, closureDeltaDigest, nextWithoutAudit, now);
+  const next = {
+    ...nextWithoutAudit,
+    execution_log: appendExecutionLogEntry(current.runtimeState, audit)
+  };
+  const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { audit });
+  return {
+    next,
+    nextContent,
+    archiveFilePath: archiveTarget.filePath,
+    archiveRelativePath: archiveTarget.relativePath,
+    nextArchiveContent,
+    audit,
+    archiveRevision
+  };
+}
+var STATUS_RECONCILIATION_BEGIN = "<!-- BEGIN vNext close-task STATUS reconciliation -->";
+var STATUS_RECONCILIATION_END = "<!-- END vNext close-task STATUS reconciliation -->";
+function renderStatusReconciliation(proposal, delta, archive) {
+  return [
+    STATUS_RECONCILIATION_BEGIN,
+    `- task_id: ${yamlScalar(archive.taskId)}`,
+    `- task_slug: ${yamlScalar(archive.taskSlug)}`,
+    `- document_id: ${yamlScalar(archive.documentId)}`,
+    `- archive_path: ${archive.relativePath}`,
+    `- archive_revision: ${archive.revision}`,
+    `- source_revision: ${archive.sourceRevision}`,
+    `- proposal_idempotency_key: ${yamlScalar(proposal.idempotency_key)}`,
+    `- delta_digest: ${digest(delta)}`,
+    `- status: ${delta.status}`,
+    `- summary: ${yamlScalar(delta.summary)}`,
+    `- completed_items: ${yamlStringArray(delta.completed_items)}`,
+    `- remaining_risks: ${yamlStringArray(delta.remaining_risks)}`,
+    `- next_checkpoint: ${yamlScalar(delta.next_checkpoint)}`,
+    `- evidence_refs: ${yamlStringArray(delta.evidence_refs)}`,
+    STATUS_RECONCILIATION_END
+  ].join(`
+`);
+}
+function readStatusScalar(body, field, location) {
+  const escaped = field.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
+  const match = new RegExp(`^-\\s*${escaped}\\s*:\\s*(.*?)\\s*$`, "m").exec(body);
+  if (!match)
+    fail("STATUS_INVALID", `${location} reconciliation receipt is missing ${field}.`);
+  const raw = match[1].trim();
+  if (raw.startsWith('"') || raw.startsWith("'")) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      fail("STATUS_INVALID", `${location}.${field} is not a valid scalar.`);
+    }
+  }
+  return expectString(raw, `${location}.${field}`);
+}
+function readStatusArray(body, field, location) {
+  const raw = readStatusScalar(body, field, location);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    fail("STATUS_INVALID", `${location}.${field} must be a JSON/YAML inline string array.`);
+  }
+  return expectStringArray(parsed, `${location}.${field}`, true, 64);
+}
+function statusDeltaFromReceipt(receipt) {
+  return {
+    kind: "project-status",
+    action: "sync",
+    status: receipt.status,
+    summary: receipt.summary,
+    completed_items: [...receipt.completedItems],
+    remaining_risks: [...receipt.remainingRisks],
+    next_checkpoint: receipt.nextCheckpoint,
+    evidence_refs: [...receipt.evidenceRefs]
+  };
+}
+function readStatusReceipts(content, location) {
+  const pattern = new RegExp(`${STATUS_RECONCILIATION_BEGIN.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\r?\\n([\\s\\S]*?)\\r?\\n${STATUS_RECONCILIATION_END.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`, "g");
+  const receipts = [];
+  for (const match of content.matchAll(pattern)) {
+    const body = match[1] ?? "";
+    const archiveRevision = readStatusScalar(body, "archive_revision", location);
+    const sourceRevision = readStatusScalar(body, "source_revision", location);
+    const deltaDigest = readStatusScalar(body, "delta_digest", location);
+    if (!/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(deltaDigest)) {
+      fail("STATUS_INVALID", `${location} reconciliation receipt has an invalid revision or digest.`);
+    }
+    const receipt = {
+      taskId: readStatusScalar(body, "task_id", location),
+      taskSlug: readStatusScalar(body, "task_slug", location),
+      documentId: readStatusScalar(body, "document_id", location),
+      archivePath: normalizeRepoPath(readStatusScalar(body, "archive_path", location), `${location}.archive_path`),
+      archiveRevision,
+      sourceRevision,
+      idempotencyKey: readStatusScalar(body, "proposal_idempotency_key", location),
+      deltaDigest,
+      status: expectEnum(readStatusScalar(body, "status", location), ["completed", "observing"], `${location}.status`),
+      summary: readStatusScalar(body, "summary", location),
+      completedItems: readStatusArray(body, "completed_items", location),
+      remainingRisks: readStatusArray(body, "remaining_risks", location),
+      nextCheckpoint: readStatusScalar(body, "next_checkpoint", location),
+      evidenceRefs: readStatusArray(body, "evidence_refs", location)
+    };
+    if (!SAFE_KEY_PATTERN.test(receipt.idempotencyKey))
+      fail("STATUS_INVALID", `${location}.proposal_idempotency_key is invalid.`);
+    if (!DOCUMENT_ID_PATTERN.test(receipt.documentId))
+      fail("STATUS_INVALID", `${location}.document_id is invalid.`);
+    try {
+      validateTaskId(receipt.taskId);
+      validateTaskSlug(receipt.taskSlug);
+    } catch (error) {
+      fail("STATUS_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    if (digest(statusDeltaFromReceipt(receipt)) !== receipt.deltaDigest) {
+      fail("STATUS_INVALID", `${location} reconciliation receipt delta digest does not match its typed fields.`);
+    }
+    if (receipts.some((existing) => existing.archivePath === receipt.archivePath)) {
+      fail("STATUS_INVALID", `${location} contains duplicate reconciliation receipts for ${receipt.archivePath}.`);
+    }
+    receipts.push(receipt);
+  }
+  return receipts;
+}
+function matchingStatusReceipt(content, location, archive) {
+  const receipts = readStatusReceipts(content, location);
+  const matches = receipts.filter((receipt) => receipt.archivePath === archive.relativePath || receipt.taskId === archive.taskId && receipt.taskSlug === archive.taskSlug && receipt.documentId === archive.documentId);
+  if (matches.length > 1)
+    fail("STATUS_INVALID", `${location} contains multiple receipts for the same archived task.`);
+  return matches[0] ?? null;
+}
+function appendStatusReconciliation(content, marker, location) {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), ["最近更新记录", "Recent Updates"], 2);
+  if (!section)
+    fail("STATUS_INVALID", `${location} is missing the required ## 最近更新记录 section.`);
+  const existing = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
+`).trimEnd();
+  return content.slice(0, section.contentStart) + `
+${existing.trim().length > 0 ? `${existing}
+
+` : ""}${marker}
+` + content.slice(section.contentEnd);
+}
+function prepareProjectStatusTransaction(root, current, proposal) {
+  ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
+  const { receipt } = matchingArchiveReceipt(root, current);
+  const target = workflowDocPathForRoot(root, "STATUS.md");
+  if (!fs2.existsSync(target.filePath))
+    fail("RUNTIME_SOURCE_MISSING", `STATUS.md is missing: ${target.relativePath}`);
+  const originalStatusContent = fs2.readFileSync(target.filePath, "utf8");
+  const sections = scanMarkdownSections(originalStatusContent);
+  for (const heading of ["项目概览", "✅ 已完成且稳定", "\uD83D\uDD28 正在开发", "\uD83D\uDCCB 待开发", "⚠️ 已知风险 / 观察点", "❌ 已移除 / 推迟", "\uD83D\uDD1C 下一检查点", "最近更新记录"]) {
+    if (!findUniqueMarkdownSection(sections, [heading], 2))
+      fail("STATUS_INVALID", `STATUS.md is missing required ## ${heading} section.`);
+  }
+  const existingReceipt = matchingStatusReceipt(originalStatusContent, target.relativePath, receipt);
+  const deltaDigest = digest(proposal.semantic_delta);
+  if (existingReceipt) {
+    if (existingReceipt.taskId !== receipt.taskId || existingReceipt.taskSlug !== receipt.taskSlug || existingReceipt.documentId !== receipt.documentId || existingReceipt.archivePath !== receipt.relativePath || existingReceipt.archiveRevision !== receipt.revision || existingReceipt.sourceRevision !== receipt.sourceRevision) {
+      fail("STATUS_PROVENANCE_MISMATCH", "STATUS reconciliation receipt does not match the canonical archive.");
+    }
+    if (existingReceipt.deltaDigest !== deltaDigest || existingReceipt.status !== proposal.semantic_delta.status) {
+      fail("STATUS_RECONCILIATION_CONFLICT", "STATUS already contains a different reconciliation for this archived task.");
+    }
+    if (digest(statusDeltaFromReceipt(existingReceipt)) !== deltaDigest) {
+      fail("STATUS_RECONCILIATION_CONFLICT", "STATUS reconciliation receipt no longer matches its typed status delta.");
+    }
+    return null;
+  }
+  const marker = renderStatusReconciliation(proposal, proposal.semantic_delta, receipt);
+  const nextStatusContent = appendStatusReconciliation(originalStatusContent, marker, target.relativePath);
+  return {
+    statusFilePath: target.filePath,
+    statusRelativePath: target.relativePath,
+    nextStatusContent,
+    originalStatusContent,
+    statusRevision: sha256(nextStatusContent),
+    archive: receipt
+  };
+}
+function renderLessonMarker(candidate, archive) {
+  return `<!-- vNext lesson record: ${JSON.stringify({
+    task_id: archive.taskId,
+    task_slug: archive.taskSlug,
+    document_id: archive.documentId,
+    archive_path: archive.relativePath,
+    archive_revision: archive.revision,
+    source_revision: archive.sourceRevision,
+    candidate_ref: candidate.candidate_ref,
+    candidate_digest: digest(candidate),
+    evidence_refs: candidate.evidence_refs
+  })} -->`;
+}
+function readLessonMarkers(content, location) {
+  const pattern = /<!-- vNext lesson record: (\{[^\r\n]+\}) -->/g;
+  const result = [];
+  for (const match of content.matchAll(pattern)) {
+    let parsed;
+    try {
+      parsed = JSON.parse(match[1]);
+    } catch {
+      fail("LESSON_INVALID", `${location} contains an invalid vNext lesson provenance marker.`);
+    }
+    const record = expectRecord(parsed, `${location}.lesson_marker`);
+    expectExactKeys(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs"], `${location}.lesson_marker`);
+    const archiveRevision = expectString(record.archive_revision, `${location}.lesson_marker.archive_revision`);
+    const sourceRevision = expectString(record.source_revision, `${location}.lesson_marker.source_revision`);
+    const candidateDigest = expectString(record.candidate_digest, `${location}.lesson_marker.candidate_digest`);
+    if (!/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(candidateDigest))
+      fail("LESSON_INVALID", `${location} lesson provenance marker has an invalid revision or digest.`);
+    result.push({
+      task_id: expectString(record.task_id, `${location}.lesson_marker.task_id`),
+      task_slug: expectString(record.task_slug, `${location}.lesson_marker.task_slug`),
+      document_id: expectString(record.document_id, `${location}.lesson_marker.document_id`),
+      archive_path: normalizeRepoPath(expectString(record.archive_path, `${location}.lesson_marker.archive_path`), `${location}.lesson_marker.archive_path`),
+      archive_revision: archiveRevision,
+      source_revision: sourceRevision,
+      candidate_ref: expectString(record.candidate_ref, `${location}.lesson_marker.candidate_ref`, SAFE_KEY_PATTERN),
+      candidate_digest: candidateDigest,
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.lesson_marker.evidence_refs`)
+    });
+  }
+  return result;
+}
+function renderLessonCandidate(candidate, archive) {
+  return [
+    renderLessonMarker(candidate, archive),
+    `- 场景：${yamlScalar(candidate.scene)}`,
+    `  - 结论：${yamlScalar(candidate.conclusion)}`,
+    `  - 触发信号：${yamlScalar(candidate.trigger)}`,
+    `  - 原因：${yamlScalar(candidate.cause)}`,
+    `  - 应对动作：${yamlScalar(candidate.action)}`,
+    `  - 消费者：${yamlScalar(candidate.consumer)}`,
+    `  - 证据引用：${yamlStringArray(candidate.evidence_refs)}`
+  ].join(`
+`);
+}
+function appendLessonCandidates(content, candidates, archive, location) {
+  const additions = new Map;
+  for (const candidate of candidates) {
+    const list = additions.get(candidate.category) ?? [];
+    list.push(candidate);
+    additions.set(candidate.category, list);
+  }
+  let nextContent = content;
+  let candidateCount = 0;
+  const ordered = [...additions.entries()].sort((left, right) => left[0].localeCompare(right[0]));
+  for (const [category, categoryCandidates] of ordered) {
+    const sections = scanMarkdownSections(nextContent);
+    const section = findUniqueMarkdownSection(sections, [category], 2);
+    if (!section)
+      fail("LESSON_INVALID", `${location} is missing the required ## ${category} section.`);
+    const rendered = categoryCandidates.map((candidate) => renderLessonCandidate(candidate, archive)).join(`
+
+`);
+    const existing = nextContent.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
+`).trimEnd();
+    nextContent = nextContent.slice(0, section.contentStart) + `
+${existing.trim().length > 0 ? `${existing}
+
+` : ""}${rendered}
+` + nextContent.slice(section.contentEnd);
+    candidateCount += categoryCandidates.length;
+  }
+  return { content: nextContent, candidateCount };
+}
+function prepareLessonRecordTransaction(root, current, proposal) {
+  ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
+  const { receipt } = matchingArchiveReceipt(root, current);
+  if (receipt.lessonAdmission.decision !== "admit") {
+    fail("KNOWLEDGE_ADMISSION_INVALID", "lesson-record-transaction is allowed only when the durable archive lesson admission is admit.");
+  }
+  const delta = proposal.semantic_delta;
+  const admissionRefs = new Set(receipt.lessonAdmission.candidate_refs);
+  const candidateRefs = new Set(delta.candidates.map((candidate) => candidate.candidate_ref));
+  if (admissionRefs.size !== candidateRefs.size || [...admissionRefs].some((ref) => !candidateRefs.has(ref))) {
+    fail("KNOWLEDGE_ADMISSION_INVALID", "lesson-record candidates must exactly match the durable archive lesson admission candidate_refs.");
+  }
+  if (!receipt.lessonAdmission.evidence_refs.every((ref) => delta.evidence_refs.includes(ref))) {
+    fail("KNOWLEDGE_ADMISSION_INVALID", "lesson-record evidence_refs must cover the durable archive lesson admission evidence_refs.");
+  }
+  const target = workflowDocPathForRoot(root, "LESSONS.md");
+  if (!fs2.existsSync(target.filePath))
+    fail("RUNTIME_SOURCE_MISSING", `LESSONS.md is missing: ${target.relativePath}`);
+  const originalLessonsContent = fs2.readFileSync(target.filePath, "utf8");
+  const sections = scanMarkdownSections(originalLessonsContent);
+  for (const heading of ["使用规则", "通用", "数据与存储", "前端与交互", "后端与服务", "测试与回归", "部署与运行时"]) {
+    if (!findUniqueMarkdownSection(sections, [heading], 2))
+      fail("LESSON_INVALID", `LESSONS.md is missing the required ## ${heading} section.`);
+  }
+  const existingMarkers = readLessonMarkers(originalLessonsContent, target.relativePath);
+  const newCandidates = [];
+  for (const candidate of delta.candidates) {
+    const matchingRefs = existingMarkers.filter((marker) => marker.candidate_ref === candidate.candidate_ref);
+    if (matchingRefs.length > 0) {
+      for (const existing of matchingRefs) {
+        if (existing.task_id !== receipt.taskId || existing.task_slug !== receipt.taskSlug || existing.document_id !== receipt.documentId || existing.archive_path !== receipt.relativePath || existing.archive_revision !== receipt.revision || existing.source_revision !== receipt.sourceRevision || existing.candidate_digest !== digest(candidate) || existing.evidence_refs.join("|") !== candidate.evidence_refs.join("|")) {
+          fail("LESSON_PROVENANCE_MISMATCH", `lesson candidate ${candidate.candidate_ref} has conflicting durable provenance.`);
+        }
+      }
+      continue;
+    }
+    const semanticDuplicate = existingMarkers.some((marker) => marker.candidate_digest === digest(candidate));
+    if (semanticDuplicate)
+      continue;
+    newCandidates.push(candidate);
+  }
+  if (newCandidates.length === 0)
+    return null;
+  const appended = appendLessonCandidates(originalLessonsContent, newCandidates, receipt, target.relativePath);
+  return {
+    lessonsFilePath: target.filePath,
+    lessonsRelativePath: target.relativePath,
+    nextLessonsContent: appended.content,
+    originalLessonsContent,
+    lessonsRevision: sha256(appended.content),
+    archive: receipt,
+    candidateCount: appended.candidateCount
+  };
+}
+function assertRequestedCloseTargets(root, current, proposal) {
+  if (proposal.source_tuple.path !== current.relativePath)
+    fail("RUNTIME_PATH_INVALID", "close-task proposal source path is not the exact canonical CURRENT_TASK path.");
+  if (proposal.operation_kind === "archive-transaction") {
+    const archive = archivePathForTask(root, current);
+    if (proposal.requested_write_targets.length !== 2 || proposal.requested_write_targets[0] !== current.relativePath || proposal.requested_write_targets[1] !== archive.relativePath) {
+      fail("RUNTIME_PATH_INVALID", "archive proposal must name CURRENT_TASK and its exact identity-derived archive path.");
+    }
+    return;
+  }
+  const file = proposal.operation_kind === "project-status-transaction" ? "STATUS.md" : "LESSONS.md";
+  const target = workflowDocPathForRoot(root, file);
+  if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== target.relativePath) {
+    fail("RUNTIME_PATH_INVALID", `${file} proposal must name only its exact canonical path.`);
+  }
+}
 function ensureAuthorityKinds(proposal, required) {
   const kinds = new Set(proposal.authority_evidence.map((item) => item.kind));
   const missing = required.filter((kind) => !kinds.has(kind));
@@ -1888,7 +2904,10 @@ function makeReplanAudit(current, proposal, next, now) {
     action = delta.action;
   else
     fail("RUNTIME_SCHEMA_INVALID", "Only Slice B transitions may create a replan audit record.");
-  const deltaEvidenceRefs = delta.kind === "finding-queue" ? delta.action === "admit" ? delta.finding.evidence_refs : delta.evidence_refs : delta.evidence_refs;
+  if (delta.kind !== "task-state" && delta.kind !== "lifecycle") {
+    fail("RUNTIME_SCHEMA_INVALID", "Only task-state and lifecycle deltas may create a replan audit record.");
+  }
+  const deltaEvidenceRefs = delta.evidence_refs;
   const base = {
     action,
     idempotency_key: proposal.idempotency_key,
@@ -1922,8 +2941,8 @@ function makeReplanAudit(current, proposal, next, now) {
   return base;
 }
 function expectedReplanReplayAudit(current, proposal) {
-  const entry = current.runtimeState.execution_log.find((item) => ("action" in item) && item.idempotency_key === proposal.idempotency_key);
-  if (!entry || !("action" in entry))
+  const entry = current.runtimeState.execution_log.find((item) => ("action" in item) && item.action !== "archive" && item.idempotency_key === proposal.idempotency_key);
+  if (!entry)
     fail("RUNTIME_REPLAY_INCOMPLETE", "replan replay is missing its durable execution audit record.");
   return entry;
 }
@@ -1949,14 +2968,15 @@ function assertTaskStateReplay(current, proposal) {
     if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active")
       fail("RUNTIME_REPLAY_INCOMPLETE", "clear-replan-block replay no longer has the active + active tuple.");
   } else {
+    const commitDelta = delta;
     if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active")
       fail("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has the active + active tuple.");
-    assertReplacementActiveStep(delta.active_step_id, delta.replacement_definition.implementation_steps);
-    if (current.runtimeState.active_step_id !== delta.active_step_id || current.runtimeState.active_step_status !== "ready")
+    assertReplacementActiveStep(commitDelta.active_step_id, commitDelta.replacement_definition.implementation_steps);
+    if (current.runtimeState.active_step_id !== commitDelta.active_step_id || current.runtimeState.active_step_status !== "ready")
       fail("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has the replacement active step ready.");
     if (current.runtimeState.resume_requires_review || current.runtimeState.resume_review_reasons.length > 0)
       fail("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has a cleared resume gate.");
-    assertReplanDefinitionSections(current.body, delta.replacement_definition);
+    assertReplanDefinitionSections(current.body, commitDelta.replacement_definition);
   }
   const expectedEvidenceRefs = delta.evidence_refs;
   if (audit.idempotency_key !== proposal.idempotency_key || audit.action !== delta.action || audit.source_revision !== proposal.source_tuple.revision || audit.evidence_refs.join("|") !== expectedEvidenceRefs.join("|") || audit.task_id !== current.runtimeState.task_id || audit.task_slug !== current.runtimeState.task_slug || audit.document_id !== current.sourceTuple.document_id) {
@@ -2539,7 +3559,7 @@ function assertLifecycleReplayArtifacts(root, current, proposal) {
         fail("LIFECYCLE_REPLAY_INCOMPLETE", "supersede replay no longer has the original superseded + active CURRENT_TASK tuple.");
       }
       const audit = current.runtimeState.execution_log.find((item) => ("action" in item) && item.action === "supersede" && item.idempotency_key === proposal.idempotency_key);
-      if (!audit || !("action" in audit) || audit.invalidation_kind !== delta.invalidation_kind || audit.invalidation_reason !== delta.invalidation_reason || audit.source_revision !== proposal.source_tuple.revision || audit.evidence_refs.join("|") !== delta.evidence_refs.join("|") || digest(audit.partial_diff_disposition) !== digest(delta.partial_diff_disposition)) {
+      if (!audit || audit.invalidation_kind !== delta.invalidation_kind || audit.invalidation_reason !== delta.invalidation_reason || audit.source_revision !== proposal.source_tuple.revision || audit.evidence_refs.join("|") !== delta.evidence_refs.join("|") || digest(audit.partial_diff_disposition) !== digest(delta.partial_diff_disposition)) {
         fail("LIFECYCLE_REPLAY_INCOMPLETE", "supersede replay is missing its durable invalidation audit record.");
       }
       assertExecutionAuditInBody(current.body, audit);
@@ -2728,6 +3748,11 @@ function resultState(state, findingStatus, recoveryPackagePath) {
     ...recoveryPackagePath === undefined ? {} : { recovery_package_path: recoveryPackagePath }
   };
 }
+function fileRevisionForPath(filePath) {
+  if (!fs2.existsSync(filePath))
+    fail("RUNTIME_SOURCE_MISSING", `Required file is missing: ${filePath}`);
+  return sha256(fs2.readFileSync(filePath, "utf8"));
+}
 function rollbackCurrentTaskAndVerify(root, current, readCurrentTask) {
   try {
     executeWrites([{ path: current.filePath, content: current.raw }], false, "vNext Runtime rollback after read-back failure");
@@ -2789,6 +3814,44 @@ function rollbackLifecycleTransactionAndVerify(root, current, plan, readCurrentT
     return { verified: false, detail: `rollback read-back failed: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
+function rollbackArchiveTransactionAndVerify(root, current, plan, readCurrentTask) {
+  try {
+    executeWrites([{ path: current.filePath, content: current.raw }], false, "vNext Runtime archive rollback CURRENT_TASK");
+    if (plan.originalArchiveContent === undefined) {
+      if (fs2.existsSync(plan.archiveFilePath))
+        fs2.rmSync(plan.archiveFilePath, { force: true });
+    } else {
+      executeWrites([{ path: plan.archiveFilePath, content: plan.originalArchiveContent }], false, "vNext Runtime archive rollback archive");
+    }
+  } catch (error) {
+    return { verified: false, detail: `rollback failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  try {
+    const rollbackReadBack = readCurrentTask(root);
+    if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
+      return { verified: false, detail: "archive rollback read-back did not restore the original CURRENT_TASK document." };
+    }
+    if (plan.originalArchiveContent === undefined) {
+      if (fs2.existsSync(plan.archiveFilePath))
+        return { verified: false, detail: "archive rollback left a newly-created archive behind." };
+    } else if (!fs2.existsSync(plan.archiveFilePath) || fs2.readFileSync(plan.archiveFilePath, "utf8") !== plan.originalArchiveContent) {
+      return { verified: false, detail: "archive rollback did not restore the original archive." };
+    }
+    return { verified: true, detail: "archive rollback read-back verified for CURRENT_TASK and archive." };
+  } catch (error) {
+    return { verified: false, detail: `rollback read-back failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+function rollbackSingleFileAndVerify(filePath, originalContent, label) {
+  try {
+    executeWrites([{ path: filePath, content: originalContent }], false, `vNext Runtime ${label} rollback`);
+    if (fs2.readFileSync(filePath, "utf8") !== originalContent)
+      return { verified: false, detail: `${label} rollback read-back did not restore the original document.` };
+    return { verified: true, detail: `${label} rollback read-back verified.` };
+  } catch (error) {
+    return { verified: false, detail: `${label} rollback failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
 
 class GovernanceTransactionKernel {
   root;
@@ -2796,6 +3859,173 @@ class GovernanceTransactionKernel {
   constructor(root, readCurrentTask = readCanonicalCurrentTask) {
     this.root = path3.resolve(root);
     this.readCurrentTask = readCurrentTask;
+  }
+  commitArchiveTransaction(current, proposal, plan, options) {
+    if (plan === null) {
+      return buildResult("no-op", proposal, current, options, "matching closed + archived archive receipt already exists; archive was not repeated.", {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: current.sourceTuple.revision,
+        read_back_verified: true,
+        archive_path: archivePathForTask(this.root, current).relativePath,
+        archive_revision: archiveAudits(current)[0]?.archive_revision,
+        state: resultState(current.runtimeState)
+      });
+    }
+    const nextRevision = sha256(plan.nextContent);
+    if (options.dryRun) {
+      return buildResult("success", proposal, current, options, "typed archive proposal validated; atomic CURRENT_TASK + canonical archive write planned (dry-run).", {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        archive_path: plan.archiveRelativePath,
+        archive_revision: plan.archiveRevision,
+        state: resultState(plan.next)
+      });
+    }
+    try {
+      executeWrites([
+        { path: current.filePath, content: plan.nextContent },
+        { path: plan.archiveFilePath, content: plan.nextArchiveContent }
+      ], false, "vNext Runtime archive transaction committed");
+    } catch (error) {
+      const rollback = rollbackArchiveTransactionAndVerify(this.root, current, plan, this.readCurrentTask);
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `archive atomic write failed: ${error instanceof Error ? error.message : String(error)}; exact two-file rollback verified.` : `archive atomic write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        code: rollback.verified ? "ATOMIC_COMMIT_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+    try {
+      const readBack = this.readCurrentTask(this.root);
+      if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
+        throw new Error("canonical CURRENT_TASK read-back did not match the staged terminal document.");
+      }
+      if (!fs2.existsSync(plan.archiveFilePath) || fs2.readFileSync(plan.archiveFilePath, "utf8") !== plan.nextArchiveContent) {
+        throw new Error("canonical task archive read-back did not match the staged archive.");
+      }
+      const receipt = readCanonicalArchive(this.root, readBack, plan.archiveRelativePath);
+      if (receipt.revision !== plan.archiveRevision)
+        throw new Error("canonical task archive revision changed during read-back.");
+      const audits = archiveAudits(readBack);
+      if (audits.length !== 1)
+        throw new Error("terminal CURRENT_TASK read-back does not contain exactly one archive audit.");
+      assertArchiveReceiptMatches(readBack, receipt, audits[0]);
+      return buildResult("success", proposal, current, options, "archive transaction committed; CURRENT_TASK and canonical archive read-back verified.", {
+        committed: true,
+        governed_mutation_count: 2,
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        archive_path: plan.archiveRelativePath,
+        archive_revision: plan.archiveRevision,
+        read_back_verified: true,
+        state: resultState(readBack.runtimeState)
+      });
+    } catch (error) {
+      const rollback = rollbackArchiveTransactionAndVerify(this.root, current, plan, this.readCurrentTask);
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `archive read-back failed: ${error instanceof Error ? error.message : String(error)}; exact two-file rollback verified.` : `archive read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        code: rollback.verified ? "READ_BACK_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+  }
+  commitProjectStatusTransaction(current, proposal, plan, options) {
+    const targetPath = workflowDocPathForRoot(this.root, "STATUS.md").relativePath;
+    if (plan === null) {
+      return buildResult("no-op", proposal, current, options, "matching STATUS reconciliation already exists; STATUS was not rewritten.", {
+        target_path: targetPath,
+        planned_writes: [],
+        previous_revision: fileRevisionForPath(workflowDocPathForRoot(this.root, "STATUS.md").filePath),
+        resulting_revision: fileRevisionForPath(workflowDocPathForRoot(this.root, "STATUS.md").filePath),
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    }
+    if (options.dryRun) {
+      return buildResult("success", proposal, current, options, "typed project-status proposal validated; STATUS-only write planned (dry-run).", {
+        target_path: plan.statusRelativePath,
+        previous_revision: sha256(plan.originalStatusContent),
+        resulting_revision: plan.statusRevision,
+        state: resultState(current.runtimeState)
+      });
+    }
+    try {
+      executeWrites([{ path: plan.statusFilePath, content: plan.nextStatusContent }], false, "vNext Runtime project status transaction committed");
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.statusFilePath, plan.originalStatusContent, "STATUS");
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `STATUS write failed: ${error instanceof Error ? error.message : String(error)}; STATUS rollback verified (archive remains committed).` : `STATUS write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.statusRelativePath,
+        code: rollback.verified ? "ATOMIC_COMMIT_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+    try {
+      const readBack = fs2.readFileSync(plan.statusFilePath, "utf8");
+      if (readBack !== plan.nextStatusContent)
+        throw new Error("STATUS read-back did not match the staged typed reconciliation.");
+      const receipt = matchingStatusReceipt(readBack, plan.statusRelativePath, plan.archive);
+      if (receipt === null || receipt.archivePath !== plan.archive.relativePath || receipt.archiveRevision !== plan.archive.revision || receipt.sourceRevision !== plan.archive.sourceRevision || receipt.deltaDigest !== digest(proposal.semantic_delta)) {
+        throw new Error("STATUS read-back receipt did not match the canonical archive.");
+      }
+      return buildResult("success", proposal, current, options, "project-status transaction committed; STATUS-only read-back verified.", {
+        target_path: plan.statusRelativePath,
+        committed: true,
+        governed_mutation_count: 1,
+        previous_revision: sha256(plan.originalStatusContent),
+        resulting_revision: plan.statusRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.statusFilePath, plan.originalStatusContent, "STATUS");
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `STATUS read-back failed: ${error instanceof Error ? error.message : String(error)}; STATUS rollback verified (archive remains committed).` : `STATUS read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.statusRelativePath,
+        code: rollback.verified ? "READ_BACK_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+  }
+  commitLessonRecordTransaction(current, proposal, plan, options) {
+    const targetPath = workflowDocPathForRoot(this.root, "LESSONS.md").relativePath;
+    if (plan === null) {
+      return buildResult("no-op", proposal, current, options, "lesson admission is defer/no-op or all admitted candidates are already durably recorded; LESSONS was not rewritten.", {
+        target_path: targetPath,
+        planned_writes: [],
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    }
+    if (options.dryRun) {
+      return buildResult("success", proposal, current, options, "typed lesson-record proposal validated; LESSONS-only write planned (dry-run).", {
+        target_path: plan.lessonsRelativePath,
+        previous_revision: sha256(plan.originalLessonsContent),
+        resulting_revision: plan.lessonsRevision,
+        state: resultState(current.runtimeState)
+      });
+    }
+    try {
+      executeWrites([{ path: plan.lessonsFilePath, content: plan.nextLessonsContent }], false, "vNext Runtime lesson record transaction committed");
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.lessonsFilePath, plan.originalLessonsContent, "LESSONS");
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `LESSONS write failed: ${error instanceof Error ? error.message : String(error)}; LESSONS rollback verified (archive and STATUS remain committed).` : `LESSONS write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.lessonsRelativePath,
+        code: rollback.verified ? "ATOMIC_COMMIT_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+    try {
+      const readBack = fs2.readFileSync(plan.lessonsFilePath, "utf8");
+      if (readBack !== plan.nextLessonsContent)
+        throw new Error("LESSONS read-back did not match the staged typed lesson record.");
+      readLessonMarkers(readBack, plan.lessonsRelativePath);
+      return buildResult("success", proposal, current, options, "lesson-record transaction committed; LESSONS-only read-back verified.", {
+        target_path: plan.lessonsRelativePath,
+        committed: true,
+        governed_mutation_count: 1,
+        previous_revision: sha256(plan.originalLessonsContent),
+        resulting_revision: plan.lessonsRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.lessonsFilePath, plan.originalLessonsContent, "LESSONS");
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `LESSONS read-back failed: ${error instanceof Error ? error.message : String(error)}; LESSONS rollback verified (archive and STATUS remain committed).` : `LESSONS read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.lessonsRelativePath,
+        code: rollback.verified ? "READ_BACK_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
   }
   commitLifecycleTransaction(current, proposal, plan, options) {
     const nextRevision = sha256(plan.nextContent);
@@ -2924,6 +4154,8 @@ class GovernanceTransactionKernel {
         fail("RUNTIME_PATH_INVALID", "proposal source path is not the exact canonical CURRENT_TASK path.");
       if (proposal.operation_kind === "lifecycle-transaction") {
         assertRequestedLifecycleTargets(this.root, current, proposal);
+      } else if (proposal.operation_kind === "archive-transaction" || proposal.operation_kind === "project-status-transaction" || proposal.operation_kind === "lesson-record-transaction") {
+        assertRequestedCloseTargets(this.root, current, proposal);
       } else if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== current.relativePath) {
         fail("RUNTIME_PATH_INVALID", "proposal write target is not the exact canonical CURRENT_TASK path.");
       }
@@ -2952,6 +4184,14 @@ class GovernanceTransactionKernel {
             code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_REPLAY_INCOMPLETE"
           });
         }
+      } else if (proposal.operation_kind === "archive-transaction") {
+        try {
+          assertArchiveReplay(this.root, current, proposal);
+        } catch (error) {
+          return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+            code: error instanceof VNextRuntimeError ? error.code : "LIFECYCLE_REPLAY_INCOMPLETE"
+          });
+        }
       }
       return buildResult("no-op", proposal, current, options, "proposal replay is an idempotent no-op.", {
         previous_revision: current.sourceTuple.revision,
@@ -2974,6 +4214,36 @@ class GovernanceTransactionKernel {
         return this.commitLifecycleTransaction(current, proposal, plan, options);
       } catch (error) {
         return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED" });
+      }
+    }
+    if (proposal.operation_kind === "archive-transaction") {
+      try {
+        const plan = prepareArchiveTransaction(this.root, current, proposal, now);
+        return this.commitArchiveTransaction(current, proposal, plan, options);
+      } catch (error) {
+        return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED" });
+      }
+    }
+    if (proposal.operation_kind === "project-status-transaction") {
+      try {
+        const plan = prepareProjectStatusTransaction(this.root, current, proposal);
+        return this.commitProjectStatusTransaction(current, proposal, plan, options);
+      } catch (error) {
+        return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: workflowDocPathForRoot(this.root, "STATUS.md").relativePath,
+          code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED"
+        });
+      }
+    }
+    if (proposal.operation_kind === "lesson-record-transaction") {
+      try {
+        const plan = prepareLessonRecordTransaction(this.root, current, proposal);
+        return this.commitLessonRecordTransaction(current, proposal, plan, options);
+      } catch (error) {
+        return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: workflowDocPathForRoot(this.root, "LESSONS.md").relativePath,
+          code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED"
+        });
       }
     }
     let transition;

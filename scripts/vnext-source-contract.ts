@@ -60,7 +60,6 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
   'close-task': [
-    'task-state-transaction',
     'project-status-transaction',
     'archive-transaction',
     'lesson-record-transaction',
@@ -118,6 +117,9 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
   'task-state-transaction': ['execute-step', 'prepare-task'],
   'finding-queue-transaction': ['execute-step'],
   'lifecycle-transaction': ['task-lifecycle'],
+  'project-status-transaction': ['close-task'],
+  'archive-transaction': ['close-task'],
+  'lesson-record-transaction': ['close-task'],
 };
 
 const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
@@ -141,6 +143,15 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'task-lifecycle:resume-paused',
     'task-lifecycle:resume-interrupted',
     'task-lifecycle:supersede',
+  ],
+  'project-status-transaction': [
+    'close-task:default:sync',
+  ],
+  'archive-transaction': [
+    'close-task:default:archive',
+  ],
+  'lesson-record-transaction': [
+    'close-task:default:record',
   ],
 };
 

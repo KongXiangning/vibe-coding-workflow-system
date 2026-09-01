@@ -6,24 +6,33 @@ import * as path from 'path';
 import { stringify } from 'yaml';
 import {
   applyVNextRuntimeProposal,
+  createArchiveProposal,
   createFindingQueueProposal,
+  createLessonRecordProposal,
   createLifecycleProposal,
+  createProjectStatusProposal,
   createPrepareTaskReplanProposal,
   createPrepareTaskResumeReviewProposal,
   createTaskStateProposal,
   createReviewCycleZero,
   GovernanceTransactionKernel,
+  previewCloseTask,
   readCanonicalCurrentTask,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
+  type ArchiveDelta,
+  type ClosureEvidence,
+  type DeliverySummary,
   type FindingRecord,
   type FindingQueueDelta,
   type LifecycleDelta,
+  type LessonRecordDelta,
   type ReplanReplacementDefinition,
   type ReplanTaskStateAction,
   type RuntimeProposal,
   type RuntimeState,
+  type ProjectStatusDelta,
 } from '../scripts/vnext-runtime';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -165,6 +174,74 @@ function makeRoot(state: RuntimeState = makeRuntimeState()): string {
     runtime_state: state,
   };
   fs.writeFileSync(currentTaskPath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${makeBody(state)}`, 'utf8');
+  fs.writeFileSync(path.join(root, 'docs', 'workflow', 'STATUS.md'), [
+    '# STATUS.md',
+    '',
+    '## 项目概览',
+    '',
+    '- 项目：runtime-fixture',
+    '',
+    '## ✅ 已完成且稳定',
+    '',
+    '- [ ] baseline',
+    '',
+    '## 🔨 正在开发',
+    '',
+    '- [ ] none',
+    '',
+    '## 📋 待开发',
+    '',
+    '- [ ] none',
+    '',
+    '## ⚠️ 已知风险 / 观察点',
+    '',
+    '- none',
+    '',
+    '## ❌ 已移除 / 推迟',
+    '',
+    '- none',
+    '',
+    '## 🔜 下一检查点',
+    '',
+    '- baseline',
+    '',
+    '## 最近更新记录',
+    '',
+    '- initial',
+    '',
+  ].join('\n'), 'utf8');
+  fs.writeFileSync(path.join(root, 'docs', 'workflow', 'LESSONS.md'), [
+    '# LESSONS.md',
+    '',
+    '## 使用规则',
+    '',
+    '- reusable only',
+    '',
+    '## 通用',
+    '',
+    '- none',
+    '',
+    '## 数据与存储',
+    '',
+    '- none',
+    '',
+    '## 前端与交互',
+    '',
+    '- none',
+    '',
+    '## 后端与服务',
+    '',
+    '- none',
+    '',
+    '## 测试与回归',
+    '',
+    '- none',
+    '',
+    '## 部署与运行时',
+    '',
+    '- none',
+    '',
+  ].join('\n'), 'utf8');
   return root;
 }
 
@@ -346,6 +423,115 @@ function fileRevision(filePath: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+function closureEvidence(overrides: Partial<ClosureEvidence> = {}): ClosureEvidence {
+  const gate = { triggered: false, complete: false, evidence_refs: [] as string[] };
+  return {
+    acceptance_satisfied: true,
+    validation_complete: true,
+    no_admitted_or_in_progress_findings: true,
+    no_unresolved_closure_blocker: true,
+    release_evidence: { ...gate },
+    rollback_evidence: { ...gate },
+    observation_evidence: { ...gate },
+    remaining_risks_non_blocking: true,
+    archive_path_verified: true,
+    ...overrides,
+  };
+}
+
+function deliverySummary(overrides: Partial<DeliverySummary> = {}): DeliverySummary {
+  return {
+    goal: 'finish the runtime fixture task',
+    actual_changes: ['implemented the admitted task step'],
+    verification: ['focused runtime tests passed'],
+    release_evidence: [],
+    rollback_evidence: [],
+    observation_evidence: [],
+    next_action: 'observe the completed task',
+    ...overrides,
+  };
+}
+
+function archiveDelta(overrides: Partial<ArchiveDelta> = {}): ArchiveDelta {
+  return {
+    kind: 'archive',
+    action: 'archive',
+    closure_evidence: closureEvidence(),
+    delivery_summary: deliverySummary(),
+    remaining_risks: ['none beyond the completed task'],
+    lesson_admission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
+    evidence_refs: ['test:evidence:closure'],
+    ...overrides,
+  };
+}
+
+function closeAuthority(): AuthorityEvidence[] {
+  return evidence('active-task-owner', 'evidence-admission');
+}
+
+function archiveProposal(root: string, delta: ArchiveDelta = archiveDelta(), idempotencyKey = 'archive-close-1'): RuntimeProposal {
+  const current = readCanonicalCurrentTask(root);
+  return createArchiveProposal(current, {
+    delta,
+    idempotency_key: idempotencyKey,
+    authority_evidence: closeAuthority(),
+    evidence_refs: delta.evidence_refs,
+  });
+}
+
+function statusProposal(root: string, delta: ProjectStatusDelta = statusDelta(), idempotencyKey = 'status-close-1'): RuntimeProposal {
+  const current = readCanonicalCurrentTask(root);
+  return createProjectStatusProposal(current, {
+    delta,
+    idempotency_key: idempotencyKey,
+    authority_evidence: closeAuthority(),
+    evidence_refs: delta.evidence_refs,
+  });
+}
+
+function lessonProposal(root: string, delta: LessonRecordDelta = lessonDelta(), idempotencyKey = 'lesson-close-1'): RuntimeProposal {
+  const current = readCanonicalCurrentTask(root);
+  return createLessonRecordProposal(current, {
+    delta,
+    idempotency_key: idempotencyKey,
+    authority_evidence: closeAuthority(),
+    evidence_refs: delta.evidence_refs,
+  });
+}
+
+function statusDelta(overrides: Partial<ProjectStatusDelta> = {}): ProjectStatusDelta {
+  return {
+    kind: 'project-status',
+    action: 'sync',
+    status: 'completed',
+    summary: 'runtime fixture task completed',
+    completed_items: ['runtime fixture task'],
+    remaining_risks: ['none beyond the completed task'],
+    next_checkpoint: 'observe the next project checkpoint',
+    evidence_refs: ['test:evidence:status'],
+    ...overrides,
+  };
+}
+
+function lessonDelta(): LessonRecordDelta {
+  return {
+    kind: 'lesson-record',
+    action: 'record',
+    candidates: [{
+      candidate_ref: 'lesson-runtime-close',
+      category: '测试与回归',
+      scene: 'A close transaction spans multiple durable governance documents.',
+      conclusion: 'Keep archive, status, and lesson writes independently retryable.',
+      trigger: 'Archive succeeded while a downstream reconciliation failed.',
+      cause: 'The downstream documents have different ownership and rollback boundaries.',
+      action: 'Retry only the failed typed transaction after validating the archive receipt.',
+      consumer: 'future close-task reconciliation',
+      evidence_refs: ['test:evidence:lesson'],
+    }],
+    evidence_refs: ['test:evidence:lesson'],
+  };
+}
+
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -354,13 +540,15 @@ describe('vNext Phase 2 Runtime contract', () => {
   test('validates the bound execute-step slice and keeps later operations unbound', () => {
     const result = validateVNextRuntimeContract(ROOT);
     expect(result.phase).toBe('Phase 2');
-    expect(result.bound_operations).toEqual(['task-state-transaction', 'finding-queue-transaction', 'lifecycle-transaction']);
-    expect(result.unbound_operations).toEqual([
-      'inbox-record-transaction',
+    expect(result.bound_operations).toEqual([
+      'task-state-transaction',
+      'finding-queue-transaction',
+      'lifecycle-transaction',
       'project-status-transaction',
       'archive-transaction',
       'lesson-record-transaction',
     ]);
+    expect(result.unbound_operations).toEqual(['inbox-record-transaction']);
   });
 
   test('binds distribution identity to the project-local package, not business node_modules', () => {
@@ -1481,6 +1669,374 @@ describe('vNext Phase 2 Runtime contract', () => {
       verification_new_finding_wave_used: true,
       verification_new_finding_wave_id: null,
     });
+  });
+
+  test('atomically closes active + active into the canonical archive and preserves task history', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const before = readCanonicalCurrentTask(root);
+    const proposal = archiveProposal(root);
+    const result = applyVNextRuntimeProposal(root, proposal, { now: () => '2026-09-01T00:00:00.000Z' });
+
+    expect(result.status).toBe('success');
+    expect(result.committed).toBe(true);
+    expect(result.governed_mutation_count).toBe(2);
+    expect(result.planned_writes).toEqual([
+      'docs/workflow/CURRENT_TASK.md',
+      'TASKS/TASK-010-runtime-fixture.md',
+    ]);
+    expect(result.archive_path).toBe('TASKS/TASK-010-runtime-fixture.md');
+    expect(result.archive_revision).toMatch(/^[a-f0-9]{64}$/);
+
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.workflow_status).toBe('closed');
+    expect(after.runtimeState.lifecycle_state).toBe('archived');
+    expect(after.runtimeState.active_step_status).toBe('completed');
+    expect(after.runtimeState.task_id).toBe(before.runtimeState.task_id);
+    expect(after.runtimeState.task_slug).toBe(before.runtimeState.task_slug);
+    expect(after.frontmatter.document_id).toBe(before.frontmatter.document_id);
+    expect(after.body).toContain('original background');
+    expect(after.body).toContain('original implementation plan');
+    expect(after.body).toContain('historical execution record');
+    expect(after.body).toContain('action: archive');
+    expect(after.runtimeState.execution_log).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'archive',
+        from_workflow_status: 'active',
+        from_lifecycle_state: 'active',
+        to_workflow_status: 'closed',
+        to_lifecycle_state: 'archived',
+        source_revision: before.sourceTuple.revision,
+        archive_path: 'TASKS/TASK-010-runtime-fixture.md',
+        lesson_admission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
+      }),
+    ]));
+
+    const archivePath = path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md');
+    const archive = fs.readFileSync(archivePath, 'utf8');
+    expect(archive).toContain('## 任务元数据');
+    expect(archive).toContain('## 原始任务包快照');
+    expect(archive).toContain('## 实际改动摘要');
+    expect(archive).toContain('## 契约与决策记录');
+    expect(archive).toContain('## 验证与交付证据');
+    expect(archive).toContain('## Lessons 回写');
+    expect(archive).toContain('## 后续关联');
+    expect(archive).toContain('- task_id: 010');
+    expect(archive).toContain('- task_slug: runtime-fixture');
+    expect(archive).toContain(`- document_id: ${before.frontmatter.document_id}`);
+    expect(archive).toContain(`- source_revision: ${before.sourceTuple.revision}`);
+    expect(archive).toContain('- archive_path: TASKS/TASK-010-runtime-fixture.md');
+    expect(archive).toContain('decision: defer');
+    expect(archive).toContain('candidate_refs: []');
+    expect(archive).toContain('evidence_refs: []');
+    expect(archive).toContain('> # vNext CURRENT_TASK');
+    expect(archive).not.toContain('TASK_SUMMARY.md');
+    expect(fs.existsSync(path.join(root, 'TASKS', 'runtime-fixture'))).toBe(false);
+  });
+
+  test('runs STATUS and admitted Lesson as independent typed transactions after archive', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const delta = archiveDelta({
+      lesson_admission: {
+        decision: 'admit',
+        candidate_refs: ['lesson-runtime-close'],
+        evidence_refs: ['test:evidence:lesson'],
+      },
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+    });
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, delta, 'archive-admit-1')).status).toBe('success');
+
+    const archivePath = path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md');
+    const currentPath = readCanonicalCurrentTask(root).filePath;
+    const archiveBeforeStatus = fs.readFileSync(archivePath, 'utf8');
+    const currentBeforeStatus = fs.readFileSync(currentPath, 'utf8');
+    const status = statusProposal(root);
+    const statusResult = applyVNextRuntimeProposal(root, status, { now: () => '2026-09-01T00:01:00.000Z' });
+    expect(statusResult.status).toBe('success');
+    expect(statusResult.governed_mutation_count).toBe(1);
+    expect(statusResult.planned_writes).toEqual(['docs/workflow/STATUS.md']);
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeStatus);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(currentBeforeStatus);
+    expect(fs.readFileSync(path.join(root, 'docs', 'workflow', 'STATUS.md'), 'utf8')).toContain('runtime fixture task completed');
+
+    const lessonsBefore = fs.readFileSync(path.join(root, 'docs', 'workflow', 'LESSONS.md'), 'utf8');
+    const lesson = lessonProposal(root);
+    const lessonResult = applyVNextRuntimeProposal(root, lesson, { now: () => '2026-09-01T00:02:00.000Z' });
+    expect(lessonResult.status).toBe('success');
+    expect(lessonResult.governed_mutation_count).toBe(1);
+    expect(lessonResult.planned_writes).toEqual(['docs/workflow/LESSONS.md']);
+    const lessonsAfter = fs.readFileSync(path.join(root, 'docs', 'workflow', 'LESSONS.md'), 'utf8');
+    expect(lessonsAfter).not.toBe(lessonsBefore);
+    expect(lessonsAfter).toContain('A close transaction spans multiple durable governance documents.');
+    expect(lessonsAfter).toContain('Keep archive, status, and lesson writes independently retryable.');
+    expect(lessonsAfter).toContain('vNext lesson record');
+
+    expect(applyVNextRuntimeProposal(root, status).status).toBe('no-op');
+    expect(applyVNextRuntimeProposal(root, lesson).status).toBe('no-op');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeStatus);
+  });
+
+  test('persists defer and no-op lesson admission without allowing a Lesson write', () => {
+    for (const decision of ['defer', 'no-op'] as const) {
+      const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+      const delta = archiveDelta({ lesson_admission: { decision, candidate_refs: [], evidence_refs: [] } });
+      expect(applyVNextRuntimeProposal(root, archiveProposal(root, delta, `archive-${decision}-1`)).status).toBe('success');
+      const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+      const before = fs.readFileSync(lessonsPath, 'utf8');
+      const result = applyVNextRuntimeProposal(root, lessonProposal(root, lessonDelta(), `lesson-${decision}-1`));
+      expect(result.status).toBe('blocked');
+      expect(result.code).toBe('KNOWLEDGE_ADMISSION_INVALID');
+      expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(before);
+    }
+  });
+
+  test('preview returns eligibility and delivery summary without any Runtime mutation', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const currentPath = readCanonicalCurrentTask(root).filePath;
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const before = [currentPath, statusPath, lessonsPath].map(filePath => fs.readFileSync(filePath, 'utf8'));
+    const preview = previewCloseTask(root, archiveDelta());
+
+    expect(preview.status).toBe('eligible');
+    expect(preview.closure_eligibility).toEqual({ eligible: true, blockers: [] });
+    expect(preview.delivery_summary?.goal).toBe('finish the runtime fixture task');
+    expect(preview.lesson_admission?.decision).toBe('defer');
+    expect(preview.archive_path).toBe('TASKS/TASK-010-runtime-fixture.md');
+    expect(preview.planned_operations).toEqual(['archive-transaction', 'project-status-transaction']);
+    expect(preview.governed_mutation_count).toBe(0);
+    expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+    expect([currentPath, statusPath, lessonsPath].map(filePath => fs.readFileSync(filePath, 'utf8'))).toEqual(before);
+  });
+
+  test('blocks closure for every non-success lifecycle tuple and every unresolved closure gate', () => {
+    const illegalTuples: Array<Partial<RuntimeState>> = [
+      { workflow_status: 'draft', lifecycle_state: 'active' },
+      { workflow_status: 'blocked_by_replan', lifecycle_state: 'active' },
+      { workflow_status: 'superseded', lifecycle_state: 'active' },
+      { workflow_status: 'suspended', lifecycle_state: 'paused_pending_closure', resume_requires_review: true, resume_review_reasons: ['manual_review_pending'] },
+      { workflow_status: 'suspended', lifecycle_state: 'interrupted', resume_requires_review: true, resume_review_reasons: ['environment_recovery_pending'] },
+    ];
+    for (const [index, tuple] of illegalTuples.entries()) {
+      const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', ...tuple }));
+      const result = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), `archive-illegal-tuple-${index}`));
+      expect(result.status).toBe('blocked');
+      expect(result.code).toBe('CLOSURE_TUPLE_INVALID');
+      expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+    }
+
+    const blockedDeltas: ArchiveDelta[] = [
+      archiveDelta({ closure_evidence: closureEvidence({ acceptance_satisfied: false }) }),
+      archiveDelta({ closure_evidence: closureEvidence({ validation_complete: false }) }),
+      archiveDelta({ closure_evidence: closureEvidence({ no_admitted_or_in_progress_findings: false }) }),
+      archiveDelta({ closure_evidence: closureEvidence({ no_unresolved_closure_blocker: false }) }),
+      archiveDelta({ closure_evidence: closureEvidence({ remaining_risks_non_blocking: false }) }),
+      archiveDelta({ closure_evidence: closureEvidence({ archive_path_verified: false }) }),
+    ];
+    for (const [index, delta] of blockedDeltas.entries()) {
+      const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+      const result = applyVNextRuntimeProposal(root, archiveProposal(root, delta, `archive-illegal-gate-${index}`));
+      expect(result.status).toBe('blocked');
+      expect(result.code).toBe('CLOSURE_NOT_ELIGIBLE');
+      expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+    }
+    expect(() => archiveProposal(makeRoot(makeRuntimeState({ active_step_status: 'completed' })), archiveDelta({
+      closure_evidence: closureEvidence({ release_evidence: { triggered: true, complete: false, evidence_refs: ['test:evidence:release'] } }),
+      evidence_refs: ['test:evidence:closure', 'test:evidence:release'],
+    }), 'archive-triggered-release-incomplete')).toThrow(/CLOSURE_EVIDENCE_INVALID/);
+
+    const findingRoot = makeRoot(makeRuntimeState({
+      active_step_status: 'completed',
+      findings: [runtimeFinding('finding-open-at-close', 'admitted')],
+    }));
+    const findingResult = applyVNextRuntimeProposal(findingRoot, archiveProposal(findingRoot, archiveDelta(), 'archive-open-finding'));
+    expect(findingResult.status).toBe('blocked');
+    expect(findingResult.code).toBe('CLOSURE_NOT_ELIGIBLE');
+  });
+
+  test('requires the execution audit section before close and before archive reconciliation', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const current = readCanonicalCurrentTask(root);
+    const before = current.raw;
+    fs.writeFileSync(current.filePath, before.replace(/\r?\n## 执行记录[\s\S]*$/, '\n'), 'utf8');
+    const result = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-missing-audit'));
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('RUNTIME_SECTION_INVALID');
+    expect(fs.readFileSync(current.filePath, 'utf8')).not.toContain('action: archive');
+    expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+
+    fs.writeFileSync(current.filePath, before, 'utf8');
+    const auditReplayProposal = archiveProposal(root, archiveDelta(), 'archive-audit-replay');
+    expect(applyVNextRuntimeProposal(root, auditReplayProposal).status).toBe('success');
+    const closed = readCanonicalCurrentTask(root);
+    fs.writeFileSync(closed.filePath, closed.raw.replace(/\r?\n## 执行记录[\s\S]*$/, '\n'), 'utf8');
+    const replay = applyVNextRuntimeProposal(root, auditReplayProposal);
+    expect(replay.status).toBe('blocked');
+    expect(replay.code).toBe('RUNTIME_REPLAY_INCOMPLETE');
+  });
+
+  test('rolls back CURRENT_TASK and a newly created archive together when archive read-back fails', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const current = readCanonicalCurrentTask(root);
+    const before = current.raw;
+    const proposal = archiveProposal(root, archiveDelta(), 'archive-dual-rollback');
+    let readCount = 0;
+    const kernel = new GovernanceTransactionKernel(root, targetRoot => {
+      readCount += 1;
+      if (readCount === 2) throw new Error('simulated archive post-commit read-back failure');
+      return readCanonicalCurrentTask(targetRoot);
+    });
+
+    const result = kernel.apply(proposal, { now: () => '2026-09-01T00:03:00.000Z' });
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('READ_BACK_FAILED');
+    expect(result.governed_mutation_count).toBe(0);
+    expect(result.message).toContain('exact two-file rollback verified');
+    expect(readCount).toBe(3);
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+    expect(readCanonicalCurrentTask(root).raw).toBe(before);
+    expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+  });
+
+  test('fails stale archive source tuples before writing either close file', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const proposal = archiveProposal(root, archiveDelta(), 'archive-stale-source');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { status: 'completed', idempotency_key: 'step-drifts-close-source' })).status).toBe('success');
+    const currentBefore = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+    const stale = applyVNextRuntimeProposal(root, proposal);
+    expect(stale.status).toBe('conflict');
+    expect(stale.code).toBe('SOURCE_TUPLE_MISMATCH');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(currentBefore);
+    expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+  });
+
+  test('archive replay is a no-op only for the exact receipt and fails closed on missing, drifted, or mismatched provenance', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const proposal = archiveProposal(root, archiveDelta(), 'archive-replay-integrity');
+    expect(applyVNextRuntimeProposal(root, proposal).status).toBe('success');
+    const archivePath = path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md');
+    const currentPath = readCanonicalCurrentTask(root).filePath;
+    const archiveBefore = fs.readFileSync(archivePath, 'utf8');
+    const currentBefore = fs.readFileSync(currentPath, 'utf8');
+    expect(applyVNextRuntimeProposal(root, proposal).status).toBe('no-op');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBefore);
+
+    fs.rmSync(archivePath);
+    const missing = applyVNextRuntimeProposal(root, proposal);
+    expect(missing.status).toBe('blocked');
+    expect(missing.code).toBe('ARCHIVE_MISSING');
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(currentBefore);
+
+    fs.writeFileSync(archivePath, archiveBefore.replace('goal: finish the runtime fixture task', 'goal: drifted archive content'), 'utf8');
+    const drifted = applyVNextRuntimeProposal(root, proposal);
+    expect(drifted.status).toBe('blocked');
+    expect(drifted.code).toBe('ARCHIVE_PROVENANCE_MISMATCH');
+
+    fs.writeFileSync(archivePath, archiveBefore.replace('- archive_caller: close-task', '- archive_caller: other-caller'), 'utf8');
+    const provenance = applyVNextRuntimeProposal(root, proposal);
+    expect(provenance.status).toBe('blocked');
+    expect(provenance.code).toBe('ARCHIVE_PROVENANCE_MISMATCH');
+  });
+
+  test('a supersede/replan generation boundary does not let an old archive proposal close again', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const archiveA = archiveProposal(root, archiveDelta(), 'archive-generation-a');
+    expect(applyVNextRuntimeProposal(root, archiveA).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const reentry = archiveProposal(root, archiveDelta(), 'archive-generation-reentry');
+    expect(applyVNextRuntimeProposal(root, reentry).status).toBe('no-op');
+    expect(readCanonicalCurrentTask(root).runtimeState.execution_log.filter(item => 'action' in item && item.action === 'archive')).toHaveLength(1);
+    expect(applyVNextRuntimeProposal(root, archiveA).status).toBe('no-op');
+    expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(current.sourceTuple.revision);
+  });
+
+  test('retries STATUS reconciliation without repeating archive and keeps archive on STATUS failure', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const archive = archiveProposal(root, archiveDelta(), 'archive-status-reconcile');
+    expect(applyVNextRuntimeProposal(root, archive).status).toBe('success');
+    const archivePath = path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md');
+    const currentPath = readCanonicalCurrentTask(root).filePath;
+    const archiveBefore = fs.readFileSync(archivePath, 'utf8');
+    const currentBefore = fs.readFileSync(currentPath, 'utf8');
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    const statusBefore = fs.readFileSync(statusPath, 'utf8');
+    fs.rmSync(statusPath);
+    const status = statusProposal(root);
+    const failure = applyVNextRuntimeProposal(root, status);
+    expect(failure.status).toBe('blocked');
+    expect(failure.code).toBe('RUNTIME_SOURCE_MISSING');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBefore);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(currentBefore);
+
+    fs.writeFileSync(statusPath, statusBefore, 'utf8');
+    const retried = applyVNextRuntimeProposal(root, status);
+    expect(retried.status).toBe('success');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBefore);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(currentBefore);
+    expect(applyVNextRuntimeProposal(root, status).status).toBe('no-op');
+
+    const conflicting = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta({ status: 'observing', summary: 'different status' }), 'status-conflict'));
+    expect(conflicting.status).toBe('blocked');
+    expect(conflicting.code).toBe('STATUS_RECONCILIATION_CONFLICT');
+  });
+
+  test('lesson persistence failure does not roll back archive or STATUS and later reads admission from archive', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const delta = archiveDelta({
+      lesson_admission: { decision: 'admit', candidate_refs: ['lesson-runtime-close'], evidence_refs: ['test:evidence:lesson'] },
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+    });
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, delta, 'archive-lesson-retry')).status).toBe('success');
+    const status = statusProposal(root);
+    expect(applyVNextRuntimeProposal(root, status).status).toBe('success');
+    const archivePath = path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md');
+    const currentPath = readCanonicalCurrentTask(root).filePath;
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    const archiveBefore = fs.readFileSync(archivePath, 'utf8');
+    const currentBefore = fs.readFileSync(currentPath, 'utf8');
+    const statusBefore = fs.readFileSync(statusPath, 'utf8');
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    fs.rmSync(lessonsPath);
+    const lesson = lessonProposal(root);
+    const failure = applyVNextRuntimeProposal(root, lesson);
+    expect(failure.status).toBe('blocked');
+    expect(failure.code).toBe('RUNTIME_SOURCE_MISSING');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBefore);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(currentBefore);
+    expect(fs.readFileSync(statusPath, 'utf8')).toBe(statusBefore);
+
+    fs.writeFileSync(lessonsPath, [
+      '# LESSONS.md', '',
+      '## 使用规则', '', '- reusable only', '',
+      '## 通用', '', '- none', '',
+      '## 数据与存储', '', '- none', '',
+      '## 前端与交互', '', '- none', '',
+      '## 后端与服务', '', '- none', '',
+      '## 测试与回归', '', '- none', '',
+      '## 部署与运行时', '', '- none', '',
+    ].join('\n'), 'utf8');
+    expect(applyVNextRuntimeProposal(root, lesson).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, lesson).status).toBe('no-op');
+  });
+
+  test('keeps the closed + archived task non-executable, non-resumable, and non-replanable', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-terminal-boundary')).status).toBe('success');
+    const closed = readCanonicalCurrentTask(root);
+    const execution = applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'step-after-archive' }));
+    expect(execution.status).toBe('blocked');
+    expect(execution.code).toBe('TASK_STATE_NOT_ACTIVE');
+    const pause = applyVNextRuntimeProposal(root, createLifecycleProposal(closed, {
+      mode: 'pause',
+      delta: pauseDelta(),
+      idempotency_key: 'pause-after-archive',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:pause'],
+    }));
+    expect(pause.status).toBe('blocked');
+    expect(pause.code).toBe('LIFECYCLE_TRANSITION_INVALID');
+    const replan = applyVNextRuntimeProposal(root, replanProposal(root, 'mark-replan-blocked', 'replan-after-archive'));
+    expect(replan.status).toBe('blocked');
+    expect(replan.code).toBe('REPLAN_TRANSITION_INVALID');
   });
 
   test('stops on a legacy CURRENT_TASK schema before any mutation', () => {

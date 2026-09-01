@@ -19,10 +19,14 @@ proposal:
     - execute-step
     - prepare-task
     - task-lifecycle
+    - close-task
   operation_kinds:
     - task-state-transaction
     - finding-queue-transaction
     - lifecycle-transaction
+    - project-status-transaction
+    - archive-transaction
+    - lesson-record-transaction
   source_tuple:
     - path
     - revision
@@ -113,6 +117,17 @@ proposal:
         - invalidation_reason
         - evidence_refs
         - partial_diff_disposition
+  close_task:
+    default_mode: default
+    preview_mode: preview
+    terminal_from:
+      - active + active
+    terminal_to:
+      - closed + archived
+    lesson_admission:
+      - admit
+      - defer
+      - no-op
 
 canonical_current_task:
   frontmatter:
@@ -221,8 +236,68 @@ operations:
     idempotence: fail-closed
     conflict_policy: fail-closed
 
+  - id: project-status-transaction
+    status: bound
+    binding: vnext-runtime
+    operation: project-status-transaction
+    source_targets:
+      - CURRENT_TASK.md
+      - STATUS.md
+      - TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md
+    write_targets:
+      - STATUS.md
+    allowed_callers:
+      - close-task
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
+  - id: archive-transaction
+    status: bound
+    binding: vnext-runtime
+    operation: archive-transaction
+    source_targets:
+      - CURRENT_TASK.md
+      - TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md
+    write_targets:
+      - CURRENT_TASK.md
+      - TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md
+    allowed_callers:
+      - close-task
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
+  - id: lesson-record-transaction
+    status: bound
+    binding: vnext-runtime
+    operation: lesson-record-transaction
+    source_targets:
+      - CURRENT_TASK.md
+      - TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md
+      - LESSONS.md
+    write_targets:
+      - LESSONS.md
+    allowed_callers:
+      - close-task
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
 unbound_operations:
   - inbox-record-transaction
-  - project-status-transaction
-  - archive-transaction
-  - lesson-record-transaction

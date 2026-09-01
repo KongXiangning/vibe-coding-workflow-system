@@ -378,7 +378,6 @@ runtime_operations:
       - execute-step
       - debug-task
       - task-lifecycle
-      - close-task
     bound_callers:
       - execute-step
       - prepare-task
@@ -445,41 +444,52 @@ runtime_operations:
     bound_actions: []
 
   - id: project-status-transaction
-    status: contract-only
-    binding: unbound
+    status: bound
+    binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
-      - STATUS
-      - approved status baseline
+      - CURRENT_TASK.md
+      - STATUS.md
+      - TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md
     write_targets:
       - STATUS
     allowed_callers:
       - close-task
-    bound_callers: []
-    bound_actions: []
+    bound_callers:
+      - close-task
+    bound_actions:
+      - close-task:default:sync
 
   - id: archive-transaction
-    status: contract-only
-    binding: unbound
+    status: bound
+    binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
+      - CURRENT_TASK.md
       - canonical task archive
     write_targets:
+      - CURRENT_TASK.md
       - canonical task archive
     allowed_callers:
       - close-task
-    bound_callers: []
-    bound_actions: []
+    bound_callers:
+      - close-task
+    bound_actions:
+      - close-task:default:archive
 
   - id: lesson-record-transaction
-    status: contract-only
-    binding: unbound
+    status: bound
+    binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
+      - CURRENT_TASK.md
+      - canonical task archive
       - LESSONS
     write_targets:
       - LESSONS
     allowed_callers:
       - close-task
-    bound_callers: []
-    bound_actions: []
+    bound_callers:
+      - close-task
+    bound_actions:
+      - close-task:default:record

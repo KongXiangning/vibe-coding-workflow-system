@@ -16,6 +16,7 @@ export type TaskIdentityStatus = 'materialized' | 'placeholder-preserved' | 'inc
 export type CurrentTaskWorkflowStatus =
   | 'draft'
   | 'active'
+  | 'closed'
   | 'suspended'
   | 'archived'
   | 'superseded'
@@ -61,6 +62,7 @@ export const TASK_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const CURRENT_TASK_WORKFLOW_STATUSES: CurrentTaskWorkflowStatus[] = [
   'draft',
   'active',
+  'closed',
   'suspended',
   'archived',
   'superseded',
@@ -104,6 +106,7 @@ const CURRENT_TASK_STATUS_TUPLES = new Map<string, Exclude<CurrentTaskOwnershipS
   ['superseded|active', 'non_active_owner'],
   ['replaced|active', 'non_active_owner'],
   ['blocked_by_replan|active', 'non_active_owner'],
+  ['closed|archived', 'non_active_owner'],
 ]);
 const PAUSED_PENDING_CLOSURE_REASONS: ResumeReviewReason[] = [
   'validation_pending',

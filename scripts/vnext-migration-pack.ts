@@ -2095,7 +2095,7 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
-  'close-task': ['task-state-transaction', 'project-status-transaction', 'archive-transaction', 'lesson-record-transaction'],
+  'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction'],
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
   'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy'],
