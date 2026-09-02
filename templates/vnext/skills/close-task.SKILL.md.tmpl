@@ -61,7 +61,7 @@ Prove closure eligibility and finish one task with a truthful delivery summary. 
 
 ## Operating rules
 
-1. Verify immutable task identity, acceptance claims, validation evidence, open findings, remaining risks, and the exact closure/archive target before preparing any proposal.
+1. Verify immutable task identity, acceptance claims, claim-bound validation evidence, open findings, remaining risks, and the exact closure/archive target before preparing any proposal. Validation, reuse of an existing check, and creation of a persistent automated test remain separate decisions; the closure-side persistent-test disposition defaults to `persistent_test: false`, and closure does not infer a new test from missing evidence.
 2. Evaluate release health, rollback, canary, and observation evidence when the task risk triggers them. A missing or unresolved requirement yields a blocked or observing result; it cannot be summarized as complete.
 3. In `preview`, return the complete closure summary and eligibility verdict with zero Runtime proposals. In ordinary closure, prepare only the typed proposals justified by the eligibility result: the archive transaction, the STATUS transaction after archive success, and, after explicit knowledge admission, a lesson record.
 4. Keep task status descriptive and preserve acceptance, verification, release/rollback, observation, and remaining-risk facts. Do not rewrite history or infer a stable archive path from an ambiguous identity.
@@ -75,6 +75,7 @@ Prove closure eligibility and finish one task with a truthful delivery summary. 
 Return one structured `closure_result` containing:
 
 - exact task identity, acceptance and validation verdict, and closure eligibility;
+- claim-bound validation results and separate persistent-test disposition; no new persistent test is implied by closure evidence requirements;
 - delivery summary with release/rollback/observation evidence and remaining risks;
 - preview or ordinary closure semantics and the exact status/archive targets;
 - explicit lesson admission, defer, or no-op decision;

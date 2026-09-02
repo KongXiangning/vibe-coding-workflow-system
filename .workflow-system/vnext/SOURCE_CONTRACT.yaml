@@ -216,14 +216,31 @@ capabilities:
     trigger:
       - a claim, evidence gap, or persistent-test decision is evaluated
     input_contract:
-      - claim identity, owner, certainty, impact, and existing evidence
-      - proposed evidence type and expected disposition
+      - 'claim model: id, kind, owner_source, certainty, impact, and existing_evidence'
+      - proposed minimum-sufficient evidence type and expected disposition
+      - 'evidence types may include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance'
+      - 'evidence-plan decision: whether new evidence is needed, minimum-sufficient type, existing-check reuse, temporary exploration, and failure route'
+      - 'exploratory probe budget: duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule'
+      - persistent-test policy, including default non-admission or user no-test deny
+      - 'persistent-test admission fields when a persistent test is proposed: owner, basis, proves, existing-evidence insufficiency, assertion boundary, and failure disposition'
+      - 'risk-analysis admission is anchored to an identified changed behavior, known failure model, and admitted task scope'
+      - 'when an evidence plan must survive a turn, session, delegation, pause, or interruption: typed proposal to an existing canonical task record'
     output_contract:
-      - minimum-sufficient evidence plan
-      - persistent-test admission, defer, or rejection decision
+      - claim-bound minimum-sufficient evidence plan that separates validation from test creation
+      - persistent-test not-admitted, admitted, deferred, or rejected decision separate from validation and existing-check reuse
+      - 'admitted persistent tests only with an explicit owner, one of acceptance, regression, critical-invariant, or critical-risk, a behavioral or contract boundary assertion, and an expected failure disposition'
+      - bounded exploratory-evidence record and cross-turn persistence status when triggered
     stop_conditions:
-      - claim has no authorized owner
+      - 'claim kind, owner_source, certainty, or impact is missing or outside its closed set'
+      - a proposed persistent test has no authorized owner or authority source
       - evidence is insufficient or unrelated to the claim
+      - an exploratory probe lacks a bounded duration, tool/run count, permitted temporary artifact locations, or cleanup/audit rule
+      - 'a persistent test lacks an explicit owner, closed admission basis, concrete claim, existing-evidence insufficiency reason, behavioral or contract boundary assertion, or expected failure disposition'
+      - 'risk-analysis is used as a persistent-test owner without an identified changed behavior, known failure model, and admitted task scope'
+      - 'provisional or exploratory certainty is used to silently admit a persistent test instead of a temporary probe or explicit confirmed reclassification'
+      - a model-generated hypothetical, code change, coverage request, or incidental implementation detail is used as a persistent-test admission basis
+      - an evidence plan that must survive a turn, session, delegation, pause, or interruption lacks a typed proposal into an existing canonical task record
+      - user no-test policy conflicts with an authoritative Contract or Decision
 
   - id: finding-admission
     exposure: internal

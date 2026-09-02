@@ -20,6 +20,7 @@ entry_contract:
       - recovery_package_path
       - recovery_package_revision
       - rollback_conditions
+      - evidence_plan
       - authority_evidence
       - caller_context
   authority_owner: task
@@ -65,8 +66,8 @@ Perform one explicit, identity-safe task ownership or lifecycle transition. The 
 ## Operating rules
 
 1. Verify the immutable task identity, active owner, current workflow status, current lifecycle tuple, and requested mode before proposing any transition.
-2. For `pause` and `interrupt`, collect the transition-specific checkpoint, dirty attribution, environment, recovery, rollback, and review evidence. Keep pause and interrupt as distinct modes; do not construct snapshots or package markers in the Skill.
-3. For `resume-paused` and `resume-interrupted`, confirm one explicit matching recovery package reference, its observed SHA-256 revision, and complete review evidence. Never infer a recovery target from a latest or merely similar package.
+2. For `pause` and `interrupt`, collect the transition-specific checkpoint, dirty attribution, environment, recovery, rollback, and review evidence. Keep pause and interrupt as distinct modes; do not construct snapshots or package markers in the Skill. If an evidence plan crosses the lifecycle boundary, preserve each claim's identity, owner, certainty, admitted evidence types, and completion state in the existing canonical task snapshot/proposal; lifecycle evidence is not persistent-test admission.
+3. For `resume-paused` and `resume-interrupted`, confirm one explicit matching recovery package reference, its observed SHA-256 revision, and complete review evidence, including the preserved claim-bound evidence plan when one exists. Never infer a recovery target from a latest or merely similar package.
 4. For `supersede`, require typed invalidation evidence for `goal`, `scope`, or `acceptance`, including an invalidation reason and `partial_diff_disposition`. Preserve the original task identity, definition history, provenance, and invalidation evidence; supersede never carries or writes a replacement definition.
 5. Emit one typed `LifecycleProposal` for the selected mode. For resume, include the observed `recovery_package_revision` in the typed delta. The Runtime resolves canonical paths, re-reads and compares the package revision, validates package/state markers, constructs or restores the snapshot, and owns every durable write; this entry never claims that a lifecycle marker, snapshot, recovery package, or task state was written.
 
@@ -76,6 +77,7 @@ Return one structured `lifecycle_result` containing:
 
 - exact task identity, current tuple, requested mode, and authority evidence;
 - legal-transition verdict and the selected transition's checkpoint/recovery evidence;
+- preserved claim-bound evidence-plan state across pause, interruption, or resume when triggered;
 - normalized next workflow/lifecycle tuple or a truthful blocked/user result;
 - rollback and recovery conditions, owner route, and review readiness;
 - one typed `LifecycleProposal` only when all model-visible transition preconditions pass.

@@ -7,6 +7,19 @@ import { validateVNextSource } from '../scripts/vnext-source-contract';
 const ROOT = path.resolve(import.meta.dir, '..');
 const temporaryRoots: string[] = [];
 
+// P-12 admission for this persistent source-contract guard:
+// the existing validator proves catalog closure but does not prove the
+// evidence/admission policy expressed in template bodies.
+const P12_SOURCE_CONTRACT_TEST_ADMISSION = {
+  decision: 'admitted',
+  owner: 'workflow-system maintainers',
+  basis: 'critical-invariant',
+  proves: 'vNext source contracts keep validation separate from persistent-test admission',
+  existingEvidenceInsufficiency: 'catalog validation does not inspect these prompt-body semantic boundaries',
+  assertionBoundary: 'vNext source contract and daily entry template behavior',
+  failureDisposition: 'block the source-contract quality gate until the P-12 boundary is restored',
+} as const;
+
 function copyFixture(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workflow-vnext-source-test-'));
   temporaryRoots.push(root);
@@ -112,6 +125,81 @@ describe('vNext Phase 2 source contract', () => {
     expect(content).toContain('findings, evidence gaps, and finding-admission dispositions');
   });
 
+  test('preserves P-12 evidence-first and persistent-test admission boundaries', () => {
+    const sourceContract = fs.readFileSync(
+      fixtureFile(ROOT, '.workflow-system/vnext/SOURCE_CONTRACT.yaml'),
+      'utf8',
+    );
+    const prepare = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const execute = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const review = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/review-change.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const debug = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/debug-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const lifecycle = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/task-lifecycle.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const close = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/close-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+
+    expect(P12_SOURCE_CONTRACT_TEST_ADMISSION).toMatchObject({
+      decision: 'admitted',
+      basis: 'critical-invariant',
+      assertionBoundary: 'vNext source contract and daily entry template behavior',
+    });
+    expect(sourceContract).toContain('claim model: id, kind, owner_source, certainty, impact, and existing_evidence');
+    expect(sourceContract).toContain('default non-admission or user no-test deny');
+    expect(sourceContract).toContain('acceptance, regression, critical-invariant, or critical-risk');
+    expect(sourceContract).toContain('existing-evidence insufficiency');
+    expect(sourceContract).toContain('static proof, existing regression, focused test, integration smoke');
+    expect(sourceContract).toContain('assertion boundary, and failure disposition');
+    expect(sourceContract).toContain('risk-analysis admission is anchored to an identified changed behavior, known failure model, and admitted task scope');
+    expect(sourceContract).toContain('provisional or exploratory certainty is used to silently admit a persistent test');
+    expect(sourceContract).toContain('exploratory probe budget');
+    expect(sourceContract).toContain('typed proposal to an existing canonical task record');
+    expect(prepare).toContain('owner_source');
+    expect(prepare).toContain('evidence-admission-policy');
+    expect(prepare).toContain('validation and test creation are separate decisions');
+    expect(prepare).toContain('an assertion at the behavioral or contract boundary');
+    expect(prepare).toContain('clear expected disposition if it fails');
+    expect(prepare).toContain('a `risk-analysis` owner is valid only when anchored to an identified changed behavior, known failure model, and admitted task scope');
+    expect(prepare).toContain('Provisional or exploratory certainty permits temporary probes only');
+    expect(prepare).toContain('Persistent tests are not admitted by default');
+    expect(prepare).toContain('test_write_policy: deny');
+    expect(prepare).toContain('bounded duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule');
+    expect(prepare).toContain('typed proposal into the existing canonical task record');
+    expect(execute).toContain('creating or changing a persistent automated test are separate decisions');
+    expect(execute).toContain('exactly one basis from `acceptance`, `regression`, `critical-invariant`, or `critical-risk`');
+    expect(execute).toContain('assertion at the behavioral or contract boundary');
+    expect(execute).toContain('A `risk-analysis` owner must be anchored to an identified changed behavior, known failure model, and admitted task scope');
+    expect(execute).toContain('persistent-test disposition defaults to `persistent_test: false`');
+    expect(execute).toContain('existing-check reuse');
+    expect(review).toContain('A regression or evidence scenario is a validation obligation; it does not automatically require a new persistent automated test.');
+    expect(review).toContain('Persistent-test disposition defaults to `persistent_test: false`');
+    expect(review).toContain('Missing admission means the persistent test is not admitted');
+    expect(review).toContain('Provisional or exploratory certainty permits temporary probes only');
+    expect(review).toContain('Review may add a claim only through the same strong-evidence admission rule');
+    expect(debug).toContain('A validation obligation or temporary probe does not automatically justify a persistent automated test');
+    expect(debug).toContain('Persistent-test disposition defaults to `persistent_test: false`');
+    expect(debug).toContain('permitted temporary artifact locations, and cleanup/audit rule');
+    expect(close).toContain('persistent-test disposition defaults to `persistent_test: false`');
+    expect(lifecycle).toContain('preserve each claim\'s identity, owner, certainty, admitted evidence types, and completion state');
+    expect(close).toContain('closure does not infer a new test from missing evidence');
+  });
+
   test('requires source authority, task identity, and adaptive depth for execute-step', () => {
     const root = copyFixture();
     replaceIn(
@@ -122,6 +210,18 @@ describe('vNext Phase 2 source contract', () => {
     );
 
     expect(() => validateVNextSource(root)).toThrow(/execute-step.*mandatory capability "source-authority-policy"/i);
+  });
+
+  test('requires evidence admission policy for prepare-task', () => {
+    const root = copyFixture();
+    replaceIn(
+      root,
+      'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
+      '    - evidence-admission-policy\n',
+      '',
+    );
+
+    expect(() => validateVNextSource(root)).toThrow(/prepare-task.*mandatory capability "evidence-admission-policy"/i);
   });
 
   test('keeps debug ownership conditional and lesson admission non-blocking for closure', () => {

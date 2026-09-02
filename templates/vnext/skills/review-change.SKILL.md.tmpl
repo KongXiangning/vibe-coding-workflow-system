@@ -10,9 +10,12 @@ entry_contract:
       - diff_target
     optional:
       - acceptance_claims
+      - evidence_plan
       - admitted_fingerprints
       - change_risk_profile
       - execution_policy
+      - test_write_policy
+      - persistent_test_admission
     cycle_phase:
       - discovery
       - verification
@@ -57,11 +60,14 @@ Produce one unified verdict for one explicit logical diff target. Review is a si
 ## Review behavior
 
 1. Verify the diff target and comparable revisions before drawing a conclusion. A target mismatch is a blocker, not an invitation to guess a different diff.
-2. Always evaluate target validity, scope/mutation boundary, goal and acceptance fit, correctness/regression risk, and evidence sufficiency.
-3. Select conditional dimensions only when triggered: propagation/contract, lifecycle, design/visual, release/rollback/canary/performance, current external documentation, or source/target/host/generated/destructive boundaries.
-4. Treat discovery and verification as one convergence policy. A finding is not repair-admissible merely because it was noticed: evidence, current-owner route, scope, mechanical authority, root-cause confidence, fingerprint, and repair budget must all pass admission.
-5. Report speculative edges, other-owner defects, scope widening, product choices, and unrelated quality opportunities through their correct result route. Do not silently add them to the repair queue.
-6. `report-only` changes terminal semantics: return the report and stop. No review mode writes code, governance state, queues, registry, installation, or host files.
+2. Always evaluate target validity, scope/mutation boundary, goal and acceptance fit, correctness/regression risk, and evidence sufficiency. A regression or evidence scenario is a validation obligation; it does not automatically require a new persistent automated test.
+3. For each claim, preserve its stable `id`, closed `kind`, `owner_source`, `certainty`, `impact`, and `existing_evidence`; identify the minimum-sufficient evidence, whether new evidence is needed, whether an existing check can be reused, the failure route, and whether evidence is `existing | reused | newly-executed | deferred | blocked`. Prefer real business evidence when it can prove the claim directly. If review uses a temporary exploratory probe, report its bounded duration, tool/run count, permitted temporary artifacts, and cleanup/audit result; do not treat an exhausted probe as sufficient.
+4. Persistent-test disposition defaults to `persistent_test: false`. If a persistent test is proposed, verify an explicit owner, concrete proved claim or failure, existing-evidence insufficiency reason, exactly one basis from `acceptance`, `regression`, `critical-invariant`, or `critical-risk`, an assertion at the behavioral or contract boundary, and a clear expected failure disposition. A `risk-analysis` owner must be anchored to an identified changed behavior, known failure model, and admitted task scope. Provisional or exploratory certainty permits temporary probes only; explicitly reclassify the claim as confirmed before any persistent admission. Missing admission means the persistent test is not admitted; report the disposition or evidence gap rather than silently requiring it. Code change, coverage, robustness, helper branches, mock-call counts, speculative edges, and reviewer preference do not supply admission. Respect `test_write_policy: deny`, and report an authoritative Contract/Decision conflict.
+5. Baseline the evidence plan before implementation. Review may add a claim only through the same strong-evidence admission rule used for a new blocker; it must not continuously expand a proved claim into an open-ended test plan. If the evidence plan must survive a turn, session, delegation, pause, or interruption, report that it is carried through a typed proposal into the existing canonical task record; review itself remains read-only.
+6. Select conditional dimensions only when triggered: propagation/contract, lifecycle, design/visual, release/rollback/canary/performance, current external documentation, or source/target/host/generated/destructive boundaries.
+7. Treat discovery and verification as one convergence policy. A finding is not repair-admissible merely because it was noticed: evidence, current-owner route, scope, mechanical authority, root-cause confidence, fingerprint, and repair budget must all pass admission.
+8. Report speculative edges, other-owner defects, scope widening, product choices, and unrelated quality opportunities through their correct result route. Do not silently add them to the repair queue.
+9. `report-only` changes terminal semantics: return the report and stop. No review mode writes code, governance state, queues, registry, installation, or host files.
 
 ## Required result
 
@@ -71,6 +77,8 @@ Return one structured `review_result` containing:
 - target verification status;
 - evaluated and not-triggered dimensions with reasons;
 - findings, evidence gaps, and finding-admission dispositions;
+- claim-bound evidence results, exploratory probe audit when used, and separate `persistent_test: false | true` admission disposition;
+- when admitted, the persistent-test owner, basis, proved claim/failure, existing-evidence insufficiency reason, behavioral/contract assertion boundary, and expected failure disposition;
 - one verdict: `clean`, `findings`, `needs-evidence`, `blocked`, `needs-user`, or `needs-debug`;
 - a recommended macro route as a report field only;
 - `governed_mutation_count: 0` and declared ephemeral effects.

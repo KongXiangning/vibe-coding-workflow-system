@@ -11,6 +11,9 @@ entry_contract:
     optional:
       - existing_task
       - acceptance_hints
+      - evidence_plan
+      - test_write_policy
+      - persistent_test_admission
       - caller_context
   authority_owner: user
   mutation_boundary:
@@ -29,6 +32,7 @@ entry_contract:
     - scope-guard
     - decision-authority-gate
     - adaptive-depth-policy
+    - evidence-admission-policy
     - propagation-evidence-validator
     - design-evidence-gate
     - release-evidence-gate
@@ -41,6 +45,11 @@ entry_contract:
     - requested scope is ambiguous, forbidden, or requires unauthorized widening
     - a user-owned, contract-owned, or release decision remains unresolved
     - required evidence or rollback conditions cannot be stated
+    - a claim or evidence plan omits its stable identity, closed claim fields, minimum-sufficient evidence, or disposition
+    - exploratory evidence is requested without a bounded probe budget and cleanup/audit rule
+    - a persistent test is proposed without a complete P-12 admission record
+    - an evidence plan that must survive a turn, session, delegation, pause, or interruption has no typed proposal into an existing canonical task record
+    - user no-test policy conflicts with an authoritative Contract or Decision
     - the request uses an old or unsupported workflow schema
   output_kind: prepared-task
 ---
@@ -57,21 +66,28 @@ Turn the caller's request into one bounded executable intent. This entry may wor
 2. Establish the task identity and active-owner tuple before preparing or replanning anything. In `replan`, preserve the existing task history and explain the changed goal, scope, acceptance, or evidence contract.
 3. Admit `Allowed`, `Conditional`, and `Forbidden` scope. A conditional or forbidden target is a blocker until the appropriate authority explicitly changes the scope.
 4. Classify decisions as mechanical, contract/decision-owned, or user-owned. Choose local mechanical details only; stop at unresolved user-owned or conflicting authority.
-5. Select planning and evidence depth from explicit risk triggers. Keep the smallest plan that makes each step independently verifiable, while retaining rollback, UI/release, propagation, external-documentation, and dangerous-operation requirements when triggered.
-6. In `replan`, emit only the closed `ReplanDelta` replacement for existing task-definition sections plus the new `active_step_id`; never patch arbitrary Markdown headings or paths, add a new identity, or overwrite execution history, invalidation evidence, provenance, or finding history. Use `mark-replan-blocked`, `clear-replan-block`, and `commit-replan` only with caller `prepare-task` and mode `replan`.
-7. Return a single prepared intent. Do not present create, review, scope, classify, plan, or decompose as separate callable operations.
+5. Plan in this order: business goal and acceptance claims → risks and invariants → minimum-sufficient evidence for each claim → persistent-test admission only where justified → implementation steps. Do not derive a test list mechanically from implementation steps.
+6. Represent every claim with a stable `id`, `kind` (`acceptance | regression | invariant | bug-reproduction | compatibility | release | exploration`), `owner_source` (`contract | accepted-task | confirmed-bug | risk-analysis | user | none`), `certainty` (`confirmed | provisional | exploratory`), `impact` (`local | shared | critical`), and `existing_evidence`. The claim identifies what must be proved; it does not itself admit a persistent test. `owner_source: none` and provisional/exploratory certainty default to no persistent test.
+7. For every claim, choose the smallest claim-appropriate evidence and first consider existing tests/checks, build or static validation, existing protocol/contract validators, real service/API/browser/device behavior, persisted-state inspection, logs/traces, or other real evidence. Evidence types include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance. Record whether new evidence is needed, the minimum-sufficient evidence type, existing-check reuse, and `existing | reused | newly-executed | deferred | blocked` disposition; validation and test creation are separate decisions. A temporary exploratory probe must declare bounded duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule; an exhausted probe is not silently promoted to sufficient evidence.
+8. Persistent tests are not admitted by default. If a persistent test is proposed, require an explicit owner, a concrete claim or failure it proves, a concrete reason existing evidence is insufficient, exactly one basis from `acceptance`, `regression`, `critical-invariant`, or `critical-risk`, an assertion at the behavioral or contract boundary, and a clear expected disposition if it fails. Confirmed acceptance, a Contract, a reproduced bug, a hard invariant, or a changed-behavior risk may supply evidence/ownership but is not a basis until classified into the closed set; a `risk-analysis` owner is valid only when anchored to an identified changed behavior, known failure model, and admitted task scope. A model-generated hypothetical, code change, coverage request, robustness request, helper branch, mock-call count, or speculative edge is not admission. Provisional or exploratory certainty permits temporary probes only; explicitly reclassify the claim as confirmed before any persistent admission. If the caller says no new tests, set `test_write_policy: deny`; do not write or alter a persistent test. For docs-only or governance-only wording changes that do not alter executable semantics, default to `persistent_test: false`. A missing admission is `persistent_test: false`, not a request to invent a test.
+9. Before a turn, session, delegation, pause, or interruption boundary, preserve the claim identity, owner, certainty, admitted evidence types, and completion state through a typed proposal into the existing canonical task record. Do not use harness memory, a local cache, or a new test registry as a second state source.
+10. In `replan`, emit only the closed `ReplanDelta` replacement for existing task-definition sections plus the new `active_step_id`; never patch arbitrary Markdown headings or paths, add a new identity, or overwrite execution history, invalidation evidence, provenance, or finding history. Use `mark-replan-blocked`, `clear-replan-block`, and `commit-replan` only with caller `prepare-task` and mode `replan`.
+11. Return a single prepared intent. Do not present create, review, scope, classify, plan, or decompose as separate callable operations.
 
 ## Required result
 
 Return a structured `prepared-task` result containing:
 
 - task identity and active owner;
-- one goal and acceptance claims;
+- one goal and stable, owner-linked acceptance claims with the closed claim fields;
 - admitted `Allowed / Conditional / Forbidden` scope;
 - authority classification and unresolved decisions;
 - independently verifiable implementation steps, only to the depth justified by risk;
 - triggered capabilities and skipped-capability reasons;
-- evidence plan, rollback/recovery conditions, and stop conditions;
+- claim-bound minimum-sufficient evidence plan, including the evidence-needed, minimum-type, reuse, disposition, failure-route, and exploratory-probe budget decisions;
+- `test_write_policy` and an explicit `persistent_test: false | true` decision separate from validation; when admitted, the owner, basis, proved claim/failure, existing-evidence insufficiency reason, behavioral/contract assertion boundary, and expected failure disposition;
+- when the evidence plan must survive a boundary, a typed proposal carrying its claim identity, owner, certainty, admitted evidence types, and completion state into the existing canonical task record;
+- rollback/recovery conditions and stop conditions;
 - relevant context locators and conflict/exclusion trace;
 - a typed `task-state-transaction` proposal for the minimal `clear-resume-review-gate` action after readiness/resume review evidence is complete, or for one of the three closed `replan` actions after the corresponding identity, scope, evidence, and replacement checks pass; ordinary preparation remains proposal-only.
 

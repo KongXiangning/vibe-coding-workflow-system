@@ -67,7 +67,11 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
 };
 
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
-  'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy'],
+  'prepare-task': ['evidence-admission-policy'],
+  'review-change': ['evidence-admission-policy'],
+  'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy', 'evidence-admission-policy'],
+  'debug-task': ['evidence-admission-policy'],
+  'close-task': ['evidence-admission-policy'],
 };
 
 const FORBIDDEN_TOP_LEVEL_FIELDS = new Set([
