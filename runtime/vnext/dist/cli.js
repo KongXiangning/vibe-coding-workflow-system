@@ -1,5 +1,5 @@
 // runtime/vnext/src/kernel.ts
-import * as crypto from "crypto";
+import * as crypto2 from "crypto";
 import * as fs2 from "fs";
 import * as path3 from "path";
 import { parseDocument, stringify } from "yaml";
@@ -286,6 +286,439 @@ function validateTaskSlug(taskSlug) {
   }
 }
 
+// runtime/vnext/src/mutation-scope.ts
+import * as crypto from "crypto";
+
+class MutationScopeError extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "MutationScopeError";
+    this.code = code;
+  }
+}
+var ALLOWED_SCOPE_HEADINGS = new Set(["允许修改范围", "mutation scope", "scope"]);
+var ALLOWED_BUCKET_HEADINGS = new Set(["allowed files", "allowed targets", "允许文件", "允许目标"]);
+var CONDITIONAL_BUCKET_HEADINGS = new Set(["条件修改范围", "条件允许修改范围", "conditional files", "conditional targets"]);
+var FORBIDDEN_SCOPE_HEADINGS = new Set(["禁止修改范围", "forbidden files", "forbidden targets"]);
+var READ_DISCOVERY_HEADINGS = new Set([
+  "read / discovery context",
+  "read/discovery context",
+  "read context",
+  "discovery context",
+  "读取 / 发现上下文",
+  "读取/发现上下文",
+  "发现上下文"
+]);
+var EMPTY_SCOPE_MARKER = /^(?:none|n\/a|na|nil|empty|no\s+(?:files?|targets?|scope)|无|暂无|不适用)[.!。]?$/iu;
+var CONDITIONAL_LANGUAGE = /(?:when|if|after|once|upon|provided|only|condition|evidence|authority|approval|authorized|confirmed|满足|条件|证据|依据|授权|审批|确认|批准)/iu;
+var PATH_PREFIX = /^(?:file|files|path|paths|target|targets|文件|路径|目标)\s*[:：]\s*/iu;
+var UNSUPPORTED_GLOB_SYNTAX = /[\[\]{}!]/u;
+function failInvalid(message) {
+  throw new MutationScopeError("MUTATION_SCOPE_INVALID", message);
+}
+function normalizeHeading(title) {
+  return title.trim().replace(/[：:]/gu, "").replace(/\s+/gu, " ").toLocaleLowerCase();
+}
+function scanMarkdownSections(body) {
+  const headings = [];
+  const headingPattern = /^(#{2,6})[ \t]+(.+?)[ \t]*$/gmu;
+  for (const match of body.matchAll(headingPattern)) {
+    const start = match.index ?? 0;
+    headings.push({
+      title: match[2].trim(),
+      level: match[1].length,
+      start,
+      end: start + match[0].length
+    });
+  }
+  return headings.map((heading, index) => {
+    const contentStart = body.startsWith(`\r
+`, heading.end) ? heading.end + 2 : getLineContentStart(body, heading.end);
+    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading.level);
+    return {
+      title: heading.title,
+      level: heading.level,
+      heading_start: heading.start,
+      content_start: contentStart,
+      content_end: next?.start ?? body.length
+    };
+  });
+}
+function getLineContentStart(body, headingEnd) {
+  return body.startsWith(`
+`, headingEnd) ? headingEnd + 1 : headingEnd;
+}
+function findOneSection(sections, aliases, level, range) {
+  const matches = sections.filter((section) => {
+    if (section.level !== level || !aliases.has(normalizeHeading(section.title)))
+      return false;
+    if (!range)
+      return true;
+    return section.heading_start >= range.start && section.heading_start < range.end;
+  });
+  if (matches.length > 1)
+    failInvalid(`CURRENT_TASK contains duplicate ${[...aliases].join(" / ")} scope sections.`);
+  return matches[0] ?? null;
+}
+function sectionRange(section) {
+  return { start: section.content_start, end: section.content_end };
+}
+function resolveBucketSection(sections, bucket) {
+  const bucketAliases = aliasesForBucket(bucket);
+  const containerAliases = containerAliasesForBucket(bucket);
+  const container = containerAliases ? findOneSection(sections, containerAliases, 2) : null;
+  const direct = findOneSection(sections, bucketAliases, 2);
+  if (container && direct && direct.heading_start !== container.heading_start) {
+    failInvalid(`CURRENT_TASK declares both a scope container and a direct ${bucket} section.`);
+  }
+  if (container) {
+    const range = sectionRange(container);
+    const nested = findOneSection(sections, bucketAliases, 3, range);
+    if (bucket === "allowed") {
+      const nestedConditional = findOneSection(sections, CONDITIONAL_BUCKET_HEADINGS, 3, range);
+      const nestedRead = findOneSection(sections, READ_DISCOVERY_HEADINGS, 3, range);
+      if ((nestedConditional || nestedRead) && !nested) {
+        failInvalid("Nested Conditional Files or Read / discovery context requires a distinct nested Allowed Files section.");
+      }
+    }
+    const nestedHeadings = sections.filter((section) => section.level === 3 && section.heading_start >= range.start && section.heading_start < range.end);
+    if (nestedHeadings.length > 0 && !nested) {
+      failInvalid(`${bucket} scope container has nested headings but no matching ${[...bucketAliases].join(" / ")} bucket.`);
+    }
+    if (nested)
+      return nested;
+    return container;
+  }
+  if (bucket === "conditional" || bucket === "read_discovery") {
+    const allowedContainer = findOneSection(sections, ALLOWED_SCOPE_HEADINGS, 2);
+    const nested = allowedContainer ? findOneSection(sections, bucketAliases, 3, sectionRange(allowedContainer)) : null;
+    if (nested && direct)
+      failInvalid(`CURRENT_TASK declares both nested and direct ${bucket} scope sections.`);
+    if (nested)
+      return nested;
+  }
+  if (direct)
+    return direct;
+  if (bucket === "read_discovery")
+    return null;
+  return null;
+}
+function aliasesForBucket(bucket) {
+  if (bucket === "allowed")
+    return ALLOWED_BUCKET_HEADINGS;
+  if (bucket === "conditional")
+    return CONDITIONAL_BUCKET_HEADINGS;
+  if (bucket === "forbidden")
+    return FORBIDDEN_SCOPE_HEADINGS;
+  return READ_DISCOVERY_HEADINGS;
+}
+function containerAliasesForBucket(bucket) {
+  if (bucket === "allowed")
+    return ALLOWED_SCOPE_HEADINGS;
+  if (bucket === "forbidden")
+    return FORBIDDEN_SCOPE_HEADINGS;
+  return null;
+}
+function extractDeclarationPath(text) {
+  const code = /`([^`\r\n]+)`/u.exec(text);
+  if (code) {
+    return {
+      pattern: code[1].trim(),
+      remainder: `${text.slice(0, code.index)} ${text.slice(code.index + code[0].length)}`.trim()
+    };
+  }
+  const prefixed = text.replace(PATH_PREFIX, "");
+  const token = /^([^\s,;，；()]+)([\s\S]*)$/u.exec(prefixed.trim());
+  if (!token)
+    failInvalid(`Scope declaration does not identify a repository-relative path: ${text}`);
+  return { pattern: token[1], remainder: token[2].trim() };
+}
+function normalizeScopePattern(value, location) {
+  const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").replace(/\/+/gu, "/");
+  if (!normalized || normalized === ".")
+    failInvalid(`${location} must identify a non-empty repository-relative path pattern.`);
+  if (/^[A-Za-z]:\//u.test(normalized) || normalized.startsWith("/"))
+    failInvalid(`${location} must not be absolute.`);
+  if (/[\0-\x1F\x7F]/u.test(normalized))
+    failInvalid(`${location} contains a control character.`);
+  if (UNSUPPORTED_GLOB_SYNTAX.test(normalized))
+    failInvalid(`${location} uses unsupported glob syntax; only * and ** are supported.`);
+  if (normalized.split("/").some((segment) => segment === ".." || segment.length === 0))
+    failInvalid(`${location} must not contain parent traversal or empty path segments.`);
+  if (normalized.includes("://") || normalized.includes("$"))
+    failInvalid(`${location} is not a repository-relative path pattern.`);
+  if (/\s/u.test(normalized))
+    failInvalid(`${location} must not contain unquoted whitespace.`);
+  return normalized;
+}
+function isEmptyMarker(text) {
+  return EMPTY_SCOPE_MARKER.test(text.trim());
+}
+function parseScopeBucket(body, section, bucket) {
+  const content = body.slice(section.content_start, section.content_end);
+  const entries = [];
+  let sawMarker = false;
+  let bulletCount = 0;
+  for (const rawLine of content.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line || /^<!--.*-->$/u.test(line))
+      continue;
+    const bullet = /^(?:[-*+]\s+|\d+[.)]\s+)(.*)$/u.exec(line);
+    if (!bullet)
+      failInvalid(`${section.title} contains a non-list scope declaration: ${line}`);
+    bulletCount += 1;
+    const declaration = bullet[1].replace(/^\[[ xX]\]\s*/u, "").trim();
+    if (isEmptyMarker(declaration)) {
+      if (entries.length > 0 || sawMarker)
+        failInvalid(`${section.title} mixes an empty marker with path declarations.`);
+      sawMarker = true;
+      continue;
+    }
+    if (sawMarker)
+      failInvalid(`${section.title} mixes an empty marker with path declarations.`);
+    const extracted = extractDeclarationPath(declaration);
+    const pattern = normalizeScopePattern(extracted.pattern, `${section.title} declaration`);
+    if (bucket === "conditional" && !CONDITIONAL_LANGUAGE.test(extracted.remainder)) {
+      failInvalid(`Conditional Files declaration ${pattern} must state its condition, evidence, or authority.`);
+    }
+    entries.push({ pattern, broad: pattern.includes("*"), declaration });
+  }
+  if (bulletCount === 0)
+    failInvalid(`${section.title} must explicitly list paths or declare none.`);
+  if (new Set(entries.map((entry) => entry.pattern)).size !== entries.length)
+    failInvalid(`${section.title} contains duplicate path patterns.`);
+  return entries;
+}
+function hash(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+function scopeSummary(scope) {
+  return {
+    allowed: scope.allowed.map((entry) => entry.pattern),
+    conditional: scope.conditional.map((entry) => entry.pattern),
+    forbidden: scope.forbidden.map((entry) => entry.pattern),
+    read_discovery: scope.read_discovery.map((entry) => entry.pattern)
+  };
+}
+function parseMutationScope(body, sourceRevision = hash(body)) {
+  if (typeof body !== "string" || body.length === 0)
+    failInvalid("CURRENT_TASK body is empty; mutation scope cannot be established.");
+  const sections = scanMarkdownSections(body);
+  const allowedSection = resolveBucketSection(sections, "allowed");
+  const conditionalSection = resolveBucketSection(sections, "conditional");
+  const forbiddenSection = resolveBucketSection(sections, "forbidden");
+  const readSection = resolveBucketSection(sections, "read_discovery");
+  if (!allowedSection)
+    failInvalid("CURRENT_TASK is missing the required Allowed Files scope bucket.");
+  if (!conditionalSection)
+    failInvalid("CURRENT_TASK is missing the required Conditional Files scope bucket.");
+  if (!forbiddenSection)
+    failInvalid("CURRENT_TASK is missing the required Forbidden Files scope bucket.");
+  if (!/^[a-f0-9]{64}$/u.test(sourceRevision))
+    failInvalid("Mutation scope source_revision must be a SHA-256 digest.");
+  return {
+    source_revision: sourceRevision,
+    allowed: parseScopeBucket(body, allowedSection, "allowed"),
+    conditional: parseScopeBucket(body, conditionalSection, "conditional"),
+    forbidden: parseScopeBucket(body, forbiddenSection, "forbidden"),
+    read_discovery: readSection ? parseScopeBucket(body, readSection, "read_discovery") : []
+  };
+}
+function escapeRegex(text) {
+  return text.replace(/[|\\{}()[\]^$+?.]/gu, "\\$&");
+}
+function mutationScopePatternMatchesPath(file, pattern) {
+  const normalizedFile = normalizeScopePattern(file, "changed path");
+  const normalizedPattern = normalizeScopePattern(pattern, "scope pattern");
+  const regex = escapeRegex(normalizedPattern).replace(/\*\*\//gu, "(?:.*/)?").replace(/\*\*/gu, ".*").replace(/\*/gu, "[^/]*");
+  return new RegExp(`^${regex}$`, "u").test(normalizedFile);
+}
+function normalizeChangedPath(value, index) {
+  if (typeof value !== "string" || value.trim().length === 0)
+    return null;
+  try {
+    const normalized = normalizeScopePattern(value, `changed_paths[${index}]`);
+    if (normalized.includes("*"))
+      return null;
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+function validateConditionalAuthorizations(value) {
+  if (value === undefined)
+    return { authorizations: [], blockers: [] };
+  if (!Array.isArray(value))
+    return { authorizations: [], blockers: ["conditional_authorizations must be an array."] };
+  const authorizations = [];
+  const blockers = [];
+  for (const [index, raw] of value.entries()) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      blockers.push(`conditional_authorizations[${index}] must be a mapping.`);
+      continue;
+    }
+    const record = raw;
+    const keys = Object.keys(record).sort();
+    if (keys.join("|") !== ["authority", "evidence_refs", "pattern"].join("|")) {
+      blockers.push(`conditional_authorizations[${index}] must contain exactly pattern, evidence_refs, and authority.`);
+      continue;
+    }
+    let pattern;
+    try {
+      pattern = normalizeScopePattern(String(record.pattern ?? ""), `conditional_authorizations[${index}].pattern`);
+    } catch (error) {
+      blockers.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
+    if (pattern.includes("*")) {
+      blockers.push(`conditional_authorizations[${index}].pattern must narrow to an exact target.`);
+      continue;
+    }
+    const evidenceRefs = record.evidence_refs;
+    if (!Array.isArray(evidenceRefs) || evidenceRefs.length === 0 || evidenceRefs.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+      blockers.push(`conditional_authorizations[${index}].evidence_refs must be a non-empty list of references.`);
+      continue;
+    }
+    const authority = record.authority;
+    if (typeof authority !== "string" || authority.trim().length === 0) {
+      blockers.push(`conditional_authorizations[${index}].authority must be non-empty.`);
+      continue;
+    }
+    authorizations.push({
+      pattern,
+      evidence_refs: [...new Set(evidenceRefs.map((item) => item.trim()))],
+      authority: authority.trim()
+    });
+  }
+  return { authorizations, blockers };
+}
+function blockedResult(scope, inputPaths, transformationKind, blockers) {
+  const normalizedPaths = inputPaths.filter((path3) => typeof path3 === "string").map((path3) => path3.trim()).filter(Boolean);
+  return {
+    status: "blocked",
+    source_revision: scope.source_revision,
+    transformation_kind: transformationKind,
+    scope: scopeSummary(scope),
+    changed_paths: normalizedPaths,
+    decisions: normalizedPaths.map((path3) => ({
+      path: path3,
+      classification: "invalid",
+      mutation_admitted: false,
+      matched_scope: [],
+      read_discovery_matches: [],
+      reason: "mutation scope input is invalid or incomplete"
+    })),
+    admitted_paths: [],
+    blocked_paths: normalizedPaths,
+    blockers: [...new Set(blockers)]
+  };
+}
+function evaluateMutationScope(scope, input) {
+  const transformationKind = input.transformation_kind ?? "localized";
+  if (transformationKind !== "localized" && transformationKind !== "inherently-broad") {
+    return blockedResult(scope, Array.isArray(input.changed_paths) ? input.changed_paths : [], "localized", ["transformation_kind must be localized or inherently-broad."]);
+  }
+  if (!Array.isArray(input.changed_paths) || input.changed_paths.length === 0) {
+    return blockedResult(scope, [], transformationKind, ["an explicit non-empty changed_paths diff target is required; an empty diff cannot be admitted."]);
+  }
+  const authorizationResult = validateConditionalAuthorizations(input.conditional_authorizations);
+  if (authorizationResult.blockers.length > 0) {
+    return blockedResult(scope, input.changed_paths, transformationKind, authorizationResult.blockers);
+  }
+  const decisions = [];
+  const seen = new Set;
+  const inputBlockers = [];
+  for (const [index, rawPath] of input.changed_paths.entries()) {
+    const pathValue = normalizeChangedPath(rawPath, index);
+    if (!pathValue) {
+      decisions.push({
+        path: typeof rawPath === "string" ? rawPath.trim() : String(rawPath),
+        classification: "invalid",
+        mutation_admitted: false,
+        matched_scope: [],
+        read_discovery_matches: [],
+        reason: "changed path must be a unique repository-relative file path without glob syntax or traversal."
+      });
+      inputBlockers.push(`changed_paths[${index}] is invalid.`);
+      continue;
+    }
+    if (seen.has(pathValue)) {
+      decisions.push({
+        path: pathValue,
+        classification: "invalid",
+        mutation_admitted: false,
+        matched_scope: [],
+        read_discovery_matches: [],
+        reason: "changed path is duplicated; the diff target must be explicit and unambiguous."
+      });
+      inputBlockers.push(`changed path ${pathValue} is duplicated.`);
+      continue;
+    }
+    seen.add(pathValue);
+    const forbidden = scope.forbidden.filter((entry) => mutationScopePatternMatchesPath(pathValue, entry.pattern));
+    const allowed = scope.allowed.filter((entry) => mutationScopePatternMatchesPath(pathValue, entry.pattern));
+    const conditional = scope.conditional.filter((entry) => mutationScopePatternMatchesPath(pathValue, entry.pattern));
+    const readMatches = scope.read_discovery.filter((entry) => mutationScopePatternMatchesPath(pathValue, entry.pattern));
+    const matchedScope = [
+      ...forbidden.map((entry) => `Forbidden:${entry.pattern}`),
+      ...allowed.map((entry) => `Allowed:${entry.pattern}`),
+      ...conditional.map((entry) => `Conditional:${entry.pattern}`)
+    ];
+    const readDiscoveryMatches = readMatches.map((entry) => entry.pattern);
+    if (forbidden.length > 0) {
+      decisions.push({ path: pathValue, classification: "forbidden", mutation_admitted: false, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: "Forbidden Files takes precedence over every other bucket." });
+      continue;
+    }
+    if (allowed.length > 0 && conditional.length > 0) {
+      decisions.push({ path: pathValue, classification: "ambiguous-overlap", mutation_admitted: false, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: "the path matches both Allowed Files and Conditional Files; ambiguous authority is denied." });
+      continue;
+    }
+    if (allowed.length > 0) {
+      const exactAllowed = allowed.filter((entry) => !entry.broad);
+      if (exactAllowed.length > 0) {
+        decisions.push({ path: pathValue, classification: "allowed-exact", mutation_admitted: true, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: "exact Allowed Files entry admits this localized mutation." });
+        continue;
+      }
+      if (transformationKind === "inherently-broad") {
+        decisions.push({ path: pathValue, classification: "allowed-broad", mutation_admitted: true, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: "the declared broad Allowed Files pattern is admitted for an explicitly inherently-broad transformation." });
+      } else {
+        decisions.push({ path: pathValue, classification: "broad-scope-unqualified", mutation_admitted: false, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: "a broad Allowed Files pattern requires transformation_kind: inherently-broad." });
+      }
+      continue;
+    }
+    if (conditional.length > 0) {
+      const authorization = authorizationResult.authorizations.find((candidate) => candidate.pattern === pathValue && conditional.some((entry) => mutationScopePatternMatchesPath(pathValue, entry.pattern)));
+      if (authorization) {
+        decisions.push({ path: pathValue, classification: "conditional-admitted", mutation_admitted: true, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: `Conditional Files admitted by exact target authorization with ${authorization.evidence_refs.length} evidence reference(s) and explicit authority.` });
+      } else {
+        decisions.push({ path: pathValue, classification: "conditional-unapproved", mutation_admitted: false, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: "Conditional Files is not pre-authorized; an exact target authorization with evidence_refs and authority is required." });
+      }
+      continue;
+    }
+    if (readMatches.length > 0) {
+      decisions.push({ path: pathValue, classification: "read-context-only", mutation_admitted: false, matched_scope: [], read_discovery_matches: readDiscoveryMatches, reason: "Read / discovery context is intentionally broader but never grants write authority." });
+      continue;
+    }
+    decisions.push({ path: pathValue, classification: "unowned", mutation_admitted: false, matched_scope: [], read_discovery_matches: [], reason: "the path is not listed in Allowed Files or an authorized Conditional Files entry." });
+  }
+  const admittedPaths = decisions.filter((decision) => decision.mutation_admitted).map((decision) => decision.path);
+  const blockedPaths = decisions.filter((decision) => !decision.mutation_admitted).map((decision) => decision.path);
+  const decisionBlockers = decisions.filter((decision) => !decision.mutation_admitted).map((decision) => `${decision.path}: ${decision.reason}`);
+  const blockers = [...new Set([...inputBlockers, ...decisionBlockers])];
+  return {
+    status: blockers.length === 0 && admittedPaths.length === decisions.length ? "pass" : "blocked",
+    source_revision: scope.source_revision,
+    transformation_kind: transformationKind,
+    scope: scopeSummary(scope),
+    changed_paths: decisions.map((decision) => decision.path),
+    decisions,
+    admitted_paths: admittedPaths,
+    blocked_paths: blockedPaths,
+    blockers
+  };
+}
+
 // runtime/vnext/src/kernel.ts
 var VNEXT_RUNTIME_SCHEMA_VERSION = 1;
 var VNEXT_RUNTIME_PROPOSAL_KIND = "vnext-runtime-proposal";
@@ -487,7 +920,7 @@ function normalizeRepoPath(value, location) {
   return normalized;
 }
 function sha256(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
+  return crypto2.createHash("sha256").update(value).digest("hex");
 }
 function stableValue(value) {
   if (Array.isArray(value))
@@ -633,7 +1066,7 @@ function validateRuntimeDistributionContract(value) {
 function validateVNextRuntimeContract(root, requireDependencies = false) {
   const filePath = path3.join(path3.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split("/"));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ["schema_version", "kind", "phase", "runtime_distribution", "proposal", "canonical_current_task", "concurrency", "operations", "unbound_operations"], "vNext Runtime contract");
+  expectExactKeys(contract, ["schema_version", "kind", "phase", "runtime_distribution", "proposal", "mutation_scope", "canonical_current_task", "concurrency", "operations", "unbound_operations"], "vNext Runtime contract");
   if (contract.schema_version !== 1 || contract.kind !== "vnext-runtime-contract" || contract.phase !== "Phase 2") {
     fail("RUNTIME_CONTRACT_INVALID", "Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.");
   }
@@ -683,6 +1116,18 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray(closeTaskContract.terminal_from, "Runtime contract close-task terminal_from"), ["active + active"], "Runtime contract close-task terminal_from");
   expectSetEqual(expectStringArray(closeTaskContract.terminal_to, "Runtime contract close-task terminal_to"), ["closed + archived"], "Runtime contract close-task terminal_to");
   expectSetEqual(expectStringArray(closeTaskContract.lesson_admission, "Runtime contract close-task lesson_admission"), ["admit", "defer", "no-op"], "Runtime contract close-task lesson admission");
+  const mutationScopeContract = expectRecord(contract.mutation_scope, "Runtime contract.mutation_scope");
+  expectExactKeys(mutationScopeContract, ["status", "binding", "source", "buckets", "default_write_policy", "read_discovery_is_not_write_authority", "ordinary_write_scope", "broad_glob_requires", "conditional_expansion_requires", "changed_goal_scope_acceptance", "check_command", "input", "output"], "Runtime contract.mutation_scope");
+  if (mutationScopeContract.status !== "bound" || mutationScopeContract.binding !== "vnext-runtime-read-only" || mutationScopeContract.source !== "CURRENT_TASK.md" || mutationScopeContract.default_write_policy !== "deny" || mutationScopeContract.read_discovery_is_not_write_authority !== true || mutationScopeContract.ordinary_write_scope !== "exact-file-or-file-plus-symbol" || mutationScopeContract.broad_glob_requires !== "inherently-broad-transformation" || mutationScopeContract.conditional_expansion_requires !== "evidence-and-authority" || mutationScopeContract.changed_goal_scope_acceptance !== "supersede-or-replan" || mutationScopeContract.check_command !== "scope-check") {
+    fail("RUNTIME_CONTRACT_INVALID", "Runtime mutation scope contract must keep the frozen default-deny and read/write separation semantics.");
+  }
+  expectSetEqual(expectStringArray(mutationScopeContract.buckets, "Runtime contract.mutation_scope.buckets"), ["Allowed Files", "Conditional Files", "Forbidden Files"], "Runtime mutation scope buckets");
+  const mutationScopeInput = expectRecord(mutationScopeContract.input, "Runtime contract.mutation_scope.input");
+  expectExactKeys(mutationScopeInput, ["required"], "Runtime contract.mutation_scope.input");
+  expectSetEqual(expectStringArray(mutationScopeInput.required, "Runtime contract.mutation_scope.input.required"), ["explicit_changed_paths", "conditional_authorizations_with_evidence_and_authority", "transformation_kind"], "Runtime mutation scope input");
+  const mutationScopeOutput = expectRecord(mutationScopeContract.output, "Runtime contract.mutation_scope.output");
+  expectExactKeys(mutationScopeOutput, ["required"], "Runtime contract.mutation_scope.output");
+  expectSetEqual(expectStringArray(mutationScopeOutput.required, "Runtime contract.mutation_scope.output.required"), ["per-path-admission-and-blocker", "separate-read-discovery-match", "source-revision"], "Runtime mutation scope output");
   const canonical = expectRecord(contract.canonical_current_task, "Runtime contract.canonical_current_task");
   expectExactKeys(canonical, ["frontmatter", "runtime_state", "source_of_truth", "legacy_schema_behavior"], "Runtime contract.canonical_current_task");
   const frontmatter = expectRecord(canonical.frontmatter, "Runtime contract.canonical_current_task.frontmatter");
@@ -772,7 +1217,13 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(bound, [...RUNTIME_OPERATION_KINDS], "Runtime contract bound operations");
   const unbound = expectStringArray(contract.unbound_operations, "Runtime contract.unbound_operations");
   expectSetEqual(unbound, ["inbox-record-transaction"], "Runtime contract unbound operations");
-  return { phase: "Phase 2", runtime_distribution: distributionIdentity, bound_operations: bound, unbound_operations: unbound };
+  return {
+    phase: "Phase 2",
+    runtime_distribution: distributionIdentity,
+    mutation_scope: { status: "bound", binding: "vnext-runtime-read-only", check_command: "scope-check" },
+    bound_operations: bound,
+    unbound_operations: unbound
+  };
 }
 function validateAuthorityEvidence(value) {
   if (!Array.isArray(value) || value.length === 0)
@@ -1848,7 +2299,7 @@ var REPLAN_SECTION_HEADINGS = {
   post_release_validation: ["发布后验证", "Post-release Validation", "Post-Release Validation"],
   propagation_governance: ["传播治理记录", "Propagation Governance"]
 };
-function scanMarkdownSections(body) {
+function scanMarkdownSections2(body) {
   const headings = [];
   const headingPattern = /^(#{2,6})[ \t]+(.+?)[ \t]*$/gm;
   for (const match of body.matchAll(headingPattern)) {
@@ -1878,7 +2329,7 @@ function findUniqueMarkdownSection(sections, aliases, level, rangeStart = 0, ran
   return matches[0] ?? null;
 }
 function resolveReplanSectionRanges(body) {
-  const sections = scanMarkdownSections(body);
+  const sections = scanMarkdownSections2(body);
   const resolved = {};
   const topAllowed = findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.allowed_scope, 2);
   const topConditional = findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.conditional_scope, 2);
@@ -2028,7 +2479,7 @@ function renderExecutionAuditRecord(audit) {
 `);
 }
 function appendExecutionAuditToBody(body, audit) {
-  const section = findUniqueMarkdownSection(scanMarkdownSections(body), ["执行记录", "Execution Log"], 2);
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(body), ["执行记录", "Execution Log"], 2);
   if (!section)
     fail("RUNTIME_SECTION_INVALID", "CURRENT_TASK is missing the required ## 执行记录 audit section.");
   const existing = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
@@ -2043,7 +2494,7 @@ function appendExecutionAuditToBody(body, audit) {
 ${rendered}` + body.slice(section.contentEnd);
 }
 function assertExecutionAuditInBody(body, audit) {
-  const section = findUniqueMarkdownSection(scanMarkdownSections(body), ["执行记录", "Execution Log"], 2);
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(body), ["执行记录", "Execution Log"], 2);
   if (!section)
     fail("RUNTIME_REPLAY_INCOMPLETE", "replay is missing the required ## 执行记录 audit section.");
   const content = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
@@ -2087,6 +2538,13 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath) {
   if (!DOCUMENT_ID_PATTERN.test(documentId))
     fail("RUNTIME_SCHEMA_INVALID", `${relativePath}.document_id is invalid.`);
   const runtimeState = validateVNextRuntimeState(frontmatter.runtime_state);
+  try {
+    parseMutationScope(body, sha256(raw));
+  } catch (error) {
+    if (error instanceof MutationScopeError)
+      fail(error.code, error.message);
+    fail("MUTATION_SCOPE_INVALID", error instanceof Error ? error.message : String(error));
+  }
   const identity = extractTaskIdentityFromCurrentTask(body);
   const bodyState = extractCurrentTaskStateFromCurrentTask(body);
   if (identity.id !== runtimeState.task_id || identity.slug !== runtimeState.task_slug) {
@@ -2200,7 +2658,7 @@ function readArchiveLessonAdmission(section, location) {
   }, location);
 }
 function requiredArchiveSections(raw) {
-  const sections = scanMarkdownSections(raw);
+  const sections = scanMarkdownSections2(raw);
   const requiredHeadings = [
     "任务元数据",
     "原始任务包快照",
@@ -2312,7 +2770,7 @@ function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
   if (current.runtimeState.active_step_status !== "completed")
     blockers.push("the admitted current step is not completed.");
   try {
-    const implementationSection = findUniqueMarkdownSection(scanMarkdownSections(current.body), REPLAN_SECTION_HEADINGS.implementation_steps, 2);
+    const implementationSection = findUniqueMarkdownSection(scanMarkdownSections2(current.body), REPLAN_SECTION_HEADINGS.implementation_steps, 2);
     if (!implementationSection) {
       blockers.push("CURRENT_TASK is missing the implementation steps section.");
     } else {
@@ -2665,7 +3123,7 @@ function validateStatusProjectionText(value, location) {
   return value.trim();
 }
 function readStatusSectionLines(content, title, location) {
-  const section = findUniqueMarkdownSection(scanMarkdownSections(content), [title], 2);
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(content), [title], 2);
   if (!section)
     fail("STATUS_INVALID", `${location} is missing the required ## ${title} section.`);
   const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
@@ -2674,7 +3132,7 @@ function readStatusSectionLines(content, title, location) {
 `) : [];
 }
 function replaceStatusSectionBody(content, title, lines, location) {
-  const section = findUniqueMarkdownSection(scanMarkdownSections(content), [title], 2);
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(content), [title], 2);
   if (!section)
     fail("STATUS_INVALID", `${location} is missing the required ## ${title} section.`);
   const body = lines.join(`
@@ -2804,7 +3262,7 @@ function assertStatusProjection(content, delta, location) {
   }
 }
 function appendStatusReconciliation(content, marker, location) {
-  const section = findUniqueMarkdownSection(scanMarkdownSections(content), ["最近更新记录", "Recent Updates"], 2);
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(content), ["最近更新记录", "Recent Updates"], 2);
   if (!section)
     fail("STATUS_INVALID", `${location} is missing the required ## 最近更新记录 section.`);
   const existing = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
@@ -2822,7 +3280,7 @@ function prepareProjectStatusTransaction(root, current, proposal) {
   if (!fs2.existsSync(target.filePath))
     fail("RUNTIME_SOURCE_MISSING", `STATUS.md is missing: ${target.relativePath}`);
   const originalStatusContent = fs2.readFileSync(target.filePath, "utf8");
-  const sections = scanMarkdownSections(originalStatusContent);
+  const sections = scanMarkdownSections2(originalStatusContent);
   for (const heading of ["项目概览", "✅ 已完成且稳定", "\uD83D\uDD28 正在开发", "\uD83D\uDCCB 待开发", "⚠️ 已知风险 / 观察点", "❌ 已移除 / 推迟", "\uD83D\uDD1C 下一检查点", "最近更新记录"]) {
     if (!findUniqueMarkdownSection(sections, [heading], 2))
       fail("STATUS_INVALID", `STATUS.md is missing required ## ${heading} section.`);
@@ -2992,7 +3450,7 @@ function readDurableLessonRecord(content, marker, location) {
     fail("LESSON_INVALID", `${location} contains a non-canonical or duplicate lesson provenance marker.`);
   }
   const markerStart = content.indexOf(markerText);
-  const sections = scanMarkdownSections(content);
+  const sections = scanMarkdownSections2(content);
   const categorySection = sections.find((section) => section.level === 2 && LESSON_CATEGORIES.includes(section.title) && markerStart >= section.contentStart && markerStart < section.contentEnd);
   if (!categorySection)
     fail("LESSON_INVALID", `${location} lesson marker is not inside a canonical lesson category section.`);
@@ -3038,7 +3496,7 @@ function appendLessonCandidates(content, candidates, archive, location) {
   let candidateCount = 0;
   const ordered = [...additions.entries()].sort((left, right) => left[0].localeCompare(right[0]));
   for (const [category, categoryCandidates] of ordered) {
-    const sections = scanMarkdownSections(nextContent);
+    const sections = scanMarkdownSections2(nextContent);
     const section = findUniqueMarkdownSection(sections, [category], 2);
     if (!section)
       fail("LESSON_INVALID", `${location} is missing the required ## ${category} section.`);
@@ -3075,7 +3533,7 @@ function prepareLessonRecordTransaction(root, current, proposal) {
   if (!fs2.existsSync(target.filePath))
     fail("RUNTIME_SOURCE_MISSING", `LESSONS.md is missing: ${target.relativePath}`);
   const originalLessonsContent = fs2.readFileSync(target.filePath, "utf8");
-  const sections = scanMarkdownSections(originalLessonsContent);
+  const sections = scanMarkdownSections2(originalLessonsContent);
   for (const heading of ["使用规则", "通用", "数据与存储", "前端与交互", "后端与服务", "测试与回归", "部署与运行时"]) {
     if (!findUniqueMarkdownSection(sections, [heading], 2))
       fail("LESSON_INVALID", `LESSONS.md is missing the required ## ${heading} section.`);
@@ -4589,23 +5047,84 @@ function applyVNextRuntimeProposal(root, proposal, options = {}) {
 }
 function parseCli(argv) {
   const [command = "validate", ...rest] = argv;
-  if (command !== "validate" && command !== "validate-contract" && command !== "apply")
-    throw new Error("Usage: vnext-runtime <validate-contract|validate|apply> --root <path> [--proposal-file <json>] [--dry-run]");
+  if (command !== "validate" && command !== "validate-contract" && command !== "apply" && command !== "scope-check")
+    throw new Error("Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]");
   let root = process.cwd();
   let proposalFile;
   let dryRun = false;
+  const changedPaths = [];
+  let pathsFile;
+  let pathsStdin = false;
+  let conditionalAuthorizationsFile;
+  let transformationKind = "localized";
   for (let index = 0;index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--root")
       root = rest[++index] ?? "";
     else if (arg === "--proposal" || arg === "--proposal-file")
       proposalFile = rest[++index];
-    else if (arg === "--dry-run")
+    else if (arg === "--path")
+      changedPaths.push(rest[++index] ?? "");
+    else if (arg === "--paths-file")
+      pathsFile = rest[++index];
+    else if (arg === "--paths-stdin")
+      pathsStdin = true;
+    else if (arg === "--conditional-authorizations-file")
+      conditionalAuthorizationsFile = rest[++index];
+    else if (arg === "--transformation-kind") {
+      const value = rest[++index];
+      if (value !== "localized" && value !== "inherently-broad")
+        throw new Error("--transformation-kind must be localized or inherently-broad.");
+      transformationKind = value;
+    } else if (arg === "--dry-run")
       dryRun = true;
     else
       throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind };
+}
+function readCliStringList(filePath, label) {
+  const content = fs2.readFileSync(path3.resolve(filePath), "utf8");
+  if (content.trimStart().startsWith("[")) {
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new Error(`${label} must be valid JSON or newline-delimited text: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string"))
+      throw new Error(`${label} JSON form must be an array of strings.`);
+    return parsed;
+  }
+  return content.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+}
+function readCliConditionalAuthorizations(filePath) {
+  let parsed;
+  try {
+    parsed = JSON.parse(fs2.readFileSync(path3.resolve(filePath), "utf8"));
+  } catch (error) {
+    throw new Error(`conditional authorizations file must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return parsed;
+}
+function readScopeCheckInput(args) {
+  const changedPaths = [...args.changedPaths];
+  if (args.pathsFile)
+    changedPaths.push(...readCliStringList(args.pathsFile, "--paths-file"));
+  if (args.pathsStdin) {
+    if (process.stdin.isTTY)
+      throw new Error("--paths-stdin requires newline-delimited paths on stdin.");
+    const stdinContent = process.stdin.read();
+    if (typeof stdinContent !== "string" && !Buffer.isBuffer(stdinContent))
+      throw new Error("--paths-stdin did not receive newline-delimited paths on stdin.");
+    const text = typeof stdinContent === "string" ? stdinContent : stdinContent.toString("utf8");
+    changedPaths.push(...text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
+  }
+  return {
+    changed_paths: changedPaths,
+    ...args.conditionalAuthorizationsFile ? { conditional_authorizations: readCliConditionalAuthorizations(args.conditionalAuthorizationsFile) } : {},
+    transformation_kind: args.transformationKind
+  };
 }
 function validateInstalledRuntimeForCli(root) {
   const runtimePackagePath = path3.join(path3.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
@@ -4624,6 +5143,14 @@ async function runCli(argv = process.argv.slice(2)) {
       validateInstalledRuntimeForCli(args.root);
       const current = readCanonicalCurrentTask(args.root);
       console.log(JSON.stringify({ status: "success", source_tuple: current.sourceTuple, runtime_state: current.runtimeState }, null, 2));
+    } else if (args.command === "scope-check") {
+      validateInstalledRuntimeForCli(args.root);
+      const current = readCanonicalCurrentTask(args.root);
+      const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+      const result = evaluateMutationScope(scope, readScopeCheckInput(args));
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === "blocked")
+        return 2;
     } else {
       validateInstalledRuntimeForCli(args.root);
       const proposalText = args.proposalFile ? fs2.readFileSync(path3.resolve(args.proposalFile), "utf8") : !process.stdin.isTTY ? fs2.readFileSync(0, "utf8") : "";
@@ -4637,6 +5164,10 @@ async function runCli(argv = process.argv.slice(2)) {
     }
     return 0;
   } catch (error) {
+    if (error instanceof MutationScopeError) {
+      console.error(`${error.code}: ${error.message}`);
+      return error.code === "MUTATION_SCOPE_BLOCKED" ? 2 : 1;
+    }
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }

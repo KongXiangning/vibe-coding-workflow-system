@@ -53,7 +53,7 @@ Record one work item proven unrelated to the active task. This is a record-only 
 
 ## Operating rules
 
-1. Resolve the active task and owner only far enough to prove the new item is unrelated. Treat `scope widening`, `uncertain`, and duplicate-suspected relations as fail-closed results.
+1. Resolve the active task and owner only far enough to prove the new item is unrelated. Read/discovery context may be broader for that determination, but it is not write authority. Treat `scope widening`, `uncertain`, and duplicate-suspected relations as fail-closed results and route any scope change to the scope guard/replan boundary.
 2. Admit at most one inbox record with a stable identity, evidence, proposed owner route, and clear relation statement. Do not create a task, change the active task, change lifecycle or identity, or alter a catalog.
 3. The only durable action this entry may propose is one `inbox-record-transaction` for `TASKS/inbox/**`. It remains `contract-only / unbound / Phase 2`; this entry never claims that an inbox file was written.
 4. After a valid record proposal, return the result to an explicit user decision. Do not auto-promote the record or start another intent.

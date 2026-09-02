@@ -65,7 +65,7 @@ Perform one explicit, identity-safe task ownership or lifecycle transition. The 
 
 ## Operating rules
 
-1. Verify the immutable task identity, active owner, current workflow status, current lifecycle tuple, and requested mode before proposing any transition.
+1. Verify the immutable task identity, active owner, current workflow status, current lifecycle tuple, requested mode, and the canonical task's explicit `Allowed / Conditional / Forbidden` scope buckets before proposing any transition. Any read/discovery context used to understand recovery remains separate from mutation authority.
 2. For `pause` and `interrupt`, collect the transition-specific checkpoint, dirty attribution, environment, recovery, rollback, and review evidence. Keep pause and interrupt as distinct modes; do not construct snapshots or package markers in the Skill. If an evidence plan crosses the lifecycle boundary, preserve each claim's identity, owner, certainty, admitted evidence types, and completion state in the existing canonical task snapshot/proposal; lifecycle evidence is not persistent-test admission.
 3. For `resume-paused` and `resume-interrupted`, confirm one explicit matching recovery package reference, its observed SHA-256 revision, and complete review evidence, including the preserved claim-bound evidence plan when one exists. Never infer a recovery target from a latest or merely similar package.
 4. For `supersede`, require typed invalidation evidence for `goal`, `scope`, or `acceptance`, including an invalidation reason and `partial_diff_disposition`. Preserve the original task identity, definition history, provenance, and invalidation evidence; supersede never carries or writes a replacement definition.

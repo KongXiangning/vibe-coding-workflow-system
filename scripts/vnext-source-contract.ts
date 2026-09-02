@@ -67,10 +67,12 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
 };
 
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
-  'prepare-task': ['evidence-admission-policy'],
-  'review-change': ['evidence-admission-policy'],
-  'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy', 'evidence-admission-policy'],
-  'debug-task': ['evidence-admission-policy'],
+  'prepare-task': ['scope-guard', 'evidence-admission-policy'],
+  'review-change': ['scope-guard', 'evidence-admission-policy'],
+  'execute-step': ['scope-guard', 'source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy', 'evidence-admission-policy'],
+  'debug-task': ['scope-guard', 'evidence-admission-policy'],
+  'task-lifecycle': ['scope-guard'],
+  'capture-work-item': ['scope-guard'],
   'close-task': ['evidence-admission-policy'],
 };
 

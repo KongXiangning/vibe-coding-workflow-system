@@ -85,15 +85,25 @@ capabilities:
     trigger:
       - product or governance mutation is proposed
     input_contract:
-      - allowed, conditional, and forbidden scope
-      - proposed files, symbols, and operation targets
+      - canonical CURRENT_TASK Allowed Files, Conditional Files, and Forbidden Files buckets
+      - explicit changed paths or one verified diff target
+      - transformation kind, distinguishing localized from inherently-broad mutation
+      - conditional authorizations with exact target, evidence references, and authority
+      - separate Read / discovery context, which is allowed to be broader but is not write authority
     output_contract:
-      - admitted scope and any widening requirement
-      - exact excluded targets
+      - per-path mutation admission or blocker with Forbidden precedence and default-deny
+      - separate read/discovery matches that never become write permission
+      - exact admitted paths, excluded targets, and source revision
+      - bounded widening requirement; changed goal, scope, or acceptance routes to supersede/replan
     stop_conditions:
+      - required scope bucket is missing, malformed, duplicated, or ambiguous
       - target is outside admitted scope
       - forbidden target is requested
-      - scope widening lacks authority
+      - Conditional target lacks an exact authorization with evidence and authority
+      - a broad glob is used without an inherently-broad transformation
+      - the changed-path diff target is empty, duplicated, invalid, or not explicit
+      - read/discovery context is treated as write authority
+      - scope widening lacks authority or the goal, scope, or acceptance changed without supersede/replan
 
   - id: decision-authority-gate
     exposure: internal

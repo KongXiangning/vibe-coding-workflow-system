@@ -37,6 +37,16 @@ import {
   type TaskArtifactKind,
   type TaskLifecycleState,
 } from './task-identity';
+import {
+  evaluateMutationScope,
+  MutationScopeError,
+  parseMutationScope,
+  type ConditionalScopeAuthorization,
+  type MutationScopeEvaluationInput,
+  type MutationTransformationKind,
+} from './mutation-scope';
+
+export * from './mutation-scope';
 
 export const VNEXT_RUNTIME_SCHEMA_VERSION = 1 as const;
 export const VNEXT_RUNTIME_PROPOSAL_KIND = 'vnext-runtime-proposal' as const;
@@ -612,6 +622,11 @@ export type VNextRuntimeContractValidationResult = {
     package_lock_sha256: string;
     entrypoint_sha256: string;
   };
+  mutation_scope: {
+    status: 'bound';
+    binding: 'vnext-runtime-read-only';
+    check_command: 'scope-check';
+  };
   bound_operations: RuntimeOperationKind[];
   unbound_operations: string[];
 };
@@ -879,7 +894,7 @@ function validateRuntimeDistributionContract(value: unknown): RuntimeDistributio
 export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
   const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'proposal', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations'], 'vNext Runtime contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'proposal', 'mutation_scope', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations'], 'vNext Runtime contract');
   if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
   }
@@ -959,6 +974,45 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(expectStringArray(closeTaskContract.terminal_from, 'Runtime contract close-task terminal_from'), ['active + active'], 'Runtime contract close-task terminal_from');
   expectSetEqual(expectStringArray(closeTaskContract.terminal_to, 'Runtime contract close-task terminal_to'), ['closed + archived'], 'Runtime contract close-task terminal_to');
   expectSetEqual(expectStringArray(closeTaskContract.lesson_admission, 'Runtime contract close-task lesson_admission'), ['admit', 'defer', 'no-op'], 'Runtime contract close-task lesson admission');
+  const mutationScopeContract = expectRecord(contract.mutation_scope, 'Runtime contract.mutation_scope');
+  expectExactKeys(
+    mutationScopeContract,
+    ['status', 'binding', 'source', 'buckets', 'default_write_policy', 'read_discovery_is_not_write_authority', 'ordinary_write_scope', 'broad_glob_requires', 'conditional_expansion_requires', 'changed_goal_scope_acceptance', 'check_command', 'input', 'output'],
+    'Runtime contract.mutation_scope',
+  );
+  if (
+    mutationScopeContract.status !== 'bound'
+    || mutationScopeContract.binding !== 'vnext-runtime-read-only'
+    || mutationScopeContract.source !== 'CURRENT_TASK.md'
+    || mutationScopeContract.default_write_policy !== 'deny'
+    || mutationScopeContract.read_discovery_is_not_write_authority !== true
+    || mutationScopeContract.ordinary_write_scope !== 'exact-file-or-file-plus-symbol'
+    || mutationScopeContract.broad_glob_requires !== 'inherently-broad-transformation'
+    || mutationScopeContract.conditional_expansion_requires !== 'evidence-and-authority'
+    || mutationScopeContract.changed_goal_scope_acceptance !== 'supersede-or-replan'
+    || mutationScopeContract.check_command !== 'scope-check'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime mutation scope contract must keep the frozen default-deny and read/write separation semantics.');
+  }
+  expectSetEqual(
+    expectStringArray(mutationScopeContract.buckets, 'Runtime contract.mutation_scope.buckets'),
+    ['Allowed Files', 'Conditional Files', 'Forbidden Files'],
+    'Runtime mutation scope buckets',
+  );
+  const mutationScopeInput = expectRecord(mutationScopeContract.input, 'Runtime contract.mutation_scope.input');
+  expectExactKeys(mutationScopeInput, ['required'], 'Runtime contract.mutation_scope.input');
+  expectSetEqual(
+    expectStringArray(mutationScopeInput.required, 'Runtime contract.mutation_scope.input.required'),
+    ['explicit_changed_paths', 'conditional_authorizations_with_evidence_and_authority', 'transformation_kind'],
+    'Runtime mutation scope input',
+  );
+  const mutationScopeOutput = expectRecord(mutationScopeContract.output, 'Runtime contract.mutation_scope.output');
+  expectExactKeys(mutationScopeOutput, ['required'], 'Runtime contract.mutation_scope.output');
+  expectSetEqual(
+    expectStringArray(mutationScopeOutput.required, 'Runtime contract.mutation_scope.output.required'),
+    ['per-path-admission-and-blocker', 'separate-read-discovery-match', 'source-revision'],
+    'Runtime mutation scope output',
+  );
   const canonical = expectRecord(contract.canonical_current_task, 'Runtime contract.canonical_current_task');
   expectExactKeys(canonical, ['frontmatter', 'runtime_state', 'source_of_truth', 'legacy_schema_behavior'], 'Runtime contract.canonical_current_task');
   const frontmatter = expectRecord(canonical.frontmatter, 'Runtime contract.canonical_current_task.frontmatter');
@@ -1064,7 +1118,13 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(bound, [...RUNTIME_OPERATION_KINDS], 'Runtime contract bound operations');
   const unbound = expectStringArray(contract.unbound_operations, 'Runtime contract.unbound_operations');
   expectSetEqual(unbound, ['inbox-record-transaction'], 'Runtime contract unbound operations');
-  return { phase: 'Phase 2', runtime_distribution: distributionIdentity, bound_operations: bound, unbound_operations: unbound };
+  return {
+    phase: 'Phase 2',
+    runtime_distribution: distributionIdentity,
+    mutation_scope: { status: 'bound', binding: 'vnext-runtime-read-only', check_command: 'scope-check' },
+    bound_operations: bound,
+    unbound_operations: unbound,
+  };
 }
 
 function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
@@ -2372,6 +2432,12 @@ function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativ
   const documentId = expectString(frontmatter.document_id, `${relativePath}.document_id`);
   if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `${relativePath}.document_id is invalid.`);
   const runtimeState = validateVNextRuntimeState(frontmatter.runtime_state);
+  try {
+    parseMutationScope(body, sha256(raw));
+  } catch (error) {
+    if (error instanceof MutationScopeError) fail(error.code, error.message);
+    fail('MUTATION_SCOPE_INVALID', error instanceof Error ? error.message : String(error));
+  }
   const identity = extractTaskIdentityFromCurrentTask(body);
   const bodyState = extractCurrentTaskStateFromCurrentTask(body);
   if (identity.id !== runtimeState.task_id || identity.slug !== runtimeState.task_slug) {
@@ -5515,20 +5581,90 @@ export function previewCloseTask(currentOrRoot: CanonicalCurrentTask | string, i
 
 export const createCloseTaskPreview = previewCloseTask;
 
-export function parseCli(argv: string[]): { command: 'validate' | 'validate-contract' | 'apply'; root: string; proposalFile?: string; dryRun: boolean } {
+export type VNextRuntimeCliArguments = {
+  command: 'validate' | 'validate-contract' | 'apply' | 'scope-check';
+  root: string;
+  proposalFile?: string;
+  dryRun: boolean;
+  changedPaths: string[];
+  pathsFile?: string;
+  pathsStdin: boolean;
+  conditionalAuthorizationsFile?: string;
+  transformationKind: MutationTransformationKind;
+};
+
+export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   const [command = 'validate', ...rest] = argv;
-  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply> --root <path> [--proposal-file <json>] [--dry-run]');
+  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]');
   let root = process.cwd();
   let proposalFile: string | undefined;
   let dryRun = false;
+  const changedPaths: string[] = [];
+  let pathsFile: string | undefined;
+  let pathsStdin = false;
+  let conditionalAuthorizationsFile: string | undefined;
+  let transformationKind: MutationTransformationKind = 'localized';
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === '--root') root = rest[++index] ?? '';
     else if (arg === '--proposal' || arg === '--proposal-file') proposalFile = rest[++index];
+    else if (arg === '--path') changedPaths.push(rest[++index] ?? '');
+    else if (arg === '--paths-file') pathsFile = rest[++index];
+    else if (arg === '--paths-stdin') pathsStdin = true;
+    else if (arg === '--conditional-authorizations-file') conditionalAuthorizationsFile = rest[++index];
+    else if (arg === '--transformation-kind') {
+      const value = rest[++index];
+      if (value !== 'localized' && value !== 'inherently-broad') throw new Error('--transformation-kind must be localized or inherently-broad.');
+      transformationKind = value;
+    }
     else if (arg === '--dry-run') dryRun = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind };
+}
+
+function readCliStringList(filePath: string, label: string): string[] {
+  const content = fs.readFileSync(path.resolve(filePath), 'utf8');
+  if (content.trimStart().startsWith('[')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new Error(`${label} must be valid JSON or newline-delimited text: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!Array.isArray(parsed) || parsed.some(item => typeof item !== 'string')) throw new Error(`${label} JSON form must be an array of strings.`);
+    return parsed as string[];
+  }
+  return content.split(/\r?\n/u).map(line => line.trim()).filter(Boolean);
+}
+
+function readCliConditionalAuthorizations(filePath: string): ConditionalScopeAuthorization[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
+  } catch (error) {
+    throw new Error(`conditional authorizations file must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return parsed as ConditionalScopeAuthorization[];
+}
+
+function readScopeCheckInput(args: VNextRuntimeCliArguments): MutationScopeEvaluationInput {
+  const changedPaths = [...args.changedPaths];
+  if (args.pathsFile) changedPaths.push(...readCliStringList(args.pathsFile, '--paths-file'));
+  if (args.pathsStdin) {
+    if (process.stdin.isTTY) throw new Error('--paths-stdin requires newline-delimited paths on stdin.');
+    const stdinContent = process.stdin.read();
+    if (typeof stdinContent !== 'string' && !Buffer.isBuffer(stdinContent)) throw new Error('--paths-stdin did not receive newline-delimited paths on stdin.');
+    const text = typeof stdinContent === 'string' ? stdinContent : stdinContent.toString('utf8');
+    changedPaths.push(...text.split(/\r?\n/u).map((line: string) => line.trim()).filter(Boolean));
+  }
+  return {
+    changed_paths: changedPaths,
+    ...(args.conditionalAuthorizationsFile
+      ? { conditional_authorizations: readCliConditionalAuthorizations(args.conditionalAuthorizationsFile) }
+      : {}),
+    transformation_kind: args.transformationKind,
+  };
 }
 
 function validateInstalledRuntimeForCli(root: string): void {
@@ -5549,6 +5685,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       validateInstalledRuntimeForCli(args.root);
       const current = readCanonicalCurrentTask(args.root);
       console.log(JSON.stringify({ status: 'success', source_tuple: current.sourceTuple, runtime_state: current.runtimeState }, null, 2));
+    } else if (args.command === 'scope-check') {
+      validateInstalledRuntimeForCli(args.root);
+      const current = readCanonicalCurrentTask(args.root);
+      const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+      const result = evaluateMutationScope(scope, readScopeCheckInput(args));
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === 'blocked') return 2;
     } else {
       validateInstalledRuntimeForCli(args.root);
       const proposalText = args.proposalFile
@@ -5562,6 +5705,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     return 0;
   } catch (error) {
+    if (error instanceof MutationScopeError) {
+      console.error(`${error.code}: ${error.message}`);
+      return error.code === 'MUTATION_SCOPE_BLOCKED' ? 2 : 1;
+    }
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
   }

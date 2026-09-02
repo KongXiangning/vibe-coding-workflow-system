@@ -129,6 +129,32 @@ proposal:
       - defer
       - no-op
 
+mutation_scope:
+  status: bound
+  binding: vnext-runtime-read-only
+  source: CURRENT_TASK.md
+  buckets:
+    - Allowed Files
+    - Conditional Files
+    - Forbidden Files
+  default_write_policy: deny
+  read_discovery_is_not_write_authority: true
+  ordinary_write_scope: exact-file-or-file-plus-symbol
+  broad_glob_requires: inherently-broad-transformation
+  conditional_expansion_requires: evidence-and-authority
+  changed_goal_scope_acceptance: supersede-or-replan
+  check_command: scope-check
+  input:
+    required:
+      - explicit_changed_paths
+      - conditional_authorizations_with_evidence_and_authority
+      - transformation_kind
+  output:
+    required:
+      - per-path-admission-and-blocker
+      - separate-read-discovery-match
+      - source-revision
+
 canonical_current_task:
   frontmatter:
     schema_version: 1
