@@ -35,7 +35,7 @@ Interpret this file using the following boundary:
 - `P7a-P11` remain open for future extension and must not be read as already implemented unless execution code and tests exist
 - updates should extend or clarify the protocol without silently rewriting already-aligned `P1-P6` semantics
 - the following vNext daily-execution semantics are now docs-frozen: evidence-first validation and persistent-test admission, mutation-oriented scope, and the Task / Step / Review Checkpoint / Repair execution model
-- this docs-only freeze defines target business behavior; it does not claim that the corresponding Runtime enforcement or ordinary step advancement is already implemented, and it does not alter Slice A, Slice B, or close-task terminal semantics
+- this freeze defines target business behavior; the ordinary draft/confirm boundary is now Runtime-enforced by the typed Slice C actions below, while ordinary step advancement remains a later execution slice, and it does not alter Slice A, Slice B, or close-task terminal semantics
 
 For the authoritative freeze boundary and update rules, see [`docs/plans/workflow-protocol-freeze-boundary.md`](./docs/plans/workflow-protocol-freeze-boundary.md).
 
@@ -325,6 +325,13 @@ Allowed v1 lifecycle transitions:
 - `paused_blocked -> active`
 - `interrupted -> active`
 
+Allowed ordinary new-task workflow transitions are identity-scoped and do not
+mutate the archived task that preceded them:
+
+- `closed + archived` old task -> `create-draft` with the next unused identity -> `draft + active` new task
+- `draft + active` -> `update-draft` -> `draft + active` with the same identity
+- `draft + active` -> explicit `prepare-task:confirm` / `confirm-draft` -> `active + active`
+
 Resume-gate rules:
 
 - every suspended-to-active resume path requires `resume_requires_review = true`
@@ -340,8 +347,52 @@ Forbidden v1 transitions:
 - `paused_blocked -> archived`
 - `interrupted -> archived`
 - `closed + archived` has no outgoing lifecycle or workflow transition
+- a `draft + active` task must not execute or be auto-confirmed
+- a draft refinement must not allocate a second identity or change TASK_ID, TASK_SLUG, or document_id
 - any suspended-to-active transition without complete resume-gate metadata
 - any transition that encodes paused / interrupted lifecycle values by overwriting `当前状态`
+
+### 3.4.3a Ordinary new-task draft and explicit confirmation
+
+An independently requested task starts only after the existing live task has
+reached the terminal `closed + archived` tuple. `prepare-task` then allocates
+the next unused task identity from canonical `TASKS/**` artifacts and performs
+one typed `create-draft` action in the existing `task-state-transaction`:
+
+```text
+closed + archived (old task, immutable archive)
+  -> create-draft with a new TASK_ID / TASK_SLUG / document_id
+  -> draft + active (new task, current owner)
+  -> update-draft* (same identity, definition-only refinement)
+  -> prepare-task:confirm / confirm-draft
+  -> active + active
+```
+
+`TASK-000` is the bootstrap baseline and may be the first closed source without
+an archive file. Every later closed source must have its exact identity-derived
+archive before `create-draft` is accepted. The old task archive is immutable;
+creating the next task writes only the single canonical `CURRENT_TASK.md` and
+never edits, deletes, or resets the previous archive.
+
+`draft + active` is durable and owns the current-task slot, but it is not
+executable. Repeated ordinary preparation may use only `update-draft`; Runtime
+preserves TASK_ID, TASK_SLUG, document_id, execution history, applied proposal
+records, and canonical provenance while replacing only the closed task-
+definition sections and resetting the admitted draft step to `ready`. It must
+not create a second current task, change identity, patch arbitrary Markdown, or
+auto-confirm.
+
+`prepare-task:confirm` is the only draft-to-active route. Its `confirm-draft`
+proposal must repeat the draft identity, carry the exact current source
+revision as `draft_revision`, include claim-bound evidence and explicit
+`user-confirmation` or `authorized-caller` authority, and pass the complete
+typed-definition / no-unresolved-decision checks. Stale, malformed,
+unauthorized, or conflicting confirmation fails closed without a write.
+
+The three Slice C actions remain inside `task-state-transaction`; no public
+draft Skill, task registry/catalog/queue, cancellation state, or second
+CURRENT_TASK source is introduced. `execute-step` and finding admission must
+reject `draft + active` and must never auto-confirm it.
 
 ### 3.4.4 Fail-closed idempotence and recovery
 
@@ -387,7 +438,9 @@ terminal mutation and atomically writes `CURRENT_TASK.md` plus the exact
 identity-derived `TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md`; any write, integrity,
 or read-back failure rolls both paths back to pre-close `active + active`.
 After success, `CURRENT_TASK.md` remains complete and is not deleted, cleared,
-reset, or used to create the next task. The terminal tuple is non-owner,
+or reset. `close-task` itself never creates the next task; a later independent
+`prepare-task` may replace the live pointer only through `create-draft` after
+the archive has been verified. The terminal tuple is non-owner,
 non-resumable, non-replanable, and non-executable.
 
 Closure preparation evaluates knowledge admission before archive. The decision
@@ -857,7 +910,9 @@ A Runtime operation must not introduce a database, cache, manifest field, or der
 Phase 2 binds `task-state-transaction` and `finding-queue-transaction` for the
 pure-vNext `execute-step` caller. `task-state-transaction` has one additional
 Slice A caller: `prepare-task`, and that caller is restricted to the typed
-`clear-resume-review-gate` action. Slice A also binds
+`clear-resume-review-gate` action plus Slice C's ordinary
+`create-draft`/`update-draft` actions in `default` mode and `confirm-draft` in
+the explicit `confirm` mode. Slice A also binds
 `lifecycle-transaction` to `task-lifecycle` for `pause`, `interrupt`,
 `resume-paused`, and `resume-interrupted`. Their implementation is the
 project-local Node entrypoint `.workflow-system/runtime/dist/cli.js`, and the
@@ -889,7 +944,9 @@ read-back restores both paths and verifies the rollback. Resume never chooses
 the latest package: it requires the explicit identity-derived package, restores
 `active + active`, and sets `resume_requires_review=true` with normalized
 reasons. Direct `execute-step` and finding admission remain blocked until the
-minimal `prepare-task` gate-clear proposal passes readiness/resume review.
+minimal `prepare-task` gate-clear proposal passes readiness/resume review, or
+until an ordinary draft has passed the separate `prepare-task:confirm` /
+`confirm-draft` boundary and reached `active + active`.
 For resume, `recovery_package_revision` is part of the typed delta and must
 match the actual package bytes at apply time. A lifecycle replay must re-read
 its secondary package before returning `no-op`; missing, malformed, or
@@ -905,6 +962,19 @@ close-task status, archive, and admitted lesson operations are also
 Runtime-bound under their existing terminal and reconciliation contract.
 `inbox-record-transaction` remains `contract-only / unbound / Phase 2`; other
 operation declarations not named in the bound surface remain unbound.
+
+Slice C adds no new Runtime operation. `create-draft`, `update-draft`, and
+`confirm-draft` use the same canonical source tuple, exact CURRENT_TASK target,
+single-authorized-writer rule, source-revision conflict check, atomic commit,
+idempotency/replay, rollback, and read-back boundary. `create-draft` accepts
+only `closed + archived`, allocates a fresh identity, and initializes
+`draft + active`; `update-draft` accepts only the same `draft + active` task
+and replaces the closed definition section set without changing identity or
+history; `confirm-draft` accepts only the exact current draft revision and
+explicit confirmation authority, then changes only the workflow status to
+`active`. Any unresolved user-owned decision, identity drift, malformed
+definition, stale revision, or authority conflict returns `blocked` or
+`conflict` without mutation.
 
 The Slice B task-state action set is closed to
 `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These names

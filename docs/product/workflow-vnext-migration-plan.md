@@ -158,7 +158,7 @@ Migration is fail-closed and all-or-nothing with respect to vNext installation:
 
 ## 4. Phase 2 — Pure vNext state-changing workflow
 
-After the minimum structure and Migration Pack boundary were defined, Phase 2 began the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The source-repository Runtime is the project-local Node package under `.workflow-system/runtime/` (with the implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper). The existing Phase 2 execution/finding slice is bound to `execute-step`; Slice A binds lifecycle handling to `task-lifecycle` and the minimal resume-review gate clear action to `prepare-task`; Slice B and close-task are also implemented in the source-repository Runtime.
+After the minimum structure and Migration Pack boundary were defined, Phase 2 began the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The source-repository Runtime is the project-local Node package under `.workflow-system/runtime/` (with the implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper). The existing Phase 2 execution/finding slice is bound to `execute-step`; Slice A binds lifecycle handling to `task-lifecycle` and the minimal resume-review gate clear action to `prepare-task`; Slice B, Slice C, and close-task are also implemented in the source-repository Runtime.
 
 Phase 2 introduces the first state-changing slice behind typed Runtime proposals and exact handlers:
 
@@ -167,10 +167,10 @@ Phase 2 introduces the first state-changing slice behind typed Runtime proposals
 - Evidence Admission and claim-bound validation;
 - task-state and finding-queue commits through the shared Runtime kernel;
 - pause, interrupt, and explicit paused/interrupted resume through `lifecycle-transaction`;
-- `prepare-task` readiness/resume review through the minimal `clear-resume-review-gate` task-state action;
+- ordinary `prepare-task` draft creation/refinement and explicit `prepare-task:confirm` through typed task-state actions, alongside the minimal `clear-resume-review-gate` action;
 - fail-closed authority, scope, evidence, and dangerous-operation gates.
 
-The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. Slice B `supersede` / durable `prepare-task:replan` and the close-task status/archive/lesson transaction surface are implemented and remain subject to their existing contracts. `inbox-record-transaction` is still contract-only and unbound; it is not part of the next daily-semantics slice.
+The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. Slice B `supersede` / durable `prepare-task:replan`, Slice C ordinary draft/confirmation, and the close-task status/archive/lesson transaction surface are implemented and remain subject to their existing contracts. `inbox-record-transaction` is still contract-only and unbound; it is not part of the next daily-semantics slice.
 
 Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`. Slice B `supersede` and durable `prepare-task:replan` are now Runtime-bound under their existing typed boundaries. The lifecycle transaction owns the exact `CURRENT_TASK.md` plus identity-derived suspended-package pair, including atomic write, read-back, rollback, and fail-closed idempotence. A resume proposal carries the observed SHA-256 `recovery_package_revision`; Runtime compares it with the package bytes read at apply time and checks the live resume gate against the package header before snapshot normalization. Replays revalidate the secondary package before returning `no-op`; a consumed `rehydrated` package may be replaced by the next suspend cycle, while ready/incomplete sibling packages remain blocking. It never reads or hot-migrates an old paused/interrupted runtime.
 
@@ -201,19 +201,56 @@ Supersede and replan are separate transactions. If replan is blocked after super
 
 On a successful `commit-replan`, Runtime applies deterministic task-state normalization: the replacement definition supplies `active_step_id`, `active_step_status` becomes `ready`, old admitted or in-progress findings become `deferred` / non-actionable and require fresh finding admission if still applicable, resolved/rejected/already-deferred findings remain history, `review_cycle` resets to the initial no-active-cycle baseline, `resume_requires_review` becomes `false`, and `resume_review_reasons` becomes `[]`. `execution_log` and `applied_proposals` are preserved.
 
-### 4.2 Current Phase 2 implementation status
+### 4.2 Slice C — ordinary new-task draft and explicit confirmation
+
+Slice C gives an independent ordinary request a durable preparation boundary
+before execution. It does not introduce a draft Skill, registry, catalog, queue,
+cancellation state, or second current-task source. The existing live task must
+be `closed + archived`; the bootstrap `TASK-000` baseline is the only allowed
+closed source without an identity-derived archive. Runtime then allocates the
+next unused identity from canonical `TASKS/**` artifacts and writes one new
+canonical `CURRENT_TASK.md`:
+
+```text
+closed + archived (old task; archive immutable)
+  -> prepare-task:default / create-draft
+  -> draft + active (new TASK_ID, TASK_SLUG, document_id)
+  -> prepare-task:default / update-draft* (same identity)
+  -> prepare-task:confirm / confirm-draft (explicit authority, exact revision)
+  -> active + active
+  -> execute-step
+```
+
+`draft + active` is durable and owns the current-task slot, but it has no
+execution authority. Refinement replaces only the closed task-definition
+section set, resets the draft step to `ready`, and preserves the identity,
+document identity, execution history, applied proposals, and canonical
+provenance. It cannot allocate a second identity, patch arbitrary Markdown, or
+auto-confirm the task.
+
+`confirm-draft` is accepted only for the exact current `TASK_ID`, `TASK_SLUG`,
+`document_id`, and draft source revision. It requires claim-bound evidence and
+explicit `user-confirmation` or `authorized-caller` authority; malformed
+definitions, unresolved user-owned questions, stale revisions, identity drift,
+and authority conflicts fail closed without a write. The three actions share
+the existing `task-state-transaction` tuple, atomic commit, rollback,
+read-back, and idempotent replay boundary, and each successful mutation leaves
+a durable draft audit record in `CURRENT_TASK.md`.
+
+### 4.3 Current Phase 2 implementation status
 
 | Boundary | Current source-repository status |
 |---|---|
 | Phase 2 execute / finding slice | Implemented and Runtime-bound |
 | Slice A lifecycle | Implemented for pause, interrupt, explicit resume, and resume-review gate clear |
 | Slice B supersede / same-task replan | Design and implementation complete; Runtime-bound |
+| Slice C ordinary draft / refinement / explicit confirmation | Design and implementation complete; Runtime-bound |
 | close-task | Design and implementation complete; archive, status reconciliation, and admitted Lesson path are Runtime-bound |
 | `inbox-record-transaction` and remaining admin / expert / internal surfaces | Contract-only or unbound until their own phase |
 
 This status correction records progression only. It does not redesign Slice A,
-Slice B, or close-task, and it does not treat the existing Runtime robustness
-backlog as part of the next implementation boundary.
+Slice B, Slice C, or close-task, and it does not treat the existing Runtime
+robustness backlog as part of the next implementation boundary.
 
 ## 5. Subsequent vNext phases
 
@@ -278,17 +315,18 @@ Each later phase must preserve the seven-intent daily surface, adaptive internal
 - partial writes, guessed authority, unbounded repair, and success-shaped failure are impossible;
 - lifecycle, closure, and bootstrap additions do not widen the daily surface or reintroduce legacy fallback.
 
-The implemented Phase 2 / Slice A / Slice B / close-task boundaries additionally require:
+The implemented Phase 2 / Slice A / Slice B / Slice C / close-task boundaries additionally require:
 
 - `.workflow-system/runtime/package.json`, its lockfile, generated `dist/cli.js`, and `.workflow-system/vnext/RUNTIME_CONTRACT.yaml` validate as one versioned project-local Node Runtime distribution;
 - the Runtime executes with its own locked dependency tree and does not resolve dependencies from the target project's business `node_modules`;
 - the declared Node minimum is checked before any Runtime operation, and the staged package passes a Node self-check before promotion;
-- `task-state-transaction` is bound to `execute-step` and only the minimal `prepare-task` resume-review gate clear action; `finding-queue-transaction` remains bound to `execute-step`;
+- `task-state-transaction` is bound to `execute-step`, the minimal `prepare-task` resume-review gate clear action, and Slice C's `create-draft`, `update-draft`, and `confirm-draft` actions; `finding-queue-transaction` remains bound to `execute-step`;
 - `lifecycle-transaction` is bound to `task-lifecycle` for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`, with exact `CURRENT_TASK.md` plus `TASKS/paused/...` or `TASKS/interrupted/...` boundaries;
 - `supersede` and durable `prepare-task:replan` are Runtime-bound under the Slice B same-task identity rule, the two non-active statuses, separate supersede/replan transactions, and fail-closed execution/lifecycle prohibitions;
 - close-task is Runtime-bound for its existing `archive-transaction`, `project-status-transaction`, and explicitly admitted Lesson path, with the `closed + archived` terminal and reconciliation contract;
+- ordinary independent preparation has a durable `draft + active` owner tuple, preserves draft identity across refinement, requires explicit revision-bound confirmation, and rejects draft execution;
 - canonical runtime state remains inside `CURRENT_TASK.md`, with body/frontmatter consistency checks;
-- dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for both the single-file and lifecycle transactions;
+- dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for the single-file, lifecycle, and ordinary draft transactions;
 - `execute-step` does not report a governance write unless the corresponding Runtime result is `success`.
 
 ### 6.4 Core Daily Execution Semantics completion gate
@@ -354,6 +392,7 @@ Migration Pack
 Phase 2 execute / finding slice
 Slice A lifecycle
 Slice B supersede / same-task replan
+Slice C ordinary draft / refinement / explicit confirmation
 close-task design + implementation
 three daily-execution semantics docs-only design freeze
 three daily-execution semantics implementation + §6.4 E2E verification
@@ -377,7 +416,9 @@ were completed before `bootstrap-project`, without mixing in the existing
 Runtime robustness backlog.
 
 Do not add legacy-aware vNext readers, runtime hot migration, a long-lived
-compatibility surface, or a new public daily entry / mode for this work.
+compatibility surface, a separate draft Skill, or another public daily entry for
+this work. `prepare-task:confirm` is the sole explicit confirmation mode and
+remains inside the existing `prepare-task` entry.
 
 ## 9. Migration Pack implementation contract
 

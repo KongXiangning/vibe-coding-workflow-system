@@ -133,7 +133,7 @@ export type RuntimeResultState = (typeof RUNTIME_RESULT_STATES)[number];
 
 export const VNEXT_EXECUTE_STEP_MODES = ['default', 'repair'] as const;
 export type VNextExecuteStepMode = (typeof VNEXT_EXECUTE_STEP_MODES)[number];
-export const PREPARE_TASK_MODES = ['default', 'replan'] as const;
+export const PREPARE_TASK_MODES = ['default', 'confirm', 'replan'] as const;
 export type PrepareTaskMode = (typeof PREPARE_TASK_MODES)[number];
 
 export const LIFECYCLE_MODES = ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'] as const;
@@ -152,6 +152,12 @@ export type FindingStatus = (typeof FINDING_STATUSES)[number];
 
 export const REPLAN_TASK_STATE_ACTIONS = ['mark-replan-blocked', 'clear-replan-block', 'commit-replan'] as const;
 export type ReplanTaskStateAction = (typeof REPLAN_TASK_STATE_ACTIONS)[number];
+
+export const DRAFT_TASK_STATE_ACTIONS = ['create-draft', 'update-draft', 'confirm-draft'] as const;
+export type DraftTaskStateAction = (typeof DRAFT_TASK_STATE_ACTIONS)[number];
+
+export const DRAFT_AUDIT_ACTIONS = ['create-draft', 'update-draft', 'confirm-draft'] as const;
+export type DraftAuditAction = (typeof DRAFT_AUDIT_ACTIONS)[number];
 
 export const REPLAN_AUDIT_ACTIONS = [
   'supersede',
@@ -192,7 +198,7 @@ const CURRENT_TASK_RELATIVE_FALLBACK = 'docs/workflow/CURRENT_TASK.md';
 type AnyRecord = Record<string, unknown>;
 
 export type AuthorityEvidence = {
-  kind: 'active-task-owner' | 'scope-admission' | 'finding-admission' | 'evidence-admission' | 'dangerous-operation' | 'resume-review';
+  kind: 'active-task-owner' | 'scope-admission' | 'finding-admission' | 'evidence-admission' | 'dangerous-operation' | 'resume-review' | 'user-confirmation' | 'authorized-caller';
   source: string;
   subject: string;
 };
@@ -236,6 +242,15 @@ export type ReplanReplacementDefinition = {
   propagation_governance: string | null;
 };
 
+export type DraftTaskDefinition = ReplanReplacementDefinition;
+
+export type DraftTaskIdentity = {
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  task_title: string;
+};
+
 export type StepReviewReceipt = {
   cycle_id: string;
   cycle_phase: ReviewCyclePhase;
@@ -260,6 +275,26 @@ export type TaskStepProgressDelta = {
 
 export type TaskStateDelta =
   | TaskStepProgressDelta
+  | {
+      kind: 'task-state';
+      action: 'create-draft' | 'update-draft';
+      task_id: string;
+      task_slug: string;
+      document_id: string;
+      task_title: string;
+      draft_definition: DraftTaskDefinition;
+      active_step_id: string;
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'confirm-draft';
+      task_id: string;
+      task_slug: string;
+      document_id: string;
+      draft_revision: string;
+      evidence_refs: string[];
+    }
   | {
       kind: 'task-state';
       action: 'clear-resume-review-gate';
@@ -544,8 +579,32 @@ export type ArchiveAuditLogEntry = {
   recorded_at: string;
 };
 
-export type ExecutionLogEntry = StepExecutionLogEntry | ReplanAuditLogEntry | ArchiveAuditLogEntry;
-type RuntimeAuditLogEntry = ReplanAuditLogEntry | ArchiveAuditLogEntry;
+export type DraftAuditLogEntry = {
+  action: DraftAuditAction;
+  idempotency_key: string;
+  operation_kind: 'task-state-transaction';
+  caller: 'prepare-task';
+  mode: 'default' | 'confirm';
+  from_task_id: string;
+  from_task_slug: string;
+  from_document_id: string;
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  from_workflow_status: CurrentTaskWorkflowStatus;
+  from_lifecycle_state: TaskLifecycleState;
+  to_workflow_status: CurrentTaskWorkflowStatus;
+  to_lifecycle_state: TaskLifecycleState;
+  source_revision: string;
+  authority_evidence: AuthorityEvidence[];
+  evidence_refs: string[];
+  definition_digest?: string;
+  draft_revision?: string;
+  recorded_at: string;
+};
+
+export type ExecutionLogEntry = StepExecutionLogEntry | DraftAuditLogEntry | ReplanAuditLogEntry | ArchiveAuditLogEntry;
+type RuntimeAuditLogEntry = DraftAuditLogEntry | ReplanAuditLogEntry | ArchiveAuditLogEntry;
 
 export type RuntimeProposal = {
   schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
@@ -1051,15 +1110,21 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime contract finding-queue admission fields',
   );
   const taskStateContract = expectRecord(proposal.task_state, 'Runtime contract.proposal.task_state');
-  expectExactKeys(taskStateContract, ['action', 'required', 'optional', 'advancement_outcomes', 'review_receipt'], 'Runtime contract.proposal.task_state');
-  if (taskStateContract.action !== 'step-progress') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state action must remain step-progress.');
+  expectExactKeys(taskStateContract, ['actions', 'step_progress', 'advancement_outcomes', 'review_receipt', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
   expectSetEqual(
-    expectStringArray(taskStateContract.required, 'Runtime contract.proposal.task_state.required'),
+    expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
+    ['step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS],
+    'Runtime contract task-state actions',
+  );
+  const stepProgressContract = expectRecord(taskStateContract.step_progress, 'Runtime contract.proposal.task_state.step_progress');
+  expectExactKeys(stepProgressContract, ['required', 'optional'], 'Runtime contract.proposal.task_state.step_progress');
+  expectSetEqual(
+    expectStringArray(stepProgressContract.required, 'Runtime contract.proposal.task_state.step_progress.required'),
     ['step_id', 'status', 'evidence_refs'],
     'Runtime contract task-state required fields',
   );
   expectSetEqual(
-    expectStringArray(taskStateContract.optional, 'Runtime contract.proposal.task_state.optional', true),
+    expectStringArray(stepProgressContract.optional, 'Runtime contract.proposal.task_state.step_progress.optional', true),
     ['note', 'repair_fingerprint', 'diff_target', 'review_receipt'],
     'Runtime contract task-state optional fields',
   );
@@ -1086,13 +1151,36 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     [...REVIEW_TARGET_VERIFICATION_STATES],
     'Runtime contract review receipt target verification states',
   );
+  const draftContract = expectRecord(taskStateContract.draft, 'Runtime contract.proposal.task_state.draft');
+  expectExactKeys(draftContract, ['mode', 'actions', 'identity_required', 'definition_required', 'create_from', 'update_from', 'target', 'preserves'], 'Runtime contract.proposal.task_state.draft');
+  if (draftContract.mode !== 'default') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft mode must remain default.');
+  expectSetEqual(expectStringArray(draftContract.actions, 'Runtime contract.proposal.task_state.draft.actions'), ['create-draft', 'update-draft'], 'Runtime contract task-state draft actions');
+  expectSetEqual(expectStringArray(draftContract.identity_required, 'Runtime contract.proposal.task_state.draft.identity_required'), ['task_id', 'task_slug', 'document_id', 'task_title'], 'Runtime contract task-state draft identity fields');
+  expectSetEqual(expectStringArray(draftContract.definition_required, 'Runtime contract.proposal.task_state.draft.definition_required'), [...REPLAN_REPLACEMENT_FIELDS], 'Runtime contract task-state draft definition fields');
+  for (const [field, expected] of [['create_from', 'closed + archived'], ['update_from', 'draft + active'], ['target', 'draft + active']] as const) {
+    if (draftContract[field] !== expected) fail('RUNTIME_CONTRACT_INVALID', `Runtime contract task-state draft ${field} must be ${expected}.`);
+  }
+  expectSetEqual(
+    expectStringArray(draftContract.preserves, 'Runtime contract.proposal.task_state.draft.preserves'),
+    ['TASK_ID', 'TASK_SLUG', 'document_id on update', 'execution_log', 'applied_proposals', 'canonical provenance'],
+    'Runtime contract task-state draft preserved fields',
+  );
+  const confirmContract = expectRecord(taskStateContract.confirm, 'Runtime contract.proposal.task_state.confirm');
+  expectExactKeys(confirmContract, ['mode', 'action', 'required', 'authority', 'from', 'to'], 'Runtime contract.proposal.task_state.confirm');
+  if (confirmContract.mode !== 'confirm' || confirmContract.action !== 'confirm-draft') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm must use confirm/confirm-draft.');
+  expectSetEqual(expectStringArray(confirmContract.required, 'Runtime contract.proposal.task_state.confirm.required'), ['task_id', 'task_slug', 'document_id', 'draft_revision', 'evidence_refs'], 'Runtime contract task-state confirm required fields');
+  expectSetEqual(expectStringArray(confirmContract.authority, 'Runtime contract.proposal.task_state.confirm.authority'), ['user-confirmation', 'authorized-caller'], 'Runtime contract task-state confirm authority');
+  if (confirmContract.from !== 'draft + active' || confirmContract.to !== 'active + active') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm transition is invalid.');
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
-  expectExactKeys(prepareTaskContract, ['bound_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
+  expectExactKeys(prepareTaskContract, ['bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
   expectSetEqual(
     expectStringArray(prepareTaskContract.bound_actions, 'Runtime contract.proposal.prepare_task.bound_actions'),
-    ['clear-resume-review-gate', ...REPLAN_TASK_STATE_ACTIONS],
+    ['clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS],
     'Runtime contract prepare-task bound actions',
   );
+  if (prepareTaskContract.draft_mode !== 'default' || prepareTaskContract.confirm_mode !== 'confirm') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task draft/confirm modes are invalid.');
+  expectSetEqual(expectStringArray(prepareTaskContract.draft_actions, 'Runtime contract.proposal.prepare_task.draft_actions'), ['create-draft', 'update-draft'], 'Runtime contract prepare-task draft actions');
+  expectSetEqual(expectStringArray(prepareTaskContract.confirm_actions, 'Runtime contract.proposal.prepare_task.confirm_actions'), ['confirm-draft'], 'Runtime contract prepare-task confirm actions');
   if (prepareTaskContract.replan_mode !== 'replan') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task replan_mode must be replan.');
   expectSetEqual(
     expectStringArray(prepareTaskContract.replan_actions, 'Runtime contract.proposal.prepare_task.replan_actions'),
@@ -1293,7 +1381,7 @@ function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
     const record = expectRecord(raw, `authority_evidence[${index}]`);
     expectExactKeys(record, ['kind', 'source', 'subject'], `authority_evidence[${index}]`);
     result.push({
-      kind: expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation', 'resume-review'], `authority_evidence[${index}].kind`),
+      kind: expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation', 'resume-review', 'user-confirmation', 'authorized-caller'], `authority_evidence[${index}].kind`),
       source: normalizeRepoPath(expectString(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`),
       subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256),
     });
@@ -1447,6 +1535,26 @@ function validateReplanReplacementDefinition(value: unknown, location: string): 
   return result;
 }
 
+function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle: true): DraftTaskIdentity;
+function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle: false): Omit<DraftTaskIdentity, 'task_title'>;
+function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle = true): DraftTaskIdentity | Omit<DraftTaskIdentity, 'task_title'> {
+  const taskId = expectString(record.task_id, `${location}.task_id`);
+  const taskSlug = expectString(record.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(taskId);
+    validateTaskSlug(taskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const documentId = expectString(record.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `${location}.document_id is invalid.`);
+  if (!requireTitle) return { task_id: taskId, task_slug: taskSlug, document_id: documentId };
+  const taskTitle = expectText(record.task_title, `${location}.task_title`, 512);
+  if (/[\r\n]/u.test(taskTitle)) fail('RUNTIME_IDENTITY_INVALID', `${location}.task_title must be a single line.`);
+  if (/^\{\{[^{}]+\}\}$/.test(taskTitle)) fail('RUNTIME_IDENTITY_INVALID', `${location}.task_title must be concrete, not a placeholder.`);
+  return { task_id: taskId, task_slug: taskSlug, document_id: documentId, task_title: taskTitle };
+}
+
 function replacementStepIds(implementationSteps: string): string[] {
   const ids: string[] = [];
   for (const line of implementationSteps.split('\n')) {
@@ -1505,7 +1613,32 @@ function effectiveCheckpointPolicy(resolution: TaskStepResolution): TaskStepChec
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
-  const action = expectEnum(record.action, ['step-progress', 'clear-resume-review-gate', ...REPLAN_TASK_STATE_ACTIONS], 'semantic_delta.action');
+  const action = expectEnum(record.action, ['step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], 'semantic_delta.action');
+  if (action === 'create-draft' || action === 'update-draft') {
+    expectExactKeys(record, ['kind', 'action', 'task_id', 'task_slug', 'document_id', 'task_title', 'draft_definition', 'active_step_id', 'evidence_refs'], 'semantic_delta');
+    const identity = validateDraftTaskIdentityFields(record, 'semantic_delta', true);
+    return {
+      kind,
+      action,
+      ...identity,
+      draft_definition: validateReplanReplacementDefinition(record.draft_definition, 'semantic_delta.draft_definition'),
+      active_step_id: expectString(record.active_step_id, 'semantic_delta.active_step_id', STEP_ID_PATTERN),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+    };
+  }
+  if (action === 'confirm-draft') {
+    expectExactKeys(record, ['kind', 'action', 'task_id', 'task_slug', 'document_id', 'draft_revision', 'evidence_refs'], 'semantic_delta');
+    const identity = validateDraftTaskIdentityFields(record, 'semantic_delta', false);
+    const draftRevision = expectString(record.draft_revision, 'semantic_delta.draft_revision');
+    if (!/^[a-f0-9]{64}$/.test(draftRevision)) fail('RUNTIME_SCHEMA_INVALID', 'semantic_delta.draft_revision must be SHA-256.');
+    return {
+      kind,
+      action,
+      ...identity,
+      draft_revision: draftRevision,
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+    };
+  }
   if (action === 'clear-resume-review-gate') {
     expectExactKeys(record, ['kind', 'action', 'evidence_refs'], 'semantic_delta');
     return {
@@ -1950,13 +2083,19 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
   if (operationKind === 'task-state-transaction') {
     if (caller === 'prepare-task') {
       if (mode === 'default') {
-        if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'clear-resume-review-gate') fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task default mode is bound only to clear-resume-review-gate.');
+        if (semanticDelta.kind !== 'task-state' || !['clear-resume-review-gate', 'create-draft', 'update-draft'].includes(semanticDelta.action)) {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task default mode is bound only to clear-resume-review-gate, create-draft, or update-draft.');
+        }
+      } else if (mode === 'confirm') {
+        if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'confirm-draft') {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task confirm mode is bound only to confirm-draft.');
+        }
       } else if (mode === 'replan') {
         if (semanticDelta.kind !== 'task-state' || !REPLAN_TASK_STATE_ACTIONS.includes(semanticDelta.action as ReplanTaskStateAction)) {
           fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task replan mode is bound only to the closed replan task-state action set.');
         }
       } else {
-        fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default or replan mode.');
+        fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default, confirm, or replan mode.');
       }
     } else if (caller === 'execute-step') {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
@@ -2143,8 +2282,123 @@ function validateArchiveAuditLogEntry(value: AnyRecord, location: string, taskId
   };
 }
 
+function validateDraftAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): DraftAuditLogEntry {
+  const action = expectEnum(value.action, DRAFT_AUDIT_ACTIONS, `${location}.action`);
+  const requiredKeys = [
+    'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'from_task_id', 'from_task_slug',
+    'from_document_id', 'task_id', 'task_slug', 'document_id', 'from_workflow_status',
+    'from_lifecycle_state', 'to_workflow_status', 'to_lifecycle_state', 'source_revision',
+    'authority_evidence', 'evidence_refs', 'recorded_at',
+  ];
+  const conditionalKeys = action === 'confirm-draft' ? ['draft_revision'] : ['definition_digest'];
+  const extra = Object.keys(value).filter(key => !requiredKeys.includes(key) && !conditionalKeys.includes(key));
+  const missing = [...requiredKeys, ...conditionalKeys].filter(key => !(key in value));
+  if (missing.length > 0 || extra.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} audit keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`);
+  }
+  const fromTaskId = expectString(value.from_task_id, `${location}.from_task_id`);
+  const fromTaskSlug = expectString(value.from_task_slug, `${location}.from_task_slug`);
+  const entryTaskId = expectString(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(fromTaskId);
+    validateTaskSlug(fromTaskSlug);
+    validateTaskId(entryTaskId);
+    validateTaskSlug(entryTaskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} target identity does not match runtime_state.`);
+  const fromDocumentId = expectString(value.from_document_id, `${location}.from_document_id`);
+  const documentId = expectString(value.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(fromDocumentId) || !DOCUMENT_ID_PATTERN.test(documentId)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.document_id fields are invalid.`);
+  }
+  const fromWorkflowStatus = expectEnum(value.from_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.from_workflow_status`);
+  const fromLifecycleState = expectEnum(value.from_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.from_lifecycle_state`);
+  const toWorkflowStatus = expectEnum(value.to_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.to_workflow_status`);
+  const toLifecycleState = expectEnum(value.to_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.to_lifecycle_state`);
+  try {
+    validateCurrentTaskStatusTuple(fromWorkflowStatus, fromLifecycleState);
+    validateCurrentTaskStatusTuple(toWorkflowStatus, toLifecycleState);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  const sourceRevision = expectString(value.source_revision, `${location}.source_revision`);
+  if (!/^[a-f0-9]{64}$/.test(sourceRevision)) fail('RUNTIME_SCHEMA_INVALID', `${location}.source_revision must be SHA-256.`);
+  const authorityEvidence = validateAuthorityEvidence(value.authority_evidence);
+  const evidenceRefs = validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`);
+  const recordedAt = expectString(value.recorded_at, `${location}.recorded_at`);
+  if (action === 'create-draft' || action === 'update-draft') {
+    if (value.operation_kind !== 'task-state-transaction' || value.caller !== 'prepare-task' || value.mode !== 'default') {
+      fail('RUNTIME_STATE_CONFLICT', `${location} ${action} audit has an invalid operation binding.`);
+    }
+    const expectedFromIdentity = action === 'create-draft'
+      ? ['closed', 'archived']
+      : ['draft', 'active'];
+    if (fromWorkflowStatus !== expectedFromIdentity[0] || fromLifecycleState !== expectedFromIdentity[1] || toWorkflowStatus !== 'draft' || toLifecycleState !== 'active') {
+      fail('RUNTIME_STATE_CONFLICT', `${location} ${action} audit has an invalid transition.`);
+    }
+    const definitionDigest = expectString(value.definition_digest, `${location}.definition_digest`);
+    if (!/^[a-f0-9]{64}$/.test(definitionDigest)) fail('RUNTIME_SCHEMA_INVALID', `${location}.definition_digest must be SHA-256.`);
+    return {
+      action,
+      idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+      operation_kind: 'task-state-transaction',
+      caller: 'prepare-task',
+      mode: 'default',
+      from_task_id: fromTaskId,
+      from_task_slug: fromTaskSlug,
+      from_document_id: fromDocumentId,
+      task_id: entryTaskId,
+      task_slug: entryTaskSlug,
+      document_id: documentId,
+      from_workflow_status: fromWorkflowStatus,
+      from_lifecycle_state: fromLifecycleState,
+      to_workflow_status: 'draft',
+      to_lifecycle_state: 'active',
+      source_revision: sourceRevision,
+      authority_evidence: authorityEvidence,
+      evidence_refs: evidenceRefs,
+      definition_digest: definitionDigest,
+      recorded_at: recordedAt,
+    };
+  }
+  if (value.operation_kind !== 'task-state-transaction' || value.caller !== 'prepare-task' || value.mode !== 'confirm') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} confirm-draft audit has an invalid operation binding.`);
+  }
+  if (fromWorkflowStatus !== 'draft' || fromLifecycleState !== 'active' || toWorkflowStatus !== 'active' || toLifecycleState !== 'active') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} confirm-draft audit has an invalid transition.`);
+  }
+  const draftRevision = expectString(value.draft_revision, `${location}.draft_revision`);
+  if (!/^[a-f0-9]{64}$/.test(draftRevision)) fail('RUNTIME_SCHEMA_INVALID', `${location}.draft_revision must be SHA-256.`);
+  return {
+    action: 'confirm-draft',
+    idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'confirm',
+    from_task_id: fromTaskId,
+    from_task_slug: fromTaskSlug,
+    from_document_id: fromDocumentId,
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: 'draft',
+    from_lifecycle_state: 'active',
+    to_workflow_status: 'active',
+    to_lifecycle_state: 'active',
+    source_revision: sourceRevision,
+    authority_evidence: authorityEvidence,
+    evidence_refs: evidenceRefs,
+    draft_revision: draftRevision,
+    recorded_at: recordedAt,
+  };
+}
+
 function validateExecutionLogEntry(value: unknown, location: string, taskId: string, taskSlug: string): ExecutionLogEntry {
   const record = expectRecord(value, location);
+  if (DRAFT_AUDIT_ACTIONS.includes(record.action as DraftAuditAction)) return validateDraftAuditLogEntry(record, location, taskId, taskSlug);
   if (record.action === 'archive') return validateArchiveAuditLogEntry(record, location, taskId, taskSlug);
   if ('action' in record) {
     const requiredKeys = [
@@ -2625,14 +2879,22 @@ function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry): string {
     lines.push(`    decision: ${audit.lesson_admission.decision}`);
     lines.push(`    candidate_refs: ${auditList(audit.lesson_admission.candidate_refs)}`);
     lines.push(`    evidence_refs: ${auditList(audit.lesson_admission.evidence_refs)}`);
+  } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action as DraftAuditAction)) {
+    const draftAudit = audit as DraftAuditLogEntry;
+    lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
+    lines.push(`  from_task_slug: ${draftAudit.from_task_slug}`);
+    lines.push(`  from_document_id: ${draftAudit.from_document_id}`);
+    if (draftAudit.definition_digest !== undefined) lines.push(`  definition_digest: ${draftAudit.definition_digest}`);
+    if (draftAudit.draft_revision !== undefined) lines.push(`  draft_revision: ${draftAudit.draft_revision}`);
   } else {
-    if (audit.invalidation_kind !== undefined) lines.push(`  invalidation_kind: ${audit.invalidation_kind}`);
-    if (audit.invalidation_reason !== undefined) lines.push(`  invalidation_reason: ${audit.invalidation_reason}`);
-    if (audit.partial_diff_disposition !== undefined) {
+    const replanAudit = audit as ReplanAuditLogEntry;
+    if (replanAudit.invalidation_kind !== undefined) lines.push(`  invalidation_kind: ${replanAudit.invalidation_kind}`);
+    if (replanAudit.invalidation_reason !== undefined) lines.push(`  invalidation_reason: ${replanAudit.invalidation_reason}`);
+    if (replanAudit.partial_diff_disposition !== undefined) {
       lines.push('  partial_diff_disposition:');
-      lines.push(`    reusable: ${auditList(audit.partial_diff_disposition.reusable)}`);
-      lines.push(`    rollback_required: ${auditList(audit.partial_diff_disposition.rollback_required)}`);
-      lines.push(`    stop_propagation: ${auditList(audit.partial_diff_disposition.stop_propagation)}`);
+      lines.push(`    reusable: ${auditList(replanAudit.partial_diff_disposition.reusable)}`);
+      lines.push(`    rollback_required: ${auditList(replanAudit.partial_diff_disposition.rollback_required)}`);
+      lines.push(`    stop_propagation: ${auditList(replanAudit.partial_diff_disposition.stop_propagation)}`);
     }
   }
   lines.push(`  recorded_at: ${audit.recorded_at}`);
@@ -2657,16 +2919,123 @@ function assertExecutionAuditInBody(body: string, audit: RuntimeAuditLogEntry): 
   }
 }
 
+function renderNewDraftBody(identity: DraftTaskIdentity, definition: DraftTaskDefinition, runtimeState: RuntimeState): string {
+  const optionalSection = (value: string | null): string => value ?? '';
+  return [
+    '# vNext CURRENT_TASK',
+    '',
+    '## 任务信息',
+    '',
+    `- 任务 ID：${identity.task_id}`,
+    `- 任务标题：${identity.task_title}`,
+    `- 任务 slug：${identity.task_slug}`,
+    `- 当前状态：${runtimeState.workflow_status}`,
+    `- 生命周期状态：${runtimeState.lifecycle_state}`,
+    `- 恢复需审查：${runtimeState.resume_requires_review ? 'true' : 'false'}`,
+    `- 恢复审查原因：${runtimeState.resume_review_reasons.join(', ')}`,
+    '',
+    '## 背景与上下文',
+    '',
+    definition.background_context,
+    '',
+    '## 验收标准',
+    '',
+    definition.acceptance,
+    '',
+    '## 允许修改范围',
+    '',
+    '### Read / discovery context',
+    '',
+    '- none',
+    '',
+    '### Allowed Files',
+    '',
+    definition.allowed_scope,
+    '',
+    '### Conditional Files',
+    '',
+    definition.conditional_scope,
+    '',
+    '## 禁止修改范围',
+    '',
+    '### Forbidden Files',
+    '',
+    definition.forbidden_scope,
+    '',
+    '## 受影响的契约',
+    '',
+    definition.affected_contracts,
+    '',
+    '## 已确认决策',
+    '',
+    definition.confirmed_decisions,
+    '',
+    '## 待确认问题',
+    '',
+    definition.open_questions,
+    '',
+    '## 实现方案',
+    '',
+    definition.implementation_plan,
+    '',
+    '## 传播治理记录',
+    '',
+    optionalSection(definition.propagation_governance),
+    '',
+    '## 实施步骤',
+    '',
+    definition.implementation_steps,
+    '',
+    '## 回归检查项',
+    '',
+    definition.regression_checks,
+    '',
+    '## 回滚点',
+    '',
+    definition.rollback_points,
+    '',
+    '## 设计约束',
+    '',
+    optionalSection(definition.design_constraints),
+    '',
+    '## 发布后验证',
+    '',
+    optionalSection(definition.post_release_validation),
+    '',
+    '## 执行记录',
+    '',
+    '- Draft created by prepare-task; execution is blocked until explicit confirm-draft.',
+    '',
+  ].join('\n');
+}
+
 function renderCanonicalCurrentTask(
   frontmatter: AnyRecord,
   body: string,
   runtimeState: RuntimeState,
-  options: { replacementDefinition?: ReplanReplacementDefinition; audit?: RuntimeAuditLogEntry } = {},
+  options: {
+    replacementDefinition?: ReplanReplacementDefinition;
+    draftDefinition?: DraftTaskDefinition;
+    draftIdentity?: DraftTaskIdentity;
+    draftDocumentId?: string;
+    audit?: RuntimeAuditLogEntry;
+  } = {},
 ): string {
-  const nextFrontmatter: AnyRecord = { ...frontmatter, runtime_state: runtimeState };
-  let nextBody = options.replacementDefinition
-    ? replaceReplanDefinitionSections(body, options.replacementDefinition)
-    : body;
+  const nextFrontmatter: AnyRecord = {
+    ...frontmatter,
+    ...(options.draftDocumentId === undefined ? {} : { document_id: options.draftDocumentId }),
+    runtime_state: runtimeState,
+  };
+  let nextBody = options.draftDefinition && options.draftIdentity
+    ? renderNewDraftBody(options.draftIdentity, options.draftDefinition, runtimeState)
+    : options.replacementDefinition
+      ? replaceReplanDefinitionSections(body, options.replacementDefinition)
+      : body;
+  if (options.draftIdentity && !(options.draftDefinition && options.draftIdentity)) {
+    nextBody = replaceTaskInfoField(nextBody, '任务 ID', options.draftIdentity.task_id);
+    nextBody = replaceTaskInfoField(nextBody, '任务标题', options.draftIdentity.task_title);
+    nextBody = replaceTaskInfoField(nextBody, '任务 slug', options.draftIdentity.task_slug);
+  }
   nextBody = renderCurrentTaskLifecycleFields(nextBody, runtimeState);
   if (options.audit) nextBody = appendExecutionAuditToBody(nextBody, options.audit);
   return `---\n${stringify(nextFrontmatter).trimEnd()}\n---\n${nextBody}`;
@@ -2681,6 +3050,61 @@ function currentTaskPathForRoot(root: string): { filePath: string; relativePath:
   const relativePath = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
   if (!relativePath || relativePath.startsWith('../') || path.isAbsolute(relativePath)) fail('RUNTIME_PATH_INVALID', 'CURRENT_TASK path escapes the target root.');
   return { filePath, relativePath: relativePath || CURRENT_TASK_RELATIVE_FALLBACK };
+}
+
+function walkMarkdownFiles(directory: string): string[] {
+  if (!fs.existsSync(directory)) return [];
+  const files: string[] = [];
+  const visit = (currentDirectory: string): void => {
+    for (const entry of fs.readdirSync(currentDirectory, { withFileTypes: true })) {
+      const entryPath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) visit(entryPath);
+      else if (entry.isFile() && entry.name.endsWith('.md')) files.push(entryPath);
+    }
+  };
+  visit(directory);
+  return files;
+}
+
+export function allocateNextTaskId(root: string, currentTaskId: string): string {
+  try {
+    validateTaskId(currentTaskId);
+  } catch (error) {
+    fail('RUNTIME_IDENTITY_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const current = BigInt(currentTaskId);
+  const taskDirectory = path.join(path.resolve(root), 'TASKS');
+  const usedIds = new Set<bigint>([current]);
+  const taskFilePattern = /^TASK-([0-9]{3,})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
+  for (const taskFile of walkMarkdownFiles(taskDirectory)) {
+    const match = taskFilePattern.exec(path.basename(taskFile));
+    if (match) {
+      usedIds.add(BigInt(match[1]!));
+    }
+  }
+  let next = current + 1n;
+  while (usedIds.has(next)) {
+    next += 1n;
+  }
+  return next.toString().padStart(Math.max(3, currentTaskId.length), '0');
+}
+
+function collectTaskDocumentIds(root: string): Set<string> {
+  const { filePath } = currentTaskPathForRoot(root);
+  const documentIds = new Set<string>();
+  const allFiles = [filePath, ...walkMarkdownFiles(path.join(path.resolve(root), 'TASKS'))];
+  for (const file of allFiles) {
+    if (!fs.existsSync(file)) continue;
+    const content = fs.readFileSync(file, 'utf8');
+    for (const match of content.matchAll(/^\s*(?:-\s*)?document_id:\s*['"]?(doc-[a-f0-9]{24})['"]?\s*$/gim)) {
+      documentIds.add(match[1]!);
+    }
+  }
+  return documentIds;
+}
+
+function generatedDraftDocumentId(identity: Pick<DraftTaskIdentity, 'task_id' | 'task_slug'>, sourceRevision: string): string {
+  return `doc-${sha256(`${identity.task_id}:${identity.task_slug}:${sourceRevision}`).slice(0, 24)}`;
 }
 
 function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativePath: string): CanonicalCurrentTask {
@@ -3995,9 +4419,148 @@ function makeReplanAudit(
   return base;
 }
 
+function ensureAnyAuthorityKind(proposal: RuntimeProposal, allowed: readonly AuthorityEvidence['kind'][]): void {
+  if (!proposal.authority_evidence.some(item => allowed.includes(item.kind))) {
+    fail('RUNTIME_AUTHORITY_MISSING', `proposal is missing one of the required authority evidence kinds: ${allowed.join(', ')}`);
+  }
+}
+
+function makeDraftAudit(
+  current: CanonicalCurrentTask,
+  proposal: RuntimeProposal,
+  next: RuntimeState,
+  now: string,
+): DraftAuditLogEntry {
+  if (proposal.semantic_delta.kind !== 'task-state' || !DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as DraftTaskStateAction)) {
+    fail('RUNTIME_SCHEMA_INVALID', 'Only draft task-state transitions may create a draft audit record.');
+  }
+  const delta = proposal.semantic_delta as Extract<TaskStateDelta, { action: 'create-draft' | 'update-draft' | 'confirm-draft' }>;
+  const targetIdentity = { task_id: delta.task_id, task_slug: delta.task_slug, document_id: delta.document_id };
+  const base = {
+    action: delta.action,
+    idempotency_key: proposal.idempotency_key,
+    operation_kind: 'task-state-transaction' as const,
+    caller: 'prepare-task' as const,
+    mode: proposal.mode as 'default' | 'confirm',
+    from_task_id: current.runtimeState.task_id,
+    from_task_slug: current.runtimeState.task_slug,
+    from_document_id: current.sourceTuple.document_id,
+    task_id: targetIdentity.task_id,
+    task_slug: targetIdentity.task_slug,
+    document_id: targetIdentity.document_id,
+    from_workflow_status: current.runtimeState.workflow_status,
+    from_lifecycle_state: current.runtimeState.lifecycle_state,
+    to_workflow_status: next.workflow_status,
+    to_lifecycle_state: next.lifecycle_state,
+    source_revision: current.sourceTuple.revision,
+    authority_evidence: proposal.authority_evidence.map(item => ({ ...item })),
+    evidence_refs: [...delta.evidence_refs],
+    recorded_at: now,
+  } satisfies Omit<DraftAuditLogEntry, 'definition_digest' | 'draft_revision'>;
+  if (delta.action === 'create-draft' || delta.action === 'update-draft') {
+    const draftDelta = delta as Extract<TaskStateDelta, { action: 'create-draft' | 'update-draft' }>;
+    return { ...base, definition_digest: digest(draftDelta.draft_definition) };
+  }
+  const confirmDelta = delta as Extract<TaskStateDelta, { action: 'confirm-draft' }>;
+  return { ...base, draft_revision: confirmDelta.draft_revision };
+}
+
+function readDraftDefinitionFromBody(body: string): DraftTaskDefinition {
+  const ranges = resolveReplanSectionRanges(body);
+  const values: Partial<Record<ReplanSectionKey, string | null>> = {};
+  for (const key of REPLAN_REPLACEMENT_FIELDS) {
+    const range = ranges[key];
+    const optional = key === 'design_constraints' || key === 'post_release_validation' || key === 'propagation_governance';
+    if (!range) {
+      if (!optional) fail('DRAFT_DEFINITION_INVALID', `CURRENT_TASK is missing the draft definition section for ${key}.`);
+      values[key] = null;
+      continue;
+    }
+    const content = normalizeReplacementSectionContent(body.slice(range.contentStart, range.contentEnd), `CURRENT_TASK.${range.title}`);
+    if (!content && optional) values[key] = null;
+    else if (!content) fail('DRAFT_DEFINITION_INVALID', `CURRENT_TASK draft definition section ${key} is empty.`);
+    else values[key] = content;
+  }
+  return validateReplanReplacementDefinition(values, 'CURRENT_TASK.draft_definition');
+}
+
+function assertNoUnresolvedDraftQuestions(body: string): void {
+  const range = resolveReplanSectionRanges(body).open_questions;
+  if (!range) fail('DRAFT_DEFINITION_INVALID', 'CURRENT_TASK is missing the draft confirmation open-questions section.');
+  const content = body.slice(range.contentStart, range.contentEnd).replace(/\r\n?/g, '\n').trim();
+  if (!content) return;
+  const emptyMarkers = /^(?:none|n\/a|na|nil|empty|no\s+open\s+questions|no\s+questions|无|暂无|不适用)[.!。]?$/iu;
+  const meaningfulLines = content.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && !/^<!--.*-->$/u.test(line))
+    .map(line => line.replace(/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s*)/u, '').trim())
+    .filter(line => line.length > 0);
+  if (meaningfulLines.length === 0 || meaningfulLines.every(line => emptyMarkers.test(line))) return;
+  fail('DRAFT_DECISION_UNRESOLVED', 'draft confirmation is blocked by unresolved user-owned questions.');
+}
+
+function assertDraftDefinitionReady(body: string, activeStepId: string): DraftTaskDefinition {
+  const definition = readDraftDefinitionFromBody(body);
+  assertReplacementActiveStep(activeStepId, definition.implementation_steps);
+  assertNoUnresolvedDraftQuestions(body);
+  return definition;
+}
+
+function expectedDraftReplayAudit(current: CanonicalCurrentTask, proposal: RuntimeProposal): DraftAuditLogEntry {
+  const entry = current.runtimeState.execution_log.find((item): item is DraftAuditLogEntry =>
+    'action' in item && DRAFT_AUDIT_ACTIONS.includes(item.action as DraftAuditAction) && item.idempotency_key === proposal.idempotency_key,
+  );
+  if (!entry) fail('RUNTIME_REPLAY_INCOMPLETE', 'draft replay is missing its durable execution audit record.');
+  return entry;
+}
+
+function assertDraftTaskReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.semantic_delta.kind !== 'task-state' || !DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as DraftTaskStateAction)) return;
+  const delta = proposal.semantic_delta as Extract<TaskStateDelta, { action: 'create-draft' | 'update-draft' | 'confirm-draft' }>;
+  const audit = expectedDraftReplayAudit(current, proposal);
+  assertExecutionAuditInBody(current.body, audit);
+  const targetIdentity = extractTaskIdentityFromCurrentTask(current.body);
+  if (targetIdentity.id !== delta.task_id || targetIdentity.slug !== delta.task_slug) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'draft replay no longer has the proposal identity in the canonical task document.');
+  }
+  if (current.runtimeState.task_id !== delta.task_id || current.runtimeState.task_slug !== delta.task_slug || current.sourceTuple.document_id !== delta.document_id) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'draft replay no longer has the proposal identity tuple.');
+  }
+  if (audit.idempotency_key !== proposal.idempotency_key
+    || audit.action !== delta.action
+    || audit.source_revision !== proposal.source_tuple.revision
+    || audit.evidence_refs.join('|') !== delta.evidence_refs.join('|')
+    || audit.task_id !== delta.task_id
+    || audit.task_slug !== delta.task_slug
+    || audit.document_id !== delta.document_id) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'draft replay audit does not match the proposal identity or evidence.');
+  }
+  if (delta.action === 'create-draft' || delta.action === 'update-draft') {
+    const draftDelta = delta as Extract<TaskStateDelta, { action: 'create-draft' | 'update-draft' }>;
+    if (targetIdentity.title !== draftDelta.task_title) fail('RUNTIME_REPLAY_INCOMPLETE', 'draft replay no longer has the proposal task title in the canonical task document.');
+    if (current.runtimeState.workflow_status !== 'draft' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('RUNTIME_REPLAY_INCOMPLETE', `${delta.action} replay no longer has the draft + active tuple.`);
+    }
+    const definitionDigest = digest(draftDelta.draft_definition);
+    if (audit.definition_digest !== definitionDigest) fail('RUNTIME_REPLAY_INCOMPLETE', `${delta.action} replay definition digest does not match the proposal.`);
+    assertReplanDefinitionSections(current.body, draftDelta.draft_definition);
+    if (current.runtimeState.active_step_id !== draftDelta.active_step_id || current.runtimeState.active_step_status !== 'ready') {
+      fail('RUNTIME_REPLAY_INCOMPLETE', `${delta.action} replay no longer has the admitted draft step ready.`);
+    }
+  } else {
+    const confirmDelta = delta as Extract<TaskStateDelta, { action: 'confirm-draft' }>;
+    if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('RUNTIME_REPLAY_INCOMPLETE', 'confirm-draft replay no longer has the active + active tuple.');
+    }
+    if (confirmDelta.draft_revision !== proposal.source_tuple.revision || audit.draft_revision !== confirmDelta.draft_revision) {
+      fail('RUNTIME_REPLAY_INCOMPLETE', 'confirm-draft replay no longer matches the exact draft revision.');
+    }
+  }
+}
+
 function expectedReplanReplayAudit(current: CanonicalCurrentTask, proposal: RuntimeProposal): ReplanAuditLogEntry {
   const entry = current.runtimeState.execution_log.find((item): item is ReplanAuditLogEntry =>
-    'action' in item && item.action !== 'archive' && item.idempotency_key === proposal.idempotency_key,
+    'action' in item && REPLAN_AUDIT_ACTIONS.includes(item.action as ReplanAuditAction) && item.idempotency_key === proposal.idempotency_key,
   );
   if (!entry) fail('RUNTIME_REPLAY_INCOMPLETE', 'replan replay is missing its durable execution audit record.');
   return entry;
@@ -4006,7 +4569,7 @@ function expectedReplanReplayAudit(current: CanonicalCurrentTask, proposal: Runt
 function assertNoLaterReplanAudit(current: CanonicalCurrentTask, audit: ReplanAuditLogEntry, failureCode = 'RUNTIME_REPLAY_INCOMPLETE'): void {
   const index = current.runtimeState.execution_log.findIndex(item => item === audit);
   if (index < 0) fail(failureCode, 'replay audit record is not part of the current execution log.');
-  if (current.runtimeState.execution_log.slice(index + 1).some(item => 'action' in item)) {
+  if (current.runtimeState.execution_log.slice(index + 1).some(item => 'action' in item && REPLAN_AUDIT_ACTIONS.includes(item.action as ReplanAuditAction))) {
     fail(failureCode, 'a later same-task lifecycle or replan transition has changed the replay boundary.');
   }
 }
@@ -4050,6 +4613,10 @@ function assertStepProgressReplay(current: CanonicalCurrentTask, proposal: Runti
 }
 
 function assertTaskStateReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.semantic_delta.kind === 'task-state' && DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as DraftTaskStateAction)) {
+    assertDraftTaskReplay(current, proposal);
+    return;
+  }
   if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'step-progress') {
     assertStepProgressReplay(current, proposal);
     return;
@@ -4089,17 +4656,139 @@ type StateTransition = {
   next: RuntimeState;
   findingStatus?: FindingStatus;
   replacementDefinition?: ReplanReplacementDefinition;
-  audit?: ReplanAuditLogEntry;
+  draftDefinition?: DraftTaskDefinition;
+  draftIdentity?: DraftTaskIdentity;
+  draftDocumentId?: string;
+  audit?: RuntimeAuditLogEntry;
   advancement?: StepAdvancementResult;
 };
 
 function applyTaskStateDelta(
+  root: string,
   current: CanonicalCurrentTask,
   proposal: RuntimeProposal,
   now: string,
 ): StateTransition {
   if (proposal.semantic_delta.kind !== 'task-state') fail('RUNTIME_SCHEMA_INVALID', 'Expected task-state delta.');
   const delta = proposal.semantic_delta;
+  if (delta.action === 'create-draft') {
+    ensureAuthorityKinds(proposal, ['scope-admission', 'evidence-admission']);
+    ensureAnyAuthorityKind(proposal, ['active-task-owner', 'user-confirmation', 'authorized-caller']);
+    if (current.runtimeState.workflow_status !== 'closed' || current.runtimeState.lifecycle_state !== 'archived') {
+      fail('DRAFT_CREATION_BLOCKED', 'create-draft requires the current task to be closed + archived.');
+    }
+    const expectedTaskId = allocateNextTaskId(root, current.runtimeState.task_id);
+    if (delta.task_id !== expectedTaskId) {
+      fail('TASK_ID_ALLOCATION_CONFLICT', `create-draft must allocate the next unused task identity ${expectedTaskId}.`);
+    }
+    if (delta.document_id === current.sourceTuple.document_id || collectTaskDocumentIds(root).has(delta.document_id)) {
+      fail('DOCUMENT_ID_COLLISION', 'create-draft document_id must be fresh across canonical task artifacts.');
+    }
+    if (current.runtimeState.task_id === '000') {
+      const bootstrapArchive = archivePathForTask(root, current);
+      if (fs.existsSync(bootstrapArchive.filePath)) fail('TASK_ARCHIVE_CONFLICT', 'bootstrap TASK-000 must not already have a canonical archive before the first ordinary draft.');
+    } else {
+      matchingArchiveReceipt(root, current);
+    }
+    assertReplacementActiveStep(delta.active_step_id, delta.draft_definition.implementation_steps);
+    const draftIdentity: DraftTaskIdentity = {
+      task_id: delta.task_id,
+      task_slug: delta.task_slug,
+      document_id: delta.document_id,
+      task_title: delta.task_title,
+    };
+    const emptyDraftState: RuntimeState = {
+      schema_version: 1,
+      kind: VNEXT_RUNTIME_STATE_KIND,
+      task_id: delta.task_id,
+      task_slug: delta.task_slug,
+      workflow_status: 'draft',
+      lifecycle_state: 'active',
+      resume_requires_review: false,
+      resume_review_reasons: [],
+      active_step_id: delta.active_step_id,
+      active_step_status: 'ready',
+      finding_queue_revision: 0,
+      review_cycle: createReviewCycleZero(),
+      findings: [],
+      execution_log: [],
+      applied_proposals: [],
+    };
+    const draftStateWithProposal = {
+      ...emptyDraftState,
+      applied_proposals: appendAppliedProposal(emptyDraftState, proposal, current.sourceTuple.revision),
+    };
+    const audit = makeDraftAudit(current, proposal, draftStateWithProposal, now);
+    const next = { ...draftStateWithProposal, execution_log: appendExecutionLogEntry(draftStateWithProposal, audit) };
+    return {
+      next,
+      draftDefinition: delta.draft_definition,
+      draftIdentity,
+      draftDocumentId: delta.document_id,
+      audit,
+    };
+  }
+  if (delta.action === 'update-draft') {
+    ensureAuthorityKinds(proposal, ['scope-admission', 'evidence-admission']);
+    ensureAnyAuthorityKind(proposal, ['active-task-owner', 'user-confirmation', 'authorized-caller']);
+    if (current.runtimeState.workflow_status !== 'draft' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('DRAFT_REFINEMENT_BLOCKED', 'update-draft requires the current task to be draft + active.');
+    }
+    if (delta.task_id !== current.runtimeState.task_id || delta.task_slug !== current.runtimeState.task_slug || delta.document_id !== current.sourceTuple.document_id) {
+      fail('DRAFT_IDENTITY_IMMUTABLE', 'update-draft must preserve TASK_ID, TASK_SLUG, and document_id.');
+    }
+    const currentIdentity = extractTaskIdentityFromCurrentTask(current.body);
+    if (currentIdentity.title !== delta.task_title) fail('DRAFT_IDENTITY_IMMUTABLE', 'update-draft must preserve the task title identity.');
+    assertReplacementActiveStep(delta.active_step_id, delta.draft_definition.implementation_steps);
+    const nextWithoutAudit: RuntimeState = {
+      ...current.runtimeState,
+      workflow_status: 'draft',
+      lifecycle_state: 'active',
+      active_step_id: delta.active_step_id,
+      active_step_status: 'ready',
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+    };
+    const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);
+    const next = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
+    return {
+      next,
+      replacementDefinition: delta.draft_definition,
+      draftIdentity: {
+        task_id: current.runtimeState.task_id,
+        task_slug: current.runtimeState.task_slug,
+        document_id: current.sourceTuple.document_id,
+        task_title: currentIdentity.title,
+      },
+      draftDocumentId: current.sourceTuple.document_id,
+      audit,
+    };
+  }
+  if (delta.action === 'confirm-draft') {
+    ensureAnyAuthorityKind(proposal, ['user-confirmation', 'authorized-caller']);
+    ensureAuthorityKinds(proposal, ['evidence-admission']);
+    if (current.runtimeState.workflow_status !== 'draft' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('DRAFT_CONFIRMATION_BLOCKED', 'confirm-draft requires the current task to be draft + active.');
+    }
+    if (delta.task_id !== current.runtimeState.task_id || delta.task_slug !== current.runtimeState.task_slug || delta.document_id !== current.sourceTuple.document_id) {
+      fail('DRAFT_IDENTITY_CONFLICT', 'confirm-draft identity does not match the current draft.');
+    }
+    if (delta.draft_revision !== current.sourceTuple.revision) {
+      fail('DRAFT_REVISION_CONFLICT', 'confirm-draft must bind the exact current draft source revision.');
+    }
+    if (current.runtimeState.active_step_status !== 'ready') {
+      fail('DRAFT_CONFIRMATION_BLOCKED', 'confirm-draft requires the admitted draft step to remain ready.');
+    }
+    assertDraftDefinitionReady(current.body, current.runtimeState.active_step_id);
+    const nextWithoutAudit: RuntimeState = {
+      ...current.runtimeState,
+      workflow_status: 'active',
+      lifecycle_state: 'active',
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+    };
+    const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);
+    const next = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
+    return { next, audit };
+  }
   if (delta.action === 'clear-resume-review-gate') {
     ensureAuthorityKinds(proposal, ['active-task-owner', 'resume-review', 'evidence-admission']);
     if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
@@ -4185,7 +4874,11 @@ function applyTaskStateDelta(
       audit,
     };
   }
+  if (delta.action !== 'step-progress') fail('RUNTIME_SCHEMA_INVALID', 'Only step-progress reaches the execute-step state handler.');
   ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
+  if (current.runtimeState.workflow_status === 'draft' && current.runtimeState.lifecycle_state === 'active') {
+    fail('DRAFT_NOT_EXECUTABLE', 'execute-step is blocked for draft + active until prepare-task:confirm commits confirm-draft.');
+  }
   if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
     fail('TASK_STATE_NOT_ACTIVE', 'execute-step requires the current task to be active + active.');
   }
@@ -4331,6 +5024,9 @@ function applyFindingQueueDelta(
 ): StateTransition {
   if (proposal.semantic_delta.kind !== 'finding-queue') fail('RUNTIME_SCHEMA_INVALID', 'Expected finding-queue delta.');
   ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission']);
+  if (current.runtimeState.workflow_status === 'draft' && current.runtimeState.lifecycle_state === 'active') {
+    fail('DRAFT_NOT_EXECUTABLE', 'finding queue changes are blocked for draft + active until prepare-task:confirm commits confirm-draft.');
+  }
   if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
     fail('TASK_STATE_NOT_ACTIVE', 'finding queue changes require the current task to be active + active.');
   }
@@ -5608,7 +6304,7 @@ export class GovernanceTransactionKernel {
     let transition: StateTransition;
     try {
       transition = proposal.operation_kind === 'task-state-transaction'
-        ? applyTaskStateDelta(current, proposal, now)
+        ? applyTaskStateDelta(this.root, current, proposal, now)
         : applyFindingQueueDelta(current, proposal, now);
     } catch (error) {
       return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED' });
@@ -5618,6 +6314,9 @@ export class GovernanceTransactionKernel {
     try {
       nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, transition.next, {
         ...(transition.replacementDefinition ? { replacementDefinition: transition.replacementDefinition } : {}),
+        ...(transition.draftDefinition ? { draftDefinition: transition.draftDefinition } : {}),
+        ...(transition.draftIdentity ? { draftIdentity: transition.draftIdentity } : {}),
+        ...(transition.draftDocumentId ? { draftDocumentId: transition.draftDocumentId } : {}),
         ...(transition.audit ? { audit: transition.audit } : {}),
       });
     } catch (error) {
@@ -5759,6 +6458,95 @@ export function createPrepareTaskResumeReviewProposal(
       evidence_refs: input.evidence_refs,
     },
     preconditions: ['current-task-is-active', 'resume-review-complete'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createPrepareTaskDraftProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    action: 'create-draft' | 'update-draft';
+    task_id: string;
+    task_slug: string;
+    document_id?: string;
+    task_title: string;
+    draft_definition: DraftTaskDefinition;
+    active_step_id: string;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  const documentId = input.document_id ?? generatedDraftDocumentId(input, current.sourceTuple.revision);
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: input.action,
+      task_id: input.task_id,
+      task_slug: input.task_slug,
+      document_id: documentId,
+      task_title: input.task_title,
+      draft_definition: input.draft_definition,
+      active_step_id: input.active_step_id,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: input.action === 'create-draft'
+      ? ['current-task-is-closed-and-archived', 'next-unused-task-identity', 'closed-draft-definition']
+      : ['current-task-is-draft-and-active', 'same-task-identity', 'closed-draft-definition'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export const createPrepareTaskCreateDraftProposal = createPrepareTaskDraftProposal;
+
+export function createPrepareTaskUpdateDraftProposal(
+  current: CanonicalCurrentTask,
+  input: Omit<Parameters<typeof createPrepareTaskDraftProposal>[1], 'action'>,
+): RuntimeProposal {
+  return createPrepareTaskDraftProposal(current, { ...input, action: 'update-draft' });
+}
+
+export function createPrepareTaskConfirmProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    task_id: string;
+    task_slug: string;
+    document_id: string;
+    draft_revision: string;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'confirm',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'confirm-draft',
+      task_id: input.task_id,
+      task_slug: input.task_slug,
+      document_id: input.document_id,
+      draft_revision: input.draft_revision,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-draft-and-active', 'exact-draft-revision', 'explicit-confirmation-authority', 'no-unresolved-decisions'],
     evidence_refs: input.evidence_refs,
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath],

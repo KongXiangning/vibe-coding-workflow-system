@@ -22,7 +22,7 @@ export const ADMIN_ENTRIES = ['bootstrap-project'] as const;
 export type AdminEntry = (typeof ADMIN_ENTRIES)[number];
 
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
-  'prepare-task': ['default', 'replan'],
+  'prepare-task': ['default', 'confirm', 'replan'],
   'review-change': ['default', 'report-only'],
   'execute-step': ['default', 'repair'],
 };
@@ -169,6 +169,9 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
   'task-state-transaction': [
     'execute-step:step-progress',
     'prepare-task:default:clear-resume-review-gate',
+    'prepare-task:default:create-draft',
+    'prepare-task:default:update-draft',
+    'prepare-task:confirm:confirm-draft',
     'prepare-task:replan:mark-replan-blocked',
     'prepare-task:replan:clear-replan-block',
     'prepare-task:replan:commit-replan',

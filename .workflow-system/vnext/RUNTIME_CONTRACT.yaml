@@ -56,16 +56,25 @@ proposal:
       - review_cycle_id
       - repair_wave_id
   task_state:
-    action: step-progress
-    required:
-      - step_id
-      - status
-      - evidence_refs
-    optional:
-      - note
-      - repair_fingerprint
-      - diff_target
-      - review_receipt
+    actions:
+      - step-progress
+      - clear-resume-review-gate
+      - create-draft
+      - update-draft
+      - confirm-draft
+      - mark-replan-blocked
+      - clear-replan-block
+      - commit-replan
+    step_progress:
+      required:
+        - step_id
+        - status
+        - evidence_refs
+      optional:
+        - note
+        - repair_fingerprint
+        - diff_target
+        - review_receipt
     advancement_outcomes:
       - not-applicable
       - repair-awaiting-verification
@@ -87,12 +96,72 @@ proposal:
       target_verification:
         - verified
         - harness-supplied
+    draft:
+      mode: default
+      actions:
+        - create-draft
+        - update-draft
+      identity_required:
+        - task_id
+        - task_slug
+        - document_id
+        - task_title
+      definition_required:
+        - background_context
+        - acceptance
+        - allowed_scope
+        - conditional_scope
+        - forbidden_scope
+        - affected_contracts
+        - confirmed_decisions
+        - open_questions
+        - implementation_plan
+        - implementation_steps
+        - regression_checks
+        - rollback_points
+        - design_constraints
+        - post_release_validation
+        - propagation_governance
+      create_from: closed + archived
+      update_from: draft + active
+      target: draft + active
+      preserves:
+        - TASK_ID
+        - TASK_SLUG
+        - document_id on update
+        - execution_log
+        - applied_proposals
+        - canonical provenance
+    confirm:
+      mode: confirm
+      action: confirm-draft
+      required:
+        - task_id
+        - task_slug
+        - document_id
+        - draft_revision
+        - evidence_refs
+      authority:
+        - user-confirmation
+        - authorized-caller
+      from: draft + active
+      to: active + active
   prepare_task:
     bound_actions:
       - clear-resume-review-gate
+      - create-draft
+      - update-draft
+      - confirm-draft
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
+    draft_mode: default
+    draft_actions:
+      - create-draft
+      - update-draft
+    confirm_mode: confirm
+    confirm_actions:
+      - confirm-draft
     replan_mode: replan
     replan_actions:
       - mark-replan-blocked

@@ -81,9 +81,44 @@ Successful vNext close-task writes the terminal tuple `workflow_status: closed`
 and `lifecycle_state: archived`; `completed` remains an `active_step_status`
 value only. The live `CURRENT_TASK.md` is preserved as the complete terminal
 task record after archive. It is updated with the terminal tuple and closure /
-archive audit, but must not be cleared, deleted, reset to a template, or used to create the next
-task. `TASK_SUMMARY.md` is retained as a legacy/source-repository schema and is
-not a vNext close-task durable output.
+archive audit, but must not be cleared, deleted, or reset to a template.
+`close-task` does not create the next task; a later independent `prepare-task`
+may replace the live pointer through the typed draft schema below only after
+the archive is verified. `TASK_SUMMARY.md` is retained as a legacy/source-
+repository schema and is not a vNext close-task durable output.
+
+### Ordinary draft / confirmation schema
+
+An independent request is persisted in the single canonical
+`CURRENT_TASK.md` before execution. The existing terminal task is
+`closed + archived`; `prepare-task` emits a typed `create-draft` action with
+`task_id`, `task_slug`, `document_id`, `task_title`, `draft_definition`,
+`active_step_id`, and claim-bound `evidence_refs`. The new document is
+`draft + active`, owns the current-task slot, and has no executable authority.
+
+`draft_definition` is a closed object whose fields map one-to-one to the
+existing task-definition sections: `background_context`, `acceptance`,
+`allowed_scope`, `conditional_scope`, `forbidden_scope`, `affected_contracts`,
+`confirmed_decisions`, `open_questions`, `implementation_plan`,
+`implementation_steps`, `regression_checks`, `rollback_points`,
+`design_constraints`, `post_release_validation`, and
+`propagation_governance`. Scope buckets remain explicit list sections; optional
+design/release/propagation sections may be empty/null according to their
+condition rules.
+
+Repeated ordinary preparation against `draft + active` emits only
+`update-draft` with the same `TASK_ID`, `TASK_SLUG`, `document_id`, and title.
+Runtime replaces only the closed definition section set, resets the admitted
+step to `ready`, and preserves execution/audit/applied-proposal history and
+canonical provenance. It does not accept arbitrary Markdown or auto-confirm.
+
+The only draft-to-active schema is `prepare-task:confirm` / `confirm-draft`.
+It repeats `task_id`, `task_slug`, and `document_id`, carries the exact current
+draft `source_tuple.revision` as `draft_revision`, and includes explicit
+`user-confirmation` or `authorized-caller` authority plus evidence. Runtime
+rejects stale identity/revision, malformed definitions, unresolved open
+questions, or authority conflicts. A successful confirmation changes the tuple
+to `active + active`; `execute-step` must reject every `draft + active` tuple.
 
 ### 允许修改范围的 vNext 承载语义
 

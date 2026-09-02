@@ -131,7 +131,7 @@ The recommended surface distinguishes discoverability from callability. The exac
 
 | Entry | User intent | Explicit target modes | Important boundary |
 |---|---|---|---|
-| `prepare-task` | Turn a request or existing task into an executable, bounded intent | `replan`; ordinary preparation is the default entry intent | Review, scope, classification, planning, and decomposition are adaptive internal dimensions |
+| `prepare-task` | Turn a request or existing task into an executable, bounded intent | `confirm`, `replan`; ordinary preparation/refinement is the default entry intent | Review, scope, classification, planning, decomposition, and draft formation are adaptive internal dimensions; `confirm` is the explicit authority boundary |
 | `execute-step` | Implement the admitted current step | `repair`; ordinary implementation is the default entry intent | `repair` requires an admitted finding or confirmed root cause; governance state writes use Runtime proposals |
 | `review-change` | Produce one unified read-only verdict for one diff target | `report-only`; ordinary review is the default entry intent | `discovery` and `verification` are review-cycle phases, not public modes |
 | `debug-task` | Establish root cause and select an authorized recovery route | `investigate-only`, `resolve` | Debug does not write product code; `resolve` may macro-route to `execute-step:repair` after proof and authority |
@@ -170,6 +170,7 @@ Pure vNext has no compatibility surface for the old Skills. The old names are un
 - `review-change:report-only` changes terminal semantics and forbids executable follow-up.
 - `debug-task:investigate-only` and `debug-task:resolve` express different user intent and follow-up authority; neither lets the debug entry edit product code directly.
 - lifecycle modes retain different source tuples and recovery contracts.
+- `prepare-task:confirm` changes the authority and terminal semantics of a durable ordinary-task draft; it is not a new daily entry.
 - `close-task:preview` changes mutation and terminal semantics.
 - bootstrap modes retain distinct project preconditions and mutation boundaries.
 
@@ -223,7 +224,55 @@ The legal transition matrix is:
 
 Replan is a closed task-definition section replacement. It may replace only the existing sections for context/background, acceptance, Allowed/Conditional/Forbidden scope, affected contracts, decisions/open questions, implementation plan/steps, validation/regression, rollback/recovery, conditional design/release validation, and triggered propagation governance. It must preserve identity, execution history, prior invalidation evidence, partial-diff provenance/disposition, historical findings, applied-proposal/audit history, and other canonical provenance. Old findings retain history but do not inherit repair authority; a still-relevant finding requires fresh finding admission.
 
-### 5.4 Successful close-task terminal semantics
+### 5.4 Slice C design freeze — ordinary new-task draft and explicit confirmation
+
+Slice C adds the ordinary independent-task boundary without adding a public
+entry. A request is first prepared into a durable draft, and only an explicit
+confirmation may grant execution authority:
+
+```text
+closed + archived baseline
+  → prepare-task (default / create-draft)
+  → new TASK_ID + TASK_SLUG + document_id, draft + active
+  → prepare-task (default / update-draft)*
+  → prepare-task:confirm (confirm-draft)
+  → active + active
+  → execute-step
+```
+
+`draft + active` is an active-owner tuple for exactly one canonical
+`CURRENT_TASK.md`. It is durable, identity-materialized, refinable, and
+non-executable. A new draft may be created only from the single
+`closed + archived` current baseline; the Runtime allocates/validates the next
+unused identity from canonical task artifacts and the proposal supplies a fresh
+document identity. The bootstrap `TASK-000` baseline is the one permitted
+closed baseline without a prior task archive. Any non-bootstrap closed task
+must have its exact identity-derived archive before a new draft can replace the
+live terminal record.
+
+Repeated ordinary preparation against `draft + active` is an `update-draft`
+typed task-state action. It preserves `TASK_ID`, `TASK_SLUG`, and `document_id`,
+replaces only the closed task-definition sections, sets the admitted draft
+step to `ready`, and preserves execution/audit/provenance history. It cannot
+create a second task, change the owner tuple, auto-confirm, or apply an
+arbitrary Markdown patch.
+
+`prepare-task:confirm` is the only draft-to-active route. Its typed
+`confirm-draft` proposal repeats the identity and carries the exact current
+draft `source_tuple.revision` as `draft_revision`. It requires explicit
+`user-confirmation` or `authorized-caller` authority plus claim-bound evidence.
+Runtime validates the complete current draft definition, rejects unresolved
+user-owned questions or authority conflicts, and fails closed on stale source
+revision, identity drift, malformed sections, replay mismatch, or an invalid
+tuple. Confirmation changes only the workflow status to `active`; it does not
+silently alter task definition, step identity, scope, or history.
+
+The closed task-state action set for this slice is
+`create-draft`, `update-draft`, and `confirm-draft`, all within the existing
+`task-state-transaction`. There is no generic Runtime editor, draft registry,
+catalog, queue, cancellation/discard state, or second canonical task source.
+
+### 5.5 Successful close-task terminal semantics
 
 The successful terminal tuple is `closed + archived`: `closed` is the workflow
 status meaning the task completed and no longer owns execution, while
@@ -763,6 +812,9 @@ The pack is fail-closed and all-or-nothing with respect to vNext installation:
 | admitted mechanical finding | `execute-step:repair` | owner/scope/authority/root-cause and repair-budget gates pass |
 | `debug-task` result state `root-cause-confirmed` | `execute-step:repair` | caller selected resolve intent and repair is authorized |
 | lifecycle resume success | `prepare-task` readiness review | recovery package and active-owner transaction succeeded |
+| `closed + archived` baseline | default `prepare-task` | the request is genuinely independent and identity allocation plus draft definition are complete |
+| `draft + active` | default `prepare-task` refinement | the same draft identity is preserved and only typed task-definition sections change |
+| `draft + active` with explicit confirmation | `prepare-task:confirm` → default `execute-step` | current draft revision, identity, authority, evidence, and definition checks pass |
 | review evidence request | `validate-change` expert call | the evidence plan names the claim and validation remains read-only |
 | closure intent with satisfied gates | `close-task` Runtime proposals | acceptance, evidence, release, and remaining-risk rules pass |
 
@@ -776,6 +828,8 @@ An “automatic” route is execution permission, not merely a recommendation. I
 - validation failure synchronizing success-shaped task state;
 - finding discovery entering repair before admission;
 - resume entering implementation before readiness review;
+- `draft + active` entering `execute-step` without a successful `prepare-task:confirm` Runtime commit;
+- draft refinement changing identity, creating a second current task, or silently confirming;
 - `superseded` or `blocked_by_replan` entering `execute-step`, pause, or interrupt;
 - restoring `superseded` directly to `active` without a successful `commit-replan`;
 - changing task identity during replan or silently creating replacement task facts during supersede;
@@ -887,6 +941,29 @@ semantic_delta:
 
 The replacement carries the unchanged task identity and source revision. On successful commit, Runtime sets `active_step_id` from the replacement, sets `active_step_status: ready`, marks admitted/in-progress findings deferred and non-actionable, preserves resolved/rejected/already-deferred findings as history, resets `review_cycle` to its initial no-active-cycle baseline, clears `resume_requires_review` and `resume_review_reasons`, and preserves `execution_log` and `applied_proposals`. Arbitrary Markdown heading/path patches, a new task-definition store, a durable replan object, and a second state source are forbidden. Runtime validates the closed schema, source tuple, identity, transition, authority marker, exact section boundary, and atomic read-back; semantic goal/scope/acceptance and disposition decisions remain with the model/user authority layer.
 
+### 13.4 Slice C task-state actions and proposal boundaries
+
+Slice C keeps the existing `task-state-transaction` operation and adds the
+closed action set `create-draft`, `update-draft`, and `confirm-draft`.
+`create-draft` and `update-draft` use `prepare-task` with ordinary `default`
+mode; `confirm-draft` uses the explicit `prepare-task:confirm` mode. The
+proposal carries a canonical source tuple, typed draft identity/definition,
+authority evidence, claim-bound evidence, an idempotency key, and exactly the
+canonical `CURRENT_TASK.md` write target.
+
+`create-draft` accepts only `closed + archived`, allocates the next unused
+identity without consulting a registry, creates a fresh document identity, and
+atomically renders a new `draft + active` canonical document. `update-draft`
+accepts only `draft + active`, preserves identity and all non-definition
+provenance, and replaces the explicit allowed task-definition sections.
+`confirm-draft` accepts only `draft + active`, requires the proposal's
+`draft_revision` to equal the exact current source revision, and transitions to
+`active + active` only with explicit user/authorized-caller authority and no
+unresolved confirmation blocker. All three use the common Runtime validation,
+single-writer source-revision conflict check, idempotence/replay, atomic
+commit, rollback, and read-back boundary. `execute-step` and finding admission
+continue to reject `draft + active`; no action auto-confirms a draft.
+
 ## 14. Target architecture acceptance cases
 
 The following cases define the target behavior:
@@ -931,6 +1008,10 @@ The following cases define the target behavior:
 | `TA-36` | Root-cause discovery needs callers, consumers, types, and configuration outside the proposed write set | broad read / discovery is allowed while mutation remains limited to the admitted file / symbol scope |
 | `TA-37` | A multi-step task has two low-risk steps followed by a contract or lifecycle boundary | the first steps advance on minimum evidence, the boundary triggers review, and no full review is forced after every step |
 | `TA-38` | A review admits a finding and repair changes the same logical diff | repair is followed by mandatory `review-change` verification before the next step advances |
+| `TA-39` | Bootstrap `TASK-000` is closed and a genuinely independent request is prepared | one canonical `CURRENT_TASK` is atomically replaced by `TASK-001` in `draft + active`; identity is durable and execution is blocked |
+| `TA-40` | A draft is refined repeatedly | `update-draft` preserves TASK_ID/TASK_SLUG/document_id, changes only typed definition sections, and leaves the task in `draft + active` |
+| `TA-41` | A stale or unauthorized `prepare-task:confirm` is presented | Runtime returns `conflict`/`blocked`, performs no write, and does not auto-confirm the draft |
+| `TA-42` | A confirmed draft is executed and later closed, then another request is prepared | the first archive remains byte-stable and immutable; the next draft receives a new identity with no dual current owner |
 
 ## 15. Success measures
 
@@ -945,6 +1026,8 @@ Hard requirements:
 - persistent tests are not admitted by default, and explicit user no-test policy is respected;
 - read / discovery context may exceed the mutation boundary, while ordinary write scope is precise and evidence-based expansion only;
 - step advancement occurs only after required evidence and any required checkpoint / repair convergence;
+- ordinary new tasks persist in `draft + active` before explicit confirmation, and only `confirm-draft` may grant `active + active` execution authority;
+- draft refinement preserves identity and writes only the closed task-definition section set;
 - repair loops terminate by policy;
 - every consumed durable knowledge item has an exact locator and relevance reason;
 - knowledge candidates deduplicate, preserve provenance, and cannot bypass authority or stability gates;
@@ -1001,6 +1084,8 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 7. The old protocol is read only by a one-time Migration Pack; vNext has an explicit schema boundary and does not interpret legacy documents.
 8. `project-context-resolver` performs relevance/precedence/conflict-aware retrieval; `knowledge-admission-policy` governs durable Contract/Decision/Lesson growth.
 9. Only an `idle` old project may upgrade: offline document conversion happens once, then pure vNext is installed and old Skills no longer exist.
+10. Ordinary independent requests first create a durable `draft + active` task through `prepare-task` and may be refined in place; only explicit `prepare-task:confirm` grants `active + active` execution authority.
+11. The existing `task-state-transaction` owns the closed `create-draft`, `update-draft`, and `confirm-draft` actions with exact source revision, identity, authority, atomicity, replay, rollback, and read-back checks.
 
 ### 16.2 Confirmed parameter choices
 
@@ -1011,7 +1096,8 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 5. Mutation scope is write-oriented: broad read / discovery is allowed when relevant, ordinary writes are narrow, and expansion requires evidence or authority.
 6. A coherent task owns a small set of admitted steps; review checkpoints are risk-based, while repair verification remains mandatory.
 7. The guarded macro transitions in §12.1 may execute automatically only under an authorized end-to-end request and must stop at user-owned authority changes.
-8. The common Runtime transaction kernel plus exact typed handlers direction is accepted; exact CLI/API syntax remains deferred.
+8. Draft creation/refinement remain in the existing `task-state-transaction`; draft confirmation is the only explicit status promotion and adds no public daily entry.
+9. The common Runtime transaction kernel plus exact typed handlers direction is accepted; exact CLI/API syntax remains deferred.
 
 ### 16.3 Deferred implementation details
 

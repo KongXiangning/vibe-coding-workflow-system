@@ -2089,7 +2089,7 @@ function validateBundleArtifactShape(value: unknown, location: string): VNextBun
 }
 
 const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
-  'prepare-task': ['default', 'replan'],
+  'prepare-task': ['default', 'confirm', 'replan'],
   'review-change': ['default', 'report-only'],
   'execute-step': ['default', 'repair'],
   'debug-task': ['investigate-only', 'resolve'],

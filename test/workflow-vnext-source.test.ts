@@ -261,14 +261,14 @@ describe('vNext Phase 2 source contract', () => {
     expect(lifecycle).not.toContain('atomic write');
   });
 
-  test('keeps prepare-task resume-review handling to the minimal Runtime action', () => {
+  test('keeps prepare-task resume-review handling distinct from the draft Runtime actions', () => {
     const prepare = fs.readFileSync(
       fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'),
       'utf8',
     );
     expect(prepare).toContain('clear-resume-review-gate');
-    expect(prepare).toContain('only to that gate-clear action');
-    expect(prepare).toContain('must not be used to mutate task identity, scope, plan, or any other task state');
+    expect(prepare).toContain('default mode to `create-draft`, `update-draft`, and the existing gate-clear action');
+    expect(prepare).toContain('The default draft actions may not change the identity of an existing draft, auto-confirm it, or write arbitrary Markdown.');
   });
 
   test('keeps execute-step behind the resume-review gate', () => {

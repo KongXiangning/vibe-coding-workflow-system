@@ -12,6 +12,9 @@ import {
   createLifecycleProposal,
   createProjectStatusProposal,
   createPrepareTaskReplanProposal,
+  createPrepareTaskConfirmProposal,
+  createPrepareTaskDraftProposal,
+  createPrepareTaskUpdateDraftProposal,
   createPrepareTaskResumeReviewProposal,
   createTaskStateProposal,
   createReviewCycleZero,
@@ -24,6 +27,7 @@ import {
   type ArchiveDelta,
   type ClosureEvidence,
   type DeliverySummary,
+  type DraftTaskDefinition,
   type FindingRecord,
   type FindingQueueDelta,
   type LifecycleDelta,
@@ -353,6 +357,27 @@ function replacementDefinition(overrides: Partial<ReplanReplacementDefinition> =
   };
 }
 
+function draftDefinition(overrides: Partial<DraftTaskDefinition> = {}): DraftTaskDefinition {
+  return {
+    background_context: '- draft background',
+    acceptance: '- [ ] draft acceptance',
+    allowed_scope: '- scripts/**',
+    conditional_scope: '- docs/** when evidence is present',
+    forbidden_scope: '- .git/**',
+    affected_contracts: '- no contract changes',
+    confirmed_decisions: '- use the current project baseline',
+    open_questions: '- none',
+    implementation_plan: '- implement the prepared draft step',
+    implementation_steps: '- step-1: implement the prepared draft step',
+    regression_checks: '- [ ] run the focused regression suite',
+    rollback_points: '- restore the prior canonical task document if validation fails',
+    design_constraints: null,
+    post_release_validation: null,
+    propagation_governance: null,
+    ...overrides,
+  };
+}
+
 function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
   return {
     fingerprint,
@@ -610,6 +635,205 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(replay.status).toBe('no-op');
     expect(replay.committed).toBe(false);
     expect(readCanonicalCurrentTask(root).runtimeState.execution_log).toHaveLength(1);
+  });
+
+  test('runs the ordinary draft refinement confirmation and execution path, then allocates the next identity after archive', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(root);
+    const firstDefinition = draftDefinition({ implementation_steps: '- step-1: implement the first task' });
+    const create = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'First task',
+      draft_definition: firstDefinition,
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:draft-create'],
+      idempotency_key: 'draft-create-001',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    const created = applyVNextRuntimeProposal(root, create, { now: () => '2026-08-31T01:00:00.000Z' });
+    expect(created.status).toBe('success');
+    expect(created.read_back_verified).toBe(true);
+    const draft = readCanonicalCurrentTask(root);
+    expect(draft.runtimeState.task_id).toBe('001');
+    expect(draft.runtimeState.workflow_status).toBe('draft');
+    expect(draft.runtimeState.lifecycle_state).toBe('active');
+    expect(draft.sourceTuple.document_id).toBe('doc-111111111111111111111111');
+    expect(draft.runtimeState.execution_log[0]?.action).toBe('create-draft');
+    const createReplay = applyVNextRuntimeProposal(root, create);
+    expect(createReplay.status).toBe('no-op');
+    expect(createReplay.committed).toBe(false);
+
+    const executeBeforeConfirm = applyVNextRuntimeProposal(root, taskProposal(root, {
+      idempotency_key: 'draft-execute-before-confirm',
+    }));
+    expect(executeBeforeConfirm.status).toBe('blocked');
+    expect(executeBeforeConfirm.code).toBe('DRAFT_NOT_EXECUTABLE');
+
+    const refine = createPrepareTaskUpdateDraftProposal(draft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'First task',
+      draft_definition: draftDefinition({
+        background_context: '- refined first-task background',
+        implementation_steps: '- step-2: implement the refined first task',
+      }),
+      active_step_id: 'step-2',
+      evidence_refs: ['test:evidence:draft-update'],
+      idempotency_key: 'draft-update-001',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    const refined = applyVNextRuntimeProposal(root, refine, { now: () => '2026-08-31T01:01:00.000Z' });
+    expect(refined.status).toBe('success');
+    const refinedTask = readCanonicalCurrentTask(root);
+    expect(refinedTask.runtimeState.task_id).toBe('001');
+    expect(refinedTask.runtimeState.task_slug).toBe('first-task');
+    expect(refinedTask.sourceTuple.document_id).toBe('doc-111111111111111111111111');
+    expect(refinedTask.runtimeState.active_step_id).toBe('step-2');
+    expect(refinedTask.runtimeState.active_step_status).toBe('ready');
+    expect(refinedTask.body).toContain('refined first-task background');
+
+    const staleConfirm = createPrepareTaskConfirmProposal(draft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      draft_revision: draft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:draft-confirm'],
+      idempotency_key: 'draft-confirm-stale',
+      authority_evidence: evidence('user-confirmation', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, staleConfirm).status).toBe('conflict');
+
+    const unauthorizedConfirm = createPrepareTaskConfirmProposal(refinedTask, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      draft_revision: refinedTask.sourceTuple.revision,
+      evidence_refs: ['test:evidence:draft-confirm'],
+      idempotency_key: 'draft-confirm-unauthorized',
+      authority_evidence: evidence('evidence-admission'),
+    });
+    const unauthorized = applyVNextRuntimeProposal(root, unauthorizedConfirm);
+    expect(unauthorized.status).toBe('blocked');
+    expect(unauthorized.code).toBe('RUNTIME_AUTHORITY_MISSING');
+
+    const confirm = createPrepareTaskConfirmProposal(refinedTask, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      draft_revision: refinedTask.sourceTuple.revision,
+      evidence_refs: ['test:evidence:draft-confirm'],
+      idempotency_key: 'draft-confirm-001',
+      authority_evidence: evidence('user-confirmation', 'evidence-admission'),
+    });
+    expect(confirm.mode).toBe('confirm');
+    const confirmed = applyVNextRuntimeProposal(root, confirm, { now: () => '2026-08-31T01:02:00.000Z' });
+    expect(confirmed.status).toBe('success');
+    const active = readCanonicalCurrentTask(root);
+    expect(active.runtimeState.workflow_status).toBe('active');
+    expect(active.runtimeState.lifecycle_state).toBe('active');
+    expect(active.runtimeState.execution_log.some(item => item.action === 'confirm-draft')).toBe(true);
+    const confirmReplay = applyVNextRuntimeProposal(root, confirm);
+    expect(confirmReplay.status).toBe('no-op');
+    expect(confirmReplay.committed).toBe(false);
+
+    const executed = applyVNextRuntimeProposal(root, taskProposal(root, {
+      idempotency_key: 'draft-execute-after-confirm',
+      evidence_refs: ['test:evidence:draft-execute'],
+    }));
+    expect(executed.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+
+    const closed = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({ evidence_refs: ['test:evidence:draft-close'] }), 'archive-first-task'));
+    expect(closed.status).toBe('success');
+    const archivePath = path.join(root, closed.archive_path ?? 'TASKS/TASK-001-first-task.md');
+    const archiveBeforeNextDraft = fs.readFileSync(archivePath, 'utf8');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
+
+    const closedTask = readCanonicalCurrentTask(root);
+    const secondCreate = createPrepareTaskDraftProposal(closedTask, {
+      action: 'create-draft',
+      task_id: '002',
+      task_slug: 'second-task',
+      document_id: 'doc-222222222222222222222222',
+      task_title: 'Second task',
+      draft_definition: draftDefinition({ implementation_steps: '- step-1: implement the second task' }),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:second-create'],
+      idempotency_key: 'draft-create-002',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, secondCreate).status).toBe('success');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeNextDraft);
+    const secondDraft = readCanonicalCurrentTask(root);
+    expect(secondDraft.runtimeState.task_id).toBe('002');
+    expect(secondDraft.runtimeState.workflow_status).toBe('draft');
+
+    const secondConfirm = createPrepareTaskConfirmProposal(secondDraft, {
+      task_id: '002',
+      task_slug: 'second-task',
+      document_id: 'doc-222222222222222222222222',
+      draft_revision: secondDraft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:second-confirm'],
+      idempotency_key: 'draft-confirm-002',
+      authority_evidence: evidence('authorized-caller', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, secondConfirm).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState).toMatchObject({
+      task_id: '002',
+      task_slug: 'second-task',
+      workflow_status: 'active',
+      lifecycle_state: 'active',
+    });
+  });
+
+  test('blocks confirmation with unresolved draft decisions without mutating the canonical draft', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(root);
+    const created = applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'unresolved-task',
+      task_title: 'Unresolved task',
+      draft_definition: draftDefinition({
+        open_questions: '- user must choose the release channel',
+      }),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:unresolved-create'],
+      idempotency_key: 'draft-create-unresolved',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    }));
+    expect(created.status).toBe('success');
+    const draft = readCanonicalCurrentTask(root);
+    const before = fs.readFileSync(draft.filePath, 'utf8');
+    const result = applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft, {
+      task_id: '001',
+      task_slug: 'unresolved-task',
+      document_id: draft.sourceTuple.document_id,
+      draft_revision: draft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:unresolved-confirm'],
+      idempotency_key: 'draft-confirm-unresolved',
+      authority_evidence: evidence('user-confirmation', 'evidence-admission'),
+    }));
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('DRAFT_DECISION_UNRESOLVED');
+    expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(before);
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('draft');
   });
 
   test('rolls back and verifies the original CURRENT_TASK when post-commit read-back throws', () => {

@@ -1,8 +1,17 @@
 /** Task-state proposal factory exposed by the project-local Runtime. */
 
-export { createPrepareTaskReplanProposal, createTaskStateProposal } from './kernel';
+export {
+  createPrepareTaskConfirmProposal,
+  createPrepareTaskCreateDraftProposal,
+  createPrepareTaskDraftProposal,
+  createPrepareTaskReplanProposal,
+  createPrepareTaskUpdateDraftProposal,
+  createTaskStateProposal,
+} from './kernel';
 export type {
   AuthorityEvidence,
+  DraftTaskDefinition,
+  DraftTaskIdentity,
   ReplanTaskStateAction,
   ReplanDelta,
   ReplanReplacementDefinition,

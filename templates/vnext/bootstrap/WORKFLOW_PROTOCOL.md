@@ -24,3 +24,24 @@ an active task or feature implementation.
 preconditions. Confirmed facts retain provenance; inferred and unknown facts
 remain visible and cannot silently become authority.
 
+## Ordinary task lifecycle
+
+`docs/workflow/CURRENT_TASK.md` is the only current-task owner. An independent
+request may be prepared only after the prior task is `closed + archived` (the
+bootstrap `TASK-000` baseline may be the first closed source without an
+archive). The Runtime allocates the next unused identity and applies this
+closed transition:
+
+```text
+closed + archived -> create-draft -> draft + active
+draft + active -> update-draft -> draft + active
+draft + active -> confirm-draft -> active + active
+```
+
+`draft + active` is durable but never executable. Repeated preparation must
+preserve `TASK_ID`, `TASK_SLUG`, and `document_id`, replace only the typed task
+definition, and must not auto-confirm or patch arbitrary Markdown. The only
+draft-to-active route is explicit `prepare-task:confirm`, bound to the exact
+current draft revision and explicit user or authorized-caller authority.
+Execution and finding admission reject drafts until that Runtime transition
+succeeds; the prior archive remains immutable.

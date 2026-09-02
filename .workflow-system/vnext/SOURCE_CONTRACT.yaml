@@ -84,6 +84,7 @@ capabilities:
       - missing or ambiguous identity
       - multiple active owners
       - caller is not authorized for the requested task mutation
+      - a new identity collides with a canonical task artifact or confirmation is not bound to the current draft revision
 
   - id: scope-guard
     exposure: internal
@@ -453,6 +454,9 @@ runtime_operations:
     bound_actions:
       - execute-step:step-progress
       - prepare-task:default:clear-resume-review-gate
+      - prepare-task:default:create-draft
+      - prepare-task:default:update-draft
+      - prepare-task:confirm:confirm-draft
       - prepare-task:replan:mark-replan-blocked
       - prepare-task:replan:clear-replan-block
       - prepare-task:replan:commit-replan
