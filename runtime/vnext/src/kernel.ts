@@ -51,6 +51,10 @@ import {
   type TaskStepCheckpointPolicy,
   type TaskStepResolution,
 } from './task-steps';
+import {
+  BOOTSTRAP_MODES,
+  BOOTSTRAP_OPERATION_KINDS,
+} from './bootstrap';
 
 export * from './mutation-scope';
 
@@ -675,6 +679,7 @@ export type VNextRuntimeContractValidationResult = {
   };
   bound_operations: RuntimeOperationKind[];
   unbound_operations: string[];
+  bootstrap_operations: string[];
 };
 
 export class VNextRuntimeError extends Error {
@@ -937,10 +942,80 @@ function validateRuntimeDistributionContract(value: unknown): RuntimeDistributio
   return result;
 }
 
+function validateBootstrapRuntimeContract(value: unknown): string[] {
+  const bootstrap = expectRecord(value, 'vNext Runtime contract.bootstrap_project');
+  expectExactKeys(
+    bootstrap,
+    ['schema_version', 'kind', 'caller', 'modes', 'required_envelope', 'mutation_scope', 'asset_boundary', 'operations', 'recovery', 'read_back'],
+    'vNext Runtime contract.bootstrap_project',
+  );
+  if (bootstrap.schema_version !== 1 || bootstrap.kind !== 'vnext-bootstrap-runtime-contract') {
+    fail('RUNTIME_CONTRACT_INVALID', 'bootstrap_project must declare the vNext bootstrap Runtime contract marker.');
+  }
+  expectSetEqual(expectStringArray(bootstrap.caller, 'Runtime contract.bootstrap_project.caller'), ['bootstrap-project'], 'bootstrap Runtime callers');
+  expectSetEqual(expectStringArray(bootstrap.modes, 'Runtime contract.bootstrap_project.modes'), [...BOOTSTRAP_MODES], 'bootstrap Runtime modes');
+  expectSetEqual(
+    expectStringArray(bootstrap.required_envelope, 'Runtime contract.bootstrap_project.required_envelope'),
+    ['authority_evidence', 'semantic_operations', 'preconditions', 'evidence_refs', 'idempotency_key', 'requested_write_targets', 'requested_directory_targets', 'changed_paths', 'scope_document', 'conditional_authorizations', 'transformation_kind', 'assets'],
+    'bootstrap Runtime proposal envelope',
+  );
+
+  const scope = expectRecord(bootstrap.mutation_scope, 'Runtime contract.bootstrap_project.mutation_scope');
+  expectExactKeys(scope, ['status', 'binding', 'source', 'default_write_policy', 'conditional_expansion_requires', 'read_discovery_is_not_write_authority', 'check_command', 'input', 'output'], 'Runtime contract.bootstrap_project.mutation_scope');
+  if (scope.status !== 'bound' || scope.binding !== 'vnext-runtime-read-only' || scope.source !== 'bootstrap proposal.scope_document' || scope.default_write_policy !== 'deny' || scope.conditional_expansion_requires !== 'evidence-and-authority' || scope.read_discovery_is_not_write_authority !== true || scope.check_command !== 'shared-mutation-scope-evaluator') {
+    fail('RUNTIME_CONTRACT_INVALID', 'bootstrap mutation scope must keep the shared default-deny evaluator boundary.');
+  }
+  const scopeInput = expectRecord(scope.input, 'Runtime contract.bootstrap_project.mutation_scope.input');
+  expectExactKeys(scopeInput, ['required'], 'Runtime contract.bootstrap_project.mutation_scope.input');
+  expectSetEqual(expectStringArray(scopeInput.required, 'Runtime contract.bootstrap_project.mutation_scope.input.required'), ['explicit_changed_paths', 'conditional_authorizations_with_evidence_and_authority', 'transformation_kind'], 'bootstrap mutation scope input');
+  const scopeOutput = expectRecord(scope.output, 'Runtime contract.bootstrap_project.mutation_scope.output');
+  expectExactKeys(scopeOutput, ['required'], 'Runtime contract.bootstrap_project.mutation_scope.output');
+  expectSetEqual(expectStringArray(scopeOutput.required, 'Runtime contract.bootstrap_project.mutation_scope.output.required'), ['per-path-admission-and-blocker', 'source-revision'], 'bootstrap mutation scope output');
+
+  const assetBoundary = expectRecord(bootstrap.asset_boundary, 'Runtime contract.bootstrap_project.asset_boundary');
+  expectExactKeys(assetBoundary, ['allowed_roots', 'forbidden_targets', 'generated_categories'], 'Runtime contract.bootstrap_project.asset_boundary');
+  expectStringArray(assetBoundary.allowed_roots, 'Runtime contract.bootstrap_project.asset_boundary.allowed_roots');
+  expectStringArray(assetBoundary.forbidden_targets, 'Runtime contract.bootstrap_project.asset_boundary.forbidden_targets');
+  expectStringArray(assetBoundary.generated_categories, 'Runtime contract.bootstrap_project.asset_boundary.generated_categories');
+
+  const operations = bootstrap.operations;
+  if (!Array.isArray(operations) || operations.length !== BOOTSTRAP_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', `bootstrap_project must declare exactly ${BOOTSTRAP_OPERATION_KINDS.length} typed operations.`);
+  const bound: string[] = [];
+  const expectedOperations: Record<string, { source: string[]; writes: string[] }> = {
+    'contract-candidate-commit': { source: ['source-authority evidence', 'existing CONTRACTS.md when present'], writes: ['CONTRACTS.md'] },
+    'decision-record-transaction': { source: ['source-authority evidence', 'existing DECISIONS.md when present'], writes: ['DECISIONS.md'] },
+    'project-status-transaction': { source: ['STATUS.md'], writes: ['STATUS.md'] },
+    'paired-host-guidance-transaction': { source: ['target host guidance'], writes: ['paired host guidance'] },
+  };
+  for (const [index, rawOperation] of operations.entries()) {
+    const operation = expectRecord(rawOperation, `Runtime contract.bootstrap_project.operations[${index}]`);
+    expectExactKeys(operation, ['id', 'status', 'binding', 'operation', 'source_targets', 'write_targets', 'allowed_callers', 'result_states', 'atomic', 'idempotence', 'conflict_policy'], `Runtime contract.bootstrap_project.operations[${index}]`);
+    const id = expectString(operation.id, `Runtime contract.bootstrap_project.operations[${index}].id`);
+    if (!(BOOTSTRAP_OPERATION_KINDS as readonly string[]).includes(id) || bound.includes(id)) fail('RUNTIME_CONTRACT_INVALID', `bootstrap operation ${id} is not in the closed operation set.`);
+    if (operation.status !== 'bound' || operation.binding !== 'vnext-runtime' || operation.operation !== id) fail('RUNTIME_CONTRACT_INVALID', `bootstrap operation ${id} must be bound to vnext-runtime.`);
+    const expected = expectedOperations[id];
+    expectSetEqual(expectStringArray(operation.source_targets, `bootstrap operation ${id}.source_targets`), expected.source, `bootstrap operation ${id}.source_targets`);
+    expectSetEqual(expectStringArray(operation.write_targets, `bootstrap operation ${id}.write_targets`), expected.writes, `bootstrap operation ${id}.write_targets`);
+    expectSetEqual(expectStringArray(operation.allowed_callers, `bootstrap operation ${id}.allowed_callers`), ['bootstrap-project'], `bootstrap operation ${id}.allowed_callers`);
+    expectSetEqual(expectStringArray(operation.result_states, `bootstrap operation ${id}.result_states`), [...RUNTIME_RESULT_STATES], `bootstrap operation ${id}.result_states`);
+    if (operation.atomic !== true || operation.idempotence !== 'fail-closed' || operation.conflict_policy !== 'fail-closed') fail('RUNTIME_CONTRACT_INVALID', `bootstrap operation ${id} must be atomic, fail-closed, and conflict-safe.`);
+    bound.push(id);
+  }
+  expectSetEqual(bound, [...BOOTSTRAP_OPERATION_KINDS], 'bootstrap Runtime bound operations');
+
+  const recovery = expectRecord(bootstrap.recovery, 'Runtime contract.bootstrap_project.recovery');
+  expectExactKeys(recovery, ['marker', 'interrupted', 'rollback'], 'Runtime contract.bootstrap_project.recovery');
+  if (recovery.marker !== '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' || recovery.interrupted !== 'fail-closed-explicit-recovery' || recovery.rollback !== 'verify-pre-bootstrap-snapshot-before-marker-clear') fail('RUNTIME_CONTRACT_INVALID', 'bootstrap recovery must use the explicit interruption marker and verified rollback boundary.');
+  const readBack = expectRecord(bootstrap.read_back, 'Runtime contract.bootstrap_project.read_back');
+  expectExactKeys(readBack, ['required'], 'Runtime contract.bootstrap_project.read_back');
+  expectSetEqual(expectStringArray(readBack.required, 'Runtime contract.bootstrap_project.read_back.required'), ['asset-checksums', 'project-identity', 'runtime-contract', 'canonical-CURRENT_TASK', 'host-isolation'], 'bootstrap read-back evidence');
+  return bound;
+}
+
 export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
   const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'proposal', 'mutation_scope', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations'], 'vNext Runtime contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'proposal', 'mutation_scope', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
   if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
   }
@@ -1200,12 +1275,14 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(bound, [...RUNTIME_OPERATION_KINDS], 'Runtime contract bound operations');
   const unbound = expectStringArray(contract.unbound_operations, 'Runtime contract.unbound_operations');
   expectSetEqual(unbound, ['inbox-record-transaction'], 'Runtime contract unbound operations');
+  const bootstrapOperations = validateBootstrapRuntimeContract(contract.bootstrap_project);
   return {
     phase: 'Phase 2',
     runtime_distribution: distributionIdentity,
     mutation_scope: { status: 'bound', binding: 'vnext-runtime-read-only', check_command: 'scope-check' },
     bound_operations: bound,
     unbound_operations: unbound,
+    bootstrap_operations: bootstrapOperations,
   };
 }
 

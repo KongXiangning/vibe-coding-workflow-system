@@ -18,6 +18,9 @@ export const PHASE_1_ENTRIES = [
 ] as const;
 export type Phase1Entry = (typeof PHASE_1_ENTRIES)[number];
 
+export const ADMIN_ENTRIES = ['bootstrap-project'] as const;
+export type AdminEntry = (typeof ADMIN_ENTRIES)[number];
+
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'replan'],
   'review-change': ['default', 'report-only'],
@@ -30,6 +33,10 @@ export const PHASE_1_MODES: Record<Phase1Entry, readonly string[]> = {
   'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
   'capture-work-item': [],
   'close-task': ['preview'],
+};
+
+export const ADMIN_MODES: Record<AdminEntry, readonly string[]> = {
+  'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign'],
 };
 
 const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
@@ -66,6 +73,15 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   ],
 };
 
+const EXPECTED_ADMIN_RUNTIME_OPERATIONS: Record<AdminEntry, readonly string[]> = {
+  'bootstrap-project': [
+    'contract-candidate-commit',
+    'decision-record-transaction',
+    'project-status-transaction',
+    'paired-host-guidance-transaction',
+  ],
+};
+
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
   'prepare-task': ['scope-guard', 'evidence-admission-policy'],
   'review-change': ['scope-guard', 'diff-target-resolver', 'read-only-review-guard', 'review-convergence-policy', 'evidence-admission-policy'],
@@ -74,6 +90,19 @@ const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]
   'task-lifecycle': ['scope-guard'],
   'capture-work-item': ['scope-guard'],
   'close-task': ['evidence-admission-policy'],
+};
+
+const REQUIRED_ADMIN_ENTRY_CAPABILITIES: Partial<Record<AdminEntry, readonly string[]>> = {
+  'bootstrap-project': [
+    'project-context-resolver',
+    'source-authority-policy',
+    'scope-guard',
+    'decision-authority-gate',
+    'design-evidence-gate',
+    'propagation-evidence-validator',
+    'host-isolation-guard',
+    'generation-atomicity-policy',
+  ],
 };
 
 const FORBIDDEN_TOP_LEVEL_FIELDS = new Set([
@@ -107,6 +136,8 @@ const REQUIRED_CAPABILITIES = [
   'lifecycle-transition-guard',
   'record-only-intake-guard',
   'closure-eligibility-gate',
+  'host-isolation-guard',
+  'generation-atomicity-policy',
 ] as const;
 
 const REQUIRED_RUNTIME_OPERATIONS = [
@@ -117,15 +148,21 @@ const REQUIRED_RUNTIME_OPERATIONS = [
   'project-status-transaction',
   'archive-transaction',
   'lesson-record-transaction',
+  'contract-candidate-commit',
+  'decision-record-transaction',
+  'paired-host-guidance-transaction',
 ] as const;
 
 const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
   'task-state-transaction': ['execute-step', 'prepare-task'],
   'finding-queue-transaction': ['execute-step'],
   'lifecycle-transaction': ['task-lifecycle'],
-  'project-status-transaction': ['close-task'],
+  'project-status-transaction': ['close-task', 'bootstrap-project'],
   'archive-transaction': ['close-task'],
   'lesson-record-transaction': ['close-task'],
+  'contract-candidate-commit': ['bootstrap-project'],
+  'decision-record-transaction': ['bootstrap-project'],
+  'paired-host-guidance-transaction': ['bootstrap-project'],
 };
 
 const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
@@ -152,12 +189,34 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
   ],
   'project-status-transaction': [
     'close-task:default:sync',
+    'bootstrap-project:design:status',
+    'bootstrap-project:greenfield:status',
+    'bootstrap-project:inventory:status',
+    'bootstrap-project:adopt:status',
+    'bootstrap-project:realign:status',
   ],
   'archive-transaction': [
     'close-task:default:archive',
   ],
   'lesson-record-transaction': [
     'close-task:default:record',
+  ],
+  'contract-candidate-commit': [
+    'bootstrap-project:greenfield:contract',
+    'bootstrap-project:adopt:contract',
+    'bootstrap-project:realign:contract',
+  ],
+  'decision-record-transaction': [
+    'bootstrap-project:design:decision',
+    'bootstrap-project:greenfield:decision',
+    'bootstrap-project:inventory:decision',
+    'bootstrap-project:adopt:decision',
+    'bootstrap-project:realign:decision',
+  ],
+  'paired-host-guidance-transaction': [
+    'bootstrap-project:greenfield:host-guidance',
+    'bootstrap-project:adopt:host-guidance',
+    'bootstrap-project:realign:host-guidance',
   ],
 };
 
@@ -166,6 +225,7 @@ type UnknownRecord = Record<string, unknown>;
 export type VNextSourceValidationResult = {
   phase: 'Phase 1' | 'Phase 2';
   entries: Phase1Entry[];
+  administrativeEntries: AdminEntry[];
   capabilities: string[];
   runtimeOperations: string[];
   legacySkillNames: string[];
@@ -255,7 +315,7 @@ function assertRelativePath(value: unknown, expected: string, location: string):
 }
 
 function validateSourceNamespace(contract: UnknownRecord): 'Phase 1' | 'Phase 2' {
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'source_namespace', 'entries', 'capabilities', 'runtime_operations'], 'contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'source_namespace', 'entries', 'administrative_entries', 'capabilities', 'runtime_operations'], 'contract');
   if (contract.schema_version !== 1) fail('contract.schema_version must be 1');
   if (contract.kind !== 'vnext-source-contract') fail('contract.kind must be vnext-source-contract');
   if (contract.phase !== 'Phase 1' && contract.phase !== 'Phase 2') fail('contract.phase must be Phase 1 or Phase 2');
@@ -307,8 +367,37 @@ function validateCatalogEntries(root: string, contract: UnknownRecord): Map<Phas
   const skillDir = path.join(root, ...VNEXT_SKILL_TEMPLATE_RELATIVE_PATH.split('/'));
   if (!fs.existsSync(skillDir)) fail(`missing vNext skill template directory: ${skillDir}`);
   const actualFiles = fs.readdirSync(skillDir).filter(file => file.endsWith('.SKILL.md.tmpl')).sort();
-  const expectedFiles = PHASE_1_ENTRIES.map(entry => `${entry}.SKILL.md.tmpl`).sort();
+  const expectedFiles = [...PHASE_1_ENTRIES, ...ADMIN_ENTRIES].map(entry => `${entry}.SKILL.md.tmpl`).sort();
   expectSetEqual(actualFiles, expectedFiles, 'vNext skill template files');
+  return entryTemplates;
+}
+
+function validateAdministrativeCatalog(root: string, contract: UnknownRecord): Map<AdminEntry, string> {
+  const rawEntries = contract.administrative_entries;
+  if (!Array.isArray(rawEntries)) fail('contract.administrative_entries must be a list');
+  if (rawEntries.length !== ADMIN_ENTRIES.length) {
+    fail(`contract.administrative_entries must contain exactly ${ADMIN_ENTRIES.length} administrative entry`);
+  }
+
+  const entryTemplates = new Map<AdminEntry, string>();
+  for (const [index, rawEntry] of rawEntries.entries()) {
+    const entry = expectRecord(rawEntry, `contract.administrative_entries[${index}]`);
+    expectExactKeys(entry, ['id', 'exposure', 'template'], `contract.administrative_entries[${index}]`);
+    const id = expectString(entry.id, `contract.administrative_entries[${index}].id`);
+    if (!(ADMIN_ENTRIES as readonly string[]).includes(id)) {
+      fail(`contract.administrative_entries[${index}].id "${id}" is not an administrative vNext entry`);
+    }
+    if (entryTemplates.has(id as AdminEntry)) fail(`duplicate administrative entry id "${id}"`);
+    if (entry.exposure !== 'admin') fail(`administrative entry "${id}" must have exposure admin`);
+    const expectedTemplate = `templates/vnext/skills/${id}.SKILL.md.tmpl`;
+    assertRelativePath(entry.template, expectedTemplate, `contract.administrative_entries[${index}].template`);
+    entryTemplates.set(id as AdminEntry, expectedTemplate);
+  }
+
+  for (const entry of ADMIN_ENTRIES) {
+    const templatePath = path.join(root, ...entryTemplates.get(entry)!.split('/'));
+    if (!fs.existsSync(templatePath)) fail(`missing template for ${entry}: ${templatePath}`);
+  }
   return entryTemplates;
 }
 
@@ -370,7 +459,7 @@ function validateRuntimeCatalog(contract: UnknownRecord, phase: 'Phase 1' | 'Pha
     expectStringArray(operation.write_targets, `Runtime operation "${id}".write_targets`);
     const callers = expectStringArray(operation.allowed_callers, `Runtime operation "${id}".allowed_callers`);
     for (const caller of callers) {
-      if (!(PHASE_1_ENTRIES as readonly string[]).includes(caller)) {
+      if (!(PHASE_1_ENTRIES as readonly string[]).includes(caller) && !(ADMIN_ENTRIES as readonly string[]).includes(caller)) {
         fail(`Runtime operation "${id}" has a non-Phase-1 caller "${caller}"`);
       }
     }
@@ -531,12 +620,80 @@ function validateTemplate(
   }
 }
 
+function validateAdministrativeTemplate(
+  root: string,
+  entry: AdminEntry,
+  templateRelativePath: string,
+  capabilities: Set<string>,
+  runtimeOperations: Map<string, UnknownRecord>,
+  legacySkillNames: readonly string[],
+): void {
+  const templatePath = path.join(root, ...templateRelativePath.split('/'));
+  const content = fs.readFileSync(templatePath, 'utf8');
+  const { frontmatter } = readStrictFrontmatter(templatePath);
+  expectExactKeys(frontmatter, ['entry_contract'], `${entry} frontmatter`);
+  for (const forbidden of FORBIDDEN_TOP_LEVEL_FIELDS) {
+    if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
+  }
+  validateLegacyExecutableTargets(content, entry as Phase1Entry, legacySkillNames);
+
+  const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
+  expectExactKeys(
+    contract,
+    ['entry', 'mode', 'intent', 'input_contract', 'authority_owner', 'mutation_boundary', 'internal_capabilities', 'runtime_operations', 'stop_conditions', 'output_kind'],
+    `${entry}.entry_contract`,
+  );
+  if (contract.entry !== entry) fail(`${entry}.entry_contract.entry must be "${entry}"`);
+  expectSetEqual(
+    expectStringArray(contract.mode, `${entry}.entry_contract.mode`, true),
+    ADMIN_MODES[entry],
+    `${entry}.entry_contract.mode`,
+  );
+  expectString(contract.intent, `${entry}.entry_contract.intent`);
+  const input = expectRecord(contract.input_contract, `${entry}.entry_contract.input_contract`);
+  expectExactKeys(input, ['required', 'optional'], `${entry}.entry_contract.input_contract`);
+  expectStringArray(input.required, `${entry}.entry_contract.input_contract.required`);
+  expectStringArray(input.optional, `${entry}.entry_contract.input_contract.optional`, true);
+  if (contract.authority_owner !== 'user') fail(`${entry}.entry_contract.authority_owner must be "user"`);
+
+  const boundary = expectRecord(contract.mutation_boundary, `${entry}.entry_contract.mutation_boundary`);
+  expectExactKeys(boundary, ['product_files', 'governance_sources', 'forbidden_targets'], `${entry}.mutation_boundary`);
+  if (expectStringArray(boundary.product_files, `${entry}.mutation_boundary.product_files`, true).length > 0) {
+    fail(`${entry} must not directly write product files`);
+  }
+  if (expectStringArray(boundary.governance_sources, `${entry}.mutation_boundary.governance_sources`, true).length > 0) {
+    fail(`${entry} must not directly write governance sources`);
+  }
+  expectStringArray(boundary.forbidden_targets, `${entry}.mutation_boundary.forbidden_targets`);
+
+  const capabilityRefs = expectStringArray(contract.internal_capabilities, `${entry}.entry_contract.internal_capabilities`);
+  for (const capability of capabilityRefs) {
+    if (!capabilities.has(capability)) fail(`${entry} references missing capability "${capability}"`);
+  }
+  for (const requiredCapability of REQUIRED_ADMIN_ENTRY_CAPABILITIES[entry] ?? []) {
+    if (!capabilityRefs.includes(requiredCapability)) {
+      fail(`${entry} must declare mandatory capability "${requiredCapability}"`);
+    }
+  }
+  const runtimeRefs = expectStringArray(contract.runtime_operations, `${entry}.entry_contract.runtime_operations`);
+  expectSetEqual(runtimeRefs, EXPECTED_ADMIN_RUNTIME_OPERATIONS[entry], `${entry}.entry_contract.runtime_operations`);
+  for (const operation of runtimeRefs) {
+    const metadata = runtimeOperations.get(operation);
+    if (!metadata || metadata.status !== 'bound' || metadata.binding !== 'vnext-runtime' || metadata.implementation_phase !== 'Phase 2') {
+      fail(`${entry} references Runtime operation "${operation}" outside the Phase 2 bootstrap boundary`);
+    }
+  }
+  expectStringArray(contract.stop_conditions, `${entry}.entry_contract.stop_conditions`);
+  if (contract.output_kind !== 'bootstrap-result') fail(`${entry}.entry_contract.output_kind must be "bootstrap-result"`);
+}
+
 export function validateVNextSource(root = resolveRoot()): VNextSourceValidationResult {
   const resolvedRoot = path.resolve(root);
   const contractPath = path.join(resolvedRoot, ...VNEXT_SOURCE_CONTRACT_RELATIVE_PATH.split('/'));
   const sourceContract = readYamlMapping(contractPath);
   const phase = validateSourceNamespace(sourceContract);
   const entryTemplates = validateCatalogEntries(resolvedRoot, sourceContract);
+  const administrativeTemplates = validateAdministrativeCatalog(resolvedRoot, sourceContract);
   const capabilityIds = validateCapabilityCatalog(sourceContract);
   const runtimeOperations = validateRuntimeCatalog(sourceContract, phase);
   const legacySkillNames = readLegacySkillNames(resolvedRoot);
@@ -551,10 +708,21 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
       legacySkillNames,
     );
   }
+  for (const entry of ADMIN_ENTRIES) {
+    validateAdministrativeTemplate(
+      resolvedRoot,
+      entry,
+      administrativeTemplates.get(entry)!,
+      capabilityIds,
+      runtimeOperations,
+      legacySkillNames,
+    );
+  }
 
   return {
     phase,
     entries: [...PHASE_1_ENTRIES],
+    administrativeEntries: [...ADMIN_ENTRIES],
     capabilities: [...capabilityIds].sort(),
     runtimeOperations: [...runtimeOperations.keys()].sort(),
     legacySkillNames,

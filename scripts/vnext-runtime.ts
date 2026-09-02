@@ -9,6 +9,7 @@
  */
 
 export * from '../runtime/vnext/src/kernel';
+export * from '../runtime/vnext/src/bootstrap';
 
 import { runCli } from '../runtime/vnext/src/kernel';
 

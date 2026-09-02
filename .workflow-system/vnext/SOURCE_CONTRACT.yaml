@@ -33,6 +33,11 @@ entries:
     exposure: daily
     template: templates/vnext/skills/close-task.SKILL.md.tmpl
 
+administrative_entries:
+  - id: bootstrap-project
+    exposure: admin
+    template: templates/vnext/skills/bootstrap-project.SKILL.md.tmpl
+
 capabilities:
   - id: project-context-resolver
     exposure: internal
@@ -394,6 +399,40 @@ capabilities:
       - unresolved blocker is being presented as completion
       - identity, archive path, or remaining risk cannot be verified
 
+  - id: host-isolation-guard
+    exposure: internal
+    trigger:
+      - bootstrap or synchronization may touch a host guidance or Skill surface
+    input_contract:
+      - target host and paired guidance paths
+      - target-owned, native, frozen, and workflow-owned asset classification
+      - explicit host selection and conflict evidence
+    output_contract:
+      - isolated host mutation plan
+      - preserved native/user-owned content
+      - conflict or stop result for ambiguous ownership
+    stop_conditions:
+      - host ownership cannot be established
+      - a native or frozen asset would be overwritten
+      - paired host guidance would become semantically divergent
+
+  - id: generation-atomicity-policy
+    exposure: internal
+    trigger:
+      - bootstrap or synchronization generates more than one governed asset
+    input_contract:
+      - source artifact identity and generated target set
+      - staging, validation, promotion, and rollback boundary
+      - post-promotion read-back checks
+    output_contract:
+      - deterministic generated asset set
+      - all-or-nothing promotion decision
+      - read-back evidence and explicit recovery marker when interrupted
+    stop_conditions:
+      - generated output is stale, incomplete, or conflicting
+      - validation cannot run before promotion
+      - rollback or interruption state cannot be identified
+
 runtime_operations:
   - id: task-state-transaction
     status: bound
@@ -485,10 +524,17 @@ runtime_operations:
       - STATUS
     allowed_callers:
       - close-task
+      - bootstrap-project
     bound_callers:
       - close-task
+      - bootstrap-project
     bound_actions:
       - close-task:default:sync
+      - bootstrap-project:design:status
+      - bootstrap-project:greenfield:status
+      - bootstrap-project:inventory:status
+      - bootstrap-project:adopt:status
+      - bootstrap-project:realign:status
 
   - id: archive-transaction
     status: bound
@@ -523,3 +569,58 @@ runtime_operations:
       - close-task
     bound_actions:
       - close-task:default:record
+
+  - id: contract-candidate-commit
+    status: bound
+    binding: vnext-runtime
+    implementation_phase: Phase 2
+    source_targets:
+      - source-authority evidence
+      - existing CONTRACTS.md when present
+    write_targets:
+      - CONTRACTS.md
+    allowed_callers:
+      - bootstrap-project
+    bound_callers:
+      - bootstrap-project
+    bound_actions:
+      - bootstrap-project:greenfield:contract
+      - bootstrap-project:adopt:contract
+      - bootstrap-project:realign:contract
+
+  - id: decision-record-transaction
+    status: bound
+    binding: vnext-runtime
+    implementation_phase: Phase 2
+    source_targets:
+      - source-authority evidence
+      - existing DECISIONS.md when present
+    write_targets:
+      - DECISIONS.md
+    allowed_callers:
+      - bootstrap-project
+    bound_callers:
+      - bootstrap-project
+    bound_actions:
+      - bootstrap-project:design:decision
+      - bootstrap-project:greenfield:decision
+      - bootstrap-project:inventory:decision
+      - bootstrap-project:adopt:decision
+      - bootstrap-project:realign:decision
+
+  - id: paired-host-guidance-transaction
+    status: bound
+    binding: vnext-runtime
+    implementation_phase: Phase 2
+    source_targets:
+      - target host guidance
+    write_targets:
+      - paired host guidance
+    allowed_callers:
+      - bootstrap-project
+    bound_callers:
+      - bootstrap-project
+    bound_actions:
+      - bootstrap-project:greenfield:host-guidance
+      - bootstrap-project:adopt:host-guidance
+      - bootstrap-project:realign:host-guidance

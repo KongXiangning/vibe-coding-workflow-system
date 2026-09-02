@@ -359,3 +359,153 @@ operations:
 
 unbound_operations:
   - inbox-record-transaction
+
+bootstrap_project:
+  schema_version: 1
+  kind: vnext-bootstrap-runtime-contract
+  caller:
+    - bootstrap-project
+  modes:
+    - design
+    - greenfield
+    - inventory
+    - adopt
+    - realign
+  required_envelope:
+    - authority_evidence
+    - semantic_operations
+    - preconditions
+    - evidence_refs
+    - idempotency_key
+    - requested_write_targets
+    - requested_directory_targets
+    - changed_paths
+    - scope_document
+    - conditional_authorizations
+    - transformation_kind
+    - assets
+  mutation_scope:
+    status: bound
+    binding: vnext-runtime-read-only
+    source: bootstrap proposal.scope_document
+    default_write_policy: deny
+    conditional_expansion_requires: evidence-and-authority
+    read_discovery_is_not_write_authority: true
+    check_command: shared-mutation-scope-evaluator
+    input:
+      required:
+        - explicit_changed_paths
+        - conditional_authorizations_with_evidence_and_authority
+        - transformation_kind
+    output:
+      required:
+        - per-path-admission-and-blocker
+        - source-revision
+  asset_boundary:
+    allowed_roots:
+      - .workflow-system/
+      - docs/workflow/
+      - docs/designs/
+      - docs/adoption/
+      - selected host Skill directory
+      - paired host guidance files
+    forbidden_targets:
+      - .git/
+      - product source directories
+      - package manifests at project root
+      - native or user-owned host assets
+      - paths outside the generated bootstrap set
+    generated_categories:
+      - protocol
+      - schema
+      - skill
+      - runtime
+      - config
+      - generated
+      - governance
+  operations:
+    - id: contract-candidate-commit
+      status: bound
+      binding: vnext-runtime
+      operation: contract-candidate-commit
+      source_targets:
+        - source-authority evidence
+        - existing CONTRACTS.md when present
+      write_targets:
+        - CONTRACTS.md
+      allowed_callers:
+        - bootstrap-project
+      result_states:
+        - success
+        - no-op
+        - conflict
+        - blocked
+      atomic: true
+      idempotence: fail-closed
+      conflict_policy: fail-closed
+    - id: decision-record-transaction
+      status: bound
+      binding: vnext-runtime
+      operation: decision-record-transaction
+      source_targets:
+        - source-authority evidence
+        - existing DECISIONS.md when present
+      write_targets:
+        - DECISIONS.md
+      allowed_callers:
+        - bootstrap-project
+      result_states:
+        - success
+        - no-op
+        - conflict
+        - blocked
+      atomic: true
+      idempotence: fail-closed
+      conflict_policy: fail-closed
+    - id: project-status-transaction
+      status: bound
+      binding: vnext-runtime
+      operation: project-status-transaction
+      source_targets:
+        - STATUS.md
+      write_targets:
+        - STATUS.md
+      allowed_callers:
+        - bootstrap-project
+      result_states:
+        - success
+        - no-op
+        - conflict
+        - blocked
+      atomic: true
+      idempotence: fail-closed
+      conflict_policy: fail-closed
+    - id: paired-host-guidance-transaction
+      status: bound
+      binding: vnext-runtime
+      operation: paired-host-guidance-transaction
+      source_targets:
+        - target host guidance
+      write_targets:
+        - paired host guidance
+      allowed_callers:
+        - bootstrap-project
+      result_states:
+        - success
+        - no-op
+        - conflict
+        - blocked
+      atomic: true
+      idempotence: fail-closed
+      conflict_policy: fail-closed
+  recovery:
+    marker: .workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json
+    interrupted: fail-closed-explicit-recovery
+    rollback: verify-pre-bootstrap-snapshot-before-marker-clear
+  read_back:
+    required:
+      - asset-checksums
+      - project-identity
+      - runtime-contract
+      - canonical-CURRENT_TASK
+      - host-isolation

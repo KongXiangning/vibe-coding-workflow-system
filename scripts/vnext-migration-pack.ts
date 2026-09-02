@@ -81,6 +81,7 @@ const VNEXT_REQUIRED_DAILY_ENTRIES = [
   'capture-work-item',
   'close-task',
 ] as const;
+const VNEXT_REQUIRED_ADMIN_ENTRIES = ['bootstrap-project'] as const;
 // The old public surface is deliberately kept as a closed list at the
 // migration boundary.  Target projects normally provide the same names in
 // `templates/skills`, but bundle validation must still reject legacy routes
@@ -661,6 +662,32 @@ export function computeTreeHash(root: string, ignoredRelativePaths: readonly str
   return hash.digest('hex');
 }
 
+/**
+ * Bootstrap rollback snapshots must include the promoted Runtime `dist/` and
+ * locked dependency tree. The source/migration identity hash intentionally
+ * excludes those generated directories, so keep this stricter snapshot
+ * separate from computeTreeHash rather than changing existing migration
+ * identity semantics.
+ */
+export function computeCompleteTreeHash(root: string, ignoredRelativePaths: readonly string[] = []): string {
+  const resolvedRoot = path.resolve(root);
+  const files = listFiles(resolvedRoot, { skipDirectories: new Set(['.git', '.tmp']) });
+  const ignored = new Set(ignoredRelativePaths.map(relativePath => normalizeRepoPath(relativePath, 'complete tree hash ignored path')));
+  const hash = crypto.createHash('sha256');
+  for (const filePath of files) {
+    const relative = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+    if (ignored.has(relative)) continue;
+    const content = fs.readFileSync(filePath);
+    hash.update(relative);
+    hash.update('\0');
+    hash.update(String(content.byteLength));
+    hash.update('\0');
+    hash.update(sha256(content));
+    hash.update('\n');
+  }
+  return hash.digest('hex');
+}
+
 export function getSourceIdentity(sourceRoot = resolveRoot()): SourceIdentity {
   const rootPath = normalizeAbsoluteRootPath(sourceRoot);
   const treeHash = computeTreeHash(rootPath);
@@ -1032,7 +1059,7 @@ function readFreezeFiles(targetRoot: string): string[] {
   ].filter(filePath => fs.existsSync(filePath)).flatMap(filePath => fs.readFileSync(filePath, 'utf8').split(/\r?\n/));
 }
 
-function isFrozenPath(targetRoot: string, relativePath: string): boolean {
+export function isFrozenPath(targetRoot: string, relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/');
   const registryLines = readFreezeFiles(targetRoot);
   if (registryLines.some(line => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/i.test(line))) return true;
@@ -2069,6 +2096,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
   'capture-work-item': [],
   'close-task': ['preview'],
+  'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign'],
 };
 const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'prepare-task': 'prepared-task',
@@ -2078,6 +2106,7 @@ const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'task-lifecycle': 'lifecycle-result',
   'capture-work-item': 'capture-result',
   'close-task': 'closure-result',
+  'bootstrap-project': 'bootstrap-result',
 };
 const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'prepare-task': 'user',
@@ -2087,6 +2116,7 @@ const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'task-lifecycle': 'task',
   'capture-work-item': 'none',
   'close-task': 'task',
+  'bootstrap-project': 'user',
 };
 const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
@@ -2096,6 +2126,7 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
   'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction'],
+  'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'paired-host-guidance-transaction'],
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
   'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy'],
@@ -2248,6 +2279,7 @@ const REQUIRED_RUNTIME_BUNDLE_TARGETS = [
   '.workflow-system/runtime/src/kernel.ts',
   '.workflow-system/runtime/src/runtime-io.ts',
   '.workflow-system/runtime/src/task-identity.ts',
+  '.workflow-system/runtime/src/bootstrap.ts',
 ] as const;
 
 function parseRuntimeBundleJson(content: string, location: string): Record<string, unknown> {
@@ -2470,6 +2502,12 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
     const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
     if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required daily entry Skill ${entry}.SKILL.md.`);
   }
+  if (sourceDeclaresPhase2Runtime(sourceRoot)) {
+    for (const entry of VNEXT_REQUIRED_ADMIN_ENTRIES) {
+      const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
+      if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `Phase 2 vNext bundle is missing required administrative Skill ${entry}.SKILL.md.`);
+    }
+  }
   return { schema_version: VNEXT_BUNDLE_SCHEMA_VERSION, kind: VNEXT_BUNDLE_KIND, bundle_id: bundleId, status: 'validated', legacy_compatibility: 'absent', source, artifacts };
 }
 
@@ -2515,14 +2553,14 @@ function readBundleContent(bundleDir: string, artifact: VNextBundleArtifact): st
 }
 
 
-type PreparedRuntimeDistribution = {
+export type PreparedRuntimeDistribution = {
   sourceNodeModulesPath: string;
   targetNodeModulesPath: string;
   identity: RuntimeDistributionIdentity;
   stagingRoot: string;
 };
 
-function prepareRuntimeDistribution(bundleDir: string, artifacts: readonly VNextBundleArtifact[]): PreparedRuntimeDistribution {
+export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonly VNextBundleArtifact[]): PreparedRuntimeDistribution {
   const stagingRoot = fs.mkdtempSync(path.join(os.tmpdir(), '.workflow-vnext-runtime-stage-'));
   try {
     const stageRoot = path.join(stagingRoot, 'project');
@@ -2538,6 +2576,7 @@ function prepareRuntimeDistribution(bundleDir: string, artifacts: readonly VNext
       '.workflow-system/runtime/src/kernel.ts',
       '.workflow-system/runtime/src/runtime-io.ts',
       '.workflow-system/runtime/src/task-identity.ts',
+      '.workflow-system/runtime/src/bootstrap.ts',
       '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
     ];
     for (const targetPath of requiredTargets) {
@@ -2772,7 +2811,7 @@ function validateVNextMigrationReceipt(value: unknown, location: string): { migr
 
 type AtomicDirectoryWrite = { path: string; sourcePath: string };
 
-function applyAtomicFileTransaction(
+export function applyAtomicFileTransaction(
   targetRoot: string,
   writes: AtomicWrite[],
   deletes: string[],

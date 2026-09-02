@@ -230,6 +230,11 @@ above and must not add a Test Skill / registry / state machine, ACL subsystem,
 `review-step` / `advance-step` public surface, or a mandatory full review after
 every step.
 
+Implementation status: Core Daily Execution Semantics Stabilization is complete
+and its §6.4 daily-loop gate is PASS. `bootstrap-project` is also implemented
+and has passed its dedicated disposable-project E2E verification; the remaining
+expert / internal / intake surfaces remain outside this boundary.
+
 The successful `close-task` boundary is frozen separately from the Slice B
 replan boundary: `active + active` passes closure eligibility, then
 closure preparation evaluates knowledge admission (`admit` / `defer` / `no-op`),
@@ -323,6 +328,9 @@ prefer real business behavior, and must not be implemented by adding a Test
 Runtime, Test Skill, test registry, independent test state machine, ACL subsystem,
 or public `advance-step` / `review-step` surface.
 
+Gate result: **PASS**. The verified daily loop is complete through close-task;
+the next implementation boundary was `bootstrap-project`.
+
 ## 7. Explicitly removed from the product architecture
 
 The following are not migration features or rollout goals:
@@ -348,28 +356,25 @@ Slice A lifecycle
 Slice B supersede / same-task replan
 close-task design + implementation
 three daily-execution semantics docs-only design freeze
+three daily-execution semantics implementation + §6.4 E2E verification
+bootstrap-project implementation + E2E verification
 ```
 
 The current implementation boundary is:
 
 ```text
-Core Daily Execution Semantics Stabilization
-        ↓
-daily-loop end-to-end verification
-        ↓
-bootstrap-project
-        ↓
 remaining expert / internal / intake surfaces
 ```
 
-Core Daily Execution Semantics Stabilization implements the three frozen daily
+Core Daily Execution Semantics Stabilization implemented the three frozen daily
 execution semantics: Evidence-first / Persistent Test Admission,
 Mutation-oriented Scope, and Task / Step / Review Checkpoint / Repair / Step
-Advancement.
+Advancement. The §6.4 daily-loop gate and the `bootstrap-project` boundary have
+both passed their required verification.
 
-The frozen semantics are a Phase 2 completion / stabilization boundary and are
-not an optional future follow-up. They must be implemented before
-`bootstrap-project`, without mixing in the existing Runtime robustness backlog.
+The frozen semantics remain a Phase 2 completion / stabilization boundary and
+were completed before `bootstrap-project`, without mixing in the existing
+Runtime robustness backlog.
 
 Do not add legacy-aware vNext readers, runtime hot migration, a long-lived
 compatibility surface, or a new public daily entry / mode for this work.

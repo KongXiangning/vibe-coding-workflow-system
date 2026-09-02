@@ -72,13 +72,17 @@ describe('vNext Phase 2 source contract', () => {
       'capture-work-item',
       'close-task',
     ]);
-    expect(result.capabilities).toHaveLength(23);
+    expect(result.administrativeEntries).toEqual(['bootstrap-project']);
+    expect(result.capabilities).toHaveLength(25);
     expect(result.runtimeOperations).toEqual([
       'archive-transaction',
+      'contract-candidate-commit',
+      'decision-record-transaction',
       'finding-queue-transaction',
       'inbox-record-transaction',
       'lesson-record-transaction',
       'lifecycle-transaction',
+      'paired-host-guidance-transaction',
       'project-status-transaction',
       'task-state-transaction',
     ]);
