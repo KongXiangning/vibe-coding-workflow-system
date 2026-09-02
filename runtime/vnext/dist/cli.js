@@ -1857,9 +1857,9 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(closeTaskContract.terminal_to, "Runtime contract close-task terminal_to"), ["closed + archived"], "Runtime contract close-task terminal_to");
   expectSetEqual(expectStringArray2(closeTaskContract.lesson_admission, "Runtime contract close-task lesson_admission"), ["admit", "defer", "no-op"], "Runtime contract close-task lesson admission");
   const lessonMarkerContract = expectRecord2(proposal.lesson_marker, "Runtime contract.proposal.lesson_marker");
-  expectExactKeys2(lessonMarkerContract, ["contract", "marker_version_field", "support_boundary", "persisted", "reused", "unsupported_transitional_fields", "unsupported_behavior", "migration_source"], "Runtime contract.proposal.lesson_marker");
-  if (lessonMarkerContract.contract !== "vnext-lesson-marker/canonical-v1" || lessonMarkerContract.marker_version_field !== "absent" || lessonMarkerContract.support_boundary !== "development-only" || lessonMarkerContract.unsupported_behavior !== "fail-closed-without-reinterpretation" || lessonMarkerContract.migration_source !== "none") {
-    fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract lesson marker must expose only the current development-only canonical shape.");
+  expectExactKeys2(lessonMarkerContract, ["contract", "marker_version_field", "noncanonical_behavior", "persisted", "reused"], "Runtime contract.proposal.lesson_marker");
+  if (lessonMarkerContract.contract !== "vnext-lesson-marker/canonical-v1" || lessonMarkerContract.marker_version_field !== "absent" || lessonMarkerContract.noncanonical_behavior !== "fail-closed") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract lesson marker must expose the canonical closed schema.");
   }
   const persistedLessonMarker = expectRecord2(lessonMarkerContract.persisted, "Runtime contract.proposal.lesson_marker.persisted");
   expectExactKeys2(persistedLessonMarker, ["fields", "disposition"], "Runtime contract.proposal.lesson_marker.persisted");
@@ -1872,7 +1872,6 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (reusedLessonMarker.disposition !== "reused")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract reused Lesson markers must use disposition=reused.");
   expectSetEqual(expectStringArray2(reusedLessonMarker.reused_candidate_fields, "Runtime contract.proposal.lesson_marker.reused.reused_candidate_fields"), ["task_id", "document_id", "archive_revision", "candidate_ref"], "Runtime contract reused Lesson candidate identity fields");
-  expectSetEqual(expectStringArray2(lessonMarkerContract.unsupported_transitional_fields, "Runtime contract.proposal.lesson_marker.unsupported_transitional_fields"), ["disposition:persisted", "reused_candidate_ref"], "Runtime contract unsupported transitional Lesson marker fields");
   const mutationScopeContract = expectRecord2(contract.mutation_scope, "Runtime contract.mutation_scope");
   expectExactKeys2(mutationScopeContract, ["status", "binding", "source", "buckets", "default_write_policy", "read_discovery_is_not_write_authority", "ordinary_write_scope", "broad_glob_requires", "conditional_expansion_requires", "changed_goal_scope_acceptance", "check_command", "input", "output"], "Runtime contract.mutation_scope");
   if (mutationScopeContract.status !== "bound" || mutationScopeContract.binding !== "vnext-runtime-read-only" || mutationScopeContract.source !== "CURRENT_TASK.md" || mutationScopeContract.default_write_policy !== "deny" || mutationScopeContract.read_discovery_is_not_write_authority !== true || mutationScopeContract.ordinary_write_scope !== "exact-file-or-file-plus-symbol" || mutationScopeContract.broad_glob_requires !== "inherently-broad-transformation" || mutationScopeContract.conditional_expansion_requires !== "evidence-and-authority" || mutationScopeContract.changed_goal_scope_acceptance !== "supersede-or-replan" || mutationScopeContract.check_command !== "scope-check") {
@@ -4616,6 +4615,24 @@ function renderLessonMarker(candidate, archive) {
     evidence_refs: candidate.evidence_refs
   })} -->`;
 }
+function expectLessonRecord(value, location) {
+  if (!isRecord2(value))
+    fail2("LESSON_INVALID", `${location} is not a canonical Lesson marker mapping.`);
+  return value;
+}
+function expectLessonExactKeys(value, expected, location) {
+  const expectedSet = new Set(expected);
+  const missing = expected.filter((key) => !(key in value));
+  const extra = Object.keys(value).filter((key) => !expectedSet.has(key));
+  if (missing.length === 0 && extra.length === 0)
+    return;
+  const details = [];
+  if (missing.length > 0)
+    details.push(`missing=[${missing.join(", ")}]`);
+  if (extra.length > 0)
+    details.push(`unsupported Lesson marker field(s)=[${extra.join(", ")}]`);
+  fail2("LESSON_INVALID", `${location} is a non-canonical Lesson marker (${details.join("; ")}).`);
+}
 function expectLessonString(value, location, pattern) {
   if (typeof value !== "string" || value.trim().length === 0) {
     fail2("LESSON_INVALID", `${location} must be a non-empty string.`);
@@ -4670,24 +4687,21 @@ function readLessonMarkers(content, location) {
     } catch {
       fail2("LESSON_INVALID", `${location} contains an invalid vNext lesson provenance marker.`);
     }
-    const record = expectRecord2(parsed, `${location}.lesson_marker`);
-    if ("reused_candidate_ref" in record || record.disposition === "persisted") {
-      fail2("LESSON_INVALID", `${location}.lesson_marker uses the unsupported development-only Round 2 marker shape; Runtime does not reinterpret or migrate it.`);
-    }
+    const record = expectLessonRecord(parsed, `${location}.lesson_marker`);
     const hasDisposition = "disposition" in record;
     if (hasDisposition) {
       if (record.disposition !== "reused") {
-        fail2("LESSON_INVALID", `${location}.lesson_marker contains an invalid or non-canonical disposition: ${String(record.disposition)}.`);
+        fail2("LESSON_INVALID", `${location}.lesson_marker has an invalid Lesson marker disposition: ${String(record.disposition)}.`);
       }
-      expectExactKeys2(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs", "disposition", "reused_candidate"], `${location}.lesson_marker`);
+      expectLessonExactKeys(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs", "disposition", "reused_candidate"], `${location}.lesson_marker`);
     } else {
-      expectExactKeys2(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs"], `${location}.lesson_marker`);
+      expectLessonExactKeys(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs"], `${location}.lesson_marker`);
     }
-    const archiveRevision = expectString2(record.archive_revision, `${location}.lesson_marker.archive_revision`);
-    const sourceRevision = expectString2(record.source_revision, `${location}.lesson_marker.source_revision`);
-    const candidateDigest = expectString2(record.candidate_digest, `${location}.lesson_marker.candidate_digest`);
+    const archiveRevision = expectLessonString(record.archive_revision, `${location}.lesson_marker.archive_revision`);
+    const sourceRevision = expectLessonString(record.source_revision, `${location}.lesson_marker.source_revision`);
+    const candidateDigest = expectLessonString(record.candidate_digest, `${location}.lesson_marker.candidate_digest`);
     if (!SHA256_PATTERN2.test(archiveRevision) || !SHA256_PATTERN2.test(sourceRevision) || !SHA256_PATTERN2.test(candidateDigest)) {
-      fail2("LESSON_INVALID", `${location} lesson provenance marker has an invalid revision or digest.`);
+      fail2("LESSON_INVALID", `${location} contains a non-canonical Lesson marker revision or digest.`);
     }
     const candidateIdentity = validateLessonCandidateKey(record, `${location}.lesson_marker`);
     const taskSlug = validateLessonTaskSlug(record.task_slug, `${location}.lesson_marker.task_slug`);
@@ -4695,7 +4709,7 @@ function readLessonMarkers(content, location) {
       task_id: candidateIdentity.task_id,
       task_slug: taskSlug,
       document_id: candidateIdentity.document_id,
-      archive_path: normalizeRepoPath2(expectString2(record.archive_path, `${location}.lesson_marker.archive_path`), `${location}.lesson_marker.archive_path`),
+      archive_path: normalizeRepoPath2(expectLessonString(record.archive_path, `${location}.lesson_marker.archive_path`), `${location}.lesson_marker.archive_path`),
       archive_revision: candidateIdentity.archive_revision,
       source_revision: sourceRevision,
       candidate_ref: candidateIdentity.candidate_ref,
@@ -4707,7 +4721,7 @@ function readLessonMarkers(content, location) {
         fail2("LESSON_INVALID", `${location}.lesson_marker.reused_candidate must be a mapping.`);
       }
       const reusedRecord = record.reused_candidate;
-      expectExactKeys2(reusedRecord, ["task_id", "document_id", "archive_revision", "candidate_ref"], `${location}.lesson_marker.reused_candidate`);
+      expectLessonExactKeys(reusedRecord, ["task_id", "document_id", "archive_revision", "candidate_ref"], `${location}.lesson_marker.reused_candidate`);
       marker.disposition = "reused";
       marker.reused_candidate = validateLessonCandidateKey(reusedRecord, `${location}.lesson_marker.reused_candidate`);
     }

@@ -386,19 +386,19 @@ lesson text, satisfying the reconciliation gate. The old task archive is immutab
 creating the next task writes only the single canonical `CURRENT_TASK.md` and never
 edits, deletes, or resets the previous archive.
 
-The current durable Lesson marker is the closed
+The first supported durable Lesson marker contract is the closed
 `vnext-lesson-marker/canonical-v1` shape under the vNext Runtime/File Schema
 `schema_version: 1` boundary. It has no independent marker version field: a
 persisted marker omits `disposition`, while a reused marker requires
 `disposition: reused` and an exact four-coordinate `reused_candidate`. The
-Runtime validates `task_id`, `task_slug`, `document_id`, `archive_revision`, and
-`candidate_ref` with the canonical field validators shared by persisted and
-reused identities. The `3ffe582f` `reused_candidate_ref` / evidence-inclusive
-digest form was development-only and never became a supported durable schema or
-migration source. It is rejected as `LESSON_INVALID` or
-`LESSON_PROVENANCE_MISMATCH`; vNext does not silently reinterpret it. Any future
-support for a released old marker must arrive through an explicit offline
-migration boundary before the reader accepts that shape.
+Runtime validates the Candidate Identity fields with one shared canonical
+validator and validates the top-level `task_slug` with the canonical task-slug
+validator. Unknown or missing fields and invalid disposition values are
+`LESSON_INVALID`; a digest or visible provenance mismatch is
+`LESSON_PROVENANCE_MISMATCH`. Non-canonical durable state is never guessed or
+silently reinterpreted. If a future released supported durable schema changes
+incompatibly, an explicit schema-evolution / offline-migration boundary must
+be defined before ordinary Runtime readers accept the new shape.
 
 Newly created or refined ordinary drafts use strict step admission: every
 independently verifiable implementation step must carry complete metadata (stable ID,

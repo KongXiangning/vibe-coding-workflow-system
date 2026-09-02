@@ -337,21 +337,20 @@ The implemented Phase 2 / Slice A / Slice B / Slice C / close-task boundaries ad
 - dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for the single-file, lifecycle, and ordinary draft transactions;
 - `execute-step` does not report a governance write unless the corresponding Runtime result is `success`.
 
-### 6.3.1 Durable Lesson marker compatibility boundary
+### 6.3.1 Durable Lesson marker canonical contract
 
-当前仓库证据将 `3ffe582f` 的 Lesson marker 判定为
-development-only transitional schema，而不是 supported migration source：根
-package 与 project-local Runtime package 都是 `0.14.5` 且 `private: true`，
-`3ffe582f` 与当前 `da472f2a` 均没有 release tag；现有 Migration Pack 只
-负责 idle old project 的一次性离线结构转换，不声明或执行 Lesson marker
-版本迁移。因而当前 vNext Runtime/File Schema `schema_version: 1` 只接受
-`vnext-lesson-marker/canonical-v1` 的 persisted/reused closed shapes。
+`vnext-lesson-marker/canonical-v1` 是 vNext 第一个 supported durable Lesson
+marker contract。`schema_version: 1` 下，Runtime 只接受 persisted 与 reused
+两种 canonical closed shape：前者省略 `disposition`，后者使用
+`disposition: reused` 及精确四坐标的 `reused_candidate`。Candidate Identity
+与顶层 `task_slug` 使用统一的严格字段校验，Semantic Identity 继续由 7-field
+digest 表达，证据仅属于 provenance。
 
-旧的 `reused_candidate_ref`、显式 `disposition: persisted` 和旧的
-evidence-inclusive digest 不得由普通 Runtime 猜测或静默改写；它们必须
-fail closed。若未来发布版本确实可能持久化旧 marker，发布前必须新增独立
-的 offline migration source、精确四坐标解析、语义 digest 重算、歧义阻断
-以及 replay/idempotence 证明；不得把两套 marker 语义长期并入普通 reader。
+未知或缺失字段、非 canonical disposition 必须 fail closed；digest 或 visible
+provenance 不一致必须报告 provenance mismatch。未来如果已经发布且被真实
+项目持久化的 supported durable schema 发生不兼容变化，必须先定义显式
+schema-evolution / offline-migration boundary；普通 Runtime reader 不得猜测
+或 silent reinterpret 非 canonical durable state。
 
 ### 6.4 Core Daily Execution Semantics completion gate
 

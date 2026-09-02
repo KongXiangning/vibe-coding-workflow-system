@@ -2422,7 +2422,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(result.code).toBe('RUNTIME_SCHEMA_INVALID');
   });
 
-  test('Finding 1: blocks new draft creation when previous task close reconciliation is incomplete', () => {
+  test('blocks new draft creation when previous task close reconciliation is incomplete', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -2493,7 +2493,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
   });
 
-  test('Finding 1: blocks new draft creation when admitted Lesson reconciliation is incomplete', () => {
+  test('blocks new draft creation when admitted Lesson reconciliation is incomplete', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -2566,7 +2566,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
   });
 
-  test('Finding 2: enforces confirmation authority binding to current task, document, and exact draft revision', () => {
+  test('enforces confirmation authority binding to current task, document, and exact draft revision', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -2689,7 +2689,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('active');
   });
 
-  test('Finding 3: enforces strict step admission and first admitted step on ordinary drafts', () => {
+  test('enforces strict step admission and first admitted step on ordinary drafts', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -2850,7 +2850,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(updateSkipResult.code).toBe('TASK_STEPS_INVALID');
   });
 
-  test('Finding 1 (Round 2): semantic-duplicate Lesson writes durable reuse proof without duplicate visible text and unblocks next draft', () => {
+  test('semantic-duplicate Lesson writes durable reuse proof without duplicate visible text and unblocks next draft', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3004,7 +3004,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('003');
   });
 
-  test('Finding 2 (Round 2): blocks new draft creation when previous STATUS receipt visible projection has drifted', () => {
+  test('blocks new draft creation when previous STATUS receipt visible projection has drifted', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3087,7 +3087,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
   });
 
-  test('Finding 3 (Round 2): validateVNextRuntimeContract machine-readably enforces reconciliation, step admission, and authority coordinates', () => {
+  test('validateVNextRuntimeContract machine-readably enforces reconciliation, step admission, and authority coordinates', () => {
     // Current live repository contract passes machine validation
     const valid = validateVNextRuntimeContract(ROOT);
     expect(valid.phase).toBe('Phase 2');
@@ -3113,7 +3113,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(validateVNextRuntimeContract(ROOT).phase).toBe('Phase 2');
   });
 
-  test('Round 3 A: cross-task candidate_ref collision resolves to exact target coordinates', () => {
+  test('cross-task candidate_ref collision resolves to exact target coordinates', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3265,7 +3265,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(record003!.marker.reused_candidate!.candidate_ref).toBe('lesson-1');
   });
 
-  test('Round 3 B: reuse target coordinate drift fails closed', () => {
+  test('reuse target coordinate drift fails closed', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3404,7 +3404,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => readDurableLessonRecords(tamperedDigest, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
   });
 
-  test('Round 3 C: same-proposal semantic duplicates produce single visible Lesson and exact reuse proof', () => {
+  test('same-proposal semantic duplicates produce single visible Lesson and exact reuse proof', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3499,7 +3499,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(lessonsContent);
   });
 
-  test('Round 3 D: same semantic content with different evidence_refs results in reuse while preserving evidence provenance', () => {
+  test('same semantic content with different evidence_refs results in reuse while preserving evidence provenance', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3578,16 +3578,50 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(betaRec!.marker.evidence_refs).toEqual(['test:evidence:beta']);
   });
 
-  test('Round 3 E: non-canonical persisted disposition fails closed as LESSON_INVALID', () => {
+  test('canonical Lesson markers reject unknown fields and invalid dispositions', () => {
     const root = makeRoot();
     const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
     const content = fs.readFileSync(lessonsPath, 'utf8');
-    const invalidMarker = '<!-- vNext lesson record: {"task_id":"001","task_slug":"test","document_id":"doc-111111111111111111111111","archive_path":"TASKS/TASK-001-test.md","archive_revision":"' + '1'.repeat(64) + '","source_revision":"' + '2'.repeat(64) + '","candidate_ref":"lesson-1","candidate_digest":"' + '3'.repeat(64) + '","evidence_refs":["test:evidence"],"disposition":"persisted"} -->';
-    const tampered = content.replace('## 通用', `## 通用\n\n${invalidMarker}\n- 场景：test\n  - 结论：test\n  - 触发信号：test\n  - 原因：test\n  - 应对动作：test\n  - 消费者：test\n  - 证据引用：["test:evidence"]`);
-    expect(() => readLessonMarkers(tampered, 'docs/workflow/LESSONS.md')).toThrow('LESSON_INVALID');
+    const validMarker = {
+      task_id: '001',
+      task_slug: 'test',
+      document_id: 'doc-111111111111111111111111',
+      archive_path: 'TASKS/TASK-001-test.md',
+      archive_revision: '1'.repeat(64),
+      source_revision: '2'.repeat(64),
+      candidate_ref: 'lesson-1',
+      candidate_digest: '3'.repeat(64),
+      evidence_refs: ['test:evidence'],
+    };
+    const renderMarker = (marker: Record<string, unknown>): string => `<!-- vNext lesson record: ${JSON.stringify(marker)} -->`;
+
+    const persistedUnknownField = () => readLessonMarkers(renderMarker({ ...validMarker, unexpected_field: true }), 'docs/workflow/LESSONS.md');
+    expect(persistedUnknownField).toThrow('LESSON_INVALID');
+    expect(persistedUnknownField).toThrow('unsupported Lesson marker field');
+
+    const reusedUnknownField = () => readLessonMarkers(renderMarker({
+      ...validMarker,
+      disposition: 'reused',
+      reused_candidate: {
+        task_id: '001',
+        document_id: validMarker.document_id,
+        archive_revision: validMarker.archive_revision,
+        candidate_ref: validMarker.candidate_ref,
+      },
+      unexpected_field: true,
+    }), 'docs/workflow/LESSONS.md');
+    expect(reusedUnknownField).toThrow('LESSON_INVALID');
+    expect(reusedUnknownField).toThrow('unsupported Lesson marker field');
+
+    const persistedDisposition = () => readLessonMarkers(renderMarker({ ...validMarker, disposition: 'persisted' }), 'docs/workflow/LESSONS.md');
+    expect(persistedDisposition).toThrow('LESSON_INVALID');
+    expect(persistedDisposition).toThrow('invalid Lesson marker disposition');
+    const archivedDisposition = () => readLessonMarkers(renderMarker({ ...validMarker, disposition: 'archived' }), 'docs/workflow/LESSONS.md');
+    expect(archivedDisposition).toThrow('LESSON_INVALID');
+    expect(archivedDisposition).toThrow('invalid Lesson marker disposition');
   });
 
-  test('Round 3 G: persisted and reused Candidate Identity fields use one strict validator', () => {
+  test('persisted and reused Candidate Identity fields use one strict validator', () => {
     const validMarker = {
       task_id: '001',
       task_slug: 'valid-task',
@@ -3625,72 +3659,55 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => readLessonMarkers(renderMarker({ ...validMarker, task_slug: 'Invalid_Slug' }), 'docs/workflow/LESSONS.md')).toThrow('LESSON_INVALID');
   });
 
-  test('Round 3 H: Round 2 Lesson markers are unsupported development-only state, never silently reinterpreted', () => {
+  test('canonical Lesson marker digest must match visible semantic content', () => {
     const root = makeRoot();
     const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
     const lessonsContent = fs.readFileSync(lessonsPath, 'utf8');
     const validMarker = {
       task_id: '001',
-      task_slug: 'old-round-two-task',
+      task_slug: 'canonical-digest-task',
       document_id: 'doc-111111111111111111111111',
-      archive_path: 'TASKS/TASK-001-old-round-two-task.md',
+      archive_path: 'TASKS/TASK-001-canonical-digest-task.md',
       archive_revision: 'a'.repeat(64),
       source_revision: 'b'.repeat(64),
-      candidate_ref: 'old-candidate',
+      candidate_ref: 'canonical-candidate',
       candidate_digest: 'c'.repeat(64),
       evidence_refs: ['test:evidence:lesson'],
     };
 
-    const oldReusedMarker = `<!-- vNext lesson record: ${JSON.stringify({
-      ...validMarker,
-      disposition: 'reused',
-      reused_candidate_ref: 'old-candidate',
-    })} -->`;
-    expect(() => readLessonMarkers(oldReusedMarker, 'docs/workflow/LESSONS.md')).toThrow('LESSON_INVALID');
-
-    const oldCandidate = {
+    const candidate = {
       category: '通用',
-      scene: 'Round 2 digest scene',
-      conclusion: 'The old digest included evidence.',
-      trigger: 'Reading a transitional marker',
-      cause: 'The marker had no independent version field.',
-      action: 'Fail closed until an explicit migration exists.',
+      scene: 'Canonical digest scene',
+      conclusion: 'Visible semantic content determines the digest.',
+      trigger: 'Reading a canonical marker',
+      cause: 'Digest provenance must be reproducible.',
+      action: 'Reject mismatched durable provenance.',
       consumer: 'lesson reader',
       evidence_refs: ['test:evidence:lesson'],
     };
-    const oldDigest = crypto.createHash('sha256').update(JSON.stringify({
-      action: oldCandidate.action,
-      cause: oldCandidate.cause,
-      category: oldCandidate.category,
-      consumer: oldCandidate.consumer,
-      conclusion: oldCandidate.conclusion,
-      evidence_refs: oldCandidate.evidence_refs,
-      scene: oldCandidate.scene,
-      trigger: oldCandidate.trigger,
-    })).digest('hex');
-    const oldPersistedMarker = `<!-- vNext lesson record: ${JSON.stringify({
+    const mismatchedMarker = `<!-- vNext lesson record: ${JSON.stringify({
       ...validMarker,
-      candidate_digest: oldDigest,
+      candidate_digest: 'd'.repeat(64),
     })} -->`;
-    const oldPersistedContent = lessonsContent.replace(
+    const mismatchedContent = lessonsContent.replace(
       '## 通用\n\n- none',
       [
         '## 通用',
         '',
-        oldPersistedMarker,
-        `- 场景：${oldCandidate.scene}`,
-        `  - 结论：${oldCandidate.conclusion}`,
-        `  - 触发信号：${oldCandidate.trigger}`,
-        `  - 原因：${oldCandidate.cause}`,
-        `  - 应对动作：${oldCandidate.action}`,
-        `  - 消费者：${oldCandidate.consumer}`,
-        `  - 证据引用：${JSON.stringify(oldCandidate.evidence_refs)}`,
+        mismatchedMarker,
+        `- 场景：${candidate.scene}`,
+        `  - 结论：${candidate.conclusion}`,
+        `  - 触发信号：${candidate.trigger}`,
+        `  - 原因：${candidate.cause}`,
+        `  - 应对动作：${candidate.action}`,
+        `  - 消费者：${candidate.consumer}`,
+        `  - 证据引用：${JSON.stringify(candidate.evidence_refs)}`,
       ].join('\n'),
     );
-    expect(() => readDurableLessonRecords(oldPersistedContent, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
+    expect(() => readDurableLessonRecords(mismatchedContent, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
   });
 
-  test('Round 3 F: combined proposal replay is strictly idempotent no-op with identical file bytes', () => {
+  test('combined proposal replay is strictly idempotent no-op with identical file bytes', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',

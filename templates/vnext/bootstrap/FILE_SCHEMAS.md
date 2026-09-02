@@ -57,6 +57,14 @@ task_id, document_id, archive_revision, candidate_ref
 Persisted and reused identities share field validation: `task_id` is validated
 as a task ID, `document_id` is `doc-` plus 24 lowercase hex characters,
 `archive_revision` is an exact SHA-256, `candidate_ref` uses the safe key
-pattern, and top-level `task_slug` is canonical lowercase kebab-case. The old
-development-only `reused_candidate_ref` / evidence-inclusive digest shape is
-unsupported; a vNext reader fails closed and never silently reinterprets it.
+pattern, and top-level `task_slug` is canonical lowercase kebab-case. The
+`candidate_digest` covers only the seven semantic knowledge fields and excludes
+`candidate_ref` and `evidence_refs`; digest or visible provenance mismatch is
+`LESSON_PROVENANCE_MISMATCH`. Unknown or missing fields and invalid disposition
+values are `LESSON_INVALID`; all non-canonical shapes fail closed.
+
+`vnext-lesson-marker/canonical-v1` is the first supported durable Lesson marker
+contract. If a future released supported durable schema changes incompatibly,
+the ordinary Runtime reader must wait for an explicit schema-evolution /
+offline-migration boundary instead of guessing or silently reinterpreting
+durable state.

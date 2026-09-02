@@ -685,13 +685,12 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 - 语义复用条目（`disposition: reused`）：当 `candidate_digest` 在既有经验中已存在（或在同 proposal 前序 candidate 中已存在）时，记录包含 `reused_candidate` 精确四坐标（`task_id`, `document_id`, `archive_revision`, `candidate_ref`）的 reuse marker，不重复生成可见正文，可独立证明当前任务的 reconciliation 完成。
 - 知识摘要 `candidate_digest`（即 `candidate_semantic_digest`）严格仅基于 7 项知识内容计算（`category`, `scene`, `conclusion`, `trigger`, `cause`, `action`, `consumer`），明确排除 Candidate Identity（`candidate_ref`）与 Provenance（`evidence_refs`）。
 
-#### Durable marker schema boundary
+#### Durable marker schema
 
-当前 source repository 的 Runtime distribution `0.14.5` 与 vNext
-`schema_version: 1` 只支持当前 canonical marker contract
-`vnext-lesson-marker/canonical-v1`。marker 不另加独立的
-`marker_schema_version` 字段；后续改变 marker shape 必须先演进
-Protocol / File Schema / Runtime contract，不能依靠 reader 猜测旧语义。
+`vnext-lesson-marker/canonical-v1` 是 vNext 第一个 supported durable
+Lesson marker contract。它属于 vNext Runtime/File Schema `schema_version: 1`，
+不另加独立的 marker version 字段；任何非 canonical shape 都必须由普通
+Runtime reader fail closed。
 
 当前 canonical marker 的 closed shape 为：
 
@@ -706,15 +705,16 @@ Protocol / File Schema / Runtime contract，不能依靠 reader 猜测旧语义�
   `doc-` 加 24 位小写十六进制，`archive_revision` 使用 exact SHA-256，
   `candidate_ref` 使用 `SAFE_KEY_PATTERN`；顶层 `task_slug` 使用
   `validateTaskSlug`。
+- `candidate_digest` 只覆盖 7 项 Semantic Identity 字段（`category`,
+  `scene`, `conclusion`, `trigger`, `cause`, `action`, `consumer`），不覆盖
+  `candidate_ref` 或 `evidence_refs`；digest 或 visible provenance 不一致时
+  必须报告 `LESSON_PROVENANCE_MISMATCH`。
 
-`3ffe582f` 产生的 `reused_candidate_ref` 及旧 digest 语义是
-development-only transitional schema，不是当前受支持的 migration source。
-Runtime 遇到 `disposition: persisted`、`reused_candidate_ref` 或无法与当前
-7-field semantic digest 对齐的 marker 时必须 fail closed（分别报告
-`LESSON_INVALID` 或 `LESSON_PROVENANCE_MISMATCH`），不得静默重命名、补全
-target、重算并接受或 reinterpret。当前没有针对该 transitional shape 的
-online/offline marker migration；若未来版本需要支持真实项目中已持久化的
-旧 marker，必须在发布前增加显式、离线、可回放的迁移边界。
+未知字段、缺失字段和非 canonical disposition 必须报告
+`LESSON_INVALID`，不得由 reader 猜测、重命名、补全或静默重解释。
+如果未来已经发布且被真实项目持久化的 supported durable schema 发生不兼容
+变化，必须先定义显式 schema-evolution / offline-migration boundary；普通
+Runtime reader 不得猜测或 silent reinterpret 非 canonical durable state。
 
 ---
 

@@ -55,7 +55,10 @@ Persisted markers omit `disposition`; reused markers use
 `task_id`, `document_id`, `archive_revision`, and `candidate_ref`. The
 Candidate Identity fields use the same strict validators for the persisted
 identity and reuse target, while `task_slug` uses the canonical task-slug
-validator. The earlier development-only `reused_candidate_ref` and
-evidence-inclusive digest form is unsupported and must fail closed; Runtime
-does not silently reinterpret or migrate it. A future released compatibility
-source requires an explicit offline migration before the reader accepts it.
+validator. Unknown or missing fields and invalid disposition values fail as
+`LESSON_INVALID`; a digest or visible provenance mismatch fails as
+`LESSON_PROVENANCE_MISMATCH`. The Runtime applies this canonical closed-schema
+validation without guessing or silently reinterpreting non-canonical durable
+state. If a future released supported durable schema changes incompatibly, an
+explicit schema-evolution / offline-migration boundary must be defined before
+ordinary readers accept the new shape.

@@ -245,7 +245,7 @@ proposal:
   lesson_marker:
     contract: vnext-lesson-marker/canonical-v1
     marker_version_field: absent
-    support_boundary: development-only
+    noncanonical_behavior: fail-closed
     persisted:
       fields:
         - task_id
@@ -277,11 +277,6 @@ proposal:
         - document_id
         - archive_revision
         - candidate_ref
-    unsupported_transitional_fields:
-      - disposition:persisted
-      - reused_candidate_ref
-    unsupported_behavior: fail-closed-without-reinterpretation
-    migration_source: none
 
 mutation_scope:
   status: bound

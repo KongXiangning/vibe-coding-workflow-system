@@ -739,16 +739,16 @@ migration-required
 
 The stop occurs before task execution, governance-state mutation, or any attempt to repair or reinterpret the old document.
 
-The durable Lesson marker follows the same fail-closed version boundary. The
-current source-repository Runtime distribution is private `0.14.5`, and the
-current `schema_version: 1` contract accepts only the
-`vnext-lesson-marker/canonical-v1` persisted/reused shapes. The marker has no
+The durable Lesson marker follows the same fail-closed canonical boundary.
+`vnext-lesson-marker/canonical-v1` is the first supported durable Lesson marker
+contract under the current `schema_version: 1` boundary. The marker has no
 independent version field: persisted markers omit `disposition`, and reused
-markers carry an exact four-coordinate `reused_candidate`. The
-`3ffe582f` `reused_candidate_ref` plus evidence-inclusive digest form was a
-development-only transitional shape, not a supported migration source. A
-normal vNext reader rejects it and does not silently reinterpret it; any future
-released compatibility must be introduced as an explicit offline migration.
+markers carry an exact four-coordinate `reused_candidate`. Runtime validation
+uses one shared Candidate Identity validator and rejects non-canonical shapes,
+unknown fields, missing fields, and invalid disposition values without guessing
+or silent reinterpretation. If a future released supported durable schema
+changes incompatibly, an explicit schema-evolution / offline-migration boundary
+must be defined before ordinary readers accept that shape.
 
 ### 11.2 Idle-only upgrade precondition
 
