@@ -1157,7 +1157,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime contract review receipt target verification states',
   );
   const draftContract = expectRecord(taskStateContract.draft, 'Runtime contract.proposal.task_state.draft');
-  expectExactKeys(draftContract, ['mode', 'actions', 'identity_required', 'definition_required', 'create_from', 'update_from', 'target', 'preserves'], 'Runtime contract.proposal.task_state.draft');
+  expectExactKeys(draftContract, ['mode', 'actions', 'identity_required', 'definition_required', 'create_from', 'update_from', 'target', 'previous_close_reconciliation', 'step_admission', 'preserves'], 'Runtime contract.proposal.task_state.draft');
   if (draftContract.mode !== 'default') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft mode must remain default.');
   expectSetEqual(expectStringArray(draftContract.actions, 'Runtime contract.proposal.task_state.draft.actions'), ['create-draft', 'update-draft'], 'Runtime contract task-state draft actions');
   expectSetEqual(expectStringArray(draftContract.identity_required, 'Runtime contract.proposal.task_state.draft.identity_required'), ['task_id', 'task_slug', 'document_id', 'task_title'], 'Runtime contract task-state draft identity fields');
@@ -1165,16 +1165,30 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   for (const [field, expected] of [['create_from', 'closed + archived'], ['update_from', 'draft + active'], ['target', 'draft + active']] as const) {
     if (draftContract[field] !== expected) fail('RUNTIME_CONTRACT_INVALID', `Runtime contract task-state draft ${field} must be ${expected}.`);
   }
+  const draftReconciliation = expectRecord(draftContract.previous_close_reconciliation, 'Runtime contract.proposal.task_state.draft.previous_close_reconciliation');
+  expectExactKeys(draftReconciliation, ['archive', 'status', 'admitted_lesson'], 'Runtime contract.proposal.task_state.draft.previous_close_reconciliation');
+  if (draftReconciliation.archive !== 'required' || draftReconciliation.status !== 'required' || draftReconciliation.admitted_lesson !== 'required-or-durable-reuse-proof') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft previous_close_reconciliation requirements are invalid.');
+  }
+  const draftStepAdmission = expectRecord(draftContract.step_admission, 'Runtime contract.proposal.task_state.draft.step_admission');
+  expectExactKeys(draftStepAdmission, ['all_steps_metadata_complete', 'active_step'], 'Runtime contract.proposal.task_state.draft.step_admission');
+  if (draftStepAdmission.all_steps_metadata_complete !== true || draftStepAdmission.active_step !== 'first-admitted-step') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft step_admission requirements are invalid.');
+  }
   expectSetEqual(
     expectStringArray(draftContract.preserves, 'Runtime contract.proposal.task_state.draft.preserves'),
     ['TASK_ID', 'TASK_SLUG', 'document_id on update', 'execution_log', 'applied_proposals', 'canonical provenance'],
     'Runtime contract task-state draft preserved fields',
   );
   const confirmContract = expectRecord(taskStateContract.confirm, 'Runtime contract.proposal.task_state.confirm');
-  expectExactKeys(confirmContract, ['mode', 'action', 'required', 'authority', 'from', 'to'], 'Runtime contract.proposal.task_state.confirm');
+  expectExactKeys(confirmContract, ['mode', 'action', 'required', 'authority', 'authority_coordinates', 'from', 'to'], 'Runtime contract.proposal.task_state.confirm');
   if (confirmContract.mode !== 'confirm' || confirmContract.action !== 'confirm-draft') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm must use confirm/confirm-draft.');
   expectSetEqual(expectStringArray(confirmContract.required, 'Runtime contract.proposal.task_state.confirm.required'), ['task_id', 'task_slug', 'document_id', 'draft_revision', 'evidence_refs'], 'Runtime contract task-state confirm required fields');
   expectSetEqual(expectStringArray(confirmContract.authority, 'Runtime contract.proposal.task_state.confirm.authority'), ['user-confirmation', 'authorized-caller'], 'Runtime contract task-state confirm authority');
+  const confirmCoords = expectRecord(confirmContract.authority_coordinates, 'Runtime contract.proposal.task_state.confirm.authority_coordinates');
+  expectExactKeys(confirmCoords, ['required', 'exact_draft_revision'], 'Runtime contract.proposal.task_state.confirm.authority_coordinates');
+  expectSetEqual(expectStringArray(confirmCoords.required, 'Runtime contract.proposal.task_state.confirm.authority_coordinates.required'), ['task_id', 'document_id', 'draft_revision'], 'Runtime contract task-state confirm authority coordinates');
+  if (confirmCoords.exact_draft_revision !== true) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm authority_coordinates exact_draft_revision must be true.');
   if (confirmContract.from !== 'draft + active' || confirmContract.to !== 'active + active') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm transition is invalid.');
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
   expectExactKeys(prepareTaskContract, ['bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
@@ -4093,7 +4107,14 @@ type LessonMarker = {
   candidate_ref: string;
   candidate_digest: string;
   evidence_refs: string[];
+  disposition?: 'persisted' | 'reused';
+  reused_candidate_ref?: string;
 };
+
+function lessonCandidateDigest(candidate: LessonCandidate): string {
+  const { candidate_ref, ...payload } = candidate;
+  return digest(payload);
+}
 
 function renderLessonMarker(candidate: LessonCandidate, archive: ArchiveReceipt): string {
   return `<!-- vNext lesson record: ${JSON.stringify({
@@ -4104,7 +4125,7 @@ function renderLessonMarker(candidate: LessonCandidate, archive: ArchiveReceipt)
     archive_revision: archive.revision,
     source_revision: archive.sourceRevision,
     candidate_ref: candidate.candidate_ref,
-    candidate_digest: digest(candidate),
+    candidate_digest: lessonCandidateDigest(candidate),
     evidence_refs: candidate.evidence_refs,
   })} -->`;
 }
@@ -4120,12 +4141,24 @@ function readLessonMarkers(content: string, location: string): LessonMarker[] {
       fail('LESSON_INVALID', `${location} contains an invalid vNext lesson provenance marker.`);
     }
     const record = expectRecord(parsed, `${location}.lesson_marker`);
-    expectExactKeys(record, ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs'], `${location}.lesson_marker`);
+    const isReused = record.disposition === 'reused';
+    if (isReused) {
+      expectExactKeys(
+        record,
+        ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs', 'disposition', 'reused_candidate_ref'],
+        `${location}.lesson_marker`,
+      );
+    } else {
+      const allowedKeys = 'disposition' in record
+        ? ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs', 'disposition']
+        : ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs'];
+      expectExactKeys(record, allowedKeys, `${location}.lesson_marker`);
+    }
     const archiveRevision = expectString(record.archive_revision, `${location}.lesson_marker.archive_revision`);
     const sourceRevision = expectString(record.source_revision, `${location}.lesson_marker.source_revision`);
     const candidateDigest = expectString(record.candidate_digest, `${location}.lesson_marker.candidate_digest`);
     if (!/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(candidateDigest)) fail('LESSON_INVALID', `${location} lesson provenance marker has an invalid revision or digest.`);
-    result.push({
+    const marker: LessonMarker = {
       task_id: expectString(record.task_id, `${location}.lesson_marker.task_id`),
       task_slug: expectString(record.task_slug, `${location}.lesson_marker.task_slug`),
       document_id: expectString(record.document_id, `${location}.lesson_marker.document_id`),
@@ -4135,7 +4168,12 @@ function readLessonMarkers(content: string, location: string): LessonMarker[] {
       candidate_ref: expectString(record.candidate_ref, `${location}.lesson_marker.candidate_ref`, SAFE_KEY_PATTERN),
       candidate_digest: candidateDigest,
       evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.lesson_marker.evidence_refs`),
-    });
+      disposition: isReused ? 'reused' : 'persisted',
+    };
+    if (isReused) {
+      marker.reused_candidate_ref = expectString(record.reused_candidate_ref, `${location}.lesson_marker.reused_candidate_ref`, SAFE_KEY_PATTERN);
+    }
+    result.push(marker);
   }
   return result;
 }
@@ -4171,7 +4209,7 @@ function countExactOccurrences(content: string, value: string): number {
 }
 
 function renderLessonMarkerFromData(marker: LessonMarker): string {
-  return `<!-- vNext lesson record: ${JSON.stringify({
+  const data: Record<string, unknown> = {
     task_id: marker.task_id,
     task_slug: marker.task_slug,
     document_id: marker.document_id,
@@ -4181,7 +4219,12 @@ function renderLessonMarkerFromData(marker: LessonMarker): string {
     candidate_ref: marker.candidate_ref,
     candidate_digest: marker.candidate_digest,
     evidence_refs: marker.evidence_refs,
-  })} -->`;
+  };
+  if (marker.disposition === 'reused') {
+    data.disposition = 'reused';
+    data.reused_candidate_ref = marker.reused_candidate_ref;
+  }
+  return `<!-- vNext lesson record: ${JSON.stringify(data)} -->`;
 }
 
 function archiveReceiptFromLessonMarker(marker: LessonMarker): ArchiveReceipt {
@@ -4273,7 +4316,7 @@ function readDurableLessonRecord(content: string, marker: LessonMarker, location
   if (marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|')) {
     fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} marker evidence_refs do not match the visible Lesson record.`);
   }
-  if (digest(candidate) !== marker.candidate_digest) {
+  if (lessonCandidateDigest(candidate) !== marker.candidate_digest) {
     fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} marker digest does not match the visible Lesson record.`);
   }
   const archive = archiveReceiptFromLessonMarker(marker);
@@ -4284,7 +4327,43 @@ function readDurableLessonRecord(content: string, marker: LessonMarker, location
 }
 
 function readDurableLessonRecords(content: string, location: string): DurableLessonRecord[] {
-  return readLessonMarkers(content, location).map((marker, index) => readDurableLessonRecord(content, marker, `${location}.lesson[${index}]`));
+  const markers = readLessonMarkers(content, location);
+  const persistedRecords: DurableLessonRecord[] = [];
+  const reusedMarkers: { marker: LessonMarker; index: number }[] = [];
+
+  for (const [index, marker] of markers.entries()) {
+    if (marker.disposition === 'reused') {
+      reusedMarkers.push({ marker, index });
+    } else {
+      persistedRecords.push(readDurableLessonRecord(content, marker, `${location}.lesson[${index}]`));
+    }
+  }
+
+  const allRecords: DurableLessonRecord[] = [...persistedRecords];
+
+  for (const { marker, index } of reusedMarkers) {
+    const markerText = renderLessonMarkerFromData(marker);
+    if (countExactOccurrences(content, markerText) !== 1) {
+      fail('LESSON_INVALID', `${location}.lesson[${index}] contains a non-canonical or duplicate lesson reuse marker.`);
+    }
+    const target = persistedRecords.find(record =>
+      record.marker.candidate_ref === marker.reused_candidate_ref
+      && record.marker.candidate_digest === marker.candidate_digest
+    );
+    if (!target) {
+      fail('LESSON_PROVENANCE_MISMATCH', `${location}.lesson[${index}] references missing or mismatched candidate ${marker.reused_candidate_ref}.`);
+    }
+    allRecords.push({
+      marker,
+      candidate: {
+        ...target.candidate,
+        candidate_ref: marker.candidate_ref,
+        evidence_refs: [...marker.evidence_refs],
+      },
+    });
+  }
+
+  return allRecords;
 }
 
 function appendLessonCandidates(content: string, candidates: readonly LessonCandidate[], archive: ArchiveReceipt, location: string): { content: string; candidateCount: number } {
@@ -4307,6 +4386,40 @@ function appendLessonCandidates(content: string, candidates: readonly LessonCand
     candidateCount += categoryCandidates.length;
   }
   return { content: nextContent, candidateCount };
+}
+
+function appendLessonReuseMarkers(
+  content: string,
+  reuseMarkers: readonly LessonMarker[],
+  availableRecords: readonly DurableLessonRecord[],
+  location: string,
+): string {
+  let nextContent = content;
+  for (const reuseMarker of reuseMarkers) {
+    const targetRecord = availableRecords.find(record =>
+      record.marker.candidate_ref === reuseMarker.reused_candidate_ref
+      && record.marker.candidate_digest === reuseMarker.candidate_digest
+    );
+    if (!targetRecord) {
+      fail('LESSON_INVALID', `${location} target candidate for reuse ${reuseMarker.reused_candidate_ref} was not found.`);
+    }
+    const targetArchive = archiveReceiptFromLessonMarker(targetRecord.marker);
+    const targetRendered = renderLessonCandidate(targetRecord.candidate, targetArchive);
+    const targetIndex = nextContent.indexOf(targetRendered);
+    if (targetIndex < 0) {
+      fail('LESSON_INVALID', `${location} could not locate rendered block for candidate ${reuseMarker.reused_candidate_ref}.`);
+    }
+    let insertionIndex = targetIndex + targetRendered.length;
+    while (true) {
+      const rest = nextContent.slice(insertionIndex);
+      const match = /^\r?\n<!-- vNext lesson record: (\{[^\r\n]+\}) -->/.exec(rest);
+      if (!match) break;
+      insertionIndex += match[0].length;
+    }
+    const markerText = renderLessonMarkerFromData(reuseMarker);
+    nextContent = nextContent.slice(0, insertionIndex) + `\n${markerText}` + nextContent.slice(insertionIndex);
+  }
+  return nextContent;
 }
 
 function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: LessonRecordProposal): LessonRecordTransactionPlan | null {
@@ -4333,34 +4446,81 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
   }
   const existingRecords = readDurableLessonRecords(originalLessonsContent, target.relativePath);
   const newCandidates: LessonCandidate[] = [];
+  const newReuseMarkers: LessonMarker[] = [];
   for (const candidate of delta.candidates) {
-    const matchingRefs = existingRecords.filter(record => record.marker.candidate_ref === candidate.candidate_ref);
+    const matchingRefs = existingRecords.filter(record => record.marker.candidate_ref === candidate.candidate_ref && record.marker.task_id === receipt.taskId);
     if (matchingRefs.length > 1) {
       fail('LESSON_INVALID', `LESSONS contains duplicate durable records for candidate ${candidate.candidate_ref}.`);
     }
     if (matchingRefs.length > 0) {
       for (const existing of matchingRefs) {
         const marker = existing.marker;
-        if (marker.task_id !== receipt.taskId || marker.task_slug !== receipt.taskSlug || marker.document_id !== receipt.documentId || marker.archive_path !== receipt.relativePath || marker.archive_revision !== receipt.revision || marker.source_revision !== receipt.sourceRevision || marker.candidate_digest !== digest(candidate) || marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|') || digest(existing.candidate) !== digest(candidate)) {
+        if (marker.task_id !== receipt.taskId || marker.task_slug !== receipt.taskSlug || marker.document_id !== receipt.documentId || marker.archive_path !== receipt.relativePath || marker.archive_revision !== receipt.revision || marker.source_revision !== receipt.sourceRevision || marker.candidate_digest !== lessonCandidateDigest(candidate) || marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|') || lessonCandidateDigest(existing.candidate) !== lessonCandidateDigest(candidate)) {
           fail('LESSON_PROVENANCE_MISMATCH', `lesson candidate ${candidate.candidate_ref} has conflicting durable provenance.`);
         }
       }
       continue;
     }
-    const semanticDuplicate = existingRecords.some(record => record.marker.candidate_digest === digest(candidate));
-    if (semanticDuplicate) continue;
+    const semanticDuplicate = existingRecords.find(record => record.marker.candidate_digest === lessonCandidateDigest(candidate));
+    if (semanticDuplicate) {
+      const reuseMarker: LessonMarker = {
+        task_id: receipt.taskId,
+        task_slug: receipt.taskSlug,
+        document_id: receipt.documentId,
+        archive_path: receipt.relativePath,
+        archive_revision: receipt.revision,
+        source_revision: receipt.sourceRevision,
+        candidate_ref: candidate.candidate_ref,
+        candidate_digest: lessonCandidateDigest(candidate),
+        evidence_refs: [...candidate.evidence_refs],
+        disposition: 'reused',
+        reused_candidate_ref: semanticDuplicate.marker.disposition === 'reused' && semanticDuplicate.marker.reused_candidate_ref
+          ? semanticDuplicate.marker.reused_candidate_ref
+          : semanticDuplicate.marker.candidate_ref,
+      };
+      newReuseMarkers.push(reuseMarker);
+      continue;
+    }
     newCandidates.push(candidate);
   }
-  if (newCandidates.length === 0) return null;
-  const appended = appendLessonCandidates(originalLessonsContent, newCandidates, receipt, target.relativePath);
+  if (newCandidates.length === 0 && newReuseMarkers.length === 0) return null;
+  let nextLessonsContent = originalLessonsContent;
+  let candidateCount = 0;
+  if (newCandidates.length > 0) {
+    const appended = appendLessonCandidates(nextLessonsContent, newCandidates, receipt, target.relativePath);
+    nextLessonsContent = appended.content;
+    candidateCount += appended.candidateCount;
+  }
+  if (newReuseMarkers.length > 0) {
+    const availableRecords: DurableLessonRecord[] = [...existingRecords];
+    for (const candidate of newCandidates) {
+      availableRecords.push({
+        marker: {
+          task_id: receipt.taskId,
+          task_slug: receipt.taskSlug,
+          document_id: receipt.documentId,
+          archive_path: receipt.relativePath,
+          archive_revision: receipt.revision,
+          source_revision: receipt.sourceRevision,
+          candidate_ref: candidate.candidate_ref,
+          candidate_digest: lessonCandidateDigest(candidate),
+          evidence_refs: [...candidate.evidence_refs],
+          disposition: 'persisted',
+        },
+        candidate,
+      });
+    }
+    nextLessonsContent = appendLessonReuseMarkers(nextLessonsContent, newReuseMarkers, availableRecords, target.relativePath);
+    candidateCount += newReuseMarkers.length;
+  }
   return {
     lessonsFilePath: target.filePath,
     lessonsRelativePath: target.relativePath,
-    nextLessonsContent: appended.content,
+    nextLessonsContent,
     originalLessonsContent,
-    lessonsRevision: sha256(appended.content),
+    lessonsRevision: sha256(nextLessonsContent),
     archive: receipt,
-    candidateCount: appended.candidateCount,
+    candidateCount,
   };
 }
 
@@ -4400,6 +4560,7 @@ function assertPreviousTaskReconciliationComplete(root: string, current: Canonic
   ) {
     fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} STATUS reconciliation provenance does not match the canonical archive.`);
   }
+  assertStatusProjection(statusContent, statusDeltaFromReceipt(statusReceipt), statusTarget.relativePath);
 
   if (receipt.lessonAdmission.decision === 'admit') {
     const lessonsTarget = workflowDocPathForRoot(root, 'LESSONS.md');
@@ -4419,7 +4580,7 @@ function assertPreviousTaskReconciliationComplete(root: string, current: Canonic
         && record.marker.source_revision === receipt.sourceRevision
       );
       if (!matching) {
-        fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} lesson candidate ${candidateRef} has not been persisted.`);
+        fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} lesson candidate ${candidateRef} has not been reconciled.`);
       }
     }
   }

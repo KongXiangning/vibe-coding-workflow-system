@@ -371,11 +371,15 @@ closed + archived (old task, immutable archive)
 `TASK-000` is the bootstrap baseline and may be the first closed source without
 an archive file. Every later closed source must have its exact identity-derived
 archive and all required post-archive reconciliation (STATUS reconciliation
-receipt, and admitted Lesson persistence if `lesson_admission: admit`) before
-`create-draft` is accepted. If reconciliation is incomplete, `create-draft` fails
-closed with `PREVIOUS_TASK_RECONCILIATION_INCOMPLETE`. The old task archive is
-immutable; creating the next task writes only the single canonical `CURRENT_TASK.md`
-and never edits, deletes, or resets the previous archive.
+receipt with consistent visible status projection, and admitted Lesson
+persistence or durable reuse proof if `lesson_admission: admit`) before
+`create-draft` is accepted. If reconciliation is incomplete or the visible STATUS
+projection has drifted, `create-draft` fails closed. When an admitted lesson
+matches an existing candidate digest, semantic deduplication records a durable
+reuse marker (`disposition: reused`) referencing the existing candidate without
+duplicating visible lesson text, satisfying the reconciliation gate. The old task
+archive is immutable; creating the next task writes only the single canonical
+`CURRENT_TASK.md` and never edits, deletes, or resets the previous archive.
 
 Newly created or refined ordinary drafts use strict step admission: every
 independently verifiable implementation step must carry complete metadata (stable ID,

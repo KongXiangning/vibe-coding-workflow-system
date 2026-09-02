@@ -677,6 +677,13 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 - 经验必须带触发信号和行动建议
 - 经验要足够具体，能直接用于下一次检查
 
+### vNext 知识持久化与复用标记
+
+在 vNext 中，`lesson-record-transaction` 使用 HTML 注释格式的 provenance marker 记录归属与校验依据：
+
+- 普通持久化条目（`disposition: persisted` 或缺省）：包含 marker 与可见正文（场景、结论、触发信号、原因、应对动作、消费者、证据引用）；
+- 语义复用条目（`disposition: reused`）：当 `candidate_digest` 在既有经验中已存在时，记录包含 `reused_candidate_ref` 的 reuse marker，不重复生成可见正文，可独立证明当前任务的 reconciliation 完成。
+
 ---
 
 ## 7. TASK_SUMMARY.md

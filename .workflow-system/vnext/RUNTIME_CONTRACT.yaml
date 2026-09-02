@@ -125,6 +125,13 @@ proposal:
       create_from: closed + archived
       update_from: draft + active
       target: draft + active
+      previous_close_reconciliation:
+        archive: required
+        status: required
+        admitted_lesson: required-or-durable-reuse-proof
+      step_admission:
+        all_steps_metadata_complete: true
+        active_step: first-admitted-step
       preserves:
         - TASK_ID
         - TASK_SLUG
@@ -144,6 +151,12 @@ proposal:
       authority:
         - user-confirmation
         - authorized-caller
+      authority_coordinates:
+        required:
+          - task_id
+          - document_id
+          - draft_revision
+        exact_draft_revision: true
       from: draft + active
       to: active + active
   prepare_task:
