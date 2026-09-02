@@ -80,6 +80,7 @@ Implement exactly the admitted current step. Ordinary implementation and admitte
 6. Before pause, interruption, delegation, session end, or another boundary, carry claim identity, owner, certainty, admitted evidence types, and completion state through a typed proposal into the existing canonical task record; do not reset or widen the plan from conversation memory or a local registry.
 7. After an admitted repair, request a bounded `review-change` input with `cycle_phase: verification`; this is review input, not a new mode or handoff. If the root cause is unknown, or the same fingerprint/budget cannot converge, stop with the corresponding debug, user, or blocked result.
 8. Product edits are allowed only under the exact paths admitted by the scope guard. A broad glob requires an explicitly `inherently-broad` transformation; a Conditional target requires an exact target authorization with evidence and authority. After editing, run `scope-check` again against the actual explicit diff target before reporting the change. Do not directly edit governance documents, finding queues, registry, installation, or host surfaces; durable task/finding state goes through the bound Runtime handlers below. For a bound proposal, invoke `node .workflow-system/runtime/dist/cli.js apply --root .` with the JSON proposal on stdin (or use `--proposal-file`); treat stdout as the machine-readable `RuntimeResult` and never infer a commit from the command's absence of an error.
+9. The active step is the only executable step. Report progress through the existing typed `task-state-transaction` `step-progress` proposal; do not edit `CURRENT_TASK.md`, send a second step, or encode advancement in a new public operation. Runtime derives the next canonical step only when the current step's evidence, checkpoint policy, and any repair verification gate pass. A `required` checkpoint must be preceded by a read-only `review-change` result with `verdict: clean`, the same explicit `diff_target`, and `cycle_phase: discovery`; a repaired step must use `cycle_phase: verification` with the same target and admitted fingerprints. Low-risk `not-required` steps may advance without full review, but required evidence still applies.
 
 ## Required result
 
@@ -93,6 +94,7 @@ Return one structured `change-result` containing:
 - any cross-turn evidence-plan persistence proposal and its canonical task-record target;
 - dangerous-operation and authority decisions when triggered;
 - review-convergence state and next authorized route;
+- typed step-progress result, including `not-applicable`, `repair-awaiting-verification`, `advanced`, or `task-complete`, the durable next-step identity when advancement occurs, and any clean review receipt;
 - a typed `task-state-transaction` proposal for actual progress, evidence, risk, or acceptance deltas;
 - a conditional `finding-queue-transaction` proposal only when a finding has separately passed admission.
 

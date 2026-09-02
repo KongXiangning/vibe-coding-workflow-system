@@ -45,6 +45,12 @@ import {
   type MutationScopeEvaluationInput,
   type MutationTransformationKind,
 } from './mutation-scope';
+import {
+  resolveTaskStep,
+  TaskStepDefinitionError,
+  type TaskStepCheckpointPolicy,
+  type TaskStepResolution,
+} from './task-steps';
 
 export * from './mutation-scope';
 
@@ -154,6 +160,17 @@ export type ReplanAuditAction = (typeof REPLAN_AUDIT_ACTIONS)[number];
 export const FINDING_ACTIONS = ['admit', 'record-repair-attempt', 'resolve', 'defer', 'reject'] as const;
 export type FindingAction = (typeof FINDING_ACTIONS)[number];
 
+export const STEP_ADVANCEMENT_OUTCOMES = [
+  'not-applicable',
+  'repair-awaiting-verification',
+  'advanced',
+  'task-complete',
+] as const;
+export type StepAdvancementOutcome = (typeof STEP_ADVANCEMENT_OUTCOMES)[number];
+
+export const REVIEW_TARGET_VERIFICATION_STATES = ['verified', 'harness-supplied'] as const;
+export type ReviewTargetVerificationState = (typeof REVIEW_TARGET_VERIFICATION_STATES)[number];
+
 const DOCUMENT_ID_PATTERN = /^doc-[a-f0-9]{24}$/;
 const SAFE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
 const FINGERPRINT_PATTERN = /^[a-z0-9][a-z0-9._:-]{2,127}$/;
@@ -215,16 +232,30 @@ export type ReplanReplacementDefinition = {
   propagation_governance: string | null;
 };
 
+export type StepReviewReceipt = {
+  cycle_id: string;
+  cycle_phase: ReviewCyclePhase;
+  diff_target: string;
+  diff_target_verification: ReviewTargetVerificationState;
+  verdict: 'clean';
+  admitted_fingerprints: string[];
+  evidence_refs: string[];
+};
+
+export type TaskStepProgressDelta = {
+  kind: 'task-state';
+  action: 'step-progress';
+  step_id: string;
+  status: StepStatus;
+  evidence_refs: string[];
+  note?: string;
+  repair_fingerprint?: string;
+  diff_target?: string;
+  review_receipt?: StepReviewReceipt;
+};
+
 export type TaskStateDelta =
-  | {
-      kind: 'task-state';
-      action: 'step-progress';
-      step_id: string;
-      status: StepStatus;
-      evidence_refs: string[];
-      note?: string;
-      repair_fingerprint?: string;
-    }
+  | TaskStepProgressDelta
   | {
       kind: 'task-state';
       action: 'clear-resume-review-gate';
@@ -447,7 +478,21 @@ export type StepExecutionLogEntry = {
   status: StepStatus;
   evidence_refs: string[];
   note?: string;
+  repair_fingerprint?: string;
+  diff_target?: string;
+  checkpoint?: TaskStepCheckpointPolicy;
+  advancement?: StepAdvancementOutcome;
+  next_step_id?: string | null;
+  review_receipt?: StepReviewReceipt;
   recorded_at: string;
+};
+
+export type StepAdvancementResult = {
+  outcome: StepAdvancementOutcome;
+  from_step_id: string;
+  to_step_id: string | null;
+  checkpoint: TaskStepCheckpointPolicy;
+  review_phase?: ReviewCyclePhase;
 };
 
 export type ReplanAuditLogEntry = {
@@ -590,6 +635,7 @@ export type RuntimeResult = {
   planned_writes: string[];
   governed_mutation_count: number;
   read_back_verified: boolean;
+  advancement?: StepAdvancementResult;
   state?: {
     task_id: string;
     workflow_status: CurrentTaskWorkflowStatus;
@@ -901,7 +947,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord(contract.proposal, 'Runtime contract.proposal');
-  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'prepare_task', 'lifecycle', 'close_task'], 'Runtime contract.proposal');
+  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'task_state', 'prepare_task', 'lifecycle', 'close_task'], 'Runtime contract.proposal');
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime proposal contract has an invalid envelope marker.');
   expectSetEqual(expectStringArray(proposal.caller, 'Runtime contract.proposal.caller'), ['execute-step', 'prepare-task', 'task-lifecycle', 'close-task'], 'Runtime contract proposal callers');
   expectSetEqual(expectStringArray(proposal.operation_kinds, 'Runtime contract.proposal.operation_kinds'), [...RUNTIME_OPERATION_KINDS], 'Runtime contract operation kinds');
@@ -928,6 +974,42 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     expectStringArray(findingQueueAdmission.required, 'Runtime contract.proposal.finding_queue_admission.required'),
     ['cycle_phase', 'finding_admission_wave_id'],
     'Runtime contract finding-queue admission fields',
+  );
+  const taskStateContract = expectRecord(proposal.task_state, 'Runtime contract.proposal.task_state');
+  expectExactKeys(taskStateContract, ['action', 'required', 'optional', 'advancement_outcomes', 'review_receipt'], 'Runtime contract.proposal.task_state');
+  if (taskStateContract.action !== 'step-progress') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state action must remain step-progress.');
+  expectSetEqual(
+    expectStringArray(taskStateContract.required, 'Runtime contract.proposal.task_state.required'),
+    ['step_id', 'status', 'evidence_refs'],
+    'Runtime contract task-state required fields',
+  );
+  expectSetEqual(
+    expectStringArray(taskStateContract.optional, 'Runtime contract.proposal.task_state.optional', true),
+    ['note', 'repair_fingerprint', 'diff_target', 'review_receipt'],
+    'Runtime contract task-state optional fields',
+  );
+  expectSetEqual(
+    expectStringArray(taskStateContract.advancement_outcomes, 'Runtime contract.proposal.task_state.advancement_outcomes'),
+    [...STEP_ADVANCEMENT_OUTCOMES],
+    'Runtime contract task-state advancement outcomes',
+  );
+  const reviewReceiptContract = expectRecord(taskStateContract.review_receipt, 'Runtime contract.proposal.task_state.review_receipt');
+  expectExactKeys(reviewReceiptContract, ['required', 'verdict', 'cycle_phase', 'target_verification'], 'Runtime contract.proposal.task_state.review_receipt');
+  expectSetEqual(
+    expectStringArray(reviewReceiptContract.required, 'Runtime contract.proposal.task_state.review_receipt.required'),
+    ['cycle_id', 'cycle_phase', 'diff_target', 'diff_target_verification', 'verdict', 'admitted_fingerprints', 'evidence_refs'],
+    'Runtime contract review receipt required fields',
+  );
+  if (reviewReceiptContract.verdict !== 'clean') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract review receipt verdict must remain clean.');
+  expectSetEqual(
+    expectStringArray(reviewReceiptContract.cycle_phase, 'Runtime contract.proposal.task_state.review_receipt.cycle_phase'),
+    [...REVIEW_CYCLE_PHASES],
+    'Runtime contract review receipt cycle phases',
+  );
+  expectSetEqual(
+    expectStringArray(reviewReceiptContract.target_verification, 'Runtime contract.proposal.task_state.review_receipt.target_verification'),
+    [...REVIEW_TARGET_VERIFICATION_STATES],
+    'Runtime contract review receipt target verification states',
   );
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
   expectExactKeys(prepareTaskContract, ['bound_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
@@ -1202,6 +1284,37 @@ function validateEvidenceRefs(value: unknown, location: string): string[] {
   return expectStringArray(value, location, false, MAX_EVIDENCE_REFS);
 }
 
+function validateStepReviewReceipt(value: unknown, location: string): StepReviewReceipt {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, [
+    'cycle_id',
+    'cycle_phase',
+    'diff_target',
+    'diff_target_verification',
+    'verdict',
+    'admitted_fingerprints',
+    'evidence_refs',
+  ], location);
+  const cyclePhase = expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`);
+  const admittedFingerprints = expectStringArray(record.admitted_fingerprints, `${location}.admitted_fingerprints`, true, MAX_FINDINGS)
+    .map((fingerprint, index) => {
+      if (!FINGERPRINT_PATTERN.test(fingerprint)) fail('RUNTIME_SCHEMA_INVALID', `${location}.admitted_fingerprints[${index}] has an invalid fingerprint.`);
+      return fingerprint;
+    });
+  if (cyclePhase === 'discovery' && admittedFingerprints.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.discovery receipts must not carry admitted fingerprints.`);
+  }
+  return {
+    cycle_id: expectString(record.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN),
+    cycle_phase: cyclePhase,
+    diff_target: expectText(record.diff_target, `${location}.diff_target`, 512),
+    diff_target_verification: expectEnum(record.diff_target_verification, REVIEW_TARGET_VERIFICATION_STATES, `${location}.diff_target_verification`),
+    verdict: expectEnum(record.verdict, ['clean'], `${location}.verdict`),
+    admitted_fingerprints: admittedFingerprints,
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+  };
+}
+
 const REPLAN_REPLACEMENT_FIELDS = [
   'background_context',
   'acceptance',
@@ -1284,6 +1397,34 @@ function assertReplacementActiveStep(activeStepId: string, implementationSteps: 
   }
 }
 
+function resolveTaskStepForState(body: string, activeStepId: string): TaskStepResolution {
+  try {
+    const resolution = resolveTaskStep(body, activeStepId);
+    if (resolution.steps.length > 1 && resolution.steps.some(step => !step.metadata_complete)) {
+      fail('TASK_STEPS_INVALID', 'every multi-step task step must declare purpose, mutation scope, required evidence, and review checkpoint metadata.');
+    }
+    return resolution;
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError) fail(error.code, error.message);
+    throw error;
+  }
+}
+
+function resolveCanonicalTaskStep(current: CanonicalCurrentTask): TaskStepResolution {
+  return resolveTaskStepForState(current.body, current.runtimeState.active_step_id);
+}
+
+function effectiveCheckpointPolicy(resolution: TaskStepResolution): TaskStepCheckpointPolicy {
+  // Existing single-step fixtures predate the frozen metadata grammar. Keep
+  // them terminal-compatible, while requiring complete metadata for every
+  // genuinely multi-step task.
+  if (resolution.steps.length === 1 && !resolution.current.metadata_complete) return 'not-required';
+  if (!resolution.current.metadata_complete || resolution.current.review_checkpoint === null) {
+    fail('TASK_STEPS_INVALID', `step ${resolution.current.id} has incomplete checkpoint metadata.`);
+  }
+  return resolution.current.review_checkpoint;
+}
+
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
@@ -1315,7 +1456,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     };
   }
   const keys = Object.keys(record);
-  if (keys.some(key => !['kind', 'action', 'step_id', 'status', 'evidence_refs', 'note', 'repair_fingerprint'].includes(key))) {
+  if (keys.some(key => !['kind', 'action', 'step_id', 'status', 'evidence_refs', 'note', 'repair_fingerprint', 'diff_target', 'review_receipt'].includes(key))) {
     fail('RUNTIME_SCHEMA_INVALID', 'task-state semantic_delta contains unsupported fields.');
   }
   const result: Extract<TaskStateDelta, { action: 'step-progress' }> = {
@@ -1327,6 +1468,8 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
   };
   if (record.note !== undefined) result.note = expectText(record.note, 'semantic_delta.note');
   if (record.repair_fingerprint !== undefined) result.repair_fingerprint = expectString(record.repair_fingerprint, 'semantic_delta.repair_fingerprint', FINGERPRINT_PATTERN);
+  if (record.diff_target !== undefined) result.diff_target = expectText(record.diff_target, 'semantic_delta.diff_target', 512);
+  if (record.review_receipt !== undefined) result.review_receipt = validateStepReviewReceipt(record.review_receipt, 'semantic_delta.review_receipt');
   return result;
 }
 
@@ -1780,7 +1923,12 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
     : semanticDelta.kind === 'finding-queue'
       ? semanticDelta.action === 'admit' ? semanticDelta.finding.evidence_refs : semanticDelta.evidence_refs
       : semanticDelta.evidence_refs;
-  if (!deltaRefs.every(ref => evidenceRefs.includes(ref))) {
+  const reviewReceiptRefs = semanticDelta.kind === 'task-state'
+    && semanticDelta.action === 'step-progress'
+    && semanticDelta.review_receipt
+    ? semanticDelta.review_receipt.evidence_refs
+    : [];
+  if (![...deltaRefs, ...reviewReceiptRefs].every(ref => evidenceRefs.includes(ref))) {
     fail('RUNTIME_EVIDENCE_INVALID', 'proposal.evidence_refs must cover semantic_delta evidence_refs.');
   }
   return result;
@@ -2034,8 +2182,23 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     };
   }
 
-  const executionLogKeys = ['idempotency_key', 'mode', 'step_id', 'status', 'evidence_refs', 'note', 'recorded_at'];
-  const missingExecutionLogKeys = executionLogKeys.filter(key => key !== 'note' && !(key in record));
+  const executionLogKeys = [
+    'idempotency_key',
+    'mode',
+    'step_id',
+    'status',
+    'evidence_refs',
+    'note',
+    'repair_fingerprint',
+    'diff_target',
+    'checkpoint',
+    'advancement',
+    'next_step_id',
+    'review_receipt',
+    'recorded_at',
+  ];
+  const optionalExecutionLogKeys = ['note', 'repair_fingerprint', 'diff_target', 'checkpoint', 'advancement', 'next_step_id', 'review_receipt'];
+  const missingExecutionLogKeys = executionLogKeys.filter(key => !optionalExecutionLogKeys.includes(key) && !(key in record));
   const extraExecutionLogKeys = Object.keys(record).filter(key => !executionLogKeys.includes(key));
   if (missingExecutionLogKeys.length > 0 || extraExecutionLogKeys.length > 0) fail('RUNTIME_SCHEMA_INVALID', `${location} keys mismatch; missing=[${missingExecutionLogKeys.join(', ')}], unexpected=[${extraExecutionLogKeys.join(', ')}].`);
   const result: StepExecutionLogEntry = {
@@ -2047,6 +2210,27 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     recorded_at: expectString(record.recorded_at, `${location}.recorded_at`),
   };
   if (record.note !== undefined && record.note !== null) result.note = expectText(record.note, `${location}.note`);
+  if (record.repair_fingerprint !== undefined) {
+    result.repair_fingerprint = expectString(record.repair_fingerprint, `${location}.repair_fingerprint`, FINGERPRINT_PATTERN);
+    if (result.mode !== 'repair') fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprint is only valid for repair execution records.`);
+  }
+  if (record.diff_target !== undefined) result.diff_target = expectText(record.diff_target, `${location}.diff_target`, 512);
+  if (record.checkpoint !== undefined) result.checkpoint = expectEnum(record.checkpoint, ['required', 'not-required'], `${location}.checkpoint`);
+  if (record.advancement !== undefined) result.advancement = expectEnum(record.advancement, STEP_ADVANCEMENT_OUTCOMES, `${location}.advancement`);
+  if (record.next_step_id !== undefined) result.next_step_id = expectNullableString(record.next_step_id, `${location}.next_step_id`, STEP_ID_PATTERN);
+  if (record.review_receipt !== undefined) result.review_receipt = validateStepReviewReceipt(record.review_receipt, `${location}.review_receipt`);
+  if (result.review_receipt && result.status !== 'completed') fail('RUNTIME_STATE_CONFLICT', `${location}.review_receipt requires a completed execution record.`);
+  if (result.advancement !== undefined) {
+    if (result.checkpoint === undefined || result.next_step_id === undefined) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.advancement requires checkpoint and next_step_id.`);
+    }
+    if (result.advancement === 'advanced' && result.next_step_id === null) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.advanced execution record must name the next step.`);
+    }
+    if (result.advancement !== 'advanced' && result.next_step_id !== null) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.${result.advancement} execution record must not name a next step.`);
+    }
+  }
   return result;
 }
 
@@ -2458,6 +2642,10 @@ function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativ
   if (bodyResumeReasons.join('|') !== runtimeState.resume_review_reasons.join('|')) {
     fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body resume review reasons conflict with runtime_state.');
   }
+  // Validate the active step against the same canonical implementation-step
+  // order used by task-state advancement. This keeps a forged or stale active
+  // step from becoming a second executable state source.
+  resolveTaskStepForState(body, runtimeState.active_step_id);
   const sourceTuple: RuntimeSourceTuple = {
     path: relativePath,
     revision: sha256(raw),
@@ -2725,11 +2913,39 @@ function closureEligibilityBlockers(current: CanonicalCurrentTask, delta: Archiv
   if (current.runtimeState.resume_requires_review || current.runtimeState.resume_review_reasons.length > 0) blockers.push('resume review gate is not cleared.');
   if (current.runtimeState.active_step_status !== 'completed') blockers.push('the admitted current step is not completed.');
   try {
-    const implementationSection = findUniqueMarkdownSection(scanMarkdownSections(current.body), REPLAN_SECTION_HEADINGS.implementation_steps, 2);
-    if (!implementationSection) {
-      blockers.push('CURRENT_TASK is missing the implementation steps section.');
-    } else {
-      assertReplacementActiveStep(current.runtimeState.active_step_id, current.body.slice(implementationSection.contentStart, implementationSection.contentEnd));
+    const stepResolution = resolveCanonicalTaskStep(current);
+    const checkpoint = effectiveCheckpointPolicy(stepResolution);
+    if (stepResolution.next !== null) {
+      blockers.push('remaining implementation steps have not been durably advanced to completion.');
+    }
+    if (stepResolution.steps.length > 1) {
+      const completedRecord = current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+        !('action' in item)
+        && item.step_id === stepResolution.current.id
+        && item.status === 'completed'
+        && item.advancement === 'task-complete',
+      );
+      if (!completedRecord) blockers.push('the final multi-step completion lacks a durable task-complete advancement record.');
+      if (checkpoint === 'required' && !completedRecord?.review_receipt) {
+        blockers.push('the final required review checkpoint has no durable clean receipt.');
+      }
+    }
+    const repairRecords = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+      !('action' in item) && item.step_id === stepResolution.current.id && item.mode === 'repair',
+    );
+    if (repairRecords.length > 0) {
+      const repairFingerprints = [...new Set(repairRecords.map(item => item.repair_fingerprint).filter((value): value is string => Boolean(value)))];
+      const repairTargets = [...new Set(repairRecords.map(item => item.diff_target).filter((value): value is string => Boolean(value)))];
+      const verified = current.runtimeState.execution_log.some((item): item is StepExecutionLogEntry => {
+        if ('action' in item || item.step_id !== stepResolution.current.id || item.review_receipt?.cycle_phase !== 'verification') return false;
+        const receipt = item.review_receipt;
+        return receipt !== undefined
+          && receipt.admitted_fingerprints.length === repairFingerprints.length
+          && repairFingerprints.every(fingerprint => receipt.admitted_fingerprints.includes(fingerprint))
+          && (repairTargets.length === 0 || receipt.diff_target === repairTargets[0]);
+      });
+      if (!verified) blockers.push('every repair route must have a durable same-diff verification receipt before closure.');
+      if (repairRecords.some(item => !item.repair_fingerprint || !item.diff_target)) blockers.push('a repair execution record is missing its finding fingerprint or logical diff target.');
     }
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
@@ -3718,7 +3934,49 @@ function assertNoLaterReplanAudit(current: CanonicalCurrentTask, audit: ReplanAu
   }
 }
 
+function expectedStepExecutionLog(current: CanonicalCurrentTask, proposal: RuntimeProposal): StepExecutionLogEntry {
+  const entry = current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+    !('action' in item) && item.idempotency_key === proposal.idempotency_key,
+  );
+  if (!entry) fail('RUNTIME_REPLAY_INCOMPLETE', 'step-progress replay is missing its durable execution log record.');
+  return entry;
+}
+
+function assertStepProgressReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.semantic_delta.kind !== 'task-state' || proposal.semantic_delta.action !== 'step-progress') return;
+  const delta = proposal.semantic_delta;
+  const entry = expectedStepExecutionLog(current, proposal);
+  const sameOptionalValue = (left: unknown, right: unknown): boolean => digest(left ?? null) === digest(right ?? null);
+  if (
+    entry.mode !== proposal.mode
+    || entry.step_id !== delta.step_id
+    || entry.status !== delta.status
+    || entry.evidence_refs.join('|') !== delta.evidence_refs.join('|')
+    || !sameOptionalValue(entry.note, delta.note)
+    || !sameOptionalValue(entry.repair_fingerprint, delta.repair_fingerprint)
+    || !sameOptionalValue(entry.diff_target, delta.diff_target ?? delta.review_receipt?.diff_target)
+    || !sameOptionalValue(entry.review_receipt, delta.review_receipt)
+  ) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'step-progress replay does not match the durable execution record.');
+  }
+  if (entry.mode === 'repair' && entry.repair_fingerprint === undefined) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'repair replay is missing its durable finding fingerprint.');
+  }
+  if (entry.status === 'completed' && entry.mode === 'default' && entry.advancement === undefined) {
+    // Accept pre-freeze single-step records so existing canonical tasks remain
+    // readable; all newly committed multi-step records carry the outcome.
+    return;
+  }
+  if (entry.advancement === undefined || entry.checkpoint === undefined || entry.next_step_id === undefined) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'step-progress replay is missing its durable advancement outcome.');
+  }
+}
+
 function assertTaskStateReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'step-progress') {
+    assertStepProgressReplay(current, proposal);
+    return;
+  }
   if (proposal.semantic_delta.kind !== 'task-state' || !REPLAN_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as ReplanTaskStateAction)) return;
   const delta = proposal.semantic_delta as Extract<TaskStateDelta, { action: ReplanTaskStateAction }>;
   const audit = expectedReplanReplayAudit(current, proposal);
@@ -3755,6 +4013,7 @@ type StateTransition = {
   findingStatus?: FindingStatus;
   replacementDefinition?: ReplanReplacementDefinition;
   audit?: ReplanAuditLogEntry;
+  advancement?: StepAdvancementResult;
 };
 
 function applyTaskStateDelta(
@@ -3858,11 +4117,27 @@ function applyTaskStateDelta(
   }
   if (delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'Proposal step_id does not match the admitted current step.');
   const executionMode = proposal.mode as VNextExecuteStepMode;
+  const stepResolution = resolveCanonicalTaskStep(current);
+  const checkpoint = effectiveCheckpointPolicy(stepResolution);
+  const currentStepRepairLogs = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+    !('action' in item) && item.step_id === delta.step_id && item.mode === 'repair',
+  );
+  const openFindings = current.runtimeState.findings.filter(item => item.status === 'admitted' || item.status === 'in-progress');
   if (executionMode === 'repair') {
     if (!delta.repair_fingerprint) fail('FINDING_ADMISSION_REQUIRED', 'repair mode requires repair_fingerprint.');
     const finding = current.runtimeState.findings.find(item => item.fingerprint === delta.repair_fingerprint);
     if (!finding || !['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_ADMISSION_REQUIRED', 'repair fingerprint is not an admitted current-task finding.');
+    if (!delta.diff_target) fail('REPAIR_DIFF_TARGET_REQUIRED', 'repair mode requires one explicit logical diff_target.');
+    if (delta.review_receipt !== undefined) fail('REVIEW_READ_ONLY_VIOLATION', 'repair execution cannot attach a review receipt; verification remains a separate review result.');
+  } else {
+    if (delta.repair_fingerprint !== undefined) fail('RUNTIME_MODE_INVALID', 'default execution cannot carry a repair fingerprint.');
+    if (delta.diff_target !== undefined && delta.review_receipt === undefined) fail('REVIEW_RECEIPT_REQUIRED', 'diff_target on default execution must be carried by a review receipt.');
+    if (delta.review_receipt !== undefined && delta.status !== 'completed') fail('REVIEW_RECEIPT_REQUIRED', 'review receipt is only valid when completing the current step.');
+    if (delta.diff_target !== undefined && delta.review_receipt !== undefined && delta.diff_target !== delta.review_receipt.diff_target) {
+      fail('REVIEW_TARGET_CONFLICT', 'step-progress diff_target must match the review receipt diff_target.');
+    }
   }
+  const executionDiffTarget = delta.diff_target ?? delta.review_receipt?.diff_target;
   const oldStatus = current.runtimeState.active_step_status;
   const newStatus = delta.status;
   const legal = oldStatus === newStatus
@@ -3870,6 +4145,76 @@ function applyTaskStateDelta(
     || (oldStatus === 'in-progress' && ['completed', 'blocked'].includes(newStatus))
     || (oldStatus === 'blocked' && executionMode === 'repair' && ['in-progress', 'completed'].includes(newStatus));
   if (!legal) fail('TASK_STATE_TRANSITION_INVALID', `Cannot transition active step from ${oldStatus} to ${newStatus}.`);
+  let advancement: StepAdvancementResult = {
+    outcome: 'not-applicable',
+    from_step_id: delta.step_id,
+    to_step_id: null,
+    checkpoint,
+  };
+  if (executionMode === 'repair' && newStatus === 'completed') {
+    advancement = {
+      outcome: 'repair-awaiting-verification',
+      from_step_id: delta.step_id,
+      to_step_id: null,
+      checkpoint,
+    };
+  } else if (executionMode === 'default' && newStatus === 'completed') {
+    if (openFindings.length > 0) {
+      fail('REVIEW_CONVERGENCE_REQUIRED', 'step advancement is blocked while an admitted or in-progress finding remains open.');
+    }
+    if (checkpoint === 'required' && delta.review_receipt === undefined) {
+      fail('REVIEW_CHECKPOINT_REQUIRED', `step ${delta.step_id} requires a clean review checkpoint before advancement.`);
+    }
+    if (delta.review_receipt !== undefined) {
+      if (delta.review_receipt.cycle_id !== current.runtimeState.review_cycle.id) {
+        fail('REVIEW_CYCLE_CONFLICT', 'review receipt cycle_id does not match the current Runtime review cycle.');
+      }
+      if (currentStepRepairLogs.length > 0 && delta.review_receipt.cycle_phase !== 'verification') {
+        fail('REVIEW_VERIFICATION_REQUIRED', 'an admitted repair must re-enter review through verification on the same logical diff.');
+      }
+      if (currentStepRepairLogs.length === 0 && delta.review_receipt.cycle_phase !== 'discovery') {
+        fail('REVIEW_PHASE_INVALID', 'a checkpoint without an admitted repair must use discovery review.');
+      }
+    }
+    if (currentStepRepairLogs.length > 0) {
+      const repairFingerprints = [...new Set(currentStepRepairLogs.map(item => {
+        if (!item.repair_fingerprint) fail('REPAIR_VERIFICATION_REQUIRED', 'a repair execution record is missing its finding fingerprint.');
+        if (!item.diff_target) fail('REPAIR_DIFF_TARGET_REQUIRED', 'a repair execution record is missing its logical diff target.');
+        return item.repair_fingerprint;
+      }))];
+      const repairTargets = [...new Set(currentStepRepairLogs.map(item => item.diff_target!))];
+      if (repairTargets.length !== 1) fail('REPAIR_DIFF_TARGET_CONFLICT', 'all repair attempts for one step must use the same logical diff target.');
+      const receipt = delta.review_receipt;
+      if (!receipt) fail('REVIEW_VERIFICATION_REQUIRED', 'repair completion requires a clean verification receipt before advancement.');
+      if (receipt.diff_target !== repairTargets[0]) fail('REPAIR_DIFF_TARGET_CONFLICT', 'verification must cover the exact logical diff target repaired by the current step.');
+      if (receipt.admitted_fingerprints.length !== repairFingerprints.length
+        || receipt.admitted_fingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) {
+        fail('REVIEW_VERIFICATION_REQUIRED', 'verification must cover exactly the admitted repair fingerprints for the current step.');
+      }
+      for (const fingerprint of repairFingerprints) {
+        const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
+        if (!finding || finding.status !== 'resolved') {
+          fail('REVIEW_CONVERGENCE_REQUIRED', `repair finding ${fingerprint} must be resolved only after verification before step advancement.`);
+        }
+      }
+      advancement.review_phase = receipt.cycle_phase;
+    } else if (delta.review_receipt) {
+      advancement.review_phase = delta.review_receipt.cycle_phase;
+    }
+    if (stepResolution.next) {
+      advancement = {
+        ...advancement,
+        outcome: 'advanced',
+        to_step_id: stepResolution.next.id,
+      };
+    } else {
+      advancement = {
+        ...advancement,
+        outcome: 'task-complete',
+        to_step_id: null,
+      };
+    }
+  }
   const executionLog = [
     ...current.runtimeState.execution_log,
     {
@@ -3879,16 +4224,27 @@ function applyTaskStateDelta(
       status: newStatus,
       evidence_refs: [...delta.evidence_refs],
       ...(delta.note ? { note: delta.note } : {}),
+      ...(delta.repair_fingerprint ? { repair_fingerprint: delta.repair_fingerprint } : {}),
+      ...(executionDiffTarget ? { diff_target: executionDiffTarget } : {}),
+      checkpoint,
+      advancement: advancement.outcome,
+      next_step_id: advancement.to_step_id,
+      ...(delta.review_receipt ? { review_receipt: delta.review_receipt } : {}),
       recorded_at: now,
     },
   ].slice(-MAX_EXECUTION_LOG);
   const next: RuntimeState = {
     ...current.runtimeState,
-    active_step_status: newStatus,
+    active_step_id: advancement.outcome === 'advanced' ? advancement.to_step_id! : current.runtimeState.active_step_id,
+    active_step_status: advancement.outcome === 'advanced' ? 'ready' : newStatus,
     execution_log: executionLog,
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };
-  return { next, findingStatus: delta.repair_fingerprint ? current.runtimeState.findings.find(item => item.fingerprint === delta.repair_fingerprint)?.status : undefined };
+  return {
+    next,
+    findingStatus: delta.repair_fingerprint ? current.runtimeState.findings.find(item => item.fingerprint === delta.repair_fingerprint)?.status : undefined,
+    advancement,
+  };
 }
 
 function applyFindingQueueDelta(
@@ -5205,6 +5561,7 @@ export class GovernanceTransactionKernel {
         previous_revision: current.sourceTuple.revision,
         resulting_revision: nextRevision,
         state: resultState(transition.next, transition.findingStatus),
+        ...(transition.advancement ? { advancement: transition.advancement } : {}),
       });
     }
 
@@ -5240,6 +5597,7 @@ export class GovernanceTransactionKernel {
         resulting_revision: nextRevision,
         read_back_verified: true,
         state: resultState(readBack.runtimeState, transition.findingStatus),
+        ...(transition.advancement ? { advancement: transition.advancement } : {}),
       });
     } catch (error) {
       const rollback = rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
@@ -5271,6 +5629,8 @@ export function createTaskStateProposal(
     authority_evidence: AuthorityEvidence[];
     note?: string;
     repair_fingerprint?: string;
+    diff_target?: string;
+    review_receipt?: StepReviewReceipt;
   },
 ): RuntimeProposal {
   return validateRuntimeProposal({
@@ -5289,6 +5649,8 @@ export function createTaskStateProposal(
       evidence_refs: input.evidence_refs,
       ...(input.note ? { note: input.note } : {}),
       ...(input.repair_fingerprint ? { repair_fingerprint: input.repair_fingerprint } : {}),
+      ...(input.diff_target ? { diff_target: input.diff_target } : {}),
+      ...(input.review_receipt ? { review_receipt: input.review_receipt } : {}),
     },
     preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted'],
     evidence_refs: input.evidence_refs,

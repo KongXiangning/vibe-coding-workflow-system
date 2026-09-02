@@ -55,6 +55,38 @@ proposal:
     required:
       - review_cycle_id
       - repair_wave_id
+  task_state:
+    action: step-progress
+    required:
+      - step_id
+      - status
+      - evidence_refs
+    optional:
+      - note
+      - repair_fingerprint
+      - diff_target
+      - review_receipt
+    advancement_outcomes:
+      - not-applicable
+      - repair-awaiting-verification
+      - advanced
+      - task-complete
+    review_receipt:
+      required:
+        - cycle_id
+        - cycle_phase
+        - diff_target
+        - diff_target_verification
+        - verdict
+        - admitted_fingerprints
+        - evidence_refs
+      verdict: clean
+      cycle_phase:
+        - discovery
+        - verification
+      target_verification:
+        - verified
+        - harness-supplied
   prepare_task:
     bound_actions:
       - clear-resume-review-gate

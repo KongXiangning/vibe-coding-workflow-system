@@ -271,13 +271,16 @@ capabilities:
       - a repair is followed by review verification
     input_contract:
       - review cycle, repair-wave identities, finding fingerprints, attempt counters, and remaining budget
+      - the same logical diff target and the active step's checkpoint policy
       - verification evidence and newly observed issues
     output_contract:
       - resolved, continue, debug, user, or blocked convergence verdict
       - updated bounded repair route
+      - a clean verification receipt that can qualify the existing task-state advancement proposal
     stop_conditions:
       - per-fingerprint, repair-round, or new-finding-wave budget is exhausted
       - the next route requires unknown root cause or user-owned authority
+      - required verification or checkpoint evidence is absent, mismatched, or not tied to the active step
 
   - id: dangerous-operation-gate
     exposure: internal
