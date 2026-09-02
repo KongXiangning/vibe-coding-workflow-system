@@ -212,7 +212,7 @@ next unused identity from canonical `TASKS/**` artifacts and writes one new
 canonical `CURRENT_TASK.md`:
 
 ```text
-closed + archived (old task; archive immutable)
+closed + archived (old task; archive immutable; reconciliation complete)
   -> prepare-task:default / create-draft
   -> draft + active (new TASK_ID, TASK_SLUG, document_id)
   -> prepare-task:default / update-draft* (same identity)
@@ -221,17 +221,25 @@ closed + archived (old task; archive immutable)
   -> execute-step
 ```
 
+`create-draft` requires the previous task's archive and all required post-archive
+reconciliation (STATUS reconciliation receipt, and admitted Lesson persistence if
+`lesson_admission: admit`) to be complete before creating a new draft.
+Ordinary drafts enforce strict step admission (every step declares purpose, mutation scope,
+required evidence, and review checkpoint policy with boundary when required) and begin
+at the first admitted implementation step.
+
 `draft + active` is durable and owns the current-task slot, but it has no
 execution authority. Refinement replaces only the closed task-definition
-section set, resets the draft step to `ready`, and preserves the identity,
+section set, resets the draft step to `ready` at the first admitted step, and preserves the identity,
 document identity, execution history, applied proposals, and canonical
 provenance. It cannot allocate a second identity, patch arbitrary Markdown, or
 auto-confirm the task.
 
 `confirm-draft` is accepted only for the exact current `TASK_ID`, `TASK_SLUG`,
 `document_id`, and draft source revision. It requires claim-bound evidence and
-explicit `user-confirmation` or `authorized-caller` authority; malformed
-definitions, unresolved user-owned questions, stale revisions, identity drift,
+explicit `user-confirmation` or `authorized-caller` authority binding current
+`task_id`, `document_id`, and `draft_revision`; malformed definitions,
+unresolved user-owned questions, stale revisions, identity drift, coordinate mismatch,
 and authority conflicts fail closed without a write. The three actions share
 the existing `task-state-transaction` tuple, atomic commit, rollback,
 read-back, and idempotent replay boundary, and each successful mutation leaves

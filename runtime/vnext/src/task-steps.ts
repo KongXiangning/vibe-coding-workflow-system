@@ -207,6 +207,11 @@ function materializeStep(step: ParsedStep): TaskStepDefinition {
   };
 }
 
+export function parseImplementationSteps(implementationSteps: string): TaskStepDefinition[] {
+  const lines = implementationSteps.replace(/\r\n?/gu, '\n').split('\n');
+  return parseRawSteps(lines).map(materializeStep);
+}
+
 export function parseTaskStepDefinitions(body: string): TaskStepDefinition[] {
   return parseRawSteps(stepSectionLines(body)).map(materializeStep);
 }

@@ -46,9 +46,11 @@ import {
   type MutationTransformationKind,
 } from './mutation-scope';
 import {
+  parseImplementationSteps,
   resolveTaskStep,
   TaskStepDefinitionError,
   type TaskStepCheckpointPolicy,
+  type TaskStepDefinition,
   type TaskStepResolution,
 } from './task-steps';
 import {
@@ -201,6 +203,9 @@ export type AuthorityEvidence = {
   kind: 'active-task-owner' | 'scope-admission' | 'finding-admission' | 'evidence-admission' | 'dangerous-operation' | 'resume-review' | 'user-confirmation' | 'authorized-caller';
   source: string;
   subject: string;
+  task_id?: string;
+  document_id?: string;
+  draft_revision?: string;
 };
 
 export type RuntimeSourceTuple = {
@@ -1379,12 +1384,40 @@ function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
   const result: AuthorityEvidence[] = [];
   for (const [index, raw] of value.entries()) {
     const record = expectRecord(raw, `authority_evidence[${index}]`);
-    expectExactKeys(record, ['kind', 'source', 'subject'], `authority_evidence[${index}]`);
-    result.push({
-      kind: expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation', 'resume-review', 'user-confirmation', 'authorized-caller'], `authority_evidence[${index}].kind`),
-      source: normalizeRepoPath(expectString(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`),
-      subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256),
-    });
+    const kind = expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation', 'resume-review', 'user-confirmation', 'authorized-caller'], `authority_evidence[${index}].kind`);
+    const source = normalizeRepoPath(expectString(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`);
+    const hasConfirmationBinding = 'task_id' in record || 'document_id' in record || 'draft_revision' in record;
+    if (hasConfirmationBinding) {
+      const expectedKeys = 'subject' in record
+        ? ['kind', 'source', 'subject', 'task_id', 'document_id', 'draft_revision']
+        : ['kind', 'source', 'task_id', 'document_id', 'draft_revision'];
+      expectExactKeys(record, expectedKeys, `authority_evidence[${index}]`);
+      const taskId = expectString(record.task_id, `authority_evidence[${index}].task_id`);
+      try {
+        validateTaskId(taskId);
+      } catch (error) {
+        fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+      }
+      const documentId = expectString(record.document_id, `authority_evidence[${index}].document_id`);
+      if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}].document_id is invalid.`);
+      const draftRevision = expectString(record.draft_revision, `authority_evidence[${index}].draft_revision`);
+      if (!/^[a-f0-9]{64}$/.test(draftRevision)) fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}].draft_revision must be SHA-256.`);
+      result.push({
+        kind,
+        source,
+        subject: 'subject' in record ? expectText(record.subject, `authority_evidence[${index}].subject`, 256) : taskId,
+        task_id: taskId,
+        document_id: documentId,
+        draft_revision: draftRevision,
+      });
+    } else {
+      expectExactKeys(record, ['kind', 'source', 'subject'], `authority_evidence[${index}]`);
+      result.push({
+        kind,
+        source,
+        subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256),
+      });
+    }
   }
   return result;
 }
@@ -1580,6 +1613,35 @@ function assertReplacementActiveStep(activeStepId: string, implementationSteps: 
   if (!stepIds.includes(activeStepId)) {
     fail('RUNTIME_SECTION_INVALID', `active_step_id ${activeStepId} does not identify a step in replacement implementation_steps.`);
   }
+}
+
+function assertStrictDraftImplementationSteps(activeStepId: string, implementationSteps: string): TaskStepDefinition[] {
+  let steps: TaskStepDefinition[];
+  try {
+    steps = parseImplementationSteps(implementationSteps);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError) fail(error.code, error.message);
+    throw error;
+  }
+  if (steps.length === 0) {
+    fail('TASK_STEPS_INVALID', 'draft implementation_steps must contain at least one step.');
+  }
+  for (const step of steps) {
+    if (!step.metadata_complete) {
+      fail(
+        'TASK_STEPS_INVALID',
+        `step ${step.id} has incomplete step metadata; every step in a draft must declare purpose, mutation scope, required evidence, and review checkpoint (with boundary when required).`,
+      );
+    }
+  }
+  const firstStep = steps[0]!;
+  if (activeStepId !== firstStep.id) {
+    fail(
+      'TASK_STEPS_INVALID',
+      `draft active_step_id must be the first admitted implementation step ${firstStep.id}, got ${activeStepId}.`,
+    );
+  }
+  return steps;
 }
 
 function resolveTaskStepForState(body: string, activeStepId: string): TaskStepResolution {
@@ -4318,6 +4380,51 @@ function assertRequestedCloseTargets(root: string, current: CanonicalCurrentTask
   }
 }
 
+function assertPreviousTaskReconciliationComplete(root: string, current: CanonicalCurrentTask, receipt: ArchiveReceipt): void {
+  const statusTarget = workflowDocPathForRoot(root, 'STATUS.md');
+  if (!fs.existsSync(statusTarget.filePath)) {
+    fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete: STATUS.md does not exist.`);
+  }
+  const statusContent = fs.readFileSync(statusTarget.filePath, 'utf8');
+  const statusReceipt = matchingStatusReceipt(statusContent, statusTarget.relativePath, receipt);
+  if (!statusReceipt) {
+    fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete.`);
+  }
+  if (
+    statusReceipt.taskId !== receipt.taskId
+    || statusReceipt.taskSlug !== receipt.taskSlug
+    || statusReceipt.documentId !== receipt.documentId
+    || statusReceipt.archivePath !== receipt.relativePath
+    || statusReceipt.archiveRevision !== receipt.revision
+    || statusReceipt.sourceRevision !== receipt.sourceRevision
+  ) {
+    fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} STATUS reconciliation provenance does not match the canonical archive.`);
+  }
+
+  if (receipt.lessonAdmission.decision === 'admit') {
+    const lessonsTarget = workflowDocPathForRoot(root, 'LESSONS.md');
+    if (!fs.existsSync(lessonsTarget.filePath)) {
+      fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} lesson reconciliation is incomplete: LESSONS.md does not exist.`);
+    }
+    const lessonsContent = fs.readFileSync(lessonsTarget.filePath, 'utf8');
+    const existingRecords = readDurableLessonRecords(lessonsContent, lessonsTarget.relativePath);
+    for (const candidateRef of receipt.lessonAdmission.candidate_refs) {
+      const matching = existingRecords.find(record =>
+        record.marker.candidate_ref === candidateRef
+        && record.marker.task_id === receipt.taskId
+        && record.marker.task_slug === receipt.taskSlug
+        && record.marker.document_id === receipt.documentId
+        && record.marker.archive_path === receipt.relativePath
+        && record.marker.archive_revision === receipt.revision
+        && record.marker.source_revision === receipt.sourceRevision
+      );
+      if (!matching) {
+        fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} lesson candidate ${candidateRef} has not been persisted.`);
+      }
+    }
+  }
+}
+
 function ensureAuthorityKinds(proposal: RuntimeProposal, required: readonly AuthorityEvidence['kind'][]): void {
   const kinds = new Set(proposal.authority_evidence.map(item => item.kind));
   const missing = required.filter(kind => !kinds.has(kind));
@@ -4501,7 +4608,7 @@ function assertNoUnresolvedDraftQuestions(body: string): void {
 
 function assertDraftDefinitionReady(body: string, activeStepId: string): DraftTaskDefinition {
   const definition = readDraftDefinitionFromBody(body);
-  assertReplacementActiveStep(activeStepId, definition.implementation_steps);
+  assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
   assertNoUnresolvedDraftQuestions(body);
   return definition;
 }
@@ -4673,7 +4780,7 @@ function applyTaskStateDelta(
   const delta = proposal.semantic_delta;
   if (delta.action === 'create-draft') {
     ensureAuthorityKinds(proposal, ['scope-admission', 'evidence-admission']);
-    ensureAnyAuthorityKind(proposal, ['active-task-owner', 'user-confirmation', 'authorized-caller']);
+    ensureAnyAuthorityKind(proposal, ['user-confirmation', 'authorized-caller']);
     if (current.runtimeState.workflow_status !== 'closed' || current.runtimeState.lifecycle_state !== 'archived') {
       fail('DRAFT_CREATION_BLOCKED', 'create-draft requires the current task to be closed + archived.');
     }
@@ -4688,9 +4795,10 @@ function applyTaskStateDelta(
       const bootstrapArchive = archivePathForTask(root, current);
       if (fs.existsSync(bootstrapArchive.filePath)) fail('TASK_ARCHIVE_CONFLICT', 'bootstrap TASK-000 must not already have a canonical archive before the first ordinary draft.');
     } else {
-      matchingArchiveReceipt(root, current);
+      const { receipt } = matchingArchiveReceipt(root, current);
+      assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
-    assertReplacementActiveStep(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
     const draftIdentity: DraftTaskIdentity = {
       task_id: delta.task_id,
       task_slug: delta.task_slug,
@@ -4739,7 +4847,7 @@ function applyTaskStateDelta(
     }
     const currentIdentity = extractTaskIdentityFromCurrentTask(current.body);
     if (currentIdentity.title !== delta.task_title) fail('DRAFT_IDENTITY_IMMUTABLE', 'update-draft must preserve the task title identity.');
-    assertReplacementActiveStep(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
     const nextWithoutAudit: RuntimeState = {
       ...current.runtimeState,
       workflow_status: 'draft',
@@ -4766,6 +4874,21 @@ function applyTaskStateDelta(
   if (delta.action === 'confirm-draft') {
     ensureAnyAuthorityKind(proposal, ['user-confirmation', 'authorized-caller']);
     ensureAuthorityKinds(proposal, ['evidence-admission']);
+    const confirmationAuthorities = proposal.authority_evidence.filter(item => item.kind === 'user-confirmation' || item.kind === 'authorized-caller');
+    for (const auth of confirmationAuthorities) {
+      if (!auth.task_id || !auth.document_id || !auth.draft_revision) {
+        fail('RUNTIME_AUTHORITY_INVALID', 'confirm-draft authority evidence must bind task_id, document_id, and draft_revision.');
+      }
+      if (auth.task_id !== current.runtimeState.task_id) {
+        fail('DRAFT_IDENTITY_CONFLICT', `confirm-draft authority task_id ${auth.task_id} does not match current task ${current.runtimeState.task_id}.`);
+      }
+      if (auth.document_id !== current.sourceTuple.document_id) {
+        fail('DRAFT_IDENTITY_CONFLICT', `confirm-draft authority document_id ${auth.document_id} does not match current document ${current.sourceTuple.document_id}.`);
+      }
+      if (auth.draft_revision !== current.sourceTuple.revision) {
+        fail('DRAFT_REVISION_CONFLICT', `confirm-draft authority draft_revision ${auth.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
+      }
+    }
     if (current.runtimeState.workflow_status !== 'draft' || current.runtimeState.lifecycle_state !== 'active') {
       fail('DRAFT_CONFIRMATION_BLOCKED', 'confirm-draft requires the current task to be draft + active.');
     }

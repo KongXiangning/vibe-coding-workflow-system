@@ -84,7 +84,7 @@ capabilities:
       - missing or ambiguous identity
       - multiple active owners
       - caller is not authorized for the requested task mutation
-      - a new identity collides with a canonical task artifact or confirmation is not bound to the current draft revision
+      - a new identity collides with a canonical task artifact, previous task reconciliation is incomplete, draft steps lack strict metadata/first-step admission, or confirmation is not bound to current task identity, document identity, and exact draft revision
 
   - id: scope-guard
     exposure: internal

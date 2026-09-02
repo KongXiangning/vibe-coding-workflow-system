@@ -237,8 +237,9 @@ for semantic admission. Slice A's lifecycle handler covers only pause,
 interrupt, and the two explicit resume modes. `prepare-task` may call the
 Runtime for the resume-review gate clear action, Slice C's ordinary
 `create-draft` / `update-draft` actions, and the explicit `confirm-draft`
-action; the latter requires `mode: confirm` and the exact current draft
-revision. It cannot use those bindings to mutate unrelated task facts. Slice B
+action; `create-draft` requires prior task archive and complete post-archive reconciliation;
+ordinary drafts enforce strict step admission beginning at the first admitted step;
+`confirm-draft` requires `mode: confirm`, the exact current draft revision, and explicit confirmation authority binding current task identity, document identity, and draft revision. It cannot use those bindings to mutate unrelated task facts. Slice B
 supersede and durable replan, plus the close-task archive/status/lesson
 handlers, are also implemented in the source-repository Runtime. `debug-task`
 and the remaining later operation callers remain proposal-only until their own

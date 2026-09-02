@@ -93,8 +93,15 @@ An independent request is persisted in the single canonical
 `CURRENT_TASK.md` before execution. The existing terminal task is
 `closed + archived`; `prepare-task` emits a typed `create-draft` action with
 `task_id`, `task_slug`, `document_id`, `task_title`, `draft_definition`,
-`active_step_id`, and claim-bound `evidence_refs`. The new document is
-`draft + active`, owns the current-task slot, and has no executable authority.
+`active_step_id`, and claim-bound `evidence_refs`. A new draft requires the
+previous closed task's archive and all required post-archive reconciliation
+(STATUS reconciliation, and admitted Lesson persistence if `lesson_admission: admit`)
+to be complete, otherwise creation fails closed with `PREVIOUS_TASK_RECONCILIATION_INCOMPLETE`.
+Draft steps require strict step admission: every step must declare purpose,
+mutation scope, required evidence, and review checkpoint (with boundary when required),
+and `active_step_id` must match the first admitted step (`implementation_steps[0].id`).
+The new document is `draft + active`, owns the current-task slot, and has no
+executable authority.
 
 `draft_definition` is a closed object whose fields map one-to-one to the
 existing task-definition sections: `background_context`, `acceptance`,
@@ -109,16 +116,17 @@ condition rules.
 Repeated ordinary preparation against `draft + active` emits only
 `update-draft` with the same `TASK_ID`, `TASK_SLUG`, `document_id`, and title.
 Runtime replaces only the closed definition section set, resets the admitted
-step to `ready`, and preserves execution/audit/applied-proposal history and
-canonical provenance. It does not accept arbitrary Markdown or auto-confirm.
+step to `ready` at the first admitted step, and preserves execution/audit/applied-proposal
+history and canonical provenance. It does not accept arbitrary Markdown or auto-confirm.
 
 The only draft-to-active schema is `prepare-task:confirm` / `confirm-draft`.
 It repeats `task_id`, `task_slug`, and `document_id`, carries the exact current
 draft `source_tuple.revision` as `draft_revision`, and includes explicit
-`user-confirmation` or `authorized-caller` authority plus evidence. Runtime
-rejects stale identity/revision, malformed definitions, unresolved open
-questions, or authority conflicts. A successful confirmation changes the tuple
-to `active + active`; `execute-step` must reject every `draft + active` tuple.
+`user-confirmation` or `authorized-caller` authority that strictly binds current
+`task_id`, `document_id`, and `draft_revision`. Runtime rejects stale identity/revision,
+authority coordinate drift, malformed definitions, unresolved open questions,
+or authority conflicts. A successful confirmation changes the tuple to
+`active + active`; `execute-step` must reject every `draft + active` tuple.
 
 ### 允许修改范围的 vNext 承载语义
 

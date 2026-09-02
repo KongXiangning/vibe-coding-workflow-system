@@ -251,7 +251,30 @@ function makeRoot(state: RuntimeState = makeRuntimeState()): string {
 }
 
 function evidence(...kinds: AuthorityEvidence['kind'][]): AuthorityEvidence[] {
-  return kinds.map(kind => ({ kind, source: 'docs/workflow/CURRENT_TASK.md', subject: '010' }));
+  return kinds.map(kind => ({ kind, source: 'docs/workflow/CURRENT_TASK.md', subject: 'task-evidence' }));
+}
+
+function confirmationAuthority(
+  task: CanonicalCurrentTask,
+  kind: 'user-confirmation' | 'authorized-caller' = 'user-confirmation',
+  overrides: Partial<AuthorityEvidence> = {},
+): AuthorityEvidence[] {
+  return [
+    {
+      kind,
+      source: 'docs/workflow/CURRENT_TASK.md',
+      subject: task.runtimeState.task_id,
+      task_id: task.runtimeState.task_id,
+      document_id: task.sourceTuple.document_id,
+      draft_revision: task.sourceTuple.revision,
+      ...overrides,
+    },
+    {
+      kind: 'evidence-admission',
+      source: 'docs/workflow/CURRENT_TASK.md',
+      subject: task.runtimeState.task_id,
+    },
+  ];
 }
 
 function taskProposal(root: string, overrides: Partial<Parameters<typeof createTaskStateProposal>[1]> = {}): RuntimeProposal {
@@ -368,7 +391,13 @@ function draftDefinition(overrides: Partial<DraftTaskDefinition> = {}): DraftTas
     confirmed_decisions: '- use the current project baseline',
     open_questions: '- none',
     implementation_plan: '- implement the prepared draft step',
-    implementation_steps: '- step-1: implement the prepared draft step',
+    implementation_steps: [
+      '- step-1: implement the prepared draft step',
+      '  - purpose: implement the prepared draft step',
+      '  - mutation_scope: scripts/**',
+      '  - required_evidence: test:evidence:step-1',
+      '  - review_checkpoint: not-required',
+    ].join('\n'),
     regression_checks: '- [ ] run the focused regression suite',
     rollback_points: '- restore the prior canonical task document if validation fails',
     design_constraints: null,
@@ -646,7 +675,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       active_step_status: 'completed',
     }));
     const bootstrap = readCanonicalCurrentTask(root);
-    const firstDefinition = draftDefinition({ implementation_steps: '- step-1: implement the first task' });
+    const firstDefinition = draftDefinition();
     const create = createPrepareTaskDraftProposal(bootstrap, {
       action: 'create-draft',
       task_id: '001',
@@ -657,7 +686,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       active_step_id: 'step-1',
       evidence_refs: ['test:evidence:draft-create'],
       idempotency_key: 'draft-create-001',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
     const created = applyVNextRuntimeProposal(root, create, { now: () => '2026-08-31T01:00:00.000Z' });
     expect(created.status).toBe('success');
@@ -685,9 +714,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition({
         background_context: '- refined first-task background',
-        implementation_steps: '- step-2: implement the refined first task',
       }),
-      active_step_id: 'step-2',
+      active_step_id: 'step-1',
       evidence_refs: ['test:evidence:draft-update'],
       idempotency_key: 'draft-update-001',
       authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
@@ -698,7 +726,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(refinedTask.runtimeState.task_id).toBe('001');
     expect(refinedTask.runtimeState.task_slug).toBe('first-task');
     expect(refinedTask.sourceTuple.document_id).toBe('doc-111111111111111111111111');
-    expect(refinedTask.runtimeState.active_step_id).toBe('step-2');
+    expect(refinedTask.runtimeState.active_step_id).toBe('step-1');
     expect(refinedTask.runtimeState.active_step_status).toBe('ready');
     expect(refinedTask.body).toContain('refined first-task background');
 
@@ -709,7 +737,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       draft_revision: draft.sourceTuple.revision,
       evidence_refs: ['test:evidence:draft-confirm'],
       idempotency_key: 'draft-confirm-stale',
-      authority_evidence: evidence('user-confirmation', 'evidence-admission'),
+      authority_evidence: confirmationAuthority(draft, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, staleConfirm).status).toBe('conflict');
 
@@ -733,7 +761,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       draft_revision: refinedTask.sourceTuple.revision,
       evidence_refs: ['test:evidence:draft-confirm'],
       idempotency_key: 'draft-confirm-001',
-      authority_evidence: evidence('user-confirmation', 'evidence-admission'),
+      authority_evidence: confirmationAuthority(refinedTask, 'user-confirmation'),
     });
     expect(confirm.mode).toBe('confirm');
     const confirmed = applyVNextRuntimeProposal(root, confirm, { now: () => '2026-08-31T01:02:00.000Z' });
@@ -760,17 +788,36 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
 
     const closedTask = readCanonicalCurrentTask(root);
+    const prematureSecondCreate = createPrepareTaskDraftProposal(closedTask, {
+      action: 'create-draft',
+      task_id: '002',
+      task_slug: 'second-task',
+      document_id: 'doc-222222222222222222222222',
+      task_title: 'Second task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:second-create'],
+      idempotency_key: 'draft-create-002-premature',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    const prematureResult = applyVNextRuntimeProposal(root, prematureSecondCreate);
+    expect(prematureResult.status).toBe('blocked');
+    expect(prematureResult.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
+
+    const statusResult = applyVNextRuntimeProposal(root, statusProposal(root));
+    expect(statusResult.status).toBe('success');
+
     const secondCreate = createPrepareTaskDraftProposal(closedTask, {
       action: 'create-draft',
       task_id: '002',
       task_slug: 'second-task',
       document_id: 'doc-222222222222222222222222',
       task_title: 'Second task',
-      draft_definition: draftDefinition({ implementation_steps: '- step-1: implement the second task' }),
+      draft_definition: draftDefinition(),
       active_step_id: 'step-1',
       evidence_refs: ['test:evidence:second-create'],
       idempotency_key: 'draft-create-002',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
     expect(applyVNextRuntimeProposal(root, secondCreate).status).toBe('success');
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeNextDraft);
@@ -785,7 +832,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       draft_revision: secondDraft.sourceTuple.revision,
       evidence_refs: ['test:evidence:second-confirm'],
       idempotency_key: 'draft-confirm-002',
-      authority_evidence: evidence('authorized-caller', 'evidence-admission'),
+      authority_evidence: confirmationAuthority(secondDraft, 'authorized-caller'),
     });
     expect(applyVNextRuntimeProposal(root, secondConfirm).status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState).toMatchObject({
@@ -816,7 +863,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       active_step_id: 'step-1',
       evidence_refs: ['test:evidence:unresolved-create'],
       idempotency_key: 'draft-create-unresolved',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     }));
     expect(created.status).toBe('success');
     const draft = readCanonicalCurrentTask(root);
@@ -828,7 +875,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       draft_revision: draft.sourceTuple.revision,
       evidence_refs: ['test:evidence:unresolved-confirm'],
       idempotency_key: 'draft-confirm-unresolved',
-      authority_evidence: evidence('user-confirmation', 'evidence-admission'),
+      authority_evidence: confirmationAuthority(draft, 'user-confirmation'),
     }));
     expect(result.status).toBe('blocked');
     expect(result.code).toBe('DRAFT_DECISION_UNRESOLVED');
@@ -2371,5 +2418,433 @@ describe('vNext Phase 2 Runtime contract', () => {
     const result = applyVNextRuntimeProposal(root, proposal);
     expect(result.status).toBe('blocked');
     expect(result.code).toBe('RUNTIME_SCHEMA_INVALID');
+  });
+
+  test('Finding 1: blocks new draft creation when previous task close reconciliation is incomplete', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(root);
+    const create001 = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'First task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create-1'],
+      idempotency_key: 'draft-create-001',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, create001).status).toBe('success');
+    const draft001 = readCanonicalCurrentTask(root);
+    const confirm001 = createPrepareTaskConfirmProposal(draft001, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: draft001.sourceTuple.document_id,
+      draft_revision: draft001.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-1'],
+      idempotency_key: 'draft-confirm-001',
+      authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
+    });
+    expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+
+    const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      lesson_admission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
+    }), 'archive-task-1'));
+    expect(archiveResult.status).toBe('success');
+    const archivePath = path.join(root, archiveResult.archive_path!);
+    const archiveBytesBefore = fs.readFileSync(archivePath, 'utf8');
+
+    const closed001 = readCanonicalCurrentTask(root);
+    const draft002Proposal = createPrepareTaskDraftProposal(closed001, {
+      action: 'create-draft',
+      task_id: '002',
+      task_slug: 'second-task',
+      document_id: 'doc-222222222222222222222222',
+      task_title: 'Second task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create-2'],
+      idempotency_key: 'draft-create-002-unreconciled',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+
+    const blockedBeforeStatus = applyVNextRuntimeProposal(root, draft002Proposal);
+    expect(blockedBeforeStatus.status).toBe('blocked');
+    expect(blockedBeforeStatus.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
+
+    const statusResult = applyVNextRuntimeProposal(root, statusProposal(root));
+    expect(statusResult.status).toBe('success');
+
+    const create002Success = applyVNextRuntimeProposal(root, draft002Proposal);
+    expect(create002Success.status).toBe('success');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
+    expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
+  });
+
+  test('Finding 1: blocks new draft creation when admitted Lesson reconciliation is incomplete', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(root);
+    const create001 = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'First task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create-1'],
+      idempotency_key: 'draft-create-001',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, create001).status).toBe('success');
+    const draft001 = readCanonicalCurrentTask(root);
+    const confirm001 = createPrepareTaskConfirmProposal(draft001, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: draft001.sourceTuple.document_id,
+      draft_revision: draft001.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-1'],
+      idempotency_key: 'draft-confirm-001',
+      authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
+    });
+    expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+
+    const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['lesson-runtime-close'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-task-admit'));
+    expect(archiveResult.status).toBe('success');
+    const archivePath = path.join(root, archiveResult.archive_path!);
+    const archiveBytesBefore = fs.readFileSync(archivePath, 'utf8');
+
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const closed001 = readCanonicalCurrentTask(root);
+    const draft002Proposal = createPrepareTaskDraftProposal(closed001, {
+      action: 'create-draft',
+      task_id: '002',
+      task_slug: 'second-task',
+      document_id: 'doc-222222222222222222222222',
+      task_title: 'Second task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create-2'],
+      idempotency_key: 'draft-create-002-admit-unreconciled',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+
+    const blockedBeforeLesson = applyVNextRuntimeProposal(root, draft002Proposal);
+    expect(blockedBeforeLesson.status).toBe('blocked');
+    expect(blockedBeforeLesson.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
+
+    const lessonResult = applyVNextRuntimeProposal(root, lessonProposal(root));
+    expect(lessonResult.status).toBe('success');
+
+    const createSuccess = applyVNextRuntimeProposal(root, draft002Proposal);
+    expect(createSuccess.status).toBe('success');
+    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
+    expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
+  });
+
+  test('Finding 2: enforces confirmation authority binding to current task, document, and exact draft revision', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(root);
+
+    const createWithOwner = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'First task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create'],
+      idempotency_key: 'draft-create-owner',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    const ownerResult = applyVNextRuntimeProposal(root, createWithOwner);
+    expect(ownerResult.status).toBe('blocked');
+    expect(ownerResult.code).toBe('RUNTIME_AUTHORITY_MISSING');
+
+    const create = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'First task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create'],
+      idempotency_key: 'draft-create-001',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, create).status).toBe('success');
+    const draft = readCanonicalCurrentTask(root);
+
+    const wrongTaskConfirm = createPrepareTaskConfirmProposal(draft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: draft.sourceTuple.document_id,
+      draft_revision: draft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm'],
+      idempotency_key: 'draft-confirm-wrong-task',
+      authority_evidence: confirmationAuthority(draft, 'user-confirmation', { task_id: '002' }),
+    });
+    const wrongTaskResult = applyVNextRuntimeProposal(root, wrongTaskConfirm);
+    expect(wrongTaskResult.status).toBe('blocked');
+    expect(wrongTaskResult.code).toBe('DRAFT_IDENTITY_CONFLICT');
+
+    const wrongDocConfirm = createPrepareTaskConfirmProposal(draft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: draft.sourceTuple.document_id,
+      draft_revision: draft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm'],
+      idempotency_key: 'draft-confirm-wrong-doc',
+      authority_evidence: confirmationAuthority(draft, 'user-confirmation', { document_id: 'doc-999999999999999999999999' }),
+    });
+    const wrongDocResult = applyVNextRuntimeProposal(root, wrongDocConfirm);
+    expect(wrongDocResult.status).toBe('blocked');
+    expect(wrongDocResult.code).toBe('DRAFT_IDENTITY_CONFLICT');
+
+    const unboundConfirm = createPrepareTaskConfirmProposal(draft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: draft.sourceTuple.document_id,
+      draft_revision: draft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm'],
+      idempotency_key: 'draft-confirm-unbound',
+      authority_evidence: evidence('user-confirmation', 'evidence-admission'),
+    });
+    const unboundResult = applyVNextRuntimeProposal(root, unboundConfirm);
+    expect(unboundResult.status).toBe('blocked');
+    expect(unboundResult.code).toBe('RUNTIME_AUTHORITY_INVALID');
+
+    const oldRevisionAuthority = confirmationAuthority(draft, 'user-confirmation');
+    const update = createPrepareTaskUpdateDraftProposal(draft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: draft.sourceTuple.document_id,
+      task_title: 'First task',
+      draft_definition: draftDefinition({ background_context: '- updated context' }),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:update'],
+      idempotency_key: 'draft-update-1',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, update).status).toBe('success');
+    const updatedDraft = readCanonicalCurrentTask(root);
+    expect(updatedDraft.sourceTuple.revision).not.toBe(draft.sourceTuple.revision);
+
+    const staleAuthConfirm = createPrepareTaskConfirmProposal(updatedDraft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: updatedDraft.sourceTuple.document_id,
+      draft_revision: updatedDraft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm'],
+      idempotency_key: 'draft-confirm-stale-auth',
+      authority_evidence: oldRevisionAuthority,
+    });
+    const staleResult = applyVNextRuntimeProposal(root, staleAuthConfirm);
+    expect(staleResult.status).toBe('blocked');
+    expect(staleResult.code).toBe('DRAFT_REVISION_CONFLICT');
+
+    const validConfirm = createPrepareTaskConfirmProposal(updatedDraft, {
+      task_id: '001',
+      task_slug: 'first-task',
+      document_id: updatedDraft.sourceTuple.document_id,
+      draft_revision: updatedDraft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm'],
+      idempotency_key: 'draft-confirm-valid',
+      authority_evidence: confirmationAuthority(updatedDraft, 'user-confirmation'),
+    });
+    const validResult = applyVNextRuntimeProposal(root, validConfirm);
+    expect(validResult.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('active');
+  });
+
+  test('Finding 3: enforces strict step admission and first admitted step on ordinary drafts', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(root);
+
+    const incompleteSingleStep = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'step-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Step task',
+      draft_definition: draftDefinition({ implementation_steps: '- step-1: single step without metadata' }),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create'],
+      idempotency_key: 'draft-single-no-meta',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    const singleResult = applyVNextRuntimeProposal(root, incompleteSingleStep);
+    expect(singleResult.status).toBe('blocked');
+    expect(singleResult.code).toBe('TASK_STEPS_INVALID');
+
+    const incompleteMultiStep = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'step-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Step task',
+      draft_definition: draftDefinition({
+        implementation_steps: [
+          '- step-1: first step',
+          '  - purpose: first step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:1',
+          '  - review_checkpoint: not-required',
+          '- step-2: second step without metadata',
+        ].join('\n'),
+      }),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create'],
+      idempotency_key: 'draft-multi-no-meta',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    const multiResult = applyVNextRuntimeProposal(root, incompleteMultiStep);
+    expect(multiResult.status).toBe('blocked');
+    expect(multiResult.code).toBe('TASK_STEPS_INVALID');
+
+    const missingBoundaryStep = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'step-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Step task',
+      draft_definition: draftDefinition({
+        implementation_steps: [
+          '- step-1: first step',
+          '  - purpose: first step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:1',
+          '  - review_checkpoint: required',
+        ].join('\n'),
+      }),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create'],
+      idempotency_key: 'draft-no-boundary',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    const boundaryResult = applyVNextRuntimeProposal(root, missingBoundaryStep);
+    expect(boundaryResult.status).toBe('blocked');
+    expect(boundaryResult.code).toBe('TASK_STEPS_INVALID');
+
+    const skipStepDraft = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'step-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Step task',
+      draft_definition: draftDefinition({
+        implementation_steps: [
+          '- step-1: first step',
+          '  - purpose: first step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:1',
+          '  - review_checkpoint: not-required',
+          '- step-2: second step',
+          '  - purpose: second step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:2',
+          '  - review_checkpoint: not-required',
+        ].join('\n'),
+      }),
+      active_step_id: 'step-2',
+      evidence_refs: ['test:evidence:create'],
+      idempotency_key: 'draft-skip-step',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    const skipResult = applyVNextRuntimeProposal(root, skipStepDraft);
+    expect(skipResult.status).toBe('blocked');
+    expect(skipResult.code).toBe('TASK_STEPS_INVALID');
+
+    const validDraftProposal = createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'step-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Step task',
+      draft_definition: draftDefinition({
+        implementation_steps: [
+          '- step-1: first step',
+          '  - purpose: first step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:1',
+          '  - review_checkpoint: not-required',
+          '- step-2: second step',
+          '  - purpose: second step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:2',
+          '  - review_checkpoint: not-required',
+        ].join('\n'),
+      }),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:create'],
+      idempotency_key: 'draft-valid-steps',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, validDraftProposal).status).toBe('success');
+    const draft = readCanonicalCurrentTask(root);
+
+    const updateSkip = createPrepareTaskUpdateDraftProposal(draft, {
+      task_id: '001',
+      task_slug: 'step-task',
+      document_id: draft.sourceTuple.document_id,
+      task_title: 'Step task',
+      draft_definition: draftDefinition({
+        implementation_steps: [
+          '- step-1: first step',
+          '  - purpose: first step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:1',
+          '  - review_checkpoint: not-required',
+          '- step-2: second step',
+          '  - purpose: second step purpose',
+          '  - mutation_scope: scripts/**',
+          '  - required_evidence: test:evidence:2',
+          '  - review_checkpoint: not-required',
+        ].join('\n'),
+      }),
+      active_step_id: 'step-2',
+      evidence_refs: ['test:evidence:update'],
+      idempotency_key: 'draft-update-skip',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    const updateSkipResult = applyVNextRuntimeProposal(root, updateSkip);
+    expect(updateSkipResult.status).toBe('blocked');
+    expect(updateSkipResult.code).toBe('TASK_STEPS_INVALID');
   });
 });

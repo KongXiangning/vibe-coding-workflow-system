@@ -247,20 +247,26 @@ non-executable. A new draft may be created only from the single
 unused identity from canonical task artifacts and the proposal supplies a fresh
 document identity. The bootstrap `TASK-000` baseline is the one permitted
 closed baseline without a prior task archive. Any non-bootstrap closed task
-must have its exact identity-derived archive before a new draft can replace the
-live terminal record.
+must have its exact identity-derived archive and all required post-archive
+reconciliation (STATUS reconciliation receipt, and admitted Lesson persistence
+if `lesson_admission: admit`) before a new draft can replace the live terminal record;
+otherwise creation fails closed with `PREVIOUS_TASK_RECONCILIATION_INCOMPLETE`.
+Ordinary drafts enforce strict step admission (purpose, mutation scope, required
+evidence, and review checkpoint policy with boundary when required on all steps)
+and must begin at the first admitted implementation step.
 
 Repeated ordinary preparation against `draft + active` is an `update-draft`
 typed task-state action. It preserves `TASK_ID`, `TASK_SLUG`, and `document_id`,
 replaces only the closed task-definition sections, sets the admitted draft
-step to `ready`, and preserves execution/audit/provenance history. It cannot
+step to `ready` at the first admitted step, and preserves execution/audit/provenance history. It cannot
 create a second task, change the owner tuple, auto-confirm, or apply an
 arbitrary Markdown patch.
 
 `prepare-task:confirm` is the only draft-to-active route. Its typed
 `confirm-draft` proposal repeats the identity and carries the exact current
 draft `source_tuple.revision` as `draft_revision`. It requires explicit
-`user-confirmation` or `authorized-caller` authority plus claim-bound evidence.
+`user-confirmation` or `authorized-caller` authority binding current `task_id`,
+`document_id`, and `draft_revision` plus claim-bound evidence.
 Runtime validates the complete current draft definition, rejects unresolved
 user-owned questions or authority conflicts, and fails closed on stale source
 revision, identity drift, malformed sections, replay mismatch, or an invalid

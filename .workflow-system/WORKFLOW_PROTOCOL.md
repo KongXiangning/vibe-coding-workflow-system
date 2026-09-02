@@ -370,24 +370,34 @@ closed + archived (old task, immutable archive)
 
 `TASK-000` is the bootstrap baseline and may be the first closed source without
 an archive file. Every later closed source must have its exact identity-derived
-archive before `create-draft` is accepted. The old task archive is immutable;
-creating the next task writes only the single canonical `CURRENT_TASK.md` and
-never edits, deletes, or resets the previous archive.
+archive and all required post-archive reconciliation (STATUS reconciliation
+receipt, and admitted Lesson persistence if `lesson_admission: admit`) before
+`create-draft` is accepted. If reconciliation is incomplete, `create-draft` fails
+closed with `PREVIOUS_TASK_RECONCILIATION_INCOMPLETE`. The old task archive is
+immutable; creating the next task writes only the single canonical `CURRENT_TASK.md`
+and never edits, deletes, or resets the previous archive.
+
+Newly created or refined ordinary drafts use strict step admission: every
+independently verifiable implementation step must carry complete metadata (stable ID,
+purpose, mutation scope, required evidence, and review checkpoint policy with boundary
+when required), and the draft must begin at the first admitted implementation step
+(`active_step_id == implementation_steps[0].id`).
 
 `draft + active` is durable and owns the current-task slot, but it is not
 executable. Repeated ordinary preparation may use only `update-draft`; Runtime
 preserves TASK_ID, TASK_SLUG, document_id, execution history, applied proposal
 records, and canonical provenance while replacing only the closed task-
-definition sections and resetting the admitted draft step to `ready`. It must
-not create a second current task, change identity, patch arbitrary Markdown, or
-auto-confirm.
+definition sections and resetting the admitted draft step to `ready` at the
+first admitted step. It must not create a second current task, change identity,
+patch arbitrary Markdown, or auto-confirm.
 
 `prepare-task:confirm` is the only draft-to-active route. Its `confirm-draft`
 proposal must repeat the draft identity, carry the exact current source
 revision as `draft_revision`, include claim-bound evidence and explicit
-`user-confirmation` or `authorized-caller` authority, and pass the complete
-typed-definition / no-unresolved-decision checks. Stale, malformed,
-unauthorized, or conflicting confirmation fails closed without a write.
+`user-confirmation` or `authorized-caller` authority binding current `task_id`,
+`document_id`, and `draft_revision`, and pass the complete typed-definition /
+no-unresolved-decision checks. Stale, malformed, unauthorized, cross-task, or
+conflicting confirmation fails closed without a write.
 
 The three Slice C actions remain inside `task-state-transaction`; no public
 draft Skill, task registry/catalog/queue, cancellation state, or second

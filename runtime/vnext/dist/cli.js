@@ -862,6 +862,12 @@ function materializeStep(step) {
     metadata_complete: metadataComplete
   };
 }
+function parseImplementationSteps(implementationSteps) {
+  const lines = implementationSteps.replace(/\r\n?/gu, `
+`).split(`
+`);
+  return parseRawSteps(lines).map(materializeStep);
+}
 function parseTaskStepDefinitions(body) {
   return parseRawSteps(stepSectionLines(body)).map(materializeStep);
 }
@@ -1951,12 +1957,40 @@ function validateAuthorityEvidence2(value) {
   const result = [];
   for (const [index, raw] of value.entries()) {
     const record = expectRecord2(raw, `authority_evidence[${index}]`);
-    expectExactKeys2(record, ["kind", "source", "subject"], `authority_evidence[${index}]`);
-    result.push({
-      kind: expectEnum(record.kind, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission", "dangerous-operation", "resume-review", "user-confirmation", "authorized-caller"], `authority_evidence[${index}].kind`),
-      source: normalizeRepoPath2(expectString2(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`),
-      subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256)
-    });
+    const kind = expectEnum(record.kind, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission", "dangerous-operation", "resume-review", "user-confirmation", "authorized-caller"], `authority_evidence[${index}].kind`);
+    const source = normalizeRepoPath2(expectString2(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`);
+    const hasConfirmationBinding = "task_id" in record || "document_id" in record || "draft_revision" in record;
+    if (hasConfirmationBinding) {
+      const expectedKeys = "subject" in record ? ["kind", "source", "subject", "task_id", "document_id", "draft_revision"] : ["kind", "source", "task_id", "document_id", "draft_revision"];
+      expectExactKeys2(record, expectedKeys, `authority_evidence[${index}]`);
+      const taskId = expectString2(record.task_id, `authority_evidence[${index}].task_id`);
+      try {
+        validateTaskId(taskId);
+      } catch (error) {
+        fail2("RUNTIME_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      }
+      const documentId = expectString2(record.document_id, `authority_evidence[${index}].document_id`);
+      if (!DOCUMENT_ID_PATTERN.test(documentId))
+        fail2("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}].document_id is invalid.`);
+      const draftRevision = expectString2(record.draft_revision, `authority_evidence[${index}].draft_revision`);
+      if (!/^[a-f0-9]{64}$/.test(draftRevision))
+        fail2("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}].draft_revision must be SHA-256.`);
+      result.push({
+        kind,
+        source,
+        subject: "subject" in record ? expectText(record.subject, `authority_evidence[${index}].subject`, 256) : taskId,
+        task_id: taskId,
+        document_id: documentId,
+        draft_revision: draftRevision
+      });
+    } else {
+      expectExactKeys2(record, ["kind", "source", "subject"], `authority_evidence[${index}]`);
+      result.push({
+        kind,
+        source,
+        subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256)
+      });
+    }
   }
   return result;
 }
@@ -2143,6 +2177,29 @@ function assertReplacementActiveStep(activeStepId, implementationSteps) {
   if (!stepIds.includes(activeStepId)) {
     fail2("RUNTIME_SECTION_INVALID", `active_step_id ${activeStepId} does not identify a step in replacement implementation_steps.`);
   }
+}
+function assertStrictDraftImplementationSteps(activeStepId, implementationSteps) {
+  let steps;
+  try {
+    steps = parseImplementationSteps(implementationSteps);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError)
+      fail2(error.code, error.message);
+    throw error;
+  }
+  if (steps.length === 0) {
+    fail2("TASK_STEPS_INVALID", "draft implementation_steps must contain at least one step.");
+  }
+  for (const step of steps) {
+    if (!step.metadata_complete) {
+      fail2("TASK_STEPS_INVALID", `step ${step.id} has incomplete step metadata; every step in a draft must declare purpose, mutation scope, required evidence, and review checkpoint (with boundary when required).`);
+    }
+  }
+  const firstStep = steps[0];
+  if (activeStepId !== firstStep.id) {
+    fail2("TASK_STEPS_INVALID", `draft active_step_id must be the first admitted implementation step ${firstStep.id}, got ${activeStepId}.`);
+  }
+  return steps;
 }
 function resolveTaskStepForState(body, activeStepId) {
   try {
@@ -4778,6 +4835,34 @@ function assertRequestedCloseTargets(root, current, proposal) {
     fail2("RUNTIME_PATH_INVALID", `${file} proposal must name only its exact canonical path.`);
   }
 }
+function assertPreviousTaskReconciliationComplete(root, current, receipt) {
+  const statusTarget = workflowDocPathForRoot(root, "STATUS.md");
+  if (!fs3.existsSync(statusTarget.filePath)) {
+    fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete: STATUS.md does not exist.`);
+  }
+  const statusContent = fs3.readFileSync(statusTarget.filePath, "utf8");
+  const statusReceipt = matchingStatusReceipt(statusContent, statusTarget.relativePath, receipt);
+  if (!statusReceipt) {
+    fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete.`);
+  }
+  if (statusReceipt.taskId !== receipt.taskId || statusReceipt.taskSlug !== receipt.taskSlug || statusReceipt.documentId !== receipt.documentId || statusReceipt.archivePath !== receipt.relativePath || statusReceipt.archiveRevision !== receipt.revision || statusReceipt.sourceRevision !== receipt.sourceRevision) {
+    fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation provenance does not match the canonical archive.`);
+  }
+  if (receipt.lessonAdmission.decision === "admit") {
+    const lessonsTarget = workflowDocPathForRoot(root, "LESSONS.md");
+    if (!fs3.existsSync(lessonsTarget.filePath)) {
+      fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} lesson reconciliation is incomplete: LESSONS.md does not exist.`);
+    }
+    const lessonsContent = fs3.readFileSync(lessonsTarget.filePath, "utf8");
+    const existingRecords = readDurableLessonRecords(lessonsContent, lessonsTarget.relativePath);
+    for (const candidateRef of receipt.lessonAdmission.candidate_refs) {
+      const matching = existingRecords.find((record) => record.marker.candidate_ref === candidateRef && record.marker.task_id === receipt.taskId && record.marker.task_slug === receipt.taskSlug && record.marker.document_id === receipt.documentId && record.marker.archive_path === receipt.relativePath && record.marker.archive_revision === receipt.revision && record.marker.source_revision === receipt.sourceRevision);
+      if (!matching) {
+        fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} lesson candidate ${candidateRef} has not been persisted.`);
+      }
+    }
+  }
+}
 function ensureAuthorityKinds(proposal, required) {
   const kinds = new Set(proposal.authority_evidence.map((item) => item.kind));
   const missing = required.filter((kind) => !kinds.has(kind));
@@ -4946,7 +5031,7 @@ function assertNoUnresolvedDraftQuestions(body) {
 }
 function assertDraftDefinitionReady(body, activeStepId) {
   const definition = readDraftDefinitionFromBody(body);
-  assertReplacementActiveStep(activeStepId, definition.implementation_steps);
+  assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
   assertNoUnresolvedDraftQuestions(body);
   return definition;
 }
@@ -5078,7 +5163,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
   const delta = proposal.semantic_delta;
   if (delta.action === "create-draft") {
     ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
-    ensureAnyAuthorityKind(proposal, ["active-task-owner", "user-confirmation", "authorized-caller"]);
+    ensureAnyAuthorityKind(proposal, ["user-confirmation", "authorized-caller"]);
     if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
       fail2("DRAFT_CREATION_BLOCKED", "create-draft requires the current task to be closed + archived.");
     }
@@ -5094,9 +5179,10 @@ function applyTaskStateDelta(root, current, proposal, now) {
       if (fs3.existsSync(bootstrapArchive.filePath))
         fail2("TASK_ARCHIVE_CONFLICT", "bootstrap TASK-000 must not already have a canonical archive before the first ordinary draft.");
     } else {
-      matchingArchiveReceipt(root, current);
+      const { receipt } = matchingArchiveReceipt(root, current);
+      assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
-    assertReplacementActiveStep(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
     const draftIdentity = {
       task_id: delta.task_id,
       task_slug: delta.task_slug,
@@ -5146,7 +5232,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     const currentIdentity = extractTaskIdentityFromCurrentTask(current.body);
     if (currentIdentity.title !== delta.task_title)
       fail2("DRAFT_IDENTITY_IMMUTABLE", "update-draft must preserve the task title identity.");
-    assertReplacementActiveStep(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
     const nextWithoutAudit = {
       ...current.runtimeState,
       workflow_status: "draft",
@@ -5173,6 +5259,21 @@ function applyTaskStateDelta(root, current, proposal, now) {
   if (delta.action === "confirm-draft") {
     ensureAnyAuthorityKind(proposal, ["user-confirmation", "authorized-caller"]);
     ensureAuthorityKinds(proposal, ["evidence-admission"]);
+    const confirmationAuthorities = proposal.authority_evidence.filter((item) => item.kind === "user-confirmation" || item.kind === "authorized-caller");
+    for (const auth of confirmationAuthorities) {
+      if (!auth.task_id || !auth.document_id || !auth.draft_revision) {
+        fail2("RUNTIME_AUTHORITY_INVALID", "confirm-draft authority evidence must bind task_id, document_id, and draft_revision.");
+      }
+      if (auth.task_id !== current.runtimeState.task_id) {
+        fail2("DRAFT_IDENTITY_CONFLICT", `confirm-draft authority task_id ${auth.task_id} does not match current task ${current.runtimeState.task_id}.`);
+      }
+      if (auth.document_id !== current.sourceTuple.document_id) {
+        fail2("DRAFT_IDENTITY_CONFLICT", `confirm-draft authority document_id ${auth.document_id} does not match current document ${current.sourceTuple.document_id}.`);
+      }
+      if (auth.draft_revision !== current.sourceTuple.revision) {
+        fail2("DRAFT_REVISION_CONFLICT", `confirm-draft authority draft_revision ${auth.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
+      }
+    }
     if (current.runtimeState.workflow_status !== "draft" || current.runtimeState.lifecycle_state !== "active") {
       fail2("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the current task to be draft + active.");
     }
