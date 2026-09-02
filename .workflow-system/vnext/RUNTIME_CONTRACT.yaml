@@ -242,6 +242,46 @@ proposal:
       - admit
       - defer
       - no-op
+  lesson_marker:
+    contract: vnext-lesson-marker/canonical-v1
+    marker_version_field: absent
+    support_boundary: development-only
+    persisted:
+      fields:
+        - task_id
+        - task_slug
+        - document_id
+        - archive_path
+        - archive_revision
+        - source_revision
+        - candidate_ref
+        - candidate_digest
+        - evidence_refs
+      disposition: omitted
+    reused:
+      fields:
+        - task_id
+        - task_slug
+        - document_id
+        - archive_path
+        - archive_revision
+        - source_revision
+        - candidate_ref
+        - candidate_digest
+        - evidence_refs
+        - disposition
+        - reused_candidate
+      disposition: reused
+      reused_candidate_fields:
+        - task_id
+        - document_id
+        - archive_revision
+        - candidate_ref
+    unsupported_transitional_fields:
+      - disposition:persisted
+      - reused_candidate_ref
+    unsupported_behavior: fail-closed-without-reinterpretation
+    migration_source: none
 
 mutation_scope:
   status: bound

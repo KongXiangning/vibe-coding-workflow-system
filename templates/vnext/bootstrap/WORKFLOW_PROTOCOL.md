@@ -45,3 +45,17 @@ draft-to-active route is explicit `prepare-task:confirm`, bound to the exact
 current draft revision and explicit user or authorized-caller authority.
 Execution and finding admission reject drafts until that Runtime transition
 succeeds; the prior archive remains immutable.
+
+## Durable Lesson marker boundary
+
+The installed vNext Runtime accepts only the current
+`vnext-lesson-marker/canonical-v1` marker shape under `schema_version: 1`.
+Persisted markers omit `disposition`; reused markers use
+`disposition: reused` and an exact `reused_candidate` target containing
+`task_id`, `document_id`, `archive_revision`, and `candidate_ref`. The
+Candidate Identity fields use the same strict validators for the persisted
+identity and reuse target, while `task_slug` uses the canonical task-slug
+validator. The earlier development-only `reused_candidate_ref` and
+evidence-inclusive digest form is unsupported and must fail closed; Runtime
+does not silently reinterpret or migrate it. A future released compatibility
+source requires an explicit offline migration before the reader accepts it.

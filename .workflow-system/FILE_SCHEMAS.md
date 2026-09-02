@@ -685,6 +685,37 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 - 语义复用条目（`disposition: reused`）：当 `candidate_digest` 在既有经验中已存在（或在同 proposal 前序 candidate 中已存在）时，记录包含 `reused_candidate` 精确四坐标（`task_id`, `document_id`, `archive_revision`, `candidate_ref`）的 reuse marker，不重复生成可见正文，可独立证明当前任务的 reconciliation 完成。
 - 知识摘要 `candidate_digest`（即 `candidate_semantic_digest`）严格仅基于 7 项知识内容计算（`category`, `scene`, `conclusion`, `trigger`, `cause`, `action`, `consumer`），明确排除 Candidate Identity（`candidate_ref`）与 Provenance（`evidence_refs`）。
 
+#### Durable marker schema boundary
+
+当前 source repository 的 Runtime distribution `0.14.5` 与 vNext
+`schema_version: 1` 只支持当前 canonical marker contract
+`vnext-lesson-marker/canonical-v1`。marker 不另加独立的
+`marker_schema_version` 字段；后续改变 marker shape 必须先演进
+Protocol / File Schema / Runtime contract，不能依靠 reader 猜测旧语义。
+
+当前 canonical marker 的 closed shape 为：
+
+- persisted marker 的 key set 恰为：`task_id`, `task_slug`, `document_id`,
+  `archive_path`, `archive_revision`, `source_revision`, `candidate_ref`,
+  `candidate_digest`, `evidence_refs`；`disposition` 必须省略。
+- reused marker 的 key set 在上述字段之上恰为 `disposition` 与
+  `reused_candidate`；`disposition` 必须为 `reused`，嵌套 target 的 key set
+  恰为 `task_id`, `document_id`, `archive_revision`, `candidate_ref`。
+- persisted marker 与 `reused_candidate` target 共用同一套 Candidate
+  Identity 字段校验：`task_id` 使用 `validateTaskId`，`document_id` 使用
+  `doc-` 加 24 位小写十六进制，`archive_revision` 使用 exact SHA-256，
+  `candidate_ref` 使用 `SAFE_KEY_PATTERN`；顶层 `task_slug` 使用
+  `validateTaskSlug`。
+
+`3ffe582f` 产生的 `reused_candidate_ref` 及旧 digest 语义是
+development-only transitional schema，不是当前受支持的 migration source。
+Runtime 遇到 `disposition: persisted`、`reused_candidate_ref` 或无法与当前
+7-field semantic digest 对齐的 marker 时必须 fail closed（分别报告
+`LESSON_INVALID` 或 `LESSON_PROVENANCE_MISMATCH`），不得静默重命名、补全
+target、重算并接受或 reinterpret。当前没有针对该 transitional shape 的
+online/offline marker migration；若未来版本需要支持真实项目中已持久化的
+旧 marker，必须在发布前增加显式、离线、可回放的迁移边界。
+
 ---
 
 ## 7. TASK_SUMMARY.md

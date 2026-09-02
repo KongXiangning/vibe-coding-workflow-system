@@ -739,6 +739,17 @@ migration-required
 
 The stop occurs before task execution, governance-state mutation, or any attempt to repair or reinterpret the old document.
 
+The durable Lesson marker follows the same fail-closed version boundary. The
+current source-repository Runtime distribution is private `0.14.5`, and the
+current `schema_version: 1` contract accepts only the
+`vnext-lesson-marker/canonical-v1` persisted/reused shapes. The marker has no
+independent version field: persisted markers omit `disposition`, and reused
+markers carry an exact four-coordinate `reused_candidate`. The
+`3ffe582f` `reused_candidate_ref` plus evidence-inclusive digest form was a
+development-only transitional shape, not a supported migration source. A
+normal vNext reader rejects it and does not silently reinterpret it; any future
+released compatibility must be introduced as an explicit offline migration.
+
 ### 11.2 Idle-only upgrade precondition
 
 An old project may upgrade only when its old runtime reports the canonical `idle` state and `CURRENT_TASK.md` has already completed its `close`/`archive` flow. A project with an active task, unresolved finding/repair, paused or interrupted work, pending lifecycle/recovery work, or an ambiguous/unreadable state is not eligible. Recoverable paused or interrupted work is also non-idle and must be settled through the old workflow first. The Migration Pack must reject it without changing the old installation or its governance documents.

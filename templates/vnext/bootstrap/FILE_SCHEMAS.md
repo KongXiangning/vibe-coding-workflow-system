@@ -35,3 +35,28 @@ as `draft_revision`, include claim-bound evidence and explicit confirmation
 authority, and leave no unresolved user-owned questions. Runtime then changes
 the tuple to `active + active`; stale, malformed, unauthorized, or conflicting
 proposals fail without mutating the canonical file.
+
+## LESSONS.md durable marker schema
+
+The current vNext marker contract is
+`vnext-lesson-marker/canonical-v1` under `schema_version: 1`. A persisted
+marker has exactly these keys and omits `disposition`:
+
+```text
+task_id, task_slug, document_id, archive_path, archive_revision,
+source_revision, candidate_ref, candidate_digest, evidence_refs
+```
+
+A reused marker adds exactly `disposition: reused` and
+`reused_candidate`, whose exact four-coordinate target is:
+
+```text
+task_id, document_id, archive_revision, candidate_ref
+```
+
+Persisted and reused identities share field validation: `task_id` is validated
+as a task ID, `document_id` is `doc-` plus 24 lowercase hex characters,
+`archive_revision` is an exact SHA-256, `candidate_ref` uses the safe key
+pattern, and top-level `task_slug` is canonical lowercase kebab-case. The old
+development-only `reused_candidate_ref` / evidence-inclusive digest shape is
+unsupported; a vNext reader fails closed and never silently reinterprets it.

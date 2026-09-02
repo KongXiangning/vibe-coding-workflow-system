@@ -354,7 +354,7 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 | `contract-candidate-commit` | `CONTRACTS` | `sync-state`、`bootstrap-project` | 先过 knowledge admission；只收 verified stable boundary；不锁定临时实现，不静默放宽已有 Contract |
 | `decision-record-transaction` | `DECISIONS` | `sync-state`、`bootstrap-project` | 只提交 confirmed authority；append-only；supersede 要保留 predecessor、原因与 provenance |
 | `paired-host-guidance-transaction` | 成对 host guidance surfaces | `sync-state`、`bootstrap-project` | 保持语义对齐；保护 target-owned/native 内容；临时 workaround 不得升级成全局规则 |
-| `lesson-record-transaction` | `LESSONS` | `sync-state`、`close-task` 的显式 lesson phase | 先过 reusable trigger、cause、action、evidence、consumer 和 dedup；一过性观察为 no-op/defer |
+| `lesson-record-transaction` | `LESSONS` | `sync-state`、`close-task` 的显式 lesson phase | 先过 reusable trigger、cause、action、evidence、consumer 和 dedup；Candidate Identity 四坐标由 persisted/reused 共用字段 validator 严格校验；当前只接受 canonical-v1 marker，旧 transitional shape fail closed；一过性观察为 no-op/defer |
 | `archive-transaction` | `CURRENT_TASK.md` 与 canonical `TASK` archive | `close-task` | 独占 `active + active` → `closed + archived` terminal mutation；task identity、acceptance、validation、release/rollback、remaining risk 均满足后才 archive；两路径原子写、精确回滚且可重放 |
 
 Runtime kernel 只负责 deterministic validation、conflict、idempotence、atomic commit 和 read-back；语义判断仍由 entry、用户和 capability policy 共同完成。不存在一个可以随意写任意治理文档的 generic editor。

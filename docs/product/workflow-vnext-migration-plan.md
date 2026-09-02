@@ -337,6 +337,22 @@ The implemented Phase 2 / Slice A / Slice B / Slice C / close-task boundaries ad
 - dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for the single-file, lifecycle, and ordinary draft transactions;
 - `execute-step` does not report a governance write unless the corresponding Runtime result is `success`.
 
+### 6.3.1 Durable Lesson marker compatibility boundary
+
+当前仓库证据将 `3ffe582f` 的 Lesson marker 判定为
+development-only transitional schema，而不是 supported migration source：根
+package 与 project-local Runtime package 都是 `0.14.5` 且 `private: true`，
+`3ffe582f` 与当前 `da472f2a` 均没有 release tag；现有 Migration Pack 只
+负责 idle old project 的一次性离线结构转换，不声明或执行 Lesson marker
+版本迁移。因而当前 vNext Runtime/File Schema `schema_version: 1` 只接受
+`vnext-lesson-marker/canonical-v1` 的 persisted/reused closed shapes。
+
+旧的 `reused_candidate_ref`、显式 `disposition: persisted` 和旧的
+evidence-inclusive digest 不得由普通 Runtime 猜测或静默改写；它们必须
+fail closed。若未来发布版本确实可能持久化旧 marker，发布前必须新增独立
+的 offline migration source、精确四坐标解析、语义 digest 重算、歧义阻断
+以及 replay/idempotence 证明；不得把两套 marker 语义长期并入普通 reader。
+
 ### 6.4 Core Daily Execution Semantics completion gate
 
 Phase 2 core daily execution is not complete until the following business flow
