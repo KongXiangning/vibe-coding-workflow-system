@@ -4097,6 +4097,13 @@ function prepareProjectStatusTransaction(root: string, current: CanonicalCurrent
   };
 }
 
+export type ReusedCandidateTarget = {
+  task_id: string;
+  document_id: string;
+  archive_revision: string;
+  candidate_ref: string;
+};
+
 type LessonMarker = {
   task_id: string;
   task_slug: string;
@@ -4107,13 +4114,20 @@ type LessonMarker = {
   candidate_ref: string;
   candidate_digest: string;
   evidence_refs: string[];
-  disposition?: 'persisted' | 'reused';
-  reused_candidate_ref?: string;
+  disposition?: 'reused';
+  reused_candidate?: ReusedCandidateTarget;
 };
 
 function lessonCandidateDigest(candidate: LessonCandidate): string {
-  const { candidate_ref, ...payload } = candidate;
-  return digest(payload);
+  return digest({
+    category: candidate.category,
+    scene: candidate.scene,
+    conclusion: candidate.conclusion,
+    trigger: candidate.trigger,
+    cause: candidate.cause,
+    action: candidate.action,
+    consumer: candidate.consumer,
+  });
 }
 
 function renderLessonMarker(candidate: LessonCandidate, archive: ArchiveReceipt): string {
@@ -4130,7 +4144,7 @@ function renderLessonMarker(candidate: LessonCandidate, archive: ArchiveReceipt)
   })} -->`;
 }
 
-function readLessonMarkers(content: string, location: string): LessonMarker[] {
+export function readLessonMarkers(content: string, location: string): LessonMarker[] {
   const pattern = /<!-- vNext lesson record: (\{[^\r\n]+\}) -->/g;
   const result: LessonMarker[] = [];
   for (const match of content.matchAll(pattern)) {
@@ -4141,23 +4155,29 @@ function readLessonMarkers(content: string, location: string): LessonMarker[] {
       fail('LESSON_INVALID', `${location} contains an invalid vNext lesson provenance marker.`);
     }
     const record = expectRecord(parsed, `${location}.lesson_marker`);
-    const isReused = record.disposition === 'reused';
-    if (isReused) {
+    const hasDisposition = 'disposition' in record;
+    if (hasDisposition) {
+      if (record.disposition !== 'reused') {
+        fail('LESSON_INVALID', `${location}.lesson_marker contains an invalid or non-canonical disposition: ${String(record.disposition)}.`);
+      }
       expectExactKeys(
         record,
-        ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs', 'disposition', 'reused_candidate_ref'],
+        ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs', 'disposition', 'reused_candidate'],
         `${location}.lesson_marker`,
       );
     } else {
-      const allowedKeys = 'disposition' in record
-        ? ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs', 'disposition']
-        : ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs'];
-      expectExactKeys(record, allowedKeys, `${location}.lesson_marker`);
+      expectExactKeys(
+        record,
+        ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs'],
+        `${location}.lesson_marker`,
+      );
     }
     const archiveRevision = expectString(record.archive_revision, `${location}.lesson_marker.archive_revision`);
     const sourceRevision = expectString(record.source_revision, `${location}.lesson_marker.source_revision`);
     const candidateDigest = expectString(record.candidate_digest, `${location}.lesson_marker.candidate_digest`);
-    if (!/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(candidateDigest)) fail('LESSON_INVALID', `${location} lesson provenance marker has an invalid revision or digest.`);
+    if (!/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(candidateDigest)) {
+      fail('LESSON_INVALID', `${location} lesson provenance marker has an invalid revision or digest.`);
+    }
     const marker: LessonMarker = {
       task_id: expectString(record.task_id, `${location}.lesson_marker.task_id`),
       task_slug: expectString(record.task_slug, `${location}.lesson_marker.task_slug`),
@@ -4168,10 +4188,25 @@ function readLessonMarkers(content: string, location: string): LessonMarker[] {
       candidate_ref: expectString(record.candidate_ref, `${location}.lesson_marker.candidate_ref`, SAFE_KEY_PATTERN),
       candidate_digest: candidateDigest,
       evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.lesson_marker.evidence_refs`),
-      disposition: isReused ? 'reused' : 'persisted',
     };
-    if (isReused) {
-      marker.reused_candidate_ref = expectString(record.reused_candidate_ref, `${location}.lesson_marker.reused_candidate_ref`, SAFE_KEY_PATTERN);
+    if (hasDisposition) {
+      const reusedRecord = expectRecord(record.reused_candidate, `${location}.lesson_marker.reused_candidate`);
+      expectExactKeys(
+        reusedRecord,
+        ['task_id', 'document_id', 'archive_revision', 'candidate_ref'],
+        `${location}.lesson_marker.reused_candidate`,
+      );
+      const reusedArchiveRev = expectString(reusedRecord.archive_revision, `${location}.lesson_marker.reused_candidate.archive_revision`);
+      if (!/^[a-f0-9]{64}$/.test(reusedArchiveRev)) {
+        fail('LESSON_INVALID', `${location}.lesson_marker.reused_candidate has an invalid archive_revision.`);
+      }
+      marker.disposition = 'reused';
+      marker.reused_candidate = {
+        task_id: expectString(reusedRecord.task_id, `${location}.lesson_marker.reused_candidate.task_id`),
+        document_id: expectString(reusedRecord.document_id, `${location}.lesson_marker.reused_candidate.document_id`),
+        archive_revision: reusedArchiveRev,
+        candidate_ref: expectString(reusedRecord.candidate_ref, `${location}.lesson_marker.reused_candidate.candidate_ref`, SAFE_KEY_PATTERN),
+      };
     }
     result.push(marker);
   }
@@ -4191,7 +4226,7 @@ function renderLessonCandidate(candidate: LessonCandidate, archive: ArchiveRecei
   ].join('\n');
 }
 
-type DurableLessonRecord = {
+export type DurableLessonRecord = {
   marker: LessonMarker;
   candidate: LessonCandidate;
 };
@@ -4220,9 +4255,14 @@ function renderLessonMarkerFromData(marker: LessonMarker): string {
     candidate_digest: marker.candidate_digest,
     evidence_refs: marker.evidence_refs,
   };
-  if (marker.disposition === 'reused') {
+  if (marker.disposition === 'reused' && marker.reused_candidate) {
     data.disposition = 'reused';
-    data.reused_candidate_ref = marker.reused_candidate_ref;
+    data.reused_candidate = {
+      task_id: marker.reused_candidate.task_id,
+      document_id: marker.reused_candidate.document_id,
+      archive_revision: marker.reused_candidate.archive_revision,
+      candidate_ref: marker.reused_candidate.candidate_ref,
+    };
   }
   return `<!-- vNext lesson record: ${JSON.stringify(data)} -->`;
 }
@@ -4294,7 +4334,7 @@ function readDurableLessonRecord(content: string, marker: LessonMarker, location
 
   const nextMarker = content.indexOf('<!-- vNext lesson record:', markerStart + markerText.length);
   const nextSection = sections
-    .filter(section => section.level === 2 && section.headingStart > markerStart)
+    .filter(section => section.level <= 2 && section.headingStart > markerStart)
     .map(section => section.headingStart)
     .sort((left, right) => left - right)[0];
   const candidateEnd = Math.min(
@@ -4326,7 +4366,7 @@ function readDurableLessonRecord(content: string, marker: LessonMarker, location
   return { marker, candidate };
 }
 
-function readDurableLessonRecords(content: string, location: string): DurableLessonRecord[] {
+export function readDurableLessonRecords(content: string, location: string): DurableLessonRecord[] {
   const markers = readLessonMarkers(content, location);
   const persistedRecords: DurableLessonRecord[] = [];
   const reusedMarkers: { marker: LessonMarker; index: number }[] = [];
@@ -4346,12 +4386,27 @@ function readDurableLessonRecords(content: string, location: string): DurableLes
     if (countExactOccurrences(content, markerText) !== 1) {
       fail('LESSON_INVALID', `${location}.lesson[${index}] contains a non-canonical or duplicate lesson reuse marker.`);
     }
-    const target = persistedRecords.find(record =>
-      record.marker.candidate_ref === marker.reused_candidate_ref
-      && record.marker.candidate_digest === marker.candidate_digest
+    if (!marker.reused_candidate) {
+      fail('LESSON_INVALID', `${location}.lesson[${index}] reuse marker is missing reused_candidate target.`);
+    }
+    const matchingTargets = persistedRecords.filter(record =>
+      record.marker.task_id === marker.reused_candidate!.task_id
+      && record.marker.document_id === marker.reused_candidate!.document_id
+      && record.marker.archive_revision === marker.reused_candidate!.archive_revision
+      && record.marker.candidate_ref === marker.reused_candidate!.candidate_ref
     );
-    if (!target) {
-      fail('LESSON_PROVENANCE_MISMATCH', `${location}.lesson[${index}] references missing or mismatched candidate ${marker.reused_candidate_ref}.`);
+    if (matchingTargets.length !== 1) {
+      fail(
+        'LESSON_PROVENANCE_MISMATCH',
+        `${location}.lesson[${index}] references ${matchingTargets.length === 0 ? 'missing' : 'ambiguous'} persisted candidate target ${marker.reused_candidate.task_id}/${marker.reused_candidate.candidate_ref}.`,
+      );
+    }
+    const target = matchingTargets[0];
+    if (target.marker.candidate_digest !== marker.candidate_digest) {
+      fail(
+        'LESSON_PROVENANCE_MISMATCH',
+        `${location}.lesson[${index}] digest does not match referenced candidate target ${marker.reused_candidate.task_id}/${marker.reused_candidate.candidate_ref}.`,
+      );
     }
     allRecords.push({
       marker,
@@ -4396,18 +4451,33 @@ function appendLessonReuseMarkers(
 ): string {
   let nextContent = content;
   for (const reuseMarker of reuseMarkers) {
-    const targetRecord = availableRecords.find(record =>
-      record.marker.candidate_ref === reuseMarker.reused_candidate_ref
-      && record.marker.candidate_digest === reuseMarker.candidate_digest
+    if (!reuseMarker.reused_candidate) {
+      fail('LESSON_INVALID', `${location} reuse marker missing reused_candidate coordinates.`);
+    }
+    const matchingTargets = availableRecords.filter(record =>
+      record.marker.task_id === reuseMarker.reused_candidate!.task_id
+      && record.marker.document_id === reuseMarker.reused_candidate!.document_id
+      && record.marker.archive_revision === reuseMarker.reused_candidate!.archive_revision
+      && record.marker.candidate_ref === reuseMarker.reused_candidate!.candidate_ref
     );
-    if (!targetRecord) {
-      fail('LESSON_INVALID', `${location} target candidate for reuse ${reuseMarker.reused_candidate_ref} was not found.`);
+    if (matchingTargets.length !== 1) {
+      fail(
+        'LESSON_INVALID',
+        `${location} target candidate for reuse ${reuseMarker.reused_candidate.task_id}/${reuseMarker.reused_candidate.candidate_ref} was not uniquely resolved (matches=${matchingTargets.length}).`,
+      );
+    }
+    const targetRecord = matchingTargets[0];
+    if (targetRecord.marker.candidate_digest !== reuseMarker.candidate_digest) {
+      fail(
+        'LESSON_INVALID',
+        `${location} target candidate for reuse ${reuseMarker.reused_candidate.task_id}/${reuseMarker.reused_candidate.candidate_ref} digest mismatched.`,
+      );
     }
     const targetArchive = archiveReceiptFromLessonMarker(targetRecord.marker);
     const targetRendered = renderLessonCandidate(targetRecord.candidate, targetArchive);
     const targetIndex = nextContent.indexOf(targetRendered);
     if (targetIndex < 0) {
-      fail('LESSON_INVALID', `${location} could not locate rendered block for candidate ${reuseMarker.reused_candidate_ref}.`);
+      fail('LESSON_INVALID', `${location} could not locate rendered block for candidate ${reuseMarker.reused_candidate.task_id}/${reuseMarker.reused_candidate.candidate_ref}.`);
     }
     let insertionIndex = targetIndex + targetRendered.length;
     while (true) {
@@ -4434,6 +4504,9 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
   if (admissionRefs.size !== candidateRefs.size || [...admissionRefs].some(ref => !candidateRefs.has(ref))) {
     fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record candidates must exactly match the durable archive lesson admission candidate_refs.');
   }
+  if (delta.candidates.length !== candidateRefs.size) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record candidates must not contain duplicate candidate_refs.');
+  }
   if (!receipt.lessonAdmission.evidence_refs.every(ref => delta.evidence_refs.includes(ref))) {
     fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record evidence_refs must cover the durable archive lesson admission evidence_refs.');
   }
@@ -4445,6 +4518,21 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
     if (!findUniqueMarkdownSection(sections, [heading], 2)) fail('LESSON_INVALID', `LESSONS.md is missing the required ## ${heading} section.`);
   }
   const existingRecords = readDurableLessonRecords(originalLessonsContent, target.relativePath);
+
+  const stagedSemanticTargets = new Map<string, ReusedCandidateTarget>();
+  for (const record of existingRecords) {
+    if (record.marker.disposition !== 'reused') {
+      if (!stagedSemanticTargets.has(record.marker.candidate_digest)) {
+        stagedSemanticTargets.set(record.marker.candidate_digest, {
+          task_id: record.marker.task_id,
+          document_id: record.marker.document_id,
+          archive_revision: record.marker.archive_revision,
+          candidate_ref: record.marker.candidate_ref,
+        });
+      }
+    }
+  }
+
   const newCandidates: LessonCandidate[] = [];
   const newReuseMarkers: LessonMarker[] = [];
   for (const candidate of delta.candidates) {
@@ -4455,14 +4543,26 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
     if (matchingRefs.length > 0) {
       for (const existing of matchingRefs) {
         const marker = existing.marker;
-        if (marker.task_id !== receipt.taskId || marker.task_slug !== receipt.taskSlug || marker.document_id !== receipt.documentId || marker.archive_path !== receipt.relativePath || marker.archive_revision !== receipt.revision || marker.source_revision !== receipt.sourceRevision || marker.candidate_digest !== lessonCandidateDigest(candidate) || marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|') || lessonCandidateDigest(existing.candidate) !== lessonCandidateDigest(candidate)) {
+        if (
+          marker.task_id !== receipt.taskId
+          || marker.task_slug !== receipt.taskSlug
+          || marker.document_id !== receipt.documentId
+          || marker.archive_path !== receipt.relativePath
+          || marker.archive_revision !== receipt.revision
+          || marker.source_revision !== receipt.sourceRevision
+          || marker.candidate_digest !== lessonCandidateDigest(candidate)
+          || marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|')
+          || lessonCandidateDigest(existing.candidate) !== lessonCandidateDigest(candidate)
+        ) {
           fail('LESSON_PROVENANCE_MISMATCH', `lesson candidate ${candidate.candidate_ref} has conflicting durable provenance.`);
         }
       }
       continue;
     }
-    const semanticDuplicate = existingRecords.find(record => record.marker.candidate_digest === lessonCandidateDigest(candidate));
-    if (semanticDuplicate) {
+
+    const candidateDigest = lessonCandidateDigest(candidate);
+    const existingTarget = stagedSemanticTargets.get(candidateDigest);
+    if (existingTarget) {
       const reuseMarker: LessonMarker = {
         task_id: receipt.taskId,
         task_slug: receipt.taskSlug,
@@ -4471,18 +4571,29 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
         archive_revision: receipt.revision,
         source_revision: receipt.sourceRevision,
         candidate_ref: candidate.candidate_ref,
-        candidate_digest: lessonCandidateDigest(candidate),
+        candidate_digest: candidateDigest,
         evidence_refs: [...candidate.evidence_refs],
         disposition: 'reused',
-        reused_candidate_ref: semanticDuplicate.marker.disposition === 'reused' && semanticDuplicate.marker.reused_candidate_ref
-          ? semanticDuplicate.marker.reused_candidate_ref
-          : semanticDuplicate.marker.candidate_ref,
+        reused_candidate: {
+          task_id: existingTarget.task_id,
+          document_id: existingTarget.document_id,
+          archive_revision: existingTarget.archive_revision,
+          candidate_ref: existingTarget.candidate_ref,
+        },
       };
       newReuseMarkers.push(reuseMarker);
       continue;
     }
+
     newCandidates.push(candidate);
+    stagedSemanticTargets.set(candidateDigest, {
+      task_id: receipt.taskId,
+      document_id: receipt.documentId,
+      archive_revision: receipt.revision,
+      candidate_ref: candidate.candidate_ref,
+    });
   }
+
   if (newCandidates.length === 0 && newReuseMarkers.length === 0) return null;
   let nextLessonsContent = originalLessonsContent;
   let candidateCount = 0;
@@ -4505,7 +4616,6 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
           candidate_ref: candidate.candidate_ref,
           candidate_digest: lessonCandidateDigest(candidate),
           evidence_refs: [...candidate.evidence_refs],
-          disposition: 'persisted',
         },
         candidate,
       });

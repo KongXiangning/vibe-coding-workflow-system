@@ -21,6 +21,8 @@ import {
   GovernanceTransactionKernel,
   previewCloseTask,
   readCanonicalCurrentTask,
+  readDurableLessonRecords,
+  readLessonMarkers,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
@@ -2988,7 +2990,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(lessonsAfter002.split('Keep archive, status, and lesson independent.').length - 1).toBe(1);
     // Durable reuse marker for TASK-002 exists!
     expect(lessonsAfter002).toContain('"disposition":"reused"');
-    expect(lessonsAfter002).toContain('"reused_candidate_ref":"lesson-a"');
+    expect(lessonsAfter002).toContain('"reused_candidate":{');
+    expect(lessonsAfter002).toContain('"candidate_ref":"lesson-a"');
     expect(lessonsAfter002).toContain('"task_id":"002"');
 
     // Replay of lesson-record-002 is idempotent no-op!
@@ -3108,5 +3111,569 @@ describe('vNext Phase 2 Runtime contract', () => {
       fs.writeFileSync(contractPath, originalContract, 'utf8');
     }
     expect(validateVNextRuntimeContract(ROOT).phase).toBe('Phase 2');
+  });
+
+  test('Round 3 A: cross-task candidate_ref collision resolves to exact target coordinates', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+
+    // Setup TASK-001 with lesson-1 persisted
+    const bootstrap = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'task-one',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Task 1',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:1'],
+      idempotency_key: 'draft-001',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft001 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft001, {
+      task_id: '001',
+      task_slug: 'task-one',
+      document_id: draft001.sourceTuple.document_id,
+      draft_revision: draft001.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-1'],
+      idempotency_key: 'confirm-001',
+      authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-001')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const lesson1: LessonCandidate = {
+      candidate_ref: 'lesson-1',
+      category: '通用',
+      scene: 'Cross-task candidate reference collision scene',
+      conclusion: 'Always resolve exact 4-coordinate target',
+      trigger: 'Collision scenario',
+      cause: 'Multiple tasks use same candidate_ref',
+      action: 'Target by task_id and archive_revision',
+      consumer: 'lesson reconciliation',
+      evidence_refs: ['test:evidence:lesson'],
+    };
+    expect(applyVNextRuntimeProposal(root, lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [lesson1],
+      evidence_refs: ['test:evidence:lesson'],
+    }, 'lesson-001')).status).toBe('success');
+
+    // Setup TASK-002 which also has lesson-1 (reused from TASK-001)
+    const closed001 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(closed001, {
+      action: 'create-draft',
+      task_id: '002',
+      task_slug: 'task-two',
+      document_id: 'doc-222222222222222222222222',
+      task_title: 'Task 2',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:2'],
+      idempotency_key: 'draft-002',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft002 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft002, {
+      task_id: '002',
+      task_slug: 'task-two',
+      document_id: draft002.sourceTuple.document_id,
+      draft_revision: draft002.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-2'],
+      idempotency_key: 'confirm-002',
+      authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-002')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    // TASK-002 admits lesson-1 with same content -> should be reused
+    expect(applyVNextRuntimeProposal(root, lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [lesson1],
+      evidence_refs: ['test:evidence:lesson'],
+    }, 'lesson-002')).status).toBe('success');
+
+    // Setup TASK-003 which admits lesson-new with same content -> should be reused targeting TASK-001 specifically
+    const closed002 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(closed002, {
+      action: 'create-draft',
+      task_id: '003',
+      task_slug: 'task-three',
+      document_id: 'doc-333333333333333333333333',
+      task_title: 'Task 3',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:3'],
+      idempotency_key: 'draft-003',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft003 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft003, {
+      task_id: '003',
+      task_slug: 'task-three',
+      document_id: draft003.sourceTuple.document_id,
+      draft_revision: draft003.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-3'],
+      idempotency_key: 'confirm-003',
+      authority_evidence: confirmationAuthority(draft003, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-3' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['lesson-new'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-003')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const lessonNew: LessonCandidate = {
+      ...lesson1,
+      candidate_ref: 'lesson-new',
+    };
+    expect(applyVNextRuntimeProposal(root, lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [lessonNew],
+      evidence_refs: ['test:evidence:lesson'],
+    }, 'lesson-003')).status).toBe('success');
+
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const lessonsContent = fs.readFileSync(lessonsPath, 'utf8');
+
+    // Verify TASK-003's reuse marker explicitly points to TASK-001 (not TASK-002)
+    const records = readDurableLessonRecords(lessonsContent, 'docs/workflow/LESSONS.md');
+    const record003 = records.find(r => r.marker.task_id === '003' && r.marker.candidate_ref === 'lesson-new');
+    expect(record003).toBeDefined();
+    expect(record003!.marker.disposition).toBe('reused');
+    expect(record003!.marker.reused_candidate).toBeDefined();
+    expect(record003!.marker.reused_candidate!.task_id).toBe('001');
+    expect(record003!.marker.reused_candidate!.candidate_ref).toBe('lesson-1');
+  });
+
+  test('Round 3 B: reuse target coordinate drift fails closed', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'drift-task-1',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Drift Task 1',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:1'],
+      idempotency_key: 'draft-drift-1',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft001 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft001, {
+      task_id: '001',
+      task_slug: 'drift-task-1',
+      document_id: draft001.sourceTuple.document_id,
+      draft_revision: draft001.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-1'],
+      idempotency_key: 'confirm-drift-1',
+      authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['lesson-target'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-drift-1')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const lessonA: LessonCandidate = {
+      candidate_ref: 'lesson-target',
+      category: '通用',
+      scene: 'Drift testing scene',
+      conclusion: 'Coordinate drift must fail closed',
+      trigger: 'Altering target coordinates',
+      cause: 'Tampered marker',
+      action: 'Validate exact 4 coordinates',
+      consumer: 'lesson reconciliation',
+      evidence_refs: ['test:evidence:lesson'],
+    };
+    expect(applyVNextRuntimeProposal(root, lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [lessonA],
+      evidence_refs: ['test:evidence:lesson'],
+    }, 'lesson-drift-1')).status).toBe('success');
+
+    // Create 002 with reused candidate
+    const closed001 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(closed001, {
+      action: 'create-draft',
+      task_id: '002',
+      task_slug: 'drift-task-2',
+      document_id: 'doc-222222222222222222222222',
+      task_title: 'Drift Task 2',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:2'],
+      idempotency_key: 'draft-drift-2',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft002 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft002, {
+      task_id: '002',
+      task_slug: 'drift-task-2',
+      document_id: draft002.sourceTuple.document_id,
+      draft_revision: draft002.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-2'],
+      idempotency_key: 'confirm-drift-2',
+      authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['lesson-reused'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-drift-2')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const lessonB: LessonCandidate = {
+      ...lessonA,
+      candidate_ref: 'lesson-reused',
+    };
+    expect(applyVNextRuntimeProposal(root, lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [lessonB],
+      evidence_refs: ['test:evidence:lesson'],
+    }, 'lesson-drift-2')).status).toBe('success');
+
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const validLessonsContent = fs.readFileSync(lessonsPath, 'utf8');
+
+    // 1. Tamper task_id in reused_candidate
+    const tamperedTaskId = validLessonsContent.replace('"reused_candidate":{"task_id":"001"', '"reused_candidate":{"task_id":"999"');
+    expect(tamperedTaskId).not.toBe(validLessonsContent);
+    expect(() => readDurableLessonRecords(tamperedTaskId, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
+
+    // 2. Tamper document_id in reused_candidate
+    const tamperedDocId = validLessonsContent.replace(
+      /("reused_candidate":\{.*?"document_id":")[^"]+(")/,
+      '$1doc-wrong$2',
+    );
+    expect(tamperedDocId).not.toBe(validLessonsContent);
+    expect(() => readDurableLessonRecords(tamperedDocId, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
+
+    // 3. Tamper archive_revision in reused_candidate
+    const tamperedRev = validLessonsContent.replace(
+      /("reused_candidate":\{.*?"archive_revision":")[a-f0-9]{64}(")/,
+      '$1' + 'f'.repeat(64) + '$2',
+    );
+    expect(tamperedRev).not.toBe(validLessonsContent);
+    expect(() => readDurableLessonRecords(tamperedRev, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
+
+    // 4. Tamper candidate_ref in reused_candidate
+    const tamperedRef = validLessonsContent.replace(
+      /("reused_candidate":\{.*?"candidate_ref":")[^"]+(")/,
+      '$1lesson-nonexistent$2',
+    );
+    expect(tamperedRef).not.toBe(validLessonsContent);
+    expect(() => readDurableLessonRecords(tamperedRef, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
+
+    // 5. Tamper candidate_digest in reused marker
+    const tamperedDigest = validLessonsContent.replace(
+      /("candidate_ref":"lesson-reused","candidate_digest":")[a-f0-9]{64}(")/,
+      '$1' + 'e'.repeat(64) + '$2',
+    );
+    expect(tamperedDigest).not.toBe(validLessonsContent);
+    expect(() => readDurableLessonRecords(tamperedDigest, 'docs/workflow/LESSONS.md')).toThrow('LESSON_PROVENANCE_MISMATCH');
+  });
+
+  test('Round 3 C: same-proposal semantic duplicates produce single visible Lesson and exact reuse proof', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+
+    const bootstrap = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'same-proposal-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Same Proposal Task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:1'],
+      idempotency_key: 'draft-same-prop',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft001 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft001, {
+      task_id: '001',
+      task_slug: 'same-proposal-task',
+      document_id: draft001.sourceTuple.document_id,
+      draft_revision: draft001.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-1'],
+      idempotency_key: 'confirm-same-prop',
+      authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+
+    // Archive 001 admitting both candidate-a and candidate-b
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['candidate-a', 'candidate-b'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-same-prop')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const candidateA: LessonCandidate = {
+      candidate_ref: 'candidate-a',
+      category: '后端与服务',
+      scene: 'Same proposal deduplication scene',
+      conclusion: 'Single visible record written',
+      trigger: 'Two duplicates in same proposal',
+      cause: 'Redundant knowledge admitted together',
+      action: 'Staged indexing creates reuse pointer',
+      consumer: 'lesson reconciliation',
+      evidence_refs: ['test:evidence:lesson'],
+    };
+    const candidateB: LessonCandidate = {
+      ...candidateA,
+      candidate_ref: 'candidate-b',
+    };
+
+    const prop = lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [candidateA, candidateB],
+      evidence_refs: ['test:evidence:lesson'],
+    }, 'lesson-same-prop');
+
+    const result = applyVNextRuntimeProposal(root, prop);
+    expect(result.status).toBe('success');
+    expect(result.governed_mutation_count).toBe(1);
+
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const lessonsContent = fs.readFileSync(lessonsPath, 'utf8');
+
+    // Visible text is written only ONCE!
+    expect(lessonsContent.split('Single visible record written').length - 1).toBe(1);
+
+    // Both records parsed by readDurableLessonRecords
+    const durableRecords = readDurableLessonRecords(lessonsContent, 'docs/workflow/LESSONS.md');
+    const recA = durableRecords.find(r => r.marker.candidate_ref === 'candidate-a');
+    const recB = durableRecords.find(r => r.marker.candidate_ref === 'candidate-b');
+    expect(recA).toBeDefined();
+    expect(recA!.marker.disposition).toBeUndefined(); // persisted has NO disposition
+    expect(recB).toBeDefined();
+    expect(recB!.marker.disposition).toBe('reused');
+    expect(recB!.marker.reused_candidate).toEqual({
+      task_id: '001',
+      document_id: draft001.sourceTuple.document_id,
+      archive_revision: recA!.marker.archive_revision,
+      candidate_ref: 'candidate-a',
+    });
+
+    // Replay is strict no-op with identical content
+    const replayResult = applyVNextRuntimeProposal(root, prop);
+    expect(replayResult.status).toBe('no-op');
+    expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(lessonsContent);
+  });
+
+  test('Round 3 D: same semantic content with different evidence_refs results in reuse while preserving evidence provenance', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+
+    const bootstrap = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'diff-evidence-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Diff Evidence Task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:1'],
+      idempotency_key: 'draft-diff-ev',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft001 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft001, {
+      task_id: '001',
+      task_slug: 'diff-evidence-task',
+      document_id: draft001.sourceTuple.document_id,
+      draft_revision: draft001.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-1'],
+      idempotency_key: 'confirm-diff-ev',
+      authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:alpha', 'test:evidence:beta'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['cand-alpha', 'cand-beta'], evidence_refs: ['test:evidence:alpha', 'test:evidence:beta'] },
+    }), 'archive-diff-ev')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const candAlpha: LessonCandidate = {
+      candidate_ref: 'cand-alpha',
+      category: '测试与回归',
+      scene: 'Semantic equality excludes evidence_refs',
+      conclusion: 'Evidence is provenance, not knowledge content',
+      trigger: 'Different evidence_refs observed',
+      cause: 'Provenance varies per test run',
+      action: 'Exclude evidence_refs from candidate_digest',
+      consumer: 'lesson deduplication',
+      evidence_refs: ['test:evidence:alpha'],
+    };
+    const candBeta: LessonCandidate = {
+      ...candAlpha,
+      candidate_ref: 'cand-beta',
+      evidence_refs: ['test:evidence:beta'], // Different evidence!
+    };
+
+    const prop = lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [candAlpha, candBeta],
+      evidence_refs: ['test:evidence:alpha', 'test:evidence:beta'],
+    }, 'lesson-diff-ev');
+
+    expect(applyVNextRuntimeProposal(root, prop).status).toBe('success');
+
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const lessonsContent = fs.readFileSync(lessonsPath, 'utf8');
+
+    // cand-beta was reused
+    const records = readDurableLessonRecords(lessonsContent, 'docs/workflow/LESSONS.md');
+    const betaRec = records.find(r => r.marker.candidate_ref === 'cand-beta');
+    expect(betaRec).toBeDefined();
+    expect(betaRec!.marker.disposition).toBe('reused');
+    expect(betaRec!.marker.reused_candidate!.candidate_ref).toBe('cand-alpha');
+    // cand-beta keeps its own evidence_refs as provenance
+    expect(betaRec!.marker.evidence_refs).toEqual(['test:evidence:beta']);
+  });
+
+  test('Round 3 E: non-canonical persisted disposition fails closed as LESSON_INVALID', () => {
+    const root = makeRoot();
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const content = fs.readFileSync(lessonsPath, 'utf8');
+    const invalidMarker = '<!-- vNext lesson record: {"task_id":"001","task_slug":"test","document_id":"doc-111111111111111111111111","archive_path":"TASKS/TASK-001-test.md","archive_revision":"' + '1'.repeat(64) + '","source_revision":"' + '2'.repeat(64) + '","candidate_ref":"lesson-1","candidate_digest":"' + '3'.repeat(64) + '","evidence_refs":["test:evidence"],"disposition":"persisted"} -->';
+    const tampered = content.replace('## 通用', `## 通用\n\n${invalidMarker}\n- 场景：test\n  - 结论：test\n  - 触发信号：test\n  - 原因：test\n  - 应对动作：test\n  - 消费者：test\n  - 证据引用：["test:evidence"]`);
+    expect(() => readLessonMarkers(tampered, 'docs/workflow/LESSONS.md')).toThrow('LESSON_INVALID');
+  });
+
+  test('Round 3 F: combined proposal replay is strictly idempotent no-op with identical file bytes', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+
+    const bootstrap = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskDraftProposal(bootstrap, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'replay-combo-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Replay Combo Task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:1'],
+      idempotency_key: 'draft-replay-combo',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    })).status).toBe('success');
+    const draft001 = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createPrepareTaskConfirmProposal(draft001, {
+      task_id: '001',
+      task_slug: 'replay-combo-task',
+      document_id: draft001.sourceTuple.document_id,
+      draft_revision: draft001.sourceTuple.revision,
+      evidence_refs: ['test:evidence:confirm-1'],
+      idempotency_key: 'confirm-replay-combo',
+      authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
+      lesson_admission: { decision: 'admit', candidate_refs: ['cand-x', 'cand-y', 'cand-z'], evidence_refs: ['test:evidence:lesson'] },
+    }), 'archive-replay-combo')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, statusProposal(root)).status).toBe('success');
+
+    const candX: LessonCandidate = {
+      candidate_ref: 'cand-x',
+      category: '数据与存储',
+      scene: 'Replay combo scene X',
+      conclusion: 'X conclusion',
+      trigger: 'X trigger',
+      cause: 'X cause',
+      action: 'X action',
+      consumer: 'consumer X',
+      evidence_refs: ['test:evidence:lesson'],
+    };
+    const candY: LessonCandidate = {
+      ...candX,
+      candidate_ref: 'cand-y',
+    };
+    const candZ: LessonCandidate = {
+      candidate_ref: 'cand-z',
+      category: '前端与交互',
+      scene: 'Unique scene Z',
+      conclusion: 'Z conclusion',
+      trigger: 'Z trigger',
+      cause: 'Z cause',
+      action: 'Z action',
+      consumer: 'consumer Z',
+      evidence_refs: ['test:evidence:lesson'],
+    };
+
+    const prop = lessonProposal(root, {
+      kind: 'lesson-record',
+      action: 'record',
+      candidates: [candX, candY, candZ],
+      evidence_refs: ['test:evidence:lesson'],
+    }, 'lesson-replay-combo');
+
+    expect(applyVNextRuntimeProposal(root, prop).status).toBe('success');
+
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const bytesFirstCommit = fs.readFileSync(lessonsPath, 'utf8');
+
+    // Replay 1
+    const replay1 = applyVNextRuntimeProposal(root, prop);
+    expect(replay1.status).toBe('no-op');
+    expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(bytesFirstCommit);
+
+    // Replay 2
+    const replay2 = applyVNextRuntimeProposal(root, prop);
+    expect(replay2.status).toBe('no-op');
+    expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(bytesFirstCommit);
   });
 });

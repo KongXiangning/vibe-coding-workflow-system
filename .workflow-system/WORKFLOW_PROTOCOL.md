@@ -374,12 +374,17 @@ archive and all required post-archive reconciliation (STATUS reconciliation
 receipt with consistent visible status projection, and admitted Lesson
 persistence or durable reuse proof if `lesson_admission: admit`) before
 `create-draft` is accepted. If reconciliation is incomplete or the visible STATUS
-projection has drifted, `create-draft` fails closed. When an admitted lesson
-matches an existing candidate digest, semantic deduplication records a durable
-reuse marker (`disposition: reused`) referencing the existing candidate without
-duplicating visible lesson text, satisfying the reconciliation gate. The old task
-archive is immutable; creating the next task writes only the single canonical
-`CURRENT_TASK.md` and never edits, deletes, or resets the previous archive.
+projection has drifted, `create-draft` fails closed. Knowledge reconciliation
+strictly separates Candidate Identity (`task_id + document_id + archive_revision + candidate_ref`),
+Semantic Identity (`candidate_semantic_digest` over the 7 knowledge content fields,
+excluding `candidate_ref` and `evidence_refs`), and Provenance (`task_slug`, `archive_path`,
+`source_revision`, `evidence_refs`). When an admitted lesson matches an existing
+candidate digest (in historical lessons or earlier in the same proposal), semantic
+deduplication records a durable reuse marker (`disposition: reused`, `reused_candidate`
+pointing to the exact persisted candidate coordinates) without duplicating visible
+lesson text, satisfying the reconciliation gate. The old task archive is immutable;
+creating the next task writes only the single canonical `CURRENT_TASK.md` and never
+edits, deletes, or resets the previous archive.
 
 Newly created or refined ordinary drafts use strict step admission: every
 independently verifiable implementation step must carry complete metadata (stable ID,

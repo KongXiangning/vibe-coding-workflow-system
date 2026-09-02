@@ -681,8 +681,9 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 
 在 vNext 中，`lesson-record-transaction` 使用 HTML 注释格式的 provenance marker 记录归属与校验依据：
 
-- 普通持久化条目（`disposition: persisted` 或缺省）：包含 marker 与可见正文（场景、结论、触发信号、原因、应对动作、消费者、证据引用）；
-- 语义复用条目（`disposition: reused`）：当 `candidate_digest` 在既有经验中已存在时，记录包含 `reused_candidate_ref` 的 reuse marker，不重复生成可见正文，可独立证明当前任务的 reconciliation 完成。
+- 普通持久化条目（persisted）：包含 marker 与可见正文（场景、结论、触发信号、原因、应对动作、消费者、证据引用）；**`disposition` 字段必须省略**，若显式包含 `disposition: persisted` 或其他非 canonical 取值，Runtime 解析直接 fail closed (`LESSON_INVALID`)。
+- 语义复用条目（`disposition: reused`）：当 `candidate_digest` 在既有经验中已存在（或在同 proposal 前序 candidate 中已存在）时，记录包含 `reused_candidate` 精确四坐标（`task_id`, `document_id`, `archive_revision`, `candidate_ref`）的 reuse marker，不重复生成可见正文，可独立证明当前任务的 reconciliation 完成。
+- 知识摘要 `candidate_digest`（即 `candidate_semantic_digest`）严格仅基于 7 项知识内容计算（`category`, `scene`, `conclusion`, `trigger`, `cause`, `action`, `consumer`），明确排除 Candidate Identity（`candidate_ref`）与 Provenance（`evidence_refs`）。
 
 ---
 
