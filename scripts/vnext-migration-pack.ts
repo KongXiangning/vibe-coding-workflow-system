@@ -2421,7 +2421,11 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
           if (!canonicalCaptureEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
         } else {
           const executableCaptureLines = content.split(/\r?\n/).filter(line => line.includes(legacyName));
-          if (executableCaptureLines.some(line => !/^\s*entry:\s*capture-work-item\s*$/.test(line) && !/^# vNext Skill:\s*capture-work-item\s*$/.test(line))) {
+          if (executableCaptureLines.some(line =>
+            !/^\s*entry:\s*capture-work-item\s*$/.test(line) &&
+            !/^# vNext Skill:\s*capture-work-item\s*$/.test(line) &&
+            !(legacyName === 'capture-work-item' && line.includes('capture-work-item:record'))
+          )) {
             throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName} outside its canonical entry declaration.`);
           }
         }

@@ -136,7 +136,7 @@ The recommended surface distinguishes discoverability from callability. The exac
 | `review-change` | Produce one unified read-only verdict for one diff target | `report-only`; ordinary review is the default entry intent | `discovery` and `verification` are review-cycle phases, not public modes |
 | `debug-task` | Establish root cause and select an authorized recovery route | `investigate-only`, `resolve` | Debug does not write product code; `resolve` may macro-route to `execute-step:repair` after proof and authority |
 | `task-lifecycle` | Perform an explicit ownership/lifecycle transition | `pause`, `interrupt`, `resume-paused`, `resume-interrupted`, `supersede` | Each mode has distinct source tuple, recovery evidence, mutation, and rollback semantics |
-| `capture-work-item` | Record work proven unrelated to the active task | none | Remains record-only and cannot promote, switch, or mutate the active task |
+| `capture-work-item` | Record work proven unrelated to the active task | none (internal Runtime action: `record`) | Remains record-only; the bound Runtime writes at most one canonical inbox record and cannot promote, switch, or mutate the active task |
 | `close-task` | Prove closure eligibility and finish the task | `preview`; ordinary closure is the default entry intent | Summary, state deltas, and archive are one closure intent; `preview` is terminal and non-mutating |
 
 ### 4.2 Administrative entry
@@ -1029,6 +1029,7 @@ The following cases define the target behavior:
 | `TA-40` | A draft is refined repeatedly | `update-draft` preserves TASK_ID/TASK_SLUG/document_id, changes only typed definition sections, and leaves the task in `draft + active` |
 | `TA-41` | A stale or unauthorized `prepare-task:confirm` is presented | Runtime returns `conflict`/`blocked`, performs no write, and does not auto-confirm the draft |
 | `TA-42` | A confirmed draft is executed and later closed, then another request is prepared | the first archive remains byte-stable and immutable; the next draft receives a new identity with no dual current owner |
+| `TA-43` | An active pure-vNext Virtual Project captures a proven-unrelated work item | exactly one identity-derived inbox record is committed; exact replay is byte-identical no-op; stale, non-unrelated, unresolved, colliding, or failed transactions write nothing and leave task state unchanged |
 
 ## 15. Success measures
 

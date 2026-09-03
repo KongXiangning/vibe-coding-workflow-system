@@ -62,3 +62,14 @@ validation without guessing or silently reinterpreting non-canonical durable
 state. If a future released supported durable schema changes incompatibly, an
 explicit schema-evolution / offline-migration boundary must be defined before
 ordinary readers accept the new shape.
+
+## Record-only inbox binding
+
+`capture-work-item` may submit one `capture-work-item:record` typed proposal to
+the bound `inbox-record-transaction`. Runtime admits only a complete
+`relation_to_current_task: unrelated` proof with resolved duplicate and owner
+fields, derives the canonical `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md`
+target, and commits at most that one file. Stale source tuples, unsafe or
+non-canonical targets, identity/provenance collisions, and failed read-back
+are fail-closed; the active task and every other governance/product file stay
+byte-identical.

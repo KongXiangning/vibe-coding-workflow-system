@@ -422,6 +422,15 @@ inbox artifact 是 record-only work item，不是 task identity artifact、lifec
 TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 ```
 
+`inbox-record-transaction` is bound to the vNext Runtime through the internal
+`capture-work-item:record` action. The typed proposal must carry the stable
+`item_id`, `item_slug`, `relation_evidence_refs`, `duplicate_check: clear`,
+`proposed_owner`, exact `target_path`, and claim-bound `evidence_refs`.
+Runtime derives the target from `item_id` and `item_slug`, validates the active
+task source tuple, and persists one canonical record with an additive vNext
+provenance marker. The marker carries the proposal idempotency key/digest and
+source task tuple; it is part of exact replay and collision detection.
+
 最小字段为：
 
 - `artifact_kind`
@@ -468,7 +477,9 @@ TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
 - `relation_to_current_task` 对已写入 inbox 的 artifact 固定为 `unrelated`
 - inbox artifact 不得落入 `TASKS/paused/**`、`TASKS/interrupted/**`、`TASKS/TASK-*.md` 或 `docs/workflow/CURRENT_TASK.md`
 - inbox artifact 不得把 `capture`、`backlog_item` 或 `inbox_item` 写成 live `CURRENT_TASK.md` 的 lifecycle state
-- duplicate 检测可依赖 title / slug / evidence 的轻量 read-back，但命中疑似重复时必须 fail-closed，不能静默覆盖
+- Runtime admission requires a complete duplicate disposition; `clear` may
+  write, while duplicate suspicion or an unresolved duplicate blocks before
+  any write. Existing bytes are never silently overwritten.
 - `promoted`、`rejected`、`duplicate` 等后续状态不属于本轮最小闭集；需要时必须先扩展协议 / schema
 
 ### 更新时机
@@ -1057,7 +1068,9 @@ Phase 0 只校验 declaration，不执行 commit。
 ### Phase 2 vNext Runtime state-changing slice
 
 Phase 2 的 `execute-step` 绑定 `task-state-transaction` 与
-`finding-queue-transaction`；Slice A 另外绑定 `task-state-transaction` 给
+`finding-queue-transaction`；`capture-work-item:record` 绑定
+`inbox-record-transaction`，只向 canonical inbox record 写入一个 proven
+unrelated item；Slice A 另外绑定 `task-state-transaction` 给
 `prepare-task`，但仅允许 `clear-resume-review-gate`，以及绑定
 `lifecycle-transaction` 给 `task-lifecycle` 的 `pause`、`interrupt`、
 `resume-paused`、`resume-interrupted`。具体 proposal、runtime state 和

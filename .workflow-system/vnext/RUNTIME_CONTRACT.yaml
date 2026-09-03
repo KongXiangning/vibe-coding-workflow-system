@@ -19,11 +19,13 @@ proposal:
     - execute-step
     - prepare-task
     - task-lifecycle
+    - capture-work-item
     - close-task
   operation_kinds:
     - task-state-transaction
     - finding-queue-transaction
     - lifecycle-transaction
+    - inbox-record-transaction
     - project-status-transaction
     - archive-transaction
     - lesson-record-transaction
@@ -180,6 +182,46 @@ proposal:
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
+  inbox_record:
+    mode: default
+    action: record
+    required:
+      - item_slug
+      - record
+      - relation_evidence_refs
+      - duplicate_check
+      - proposed_owner
+      - target_path
+      - evidence_refs
+    record_fields:
+      - artifact_kind
+      - item_id
+      - title
+      - type
+      - source
+      - captured_at
+      - relation_to_current_task
+      - current_task_id
+      - description
+      - evidence
+      - suggested_next_action
+      - status
+    relation: unrelated
+    duplicate_check: clear
+    proposed_owner:
+      - triage_later
+      - ask_user
+    target_pattern: TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md
+    provenance_fields:
+      - idempotency_key
+      - proposal_digest
+      - source_revision
+      - source_task_id
+      - source_task_slug
+      - source_document_id
+      - relation_evidence_refs
+      - duplicate_check
+      - proposed_owner
   lifecycle:
     modes:
       - pause
@@ -411,6 +453,26 @@ operations:
     idempotence: fail-closed
     conflict_policy: fail-closed
 
+  - id: inbox-record-transaction
+    status: bound
+    binding: vnext-runtime
+    operation: inbox-record-transaction
+    source_targets:
+      - CURRENT_TASK.md
+      - TASKS/inbox/**
+    write_targets:
+      - TASKS/inbox/**
+    allowed_callers:
+      - capture-work-item
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
   - id: project-status-transaction
     status: bound
     binding: vnext-runtime
@@ -474,8 +536,7 @@ operations:
     idempotence: fail-closed
     conflict_policy: fail-closed
 
-unbound_operations:
-  - inbox-record-transaction
+unbound_operations: []
 
 bootstrap_project:
   schema_version: 1

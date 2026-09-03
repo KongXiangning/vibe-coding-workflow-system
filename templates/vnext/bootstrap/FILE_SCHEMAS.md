@@ -68,3 +68,15 @@ contract. If a future released supported durable schema changes incompatibly,
 the ordinary Runtime reader must wait for an explicit schema-evolution /
 offline-migration boundary instead of guessing or silently reinterpreting
 durable state.
+
+## Inbox / record-only artifact
+
+`capture-work-item:record` is bound to the vNext Runtime through
+`inbox-record-transaction`. A proven-unrelated item is persisted only at
+`TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` using the closed inbox
+record fields from the source File Schema. Runtime derives and validates this
+path, requires complete relation evidence, `duplicate_check: clear`, and an
+owner route, and writes at most one record. The transaction binds the current
+task source tuple, returns exact replay as a no-op, rejects identity or
+provenance collisions, and leaves `CURRENT_TASK.md` and all other task,
+lifecycle, governance, and product files unchanged.

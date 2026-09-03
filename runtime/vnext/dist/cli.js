@@ -1350,6 +1350,7 @@ var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
   "lifecycle-transaction",
+  "inbox-record-transaction",
   "project-status-transaction",
   "archive-transaction",
   "lesson-record-transaction"
@@ -1405,6 +1406,9 @@ var VNEXT_EXECUTE_STEP_MODES = ["default", "repair"];
 var PREPARE_TASK_MODES = ["default", "confirm", "replan"];
 var LIFECYCLE_MODES = ["pause", "interrupt", "resume-paused", "resume-interrupted", "supersede"];
 var CLOSE_TASK_MODES = ["default"];
+var INBOX_ITEM_TYPES = ["requirement", "idea", "bug", "chore", "question"];
+var INBOX_ITEM_SOURCES = ["user", "implementation", "review", "regression", "root_cause", "other"];
+var INBOX_SUGGESTED_NEXT_ACTIONS = ["triage_later", "ask_user"];
 var REVIEW_CYCLE_PHASES = ["discovery", "verification"];
 var STEP_STATUSES = ["ready", "in-progress", "completed", "blocked"];
 var FINDING_STATUSES = ["admitted", "in-progress", "resolved", "deferred", "rejected"];
@@ -1438,6 +1442,16 @@ var MAX_REPLAN_SECTION_CONTENT_LENGTH = 32768;
 var MAX_REPAIR_ROUNDS = 3;
 var MAX_REPAIR_ATTEMPTS = 2;
 var CURRENT_TASK_RELATIVE_FALLBACK = "docs/workflow/CURRENT_TASK.md";
+var INBOX_RECORD_ITEM_ID_PATTERN = /^(\d{8})-([a-z0-9]{4,})$/;
+var INBOX_RECORD_PATH_PATTERN = /^TASKS\/inbox\/INBOX-(\d{8})-([a-z0-9]{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
+var INBOX_RECORD_PROVENANCE_MARKER = "<!-- vNext inbox record:";
+var MAX_INBOX_TEXT_LENGTH = 32768;
+var INBOX_CAPTURE_PRECONDITIONS = [
+  "current-task-is-active",
+  "relation-proven-unrelated",
+  "duplicate-check-clear",
+  "owner-route-resolved"
+];
 function createReviewCycleZero() {
   return {
     id: "review-cycle-0",
@@ -1759,10 +1773,10 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord2(contract.proposal, "Runtime contract.proposal");
-  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "task_state", "prepare_task", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
+  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "task_state", "prepare_task", "inbox_record", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime proposal contract has an invalid envelope marker.");
-  expectSetEqual(expectStringArray2(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "prepare-task", "task-lifecycle", "close-task"], "Runtime contract proposal callers");
+  expectSetEqual(expectStringArray2(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "Runtime contract proposal callers");
   expectSetEqual(expectStringArray2(proposal.operation_kinds, "Runtime contract.proposal.operation_kinds"), [...RUNTIME_OPERATION_KINDS], "Runtime contract operation kinds");
   expectSetEqual(expectStringArray2(proposal.source_tuple, "Runtime contract.proposal.source_tuple"), [...RUNTIME_SOURCE_TUPLE_FIELDS], "Runtime contract source tuple");
   expectSetEqual(expectStringArray2(proposal.required_envelope, "Runtime contract.proposal.required_envelope"), [...RUNTIME_REQUIRED_ENVELOPE_FIELDS], "Runtime contract proposal envelope");
@@ -1832,6 +1846,21 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (prepareTaskContract.replan_mode !== "replan")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task replan_mode must be replan.");
   expectSetEqual(expectStringArray2(prepareTaskContract.replan_actions, "Runtime contract.proposal.prepare_task.replan_actions"), [...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task replan actions");
+  const inboxRecordContract = expectRecord2(proposal.inbox_record, "Runtime contract.proposal.inbox_record");
+  expectExactKeys2(inboxRecordContract, ["mode", "action", "required", "record_fields", "relation", "duplicate_check", "proposed_owner", "target_pattern", "provenance_fields"], "Runtime contract.proposal.inbox_record");
+  if (inboxRecordContract.mode !== "default" || inboxRecordContract.action !== "record") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract inbox_record must use mode=default and action=record.");
+  }
+  expectSetEqual(expectStringArray2(inboxRecordContract.required, "Runtime contract.proposal.inbox_record.required"), ["item_slug", "record", "relation_evidence_refs", "duplicate_check", "proposed_owner", "target_path", "evidence_refs"], "Runtime contract inbox record required fields");
+  expectSetEqual(expectStringArray2(inboxRecordContract.record_fields, "Runtime contract.proposal.inbox_record.record_fields"), ["artifact_kind", "item_id", "title", "type", "source", "captured_at", "relation_to_current_task", "current_task_id", "description", "evidence", "suggested_next_action", "status"], "Runtime contract inbox record durable fields");
+  if (inboxRecordContract.relation !== "unrelated" || inboxRecordContract.duplicate_check !== "clear") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract inbox records must be proven unrelated and have duplicate_check=clear.");
+  }
+  expectSetEqual(expectStringArray2(inboxRecordContract.proposed_owner, "Runtime contract.proposal.inbox_record.proposed_owner"), [...INBOX_SUGGESTED_NEXT_ACTIONS], "Runtime contract inbox record owner routes");
+  if (inboxRecordContract.target_pattern !== "TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract inbox record target pattern is invalid.");
+  }
+  expectSetEqual(expectStringArray2(inboxRecordContract.provenance_fields, "Runtime contract.proposal.inbox_record.provenance_fields"), ["idempotency_key", "proposal_digest", "source_revision", "source_task_id", "source_task_slug", "source_document_id", "relation_evidence_refs", "duplicate_check", "proposed_owner"], "Runtime contract inbox record provenance fields");
   const lifecycleContract = expectRecord2(proposal.lifecycle, "Runtime contract.proposal.lifecycle");
   expectExactKeys2(lifecycleContract, ["modes", "bound_modes", "proposal_only_modes", "pause_required", "interrupt_required", "resume_required", "supersede_required"], "Runtime contract.proposal.lifecycle");
   expectSetEqual(expectStringArray2(lifecycleContract.modes, "Runtime contract.proposal.lifecycle.modes"), [...LIFECYCLE_MODES], "Runtime contract lifecycle modes");
@@ -1946,6 +1975,11 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
         writes: ["CURRENT_TASK.md", "TASKS/paused/**", "TASKS/interrupted/**"],
         callers: ["task-lifecycle"]
       },
+      "inbox-record-transaction": {
+        source: ["CURRENT_TASK.md", "TASKS/inbox/**"],
+        writes: ["TASKS/inbox/**"],
+        callers: ["capture-work-item"]
+      },
       "project-status-transaction": {
         source: ["CURRENT_TASK.md", "STATUS.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md"],
         writes: ["STATUS.md"],
@@ -1971,8 +2005,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
       fail2("RUNTIME_CONTRACT_INVALID", `Runtime contract operation ${id} must be atomic, fail-closed, and conflict-safe.`);
   }
   expectSetEqual(bound, [...RUNTIME_OPERATION_KINDS], "Runtime contract bound operations");
-  const unbound = expectStringArray2(contract.unbound_operations, "Runtime contract.unbound_operations");
-  expectSetEqual(unbound, ["inbox-record-transaction"], "Runtime contract unbound operations");
+  const unbound = expectStringArray2(contract.unbound_operations, "Runtime contract.unbound_operations", true);
+  expectSetEqual(unbound, [], "Runtime contract unbound operations");
   const bootstrapOperations = validateBootstrapRuntimeContract(contract.bootstrap_project);
   return {
     phase: "Phase 2",
@@ -2687,6 +2721,90 @@ function validateLessonRecordDelta(value) {
     evidence_refs: evidenceRefs
   };
 }
+function validateInboxItemId(value, location) {
+  const itemId = expectString2(value, location);
+  const match = INBOX_RECORD_ITEM_ID_PATTERN.exec(itemId);
+  if (!match) {
+    fail2("RUNTIME_IDENTITY_INVALID", `${location} must use YYYYMMDD-short-id with a lowercase alphanumeric short-id.`);
+  }
+  const year = Number(match[1].slice(0, 4));
+  const month = Number(match[1].slice(4, 6));
+  const day = Number(match[1].slice(6, 8));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year < 1 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    fail2("RUNTIME_IDENTITY_INVALID", `${location} must begin with a valid YYYYMMDD date.`);
+  }
+  return itemId;
+}
+function validateInboxRecord(value, location) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["artifact_kind", "item_id", "title", "type", "source", "captured_at", "relation_to_current_task", "current_task_id", "description", "evidence", "suggested_next_action", "status"], location);
+  const title = expectText(record.title, `${location}.title`, 512);
+  if (/[\r\n]/u.test(title) || /^\{\{[^{}]+\}\}$/.test(title)) {
+    fail2("RUNTIME_IDENTITY_INVALID", `${location}.title must be a concrete single-line value.`);
+  }
+  const capturedAt = expectString2(record.captured_at, `${location}.captured_at`);
+  if (/[\r\n]/u.test(capturedAt) || Number.isNaN(Date.parse(capturedAt))) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.captured_at must be a parseable timestamp.`);
+  }
+  const currentTaskId = expectString2(record.current_task_id, `${location}.current_task_id`);
+  try {
+    validateTaskId(currentTaskId);
+  } catch (error) {
+    fail2("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  return {
+    artifact_kind: expectEnum(record.artifact_kind, ["inbox_item"], `${location}.artifact_kind`),
+    item_id: validateInboxItemId(record.item_id, `${location}.item_id`),
+    title,
+    type: expectEnum(record.type, INBOX_ITEM_TYPES, `${location}.type`),
+    source: expectEnum(record.source, INBOX_ITEM_SOURCES, `${location}.source`),
+    captured_at: capturedAt,
+    relation_to_current_task: expectEnum(record.relation_to_current_task, ["unrelated"], `${location}.relation_to_current_task`),
+    current_task_id: currentTaskId,
+    description: expectText(record.description, `${location}.description`, MAX_INBOX_TEXT_LENGTH),
+    evidence: expectText(record.evidence, `${location}.evidence`, MAX_INBOX_TEXT_LENGTH),
+    suggested_next_action: expectEnum(record.suggested_next_action, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.suggested_next_action`),
+    status: expectEnum(record.status, ["captured"], `${location}.status`)
+  };
+}
+function validateInboxRecordDelta(value) {
+  const record = expectRecord2(value, "semantic_delta");
+  expectExactKeys2(record, ["kind", "action", "item_slug", "record", "relation_evidence_refs", "duplicate_check", "proposed_owner", "target_path", "evidence_refs"], "semantic_delta");
+  const itemSlug = expectString2(record.item_slug, "semantic_delta.item_slug");
+  try {
+    validateTaskSlug(itemSlug);
+  } catch (error) {
+    fail2("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  const inboxRecord = validateInboxRecord(record.record, "semantic_delta.record");
+  const relationEvidenceRefs = validateEvidenceRefs(record.relation_evidence_refs, "semantic_delta.relation_evidence_refs");
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
+  if (!relationEvidenceRefs.every((ref) => evidenceRefs.includes(ref))) {
+    fail2("RUNTIME_EVIDENCE_INVALID", "semantic_delta.evidence_refs must cover every relation_evidence_refs entry.");
+  }
+  const duplicateCheck = expectEnum(record.duplicate_check, ["clear"], "semantic_delta.duplicate_check");
+  const proposedOwner = expectEnum(record.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, "semantic_delta.proposed_owner");
+  if (inboxRecord.suggested_next_action !== proposedOwner) {
+    fail2("RUNTIME_RELATION_INVALID", "semantic_delta.proposed_owner must match record.suggested_next_action.");
+  }
+  const targetPath = normalizeRepoPath2(expectString2(record.target_path, "semantic_delta.target_path"), "semantic_delta.target_path");
+  const targetMatch = INBOX_RECORD_PATH_PATTERN.exec(targetPath);
+  if (!targetMatch || `${targetMatch[1]}-${targetMatch[2]}` !== inboxRecord.item_id || targetMatch[3] !== itemSlug) {
+    fail2("RUNTIME_PATH_INVALID", "semantic_delta.target_path must be the canonical path derived from item_id and item_slug.");
+  }
+  return {
+    kind: expectEnum(record.kind, ["inbox-record"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["record"], "semantic_delta.action"),
+    item_slug: itemSlug,
+    record: inboxRecord,
+    relation_evidence_refs: relationEvidenceRefs,
+    duplicate_check: duplicateCheck,
+    proposed_owner: proposedOwner,
+    target_path: targetPath,
+    evidence_refs: evidenceRefs
+  };
+}
 function validateSemanticDelta(value, operationKind) {
   const record = expectRecord2(value, "semantic_delta");
   const kind = expectString2(record.kind, "semantic_delta.kind");
@@ -2715,6 +2833,11 @@ function validateSemanticDelta(value, operationKind) {
       fail2("RUNTIME_SCHEMA_INVALID", "lesson-record-transaction requires lesson-record semantic_delta.");
     return validateLessonRecordDelta(value);
   }
+  if (operationKind === "inbox-record-transaction") {
+    if (kind !== "inbox-record")
+      fail2("RUNTIME_SCHEMA_INVALID", "inbox-record-transaction requires inbox-record semantic_delta.");
+    return validateInboxRecordDelta(value);
+  }
   if (kind !== "finding-queue")
     fail2("RUNTIME_SCHEMA_INVALID", "finding-queue-transaction requires finding-queue semantic_delta.");
   return record.action === "admit" ? validateFindingRecord(value, "semantic_delta") : validateFindingAction(value);
@@ -2727,8 +2850,8 @@ function validateRuntimeProposal(value) {
   if (proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail2("RUNTIME_SCHEMA_INVALID", `proposal.kind must be ${VNEXT_RUNTIME_PROPOSAL_KIND}.`);
   const operationKind = expectEnum(proposal.operation_kind, RUNTIME_OPERATION_KINDS, "proposal.operation_kind");
-  const caller = expectEnum(proposal.caller, ["execute-step", "prepare-task", "task-lifecycle", "close-task"], "proposal.caller");
-  const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES], "proposal.mode");
+  const caller = expectEnum(proposal.caller, ["execute-step", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "proposal.caller");
+  const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES, ...CLOSE_TASK_MODES], "proposal.mode");
   const sourceTuple = validateSourceTuple(proposal.source_tuple);
   const authorityEvidence = validateAuthorityEvidence2(proposal.authority_evidence);
   const preconditions = expectStringArray2(proposal.preconditions, "proposal.preconditions", false, 32);
@@ -2774,6 +2897,14 @@ function validateRuntimeProposal(value) {
       fail2("RUNTIME_CALLER_NOT_BOUND", "lifecycle-transaction is bound only to task-lifecycle lifecycle modes.");
     if (semanticDelta.kind !== "lifecycle" || semanticDelta.action !== mode)
       fail2("RUNTIME_MODE_INVALID", "lifecycle mode and semantic transition must match.");
+  } else if (operationKind === "inbox-record-transaction") {
+    if (caller !== "capture-work-item" || mode !== "default")
+      fail2("RUNTIME_CALLER_NOT_BOUND", "inbox-record-transaction is bound only to capture-work-item:record with default mode.");
+    if (semanticDelta.kind !== "inbox-record" || semanticDelta.action !== "record")
+      fail2("RUNTIME_MODE_INVALID", "inbox-record-transaction requires a record inbox semantic_delta.");
+    const missingPreconditions = INBOX_CAPTURE_PRECONDITIONS.filter((precondition) => !preconditions.includes(precondition));
+    if (missingPreconditions.length > 0)
+      fail2("RUNTIME_PRECONDITION_MISSING", `capture-work-item is missing required preconditions: ${missingPreconditions.join(", ")}.`);
   } else {
     if (caller !== "close-task" || !CLOSE_TASK_MODES.includes(mode)) {
       fail2("RUNTIME_CALLER_NOT_BOUND", `${operationKind} is bound only to close-task default closure.`);
@@ -3871,6 +4002,194 @@ function archivePathForTask(root, current) {
     fail2("RUNTIME_PATH_INVALID", `archive path escapes the target root: ${relativePath}`);
   }
   return { filePath, relativePath };
+}
+function canonicalInboxRecordTarget(root, delta) {
+  const itemId = validateInboxItemId(delta.record.item_id, "semantic_delta.record.item_id");
+  const itemSlug = expectString2(delta.item_slug, "semantic_delta.item_slug");
+  try {
+    validateTaskSlug(itemSlug);
+  } catch (error) {
+    fail2("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  const relativePath = `TASKS/inbox/INBOX-${itemId}-${itemSlug}.md`;
+  if (delta.target_path !== relativePath) {
+    fail2("RUNTIME_PATH_INVALID", "inbox target_path is not the canonical identity-derived path.");
+  }
+  const resolvedRoot = path4.resolve(root);
+  const filePath = path4.resolve(resolvedRoot, ...relativePath.split("/"));
+  const relativeCheck = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path4.isAbsolute(relativeCheck)) {
+    fail2("RUNTIME_PATH_INVALID", `inbox path escapes the target root: ${relativePath}`);
+  }
+  return { filePath, relativePath };
+}
+function renderInboxTextBlock(value) {
+  return value.replace(/\r\n?/g, `
+`).split(`
+`).map((line) => `    ${line}`).join(`
+`);
+}
+function inboxRecordProvenance(proposal) {
+  const delta = proposal.semantic_delta;
+  return {
+    idempotency_key: proposal.idempotency_key,
+    proposal_digest: digest(proposal),
+    source_revision: proposal.source_tuple.revision,
+    source_task_id: proposal.source_tuple.task_id,
+    source_task_slug: proposal.source_tuple.task_slug,
+    source_document_id: proposal.source_tuple.document_id,
+    relation_evidence_refs: [...delta.relation_evidence_refs],
+    duplicate_check: delta.duplicate_check,
+    proposed_owner: delta.proposed_owner
+  };
+}
+function renderInboxRecord(proposal) {
+  const delta = proposal.semantic_delta;
+  const record = delta.record;
+  const marker = `<!-- vNext inbox record: ${JSON.stringify(inboxRecordProvenance(proposal))} -->`;
+  return [
+    `# INBOX-${record.item_id}-${delta.item_slug}`,
+    "",
+    marker,
+    "",
+    `- artifact_kind: ${record.artifact_kind}`,
+    `- item_id: ${record.item_id}`,
+    `- title: ${record.title}`,
+    `- type: ${record.type}`,
+    `- source: ${record.source}`,
+    `- captured_at: ${record.captured_at}`,
+    `- relation_to_current_task: ${record.relation_to_current_task}`,
+    `- current_task_id: ${record.current_task_id}`,
+    "- description: |",
+    renderInboxTextBlock(record.description),
+    "- evidence: |",
+    renderInboxTextBlock(record.evidence),
+    `- suggested_next_action: ${record.suggested_next_action}`,
+    `- status: ${record.status}`,
+    ""
+  ].join(`
+`);
+}
+function validateInboxProvenance(value, location) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["idempotency_key", "proposal_digest", "source_revision", "source_task_id", "source_task_slug", "source_document_id", "relation_evidence_refs", "duplicate_check", "proposed_owner"], location);
+  const proposalDigest = expectString2(record.proposal_digest, `${location}.proposal_digest`);
+  const sourceRevision = expectString2(record.source_revision, `${location}.source_revision`);
+  if (!SHA256_PATTERN2.test(proposalDigest) || !SHA256_PATTERN2.test(sourceRevision)) {
+    fail2("INBOX_PROVENANCE_INVALID", `${location} contains an invalid proposal or source revision.`);
+  }
+  const sourceTaskId = expectString2(record.source_task_id, `${location}.source_task_id`);
+  const sourceTaskSlug = expectString2(record.source_task_slug, `${location}.source_task_slug`);
+  try {
+    validateTaskId(sourceTaskId);
+    validateTaskSlug(sourceTaskSlug);
+  } catch (error) {
+    fail2("INBOX_PROVENANCE_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  const sourceDocumentId = expectString2(record.source_document_id, `${location}.source_document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(sourceDocumentId))
+    fail2("INBOX_PROVENANCE_INVALID", `${location}.source_document_id is invalid.`);
+  return {
+    idempotency_key: expectString2(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
+    proposal_digest: proposalDigest,
+    source_revision: sourceRevision,
+    source_task_id: sourceTaskId,
+    source_task_slug: sourceTaskSlug,
+    source_document_id: sourceDocumentId,
+    relation_evidence_refs: validateEvidenceRefs(record.relation_evidence_refs, `${location}.relation_evidence_refs`),
+    duplicate_check: expectEnum(record.duplicate_check, ["clear"], `${location}.duplicate_check`),
+    proposed_owner: expectEnum(record.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.proposed_owner`)
+  };
+}
+function readInboxProvenanceMarkers(content, location) {
+  if (!content.includes(INBOX_RECORD_PROVENANCE_MARKER))
+    return [];
+  const pattern = /<!-- vNext inbox record: (\{[^\r\n]+\}) -->/g;
+  const markers = [];
+  for (const match of content.matchAll(pattern)) {
+    let parsed;
+    try {
+      parsed = JSON.parse(match[1]);
+    } catch {
+      fail2("INBOX_PROVENANCE_INVALID", `${location} contains an invalid vNext inbox provenance marker.`);
+    }
+    markers.push(validateInboxProvenance(parsed, `${location}.inbox_marker`));
+  }
+  if (countExactOccurrences(content, INBOX_RECORD_PROVENANCE_MARKER) !== markers.length) {
+    fail2("INBOX_PROVENANCE_INVALID", `${location} contains a malformed vNext inbox provenance marker.`);
+  }
+  return markers;
+}
+function scanInboxRecordFiles(root) {
+  const resolvedRoot = path4.resolve(root);
+  const inboxRoot = path4.join(resolvedRoot, "TASKS", "inbox");
+  return walkMarkdownFiles(inboxRoot).map((filePath) => {
+    const relativePath = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+    const pathMatch = INBOX_RECORD_PATH_PATTERN.exec(relativePath);
+    const content = fs3.readFileSync(filePath, "utf8");
+    const provenance = readInboxProvenanceMarkers(content, relativePath);
+    if (provenance.length > 0 && !pathMatch) {
+      fail2("INBOX_PATH_INVALID", `${relativePath} contains vNext inbox provenance but is not a canonical inbox path.`);
+    }
+    if (!pathMatch) {
+      fail2("INBOX_PATH_INVALID", `${relativePath} is not a canonical vNext inbox record path.`);
+    }
+    return {
+      filePath,
+      relativePath,
+      itemId: pathMatch ? `${pathMatch[1]}-${pathMatch[2]}` : null,
+      provenance
+    };
+  });
+}
+function assertCanonicalInboxRecordContent(content, proposal, location) {
+  const expected = renderInboxRecord(proposal);
+  if (content !== expected) {
+    fail2("INBOX_PROVENANCE_MISMATCH", `${location} does not match the exact typed inbox record bytes.`);
+  }
+  const markers = readInboxProvenanceMarkers(content, location);
+  if (markers.length !== 1)
+    fail2("INBOX_PROVENANCE_INVALID", `${location} must contain exactly one vNext inbox provenance marker.`);
+  const expectedMarker = inboxRecordProvenance(proposal);
+  if (JSON.stringify(markers[0]) !== JSON.stringify(expectedMarker)) {
+    fail2("INBOX_PROVENANCE_MISMATCH", `${location} provenance does not match the typed proposal.`);
+  }
+  validateInboxRecord(proposal.semantic_delta.record, `${location}.record`);
+}
+function prepareInboxRecordTransaction(root, current, proposal) {
+  ensureAuthorityKinds(proposal, ["evidence-admission"]);
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+    fail2("INBOX_CAPTURE_BLOCKED", "inbox record capture requires an active + active current task.");
+  }
+  const delta = proposal.semantic_delta;
+  if (delta.record.current_task_id !== current.runtimeState.task_id) {
+    fail2("INBOX_RELATION_INVALID", "inbox record current_task_id does not match the canonical active task.");
+  }
+  const target = canonicalInboxRecordTarget(root, delta);
+  const files = scanInboxRecordFiles(root);
+  for (const file of files) {
+    if (file.itemId === delta.record.item_id && file.relativePath !== target.relativePath) {
+      fail2("INBOX_IDENTITY_CONFLICT", `inbox item identity ${delta.record.item_id} is already claimed by ${file.relativePath}.`);
+    }
+    if (file.provenance.some((marker) => marker.idempotency_key === proposal.idempotency_key && file.relativePath !== target.relativePath)) {
+      fail2("IDEMPOTENCY_CONFLICT", "inbox idempotency key is already durably bound to another target.");
+    }
+  }
+  if (fs3.existsSync(target.filePath)) {
+    if (!fs3.statSync(target.filePath).isFile()) {
+      fail2("INBOX_IDENTITY_CONFLICT", `${target.relativePath} exists but is not a regular inbox record file.`);
+    }
+    const existingContent = fs3.readFileSync(target.filePath, "utf8");
+    try {
+      assertCanonicalInboxRecordContent(existingContent, proposal, target.relativePath);
+    } catch (error) {
+      if (error instanceof VNextRuntimeError)
+        fail2("INBOX_IDENTITY_CONFLICT", `${target.relativePath} already exists with different semantic or provenance content.`);
+      fail2("INBOX_IDENTITY_CONFLICT", `${target.relativePath} could not be validated as the exact replay record.`);
+    }
+    return { ...target, nextContent: existingContent, existing: true };
+  }
+  return { ...target, nextContent: renderInboxRecord(proposal), existing: false };
 }
 function yamlScalar(value) {
   if (/^[A-Za-z0-9][A-Za-z0-9._:/+@ -]*$/.test(value) && !value.endsWith(" ") && !value.includes("  "))
@@ -5095,6 +5414,14 @@ function prepareLessonRecordTransaction(root, current, proposal) {
     archive: receipt,
     candidateCount
   };
+}
+function assertRequestedInboxTargets(root, current, proposal) {
+  if (proposal.source_tuple.path !== current.relativePath)
+    fail2("RUNTIME_PATH_INVALID", "capture proposal source path is not the exact canonical CURRENT_TASK path.");
+  const target = canonicalInboxRecordTarget(root, proposal.semantic_delta);
+  if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== target.relativePath) {
+    fail2("RUNTIME_PATH_INVALID", "capture proposal must name only its exact identity-derived inbox path.");
+  }
 }
 function assertRequestedCloseTargets(root, current, proposal) {
   if (proposal.source_tuple.path !== current.relativePath)
@@ -6552,13 +6879,84 @@ function rollbackSingleFileAndVerify(filePath, originalContent, label) {
     return { verified: false, detail: `${label} rollback failed: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
+function rollbackCreatedInboxRecordAndVerify(filePath) {
+  try {
+    if (fs3.existsSync(filePath)) {
+      if (!fs3.lstatSync(filePath).isFile()) {
+        return { verified: false, detail: "inbox rollback refused to remove a non-file target." };
+      }
+      fs3.rmSync(filePath, { force: true });
+    }
+    if (fs3.existsSync(filePath))
+      return { verified: false, detail: "inbox rollback left the newly-created record behind." };
+    return { verified: true, detail: "inbox rollback read-back verified." };
+  } catch (error) {
+    return { verified: false, detail: `inbox rollback failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
 
 class GovernanceTransactionKernel {
   root;
   readCurrentTask;
-  constructor(root, readCurrentTask = readCanonicalCurrentTask) {
+  readFile;
+  writeFiles;
+  constructor(root, readCurrentTask = readCanonicalCurrentTask, readFile = (filePath) => fs3.readFileSync(filePath, "utf8"), writeFiles = (operations, dryRun, summary) => executeWrites(operations, dryRun, summary)) {
     this.root = path4.resolve(root);
     this.readCurrentTask = readCurrentTask;
+    this.readFile = readFile;
+    this.writeFiles = writeFiles;
+  }
+  commitInboxRecordTransaction(current, proposal, plan, options) {
+    const targetPath = plan.relativePath;
+    const recordRevision = sha2562(plan.nextContent);
+    if (plan.existing) {
+      return buildResult("no-op", proposal, current, options, "matching canonical inbox record already exists; exact replay is a deterministic no-op.", {
+        target_path: targetPath,
+        planned_writes: [],
+        previous_revision: recordRevision,
+        resulting_revision: recordRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    }
+    if (options.dryRun) {
+      return buildResult("success", proposal, current, options, "typed inbox record proposal validated; one canonical inbox write planned (dry-run).", {
+        target_path: targetPath,
+        planned_writes: [targetPath],
+        resulting_revision: recordRevision,
+        state: resultState(current.runtimeState)
+      });
+    }
+    try {
+      this.writeFiles([{ path: plan.filePath, content: plan.nextContent }], false, "vNext Runtime inbox record transaction committed");
+    } catch (error) {
+      const rollback = rollbackCreatedInboxRecordAndVerify(plan.filePath);
+      return buildResult("blocked", proposal, current, options, `inbox atomic commit failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? "ATOMIC_COMMIT_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+    try {
+      const readBack = this.readFile(plan.filePath);
+      if (readBack !== plan.nextContent)
+        throw new Error("canonical inbox record read-back did not match the staged record.");
+      assertCanonicalInboxRecordContent(readBack, proposal, targetPath);
+      return buildResult("success", proposal, current, options, "inbox record transaction committed; canonical record read-back verified.", {
+        target_path: targetPath,
+        planned_writes: [targetPath],
+        committed: true,
+        governed_mutation_count: 1,
+        resulting_revision: recordRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    } catch (error) {
+      const rollback = rollbackCreatedInboxRecordAndVerify(plan.filePath);
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `inbox record read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.` : `inbox record read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? "READ_BACK_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
   }
   commitArchiveTransaction(current, proposal, plan, options) {
     if (plan === null) {
@@ -6855,6 +7253,8 @@ class GovernanceTransactionKernel {
         fail2("RUNTIME_PATH_INVALID", "proposal source path is not the exact canonical CURRENT_TASK path.");
       if (proposal.operation_kind === "lifecycle-transaction") {
         assertRequestedLifecycleTargets(this.root, current, proposal);
+      } else if (proposal.operation_kind === "inbox-record-transaction") {
+        assertRequestedInboxTargets(this.root, current, proposal);
       } else if (proposal.operation_kind === "archive-transaction" || proposal.operation_kind === "project-status-transaction" || proposal.operation_kind === "lesson-record-transaction") {
         assertRequestedCloseTargets(this.root, current, proposal);
       } else if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== current.relativePath) {
@@ -6862,6 +7262,25 @@ class GovernanceTransactionKernel {
       }
     } catch (error) {
       return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_PATH_INVALID" });
+    }
+    if (proposal.operation_kind === "inbox-record-transaction") {
+      const conflictField2 = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
+      if (conflictField2) {
+        return buildResult("conflict", proposal, current, options, `canonical source tuple is stale at ${conflictField2}.`, {
+          target_path: proposal.semantic_delta.target_path,
+          code: "SOURCE_TUPLE_MISMATCH",
+          previous_revision: current.sourceTuple.revision
+        });
+      }
+      try {
+        const plan = prepareInboxRecordTransaction(this.root, current, proposal);
+        return this.commitInboxRecordTransaction(current, proposal, plan, options);
+      } catch (error) {
+        return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: proposal.semantic_delta.target_path,
+          code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED"
+        });
+      }
     }
     const proposalDigest = digest(proposal);
     const prior = current.runtimeState.applied_proposals.find((item) => item.idempotency_key === proposal.idempotency_key);

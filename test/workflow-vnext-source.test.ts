@@ -338,16 +338,16 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(publicCapabilityRoot)).toThrow(/capability "scope-guard" must be internal/i);
   });
 
-  test('rejects Runtime binding before Phase 2', () => {
+  test('rejects removing the Phase 2 Runtime binding', () => {
     const root = copyFixture();
     replaceIn(
       root,
       '.workflow-system/vnext/SOURCE_CONTRACT.yaml',
-      '    status: contract-only',
-      '    status: bound',
+      '  - id: inbox-record-transaction\n    status: bound\n    binding: vnext-runtime',
+      '  - id: inbox-record-transaction\n    status: contract-only\n    binding: unbound',
     );
 
-    expect(() => validateVNextSource(root)).toThrow(/must be contract-only/i);
+    expect(() => validateVNextSource(root)).toThrow(/Runtime operation "inbox-record-transaction" must be bound/i);
   });
 
   test('rejects legacy frontmatter fields and old Skill executable targets', () => {

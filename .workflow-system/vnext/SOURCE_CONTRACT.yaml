@@ -504,17 +504,20 @@ runtime_operations:
       - task-lifecycle:supersede
 
   - id: inbox-record-transaction
-    status: contract-only
-    binding: unbound
+    status: bound
+    binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
+      - CURRENT_TASK.md
       - TASKS/inbox/**
     write_targets:
       - TASKS/inbox/**
     allowed_callers:
       - capture-work-item
-    bound_callers: []
-    bound_actions: []
+    bound_callers:
+      - capture-work-item
+    bound_actions:
+      - capture-work-item:record
 
   - id: project-status-transaction
     status: bound

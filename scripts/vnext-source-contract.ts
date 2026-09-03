@@ -157,6 +157,7 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
   'task-state-transaction': ['execute-step', 'prepare-task'],
   'finding-queue-transaction': ['execute-step'],
   'lifecycle-transaction': ['task-lifecycle'],
+  'inbox-record-transaction': ['capture-work-item'],
   'project-status-transaction': ['close-task', 'bootstrap-project'],
   'archive-transaction': ['close-task'],
   'lesson-record-transaction': ['close-task'],
@@ -189,6 +190,9 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'task-lifecycle:resume-paused',
     'task-lifecycle:resume-interrupted',
     'task-lifecycle:supersede',
+  ],
+  'inbox-record-transaction': [
+    'capture-work-item:record',
   ],
   'project-status-transaction': [
     'close-task:default:sync',
@@ -530,6 +534,7 @@ function validateLegacyExecutableTargets(content: string, entry: Phase1Entry, le
         continue;
       }
       if (!line.includes(legacyName)) continue;
+      if (entry === 'capture-work-item' && legacyName === entry && line.includes('capture-work-item:record')) continue;
       if (
         legacyName === entry &&
         ((inFrontmatter && /^\s*entry:\s*.+\s*$/.test(line) && line.trim().slice('entry:'.length).trim() === legacyName) ||

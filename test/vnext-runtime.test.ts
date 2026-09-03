@@ -8,6 +8,7 @@ import {
   applyVNextRuntimeProposal,
   createArchiveProposal,
   createFindingQueueProposal,
+  createInboxRecordProposal,
   createLessonRecordProposal,
   createLifecycleProposal,
   createProjectStatusProposal,
@@ -32,6 +33,7 @@ import {
   type DraftTaskDefinition,
   type FindingRecord,
   type FindingQueueDelta,
+  type InboxRecordDelta,
   type LifecycleDelta,
   type LessonRecordDelta,
   type ReplanReplacementDefinition,
@@ -249,6 +251,9 @@ function makeRoot(state: RuntimeState = makeRuntimeState()): string {
     '- none',
     '',
   ].join('\n'), 'utf8');
+  fs.mkdirSync(path.join(root, 'TASKS', 'inbox'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src', 'login.ts'), 'export function loginFixture() { return true; }\n', 'utf8');
   return root;
 }
 
@@ -593,23 +598,68 @@ function lessonDelta(): LessonRecordDelta {
   };
 }
 
+function inboxDelta(current: ReturnType<typeof readCanonicalCurrentTask>, overrides: Partial<InboxRecordDelta> = {}): InboxRecordDelta {
+  return {
+    kind: 'inbox-record',
+    action: 'record',
+    item_slug: 'windows-installation-documentation',
+    record: {
+      artifact_kind: 'inbox_item',
+      item_id: '20260903-7c2a',
+      title: 'Windows installation documentation is incomplete',
+      type: 'requirement',
+      source: 'user',
+      captured_at: '2026-09-03T08:00:00.000Z',
+      relation_to_current_task: 'unrelated',
+      current_task_id: current.runtimeState.task_id,
+      description: 'The Windows installation path needs a complete setup guide.',
+      evidence: 'The active task implements the login endpoint; installation documentation is outside its admitted product scope.',
+      suggested_next_action: 'triage_later',
+      status: 'captured',
+    },
+    relation_evidence_refs: ['fixture:evidence:unrelated-install-docs'],
+    duplicate_check: 'clear',
+    proposed_owner: 'triage_later',
+    target_path: 'TASKS/inbox/INBOX-20260903-7c2a-windows-installation-documentation.md',
+    evidence_refs: ['fixture:evidence:unrelated-install-docs'],
+    ...overrides,
+  };
+}
+
+function captureProposal(root: string, overrides: Partial<InboxRecordDelta> = {}): ReturnType<typeof createInboxRecordProposal> {
+  const current = readCanonicalCurrentTask(root);
+  const delta = inboxDelta(current, overrides);
+  return createInboxRecordProposal(current, {
+    delta,
+    idempotency_key: 'capture-inbox-20260903-7c2a',
+    authority_evidence: evidence('evidence-admission'),
+    evidence_refs: delta.evidence_refs,
+  });
+}
+
+function inboxFiles(root: string): string[] {
+  const directory = path.join(root, 'TASKS', 'inbox');
+  return fs.readdirSync(directory).filter(file => file.endsWith('.md')).sort();
+}
+
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
 describe('vNext Phase 2 Runtime contract', () => {
-  test('validates the bound execute-step slice and keeps later operations unbound', () => {
+  test('validates the bound Runtime slice including capture-work-item', () => {
     const result = validateVNextRuntimeContract(ROOT);
     expect(result.phase).toBe('Phase 2');
     expect(result.bound_operations).toEqual([
       'task-state-transaction',
       'finding-queue-transaction',
       'lifecycle-transaction',
+      'inbox-record-transaction',
       'project-status-transaction',
       'archive-transaction',
       'lesson-record-transaction',
     ]);
-    expect(result.unbound_operations).toEqual(['inbox-record-transaction']);
+    expect(result.unbound_operations).toEqual([]);
   });
 
   test('pure vNext rejects the legacy archived + archived workflow tuple', () => {
@@ -666,6 +716,238 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(replay.status).toBe('no-op');
     expect(replay.committed).toBe(false);
     expect(readCanonicalCurrentTask(root).runtimeState.execution_log).toHaveLength(1);
+  });
+
+  test('captures one unrelated work item in an isolated pure-vNext Virtual Project and preserves record-only state', () => {
+    const root = makeRoot(makeRuntimeState({ task_id: '901', task_slug: 'fixture-login-endpoint' }));
+    expect(root).not.toBe(ROOT);
+    const current = readCanonicalCurrentTask(root);
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
+    const productPath = path.join(root, 'src', 'login.ts');
+    const before = {
+      current: fs.readFileSync(current.filePath, 'utf8'),
+      status: fs.readFileSync(statusPath, 'utf8'),
+      lessons: fs.readFileSync(lessonsPath, 'utf8'),
+      product: fs.readFileSync(productPath, 'utf8'),
+      state: current.runtimeState,
+    };
+    const proposal = captureProposal(root);
+
+    const applied = applyVNextRuntimeProposal(root, proposal);
+
+    expect(applied.status).toBe('success');
+    expect(applied.committed).toBe(true);
+    expect(applied.governed_mutation_count).toBe(1);
+    expect(applied.target_path).toBe(proposal.semantic_delta.target_path);
+    expect(inboxFiles(root)).toEqual(['INBOX-20260903-7c2a-windows-installation-documentation.md']);
+    const recordPath = path.join(root, ...proposal.semantic_delta.target_path.split('/'));
+    const recordBytes = fs.readFileSync(recordPath, 'utf8');
+    expect(recordBytes).toContain('- relation_to_current_task: unrelated');
+    expect(recordBytes).toContain('- current_task_id: 901');
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before.current);
+    expect(fs.readFileSync(statusPath, 'utf8')).toBe(before.status);
+    expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(before.lessons);
+    expect(fs.readFileSync(productPath, 'utf8')).toBe(before.product);
+    expect(readCanonicalCurrentTask(root).runtimeState).toEqual(before.state);
+
+    const replay = applyVNextRuntimeProposal(root, proposal);
+
+    expect(replay.status).toBe('no-op');
+    expect(replay.committed).toBe(false);
+    expect(replay.read_back_verified).toBe(true);
+    expect(inboxFiles(root)).toHaveLength(1);
+    expect(fs.readFileSync(recordPath, 'utf8')).toBe(recordBytes);
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before.current);
+  });
+
+  test('fails closed with zero writes for non-admitted capture relations and incomplete admission fields', () => {
+    const cases: Array<{ name: string; mutate: (proposal: ReturnType<typeof captureProposal>) => unknown }> = [
+      {
+        name: 'related',
+        mutate: proposal => ({
+          ...proposal,
+          semantic_delta: {
+            ...proposal.semantic_delta,
+            record: { ...proposal.semantic_delta.record, relation_to_current_task: 'related' },
+          },
+        }),
+      },
+      {
+        name: 'uncertain',
+        mutate: proposal => ({
+          ...proposal,
+          semantic_delta: {
+            ...proposal.semantic_delta,
+            record: { ...proposal.semantic_delta.record, relation_to_current_task: 'uncertain' },
+          },
+        }),
+      },
+      {
+        name: 'scope widening',
+        mutate: proposal => ({
+          ...proposal,
+          semantic_delta: {
+            ...proposal.semantic_delta,
+            record: { ...proposal.semantic_delta.record, relation_to_current_task: 'scope_widening_candidate' },
+          },
+        }),
+      },
+      {
+        name: 'duplicate unresolved',
+        mutate: proposal => ({
+          ...proposal,
+          semantic_delta: { ...proposal.semantic_delta, duplicate_check: 'duplicate_suspected' },
+        }),
+      },
+      {
+        name: 'owner unresolved',
+        mutate: proposal => ({
+          ...proposal,
+          semantic_delta: { ...proposal.semantic_delta, proposed_owner: 'unresolved' },
+        }),
+      },
+      {
+        name: 'missing admission precondition',
+        mutate: proposal => ({
+          ...proposal,
+          preconditions: proposal.preconditions.filter(precondition => precondition !== 'owner-route-resolved'),
+        }),
+      },
+      {
+        name: 'malformed identity',
+        mutate: proposal => ({
+          ...proposal,
+          semantic_delta: {
+            ...proposal.semantic_delta,
+            record: { ...proposal.semantic_delta.record, item_id: 'not-an-inbox-id' },
+          },
+        }),
+      },
+      {
+        name: 'unsupported schema',
+        mutate: proposal => ({ ...proposal, schema_version: 99 }),
+      },
+    ];
+
+    for (const [index, item] of cases.entries()) {
+      const root = makeRoot(makeRuntimeState({ task_id: String(910 + index), task_slug: `fixture-capture-${index}` }));
+      const proposal = captureProposal(root);
+      const currentBefore = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+      const result = applyVNextRuntimeProposal(root, item.mutate(proposal));
+      expect(result.status, item.name).toBe('blocked');
+      expect(result.committed, item.name).toBe(false);
+      expect(result.governed_mutation_count, item.name).toBe(0);
+      expect(inboxFiles(root), item.name).toHaveLength(0);
+      expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8'), item.name).toBe(currentBefore);
+    }
+  });
+
+  test('rejects caller paths outside the deterministic inbox target and identity-derived path mismatches', () => {
+    const requestedTargets = [
+      'C:\\outside\\record.md',
+      '../TASKS/inbox/INBOX-20260903-7c2a-windows-installation-documentation.md',
+      'docs/workflow/CURRENT_TASK.md',
+      'TASKS/TASK-901-fixture-login-endpoint.md',
+      'src/login.ts',
+    ];
+    for (const [index, requestedTarget] of requestedTargets.entries()) {
+      const root = makeRoot(makeRuntimeState({ task_id: String(930 + index), task_slug: `fixture-path-${index}` }));
+      const proposal = captureProposal(root);
+      const result = applyVNextRuntimeProposal(root, {
+        ...proposal,
+        idempotency_key: `capture-invalid-target-${index}`,
+        requested_write_targets: [requestedTarget],
+      });
+      expect(result.status, requestedTarget).toBe('blocked');
+      expect(result.code, requestedTarget).toBe('RUNTIME_PATH_INVALID');
+      expect(inboxFiles(root), requestedTarget).toHaveLength(0);
+    }
+
+    const root = makeRoot(makeRuntimeState({ task_id: '935', task_slug: 'fixture-claimed-path' }));
+    const proposal = captureProposal(root);
+    const mismatch = applyVNextRuntimeProposal(root, {
+      ...proposal,
+      semantic_delta: {
+        ...proposal.semantic_delta,
+        target_path: 'TASKS/inbox/INBOX-20260903-7c2a-other-slug.md',
+      },
+    });
+    expect(mismatch.status).toBe('blocked');
+    expect(mismatch.code).toBe('RUNTIME_PATH_INVALID');
+    expect(inboxFiles(root)).toHaveLength(0);
+  });
+
+  test('does not overwrite an identity collision and rejects a stale capture proposal before writing', () => {
+    const collisionRoot = makeRoot(makeRuntimeState({ task_id: '936', task_slug: 'fixture-collision' }));
+    const firstProposal = captureProposal(collisionRoot);
+    expect(applyVNextRuntimeProposal(collisionRoot, firstProposal).status).toBe('success');
+    const recordPath = path.join(collisionRoot, ...firstProposal.semantic_delta.target_path.split('/'));
+    const originalRecord = fs.readFileSync(recordPath, 'utf8');
+    const collisionProposal = createInboxRecordProposal(readCanonicalCurrentTask(collisionRoot), {
+      delta: {
+        ...firstProposal.semantic_delta,
+        record: {
+          ...firstProposal.semantic_delta.record,
+          title: 'Different semantic content for the same stable inbox identity',
+        },
+      },
+      idempotency_key: 'capture-inbox-identity-collision',
+      authority_evidence: evidence('evidence-admission'),
+      evidence_refs: firstProposal.semantic_delta.evidence_refs,
+    });
+    const collision = applyVNextRuntimeProposal(collisionRoot, collisionProposal);
+    expect(collision.status).toBe('blocked');
+    expect(collision.code).toBe('INBOX_IDENTITY_CONFLICT');
+    expect(inboxFiles(collisionRoot)).toHaveLength(1);
+    expect(fs.readFileSync(recordPath, 'utf8')).toBe(originalRecord);
+
+    const staleRoot = makeRoot(makeRuntimeState({ task_id: '937', task_slug: 'fixture-stale-capture' }));
+    const staleProposal = captureProposal(staleRoot);
+    const taskMutation = applyVNextRuntimeProposal(staleRoot, taskProposal(staleRoot, {
+      idempotency_key: 'fixture-stale-source-mutation',
+    }));
+    expect(taskMutation.status).toBe('success');
+    const currentAfterMutation = fs.readFileSync(readCanonicalCurrentTask(staleRoot).filePath, 'utf8');
+    const staleResult = applyVNextRuntimeProposal(staleRoot, staleProposal);
+    expect(staleResult.status).toBe('conflict');
+    expect(staleResult.code).toBe('SOURCE_TUPLE_MISMATCH');
+    expect(inboxFiles(staleRoot)).toHaveLength(0);
+    expect(fs.readFileSync(readCanonicalCurrentTask(staleRoot).filePath, 'utf8')).toBe(currentAfterMutation);
+  });
+
+  test('uses atomic writer/read-back boundaries and leaves no partial inbox record after failure', () => {
+    const root = makeRoot(makeRuntimeState({ task_id: '938', task_slug: 'fixture-atomic-capture' }));
+    const proposal = captureProposal(root);
+    const targetPath = path.join(root, ...proposal.semantic_delta.target_path.split('/'));
+    const writeFailureKernel = new GovernanceTransactionKernel(root, undefined, undefined, () => {
+      throw new Error('simulated staged writer failure');
+    });
+    const writeFailure = writeFailureKernel.apply(proposal);
+    expect(writeFailure.status).toBe('blocked');
+    expect(writeFailure.code).toBe('ATOMIC_COMMIT_FAILED');
+    expect(fs.existsSync(targetPath)).toBe(false);
+
+    const partialWriterKernel = new GovernanceTransactionKernel(root, undefined, undefined, operations => {
+      const operation = operations[0]!;
+      fs.mkdirSync(path.dirname(operation.path), { recursive: true });
+      fs.writeFileSync(operation.path, 'partial inbox record\n', 'utf8');
+      throw new Error('simulated staged writer failure after promotion');
+    });
+    const partialWriteFailure = partialWriterKernel.apply(proposal);
+    expect(partialWriteFailure.status).toBe('blocked');
+    expect(partialWriteFailure.code).toBe('ATOMIC_COMMIT_FAILED');
+    expect(fs.existsSync(targetPath)).toBe(false);
+
+    const readBackFailureKernel = new GovernanceTransactionKernel(root, undefined, () => {
+      throw new Error('simulated inbox read-back failure');
+    });
+    const readBackFailure = readBackFailureKernel.apply(proposal);
+    expect(readBackFailure.status).toBe('blocked');
+    expect(readBackFailure.code).toBe('READ_BACK_FAILED');
+    expect(readBackFailure.message).toContain('rollback read-back verified');
+    expect(fs.existsSync(targetPath)).toBe(false);
+    expect(inboxFiles(root)).toHaveLength(0);
   });
 
   test('runs the ordinary draft refinement confirmation and execution path, then allocates the next identity after archive', () => {

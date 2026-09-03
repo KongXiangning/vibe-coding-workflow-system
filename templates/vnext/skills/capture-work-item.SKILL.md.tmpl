@@ -55,8 +55,8 @@ Record one work item proven unrelated to the active task. This is a record-only 
 
 1. Resolve the active task and owner only far enough to prove the new item is unrelated. Read/discovery context may be broader for that determination, but it is not write authority. Treat `scope widening`, `uncertain`, and duplicate-suspected relations as fail-closed results and route any scope change to the scope guard/replan boundary.
 2. Admit at most one inbox record with a stable identity, evidence, proposed owner route, and clear relation statement. Do not create a task, change the active task, change lifecycle or identity, or alter a catalog.
-3. The only durable action this entry may propose is one `inbox-record-transaction` for `TASKS/inbox/**`. It remains `contract-only / unbound / Phase 2`; this entry never claims that an inbox file was written.
-4. After a valid record proposal, return the result to an explicit user decision. Do not auto-promote the record or start another intent.
+3. The only durable action this entry may propose is one `inbox-record-transaction` with the internal `capture-work-item:record` action. The public mode set remains empty; the bound Runtime derives and writes exactly one canonical `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` record, or returns a truthful no-op, conflict, or blocked result.
+4. The Runtime record transaction is record-only: it never writes `CURRENT_TASK.md`, `STATUS.md`, `LESSONS.md`, task identity, lifecycle state, archive, catalog, or product files. Do not auto-promote the record or start another intent.
 
 ## Required result
 
@@ -64,5 +64,5 @@ Return one structured `capture_result` containing:
 
 - work-item identity, relation evidence, duplicate check, and owner route;
 - record-only admission verdict and exact inbox target;
-- a single inbox Runtime proposal or a truthful blocked/user result;
+- a single inbox Runtime proposal and its truthful Runtime result, or a blocked/user result;
 - explicit confirmation that active task, lifecycle, identity, catalog, and archive state were not mutated.

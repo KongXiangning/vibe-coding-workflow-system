@@ -512,7 +512,9 @@ Canonical rules:
 - `capture` and `backlog_item` remain explicitly forbidden as lifecycle-state values
 - a persisted inbox artifact must represent `relation_to_current_task = unrelated`; scope-widening or uncertain routes must fail closed to review / user decision flow without writing an inbox artifact
 - successful record-only capture must not mutate the live `CURRENT_TASK.md` goal, acceptance, scope boundaries, execution steps, review-finding queue, or active-ownership tuple
-- duplicate handling may use lightweight read-back against existing inbox artifacts, but must fail closed rather than silently overwriting an existing record
+- the bound `capture-work-item:record` Runtime action requires
+  `duplicate_check: clear`; exact replay is a no-op and any identity or
+  provenance mismatch fails closed rather than silently overwriting a record
 
 Compatibility boundary:
 
@@ -993,8 +995,17 @@ Slice B `supersede` and durable `prepare-task:replan` are Runtime-bound under
 the typed same-task identity and fail-closed transition rules below. The
 close-task status, archive, and admitted lesson operations are also
 Runtime-bound under their existing terminal and reconciliation contract.
-`inbox-record-transaction` remains `contract-only / unbound / Phase 2`; other
-operation declarations not named in the bound surface remain unbound.
+`inbox-record-transaction` is now Runtime-bound to
+`capture-work-item:record`. It accepts only a typed record whose relation is
+proven `unrelated`, whose duplicate disposition is `clear`, and whose owner
+route and relation evidence are complete. Runtime derives
+`TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` from the validated identity;
+caller-supplied paths are accepted only when they exactly match that derivation.
+The transaction writes at most that one inbox record and never updates
+`CURRENT_TASK.md`, task identity, lifecycle, status, lessons, archive, catalog,
+or product files. It binds the current source tuple, so a stale capture
+proposal fails closed before any write. Exact bytes and provenance replay as a
+no-op; a same-identity semantic or provenance mismatch is a conflict.
 
 Slice C adds no new Runtime operation. `create-draft`, `update-draft`, and
 `confirm-draft` use the same canonical source tuple, exact CURRENT_TASK target,
@@ -2790,7 +2801,7 @@ The following contracts remain outside the currently implemented workflow-system
 
 - default host exposure of the §4c shadow public entries
 - retirement or deletion of any §4c compatibility alias
-- state-changing Runtime implementations for inbox and other unbound operation declarations
+- state-changing Runtime implementations for operation declarations that remain unbound
 - target-project-specific command bindings for optional project-level validation slots
 - production-environment credentials, secret rotation procedures, and deploy implementations
 - extraction-time release governance beyond the documented roadmap and baseline contracts

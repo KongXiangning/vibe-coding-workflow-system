@@ -170,7 +170,7 @@ Phase 2 introduces the first state-changing slice behind typed Runtime proposals
 - ordinary `prepare-task` draft creation/refinement and explicit `prepare-task:confirm` through typed task-state actions, alongside the minimal `clear-resume-review-gate` action;
 - fail-closed authority, scope, evidence, and dangerous-operation gates.
 
-The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. Slice B `supersede` / durable `prepare-task:replan`, Slice C ordinary draft/confirmation, and the close-task status/archive/lesson transaction surface are implemented and remain subject to their existing contracts. `inbox-record-transaction` is still contract-only and unbound; it is not part of the next daily-semantics slice.
+The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. Slice B `supersede` / durable `prepare-task:replan`, Slice C ordinary draft/confirmation, the close-task status/archive/lesson transaction surface, and the record-only `capture-work-item:record` inbox transaction are implemented and remain subject to their existing contracts.
 
 Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`. Slice B `supersede` and durable `prepare-task:replan` are now Runtime-bound under their existing typed boundaries. The lifecycle transaction owns the exact `CURRENT_TASK.md` plus identity-derived suspended-package pair, including atomic write, read-back, rollback, and fail-closed idempotence. A resume proposal carries the observed SHA-256 `recovery_package_revision`; Runtime compares it with the package bytes read at apply time and checks the live resume gate against the package header before snapshot normalization. Replays revalidate the secondary package before returning `no-op`; a consumed `rehydrated` package may be replaced by the next suspend cycle, while ready/incomplete sibling packages remain blocking. It never reads or hot-migrates an old paused/interrupted runtime.
 
@@ -254,7 +254,8 @@ a durable draft audit record in `CURRENT_TASK.md`.
 | Slice B supersede / same-task replan | Design and implementation complete; Runtime-bound |
 | Slice C ordinary draft / refinement / explicit confirmation | Design and implementation complete; Runtime-bound |
 | close-task | Design and implementation complete; archive, status reconciliation, and admitted Lesson path are Runtime-bound |
-| `inbox-record-transaction` and remaining admin / expert / internal surfaces | Contract-only or unbound until their own phase |
+| `inbox-record-transaction` | Design and implementation complete; `capture-work-item:record` Runtime-bound; isolated Virtual Project E2E covered |
+| remaining admin / expert / internal surfaces | Contract-only or unbound until their own phase |
 
 This status correction records progression only. It does not redesign Slice A,
 Slice B, Slice C, or close-task, and it does not treat the existing Runtime
@@ -266,7 +267,7 @@ The current rollout order after the completed boundaries above is:
 
 1. **Core Daily Execution Semantics Stabilization** — implement the three docs-frozen themes: Evidence-first / Persistent Test Admission; Mutation-oriented Scope; and Multi-step advancement / Review Checkpoint / Repair verification integration.
 2. **bootstrap-project** — implement the formal admin surface only after the daily semantics are stable and verified end to end.
-3. **remaining expert / internal / intake operations** — implement `validate-change`, `sync-state`, `capture-work-item`, and other remaining surfaces only when their authority, evidence, and rollback boundaries are explicit.
+3. **remaining expert / internal operations** — implement `validate-change`, `sync-state`, and other remaining surfaces only when their authority, evidence, and rollback boundaries are explicit.
 
 Core Daily Execution Semantics Stabilization is a Phase 2 boundary, not a new
 product phase, Migration Pack feature, bootstrap option, optional project gate,
@@ -420,12 +421,13 @@ close-task design + implementation
 three daily-execution semantics docs-only design freeze
 three daily-execution semantics implementation + §6.4 E2E verification
 bootstrap-project implementation + E2E verification
+capture-work-item Runtime binding + isolated Virtual Project E2E verification
 ```
 
 The current implementation boundary is:
 
 ```text
-remaining expert / internal / intake surfaces
+remaining expert / internal surfaces
 ```
 
 Core Daily Execution Semantics Stabilization implemented the three frozen daily
