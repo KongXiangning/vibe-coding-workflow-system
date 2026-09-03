@@ -3756,25 +3756,9 @@ function assertCanonicalInboxRecordContent(content: string, proposal: InboxRecor
   validateInboxRecord(proposal.semantic_delta.record, `${location}.record`);
 }
 
-function prepareInboxRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: InboxRecordProposal): InboxRecordTransactionPlan {
-  ensureAuthorityKinds(proposal, ['evidence-admission']);
-  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
-    fail('INBOX_CAPTURE_BLOCKED', 'inbox record capture requires an active + active current task.');
-  }
+function inspectInboxRecordTransaction(root: string, proposal: InboxRecordProposal): InboxRecordTransactionPlan {
   const delta = proposal.semantic_delta;
-  if (delta.record.current_task_id !== current.runtimeState.task_id) {
-    fail('INBOX_RELATION_INVALID', 'inbox record current_task_id does not match the canonical active task.');
-  }
   const target = canonicalInboxRecordTarget(root, delta);
-  const files = scanInboxRecordFiles(root);
-  for (const file of files) {
-    if (file.itemId === delta.record.item_id && file.relativePath !== target.relativePath) {
-      fail('INBOX_IDENTITY_CONFLICT', `inbox item identity ${delta.record.item_id} is already claimed by ${file.relativePath}.`);
-    }
-    if (file.provenance.some(marker => marker.idempotency_key === proposal.idempotency_key && file.relativePath !== target.relativePath)) {
-      fail('IDEMPOTENCY_CONFLICT', 'inbox idempotency key is already durably bound to another target.');
-    }
-  }
   if (fs.existsSync(target.filePath)) {
     if (!fs.statSync(target.filePath).isFile()) {
       fail('INBOX_IDENTITY_CONFLICT', `${target.relativePath} exists but is not a regular inbox record file.`);
@@ -3788,7 +3772,29 @@ function prepareInboxRecordTransaction(root: string, current: CanonicalCurrentTa
     }
     return { ...target, nextContent: existingContent, existing: true };
   }
+
+  const files = scanInboxRecordFiles(root);
+  for (const file of files) {
+    if (file.itemId === delta.record.item_id && file.relativePath !== target.relativePath) {
+      fail('INBOX_IDENTITY_CONFLICT', `inbox item identity ${delta.record.item_id} is already claimed by ${file.relativePath}.`);
+    }
+    if (file.provenance.some(marker => marker.idempotency_key === proposal.idempotency_key && file.relativePath !== target.relativePath)) {
+      fail('IDEMPOTENCY_CONFLICT', 'inbox idempotency key is already durably bound to another target.');
+    }
+  }
   return { ...target, nextContent: renderInboxRecord(proposal), existing: false };
+}
+
+function prepareInboxRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: InboxRecordProposal): InboxRecordTransactionPlan {
+  ensureAuthorityKinds(proposal, ['evidence-admission']);
+  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+    fail('INBOX_CAPTURE_BLOCKED', 'inbox record capture requires an active + active current task.');
+  }
+  const delta = proposal.semantic_delta;
+  if (delta.record.current_task_id !== current.runtimeState.task_id) {
+    fail('INBOX_RELATION_INVALID', 'inbox record current_task_id does not match the canonical active task.');
+  }
+  return inspectInboxRecordTransaction(root, proposal);
 }
 
 function yamlScalar(value: string): string {
@@ -7220,20 +7226,37 @@ export class GovernanceTransactionKernel {
     }
 
     if (proposal.operation_kind === 'inbox-record-transaction') {
+      const inboxProposal = proposal as InboxRecordProposal;
+      let inspectedPlan: InboxRecordTransactionPlan;
+      try {
+        // A durable canonical record is the only evidence that can authorize a replay
+        // after CURRENT_TASK has advanced. Inspect it before applying the source gate.
+        ensureAuthorityKinds(inboxProposal, ['evidence-admission']);
+        inspectedPlan = inspectInboxRecordTransaction(this.root, inboxProposal);
+      } catch (error) {
+        const code = error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED';
+        return buildResult(code === 'IDEMPOTENCY_CONFLICT' ? 'conflict' : 'blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: inboxProposal.semantic_delta.target_path,
+          code,
+        });
+      }
+      if (inspectedPlan.existing) {
+        return this.commitInboxRecordTransaction(current, inboxProposal, inspectedPlan, options);
+      }
       const conflictField = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
       if (conflictField) {
         return buildResult('conflict', proposal, current, options, `canonical source tuple is stale at ${conflictField}.`, {
-          target_path: (proposal.semantic_delta as InboxRecordDelta).target_path,
+          target_path: inboxProposal.semantic_delta.target_path,
           code: 'SOURCE_TUPLE_MISMATCH',
           previous_revision: current.sourceTuple.revision,
         });
       }
       try {
-        const plan = prepareInboxRecordTransaction(this.root, current, proposal as InboxRecordProposal);
-        return this.commitInboxRecordTransaction(current, proposal as InboxRecordProposal, plan, options);
+        const plan = prepareInboxRecordTransaction(this.root, current, inboxProposal);
+        return this.commitInboxRecordTransaction(current, inboxProposal, plan, options);
       } catch (error) {
         return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
-          target_path: (proposal.semantic_delta as InboxRecordDelta).target_path,
+          target_path: inboxProposal.semantic_delta.target_path,
           code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED',
         });
       }

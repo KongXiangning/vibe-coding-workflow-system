@@ -430,6 +430,9 @@ Runtime derives the target from `item_id` and `item_slug`, validates the active
 task source tuple, and persists one canonical record with an additive vNext
 provenance marker. The marker carries the proposal idempotency key/digest and
 source task tuple; it is part of exact replay and collision detection.
+If the current source tuple later advances, only an existing canonical record
+whose rendered bytes and provenance exactly match the proposal may return
+`no-op`; an uncommitted stale proposal still fails closed before any new write.
 
 最小字段为：
 

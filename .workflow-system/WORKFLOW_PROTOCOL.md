@@ -1005,7 +1005,10 @@ The transaction writes at most that one inbox record and never updates
 `CURRENT_TASK.md`, task identity, lifecycle, status, lessons, archive, catalog,
 or product files. It binds the current source tuple, so a stale capture
 proposal fails closed before any write. Exact bytes and provenance replay as a
-no-op; a same-identity semantic or provenance mismatch is a conflict.
+no-op; a same-identity semantic or provenance mismatch is a conflict. A stale
+proposal may return `no-op` only when the existing canonical inbox record
+itself proves an exact durable replay; otherwise the stale source tuple fails
+closed before any new write.
 
 Slice C adds no new Runtime operation. `create-draft`, `update-draft`, and
 `confirm-draft` use the same canonical source tuple, exact CURRENT_TASK target,

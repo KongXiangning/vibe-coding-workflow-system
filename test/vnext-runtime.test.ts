@@ -761,6 +761,37 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before.current);
   });
 
+  test('replays a committed capture after CURRENT_TASK advances without rewriting the latest task state', () => {
+    const root = makeRoot(makeRuntimeState({ task_id: '939', task_slug: 'fixture-capture-replay-advance' }));
+    const proposal = captureProposal(root);
+    const firstResult = applyVNextRuntimeProposal(root, proposal);
+    expect(firstResult.status).toBe('success');
+    expect(firstResult.committed).toBe(true);
+
+    const recordPath = path.join(root, ...proposal.semantic_delta.target_path.split('/'));
+    const recordBeforeAdvance = fs.readFileSync(recordPath, 'utf8');
+    const inboxBeforeAdvance = inboxFiles(root);
+    const taskMutation = applyVNextRuntimeProposal(root, taskProposal(root, {
+      idempotency_key: 'fixture-capture-replay-advance-task',
+    }));
+    expect(taskMutation.status).toBe('success');
+
+    const currentAfterAdvance = readCanonicalCurrentTask(root);
+    const currentBytesAfterAdvance = fs.readFileSync(currentAfterAdvance.filePath, 'utf8');
+    expect(currentAfterAdvance.sourceTuple.revision).not.toBe(proposal.source_tuple.revision);
+
+    const replay = applyVNextRuntimeProposal(root, proposal);
+
+    expect(replay.status).toBe('no-op');
+    expect(replay.committed).toBe(false);
+    expect(replay.read_back_verified).toBe(true);
+    expect(replay.governed_mutation_count).toBe(0);
+    expect(inboxFiles(root)).toEqual(inboxBeforeAdvance);
+    expect(fs.readFileSync(recordPath, 'utf8')).toBe(recordBeforeAdvance);
+    expect(fs.readFileSync(currentAfterAdvance.filePath, 'utf8')).toBe(currentBytesAfterAdvance);
+    expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(currentAfterAdvance.sourceTuple.revision);
+  });
+
   test('fails closed with zero writes for non-admitted capture relations and incomplete admission fields', () => {
     const cases: Array<{ name: string; mutate: (proposal: ReturnType<typeof captureProposal>) => unknown }> = [
       {
@@ -878,7 +909,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(inboxFiles(root)).toHaveLength(0);
   });
 
-  test('does not overwrite an identity collision and rejects a stale capture proposal before writing', () => {
+  test('does not overwrite an identity collision even when the conflicting proposal is stale', () => {
     const collisionRoot = makeRoot(makeRuntimeState({ task_id: '936', task_slug: 'fixture-collision' }));
     const firstProposal = captureProposal(collisionRoot);
     expect(applyVNextRuntimeProposal(collisionRoot, firstProposal).status).toBe('success');
@@ -896,12 +927,60 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: evidence('evidence-admission'),
       evidence_refs: firstProposal.semantic_delta.evidence_refs,
     });
+    const collisionTaskMutation = applyVNextRuntimeProposal(collisionRoot, taskProposal(collisionRoot, {
+      idempotency_key: 'fixture-collision-source-advance',
+    }));
+    expect(collisionTaskMutation.status).toBe('success');
+    const collisionCurrentAfterMutation = readCanonicalCurrentTask(collisionRoot);
+    const collisionCurrentBytes = fs.readFileSync(collisionCurrentAfterMutation.filePath, 'utf8');
     const collision = applyVNextRuntimeProposal(collisionRoot, collisionProposal);
     expect(collision.status).toBe('blocked');
     expect(collision.code).toBe('INBOX_IDENTITY_CONFLICT');
     expect(inboxFiles(collisionRoot)).toHaveLength(1);
     expect(fs.readFileSync(recordPath, 'utf8')).toBe(originalRecord);
+    expect(fs.readFileSync(collisionCurrentAfterMutation.filePath, 'utf8')).toBe(collisionCurrentBytes);
+  });
 
+  test('rejects an idempotency key already bound to another durable inbox target before stale-source handling', () => {
+    const root = makeRoot(makeRuntimeState({ task_id: '940', task_slug: 'fixture-idempotency-collision' }));
+    const firstProposal = captureProposal(root);
+    expect(applyVNextRuntimeProposal(root, firstProposal).status).toBe('success');
+    const sourceBeforeAdvance = readCanonicalCurrentTask(root);
+    const secondBase = inboxDelta(sourceBeforeAdvance);
+    const secondDelta = inboxDelta(sourceBeforeAdvance, {
+      item_slug: 'windows-installation-checklist',
+      record: {
+        ...secondBase.record,
+        item_id: '20260903-8d4e',
+        title: 'A second inbox target with the same idempotency key',
+      },
+      target_path: 'TASKS/inbox/INBOX-20260903-8d4e-windows-installation-checklist.md',
+    });
+    const secondProposal = createInboxRecordProposal(sourceBeforeAdvance, {
+      delta: secondDelta,
+      idempotency_key: firstProposal.idempotency_key,
+      authority_evidence: evidence('evidence-admission'),
+      evidence_refs: secondDelta.evidence_refs,
+    });
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, {
+      idempotency_key: 'fixture-idempotency-collision-source-advance',
+    })).status).toBe('success');
+    const currentAfterAdvance = readCanonicalCurrentTask(root);
+    const currentBytesAfterAdvance = fs.readFileSync(currentAfterAdvance.filePath, 'utf8');
+    const firstRecordPath = path.join(root, ...firstProposal.semantic_delta.target_path.split('/'));
+    const firstRecordBytes = fs.readFileSync(firstRecordPath, 'utf8');
+
+    const collision = applyVNextRuntimeProposal(root, secondProposal);
+
+    expect(collision.status).toBe('conflict');
+    expect(collision.code).toBe('IDEMPOTENCY_CONFLICT');
+    expect(inboxFiles(root)).toEqual(['INBOX-20260903-7c2a-windows-installation-documentation.md']);
+    expect(fs.existsSync(path.join(root, ...secondDelta.target_path.split('/')))).toBe(false);
+    expect(fs.readFileSync(firstRecordPath, 'utf8')).toBe(firstRecordBytes);
+    expect(fs.readFileSync(currentAfterAdvance.filePath, 'utf8')).toBe(currentBytesAfterAdvance);
+  });
+
+  test('rejects an uncommitted stale capture proposal before writing', () => {
     const staleRoot = makeRoot(makeRuntimeState({ task_id: '937', task_slug: 'fixture-stale-capture' }));
     const staleProposal = captureProposal(staleRoot);
     const taskMutation = applyVNextRuntimeProposal(staleRoot, taskProposal(staleRoot, {
