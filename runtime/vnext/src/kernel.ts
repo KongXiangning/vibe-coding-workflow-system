@@ -2868,16 +2868,17 @@ function validateReviewCycle(value: unknown, location = 'runtime_state.review_cy
 }
 
 function validateArchiveAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): ArchiveAuditLogEntry {
-  expectExactKeys(
-    value,
-    [
-      'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'task_id', 'task_slug',
-      'document_id', 'from_workflow_status', 'from_lifecycle_state', 'to_workflow_status',
-      'to_lifecycle_state', 'source_revision', 'archive_path', 'archive_revision',
-      'closure_delta_digest', 'authority_evidence', 'evidence_refs', 'lesson_admission', 'knowledge_admissions', 'recorded_at',
-    ],
-    location,
-  );
+  const archiveAuditKeys = [
+    'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'task_id', 'task_slug',
+    'document_id', 'from_workflow_status', 'from_lifecycle_state', 'to_workflow_status',
+    'to_lifecycle_state', 'source_revision', 'archive_path', 'archive_revision',
+    'closure_delta_digest', 'authority_evidence', 'evidence_refs', 'lesson_admission', 'knowledge_admissions', 'recorded_at',
+  ] as const;
+  const missingArchiveAuditKeys = archiveAuditKeys.filter(key => key !== 'knowledge_admissions' && !(key in value));
+  const extraArchiveAuditKeys = Object.keys(value).filter(key => !archiveAuditKeys.includes(key as typeof archiveAuditKeys[number]));
+  if (missingArchiveAuditKeys.length > 0 || extraArchiveAuditKeys.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} keys mismatch; missing=[${missingArchiveAuditKeys.join(', ')}], unexpected=[${extraArchiveAuditKeys.join(', ')}].`);
+  }
   const entryTaskId = expectString(value.task_id, `${location}.task_id`);
   const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
   try {
@@ -2925,7 +2926,12 @@ function validateArchiveAuditLogEntry(value: AnyRecord, location: string, taskId
     authority_evidence: validateAuthorityEvidence(value.authority_evidence),
     evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`),
     lesson_admission: validateLessonAdmission(value.lesson_admission, `${location}.lesson_admission`),
-    knowledge_admissions: validateKnowledgeAdmissionBundle(value.knowledge_admissions, `${location}.knowledge_admissions`),
+    // vNext schema_version 1 archives predating knowledge promotion do not
+    // have this field. They cannot contain Contract/Decision admissions, so
+    // normalize the historical shape to the empty bundle at read time.
+    knowledge_admissions: value.knowledge_admissions === undefined
+      ? emptyKnowledgeAdmissionBundle()
+      : validateKnowledgeAdmissionBundle(value.knowledge_admissions, `${location}.knowledge_admissions`),
     recorded_at: expectString(value.recorded_at, `${location}.recorded_at`),
   };
 }
@@ -3505,7 +3511,7 @@ function auditList(values: readonly string[]): string {
   return `[${values.map(value => JSON.stringify(value)).join(', ')}]`;
 }
 
-function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry): string {
+function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry, includeEmptyKnowledge = true): string {
   const authorityRefs = audit.authority_evidence.map(item => `${item.kind}:${item.source}:${item.subject}`);
   const lines = [
     `- action: ${audit.action}`,
@@ -3527,7 +3533,9 @@ function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry): string {
     lines.push(`    decision: ${audit.lesson_admission.decision}`);
     lines.push(`    candidate_refs: ${auditList(audit.lesson_admission.candidate_refs)}`);
     lines.push(`    evidence_refs: ${auditList(audit.lesson_admission.evidence_refs)}`);
-    lines.push(`  knowledge_admissions: ${JSON.stringify(audit.knowledge_admissions)}`);
+    if (includeEmptyKnowledge || audit.knowledge_admissions.contracts.length > 0 || audit.knowledge_admissions.decisions.length > 0) {
+      lines.push(`  knowledge_admissions: ${JSON.stringify(audit.knowledge_admissions)}`);
+    }
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action as DraftAuditAction)) {
     const draftAudit = audit as DraftAuditLogEntry;
     lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
@@ -3563,7 +3571,13 @@ function assertExecutionAuditInBody(body: string, audit: RuntimeAuditLogEntry): 
   const section = findUniqueMarkdownSection(scanMarkdownSections(body), ['执行记录', 'Execution Log'], 2);
   if (!section) fail('RUNTIME_REPLAY_INCOMPLETE', 'replay is missing the required ## 执行记录 audit section.');
   const content = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n');
-  if (!content.includes(renderExecutionAuditRecord(audit))) {
+  const currentAudit = renderExecutionAuditRecord(audit);
+  const historicalAudit = audit.action === 'archive'
+    && audit.knowledge_admissions.contracts.length === 0
+    && audit.knowledge_admissions.decisions.length === 0
+    ? renderExecutionAuditRecord(audit, false)
+    : null;
+  if (!content.includes(currentAudit) && (historicalAudit === null || !content.includes(historicalAudit))) {
     fail('RUNTIME_REPLAY_INCOMPLETE', `replay is missing the durable body audit for ${audit.action}.`);
   }
 }
@@ -5700,6 +5714,21 @@ function appendKnowledgeSectionIfMissing(content: string, knowledgeKind: 'contra
   return `${content.trimEnd()}\n\n## ${title}\n\n`;
 }
 
+function replaceDurableKnowledgeRecord(
+  content: string,
+  knowledgeKind: 'contract' | 'decision',
+  previous: DurableKnowledgeRecord,
+  next: DurableKnowledgeRecord,
+): string {
+  const previousText = renderDurableKnowledgeRecord(previous);
+  if (countExactOccurrences(content, previousText) !== 1) {
+    fail('KNOWLEDGE_PROVENANCE_MISMATCH', `canonical ${knowledgeKind} document does not contain exactly one predecessor record for merge.`);
+  }
+  const start = content.indexOf(previousText);
+  if (start < 0) fail('KNOWLEDGE_PROVENANCE_MISMATCH', `canonical ${knowledgeKind} predecessor record cannot be located for merge.`);
+  return `${content.slice(0, start)}${renderDurableKnowledgeRecord(next)}${content.slice(start + previousText.length)}`;
+}
+
 function knowledgeAdmissionMatches(left: KnowledgeAdmissionRecord, right: KnowledgeAdmissionRecord): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -5788,16 +5817,47 @@ function inspectKnowledgeRecordTransaction(root: string, current: CanonicalCurre
   const sameIdentity = records.filter(record => record.candidate_id === expectedRecord.candidate_id);
   if (sameIdentity.length > 1) fail('KNOWLEDGE_RECORD_INVALID', `knowledge target contains duplicate candidate identity ${expectedRecord.candidate_id}.`);
   if (sameIdentity.length === 1) {
-    if (JSON.stringify(sameIdentity[0]) !== JSON.stringify(expectedRecord)) fail('KNOWLEDGE_IDENTITY_CONFLICT', `${target.relativePath} contains different semantic or provenance content for ${expectedRecord.candidate_id}.`);
-    return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
+    const existingRecord = sameIdentity[0]!;
+    if (JSON.stringify(existingRecord) === JSON.stringify(expectedRecord)) {
+      return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
+    }
+    if (expectedRecord.disposition === 'merge' && expectedRecord.matched_knowledge_id === existingRecord.candidate_id) {
+      return {
+        filePath: target.filePath,
+        relativePath: target.relativePath,
+        nextContent: replaceDurableKnowledgeRecord(originalContent, delta.knowledge_kind, existingRecord, expectedRecord),
+        originalContent,
+        record: expectedRecord,
+        existing: false,
+      };
+    }
+    fail('KNOWLEDGE_IDENTITY_CONFLICT', `${target.relativePath} contains different semantic or provenance content for ${expectedRecord.candidate_id}.`);
   }
+
+  if (expectedRecord.disposition === 'merge') {
+    const predecessor = records.find(record => record.candidate_id === expectedRecord.matched_knowledge_id);
+    if (!predecessor) fail('KNOWLEDGE_ADMISSION_INVALID', `knowledge merge target ${expectedRecord.matched_knowledge_id} is not durably present.`);
+    const semanticMatches = records.filter(record => record.semantic_digest === expectedRecord.semantic_digest);
+    if (semanticMatches.some(record => record.candidate_id !== predecessor.candidate_id)) {
+      fail('KNOWLEDGE_IDENTITY_CONFLICT', 'knowledge merge semantic content already belongs to a different durable item.');
+    }
+    return {
+      filePath: target.filePath,
+      relativePath: target.relativePath,
+      nextContent: replaceDurableKnowledgeRecord(originalContent, delta.knowledge_kind, predecessor, expectedRecord),
+      originalContent,
+      record: expectedRecord,
+      existing: false,
+    };
+  }
+
   const semanticMatches = records.filter(record => record.semantic_digest === expectedRecord.semantic_digest);
   if (semanticMatches.length > 0) {
     return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
   }
-  if (expectedRecord.disposition === 'merge' || expectedRecord.disposition === 'supersede') {
+  if (expectedRecord.disposition === 'supersede') {
     const predecessor = records.find(record => record.candidate_id === expectedRecord.matched_knowledge_id);
-    if (!predecessor) fail('KNOWLEDGE_ADMISSION_INVALID', `knowledge ${expectedRecord.disposition} target ${expectedRecord.matched_knowledge_id} is not durably present.`);
+    if (!predecessor) fail('KNOWLEDGE_ADMISSION_INVALID', `knowledge supersede target ${expectedRecord.matched_knowledge_id} is not durably present.`);
   }
   const withSection = appendKnowledgeSectionIfMissing(originalContent, delta.knowledge_kind);
   return {

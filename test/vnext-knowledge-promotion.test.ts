@@ -380,7 +380,7 @@ function candidate(
   kind: 'contract' | 'decision',
   candidateId: string,
   statement: string,
-  options: { anchor?: boolean; supersedes?: string | null } = {},
+  options: { anchor?: boolean; anchorRole?: string; supersedes?: string | null } = {},
 ): KnowledgeCandidate {
   const evidenceRef = `knowledge:evidence:${candidateId}`;
   const applicability = {
@@ -416,7 +416,7 @@ function candidate(
         anchors: [{
           path: 'src/synthetic-login.ts',
           symbol: 'syntheticLogin',
-          role: 'primary implementation',
+          role: options.anchorRole ?? 'primary implementation',
           evidence_refs: [evidenceRef],
         }],
       },
@@ -575,6 +575,43 @@ describe('vNext close-task knowledge promotion', () => {
     expect(readDurableKnowledgeRecords(beforeDecisions, DECISIONS, 'decision')).toHaveLength(0);
   });
 
+  test('reads a schema-version-1 archive audit from before knowledge promotion as an empty bundle', () => {
+    const root = createVirtualProject();
+    const delta = archiveDelta({ contracts: [], decisions: [] });
+    const archiveProposalValue = archiveProposal(root, delta, 'legacy-archive-without-knowledge');
+    expect(applyVNextRuntimeProposal(root, archiveProposalValue).status).toBe('success');
+
+    const current = readCanonicalCurrentTask(root);
+    const legacyFrontmatter = JSON.parse(JSON.stringify(current.frontmatter)) as {
+      runtime_state: { execution_log: Array<Record<string, unknown>> };
+    };
+    const archiveAudit = legacyFrontmatter.runtime_state.execution_log.find(entry => entry.action === 'archive');
+    expect(archiveAudit).toBeDefined();
+    delete archiveAudit!.knowledge_admissions;
+    const legacyArchive = bytes(root, ARCHIVE).replace(/\n## 知识晋升\n[\s\S]*?\n## Lessons 回写\n/, '\n## Lessons 回写\n');
+    const originalArchiveRevision = String(archiveAudit!.archive_revision);
+    const legacyArchiveRevision = crypto.createHash('sha256').update(legacyArchive).digest('hex');
+    archiveAudit!.archive_revision = legacyArchiveRevision;
+    const legacyBody = current.body
+      .replace(/^  knowledge_admissions: .*$(?:\r?\n)?/m, '')
+      .replace(`  archive_revision: ${originalArchiveRevision}`, `  archive_revision: ${legacyArchiveRevision}`);
+    fs.writeFileSync(
+      path.join(root, CURRENT_TASK),
+      `---\n${stringify(legacyFrontmatter).trimEnd()}\n---\n${legacyBody}`,
+      'utf8',
+    );
+    fs.writeFileSync(path.join(root, ARCHIVE), legacyArchive, 'utf8');
+
+    const reread = readCanonicalCurrentTask(root);
+    const rereadAudit = reread.runtimeState.execution_log.find((entry): entry is ArchiveAuditLogEntry =>
+      'action' in entry && entry.action === 'archive',
+    );
+    expect(rereadAudit?.knowledge_admissions).toEqual({ contracts: [], decisions: [] });
+    const replay = applyVNextRuntimeProposal(root, JSON.parse(JSON.stringify(archiveProposalValue)));
+    expect(replay.status).toBe('no-op');
+    expect(replay.read_back_verified).toBe(true);
+  });
+
   test('restart reconstructs only the missing Decision and exact re-entry is a no-op', () => {
     const root = createVirtualProject();
     const contract = admission(candidate(root, 'contract', 'contract-reentry', 'The re-entry contract remains stable after archive.', { anchor: true }));
@@ -623,14 +660,14 @@ describe('vNext close-task knowledge promotion', () => {
     const root = createVirtualProject();
     const baseCandidate = candidate(root, 'contract', 'contract-base', 'The storage boundary remains explicit.', { anchor: true });
     const equivalentCandidate = candidate(root, 'contract', 'contract-equivalent', baseCandidate.statement, { anchor: true });
-    const mergedCandidate = candidate(root, 'contract', 'contract-merged', 'The storage boundary remains explicit with a bounded adapter.', { anchor: true });
-    const supersedingCandidate = candidate(root, 'contract', 'contract-successor', 'The storage boundary remains explicit with the accepted adapter.', { anchor: true, supersedes: baseCandidate.candidateId });
+    const mergedCandidate = candidate(root, 'contract', 'contract-merged', 'The storage boundary remains explicit with a bounded adapter.', { anchor: true, anchorRole: 'updated primary implementation' });
+    const supersedingCandidate = candidate(root, 'contract', 'contract-successor', 'The storage boundary remains explicit with the accepted adapter.', { anchor: true, supersedes: mergedCandidate.candidateId });
     const admissions = {
       contracts: [
         admission(baseCandidate),
         admission(equivalentCandidate),
         admission(mergedCandidate, 'merge', baseCandidate.candidateId),
-        admission(supersedingCandidate, 'supersede', baseCandidate.candidateId),
+        admission(supersedingCandidate, 'supersede', mergedCandidate.candidateId),
       ],
       decisions: [],
     } satisfies KnowledgeAdmissionBundle;
@@ -640,8 +677,15 @@ describe('vNext close-task knowledge promotion', () => {
     const equivalent = applyVNextRuntimeProposal(root, promoteContract(root, admissions.contracts[1]!, 'equivalent-contract'));
     expect(equivalent.status).toBe('no-op');
     expect(applyVNextRuntimeProposal(root, promoteContract(root, admissions.contracts[2]!, 'merged-contract')).status).toBe('success');
+    const mergedRecords = readDurableKnowledgeRecords(bytes(root, CONTRACTS), CONTRACTS, 'contract');
+    expect(mergedRecords).toHaveLength(1);
+    expect(mergedRecords[0]?.candidate.candidateId).toBe(mergedCandidate.candidateId);
+    expect(mergedRecords[0]?.candidate.statement).toBe(mergedCandidate.statement);
+    expect(mergedRecords[0]?.candidate.implementation_anchors?.anchors[0]?.role).toBe('updated primary implementation');
+    const mergedReplay = applyVNextRuntimeProposal(root, promoteContract(root, admissions.contracts[2]!, 'merged-contract'));
+    expect(mergedReplay.status).toBe('no-op');
     expect(applyVNextRuntimeProposal(root, promoteContract(root, admissions.contracts[3]!, 'successor-contract')).status).toBe('success');
-    expect(readDurableKnowledgeRecords(bytes(root, CONTRACTS), CONTRACTS, 'contract')).toHaveLength(3);
+    expect(readDurableKnowledgeRecords(bytes(root, CONTRACTS), CONTRACTS, 'contract')).toHaveLength(2);
   });
 
   test('identity/provenance and idempotency conflicts fail closed without overwrite', () => {
