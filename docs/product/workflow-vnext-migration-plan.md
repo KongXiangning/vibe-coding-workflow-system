@@ -256,7 +256,7 @@ a durable draft audit record in `CURRENT_TASK.md`.
 | close-task | Design and implementation complete; archive, status reconciliation, and admitted Lesson path are Runtime-bound |
 | `inbox-record-transaction` | Design and implementation complete; `capture-work-item:record` Runtime-bound; isolated Virtual Project E2E covered |
 | `validate-change` expert surface | Formal expert source entry, installable pure-vNext Skill, minimum-sufficient read-only evidence policy, structured result, and isolated Virtual Project coverage implemented; no Runtime operation |
-| remaining internal surface | `sync-state` remains not implemented and outside the current bound surface |
+| `sync-state` logical internal role | No standalone implementation required; current reconciliation/routing responsibilities are fulfilled by caller-local orchestration and existing typed Runtime operations; reserve a facade only for a demonstrated future shared requirement |
 
 This status correction records progression only. It does not redesign Slice A,
 Slice B, Slice C, or close-task, and it does not treat the existing Runtime
@@ -264,11 +264,11 @@ robustness backlog as part of the next implementation boundary.
 
 ## 5. Subsequent vNext phases
 
-The current rollout order after the completed boundaries above is:
+The target implementation boundaries are now resolved. The next rollout work is
+validation rather than another implementation boundary:
 
-1. **Core Daily Execution Semantics Stabilization** — implement the three docs-frozen themes: Evidence-first / Persistent Test Admission; Mutation-oriented Scope; and Multi-step advancement / Review Checkpoint / Repair verification integration.
-2. **bootstrap-project** — implement the formal admin surface only after the daily semantics are stable and verified end to end.
-3. **remaining internal operation** — implement `sync-state` only when its authority, evidence, and rollback boundaries are explicit.
+1. **System-level E2E validation** — exercise the complete pure-vNext boundary set across isolated project fixtures and representative cross-entry flows.
+2. **Real-project dogfood** — validate installation, daily use, recovery, and read-only expert evidence on an explicitly selected real project.
 
 Core Daily Execution Semantics Stabilization is a Phase 2 boundary, not a new
 product phase, Migration Pack feature, bootstrap option, optional project gate,
@@ -279,8 +279,9 @@ every step.
 
 Implementation status: Core Daily Execution Semantics Stabilization is complete
 and its §6.4 daily-loop gate is PASS. `bootstrap-project` is also implemented
-and has passed its dedicated disposable-project E2E verification; the remaining
-expert / internal / intake surfaces remain outside this boundary.
+and has passed its dedicated disposable-project E2E verification. The target
+implementation boundaries are resolved; the next phase is system-level E2E
+validation and real-project dogfood.
 
 The successful `close-task` boundary is frozen separately from the Slice B
 replan boundary: `active + active` passes closure eligibility, then
@@ -407,7 +408,7 @@ The following are not migration features or rollout goals:
 
 The only dual track permitted is the temporary source-repository development arrangement described in §1. It exists for implementation comparison and has no target-project installation semantics.
 
-## 8. Next boundary
+## 8. Overall vNext status and next phase
 
 The source repository has completed the following boundaries:
 
@@ -424,12 +425,21 @@ three daily-execution semantics implementation + §6.4 E2E verification
 bootstrap-project implementation + E2E verification
 capture-work-item Runtime binding + isolated Virtual Project E2E verification
 validate-change expert surface + isolated read-only evidence verification
+sync-state implementation gap review + architecture resolution
 ```
 
-The current implementation boundary is:
+The current implementation status is:
 
 ```text
-remaining internal surface: `sync-state` (not implemented)
+Target implementation boundaries resolved.
+sync-state: NO STANDALONE IMPLEMENTATION REQUIRED
+```
+
+The next phase is:
+
+```text
+SYSTEM-LEVEL E2E VALIDATION
+REAL-PROJECT DOGFOOD
 ```
 
 Core Daily Execution Semantics Stabilization implemented the three frozen daily

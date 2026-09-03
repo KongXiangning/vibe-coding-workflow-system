@@ -157,6 +157,14 @@ The recommended surface distinguishes discoverability from callability. The exac
 |---|---|---|---|
 | `sync-state` | `prepare-task`, `review-change`, `close-task`, recovery tooling, or diagnostics | Typed semantic deltas routed to Runtime operation handlers | It is not a normal daily Skill. A manual reconciliation surface may exist for recovery, but ordinary users should not sequence sync subcommands |
 
+Implementation clarification: `sync-state` is a logical internal
+reconciliation/routing role, not a required standalone Runtime, Skill,
+installed service, or state writer. In the current implementation its
+responsibilities are fulfilled by caller-local orchestration and the existing
+typed Runtime operation handlers. A standalone internal facade is reserved
+for a future case where a genuine shared reconciliation/routing requirement
+is demonstrated; it must not be introduced for architecture symmetry alone.
+
 ### 4.5 Version boundary
 
 Pure vNext has no compatibility surface for the old Skills. The old names are understood only by the one-time Migration Pack while it converts an idle old project. After vNext installation, an old Skill name or old protocol/schema is not a callable route; schema detection returns `migration-required` and stops.
