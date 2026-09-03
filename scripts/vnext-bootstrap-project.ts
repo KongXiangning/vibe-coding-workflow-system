@@ -648,7 +648,7 @@ function renderRiskRegister(facts: BootstrapFact[] = []): string {
 
 function buildBundle(sourceRoot: string, host: BootstrapHost): { manifest: VNextBundleManifest; bundleDir: string } {
   const bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), '.workflow-vnext-bootstrap-bundle-'));
-  const skillEntries = ['bootstrap-project', 'prepare-task', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task'];
+  const skillEntries = ['bootstrap-project', 'prepare-task', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change'];
   const artifacts: Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> = [
     { source_path: 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md', target_path: '.workflow-system/WORKFLOW_PROTOCOL.md', category: 'protocol' },
     { source_path: 'templates/vnext/bootstrap/FILE_SCHEMAS.md', target_path: '.workflow-system/FILE_SCHEMAS.md', category: 'schema' },
@@ -926,7 +926,7 @@ function makeModeAssets(targetRoot: string, project: { name: string; slug: strin
 
 function modeEvidence(mode: BootstrapMode, state: BootstrapTargetState, source: { revision: string; tree_hash: string }, facts: BootstrapFact[]): BootstrapEvidence[] {
   return [
-    { id: 'source-contract', kind: 'source-contract-validation', status: 'passed', detail: 'vNext source catalog and admin template validate.' },
+    { id: 'source-contract', kind: 'source-contract-validation', status: 'passed', detail: 'vNext source catalog, administrative template, and expert template validate.' },
     { id: 'source-identity', kind: 'source-identity', status: 'passed', detail: `source revision ${source.revision}; tree ${source.tree_hash}.` },
     { id: 'mode-precondition', kind: 'mode-precondition', status: 'passed', detail: `${mode} accepted target state ${state}.` },
     ...(facts.length > 0 ? [{ id: 'fact-provenance', kind: 'confirmed-inferred-unknown-classification', status: 'passed' as const, detail: `${facts.filter(fact => fact.certainty === 'confirmed').length} confirmed, ${facts.filter(fact => fact.certainty !== 'confirmed').length} retained as non-authoritative.` }] : []),

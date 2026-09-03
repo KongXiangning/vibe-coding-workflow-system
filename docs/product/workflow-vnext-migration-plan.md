@@ -255,7 +255,8 @@ a durable draft audit record in `CURRENT_TASK.md`.
 | Slice C ordinary draft / refinement / explicit confirmation | Design and implementation complete; Runtime-bound |
 | close-task | Design and implementation complete; archive, status reconciliation, and admitted Lesson path are Runtime-bound |
 | `inbox-record-transaction` | Design and implementation complete; `capture-work-item:record` Runtime-bound; isolated Virtual Project E2E covered |
-| remaining admin / expert / internal surfaces | Contract-only or unbound until their own phase |
+| `validate-change` expert surface | Formal expert source entry, installable pure-vNext Skill, minimum-sufficient read-only evidence policy, structured result, and isolated Virtual Project coverage implemented; no Runtime operation |
+| remaining internal surface | `sync-state` remains not implemented and outside the current bound surface |
 
 This status correction records progression only. It does not redesign Slice A,
 Slice B, Slice C, or close-task, and it does not treat the existing Runtime
@@ -267,7 +268,7 @@ The current rollout order after the completed boundaries above is:
 
 1. **Core Daily Execution Semantics Stabilization** — implement the three docs-frozen themes: Evidence-first / Persistent Test Admission; Mutation-oriented Scope; and Multi-step advancement / Review Checkpoint / Repair verification integration.
 2. **bootstrap-project** — implement the formal admin surface only after the daily semantics are stable and verified end to end.
-3. **remaining expert / internal operations** — implement `validate-change`, `sync-state`, and other remaining surfaces only when their authority, evidence, and rollback boundaries are explicit.
+3. **remaining internal operation** — implement `sync-state` only when its authority, evidence, and rollback boundaries are explicit.
 
 Core Daily Execution Semantics Stabilization is a Phase 2 boundary, not a new
 product phase, Migration Pack feature, bootstrap option, optional project gate,
@@ -422,12 +423,13 @@ three daily-execution semantics docs-only design freeze
 three daily-execution semantics implementation + §6.4 E2E verification
 bootstrap-project implementation + E2E verification
 capture-work-item Runtime binding + isolated Virtual Project E2E verification
+validate-change expert surface + isolated read-only evidence verification
 ```
 
 The current implementation boundary is:
 
 ```text
-remaining expert / internal surfaces
+remaining internal surface: `sync-state` (not implemented)
 ```
 
 Core Daily Execution Semantics Stabilization implemented the three frozen daily

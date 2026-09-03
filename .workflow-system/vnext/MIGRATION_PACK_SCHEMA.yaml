@@ -118,6 +118,10 @@ vnext_bundle:
     - task-lifecycle
     - capture-work-item
     - close-task
+  required_administrative_entries:
+    - bootstrap-project
+  required_expert_entries:
+    - validate-change
   phase2_runtime:
     required_when_source_phase: Phase 2
     canonical_current_task_requires_runtime_state: true

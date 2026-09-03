@@ -1,0 +1,138 @@
+---
+entry_contract:
+  entry: validate-change
+  mode: []
+  intent: >
+    Obtain minimum-sufficient read-only evidence for one explicit change,
+    claim, behavior, or validation target.
+  input_contract:
+    required:
+      - validation_target
+    optional:
+      - changed_paths
+      - diff_target
+      - expected_behavior
+      - existing_evidence
+      - requested_evidence
+      - environment_context
+      - caller_context
+  authority_owner: none
+  mutation_boundary:
+    product_files: []
+    governance_sources: []
+    forbidden_targets:
+      - product files
+      - persistent tests
+      - CURRENT_TASK.md
+      - STATUS.md
+      - LESSONS.md
+      - CONTRACTS.md
+      - DECISIONS.md
+      - TASKS/**
+      - task identity
+      - lifecycle state
+      - finding queue
+      - archive
+      - registry
+      - host guidance
+  internal_capabilities:
+    - project-context-resolver
+    - evidence-admission-policy
+    - adaptive-depth-policy
+    - diff-target-resolver
+    - read-only-review-guard
+    - owner-route-resolver
+    - design-evidence-gate
+    - release-evidence-gate
+    - external-documentation-gate
+  runtime_operations: []
+  stop_conditions:
+    - validation_target, its boundary, or the claim being proved is missing or ambiguous
+    - the requested evidence kind is outside the closed evidence set or its authority cannot be verified
+    - the selected check would mutate product, governance, task, finding, host, or persistent-test state
+    - a required environment, browser/session, device, documentation, release, or other evidence source is unavailable
+    - existing evidence is insufficient and a new persistent test would be needed without explicit P-12 admission
+    - the result cannot distinguish passed, failed, inconclusive, and blocked evidence
+  output_kind: validation-result
+---
+
+# vNext Skill: validate-change
+
+## Intent
+
+Obtain the minimum-sufficient read-only evidence for one explicit validation
+target. This expert entry is callable by CI, a harness, or an expert user. It
+returns an ephemeral evidence result for its caller; it does not create a
+durable validation document or become a daily workflow step.
+
+## Evidence Admission
+
+1. Resolve the supplied `validation_target` and its boundary. State the claim
+   being proved, the relevant changed paths or diff target when supplied, and
+   the expected behavior. Do not use historical source-repository workflow
+   files as target-project authority; resolve project context from the
+   isolated/current project being validated.
+2. Apply `evidence-admission-policy` to choose the smallest claim-appropriate
+   evidence that can prove the target. The closed evidence kinds are `static
+   proof`, `existing regression`, `focused test`, `integration smoke`,
+   `browser/session check`, `visual evidence`, `real-device evidence`,
+   `external documentation`, and `release health` / canary evidence. A QA
+   label is a policy result, not a public mode.
+3. Prefer a supplied, existing check or real claim-appropriate evidence when
+   it is sufficient. Record why it was selected, its actual status, and its
+   evidence references. If the environment cannot provide a requested kind,
+   return a truthful `blocked` or `inconclusive` result with an evidence gap;
+   never infer a pass from missing evidence.
+4. Run only read-only checks through the caller or harness. Use the shared
+   diff-target and project-context resolvers when those inputs are present.
+   A bounded temporary probe is allowed only when the existing evidence policy
+   explicitly permits it, declares its duration/run budget and temporary
+   location, and records cleanup/audit. No product or governance file may be
+   changed.
+
+## Persistent-test boundary
+
+Validation obligation, reuse of an existing check, and admission of a new
+persistent automated test are separate decisions. This entry never creates or
+modifies `*.test.*`, `*.spec.*`, integration fixtures, or another persistent
+test artifact merely because evidence is missing. If minimum-sufficient proof
+requires a new persistent test, return an evidence gap and route it to
+`execute-step` with a reason that explicit P-12 admission and write authority
+are required. Do not silently register, save, or promote a temporary probe.
+
+## Failure and ownership boundary
+
+A failed validation is an evidence result only. It does not admit a finding,
+start root-cause work, repair product code, advance a task, change lifecycle,
+or invoke another entry implicitly. The caller may route a failed result to
+`debug-task` or a user, and may route an admitted repair or test addition to
+`execute-step`; those entries retain their own authority and admission rules.
+
+## Required result
+
+Return one ephemeral `validation_result` with stable fields:
+
+```yaml
+validation_result:
+  target:
+    claim: <claim being proved>
+    boundary: <change, behavior, or validation boundary>
+  verdict: passed | failed | inconclusive | blocked
+  selected_evidence:
+    - kind: <closed evidence kind>
+      reason: <minimum-sufficient selection reason>
+  observations: []
+  evidence_refs: []
+  evidence_gaps: []
+  side_effects:
+    product_mutations: 0
+    governance_mutations: 0
+    runtime_transactions: 0
+  recommended_route:
+    entry: null | execute-step | debug-task | review-change
+    reason: <caller-facing route or no further route>
+```
+
+The result must preserve the actual distinction between a failed check and an
+unavailable or insufficient check, and must report zero product mutations,
+zero governance mutations, and zero Runtime transactions for this entry.

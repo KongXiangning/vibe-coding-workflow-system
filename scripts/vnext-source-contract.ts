@@ -21,6 +21,9 @@ export type Phase1Entry = (typeof PHASE_1_ENTRIES)[number];
 export const ADMIN_ENTRIES = ['bootstrap-project'] as const;
 export type AdminEntry = (typeof ADMIN_ENTRIES)[number];
 
+export const EXPERT_ENTRIES = ['validate-change'] as const;
+export type ExpertEntry = (typeof EXPERT_ENTRIES)[number];
+
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan'],
   'review-change': ['default', 'report-only'],
@@ -37,6 +40,10 @@ export const PHASE_1_MODES: Record<Phase1Entry, readonly string[]> = {
 
 export const ADMIN_MODES: Record<AdminEntry, readonly string[]> = {
   'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign'],
+};
+
+export const EXPERT_MODES: Record<ExpertEntry, readonly string[]> = {
+  'validate-change': [],
 };
 
 const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
@@ -82,6 +89,18 @@ const EXPECTED_ADMIN_RUNTIME_OPERATIONS: Record<AdminEntry, readonly string[]> =
   ],
 };
 
+export const EXPECTED_EXPERT_OUTPUT_KINDS: Record<ExpertEntry, string> = {
+  'validate-change': 'validation-result',
+};
+
+export const EXPECTED_EXPERT_AUTHORITY_OWNERS: Record<ExpertEntry, string> = {
+  'validate-change': 'none',
+};
+
+export const EXPECTED_EXPERT_RUNTIME_OPERATIONS: Record<ExpertEntry, readonly string[]> = {
+  'validate-change': [],
+};
+
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
   'prepare-task': ['scope-guard', 'evidence-admission-policy'],
   'review-change': ['scope-guard', 'diff-target-resolver', 'read-only-review-guard', 'review-convergence-policy', 'evidence-admission-policy'],
@@ -102,6 +121,17 @@ const REQUIRED_ADMIN_ENTRY_CAPABILITIES: Partial<Record<AdminEntry, readonly str
     'propagation-evidence-validator',
     'host-isolation-guard',
     'generation-atomicity-policy',
+  ],
+};
+
+export const REQUIRED_EXPERT_ENTRY_CAPABILITIES: Partial<Record<ExpertEntry, readonly string[]>> = {
+  'validate-change': [
+    'project-context-resolver',
+    'evidence-admission-policy',
+    'adaptive-depth-policy',
+    'diff-target-resolver',
+    'read-only-review-guard',
+    'owner-route-resolver',
   ],
 };
 
@@ -233,6 +263,7 @@ export type VNextSourceValidationResult = {
   phase: 'Phase 1' | 'Phase 2';
   entries: Phase1Entry[];
   administrativeEntries: AdminEntry[];
+  expertEntries: ExpertEntry[];
   capabilities: string[];
   runtimeOperations: string[];
   legacySkillNames: string[];
@@ -322,7 +353,7 @@ function assertRelativePath(value: unknown, expected: string, location: string):
 }
 
 function validateSourceNamespace(contract: UnknownRecord): 'Phase 1' | 'Phase 2' {
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'source_namespace', 'entries', 'administrative_entries', 'capabilities', 'runtime_operations'], 'contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'source_namespace', 'entries', 'administrative_entries', 'expert_entries', 'capabilities', 'runtime_operations'], 'contract');
   if (contract.schema_version !== 1) fail('contract.schema_version must be 1');
   if (contract.kind !== 'vnext-source-contract') fail('contract.kind must be vnext-source-contract');
   if (contract.phase !== 'Phase 1' && contract.phase !== 'Phase 2') fail('contract.phase must be Phase 1 or Phase 2');
@@ -374,7 +405,7 @@ function validateCatalogEntries(root: string, contract: UnknownRecord): Map<Phas
   const skillDir = path.join(root, ...VNEXT_SKILL_TEMPLATE_RELATIVE_PATH.split('/'));
   if (!fs.existsSync(skillDir)) fail(`missing vNext skill template directory: ${skillDir}`);
   const actualFiles = fs.readdirSync(skillDir).filter(file => file.endsWith('.SKILL.md.tmpl')).sort();
-  const expectedFiles = [...PHASE_1_ENTRIES, ...ADMIN_ENTRIES].map(entry => `${entry}.SKILL.md.tmpl`).sort();
+  const expectedFiles = [...PHASE_1_ENTRIES, ...ADMIN_ENTRIES, ...EXPERT_ENTRIES].map(entry => `${entry}.SKILL.md.tmpl`).sort();
   expectSetEqual(actualFiles, expectedFiles, 'vNext skill template files');
   return entryTemplates;
 }
@@ -402,6 +433,35 @@ function validateAdministrativeCatalog(root: string, contract: UnknownRecord): M
   }
 
   for (const entry of ADMIN_ENTRIES) {
+    const templatePath = path.join(root, ...entryTemplates.get(entry)!.split('/'));
+    if (!fs.existsSync(templatePath)) fail(`missing template for ${entry}: ${templatePath}`);
+  }
+  return entryTemplates;
+}
+
+function validateExpertCatalog(root: string, contract: UnknownRecord): Map<ExpertEntry, string> {
+  const rawEntries = contract.expert_entries;
+  if (!Array.isArray(rawEntries)) fail('contract.expert_entries must be a list');
+  if (rawEntries.length !== EXPERT_ENTRIES.length) {
+    fail(`contract.expert_entries must contain exactly ${EXPERT_ENTRIES.length} expert entry`);
+  }
+
+  const entryTemplates = new Map<ExpertEntry, string>();
+  for (const [index, rawEntry] of rawEntries.entries()) {
+    const entry = expectRecord(rawEntry, `contract.expert_entries[${index}]`);
+    expectExactKeys(entry, ['id', 'exposure', 'template'], `contract.expert_entries[${index}]`);
+    const id = expectString(entry.id, `contract.expert_entries[${index}].id`);
+    if (!(EXPERT_ENTRIES as readonly string[]).includes(id)) {
+      fail(`contract.expert_entries[${index}].id "${id}" is not an expert vNext entry`);
+    }
+    if (entryTemplates.has(id as ExpertEntry)) fail(`duplicate expert entry id "${id}"`);
+    if (entry.exposure !== 'expert') fail(`expert entry "${id}" must have exposure expert`);
+    const expectedTemplate = `templates/vnext/skills/${id}.SKILL.md.tmpl`;
+    assertRelativePath(entry.template, expectedTemplate, `contract.expert_entries[${index}].template`);
+    entryTemplates.set(id as ExpertEntry, expectedTemplate);
+  }
+
+  for (const entry of EXPERT_ENTRIES) {
     const templatePath = path.join(root, ...entryTemplates.get(entry)!.split('/'));
     if (!fs.existsSync(templatePath)) fail(`missing template for ${entry}: ${templatePath}`);
   }
@@ -519,7 +579,31 @@ function validateInputContract(input: UnknownRecord, entry: Phase1Entry): void {
   }
 }
 
-function validateLegacyExecutableTargets(content: string, entry: Phase1Entry, legacySkillNames: readonly string[]): void {
+function validateExpertInputContract(input: UnknownRecord, entry: ExpertEntry): void {
+  expectExactKeys(
+    input,
+    ['required', 'optional'],
+    `${entry}.entry_contract.input_contract`,
+  );
+  const required = expectStringArray(input.required, `${entry}.entry_contract.input_contract.required`);
+  expectSetEqual(required, ['validation_target'], `${entry}.validation_target`);
+  const optional = expectStringArray(input.optional, `${entry}.entry_contract.input_contract.optional`, true);
+  expectSetEqual(
+    optional,
+    [
+      'changed_paths',
+      'diff_target',
+      'expected_behavior',
+      'existing_evidence',
+      'requested_evidence',
+      'environment_context',
+      'caller_context',
+    ],
+    `${entry}.entry_contract.input_contract.optional`,
+  );
+}
+
+function validateLegacyExecutableTargets(content: string, entry: string, legacySkillNames: readonly string[]): void {
   const lines = content.split(/\r?\n/);
   for (const legacyName of legacySkillNames) {
     const escapedName = legacyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -643,7 +727,7 @@ function validateAdministrativeTemplate(
   for (const forbidden of FORBIDDEN_TOP_LEVEL_FIELDS) {
     if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
   }
-  validateLegacyExecutableTargets(content, entry as Phase1Entry, legacySkillNames);
+  validateLegacyExecutableTargets(content, entry, legacySkillNames);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(
@@ -695,6 +779,72 @@ function validateAdministrativeTemplate(
   if (contract.output_kind !== 'bootstrap-result') fail(`${entry}.entry_contract.output_kind must be "bootstrap-result"`);
 }
 
+function validateExpertTemplate(
+  root: string,
+  entry: ExpertEntry,
+  templateRelativePath: string,
+  capabilities: Set<string>,
+  legacySkillNames: readonly string[],
+): void {
+  const templatePath = path.join(root, ...templateRelativePath.split('/'));
+  const content = fs.readFileSync(templatePath, 'utf8');
+  const { frontmatter } = readStrictFrontmatter(templatePath);
+  expectExactKeys(frontmatter, ['entry_contract'], `${entry} frontmatter`);
+  for (const forbidden of FORBIDDEN_TOP_LEVEL_FIELDS) {
+    if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
+  }
+  validateLegacyExecutableTargets(content, entry, legacySkillNames);
+  if (content.includes('validate-change:regression')) {
+    fail(`${entry} must not restore the legacy validate-change:regression mode`);
+  }
+
+  const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
+  expectExactKeys(
+    contract,
+    ['entry', 'mode', 'intent', 'input_contract', 'authority_owner', 'mutation_boundary', 'internal_capabilities', 'runtime_operations', 'stop_conditions', 'output_kind'],
+    `${entry}.entry_contract`,
+  );
+  if (contract.entry !== entry) fail(`${entry}.entry_contract.entry must be "${entry}"`);
+  const modes = expectStringArray(contract.mode, `${entry}.entry_contract.mode`, true);
+  expectSetEqual(modes, EXPERT_MODES[entry], `${entry}.entry_contract.mode`);
+  if (modes.some(mode => mode === 'discovery' || mode === 'verification')) {
+    fail(`${entry}.entry_contract.mode must not contain review cycle phases`);
+  }
+  expectString(contract.intent, `${entry}.entry_contract.intent`);
+  validateExpertInputContract(expectRecord(contract.input_contract, `${entry}.entry_contract.input_contract`), entry);
+  if (contract.authority_owner !== EXPECTED_EXPERT_AUTHORITY_OWNERS[entry]) {
+    fail(`${entry}.entry_contract.authority_owner must be "${EXPECTED_EXPERT_AUTHORITY_OWNERS[entry]}"`);
+  }
+
+  const boundary = expectRecord(contract.mutation_boundary, `${entry}.entry_contract.mutation_boundary`);
+  expectExactKeys(boundary, ['product_files', 'governance_sources', 'forbidden_targets'], `${entry}.mutation_boundary`);
+  if (expectStringArray(boundary.product_files, `${entry}.mutation_boundary.product_files`, true).length > 0) {
+    fail(`${entry} must have an empty product file mutation boundary`);
+  }
+  if (expectStringArray(boundary.governance_sources, `${entry}.mutation_boundary.governance_sources`, true).length > 0) {
+    fail(`${entry} must have an empty governance mutation boundary`);
+  }
+  expectStringArray(boundary.forbidden_targets, `${entry}.mutation_boundary.forbidden_targets`);
+
+  const capabilityRefs = expectStringArray(contract.internal_capabilities, `${entry}.entry_contract.internal_capabilities`);
+  for (const capability of capabilityRefs) {
+    if (!capabilities.has(capability)) fail(`${entry} references missing capability "${capability}"`);
+  }
+  for (const requiredCapability of REQUIRED_EXPERT_ENTRY_CAPABILITIES[entry] ?? []) {
+    if (!capabilityRefs.includes(requiredCapability)) {
+      fail(`${entry} must declare mandatory capability "${requiredCapability}"`);
+    }
+  }
+
+  const runtimeRefs = expectStringArray(contract.runtime_operations, `${entry}.entry_contract.runtime_operations`, true);
+  expectSetEqual(runtimeRefs, EXPECTED_EXPERT_RUNTIME_OPERATIONS[entry], `${entry}.entry_contract.runtime_operations`);
+  if (runtimeRefs.length !== 0) fail(`${entry} must have no Runtime operations`);
+  expectStringArray(contract.stop_conditions, `${entry}.entry_contract.stop_conditions`);
+  if (contract.output_kind !== EXPECTED_EXPERT_OUTPUT_KINDS[entry]) {
+    fail(`${entry}.entry_contract.output_kind must be "${EXPECTED_EXPERT_OUTPUT_KINDS[entry]}"`);
+  }
+}
+
 export function validateVNextSource(root = resolveRoot()): VNextSourceValidationResult {
   const resolvedRoot = path.resolve(root);
   const contractPath = path.join(resolvedRoot, ...VNEXT_SOURCE_CONTRACT_RELATIVE_PATH.split('/'));
@@ -702,6 +852,7 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
   const phase = validateSourceNamespace(sourceContract);
   const entryTemplates = validateCatalogEntries(resolvedRoot, sourceContract);
   const administrativeTemplates = validateAdministrativeCatalog(resolvedRoot, sourceContract);
+  const expertTemplates = validateExpertCatalog(resolvedRoot, sourceContract);
   const capabilityIds = validateCapabilityCatalog(sourceContract);
   const runtimeOperations = validateRuntimeCatalog(sourceContract, phase);
   const legacySkillNames = readLegacySkillNames(resolvedRoot);
@@ -726,11 +877,21 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
       legacySkillNames,
     );
   }
+  for (const entry of EXPERT_ENTRIES) {
+    validateExpertTemplate(
+      resolvedRoot,
+      entry,
+      expertTemplates.get(entry)!,
+      capabilityIds,
+      legacySkillNames,
+    );
+  }
 
   return {
     phase,
     entries: [...PHASE_1_ENTRIES],
     administrativeEntries: [...ADMIN_ENTRIES],
+    expertEntries: [...EXPERT_ENTRIES],
     capabilities: [...capabilityIds].sort(),
     runtimeOperations: [...runtimeOperations.keys()].sort(),
     legacySkillNames,
@@ -741,7 +902,7 @@ if (import.meta.main) {
   try {
     const result = validateVNextSource();
     console.log(
-      `vNext source contract: PASSED (${result.phase}; ${result.entries.length} entries, ${result.capabilities.length} capabilities, ${result.runtimeOperations.length} Runtime operations)`,
+      `vNext source contract: PASSED (${result.phase}; ${result.entries.length} daily entries, ${result.administrativeEntries.length} administrative entries, ${result.expertEntries.length} expert entries, ${result.capabilities.length} capabilities, ${result.runtimeOperations.length} Runtime operations)`,
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

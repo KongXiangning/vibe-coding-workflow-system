@@ -79,6 +79,7 @@ describe('vNext bootstrap-project', () => {
     const installed = bootstrapProject({ ...common, write: true, changedPaths });
     expect(installed.status).toBe('installed');
     expect(installed.read_back_verified).toBe(true);
+    expect(fs.existsSync(path.join(target, '.codex', 'skills', 'validate-change.SKILL.md'))).toBe(true);
     expect(installed.evidence.map(item => item.id)).toEqual(expect.arrayContaining([
       'source-contract',
       'scope-admission',

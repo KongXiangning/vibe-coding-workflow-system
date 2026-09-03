@@ -72,6 +72,7 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
     ['bundle/task-lifecycle.SKILL.md', '.claude/skills/task-lifecycle.SKILL.md', 'skill'],
     ['bundle/capture-work-item.SKILL.md', '.claude/skills/capture-work-item.SKILL.md', 'skill'],
     ['bundle/close-task.SKILL.md', '.claude/skills/close-task.SKILL.md', 'skill'],
+    ['bundle/validate-change.SKILL.md', '.claude/skills/validate-change.SKILL.md', 'skill'],
     ...(phase2 ? [
       ['bundle/bootstrap-project.SKILL.md', '.claude/skills/bootstrap-project.SKILL.md', 'skill'],
       ['bundle/runtime-cli.js', '.workflow-system/runtime/dist/cli.js', 'runtime'],
@@ -262,6 +263,10 @@ describe('one-time vNext Migration Pack', () => {
     const packDir = tempRoot('workflow-vnext-migration-pack-');
     const bundleDir = tempRoot('workflow-vnext-bundle-');
     writeBundle(source, target, bundleDir);
+    const bundle = JSON.parse(fs.readFileSync(path.join(bundleDir, 'vnext-bundle.json'), 'utf8')) as { artifacts: Array<{ target_path: string; source_path: string }> };
+    const expertArtifact = bundle.artifacts.find(artifact => artifact.target_path === '.claude/skills/validate-change.SKILL.md');
+    expect(expertArtifact).toBeDefined();
+    expect(fs.readFileSync(path.join(bundleDir, ...expertArtifact!.source_path.split('/')), 'utf8')).not.toContain('validate-change:regression');
     fs.mkdirSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff'), { recursive: true });
     fs.writeFileSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'), '# legacy nested skill\n', 'utf8');
     const manifest = createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });

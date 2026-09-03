@@ -80,3 +80,14 @@ owner route, and writes at most one record. The transaction binds the current
 task source tuple, returns exact replay as a no-op, rejects identity or
 provenance collisions, and leaves `CURRENT_TASK.md` and all other task,
 lifecycle, governance, and product files unchanged.
+
+## Expert validation result
+
+`validate-change` produces an ephemeral `validation_result` for one explicit
+claim or behavior boundary. Its selected evidence is the minimum-sufficient
+evidence admitted for that claim; it is not a durable project document. The
+result records the target, `passed | failed | inconclusive | blocked` verdict,
+selected evidence, observations, references, gaps, zero product/governance/
+Runtime side effects, and a non-binding recommended route. The entry never
+creates a persistent test or admits a finding. A persistent-test evidence gap
+must be routed to an authorized entry for explicit P-12 admission.

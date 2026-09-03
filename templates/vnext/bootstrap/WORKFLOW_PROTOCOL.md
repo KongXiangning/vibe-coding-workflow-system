@@ -73,3 +73,16 @@ target, and commits at most that one file. Stale source tuples, unsafe or
 non-canonical targets, identity/provenance collisions, and failed read-back
 are fail-closed; the active task and every other governance/product file stay
 byte-identical.
+
+## Expert validation boundary
+
+`validate-change` is an expert/automation entry for one explicit validation
+target. It applies evidence admission to select the minimum-sufficient
+claim-appropriate evidence and returns an ephemeral `validation_result`.
+Evidence kinds may include static proof, an existing regression, a focused
+test, integration smoke, browser/session, visual, real-device, external
+documentation, or release-health evidence; these are policy choices, not
+public modes. The entry has no Runtime operation and must not mutate product,
+governance, task, finding, host, or persistent-test state. A failed result is
+not a finding admission, and a missing persistent regression is an evidence gap
+that must route to an entry with explicit P-12 write authority.

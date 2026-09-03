@@ -38,6 +38,11 @@ administrative_entries:
     exposure: admin
     template: templates/vnext/skills/bootstrap-project.SKILL.md.tmpl
 
+expert_entries:
+  - id: validate-change
+    exposure: expert
+    template: templates/vnext/skills/validate-change.SKILL.md.tmpl
+
 capabilities:
   - id: project-context-resolver
     exposure: internal

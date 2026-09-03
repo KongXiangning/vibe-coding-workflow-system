@@ -73,6 +73,7 @@ describe('vNext Phase 2 source contract', () => {
       'close-task',
     ]);
     expect(result.administrativeEntries).toEqual(['bootstrap-project']);
+    expect(result.expertEntries).toEqual(['validate-change']);
     expect(result.capabilities).toHaveLength(25);
     expect(result.runtimeOperations).toEqual([
       'archive-transaction',
@@ -87,6 +88,70 @@ describe('vNext Phase 2 source contract', () => {
       'task-state-transaction',
     ]);
     expect(result.legacySkillNames).toHaveLength(37);
+  });
+
+  test('classifies validate-change only as the single expert entry', () => {
+    const dailyRoot = copyFixture();
+    replaceIn(
+      dailyRoot,
+      '.workflow-system/vnext/SOURCE_CONTRACT.yaml',
+      '  - id: prepare-task\n',
+      '  - id: validate-change\n',
+    );
+    expect(() => validateVNextSource(dailyRoot)).toThrow(/contract\.entries\[0\]\.id "validate-change" is not a vNext entry/i);
+
+    const adminRoot = copyFixture();
+    replaceIn(
+      adminRoot,
+      '.workflow-system/vnext/SOURCE_CONTRACT.yaml',
+      '  - id: bootstrap-project\n',
+      '  - id: validate-change\n',
+    );
+    expect(() => validateVNextSource(adminRoot)).toThrow(/contract\.administrative_entries\[0\]\.id "validate-change" is not an administrative vNext entry/i);
+
+    const unknownRoot = copyFixture();
+    replaceIn(
+      unknownRoot,
+      '.workflow-system/vnext/SOURCE_CONTRACT.yaml',
+      '  - id: validate-change\n    exposure: expert\n',
+      '  - id: unknown-expert\n    exposure: expert\n',
+    );
+    expect(() => validateVNextSource(unknownRoot)).toThrow(/contract\.expert_entries\[0\]\.id "unknown-expert" is not an expert vNext entry/i);
+
+    const duplicateRoot = copyFixture();
+    replaceIn(
+      duplicateRoot,
+      '.workflow-system/vnext/SOURCE_CONTRACT.yaml',
+      '  - id: validate-change\n    exposure: expert\n    template: templates/vnext/skills/validate-change.SKILL.md.tmpl\n',
+      '  - id: validate-change\n    exposure: expert\n    template: templates/vnext/skills/validate-change.SKILL.md.tmpl\n  - id: validate-change\n    exposure: expert\n    template: templates/vnext/skills/validate-change.SKILL.md.tmpl\n',
+    );
+    expect(() => validateVNextSource(duplicateRoot)).toThrow(/contract\.expert_entries must contain exactly 1 expert entry/i);
+  });
+
+  test('keeps validate-change read-only with an empty mode and Runtime surface', () => {
+    const template = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/validate-change.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(template).toContain('  mode: []');
+    expect(template).toContain('    product_files: []');
+    expect(template).toContain('    governance_sources: []');
+    expect(template).toContain('  runtime_operations: []');
+    expect(template).toContain('  output_kind: validation-result');
+    expect(template).toContain('minimum-sufficient read-only evidence');
+    expect(template).toContain('never creates or');
+    expect(template).toContain('does not admit a finding');
+    expect(template).not.toContain('validate-change:regression');
+  });
+
+  test('rejects restoration of the historical validate-change mode', () => {
+    const root = copyFixture();
+    fs.appendFileSync(
+      fixtureFile(root, 'templates/vnext/skills/validate-change.SKILL.md.tmpl'),
+      '\nHistorical route: validate-change:regression\n',
+    );
+
+    expect(() => validateVNextSource(root)).toThrow(/must not restore the legacy validate-change:regression mode/i);
   });
 
   test('rejects a review template with direct writes', () => {

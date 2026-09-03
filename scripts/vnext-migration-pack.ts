@@ -82,6 +82,7 @@ const VNEXT_REQUIRED_DAILY_ENTRIES = [
   'close-task',
 ] as const;
 const VNEXT_REQUIRED_ADMIN_ENTRIES = ['bootstrap-project'] as const;
+const VNEXT_REQUIRED_EXPERT_ENTRIES = ['validate-change'] as const;
 // The old public surface is deliberately kept as a closed list at the
 // migration boundary.  Target projects normally provide the same names in
 // `templates/skills`, but bundle validation must still reject legacy routes
@@ -2097,6 +2098,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'capture-work-item': [],
   'close-task': ['preview'],
   'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign'],
+  'validate-change': [],
 };
 const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'prepare-task': 'prepared-task',
@@ -2107,6 +2109,7 @@ const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'capture-work-item': 'capture-result',
   'close-task': 'closure-result',
   'bootstrap-project': 'bootstrap-result',
+  'validate-change': 'validation-result',
 };
 const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'prepare-task': 'user',
@@ -2117,6 +2120,7 @@ const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'capture-work-item': 'none',
   'close-task': 'task',
   'bootstrap-project': 'user',
+  'validate-change': 'none',
 };
 const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
@@ -2127,9 +2131,11 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'capture-work-item': ['inbox-record-transaction'],
   'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction'],
   'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'paired-host-guidance-transaction'],
+  'validate-change': [],
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
   'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy'],
+  'validate-change': ['project-context-resolver', 'evidence-admission-policy', 'adaptive-depth-policy', 'diff-target-resolver', 'read-only-review-guard', 'owner-route-resolver'],
 };
 
 const BUNDLE_CURRENT_TASK_HEADINGS = ['## 任务信息', '## 验收标准', '## 允许修改范围', '## 实施步骤'];
@@ -2146,6 +2152,9 @@ function readBundleFrontmatter(content: string, location: string): { frontmatter
 
 function validateVNextSkillBundleContent(entry: string, content: string, location: string): void {
   const { frontmatter } = readBundleFrontmatter(content, location);
+  if (entry === 'validate-change' && content.includes('validate-change:regression')) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location} restores the legacy validate-change:regression mode.`);
+  }
   expectExactKeys(frontmatter, ['entry_contract'], `${location} frontmatter`);
   const contract = expectRecord(frontmatter.entry_contract, `${location}.entry_contract`);
   expectExactKeys(contract, ['entry', 'mode', 'intent', 'input_contract', 'authority_owner', 'mutation_boundary', 'internal_capabilities', 'runtime_operations', 'stop_conditions', 'output_kind'], `${location}.entry_contract`);
@@ -2158,8 +2167,25 @@ function validateVNextSkillBundleContent(entry: string, content: string, locatio
   const input = expectRecord(contract.input_contract, `${location}.entry_contract.input_contract`);
   const inputKeys = entry === 'review-change' ? ['required', 'optional', 'cycle_phase'] : ['required', 'optional'];
   expectExactKeys(input, inputKeys, `${location}.entry_contract.input_contract`);
-  expectStringArray(input.required, `${location}.entry_contract.input_contract.required`);
-  expectStringArray(input.optional, `${location}.entry_contract.input_contract.optional`, true);
+  const requiredInputs = expectStringArray(input.required, `${location}.entry_contract.input_contract.required`);
+  const optionalInputs = expectStringArray(input.optional, `${location}.entry_contract.input_contract.optional`, true);
+  if (entry === 'validate-change') {
+    if (JSON.stringify([...requiredInputs].sort()) !== JSON.stringify(['validation_target'])) {
+      throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.input_contract.required is not the canonical validate-change set.`);
+    }
+    const expectedOptionalInputs = [
+      'changed_paths',
+      'diff_target',
+      'expected_behavior',
+      'existing_evidence',
+      'requested_evidence',
+      'environment_context',
+      'caller_context',
+    ];
+    if (JSON.stringify([...optionalInputs].sort()) !== JSON.stringify([...expectedOptionalInputs].sort())) {
+      throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.input_contract.optional is not the canonical validate-change set.`);
+    }
+  }
   if (entry === 'review-change') {
     expectStringArray(input.cycle_phase, `${location}.entry_contract.input_contract.cycle_phase`);
     if (JSON.stringify([...input.cycle_phase as string[]].sort()) !== JSON.stringify(['discovery', 'verification'])) throw new MigrationPackError('BUNDLE_INVALID', `${location} has an invalid review cycle phase set.`);
@@ -2410,20 +2436,21 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
       if (!/^[a-z][a-z0-9-]*\.SKILL\.md$/.test(skillBasename) || skillBasename.startsWith('workflow-system-')) throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use a canonical unprefixed entry filename: ${artifact.target_path}`);
     }
     for (const legacyName of legacySkillNames) {
-      // `capture-work-item` is intentionally retained as a vNext public
-      // intent, so its canonical vNext Skill/registry occurrence is not a
-      // legacy compatibility route.  All other legacy IDs remain forbidden.
-      const canonicalCaptureEntry = legacyName === 'capture-work-item' &&
-        ((artifact.category === 'skill' && path.posix.basename(artifact.target_path) === 'capture-work-item.SKILL.md') || artifact.category === 'registry');
-      if (artifact.target_path.includes(legacyName) && !canonicalCaptureEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
+      // These two names are canonical vNext entries. Their unprefixed Skill
+      // artifact and declaration are not legacy compatibility routes; every
+      // other legacy ID remains forbidden.
+      const canonicalVNextEntry = (legacyName === 'capture-work-item' || legacyName === 'validate-change') &&
+        ((artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${legacyName}.SKILL.md`) ||
+          (legacyName === 'capture-work-item' && artifact.category === 'registry'));
+      if (artifact.target_path.includes(legacyName) && !canonicalVNextEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
       if ((artifact.category === 'skill' || artifact.category === 'registry') && content.includes(legacyName)) {
-        if (!canonicalCaptureEntry || artifact.category === 'registry') {
-          if (!canonicalCaptureEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
+        if (!canonicalVNextEntry || (artifact.category === 'registry' && legacyName !== 'capture-work-item')) {
+          if (!canonicalVNextEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
         } else {
-          const executableCaptureLines = content.split(/\r?\n/).filter(line => line.includes(legacyName));
-          if (executableCaptureLines.some(line =>
-            !/^\s*entry:\s*capture-work-item\s*$/.test(line) &&
-            !/^# vNext Skill:\s*capture-work-item\s*$/.test(line) &&
+          const executableCanonicalLines = content.split(/\r?\n/).filter(line => line.includes(legacyName));
+          if (executableCanonicalLines.some(line =>
+            !new RegExp(`^\\s*entry:\\s*${legacyName}\\s*$`).test(line) &&
+            !new RegExp(`^# vNext Skill:\\s*${legacyName}\\s*$`).test(line) &&
             !(legacyName === 'capture-work-item' && line.includes('capture-work-item:record'))
           )) {
             throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName} outside its canonical entry declaration.`);
@@ -2505,6 +2532,10 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
   for (const entry of VNEXT_REQUIRED_DAILY_ENTRIES) {
     const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
     if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required daily entry Skill ${entry}.SKILL.md.`);
+  }
+  for (const entry of VNEXT_REQUIRED_EXPERT_ENTRIES) {
+    const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
+    if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required expert entry Skill ${entry}.SKILL.md.`);
   }
   if (sourceDeclaresPhase2Runtime(sourceRoot)) {
     for (const entry of VNEXT_REQUIRED_ADMIN_ENTRIES) {
