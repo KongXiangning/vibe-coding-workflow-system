@@ -2129,7 +2129,7 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
-  'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction'],
+  'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction', 'contract-candidate-commit', 'decision-record-transaction'],
   'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'paired-host-guidance-transaction'],
   'validate-change': [],
 };

@@ -658,6 +658,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       'project-status-transaction',
       'archive-transaction',
       'lesson-record-transaction',
+      'contract-candidate-commit',
+      'decision-record-transaction',
     ]);
     expect(result.unbound_operations).toEqual([]);
   });

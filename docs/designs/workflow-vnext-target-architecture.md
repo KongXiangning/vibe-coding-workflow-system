@@ -137,7 +137,7 @@ The recommended surface distinguishes discoverability from callability. The exac
 | `debug-task` | Establish root cause and select an authorized recovery route | `investigate-only`, `resolve` | Debug does not write product code; `resolve` may macro-route to `execute-step:repair` after proof and authority |
 | `task-lifecycle` | Perform an explicit ownership/lifecycle transition | `pause`, `interrupt`, `resume-paused`, `resume-interrupted`, `supersede` | Each mode has distinct source tuple, recovery evidence, mutation, and rollback semantics |
 | `capture-work-item` | Record work proven unrelated to the active task | none (internal Runtime action: `record`) | Remains record-only; the bound Runtime writes at most one canonical inbox record and cannot promote, switch, or mutate the active task |
-| `close-task` | Prove closure eligibility and finish the task | `preview`; ordinary closure is the default entry intent | Summary, state deltas, and archive are one closure intent; `preview` is terminal and non-mutating |
+| `close-task` | Prove closure eligibility, admit final knowledge, and finish the task | `preview`; ordinary closure is the default entry intent | Closure preparation decides Contract/Decision/Lesson admission; archive is followed by typed reconciliation of admitted knowledge, Lesson, and STATUS; `preview` is terminal and non-mutating |
 
 ### 4.2 Administrative entry
 
@@ -299,20 +299,22 @@ only successful route is `active + active` → closure eligibility →
 `archive-transaction` exclusively and atomically writes the preserved
 `CURRENT_TASK.md` plus the exact identity-derived task archive. It rolls both
 paths back to pre-close `active + active` on any write, integrity, or read-back
-failure. Closure preparation evaluates knowledge admission as `admit`, `defer`,
-or `no-op` before archive; only `admit` creates a later
-`lesson-record-transaction`. After success, STATUS reconciliation is a separate
-`project-status-transaction`; neither STATUS nor Lesson failure rolls back the
-archive. A `closed + archived` close-task re-entry is reconciliation-only after
-matching archive receipt/provenance validation: archive is not repeated, and
-only incomplete STATUS reconciliation plus previously admitted Lesson
-persistence may continue. Any archive mismatch fails closed. Close-task has no
-close-specific task-state transaction, pending closure state, closure ID, or
-independent durable `TASK_SUMMARY.md` output.
-The existing archive `## Lessons 回写` section durably records
+failure. Closure preparation evaluates Contract/Decision/Lesson admission before
+archive. After a successful archive, admitted Contract/Decision candidates use
+the typed `contract-candidate-commit` / `decision-record-transaction` handlers;
+the existing optional Lesson and STATUS reconciliation use their own typed
+handlers. Neither downstream knowledge, STATUS, nor Lesson failure rolls back
+the archive. A `closed + archived` close-task re-entry is reconciliation-only
+after matching archive receipt/provenance validation: archive is not repeated,
+semantic admission is not re-run, and only incomplete durable records may be
+written. Any archive or knowledge provenance mismatch fails closed. Close-task
+has no close-specific task-state transaction, pending closure state, closure ID,
+or independent durable `TASK_SUMMARY.md` output. The archive durably records
+the complete Contract/Decision admission bundle in `## 知识晋升` and the
 `lesson_admission.decision` (`admit | defer | no-op`), `candidate_refs`, and
-`evidence_refs` at archive commit. This is admission provenance only, not proof
-that `LESSONS.md` was written; no new lesson-pending state or artifact exists.
+`evidence_refs` in `## Lessons 回写`. These sections are admission provenance,
+not proof that downstream governance files were written; no pending-state
+artifact exists.
 
 ## 6. Adaptive capability selection
 
@@ -695,6 +697,14 @@ knowledge_candidate:
   supersedes: <id-or-none>
   review_or_expiry_trigger: <condition-or-none>
   expected_consumers: []
+  implementation_anchors:  # optional, observed navigation hints only
+    coverage: observed | verified-scope
+    source_revision: <workspace revision>
+    anchors:
+      - path: <safe repository-relative path>
+        symbol: <optional stable symbol>
+        role: <bounded role>
+        evidence_refs: []
 ```
 
 Admission results are a closed set:
@@ -725,6 +735,20 @@ Anti-bloat and anti-forgetting rules:
 - A task summary, review finding, or exploratory note is not automatically a knowledge candidate.
 
 Runtime commits an admitted candidate through the existing exact contract/decision/lesson handlers. `knowledge-admission-policy` performs semantic eligibility; Runtime performs deduplication preconditions, exact writes, conflict detection, atomic commit, and read-back.
+
+For ordinary task closure, Contract and Decision candidates are admitted during
+closure preparation, persisted as archive provenance, and then committed to
+`CONTRACTS.md` / `DECISIONS.md` only through the close-task-bound typed Runtime
+handlers. `implementation_anchors` are optional observed navigation hints,
+normally limited to zero through five high-value paths/symbols. They are not a
+dependency graph, completeness claim, mutation authority, or freshness source.
+Consumers first validate each anchor against the current workspace, then use it
+as a search seed and expand to references, callers, imports, consumers,
+implementations, types, protocol/schema relations, configuration, generated
+surfaces, and tests according to risk and `adaptive-depth-policy`. A missing or
+stale anchor is marked unresolved and triggers broader live search; it does not
+make historical anchor text authoritative and does not require an unconditional
+full-repository scan.
 
 ### 10.3 Version gate
 

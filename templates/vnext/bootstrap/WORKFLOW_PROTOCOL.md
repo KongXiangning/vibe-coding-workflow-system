@@ -86,3 +86,26 @@ public modes. The entry has no Runtime operation and must not mutate product,
 governance, task, finding, host, or persistent-test state. A failed result is
 not a finding admission, and a missing persistent regression is an evidence gap
 that must route to an entry with explicit P-12 write authority.
+
+## Durable Contract / Decision promotion
+
+`close-task` evaluates Contract, Decision, and Lesson candidates before archive
+with the existing knowledge-admission policy. `admit`, `merge`, and `supersede`
+Contract/Decision results become typed `contract-candidate-commit` or
+`decision-record-transaction` proposals only after the archive is committed;
+`defer`, `reject`, and `no-op` do not write. Runtime, not a Skill, owns the
+canonical `CONTRACTS.md` / `DECISIONS.md` format, deduplication, provenance,
+conflict, atomicity, and read-back.
+
+The canonical task archive stores the complete knowledge admission bundle.
+On closed-task re-entry, close-task reconstructs candidates from that durable
+bundle and writes only missing records; existing exact records are no-ops,
+provenance/identity conflicts fail closed, and archive/current terminal state
+is never repeated or rewritten. No separate pending registry is introduced.
+
+Contract and Decision records may include optional `implementation_anchors`
+(zero to five `observed` or `verified-scope` path/symbol/role/evidence hints).
+Anchors are navigation seeds, not completeness or mutation authority. Consumers
+validate them against current code and expand live impact analysis according to
+risk; stale anchors trigger broader search rather than trusted historical
+locations.

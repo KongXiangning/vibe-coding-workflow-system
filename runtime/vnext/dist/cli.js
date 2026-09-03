@@ -1353,7 +1353,9 @@ var RUNTIME_OPERATION_KINDS = [
   "inbox-record-transaction",
   "project-status-transaction",
   "archive-transaction",
-  "lesson-record-transaction"
+  "lesson-record-transaction",
+  "contract-candidate-commit",
+  "decision-record-transaction"
 ];
 var RUNTIME_SOURCE_TUPLE_FIELDS = [
   "path",
@@ -1878,13 +1880,26 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     expectSetEqual(expectStringArray2(required.required, `Runtime contract.proposal.lifecycle.${field}.required`), expected, `Runtime contract lifecycle ${field}`);
   }
   const closeTaskContract = expectRecord2(proposal.close_task, "Runtime contract.proposal.close_task");
-  expectExactKeys2(closeTaskContract, ["default_mode", "preview_mode", "terminal_from", "terminal_to", "lesson_admission"], "Runtime contract.proposal.close_task");
+  expectExactKeys2(closeTaskContract, ["default_mode", "preview_mode", "terminal_from", "terminal_to", "lesson_admission", "knowledge_admission"], "Runtime contract.proposal.close_task");
   if (closeTaskContract.default_mode !== "default" || closeTaskContract.preview_mode !== "preview") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract close-task must reserve default closure and preview read-only semantics.");
   }
   expectSetEqual(expectStringArray2(closeTaskContract.terminal_from, "Runtime contract close-task terminal_from"), ["active + active"], "Runtime contract close-task terminal_from");
   expectSetEqual(expectStringArray2(closeTaskContract.terminal_to, "Runtime contract close-task terminal_to"), ["closed + archived"], "Runtime contract close-task terminal_to");
   expectSetEqual(expectStringArray2(closeTaskContract.lesson_admission, "Runtime contract close-task lesson_admission"), ["admit", "defer", "no-op"], "Runtime contract close-task lesson admission");
+  const knowledgeAdmissionContract = expectRecord2(closeTaskContract.knowledge_admission, "Runtime contract.proposal.close_task.knowledge_admission");
+  expectExactKeys2(knowledgeAdmissionContract, ["dispositions", "durable_dispositions", "candidate_fields", "implementation_anchors", "reentry_source"], "Runtime contract close-task knowledge_admission");
+  expectSetEqual(expectStringArray2(knowledgeAdmissionContract.dispositions, "Runtime contract close-task knowledge dispositions"), ["admit", "defer", "merge", "no-op", "reject", "supersede"], "Runtime contract close-task knowledge dispositions");
+  expectSetEqual(expectStringArray2(knowledgeAdmissionContract.durable_dispositions, "Runtime contract close-task durable knowledge dispositions"), ["admit", "merge", "supersede"], "Runtime contract close-task durable knowledge dispositions");
+  expectSetEqual(expectStringArray2(knowledgeAdmissionContract.candidate_fields, "Runtime contract close-task knowledge candidate fields"), [...KNOWLEDGE_CANDIDATE_KEYS], "Runtime contract close-task knowledge candidate fields");
+  const anchorContract = expectRecord2(knowledgeAdmissionContract.implementation_anchors, "Runtime contract close-task implementation_anchors");
+  expectExactKeys2(anchorContract, ["coverage", "max_anchors", "line_number_locators", "missing_symbol_behavior"], "Runtime contract close-task implementation_anchors");
+  expectSetEqual(expectStringArray2(anchorContract.coverage, "Runtime contract close-task implementation_anchors.coverage"), ["observed", "verified-scope"], "Runtime contract implementation anchor coverage");
+  if (expectInteger(anchorContract.max_anchors, "Runtime contract close-task implementation_anchors.max_anchors", 0, 5) !== 5 || anchorContract.line_number_locators !== "forbidden" || anchorContract.missing_symbol_behavior !== "live-search-fallback") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime implementation anchors must remain bounded hints with live-search fallback.");
+  }
+  if (knowledgeAdmissionContract.reentry_source !== "canonical-task-archive-admission")
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime knowledge re-entry must use canonical task archive admission provenance.");
   const lessonMarkerContract = expectRecord2(proposal.lesson_marker, "Runtime contract.proposal.lesson_marker");
   expectExactKeys2(lessonMarkerContract, ["contract", "marker_version_field", "noncanonical_behavior", "persisted", "reused"], "Runtime contract.proposal.lesson_marker");
   if (lessonMarkerContract.contract !== "vnext-lesson-marker/canonical-v1" || lessonMarkerContract.marker_version_field !== "absent" || lessonMarkerContract.noncanonical_behavior !== "fail-closed") {
@@ -1993,6 +2008,16 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
       "lesson-record-transaction": {
         source: ["CURRENT_TASK.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md", "LESSONS.md"],
         writes: ["LESSONS.md"],
+        callers: ["close-task"]
+      },
+      "contract-candidate-commit": {
+        source: ["CURRENT_TASK.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md", "CONTRACTS.md"],
+        writes: ["CONTRACTS.md"],
+        callers: ["close-task"]
+      },
+      "decision-record-transaction": {
+        source: ["CURRENT_TASK.md", "TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md", "DECISIONS.md"],
+        writes: ["DECISIONS.md"],
         callers: ["close-task"]
       }
     };
@@ -2640,22 +2665,260 @@ function validateLessonAdmission(value, location) {
     fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.evidence_refs must be non-empty when decision is admit.`);
   return { decision, candidate_refs: candidateRefs, evidence_refs: evidenceRefs };
 }
+var KNOWLEDGE_ADMISSION_DISPOSITIONS = [
+  "admit",
+  "merge",
+  "supersede",
+  "defer",
+  "reject",
+  "no-op"
+];
+var KNOWLEDGE_CANDIDATE_KEYS = [
+  "candidateId",
+  "kind",
+  "fingerprint",
+  "statement",
+  "sourceRefs",
+  "applicability",
+  "authoritySource",
+  "stability",
+  "evidenceRefs",
+  "noveltyAgainst",
+  "conflictSet",
+  "supersedes",
+  "reviewOrExpiryTrigger",
+  "expectedConsumers",
+  "decisionContext",
+  "systemicSeverity",
+  "implementation_anchors"
+];
+function validateImplementationAnchors(value, location) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["coverage", "source_revision", "anchors"], location);
+  const sourceRevision = expectString2(record.source_revision, `${location}.source_revision`);
+  if (sourceRevision.length > 256)
+    fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.source_revision exceeds 256 characters.`);
+  if (!Array.isArray(record.anchors) || record.anchors.length > 5) {
+    fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors must contain at most five anchors.`);
+  }
+  const anchors = record.anchors.map((raw, index) => {
+    const anchor = expectRecord2(raw, `${location}.anchors[${index}]`);
+    const extra = Object.keys(anchor).filter((key) => !["path", "symbol", "role", "evidence_refs"].includes(key));
+    const missing = ["path", "role", "evidence_refs"].filter((key) => !(key in anchor));
+    if (missing.length > 0 || extra.length > 0) {
+      fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors[${index}] keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
+    }
+    const rawAnchorPath = expectString2(anchor.path, `${location}.anchors[${index}].path`);
+    const anchorPath = normalizeRepoPath2(rawAnchorPath, `${location}.anchors[${index}].path`);
+    if (/^[A-Za-z]:\//u.test(anchorPath) || anchorPath.includes(":") || anchorPath !== path4.posix.normalize(anchorPath)) {
+      fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors[${index}].path must be a canonical repository-relative path.`);
+    }
+    if (anchorPath.includes("*") || /:\d+(?:-\d+)?$/u.test(anchorPath)) {
+      fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors[${index}].path must not be a wildcard or line-number locator.`);
+    }
+    const symbol = anchor.symbol === undefined || anchor.symbol === null ? null : expectText(anchor.symbol, `${location}.anchors[${index}].symbol`, 256);
+    if (symbol !== null && /\r|\n/u.test(symbol))
+      fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors[${index}].symbol must be single-line.`);
+    if (symbol !== null && /^.+:\d+(?:-\d+)?$/u.test(symbol))
+      fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors[${index}].symbol must not be a line-number locator.`);
+    const role = expectText(anchor.role, `${location}.anchors[${index}].role`, 256);
+    const evidenceRefs = validateEvidenceRefs(anchor.evidence_refs, `${location}.anchors[${index}].evidence_refs`);
+    return { path: anchorPath, symbol, role, evidence_refs: evidenceRefs };
+  });
+  const anchorKeys = anchors.map((anchor) => `${anchor.path}#${anchor.symbol ?? ""}`);
+  if (new Set(anchorKeys).size !== anchorKeys.length)
+    fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors must not contain duplicate path/symbol locators.`);
+  return {
+    coverage: expectEnum(record.coverage, ["observed", "verified-scope"], `${location}.coverage`),
+    source_revision: sourceRevision,
+    anchors
+  };
+}
+function validateKnowledgeCandidate(value, location, expectedKind) {
+  const record = expectRecord2(value, location);
+  const allowedKeys = new Set(KNOWLEDGE_CANDIDATE_KEYS);
+  const requiredKeys = KNOWLEDGE_CANDIDATE_KEYS.filter((key) => !["decisionContext", "systemicSeverity", "implementation_anchors"].includes(key));
+  const missing = requiredKeys.filter((key) => !(key in record));
+  const extra = Object.keys(record).filter((key) => !allowedKeys.has(key));
+  if (missing.length > 0 || extra.length > 0) {
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
+  }
+  const kind = expectEnum(record.kind, ["contract", "decision"], `${location}.kind`);
+  if (expectedKind !== undefined && kind !== expectedKind)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.kind must be ${expectedKind}.`);
+  const sourceRefsRaw = record.sourceRefs;
+  if (!Array.isArray(sourceRefsRaw) || sourceRefsRaw.length === 0 || sourceRefsRaw.length > 32)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.sourceRefs must contain between one and 32 entries.`);
+  const sourceRefs = sourceRefsRaw.map((raw, index) => {
+    const sourceRef = expectRecord2(raw, `${location}.sourceRefs[${index}]`);
+    expectExactKeys2(sourceRef, ["locator", "revision"], `${location}.sourceRefs[${index}]`);
+    return { locator: expectText(sourceRef.locator, `${location}.sourceRefs[${index}].locator`, 512), revision: expectText(sourceRef.revision, `${location}.sourceRefs[${index}].revision`, 256) };
+  });
+  const applicabilityRecord = expectRecord2(record.applicability, `${location}.applicability`);
+  expectExactKeys2(applicabilityRecord, ["projectTypes", "pathsSymbolsOrSurfaces", "triggerConditions"], `${location}.applicability`);
+  const applicability = {
+    projectTypes: expectStringArray2(applicabilityRecord.projectTypes, `${location}.applicability.projectTypes`, true, 32),
+    pathsSymbolsOrSurfaces: expectStringArray2(applicabilityRecord.pathsSymbolsOrSurfaces, `${location}.applicability.pathsSymbolsOrSurfaces`, true, 32),
+    triggerConditions: expectStringArray2(applicabilityRecord.triggerConditions, `${location}.applicability.triggerConditions`, true, 32)
+  };
+  if (applicability.projectTypes.length === 0 && applicability.pathsSymbolsOrSurfaces.length === 0 && applicability.triggerConditions.length === 0) {
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.applicability must identify at least one project, surface, or trigger.`);
+  }
+  const decisionContext = record.decisionContext === undefined ? undefined : (() => {
+    const context = expectRecord2(record.decisionContext, `${location}.decisionContext`);
+    expectExactKeys2(context, ["alternatives", "constraints"], `${location}.decisionContext`);
+    return {
+      alternatives: expectStringArray2(context.alternatives, `${location}.decisionContext.alternatives`, false, 32),
+      constraints: expectStringArray2(context.constraints, `${location}.decisionContext.constraints`, false, 32)
+    };
+  })();
+  if (kind === "decision" && decisionContext === undefined)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.decisionContext is required for a Decision.`);
+  const implementationAnchors = record.implementation_anchors === undefined ? undefined : validateImplementationAnchors(record.implementation_anchors, `${location}.implementation_anchors`);
+  const candidate = {
+    candidateId: expectString2(record.candidateId, `${location}.candidateId`, SAFE_KEY_PATTERN2),
+    kind,
+    fingerprint: expectString2(record.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    statement: expectText(record.statement, `${location}.statement`, MAX_TEXT_LENGTH),
+    sourceRefs,
+    applicability,
+    authoritySource: expectEnum(record.authoritySource, ["user", "existing-contract", "accepted-decision", "verified-evidence", "none"], `${location}.authoritySource`),
+    stability: expectEnum(record.stability, ["stable", "provisional", "exploratory"], `${location}.stability`),
+    evidenceRefs: validateEvidenceRefs(record.evidenceRefs, `${location}.evidenceRefs`),
+    noveltyAgainst: expectStringArray2(record.noveltyAgainst, `${location}.noveltyAgainst`, true, 32),
+    conflictSet: expectStringArray2(record.conflictSet, `${location}.conflictSet`, true, 32),
+    supersedes: expectNullableString(record.supersedes, `${location}.supersedes`, SAFE_KEY_PATTERN2),
+    reviewOrExpiryTrigger: expectNullableString(record.reviewOrExpiryTrigger, `${location}.reviewOrExpiryTrigger`),
+    expectedConsumers: expectStringArray2(record.expectedConsumers, `${location}.expectedConsumers`, false, 32),
+    ...decisionContext ? { decisionContext } : {},
+    ...record.systemicSeverity === undefined ? {} : { systemicSeverity: expectEnum(record.systemicSeverity, ["ordinary", "high"], `${location}.systemicSeverity`) },
+    ...implementationAnchors ? { implementation_anchors: implementationAnchors } : {}
+  };
+  return candidate;
+}
+function validateKnowledgeAdmissionRecord(value, location, expectedKind) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["candidate", "disposition", "matched_knowledge_id", "reasons"], location);
+  const candidate = validateKnowledgeCandidate(record.candidate, `${location}.candidate`, expectedKind);
+  const disposition = expectEnum(record.disposition, KNOWLEDGE_ADMISSION_DISPOSITIONS, `${location}.disposition`);
+  const matchedKnowledgeId = expectNullableString(record.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN2);
+  const reasons = expectStringArray2(record.reasons, `${location}.reasons`, true, 32);
+  const durableDisposition = ["admit", "merge", "supersede"].includes(disposition);
+  if (durableDisposition && reasons.length === 0) {
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.reasons must be non-empty for a durable admission.`);
+  }
+  if (durableDisposition && candidate.authoritySource === "none") {
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location} cannot admit knowledge without an authority source.`);
+  }
+  if (durableDisposition && expectedKind === "decision" && !["user", "accepted-decision"].includes(candidate.authoritySource)) {
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location} Decision admission requires user or accepted-decision authority.`);
+  }
+  if (disposition === "merge" && matchedKnowledgeId === null)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.matched_knowledge_id is required for merge.`);
+  if (disposition === "supersede" && (matchedKnowledgeId === null || candidate.supersedes !== matchedKnowledgeId))
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.supersede must identify the same predecessor in matched_knowledge_id and candidate.supersedes.`);
+  if (durableDisposition) {
+    if (candidate.stability !== "stable" || candidate.conflictSet.length > 0 || candidate.evidenceRefs.length === 0) {
+      fail2("KNOWLEDGE_ADMISSION_INVALID", `${location} durable admission requires stable, conflict-free candidate evidence.`);
+    }
+  }
+  return { candidate, disposition, matched_knowledge_id: matchedKnowledgeId, reasons };
+}
+function validateKnowledgeAdmissionBundle(value, location) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["contracts", "decisions"], location);
+  if (!Array.isArray(record.contracts) || record.contracts.length > 32)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.contracts must contain at most 32 records.`);
+  if (!Array.isArray(record.decisions) || record.decisions.length > 32)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.decisions must contain at most 32 records.`);
+  const contracts = record.contracts.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.contracts[${index}]`, "contract"));
+  const decisions = record.decisions.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.decisions[${index}]`, "decision"));
+  if (new Set(contracts.map((item) => item.candidate.candidateId)).size !== contracts.length)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.contracts candidate identity must be unique.`);
+  if (new Set(decisions.map((item) => item.candidate.candidateId)).size !== decisions.length)
+    fail2("KNOWLEDGE_ADMISSION_INVALID", `${location}.decisions candidate identity must be unique.`);
+  return { contracts, decisions };
+}
+function emptyKnowledgeAdmissionBundle() {
+  return { contracts: [], decisions: [] };
+}
+function validateKnowledgeProvenance(value, location) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "evidence_refs"], location);
+  const taskId = expectString2(record.task_id, `${location}.task_id`);
+  const taskSlug = expectString2(record.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(taskId);
+    validateTaskSlug(taskSlug);
+  } catch (error) {
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", error instanceof Error ? error.message : String(error));
+  }
+  const documentId = expectString2(record.document_id, `${location}.document_id`);
+  const archiveRevision = expectString2(record.archive_revision, `${location}.archive_revision`);
+  const sourceRevision = expectString2(record.source_revision, `${location}.source_revision`);
+  if (!DOCUMENT_ID_PATTERN.test(documentId) || !SHA256_PATTERN2.test(archiveRevision) || !SHA256_PATTERN2.test(sourceRevision)) {
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", `${location} contains an invalid document or revision.`);
+  }
+  const archivePath = normalizeRepoPath2(expectString2(record.archive_path, `${location}.archive_path`), `${location}.archive_path`);
+  if (!/^TASKS\/TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.test(archivePath))
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", `${location}.archive_path is not a canonical task archive path.`);
+  return {
+    task_id: taskId,
+    task_slug: taskSlug,
+    document_id: documentId,
+    archive_path: archivePath,
+    archive_revision: archiveRevision,
+    source_revision: sourceRevision,
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
+  };
+}
+function validateKnowledgeDelta(value, expectedKind) {
+  const record = expectRecord2(value, "semantic_delta");
+  expectExactKeys2(record, ["kind", "action", "knowledge_kind", "admission", "provenance", "evidence_refs"], "semantic_delta");
+  const knowledgeKind = expectEnum(record.knowledge_kind, ["contract", "decision"], "semantic_delta.knowledge_kind");
+  if (expectedKind !== undefined && knowledgeKind !== expectedKind)
+    fail2("RUNTIME_SCHEMA_INVALID", `semantic_delta.knowledge_kind must be ${expectedKind}.`);
+  const admission = validateKnowledgeAdmissionRecord(record.admission, "semantic_delta.admission", knowledgeKind);
+  if (!["admit", "merge", "supersede"].includes(admission.disposition)) {
+    fail2("KNOWLEDGE_ADMISSION_INVALID", "Only admitted, merged, or superseded knowledge may be submitted to a Runtime promotion operation.");
+  }
+  const provenance = validateKnowledgeProvenance(record.provenance, "semantic_delta.provenance");
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
+  const candidateEvidenceRefs = [
+    ...admission.candidate.evidenceRefs,
+    ...admission.candidate.implementation_anchors?.anchors.flatMap((anchor) => anchor.evidence_refs) ?? [],
+    ...provenance.evidence_refs
+  ];
+  if (!candidateEvidenceRefs.every((ref) => evidenceRefs.includes(ref)))
+    fail2("RUNTIME_EVIDENCE_INVALID", "knowledge proposal evidence_refs must cover candidate, anchor, and provenance evidence_refs.");
+  return {
+    kind: "knowledge",
+    action: "promote",
+    knowledge_kind: knowledgeKind,
+    admission,
+    provenance,
+    evidence_refs: evidenceRefs
+  };
+}
 function validateArchiveDelta(value) {
   const record = expectRecord2(value, "semantic_delta");
-  const allowedKeys = ["kind", "action", "closure_evidence", "delivery_summary", "remaining_risks", "lesson_admission", "evidence_refs"];
+  const allowedKeys = ["kind", "action", "closure_evidence", "delivery_summary", "remaining_risks", "lesson_admission", "knowledge_admissions", "evidence_refs"];
   const extra = Object.keys(record).filter((key) => !allowedKeys.includes(key));
-  const required = allowedKeys.filter((key) => !(key in record));
+  const required = allowedKeys.filter((key) => !["knowledge_admissions"].includes(key) && !(key in record));
   if (required.length > 0 || extra.length > 0) {
     fail2("RUNTIME_SCHEMA_INVALID", `semantic_delta keys mismatch; missing=[${required.join(", ")}], unexpected=[${extra.join(", ")}].`);
   }
   const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
   const closureEvidence = validateClosureEvidence(record.closure_evidence, "semantic_delta.closure_evidence");
   const lessonAdmission = validateLessonAdmission(record.lesson_admission, "semantic_delta.lesson_admission");
+  const knowledgeAdmissions = record.knowledge_admissions === undefined ? emptyKnowledgeAdmissionBundle() : validateKnowledgeAdmissionBundle(record.knowledge_admissions, "semantic_delta.knowledge_admissions");
   const referencedEvidence = [
     ...closureEvidence.release_evidence.evidence_refs,
     ...closureEvidence.rollback_evidence.evidence_refs,
     ...closureEvidence.observation_evidence.evidence_refs,
-    ...lessonAdmission.evidence_refs
+    ...lessonAdmission.evidence_refs,
+    ...knowledgeAdmissions.contracts.flatMap((item) => [...item.candidate.evidenceRefs, ...item.candidate.implementation_anchors?.anchors.flatMap((anchor) => anchor.evidence_refs) ?? []]),
+    ...knowledgeAdmissions.decisions.flatMap((item) => [...item.candidate.evidenceRefs, ...item.candidate.implementation_anchors?.anchors.flatMap((anchor) => anchor.evidence_refs) ?? []])
   ];
   if (!referencedEvidence.every((ref) => evidenceRefs.includes(ref))) {
     fail2("RUNTIME_EVIDENCE_INVALID", "archive proposal evidence_refs must cover closure and lesson-admission evidence_refs.");
@@ -2667,6 +2930,7 @@ function validateArchiveDelta(value) {
     delivery_summary: validateDeliverySummary(record.delivery_summary, "semantic_delta.delivery_summary"),
     remaining_risks: expectStringArray2(record.remaining_risks, "semantic_delta.remaining_risks", true, 64),
     lesson_admission: lessonAdmission,
+    knowledge_admissions: knowledgeAdmissions,
     evidence_refs: evidenceRefs
   };
 }
@@ -2838,6 +3102,16 @@ function validateSemanticDelta(value, operationKind) {
       fail2("RUNTIME_SCHEMA_INVALID", "inbox-record-transaction requires inbox-record semantic_delta.");
     return validateInboxRecordDelta(value);
   }
+  if (operationKind === "contract-candidate-commit") {
+    if (kind !== "knowledge")
+      fail2("RUNTIME_SCHEMA_INVALID", "contract-candidate-commit requires a knowledge semantic_delta.");
+    return validateKnowledgeDelta(value, "contract");
+  }
+  if (operationKind === "decision-record-transaction") {
+    if (kind !== "knowledge")
+      fail2("RUNTIME_SCHEMA_INVALID", "decision-record-transaction requires a knowledge semantic_delta.");
+    return validateKnowledgeDelta(value, "decision");
+  }
   if (kind !== "finding-queue")
     fail2("RUNTIME_SCHEMA_INVALID", "finding-queue-transaction requires finding-queue semantic_delta.");
   return record.action === "admit" ? validateFindingRecord(value, "semantic_delta") : validateFindingAction(value);
@@ -2905,6 +3179,16 @@ function validateRuntimeProposal(value) {
     const missingPreconditions = INBOX_CAPTURE_PRECONDITIONS.filter((precondition) => !preconditions.includes(precondition));
     if (missingPreconditions.length > 0)
       fail2("RUNTIME_PRECONDITION_MISSING", `capture-work-item is missing required preconditions: ${missingPreconditions.join(", ")}.`);
+  } else if (operationKind === "contract-candidate-commit" || operationKind === "decision-record-transaction") {
+    if (caller !== "close-task" || mode !== "default")
+      fail2("RUNTIME_CALLER_NOT_BOUND", `${operationKind} is bound only to close-task default closure.`);
+    if (semanticDelta.kind !== "knowledge" || semanticDelta.knowledge_kind !== (operationKind === "contract-candidate-commit" ? "contract" : "decision")) {
+      fail2("RUNTIME_MODE_INVALID", `${operationKind} requires a matching knowledge semantic_delta.`);
+    }
+    const requiredPreconditions = ["archive-committed", "knowledge-admission-complete", "canonical-knowledge-target"];
+    const missingPreconditions = requiredPreconditions.filter((precondition) => !preconditions.includes(precondition));
+    if (missingPreconditions.length > 0)
+      fail2("RUNTIME_PRECONDITION_MISSING", `${operationKind} is missing required preconditions: ${missingPreconditions.join(", ")}.`);
   } else {
     if (caller !== "close-task" || !CLOSE_TASK_MODES.includes(mode)) {
       fail2("RUNTIME_CALLER_NOT_BOUND", `${operationKind} is bound only to close-task default closure.`);
@@ -3019,6 +3303,7 @@ function validateArchiveAuditLogEntry(value, location, taskId, taskSlug) {
     "authority_evidence",
     "evidence_refs",
     "lesson_admission",
+    "knowledge_admissions",
     "recorded_at"
   ], location);
   const entryTaskId = expectString2(value.task_id, `${location}.task_id`);
@@ -3070,6 +3355,7 @@ function validateArchiveAuditLogEntry(value, location, taskId, taskSlug) {
     authority_evidence: validateAuthorityEvidence2(value.authority_evidence),
     evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`),
     lesson_admission: validateLessonAdmission(value.lesson_admission, `${location}.lesson_admission`),
+    knowledge_admissions: validateKnowledgeAdmissionBundle(value.knowledge_admissions, `${location}.knowledge_admissions`),
     recorded_at: expectString2(value.recorded_at, `${location}.recorded_at`)
   };
 }
@@ -3688,6 +3974,7 @@ function renderExecutionAuditRecord(audit) {
     lines.push(`    decision: ${audit.lesson_admission.decision}`);
     lines.push(`    candidate_refs: ${auditList(audit.lesson_admission.candidate_refs)}`);
     lines.push(`    evidence_refs: ${auditList(audit.lesson_admission.evidence_refs)}`);
+    lines.push(`  knowledge_admissions: ${JSON.stringify(audit.knowledge_admissions)}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action)) {
     const draftAudit = audit;
     lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
@@ -4237,6 +4524,20 @@ function readArchiveLessonAdmission(section, location) {
     evidence_refs: readArchiveArray(match[3], `${location}.evidence_refs`)
   }, location);
 }
+function readArchiveKnowledgeAdmissions(section, location) {
+  const match = /(?:^|\n)knowledge_admissions:\s*\n\s+contracts:\s*(\[[^\r\n]*\])\s*\n\s+decisions:\s*(\[[^\r\n]*\])/m.exec(section);
+  if (!match)
+    fail2("ARCHIVE_INVALID", `${location} is missing the durable knowledge_admissions record.`);
+  let contracts;
+  let decisions;
+  try {
+    contracts = JSON.parse(match[1]);
+    decisions = JSON.parse(match[2]);
+  } catch {
+    fail2("ARCHIVE_INVALID", `${location}.knowledge_admissions must contain valid JSON arrays.`);
+  }
+  return validateKnowledgeAdmissionBundle({ contracts, decisions }, location);
+}
 function requiredArchiveSections(raw) {
   const sections = scanMarkdownSections2(raw);
   const requiredHeadings = [
@@ -4268,6 +4569,7 @@ function readCanonicalArchive(root, current, expectedPath) {
   const sections = requiredArchiveSections(raw);
   const metadata = raw.slice(sections["任务元数据"].contentStart, sections["任务元数据"].contentEnd);
   const lessonSection = raw.slice(sections["Lessons 回写"].contentStart, sections["Lessons 回写"].contentEnd);
+  const knowledgeSection = findUniqueMarkdownSection(scanMarkdownSections2(raw), ["知识晋升", "Knowledge Promotion"], 2);
   const workflowStatus = readArchiveScalar(metadata, "workflow_status", "archive.任务元数据");
   const lifecycleState = readArchiveScalar(metadata, "lifecycle_state", "archive.任务元数据");
   const archiveOperation = readArchiveScalar(metadata, "archive_operation", "archive.任务元数据");
@@ -4285,7 +4587,8 @@ function readCanonicalArchive(root, current, expectedPath) {
     archivePath: readArchiveScalar(metadata, "archive_path", "archive.任务元数据"),
     idempotencyKey: readArchiveScalar(metadata, "proposal_idempotency_key", "archive.任务元数据"),
     closureDeltaDigest: readArchiveScalar(metadata, "closure_delta_digest", "archive.任务元数据"),
-    lessonAdmission: readArchiveLessonAdmission(lessonSection, "archive.Lessons 回写.lesson_admission")
+    lessonAdmission: readArchiveLessonAdmission(lessonSection, "archive.Lessons 回写.lesson_admission"),
+    knowledgeAdmissions: knowledgeSection ? readArchiveKnowledgeAdmissions(raw.slice(knowledgeSection.contentStart, knowledgeSection.contentEnd), "archive.知识晋升.knowledge_admissions") : emptyKnowledgeAdmissionBundle()
   };
   if (!/^[a-f0-9]{64}$/.test(receipt.revision) || !/^[a-f0-9]{64}$/.test(receipt.sourceRevision) || !/^[a-f0-9]{64}$/.test(receipt.closureDeltaDigest)) {
     fail2("ARCHIVE_INVALID", "canonical task archive contains an invalid revision or digest.");
@@ -4323,6 +4626,9 @@ function assertArchiveReceiptMatches(current, receipt, audit) {
   }
   if (audit.lesson_admission.decision !== receipt.lessonAdmission.decision || audit.lesson_admission.candidate_refs.join("|") !== receipt.lessonAdmission.candidate_refs.join("|") || audit.lesson_admission.evidence_refs.join("|") !== receipt.lessonAdmission.evidence_refs.join("|")) {
     fail2("ARCHIVE_PROVENANCE_MISMATCH", "archive lesson admission does not match the durable CURRENT_TASK archive audit.");
+  }
+  if (digest(audit.knowledge_admissions) !== digest(receipt.knowledgeAdmissions)) {
+    fail2("ARCHIVE_PROVENANCE_MISMATCH", "archive knowledge admission does not match the durable CURRENT_TASK archive audit.");
   }
 }
 function matchingArchiveReceipt(root, current) {
@@ -4409,7 +4715,7 @@ function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
 }
 function assertArchiveReplay(root, current, proposal) {
   const { audit, receipt } = matchingArchiveReceipt(root, current);
-  if (audit.idempotency_key !== proposal.idempotency_key || audit.source_revision !== proposal.source_tuple.revision || audit.task_id !== proposal.source_tuple.task_id || audit.task_slug !== proposal.source_tuple.task_slug || audit.document_id !== proposal.source_tuple.document_id || audit.closure_delta_digest !== digest(proposal.semantic_delta) || audit.evidence_refs.join("|") !== proposal.semantic_delta.evidence_refs.join("|") || digest(audit.authority_evidence) !== digest(proposal.authority_evidence) || receipt.revision !== audit.archive_revision) {
+  if (audit.idempotency_key !== proposal.idempotency_key || audit.source_revision !== proposal.source_tuple.revision || audit.task_id !== proposal.source_tuple.task_id || audit.task_slug !== proposal.source_tuple.task_slug || audit.document_id !== proposal.source_tuple.document_id || audit.closure_delta_digest !== digest(proposal.semantic_delta) || audit.evidence_refs.join("|") !== proposal.semantic_delta.evidence_refs.join("|") || digest(audit.authority_evidence) !== digest(proposal.authority_evidence) || digest(audit.knowledge_admissions) !== digest(proposal.semantic_delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle()) || receipt.revision !== audit.archive_revision) {
     fail2("LIFECYCLE_REPLAY_INCOMPLETE", "archive replay identity, source revision, closure evidence, or archive revision does not match the committed receipt.");
   }
 }
@@ -4462,8 +4768,8 @@ function renderArchiveDocument(current, proposal, delta, archiveRelativePath, cl
     "",
     "## 契约与决策记录",
     "",
-    "- affected_contracts: preserved in the CURRENT_TASK snapshot; close-task does not mutate CONTRACTS.md.",
-    "- confirmed_decisions: preserved in the CURRENT_TASK snapshot; close-task does not mutate DECISIONS.md.",
+    "- affected_contracts: preserved in the CURRENT_TASK snapshot; admitted Contract candidates are reconciled after archive through the typed Runtime operation.",
+    "- confirmed_decisions: preserved in the CURRENT_TASK snapshot; admitted Decision candidates are reconciled after archive through the typed Runtime operation.",
     "",
     "## 验证与交付证据",
     "",
@@ -4494,6 +4800,12 @@ function renderArchiveDocument(current, proposal, delta, archiveRelativePath, cl
     ...renderArchiveList("rollback_evidence", delta.delivery_summary.rollback_evidence),
     ...renderArchiveList("observation_evidence", delta.delivery_summary.observation_evidence),
     `- next_action: ${yamlScalar(delta.delivery_summary.next_action)}`,
+    "",
+    "## 知识晋升",
+    "",
+    "knowledge_admissions:",
+    `  contracts: ${JSON.stringify(delta.knowledge_admissions?.contracts ?? [])}`,
+    `  decisions: ${JSON.stringify(delta.knowledge_admissions?.decisions ?? [])}`,
     "",
     "## Lessons 回写",
     "",
@@ -4537,6 +4849,20 @@ function makeArchiveAudit(current, proposal, delta, archiveRelativePath, archive
       candidate_refs: [...delta.lesson_admission.candidate_refs],
       evidence_refs: [...delta.lesson_admission.evidence_refs]
     },
+    knowledge_admissions: {
+      contracts: (delta.knowledge_admissions?.contracts ?? []).map((item) => ({
+        candidate: item.candidate,
+        disposition: item.disposition,
+        matched_knowledge_id: item.matched_knowledge_id,
+        reasons: [...item.reasons]
+      })),
+      decisions: (delta.knowledge_admissions?.decisions ?? []).map((item) => ({
+        candidate: item.candidate,
+        disposition: item.disposition,
+        matched_knowledge_id: item.matched_knowledge_id,
+        reasons: [...item.reasons]
+      }))
+    },
     recorded_at: now
   };
 }
@@ -4550,6 +4876,9 @@ function prepareArchiveTransaction(root, current, proposal, now) {
     }
     if (delta.lesson_admission.decision !== audit2.lesson_admission.decision || delta.lesson_admission.candidate_refs.join("|") !== audit2.lesson_admission.candidate_refs.join("|") || delta.lesson_admission.evidence_refs.join("|") !== audit2.lesson_admission.evidence_refs.join("|")) {
       fail2("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation lesson admission does not match the committed archive receipt.");
+    }
+    if (digest(delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle()) !== digest(audit2.knowledge_admissions)) {
+      fail2("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation knowledge admission does not match the committed archive receipt.");
     }
     if (receipt.sourceRevision !== audit2.source_revision)
       fail2("ARCHIVE_PROVENANCE_MISMATCH", "archive source revision does not match the committed archive audit.");
@@ -5115,7 +5444,8 @@ function archiveReceiptFromLessonMarker(marker) {
     archivePath: marker.archive_path,
     idempotencyKey: "lesson-marker-replay",
     closureDeltaDigest: "0".repeat(64),
-    lessonAdmission: { decision: "defer", candidate_refs: [], evidence_refs: [] }
+    lessonAdmission: { decision: "defer", candidate_refs: [], evidence_refs: [] },
+    knowledgeAdmissions: emptyKnowledgeAdmissionBundle()
   };
 }
 function parseLessonRenderedScalar(raw, location) {
@@ -5419,6 +5749,261 @@ function prepareLessonRecordTransaction(root, current, proposal) {
     candidateCount
   };
 }
+function knowledgeTarget(root, knowledgeKind) {
+  return workflowDocPathForRoot(root, knowledgeKind === "contract" ? "CONTRACTS.md" : "DECISIONS.md");
+}
+function knowledgeSectionTitle(knowledgeKind) {
+  return knowledgeKind === "contract" ? "vNext Contract Records" : "vNext Decision Records";
+}
+function knowledgeMarkerPrefix(knowledgeKind) {
+  return `<!-- vNext ${knowledgeKind} record:`;
+}
+function knowledgeCandidateSemanticDigest(candidate) {
+  return digest({
+    kind: candidate.kind,
+    fingerprint: candidate.fingerprint,
+    statement: candidate.statement,
+    applicability: candidate.applicability,
+    authoritySource: candidate.authoritySource,
+    stability: candidate.stability,
+    supersedes: candidate.supersedes,
+    decisionContext: candidate.decisionContext ?? null
+  });
+}
+function validateDurableKnowledgeRecord(value, location, expectedKind) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["schema_version", "knowledge_kind", "candidate_id", "candidate_fingerprint", "disposition", "matched_knowledge_id", "candidate", "provenance", "proposal_idempotency_key", "proposal_digest", "semantic_digest"], location);
+  if (record.schema_version !== 1)
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location}.schema_version must be 1.`);
+  const knowledgeKind = expectEnum(record.knowledge_kind, ["contract", "decision"], `${location}.knowledge_kind`);
+  if (knowledgeKind !== expectedKind)
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location}.knowledge_kind must be ${expectedKind}.`);
+  const candidate = validateKnowledgeCandidate(record.candidate, `${location}.candidate`, expectedKind);
+  const candidateId = expectString2(record.candidate_id, `${location}.candidate_id`, SAFE_KEY_PATTERN2);
+  const candidateFingerprint = expectString2(record.candidate_fingerprint, `${location}.candidate_fingerprint`, FINGERPRINT_PATTERN);
+  if (candidateId !== candidate.candidateId || candidateFingerprint !== candidate.fingerprint)
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", `${location} candidate identity does not match the embedded candidate.`);
+  const disposition = expectEnum(record.disposition, ["admit", "merge", "supersede"], `${location}.disposition`);
+  const matchedKnowledgeId = expectNullableString(record.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN2);
+  if (disposition === "merge" && matchedKnowledgeId === null)
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location}.matched_knowledge_id is required for merge.`);
+  if (disposition === "supersede" && (matchedKnowledgeId === null || candidate.supersedes !== matchedKnowledgeId))
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location}.supersede predecessor identity is inconsistent.`);
+  if (candidate.authoritySource === "none")
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location} cannot be a durable record without an authority source.`);
+  if (knowledgeKind === "decision" && !["user", "accepted-decision"].includes(candidate.authoritySource)) {
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location} Decision record requires user or accepted-decision authority.`);
+  }
+  if (candidate.stability !== "stable" || candidate.conflictSet.length > 0 || candidate.evidenceRefs.length === 0) {
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location} durable record must contain stable, conflict-free candidate evidence.`);
+  }
+  const provenance = validateKnowledgeProvenance(record.provenance, `${location}.provenance`);
+  const proposalIdempotencyKey = expectString2(record.proposal_idempotency_key, `${location}.proposal_idempotency_key`, SAFE_KEY_PATTERN2);
+  const proposalDigest = expectString2(record.proposal_digest, `${location}.proposal_digest`);
+  const semanticDigest = expectString2(record.semantic_digest, `${location}.semantic_digest`);
+  if (!SHA256_PATTERN2.test(proposalDigest) || !SHA256_PATTERN2.test(semanticDigest))
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location} proposal and semantic digests must be SHA-256.`);
+  if (semanticDigest !== knowledgeCandidateSemanticDigest(candidate))
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", `${location}.semantic_digest does not match the canonical candidate.`);
+  return {
+    schema_version: 1,
+    knowledge_kind: knowledgeKind,
+    candidate_id: candidateId,
+    candidate_fingerprint: candidateFingerprint,
+    disposition,
+    matched_knowledge_id: matchedKnowledgeId,
+    candidate,
+    provenance,
+    proposal_idempotency_key: proposalIdempotencyKey,
+    proposal_digest: proposalDigest,
+    semantic_digest: semanticDigest
+  };
+}
+function renderDurableKnowledgeRecord(record) {
+  const label = record.knowledge_kind === "contract" ? "Contract" : "Decision";
+  const candidate = record.candidate;
+  const anchors = candidate.implementation_anchors;
+  return [
+    `### ${label}: ${candidate.candidateId}`,
+    "",
+    `<!-- vNext ${record.knowledge_kind} record: ${JSON.stringify(record)} -->`,
+    "",
+    `- candidate_id: ${yamlScalar(candidate.candidateId)}`,
+    `- fingerprint: ${yamlScalar(candidate.fingerprint)}`,
+    `- disposition: ${record.disposition}`,
+    `- statement: ${yamlScalar(candidate.statement)}`,
+    `- authority_source: ${yamlScalar(candidate.authoritySource)}`,
+    `- applicability: ${JSON.stringify(candidate.applicability)}`,
+    `- evidence_refs: ${JSON.stringify(candidate.evidenceRefs)}`,
+    `- implementation_anchors: ${anchors ? JSON.stringify(anchors) : "none"}`,
+    `- provenance: ${JSON.stringify(record.provenance)}`,
+    `- proposal_idempotency_key: ${yamlScalar(record.proposal_idempotency_key)}`,
+    ""
+  ].join(`
+`);
+}
+function readDurableKnowledgeRecords(content, location, expectedKind) {
+  const markers = [];
+  const markerPattern = /<!-- vNext (contract|decision) record: (\{[^\r\n]+\}) -->/g;
+  for (const match of content.matchAll(markerPattern)) {
+    const markerKind = match[1];
+    if (markerKind !== expectedKind)
+      fail2("KNOWLEDGE_RECORD_INVALID", `${location} contains a ${markerKind} record in the ${expectedKind} document.`);
+    let parsed;
+    try {
+      parsed = JSON.parse(match[2]);
+    } catch {
+      fail2("KNOWLEDGE_RECORD_INVALID", `${location} contains an invalid vNext knowledge marker.`);
+    }
+    const record = validateDurableKnowledgeRecord(parsed, `${location}.${expectedKind}[${markers.length}]`, expectedKind);
+    const markerText = `<!-- vNext ${expectedKind} record: ${JSON.stringify(record)} -->`;
+    if (countExactOccurrences(content, markerText) !== 1 || countExactOccurrences(content, renderDurableKnowledgeRecord(record)) !== 1) {
+      fail2("KNOWLEDGE_PROVENANCE_MISMATCH", `${location}.${expectedKind}[${markers.length}] visible bytes do not match the canonical durable record.`);
+    }
+    const markerStart = content.indexOf(markerText);
+    const section = findUniqueMarkdownSection(scanMarkdownSections2(content), [knowledgeSectionTitle(expectedKind)], 2);
+    if (!section || markerStart < section.contentStart || markerStart >= section.contentEnd) {
+      fail2("KNOWLEDGE_RECORD_INVALID", `${location}.${expectedKind}[${markers.length}] is outside the canonical knowledge section.`);
+    }
+    markers.push(record);
+  }
+  for (const markerKind of ["contract", "decision"]) {
+    const prefix = knowledgeMarkerPrefix(markerKind);
+    const markerCount = countExactOccurrences(content, prefix);
+    const parsedCount = markers.filter((record) => record.knowledge_kind === markerKind).length;
+    if (markerCount !== parsedCount) {
+      fail2("KNOWLEDGE_RECORD_INVALID", `${location} contains a malformed or partially unreadable ${markerKind} record marker.`);
+    }
+  }
+  if (content.includes("<!-- vNext contract record:") && expectedKind !== "contract")
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location} contains a Contract record in the wrong target.`);
+  if (content.includes("<!-- vNext decision record:") && expectedKind !== "decision")
+    fail2("KNOWLEDGE_RECORD_INVALID", `${location} contains a Decision record in the wrong target.`);
+  return markers;
+}
+function appendKnowledgeSectionIfMissing(content, knowledgeKind) {
+  const title = knowledgeSectionTitle(knowledgeKind);
+  const sections = scanMarkdownSections2(content);
+  const existing = findUniqueMarkdownSection(sections, [title], 2);
+  if (existing)
+    return content;
+  return `${content.trimEnd()}
+
+## ${title}
+
+`;
+}
+function knowledgeAdmissionMatches(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function knowledgeProvenanceMatchesArchive(provenance, archive, proposal) {
+  const admission = knowledgeAdmissionFromArchive(archive, proposal.semantic_delta.knowledge_kind, proposal.semantic_delta.admission.candidate.candidateId);
+  const admissionEvidenceRefs = [
+    ...admission.candidate.evidenceRefs,
+    ...admission.candidate.implementation_anchors?.anchors.flatMap((anchor) => anchor.evidence_refs) ?? []
+  ];
+  if (provenance.task_id !== archive.taskId || provenance.task_slug !== archive.taskSlug || provenance.document_id !== archive.documentId || provenance.archive_path !== archive.relativePath || provenance.archive_revision !== archive.revision || provenance.source_revision !== archive.sourceRevision || !admissionEvidenceRefs.every((ref) => provenance.evidence_refs.includes(ref)) || !provenance.evidence_refs.every((ref) => archiveEvidenceRefsForKnowledge(archive).includes(ref))) {
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", "knowledge proposal provenance does not match the canonical archive receipt.");
+  }
+  if (!provenance.evidence_refs.every((ref) => proposal.evidence_refs.includes(ref))) {
+    fail2("RUNTIME_EVIDENCE_INVALID", "knowledge proposal evidence_refs must cover provenance evidence_refs.");
+  }
+}
+function archiveEvidenceRefsForKnowledge(archive) {
+  return [...new Set([
+    ...archive.lessonAdmission.evidence_refs,
+    ...archive.knowledgeAdmissions.contracts.flatMap((item) => [...item.candidate.evidenceRefs, ...item.candidate.implementation_anchors?.anchors.flatMap((anchor) => anchor.evidence_refs) ?? []]),
+    ...archive.knowledgeAdmissions.decisions.flatMap((item) => [...item.candidate.evidenceRefs, ...item.candidate.implementation_anchors?.anchors.flatMap((anchor) => anchor.evidence_refs) ?? []])
+  ])];
+}
+function durableKnowledgeRecordFromProposal(proposal, archive) {
+  const delta = proposal.semantic_delta;
+  knowledgeProvenanceMatchesArchive(delta.provenance, archive, proposal);
+  const admission = delta.admission;
+  return {
+    schema_version: 1,
+    knowledge_kind: delta.knowledge_kind,
+    candidate_id: admission.candidate.candidateId,
+    candidate_fingerprint: admission.candidate.fingerprint,
+    disposition: admission.disposition,
+    matched_knowledge_id: admission.matched_knowledge_id,
+    candidate: admission.candidate,
+    provenance: delta.provenance,
+    proposal_idempotency_key: proposal.idempotency_key,
+    proposal_digest: digest(proposal),
+    semantic_digest: knowledgeCandidateSemanticDigest(admission.candidate)
+  };
+}
+function knowledgeAdmissionFromArchive(archive, knowledgeKind, candidateId) {
+  const admissions = knowledgeKind === "contract" ? archive.knowledgeAdmissions.contracts : archive.knowledgeAdmissions.decisions;
+  const matches = admissions.filter((item) => item.candidate.candidateId === candidateId);
+  if (matches.length !== 1)
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", `archive does not contain exactly one ${knowledgeKind} admission for ${candidateId}.`);
+  return matches[0];
+}
+function scanKnowledgeRecords(root) {
+  const result = [];
+  for (const knowledgeKind of ["contract", "decision"]) {
+    const target = knowledgeTarget(root, knowledgeKind);
+    if (!fs3.existsSync(target.filePath))
+      continue;
+    if (!fs3.statSync(target.filePath).isFile())
+      fail2("KNOWLEDGE_RECORD_INVALID", `${target.relativePath} is not a regular file.`);
+    result.push(...readDurableKnowledgeRecords(fs3.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind));
+  }
+  return result;
+}
+function inspectKnowledgeRecordTransaction(root, current, proposal) {
+  const { receipt } = matchingArchiveReceipt(root, current);
+  const delta = proposal.semantic_delta;
+  const archiveAdmission = knowledgeAdmissionFromArchive(receipt, delta.knowledge_kind, delta.admission.candidate.candidateId);
+  if (!knowledgeAdmissionMatches(archiveAdmission, delta.admission))
+    fail2("KNOWLEDGE_PROVENANCE_MISMATCH", "knowledge proposal admission does not match the archived close-task admission decision.");
+  const expectedRecord = durableKnowledgeRecordFromProposal(proposal, receipt);
+  const target = knowledgeTarget(root, delta.knowledge_kind);
+  if (!fs3.existsSync(target.filePath))
+    fail2("RUNTIME_SOURCE_MISSING", `knowledge target is missing: ${target.relativePath}`);
+  const originalContent = fs3.readFileSync(target.filePath, "utf8");
+  const records = readDurableKnowledgeRecords(originalContent, target.relativePath, delta.knowledge_kind);
+  const allRecords = scanKnowledgeRecords(root);
+  const sameIdempotency = allRecords.filter((record) => record.proposal_idempotency_key === proposal.idempotency_key);
+  if (sameIdempotency.some((record) => JSON.stringify(record) !== JSON.stringify(expectedRecord))) {
+    fail2("IDEMPOTENCY_CONFLICT", "knowledge idempotency key is already durably bound to a different candidate or target.");
+  }
+  const sameIdentity = records.filter((record) => record.candidate_id === expectedRecord.candidate_id);
+  if (sameIdentity.length > 1)
+    fail2("KNOWLEDGE_RECORD_INVALID", `knowledge target contains duplicate candidate identity ${expectedRecord.candidate_id}.`);
+  if (sameIdentity.length === 1) {
+    if (JSON.stringify(sameIdentity[0]) !== JSON.stringify(expectedRecord))
+      fail2("KNOWLEDGE_IDENTITY_CONFLICT", `${target.relativePath} contains different semantic or provenance content for ${expectedRecord.candidate_id}.`);
+    return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
+  }
+  const semanticMatches = records.filter((record) => record.semantic_digest === expectedRecord.semantic_digest);
+  if (semanticMatches.length > 0) {
+    return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
+  }
+  if (expectedRecord.disposition === "merge" || expectedRecord.disposition === "supersede") {
+    const predecessor = records.find((record) => record.candidate_id === expectedRecord.matched_knowledge_id);
+    if (!predecessor)
+      fail2("KNOWLEDGE_ADMISSION_INVALID", `knowledge ${expectedRecord.disposition} target ${expectedRecord.matched_knowledge_id} is not durably present.`);
+  }
+  const withSection = appendKnowledgeSectionIfMissing(originalContent, delta.knowledge_kind);
+  return {
+    filePath: target.filePath,
+    relativePath: target.relativePath,
+    nextContent: `${withSection}${renderDurableKnowledgeRecord(expectedRecord)}`,
+    originalContent,
+    record: expectedRecord,
+    existing: false
+  };
+}
+function prepareKnowledgeRecordTransaction(root, current, proposal) {
+  ensureAuthorityKinds(proposal, ["evidence-admission"]);
+  if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
+    fail2("KNOWLEDGE_ADMISSION_INVALID", "knowledge promotion requires a closed + archived task.");
+  }
+  return inspectKnowledgeRecordTransaction(root, current, proposal);
+}
 function assertRequestedInboxTargets(root, current, proposal) {
   if (proposal.source_tuple.path !== current.relativePath)
     fail2("RUNTIME_PATH_INVALID", "capture proposal source path is not the exact canonical CURRENT_TASK path.");
@@ -5437,13 +6022,38 @@ function assertRequestedCloseTargets(root, current, proposal) {
     }
     return;
   }
-  const file = proposal.operation_kind === "project-status-transaction" ? "STATUS.md" : "LESSONS.md";
+  const file = proposal.operation_kind === "project-status-transaction" ? "STATUS.md" : proposal.operation_kind === "lesson-record-transaction" ? "LESSONS.md" : proposal.operation_kind === "contract-candidate-commit" ? "CONTRACTS.md" : proposal.operation_kind === "decision-record-transaction" ? "DECISIONS.md" : null;
+  if (file === null)
+    fail2("RUNTIME_PATH_INVALID", `${proposal.operation_kind} is not a close-task document operation.`);
   const target = workflowDocPathForRoot(root, file);
   if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== target.relativePath) {
     fail2("RUNTIME_PATH_INVALID", `${file} proposal must name only its exact canonical path.`);
   }
 }
 function assertPreviousTaskReconciliationComplete(root, current, receipt) {
+  const knowledgeAdmissions = [
+    ...receipt.knowledgeAdmissions.contracts,
+    ...receipt.knowledgeAdmissions.decisions
+  ].filter((admission) => ["admit", "merge", "supersede"].includes(admission.disposition));
+  if (knowledgeAdmissions.length > 0) {
+    for (const admission of knowledgeAdmissions) {
+      const knowledgeKind = admission.candidate.kind;
+      const target = knowledgeTarget(root, knowledgeKind);
+      if (!fs3.existsSync(target.filePath)) {
+        fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation is incomplete: ${target.relativePath} does not exist.`);
+      }
+      const records = readDurableKnowledgeRecords(fs3.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind);
+      const exactIdentity = records.find((record) => record.candidate_id === admission.candidate.candidateId);
+      const equivalent = records.some((record) => record.semantic_digest === knowledgeCandidateSemanticDigest(admission.candidate));
+      if (exactIdentity) {
+        if (JSON.stringify(exactIdentity.candidate) !== JSON.stringify(admission.candidate) || exactIdentity.candidate_fingerprint !== admission.candidate.fingerprint || exactIdentity.semantic_digest !== knowledgeCandidateSemanticDigest(admission.candidate) || exactIdentity.disposition !== admission.disposition || exactIdentity.matched_knowledge_id !== admission.matched_knowledge_id || exactIdentity.provenance.task_id !== receipt.taskId || exactIdentity.provenance.task_slug !== receipt.taskSlug || exactIdentity.provenance.document_id !== receipt.documentId || exactIdentity.provenance.archive_path !== receipt.relativePath || exactIdentity.provenance.archive_revision !== receipt.revision || exactIdentity.provenance.source_revision !== receipt.sourceRevision || !exactIdentity.provenance.evidence_refs.every((ref) => archiveEvidenceRefsForKnowledge(receipt).includes(ref))) {
+          fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation provenance conflicts with the canonical archive.`);
+        }
+      } else if (!equivalent) {
+        fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} candidate ${admission.candidate.candidateId} has not been reconciled.`);
+      }
+    }
+  }
   const statusTarget = workflowDocPathForRoot(root, "STATUS.md");
   if (!fs3.existsSync(statusTarget.filePath)) {
     fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete: STATUS.md does not exist.`);
@@ -7130,6 +7740,60 @@ class GovernanceTransactionKernel {
       });
     }
   }
+  commitKnowledgeRecordTransaction(current, proposal, plan, options) {
+    const targetPath = plan.relativePath;
+    if (plan.existing) {
+      return buildResult("no-op", proposal, current, options, "matching durable Contract/Decision record already exists; knowledge promotion is a deterministic no-op.", {
+        target_path: targetPath,
+        planned_writes: [],
+        previous_revision: sha2562(plan.originalContent),
+        resulting_revision: sha2562(plan.originalContent),
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    }
+    if (options.dryRun) {
+      return buildResult("success", proposal, current, options, "typed knowledge admission validated; one canonical knowledge document write planned (dry-run).", {
+        target_path: targetPath,
+        previous_revision: sha2562(plan.originalContent),
+        resulting_revision: sha2562(plan.nextContent),
+        state: resultState(current.runtimeState)
+      });
+    }
+    try {
+      this.writeFiles([{ path: plan.filePath, content: plan.nextContent }], false, `vNext Runtime ${proposal.operation_kind} committed`);
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.filePath, plan.originalContent, "knowledge");
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `knowledge write failed: ${error instanceof Error ? error.message : String(error)}; knowledge rollback verified.` : `knowledge write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? "ATOMIC_COMMIT_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+    try {
+      const readBack = this.readFile(plan.filePath);
+      if (readBack !== plan.nextContent)
+        throw new Error("canonical knowledge document read-back did not match the staged record.");
+      const records = readDurableKnowledgeRecords(readBack, targetPath, proposal.semantic_delta.knowledge_kind);
+      if (!records.some((record) => JSON.stringify(record) === JSON.stringify(plan.record))) {
+        throw new Error("canonical knowledge read-back did not contain the admitted record.");
+      }
+      return buildResult("success", proposal, current, options, "knowledge promotion committed; canonical Contract/Decision read-back verified.", {
+        target_path: targetPath,
+        committed: true,
+        governed_mutation_count: 1,
+        previous_revision: sha2562(plan.originalContent),
+        resulting_revision: sha2562(plan.nextContent),
+        read_back_verified: true,
+        state: resultState(current.runtimeState)
+      });
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.filePath, plan.originalContent, "knowledge");
+      return buildResult("blocked", proposal, current, options, rollback.verified ? `knowledge read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.` : `knowledge read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? "READ_BACK_FAILED" : "ROLLBACK_FAILED"
+      });
+    }
+  }
   commitLifecycleTransaction(current, proposal, plan, options) {
     const nextRevision = sha2562(plan.nextContent);
     if (proposal.mode === "supersede") {
@@ -7259,7 +7923,7 @@ class GovernanceTransactionKernel {
         assertRequestedLifecycleTargets(this.root, current, proposal);
       } else if (proposal.operation_kind === "inbox-record-transaction") {
         assertRequestedInboxTargets(this.root, current, proposal);
-      } else if (proposal.operation_kind === "archive-transaction" || proposal.operation_kind === "project-status-transaction" || proposal.operation_kind === "lesson-record-transaction") {
+      } else if (proposal.operation_kind === "archive-transaction" || proposal.operation_kind === "project-status-transaction" || proposal.operation_kind === "lesson-record-transaction" || proposal.operation_kind === "contract-candidate-commit" || proposal.operation_kind === "decision-record-transaction") {
         assertRequestedCloseTargets(this.root, current, proposal);
       } else if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== current.relativePath) {
         fail2("RUNTIME_PATH_INVALID", "proposal write target is not the exact canonical CURRENT_TASK path.");
@@ -7298,6 +7962,42 @@ class GovernanceTransactionKernel {
         return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
           target_path: inboxProposal.semantic_delta.target_path,
           code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED"
+        });
+      }
+    }
+    if (proposal.operation_kind === "contract-candidate-commit" || proposal.operation_kind === "decision-record-transaction") {
+      const knowledgeProposal = proposal;
+      let inspectedPlan;
+      try {
+        inspectedPlan = inspectKnowledgeRecordTransaction(this.root, current, knowledgeProposal);
+      } catch (error) {
+        const code = error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED";
+        const conflictCodes = new Set(["IDEMPOTENCY_CONFLICT", "KNOWLEDGE_IDENTITY_CONFLICT"]);
+        return buildResult(conflictCodes.has(code) ? "conflict" : "blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: proposal.operation_kind === "contract-candidate-commit" ? workflowDocPathForRoot(this.root, "CONTRACTS.md").relativePath : workflowDocPathForRoot(this.root, "DECISIONS.md").relativePath,
+          code
+        });
+      }
+      if (inspectedPlan.existing) {
+        return this.commitKnowledgeRecordTransaction(current, knowledgeProposal, inspectedPlan, options);
+      }
+      const conflictField2 = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
+      if (conflictField2) {
+        return buildResult("conflict", proposal, current, options, `canonical source tuple is stale at ${conflictField2}.`, {
+          target_path: inspectedPlan.relativePath,
+          code: "SOURCE_TUPLE_MISMATCH",
+          previous_revision: current.sourceTuple.revision
+        });
+      }
+      try {
+        const plan = prepareKnowledgeRecordTransaction(this.root, current, knowledgeProposal);
+        return this.commitKnowledgeRecordTransaction(current, knowledgeProposal, plan, options);
+      } catch (error) {
+        const code = error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED";
+        const conflictCodes = new Set(["IDEMPOTENCY_CONFLICT", "KNOWLEDGE_IDENTITY_CONFLICT"]);
+        return buildResult(conflictCodes.has(code) ? "conflict" : "blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: proposal.operation_kind === "contract-candidate-commit" ? workflowDocPathForRoot(this.root, "CONTRACTS.md").relativePath : workflowDocPathForRoot(this.root, "DECISIONS.md").relativePath,
+          code
         });
       }
     }

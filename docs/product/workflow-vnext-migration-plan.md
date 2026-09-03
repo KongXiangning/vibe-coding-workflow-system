@@ -170,7 +170,7 @@ Phase 2 introduces the first state-changing slice behind typed Runtime proposals
 - ordinary `prepare-task` draft creation/refinement and explicit `prepare-task:confirm` through typed task-state actions, alongside the minimal `clear-resume-review-gate` action;
 - fail-closed authority, scope, evidence, and dangerous-operation gates.
 
-The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. Slice B `supersede` / durable `prepare-task:replan`, Slice C ordinary draft/confirmation, the close-task status/archive/lesson transaction surface, and the record-only `capture-work-item:record` inbox transaction are implemented and remain subject to their existing contracts.
+The old Skill implementation may remain in the source repository for comparison while this work is developed. It is not installed alongside the Phase 2 product surface. Slice B `supersede` / durable `prepare-task:replan`, Slice C ordinary draft/confirmation, the close-task archive/status/Lesson surface plus final Contract/Decision knowledge promotion, and the record-only `capture-work-item:record` inbox transaction are implemented and remain subject to their existing contracts.
 
 Slice A binds `lifecycle-transaction` only for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`. Slice B `supersede` and durable `prepare-task:replan` are now Runtime-bound under their existing typed boundaries. The lifecycle transaction owns the exact `CURRENT_TASK.md` plus identity-derived suspended-package pair, including atomic write, read-back, rollback, and fail-closed idempotence. A resume proposal carries the observed SHA-256 `recovery_package_revision`; Runtime compares it with the package bytes read at apply time and checks the live resume gate against the package header before snapshot normalization. Replays revalidate the secondary package before returning `no-op`; a consumed `rehydrated` package may be replaced by the next suspend cycle, while ready/incomplete sibling packages remain blocking. It never reads or hot-migrates an old paused/interrupted runtime.
 
@@ -253,7 +253,7 @@ a durable draft audit record in `CURRENT_TASK.md`.
 | Slice A lifecycle | Implemented for pause, interrupt, explicit resume, and resume-review gate clear |
 | Slice B supersede / same-task replan | Design and implementation complete; Runtime-bound |
 | Slice C ordinary draft / refinement / explicit confirmation | Design and implementation complete; Runtime-bound |
-| close-task | Design and implementation complete; archive, status reconciliation, and admitted Lesson path are Runtime-bound |
+| close-task | Design and implementation complete; archive, final Contract/Decision admission and promotion, status reconciliation, and admitted Lesson path are Runtime-bound; archive provenance supports re-entry |
 | `inbox-record-transaction` | Design and implementation complete; `capture-work-item:record` Runtime-bound; isolated Virtual Project E2E covered |
 | `validate-change` expert surface | Formal expert source entry, installable pure-vNext Skill, minimum-sufficient read-only evidence policy, structured result, and isolated Virtual Project coverage implemented; no Runtime operation |
 | `sync-state` logical internal role | No standalone implementation required; current reconciliation/routing responsibilities are fulfilled by caller-local orchestration and existing typed Runtime operations; reserve a facade only for a demonstrated future shared requirement |
@@ -285,16 +285,19 @@ validation and real-project dogfood.
 
 The successful `close-task` boundary is frozen separately from the Slice B
 replan boundary: `active + active` passes closure eligibility, then
-closure preparation evaluates knowledge admission (`admit` / `defer` / `no-op`),
-then `archive-transaction` atomically produces the canonical task archive and
-changes the live tuple to `closed + archived`; only afterward may STATUS run,
-and only an `admit` decision may produce a Lesson write. A later invocation on
+closure preparation evaluates Contract/Decision/Lesson admission, then
+`archive-transaction` atomically produces the canonical task archive and
+changes the live tuple to `closed + archived`; only afterward may admitted
+Contract/Decision, Lesson, and STATUS reconciliation run. A later invocation on
 `closed + archived` verifies the matching archive receipt and performs only
-incomplete reconciliation; it never repeats archive. This phase does not add
-non-success terminal dispositions or a durable `TASK_SUMMARY.md` output.
-The archive preserves the closure preparation Lesson admission verdict in its
-existing `## Lessons 回写` section, so a later reconciliation can distinguish
-`admit` from `defer` / `no-op` without chat context or a second state source.
+incomplete reconciliation; it never repeats archive or re-runs semantic
+admission. This phase does not add non-success terminal dispositions or a
+durable `TASK_SUMMARY.md` output. The archive preserves the complete
+Contract/Decision admission bundle in `## 知识晋升` and the Lesson admission
+verdict in `## Lessons 回写`, so recovery does not depend on chat context or a
+second state source. Optional Implementation Anchors are observed navigation
+hints only: consumers validate them against current code and expand live impact
+analysis when risk or staleness requires it.
 
 Each later phase must preserve the seven-intent daily surface, adaptive internal capabilities, Review Convergence, Evidence Admission, canonical Markdown/YAML knowledge, and the Runtime kernel. It must not reintroduce a legacy compatibility runtime.
 
@@ -334,7 +337,7 @@ The implemented Phase 2 / Slice A / Slice B / Slice C / close-task boundaries ad
 - `task-state-transaction` is bound to `execute-step`, the minimal `prepare-task` resume-review gate clear action, and Slice C's `create-draft`, `update-draft`, and `confirm-draft` actions; `finding-queue-transaction` remains bound to `execute-step`;
 - `lifecycle-transaction` is bound to `task-lifecycle` for `pause`, `interrupt`, `resume-paused`, and `resume-interrupted`, with exact `CURRENT_TASK.md` plus `TASKS/paused/...` or `TASKS/interrupted/...` boundaries;
 - `supersede` and durable `prepare-task:replan` are Runtime-bound under the Slice B same-task identity rule, the two non-active statuses, separate supersede/replan transactions, and fail-closed execution/lifecycle prohibitions;
-- close-task is Runtime-bound for its existing `archive-transaction`, `project-status-transaction`, and explicitly admitted Lesson path, with the `closed + archived` terminal and reconciliation contract;
+- close-task is Runtime-bound for `archive-transaction`, final Contract/Decision promotion, `project-status-transaction`, and explicitly admitted Lesson reconciliation, with the `closed + archived` terminal, archive admission provenance, and re-entry contract;
 - ordinary independent preparation has a durable `draft + active` owner tuple, preserves draft identity across refinement, requires explicit revision-bound confirmation, and rejects draft execution;
 - canonical runtime state remains inside `CURRENT_TASK.md`, with body/frontmatter consistency checks;
 - dry-run, stale-source conflict, idempotent replay, atomic rollback, and post-commit read-back behavior are covered by focused tests for the single-file, lifecycle, and ordinary draft transactions;

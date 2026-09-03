@@ -29,6 +29,8 @@ proposal:
     - project-status-transaction
     - archive-transaction
     - lesson-record-transaction
+    - contract-candidate-commit
+    - decision-record-transaction
   source_tuple:
     - path
     - revision
@@ -284,6 +286,44 @@ proposal:
       - admit
       - defer
       - no-op
+    knowledge_admission:
+      dispositions:
+        - admit
+        - merge
+        - supersede
+        - defer
+        - reject
+        - no-op
+      durable_dispositions:
+        - admit
+        - merge
+        - supersede
+      candidate_fields:
+        - candidateId
+        - kind
+        - fingerprint
+        - statement
+        - sourceRefs
+        - applicability
+        - authoritySource
+        - stability
+        - evidenceRefs
+        - noveltyAgainst
+        - conflictSet
+        - supersedes
+        - reviewOrExpiryTrigger
+        - expectedConsumers
+        - decisionContext
+        - systemicSeverity
+        - implementation_anchors
+      implementation_anchors:
+        coverage:
+          - observed
+          - verified-scope
+        max_anchors: 5
+        line_number_locators: forbidden
+        missing_symbol_behavior: live-search-fallback
+      reentry_source: canonical-task-archive-admission
   lesson_marker:
     contract: vnext-lesson-marker/canonical-v1
     marker_version_field: absent
@@ -525,6 +565,48 @@ operations:
       - LESSONS.md
     write_targets:
       - LESSONS.md
+    allowed_callers:
+      - close-task
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
+  - id: contract-candidate-commit
+    status: bound
+    binding: vnext-runtime
+    operation: contract-candidate-commit
+    source_targets:
+      - CURRENT_TASK.md
+      - TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md
+      - CONTRACTS.md
+    write_targets:
+      - CONTRACTS.md
+    allowed_callers:
+      - close-task
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
+  - id: decision-record-transaction
+    status: bound
+    binding: vnext-runtime
+    operation: decision-record-transaction
+    source_targets:
+      - CURRENT_TASK.md
+      - TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md
+      - DECISIONS.md
+    write_targets:
+      - DECISIONS.md
     allowed_callers:
       - close-task
     result_states:

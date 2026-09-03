@@ -53,9 +53,12 @@ capabilities:
       - intent and task identity
       - scope, changed surfaces, claims, and risk triggers
       - local Markdown/YAML sources, path/symbol queries, and heading/ID locators
+      - optional Contract/Decision implementation anchors from the current knowledge context
     output_contract:
       - relevant source locators
       - authority, relevance, freshness, conflicts, and exclusions
+      - current/stale/unresolved anchor status and bounded live-search seeds
+      - risk-appropriate impact expansion across references, callers, imports, consumers, types, schemas, configuration, generated surfaces, and tests
     stop_conditions:
       - unsupported schema
       - unresolved mandatory authority conflict
@@ -313,9 +316,11 @@ capabilities:
     input_contract:
       - candidate kind, statement, provenance, applicability, authority, stability, and evidence
       - semantic fingerprint and conflict set
+      - optional implementation anchors observed from existing task evidence
     output_contract:
       - admit, merge, supersede, defer, reject, or no-op disposition
       - permitted uses and provenance-preserving reason
+      - optional anchors retained as navigation hints, never as completeness or mutation authority
     stop_conditions:
       - authority, stability, reuse, conflict, or deduplication requirements fail
 
@@ -587,38 +592,48 @@ runtime_operations:
     binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
+      - CURRENT_TASK.md
+      - canonical task archive
       - source-authority evidence
       - existing CONTRACTS.md when present
     write_targets:
       - CONTRACTS.md
     allowed_callers:
       - bootstrap-project
+      - close-task
     bound_callers:
       - bootstrap-project
+      - close-task
     bound_actions:
       - bootstrap-project:greenfield:contract
       - bootstrap-project:adopt:contract
       - bootstrap-project:realign:contract
+      - close-task:default:contract
 
   - id: decision-record-transaction
     status: bound
     binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
+      - CURRENT_TASK.md
+      - canonical task archive
       - source-authority evidence
       - existing DECISIONS.md when present
     write_targets:
       - DECISIONS.md
     allowed_callers:
       - bootstrap-project
+      - close-task
     bound_callers:
       - bootstrap-project
+      - close-task
     bound_actions:
       - bootstrap-project:design:decision
       - bootstrap-project:greenfield:decision
       - bootstrap-project:inventory:decision
       - bootstrap-project:adopt:decision
       - bootstrap-project:realign:decision
+      - close-task:default:decision
 
   - id: paired-host-guidance-transaction
     status: bound

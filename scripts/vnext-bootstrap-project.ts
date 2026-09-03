@@ -517,6 +517,10 @@ function renderContracts(project: { name: string; slug: string }, facts: Bootstr
     '',
     '- These entries are the confirmed bootstrap baseline; unconfirmed facts remain outside the locked Contract.',
     '',
+    '## vNext Contract Records',
+    '',
+    '- Normal close-task Contract admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.',
+    '',
   ].join('\n');
 }
 
@@ -541,6 +545,10 @@ function renderDecisions(project: { name: string; slug: string }, mode: Bootstra
     '## Inferred or unknown facts',
     '',
     ...(unresolved.length > 0 ? unresolved.map(fact => `- ${fact.key}: ${fact.value} [${fact.certainty}; source: ${fact.source}]`) : ['- none']),
+    '',
+    '## vNext Decision Records',
+    '',
+    '- Normal close-task Decision admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.',
     '',
   ].join('\n');
 }

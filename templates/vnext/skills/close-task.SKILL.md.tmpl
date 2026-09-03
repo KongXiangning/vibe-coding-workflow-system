@@ -3,7 +3,7 @@ entry_contract:
   entry: close-task
   mode:
     - preview
-  intent: Prove closure eligibility and finish one task with truthful delivery, status, archive, and lesson proposals.
+  intent: Prove closure eligibility and finish one task with truthful delivery, final knowledge admission, status, archive, and lesson proposals.
   input_contract:
     required:
       - task_identity
@@ -16,6 +16,8 @@ entry_contract:
       - remaining_risks
       - status_baseline
       - archive_target
+      - contract_candidates
+      - decision_candidates
       - lesson_candidates
       - caller_context
   authority_owner: task
@@ -24,9 +26,7 @@ entry_contract:
     governance_sources: []
     forbidden_targets:
       - product files
-      - Contracts
-      - Decisions
-      - Lessons
+      - direct edits to CONTRACTS.md, DECISIONS.md, or LESSONS.md; use the typed Runtime proposals
       - task state without a Runtime proposal
       - project status without a Runtime proposal
       - archive without a Runtime proposal
@@ -44,6 +44,8 @@ entry_contract:
     - project-status-transaction
     - archive-transaction
     - lesson-record-transaction
+    - contract-candidate-commit
+    - decision-record-transaction
   stop_conditions:
     - task identity, acceptance, or validation evidence is missing or conflicted
     - release, rollback, observation, or remaining-risk evidence is incomplete when triggered
@@ -63,13 +65,15 @@ Prove closure eligibility and finish one task with a truthful delivery summary. 
 
 1. Verify immutable task identity, acceptance claims, claim-bound validation evidence, open findings, remaining risks, and the exact closure/archive target before preparing any proposal. Validation, reuse of an existing check, and creation of a persistent automated test remain separate decisions; the closure-side persistent-test disposition defaults to `persistent_test: false`, and closure does not infer a new test from missing evidence.
 2. Evaluate release health, rollback, canary, and observation evidence when the task risk triggers them. A missing or unresolved requirement yields a blocked or observing result; it cannot be summarized as complete.
-3. In `preview`, return the complete closure summary and eligibility verdict with zero Runtime proposals. In ordinary closure, prepare only the typed proposals justified by the eligibility result: the archive transaction, the STATUS transaction after archive success, and, after explicit knowledge admission, a lesson record.
+3. In `preview`, return the complete closure summary and eligibility verdict with zero Runtime proposals. In ordinary closure, prepare only typed proposals justified by the eligibility result: archive first, then admitted Contract/Decision candidates, then the existing Lesson and STATUS reconciliation operations.
 4. Keep task status descriptive and preserve acceptance, verification, release/rollback, observation, and remaining-risk facts. Do not rewrite history or infer a stable archive path from an ambiguous identity.
 5. Lesson admission may return `admit`, `defer`, or `no-op`; it only controls whether a `lesson-record-transaction` proposal exists and never blocks an otherwise eligible closure. When an admitted candidate matches an existing lesson digest (in historical lessons or earlier in the same proposal), lesson reconciliation writes a durable reuse proof referencing the exact target candidate coordinates rather than duplicating visible lesson text.
-6. `archive-transaction` is the only operation allowed to change the task terminal tuple, and its two-file commit must be verified before preparing STATUS or Lesson persistence. This entry never claims that a proposal was written until Runtime returns a committed, read-back-verified result.
-7. A `closed + archived` re-entry validates the matching archive receipt and continues only incomplete STATUS reconciliation and previously admitted Lesson persistence. It never repeats archive and never creates a next task.
-8. After archive success the task is non-owner. `project-status-transaction` and `lesson-record-transaction` use the matching archive receipt plus evidence admission for reconciliation; they must not require or recreate active-task ownership.
-9. Closure is allowed only after the final canonical implementation step is durably marked `task-complete` by the Runtime. A required checkpoint must have its clean receipt, and every repair record must have same-diff verification and a terminal finding state; close-task cannot bypass an unfinished step, checkpoint, or repair route.
+6. Contract and Decision candidates are classified by `knowledge-admission-policy` before archive. Only `admit`, `merge`, and `supersede` produce typed Runtime proposals; `defer`, `reject`, and `no-op` produce no governance write. Task-local implementation details remain in CURRENT_TASK/archive.
+7. `archive-transaction` is the only operation allowed to change the task terminal tuple, and its two-file commit must be verified before preparing Contract, Decision, Lesson, or STATUS persistence. The archive stores the exact knowledge admission provenance needed for re-entry; this entry never claims that a proposal was written until Runtime returns a committed, read-back-verified result.
+8. A `closed + archived` re-entry validates the matching archive receipt and reconstructs the archived knowledge admissions. It runs only missing Contract/Decision/Lesson/STATUS reconciliation; already persisted records are deterministic no-ops, and it never repeats archive or creates a next task.
+9. After archive success the task is non-owner. Contract, Decision, STATUS, and Lesson operations use the matching archive receipt plus evidence admission for reconciliation; they must not require or recreate active-task ownership.
+10. Implementation anchors are optional observed navigation hints (normally 0–5), not completeness claims or mutation authority. Record only paths/symbols confirmed by existing task evidence; future consumers validate anchors against current code and expand live impact analysis according to risk.
+11. Closure is allowed only after the final canonical implementation step is durably marked `task-complete` by the Runtime. A required checkpoint must have its clean receipt, and every repair record must have same-diff verification and a terminal finding state; close-task cannot bypass an unfinished step, checkpoint, or repair route.
 
 ## Required result
 
@@ -79,7 +83,7 @@ Return one structured `closure_result` containing:
 - claim-bound validation results and separate persistent-test disposition; no new persistent test is implied by closure evidence requirements;
 - delivery summary with release/rollback/observation evidence and remaining risks;
 - preview or ordinary closure semantics and the exact status/archive targets;
-- explicit lesson admission, defer, or no-op decision;
+- explicit Contract/Decision admission dispositions plus Lesson admission, defer, or no-op decision;
 - typed Runtime proposals only when each operation's preconditions pass.
 
-The fixed ordinary order is `archive-transaction` → `project-status-transaction` → optional `lesson-record-transaction`. Closure is not complete until Runtime validates and commits the authorized proposals; STATUS or Lesson failure never rolls back a successful archive.
+The fixed ordinary order is `archive-transaction` → admitted `contract-candidate-commit` / `decision-record-transaction` → optional `lesson-record-transaction` → `project-status-transaction`. Closure is not complete until Runtime validates and commits the authorized proposals; downstream failure never rolls back a successful archive, and re-entry repairs only missing durable knowledge/status/Lesson records.

@@ -4,6 +4,7 @@ import {
   buildTargetRootIdentity,
   classifyKnowledgeCandidate,
   fingerprintKnowledgeStatement,
+  resolveImplementationAnchors,
   resolveProjectContextFromCandidates,
   type ContextCandidate,
   type ExistingKnowledgeItem,
@@ -343,5 +344,48 @@ describe('knowledge-admission-policy Phase 1 classification', () => {
     expect(result.disposition).toBe('admit');
     expect(result.permittedUses).toContain('durable-write-proposal');
     expect(result.governedMutationCount).toBe(0);
+  });
+});
+
+describe('implementation anchor live resolution', () => {
+  test('validates current path/symbol and returns bounded search seeds without claiming completeness', () => {
+    const result = resolveImplementationAnchors(ROOT, {
+      coverage: 'observed',
+      source_revision: 'a'.repeat(64),
+      anchors: [{
+        path: 'scripts/project-context-resolver.ts',
+        symbol: 'resolveImplementationAnchors',
+        role: 'resolver entrypoint',
+        evidence_refs: ['anchor-test'],
+      }],
+    });
+
+    expect(result).toEqual([{
+      path: 'scripts/project-context-resolver.ts',
+      symbol: 'resolveImplementationAnchors',
+      role: 'resolver entrypoint',
+      status: 'current',
+      reason: 'anchor path and optional symbol are present',
+      search_seed: 'scripts/project-context-resolver.ts#resolveImplementationAnchors',
+    }]);
+  });
+
+  test('marks stale anchors for live-search fallback instead of treating history as authority', () => {
+    const result = resolveImplementationAnchors(ROOT, {
+      coverage: 'verified-scope',
+      source_revision: 'b'.repeat(64),
+      anchors: [{
+        path: 'src/no-longer-present.ts',
+        symbol: 'RemovedOwner',
+        role: 'historical implementation',
+        evidence_refs: ['anchor-stale-test'],
+      }],
+    });
+
+    expect(result[0]).toMatchObject({
+      status: 'stale',
+      search_seed: 'src/no-longer-present.ts#RemovedOwner',
+    });
+    expect(result[0]?.reason).toContain('missing');
   });
 });

@@ -476,22 +476,45 @@ or reset. `close-task` itself never creates the next task; a later independent
 the archive has been verified. The terminal tuple is non-owner,
 non-resumable, non-replanable, and non-executable.
 
-Closure preparation evaluates knowledge admission before archive. The decision
-may be `admit`, `defer`, or `no-op`; only `admit` permits a later
-`lesson-record-transaction`. `project-status-transaction` runs after archive as
-a separate `STATUS`-only transaction, followed by that optional Lesson write.
-The successful `archive-transaction` must persist this admission
-decision/provenance in the existing canonical task archive `## Lessons 回写`
-section as `lesson_admission.decision`, `candidate_refs`, and `evidence_refs`.
-This records the admission verdict, not a completed `LESSONS.md` write.
-STATUS or Lesson failure never rolls back archive. Archive replay may
-return `no-op` only when tuple, identity/document ID, closure audit, exact path,
-archive hash/revision, and source-revision provenance all match; otherwise it
-fails closed. No `closing`, `close_pending`, `closure_state`, `closure_id`, or
+Closure preparation evaluates Contract, Decision, and Lesson candidates before
+archive through the existing `knowledge-admission-policy`. Contract and
+Decision dispositions are closed: `admit`, `merge`, `supersede`, `defer`,
+`reject`, or `no-op`; only the first three create typed Runtime promotion
+proposals. Lesson keeps its `admit`, `defer`, or `no-op` decision. A task-local
+implementation detail, deferred candidate, rejected candidate, or equivalent
+existing item does not create a durable knowledge write.
+
+The successful close order is `archive-transaction` first, followed by the
+admitted `contract-candidate-commit` and `decision-record-transaction`
+operations, the existing optional `lesson-record-transaction`, and the
+`project-status-transaction`. The archive persists the exact Contract/Decision
+admission bundle and Lesson admission in its canonical provenance sections.
+Those records prove what semantic decision was made; they do not claim that a
+downstream governance document write has completed. Contract and Decision
+promotion is never a Skill-side Markdown append: Runtime validates the closed
+candidate, archive/task provenance, canonical target, deduplication,
+idempotency, conflict, atomic write, and read-back.
+
+If a process stops after archive, a later default `close-task` re-entry reads
+the canonical archive and current governance documents from disk and issues
+only the missing typed reconciliation operations. Already durable records are
+deterministic no-ops; provenance or semantic identity conflicts fail closed;
+the archive and terminal `CURRENT_TASK.md` are never repeated or rewritten.
+Re-entry does not re-run semantic admission or depend on chat context. STATUS
+or downstream knowledge/Lesson failure never rolls back a successful archive.
+No `closing`, `close_pending`, `closure_state`, `closure_id`, or
 `archive_history` state/object is introduced. `TASK_SUMMARY.md` remains a
 legacy/source-repository schema and is not a vNext close-task durable output.
-Close-task does not implicitly synchronize Contracts, Decisions, or host
-guidance; missing prerequisite authoritative facts block closure.
+
+Contract and Decision records may contain optional `implementation_anchors`.
+An anchor is an observed, bounded navigation hint (`coverage: observed` or
+`verified-scope`) with a safe repository-relative path, optional symbol, role,
+evidence references, and source revision. It is not a complete dependency map,
+freshness authority, mutation authority, or completeness guarantee. Consumers
+validate each anchor against the current code and expand live references,
+callers, imports, consumers, schema, configuration, and tests according to
+`adaptive-depth-policy`; a missing/stale anchor is a search seed for broader
+live analysis, not a reason to trust historical code locations.
 
 A default `close-task` invocation against `closed + archived` is not a second
 closure attempt. It may continue only incomplete downstream reconciliation when
@@ -993,8 +1016,9 @@ while it is ready or incomplete; an already `rehydrated` sibling is not an
 active recovery ambiguity.
 Slice B `supersede` and durable `prepare-task:replan` are Runtime-bound under
 the typed same-task identity and fail-closed transition rules below. The
-close-task status, archive, and admitted lesson operations are also
-Runtime-bound under their existing terminal and reconciliation contract.
+close-task archive, final Contract/Decision knowledge promotion, status, and
+admitted Lesson operations are also Runtime-bound under their existing terminal
+and reconciliation contract; archive provenance supports restart re-entry.
 `inbox-record-transaction` is now Runtime-bound to
 `capture-work-item:record`. It accepts only a typed record whose relation is
 proven `unrelated`, whose duplicate disposition is `clear`, and whose owner

@@ -69,6 +69,49 @@ the ordinary Runtime reader must wait for an explicit schema-evolution /
 offline-migration boundary instead of guessing or silently reinterpreting
 durable state.
 
+## Contract / Decision promotion marker schema
+
+`close-task` performs final knowledge admission before archive and stores the
+admission bundle in the canonical task archive. Only `admit`, `merge`, and
+`supersede` create typed Runtime writes after archive:
+`contract-candidate-commit` targets `CONTRACTS.md`, and
+`decision-record-transaction` targets `DECISIONS.md`. `defer`, `reject`, and
+`no-op` create no durable governance write. The Skill/model supplies the
+semantic candidate and admission decision; Runtime validates and writes the
+canonical document.
+
+Each durable marker contains `schema_version`, `knowledge_kind`,
+`candidate_id`, `candidate_fingerprint`, disposition, optional matched
+predecessor, the complete closed candidate, archive/task provenance, proposal
+idempotency/proposal digest, and semantic digest. The candidate uses the
+existing resolver fields (`candidateId`, `kind`, `fingerprint`, `statement`,
+`sourceRefs`, `applicability`, authority/stability/evidence, deduplication,
+supersession, consumers, and Decision `decisionContext`). Existing equivalent
+records are no-ops; identity, provenance, semantic, and idempotency conflicts
+fail closed without overwrite.
+
+### Optional Implementation Anchors
+
+```yaml
+implementation_anchors:
+  coverage: observed | verified-scope
+  source_revision: <workspace revision>
+  anchors:
+    - path: <safe repository-relative path>
+      symbol: <optional stable symbol>
+      role: <bounded role>
+      evidence_refs: []
+```
+
+Anchors may be empty and are normally limited to 0–5 observed high-value
+locations. They forbid absolute/traversal/wildcard/line-number locators and are
+navigation hints only: not a dependency graph, completeness guarantee, scope
+authority, or mutation authority. Future consumers validate path/symbol against
+current code, then expand live references according to evidence and risk;
+missing or stale anchors cause broader live search, not trust in historical
+locations. close-task never performs a repository-wide completeness scan merely
+to populate anchors.
+
 ## Inbox / record-only artifact
 
 `capture-work-item:record` is bound to the vNext Runtime through

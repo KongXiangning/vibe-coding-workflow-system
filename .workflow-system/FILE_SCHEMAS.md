@@ -577,6 +577,64 @@ whose rendered bytes and provenance exactly match the proposal may return
 - 同文件复用场景中，必须能从契约里看出是否采用 `A -> AA` wrapper / compat path
 - 后端 API 变更时，契约补充必须能直接列出需要跟进验证的前端 consumer 面
 
+### vNext close-task knowledge promotion record
+
+普通任务关闭时，稳定的 Contract / Decision candidate 先由
+`knowledge-admission-policy` 做语义 admission，再由 close-task 提交闭合的
+typed Runtime proposal。Skill 或模型不得直接 append `CONTRACTS.md` /
+`DECISIONS.md`。archive 的 `## 知识晋升` section 保存本次候选的完整
+`candidate`、`disposition`、`matched_knowledge_id` 和 `reasons`，作为
+Contract/Decision reconciliation 的恢复 provenance；它表示 admission
+decision，不表示下游文件已经写入。
+
+Runtime promotion record 的 durable marker 使用 operation-specific 的
+`vNext contract record` 或 `vNext decision record`，至少包含：
+
+- `schema_version: 1`
+- `knowledge_kind`
+- `candidate_id`、`candidate_fingerprint`
+- `disposition: admit | merge | supersede`
+- `matched_knowledge_id`
+- 完整 typed `candidate`
+- `provenance`：`task_id`、`task_slug`、`document_id`、canonical archive path、
+  archive/source revision 与 evidence refs
+- proposal idempotency key / proposal digest / semantic digest
+
+`candidate` 使用现有 `project-context-resolver` 的 closed knowledge model：
+`candidateId`、`kind`、`fingerprint`、`statement`、`sourceRefs`、
+`applicability`、`authoritySource`、`stability`、`evidenceRefs`、
+`noveltyAgainst`、`conflictSet`、`supersedes`、`reviewOrExpiryTrigger`、
+`expectedConsumers`，Decision 另需 `decisionContext`。`admit`、`merge`、
+`supersede` 必须是 stable、无 unresolved conflict 且有 evidence 的候选。
+等价 semantic item 不重复可见内容；identity、semantic、provenance 或
+idempotency 冲突均 fail closed，不覆盖已有记录。
+
+### Implementation Anchors
+
+`candidate.implementation_anchors` 是可选导航提示，允许 0–5 项，默认
+`coverage: observed`；只有本次任务已完成有界 propagation verification
+时才可使用 `verified-scope`。结构为：
+
+```yaml
+implementation_anchors:
+  coverage: observed | verified-scope
+  source_revision: <workspace revision>
+  anchors:
+    - path: <safe repository-relative path>
+      symbol: <optional stable symbol>
+      role: <bounded role>
+      evidence_refs: []
+```
+
+不得使用绝对路径、`..`、wildcard 或 line-number locator；重复
+`path + symbol` 必须拒绝或 canonicalize 为唯一项。Anchor 不是 dependency
+graph、完整性声明、scope/mutation authority 或长期 freshness service。
+未来消费时必须先按当前 workspace 验证 path/symbol，再以 anchor 作为 search
+seed，按风险和 evidence 扩散到 references / callers / imports / consumers /
+types / schema / configuration / generated surfaces / tests；anchor 缺失或
+过期时标记 unresolved 并扩大 live search，不能继续相信旧位置，也不要求
+close-task 为凑 anchors 做全仓 completeness scan。
+
 ---
 
 ## 4. STATUS.md

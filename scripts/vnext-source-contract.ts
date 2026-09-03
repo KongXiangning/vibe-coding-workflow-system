@@ -77,6 +77,8 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
     'project-status-transaction',
     'archive-transaction',
     'lesson-record-transaction',
+    'contract-candidate-commit',
+    'decision-record-transaction',
   ],
 };
 
@@ -191,8 +193,8 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
   'project-status-transaction': ['close-task', 'bootstrap-project'],
   'archive-transaction': ['close-task'],
   'lesson-record-transaction': ['close-task'],
-  'contract-candidate-commit': ['bootstrap-project'],
-  'decision-record-transaction': ['bootstrap-project'],
+  'contract-candidate-commit': ['bootstrap-project', 'close-task'],
+  'decision-record-transaction': ['bootstrap-project', 'close-task'],
   'paired-host-guidance-transaction': ['bootstrap-project'],
 };
 
@@ -242,6 +244,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'bootstrap-project:greenfield:contract',
     'bootstrap-project:adopt:contract',
     'bootstrap-project:realign:contract',
+    'close-task:default:contract',
   ],
   'decision-record-transaction': [
     'bootstrap-project:design:decision',
@@ -249,6 +252,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'bootstrap-project:inventory:decision',
     'bootstrap-project:adopt:decision',
     'bootstrap-project:realign:decision',
+    'close-task:default:decision',
   ],
   'paired-host-guidance-transaction': [
     'bootstrap-project:greenfield:host-guidance',

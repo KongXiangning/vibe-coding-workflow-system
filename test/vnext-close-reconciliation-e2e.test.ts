@@ -508,7 +508,7 @@ describe('vNext close-task post-archive reconciliation recovery E2E', () => {
 
     const restarted = reenterCloseTaskFromDurableFiles(root, first.proposalJson, delta);
     expect(restarted.preview.status).toBe('reconciliation');
-    expect(restarted.preview.planned_operations).toEqual(['project-status-transaction', 'lesson-record-transaction']);
+    expect(restarted.preview.planned_operations).toEqual(['lesson-record-transaction', 'project-status-transaction']);
     assertNoOp(restarted.archiveReplay);
     expect(restarted.status.status).toBe('success');
     expect(restarted.status.committed).toBe(true);

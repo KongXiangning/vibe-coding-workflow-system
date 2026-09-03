@@ -150,6 +150,34 @@ export type KnowledgeCandidate = {
     constraints: string[];
   };
   systemicSeverity?: 'ordinary' | 'high';
+  implementation_anchors?: ImplementationAnchors;
+};
+
+/**
+ * An implementation anchor is a bounded navigation hint captured from
+ * evidence already observed by the caller. It is deliberately not a
+ * dependency graph or a completeness claim.
+ */
+export type ImplementationAnchor = {
+  path: string;
+  symbol?: string | null;
+  role: string;
+  evidence_refs: string[];
+};
+
+export type ImplementationAnchors = {
+  coverage: 'observed' | 'verified-scope';
+  source_revision: string;
+  anchors: ImplementationAnchor[];
+};
+
+export type ImplementationAnchorResolution = {
+  path: string;
+  symbol: string | null;
+  role: string;
+  status: 'current' | 'stale' | 'unresolved';
+  reason: string;
+  search_seed: string;
 };
 
 export type ExistingKnowledgeItem = {
@@ -161,6 +189,11 @@ export type ExistingKnowledgeItem = {
   applicability: KnowledgeCandidate['applicability'];
   authoritySource: KnowledgeAuthoritySource;
   stability: KnowledgeCandidate['stability'];
+  /**
+   * Optional navigation hints retained with durable Contract/Decision
+   * context. These are never part of semantic identity or completeness.
+   */
+  implementation_anchors?: ImplementationAnchors;
   active?: boolean;
 };
 
@@ -1060,4 +1093,55 @@ export function classifyKnowledgeCandidate(
       ? 'Explicit authority, alternatives, constraints, and provenance satisfy Decision admission.'
       : 'Reusable trigger, evidence, provenance, and consumers satisfy Lesson admission.';
   return result('admit', [admissionReason], [], null, true);
+}
+
+function isSafeImplementationAnchorPath(value: string): boolean {
+  const normalized = value.replace(/\\/g, '/').trim();
+  return Boolean(normalized)
+    && !normalized.startsWith('/')
+    && !/^[A-Za-z]:\//u.test(normalized)
+    && !normalized.split('/').some(segment => segment === '..' || segment.length === 0)
+    && !normalized.includes('*')
+    && !normalized.includes(':');
+}
+
+function isSafeImplementationAnchorSymbol(value: string): boolean {
+  return value.length <= 256 && !/[\r\n]/u.test(value) && !/^.+:\d+(?:-\d+)?$/u.test(value);
+}
+
+/**
+ * Validate persisted implementation-anchor hints against the current
+ * workspace and return bounded live-search seeds. The default operation only
+ * inspects the anchored files; callers decide whether risk/evidence justifies
+ * widening the search to a module or repository.
+ */
+export function resolveImplementationAnchors(
+  root: string,
+  anchors: ImplementationAnchors | null | undefined,
+): ImplementationAnchorResolution[] {
+  if (!anchors) return [];
+  const resolvedRoot = path.resolve(root);
+  return anchors.anchors.map(anchor => {
+    const normalizedPath = anchor.path.replace(/\\/g, '/').trim();
+    const symbol = anchor.symbol ?? null;
+    const searchSeed = symbol ? `${normalizedPath}#${symbol}` : normalizedPath;
+    if (!isSafeImplementationAnchorPath(normalizedPath)) {
+      return { path: normalizedPath, symbol, role: anchor.role, status: 'unresolved', reason: 'anchor path is unsafe', search_seed: searchSeed };
+    }
+    if (symbol !== null && !isSafeImplementationAnchorSymbol(symbol)) {
+      return { path: normalizedPath, symbol, role: anchor.role, status: 'unresolved', reason: 'anchor symbol is not a bounded symbol locator', search_seed: searchSeed };
+    }
+    const filePath = path.resolve(resolvedRoot, ...normalizedPath.split('/'));
+    const relative = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+    if (relative !== normalizedPath || relative.startsWith('../') || path.isAbsolute(relative) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return { path: normalizedPath, symbol, role: anchor.role, status: 'stale', reason: 'anchor path is missing from the current workspace', search_seed: searchSeed };
+    }
+    if (symbol !== null) {
+      const content = fs.readFileSync(filePath, 'utf8');
+      if (!content.includes(symbol)) {
+        return { path: normalizedPath, symbol, role: anchor.role, status: 'stale', reason: 'anchor symbol is missing from the anchored file', search_seed: searchSeed };
+      }
+    }
+    return { path: normalizedPath, symbol, role: anchor.role, status: 'current', reason: 'anchor path and optional symbol are present', search_seed: searchSeed };
+  });
 }
