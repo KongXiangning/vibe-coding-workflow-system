@@ -80,18 +80,22 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
-    const skillFiles = fs.readdirSync(targetPath(target, '.agents/skills')).sort();
-    expect(skillFiles).toEqual([
-      'bootstrap-project.SKILL.md',
-      'capture-work-item.SKILL.md',
-      'close-task.SKILL.md',
-      'debug-task.SKILL.md',
-      'execute-step.SKILL.md',
-      'prepare-task.SKILL.md',
-      'review-change.SKILL.md',
-      'task-lifecycle.SKILL.md',
-      'validate-change.SKILL.md',
+    const skillDirectories = fs.readdirSync(targetPath(target, '.agents/skills')).sort();
+    expect(skillDirectories).toEqual([
+      'bootstrap-project',
+      'capture-work-item',
+      'close-task',
+      'debug-task',
+      'execute-step',
+      'prepare-task',
+      'review-change',
+      'task-lifecycle',
+      'validate-change',
     ]);
+    for (const skill of skillDirectories) {
+      expect(fs.statSync(targetPath(target, `.agents/skills/${skill}`)).isDirectory()).toBe(true);
+      expect(fs.existsSync(targetPath(target, `.agents/skills/${skill}/SKILL.md`))).toBe(true);
+    }
     const runtimeCli = targetPath(target, '.workflow-system/runtime/dist/cli.js');
     expect(() => execFileSync('node', [runtimeCli, 'validate-contract', '--root', target], { encoding: 'utf8' })).not.toThrow();
     expect(() => execFileSync('node', [runtimeCli, 'validate', '--root', target], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })).toThrow(/BOOTSTRAP_REQUIRED/u);
@@ -102,7 +106,7 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('installed');
     const replay = installDistribution({ targetRoot: target, packageRoot });
     expect(replay.status).toBe('no-op');
-    fs.appendFileSync(targetPath(target, '.agents/skills/prepare-task.SKILL.md'), '\nmanaged drift\n', 'utf8');
+    fs.appendFileSync(targetPath(target, '.agents/skills/prepare-task/SKILL.md'), '\nmanaged drift\n', 'utf8');
     const drift = installDistribution({ targetRoot: target, packageRoot });
     expect(drift.status).toBe('rejected');
     expect(drift.blockers.some(issue => issue.code === 'MANAGED_TARGET_DRIFT')).toBe(true);
@@ -141,7 +145,7 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(result.status).toBe('installed');
     expect(result.read_back_verified).toBe(true);
     expect(result.migration?.status).toBe('installed');
-    expect(fs.existsSync(targetPath(target, '.agents/skills/prepare-task.SKILL.md'))).toBe(true);
+    expect(fs.existsSync(targetPath(target, '.agents/skills/prepare-task/SKILL.md'))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.claude/skills/workflow-system-create-current-task.SKILL.md'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(true);

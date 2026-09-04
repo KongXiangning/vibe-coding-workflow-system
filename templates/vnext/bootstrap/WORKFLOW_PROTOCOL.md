@@ -10,7 +10,7 @@ an active task or feature implementation.
 
 The Vibe Governance Distribution is installed separately from governance
 bootstrap. `Install != Bootstrap`: a fresh Node Distribution install provides
-software and the canonical `.agents/skills/` surface, but does not create
+software and the canonical `.agents/skills/<skill-name>/SKILL.md` surface, but does not create
 `PROJECT_PROFILE.yaml`, Contracts, Decisions, STATUS, or `CURRENT_TASK.md`.
 The next required project transition is `/bootstrap-project`.
 
@@ -20,7 +20,7 @@ The next required project transition is `/bootstrap-project`.
 - `docs/workflow/CURRENT_TASK.md` is the sole task and advancement state source.
 - Contracts, Decisions, Status, and host guidance are written only through
   their typed Runtime operation boundaries.
-- vNext Skills are installed canonically under `.agents/skills/`; old
+- vNext Skills are installed canonically under `.agents/skills/<skill-name>/SKILL.md`; old
   host-specific Skill directories are compatibility inputs only.
 - Generated assets are staged, validated, promoted atomically, and read back.
 - An interruption marker is fail-closed evidence, not permission to guess a

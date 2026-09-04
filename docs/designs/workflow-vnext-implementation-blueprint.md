@@ -24,7 +24,7 @@
 - Runtime 只提交 typed semantic proposal，不替模型或用户决定产品语义。
 - Migration Pack 是安装前的独立离线工具，不是 vNext Skill，也不是 Runtime capability。
 - Distribution 与 governance state 分离；正常目标项目通过 `npx vibe-governance@latest install|migrate|upgrade` 获取软件，`Install != Bootstrap`。
-- vNext canonical Skill surface 是 `.agents/skills/`；旧 `.codex/skills/`、`.claude/skills/`、`.factory/skills/` 只保留为 legacy/source compatibility，不进入新的 Distribution metadata。
+- vNext canonical Skill surface 是 `.agents/skills/<skill-name>/SKILL.md`；旧 `.codex/skills/`、`.claude/skills/`、`.factory/skills/` 只保留为 legacy/source compatibility，不进入新的 Distribution metadata。
 - 本蓝图不把 Phase 1 原型脚本、shadow runner、12-case 对照 runner 或测试通过情况当成正式实现基础。
 
 ## 2. vNext 入口实施表

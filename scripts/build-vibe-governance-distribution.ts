@@ -76,7 +76,7 @@ function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string
     { source_path: 'runtime/vnext/package.json', target_path: '.workflow-system/runtime/package.json', category: 'runtime' },
     { source_path: 'runtime/vnext/package-lock.json', target_path: '.workflow-system/runtime/package-lock.json', category: 'runtime' },
     ...runtimeSources.map(file => ({ source_path: `runtime/vnext/src/${file}`, target_path: `.workflow-system/runtime/src/${file}`, category: 'runtime' as const })),
-    ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.agents/skills/${entry}.SKILL.md`, category: 'skill' as const })),
+    ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.agents/skills/${entry}/SKILL.md`, category: 'skill' as const })),
   ];
 }
 

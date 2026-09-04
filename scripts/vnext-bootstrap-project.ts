@@ -674,7 +674,7 @@ function buildBundle(sourceRoot: string, host: BootstrapHost): { manifest: VNext
     { source_path: 'runtime/vnext/src/runtime-io.ts', target_path: '.workflow-system/runtime/src/runtime-io.ts', category: 'runtime' },
     { source_path: 'runtime/vnext/src/task-identity.ts', target_path: '.workflow-system/runtime/src/task-identity.ts', category: 'runtime' },
     { source_path: 'runtime/vnext/src/bootstrap.ts', target_path: '.workflow-system/runtime/src/bootstrap.ts', category: 'runtime' },
-    ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.agents/skills/${entry}.SKILL.md`, category: 'skill' as const })),
+    ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.agents/skills/${entry}/SKILL.md`, category: 'skill' as const })),
   ];
   const manifest = buildVNextBundle({ sourceRoot, bundleDir, artifacts });
   return { manifest, bundleDir };

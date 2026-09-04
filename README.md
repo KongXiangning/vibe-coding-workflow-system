@@ -48,7 +48,7 @@ npx vibe-governance@latest install
 
 It installs the validated Vibe Governance distribution, including the
 project-local Node Runtime and all canonical Agent Skills under
-`.agents/skills/`. It does not create project profile facts, Contracts,
+`.agents/skills/<skill-name>/SKILL.md`. It does not create project profile facts, Contracts,
 Decisions, STATUS, or a task definition.
 
 After a successful install, continue in the target project with:

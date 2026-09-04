@@ -170,6 +170,16 @@ const KNOWN_HOST_SKILL_DIRS = [
   path.posix.join('.codex', 'skills'),
   path.posix.join('.factory', 'skills'),
 ] as const;
+const CANONICAL_VNEXT_SKILL_TARGET = /^\.agents\/skills\/([a-z][a-z0-9-]*)\/SKILL\.md$/u;
+
+function canonicalVNextSkillEntry(targetPath: string): string | null {
+  return CANONICAL_VNEXT_SKILL_TARGET.exec(targetPath)?.[1] ?? null;
+}
+
+function canonicalVNextSkillTarget(entry: string): string {
+  return `.agents/skills/${entry}/SKILL.md`;
+}
+
 const KNOWN_LEGACY_SCRIPT_PATHS = [
   'scripts/vnext-runtime.ts',
   'scripts/workflow-core.ts',
@@ -2366,8 +2376,8 @@ function validateVNextBundleArtifactContent(artifact: VNextBundleArtifact, conte
   if (artifact.category === 'protocol' && !isRuntimeContract) validateVNextProtocolBundleContent(content, location);
   if (artifact.category === 'schema') validateVNextSchemaBundleContent(content, location);
   if (artifact.category === 'skill') {
-    const entry = path.posix.basename(artifact.target_path).replace(/\.SKILL\.md$/, '');
-    if (!(entry in BUNDLE_ENTRY_MODES)) throw new MigrationPackError('BUNDLE_INVALID', `${location} targets an unknown vNext Skill entry.`);
+    const entry = canonicalVNextSkillEntry(artifact.target_path);
+    if (!entry || !(entry in BUNDLE_ENTRY_MODES)) throw new MigrationPackError('BUNDLE_INVALID', `${location} targets an unknown vNext Skill entry.`);
     validateVNextSkillBundleContent(entry, content, location);
   }
   if (artifact.category === 'runtime' && artifact.target_path === VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) validateRuntimeEntrypointBundleContent(content, location);
@@ -2451,18 +2461,18 @@ function loadAndValidateBundle(
       throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle must not own Migration Pack state: ${artifact.target_path}`);
     }
     if (artifact.category === 'skill') {
-      if (!artifact.target_path.startsWith('.agents/skills/')) {
-        throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use the canonical .agents/skills/ surface: ${artifact.target_path}`);
+      const skillEntry = canonicalVNextSkillEntry(artifact.target_path);
+      if (!skillEntry) {
+        throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use the canonical .agents/skills/<skill-name>/SKILL.md surface: ${artifact.target_path}`);
       }
-      const skillBasename = path.posix.basename(artifact.target_path);
-      if (!/^[a-z][a-z0-9-]*\.SKILL\.md$/.test(skillBasename) || skillBasename.startsWith('workflow-system-')) throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use a canonical unprefixed entry filename: ${artifact.target_path}`);
+      if (skillEntry.startsWith('workflow-system-')) throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use a canonical unprefixed entry directory: ${artifact.target_path}`);
     }
     for (const legacyName of legacySkillNames) {
       // These two names are canonical vNext entries. Their unprefixed Skill
       // artifact and declaration are not legacy compatibility routes; every
       // other legacy ID remains forbidden.
       const canonicalVNextEntry = (legacyName === 'capture-work-item' || legacyName === 'validate-change') &&
-        ((artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${legacyName}.SKILL.md`) ||
+        ((artifact.category === 'skill' && canonicalVNextSkillEntry(artifact.target_path) === legacyName) ||
           (legacyName === 'capture-work-item' && artifact.category === 'registry'));
       if (artifact.target_path.includes(legacyName) && !canonicalVNextEntry) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle contains legacy Skill ID ${legacyName}.`);
       if ((artifact.category === 'skill' || artifact.category === 'registry') && content.includes(legacyName)) {
@@ -2548,21 +2558,21 @@ function loadAndValidateBundle(
   const skillNames = new Set(
     artifacts
       .filter(artifact => artifact.category === 'skill')
-      .map(artifact => path.posix.basename(artifact.target_path).replace(/\.SKILL\.md$/, '')),
+      .map(artifact => canonicalVNextSkillEntry(artifact.target_path)),
   );
-  if (skillNames.size !== artifacts.filter(artifact => artifact.category === 'skill').length) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must not expose duplicate Skill entry IDs across host paths.');
+  if (skillNames.size !== artifacts.filter(artifact => artifact.category === 'skill').length) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must not expose duplicate Skill entry IDs in the canonical surface.');
   for (const entry of VNEXT_REQUIRED_DAILY_ENTRIES) {
-    const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
-    if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required daily entry Skill ${entry}.SKILL.md.`);
+    const skill = artifacts.find(artifact => artifact.category === 'skill' && artifact.target_path === canonicalVNextSkillTarget(entry));
+    if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required daily entry Skill ${entry}/SKILL.md.`);
   }
   for (const entry of VNEXT_REQUIRED_EXPERT_ENTRIES) {
-    const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
-    if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required expert entry Skill ${entry}.SKILL.md.`);
+    const skill = artifacts.find(artifact => artifact.category === 'skill' && artifact.target_path === canonicalVNextSkillTarget(entry));
+    if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required expert entry Skill ${entry}/SKILL.md.`);
   }
   if (sourceDeclaresPhase2Runtime(sourceRoot)) {
     for (const entry of VNEXT_REQUIRED_ADMIN_ENTRIES) {
-      const skill = artifacts.find(artifact => artifact.category === 'skill' && path.posix.basename(artifact.target_path) === `${entry}.SKILL.md`);
-      if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `Phase 2 vNext bundle is missing required administrative Skill ${entry}.SKILL.md.`);
+      const skill = artifacts.find(artifact => artifact.category === 'skill' && artifact.target_path === canonicalVNextSkillTarget(entry));
+      if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `Phase 2 vNext bundle is missing required administrative Skill ${entry}/SKILL.md.`);
     }
   }
   return { schema_version: VNEXT_BUNDLE_SCHEMA_VERSION, kind: VNEXT_BUNDLE_KIND, bundle_id: bundleId, status: 'validated', legacy_compatibility: 'absent', source, artifacts };

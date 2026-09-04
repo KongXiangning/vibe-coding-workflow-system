@@ -176,12 +176,12 @@ export function computeBootstrapTargetIdentity(root: string): string {
   return sha256(resolved).slice(0, 32);
 }
 
-function isHostSkillPath(value: string): boolean {
-  return /^\.agents\/skills\/[a-z][a-z0-9-]*\.SKILL\.md$/u.test(value);
+function isCanonicalSkillPath(value: string): boolean {
+  return /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(value);
 }
 
 function isAllowedAssetPath(value: string): boolean {
-  if (value === 'AGENTS.md' || value === 'CLAUDE.md' || isHostSkillPath(value)) return true;
+  if (value === 'AGENTS.md' || value === 'CLAUDE.md' || isCanonicalSkillPath(value)) return true;
   return value === '.workflow-system/PROJECT_PROFILE.yaml'
     || value === '.workflow-system/WORKFLOW_PROTOCOL.md'
     || value === '.workflow-system/FILE_SCHEMAS.md'

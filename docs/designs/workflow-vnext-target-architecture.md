@@ -847,7 +847,8 @@ Migration is mechanical structure conversion. It does not require AI to re-under
 The accepted architecture is distributed through the separate `Vibe Governance`
 Distribution Boundary. A fresh Distribution install writes only explicitly
 manifest-owned software: the vNext protocol/schema, the project-local Runtime,
-Runtime contracts, and the canonical `.agents/skills/` surface. It does not
+Runtime contracts, and the canonical `.agents/skills/<skill-name>/SKILL.md`
+surface. It does not
 bootstrap project facts or install `CURRENT_TASK.md`.
 
 Legacy conversion continues to consume a validated Migration Pack and the
@@ -866,7 +867,7 @@ The pack is fail-closed and all-or-nothing with respect to vNext installation:
 - a vNext process that finds an old/unsupported schema returns `migration-required` and stops; it does not fall back to an old Skill;
 - no partial vNext Agent surface, registry state, schema marker, or generated output may be promoted as a successful installation;
 - Distribution state is classified only as `uninstalled`, `legacy`, or `vnext(version)`; `pure vNext` is descriptive surface terminology, not a project state;
-- `.agents/skills/` is the canonical vNext Skill surface; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` remain legacy/source compatibility only.
+- `.agents/skills/<skill-name>/SKILL.md` is the canonical vNext Skill surface; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` remain legacy/source compatibility only.
 
 ## 12. Macro transition policy
 

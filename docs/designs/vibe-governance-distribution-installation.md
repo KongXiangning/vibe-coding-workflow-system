@@ -102,25 +102,29 @@ the normal Installer or the Vibe Governance Runtime.
 
 ## 4. Canonical Skill and Runtime surfaces
 
-The vNext canonical Agent Skill surface is:
+The vNext canonical Agent Skill surface is the loader-native directory layout:
 
 ```text
-.agents/skills/
+.agents/skills/<skill-name>/SKILL.md
 ```
 
 The release payload contains the prebuilt nine-entry vNext Skill set:
 
 ```text
-.agents/skills/bootstrap-project.SKILL.md
-.agents/skills/prepare-task.SKILL.md
-.agents/skills/review-change.SKILL.md
-.agents/skills/execute-step.SKILL.md
-.agents/skills/debug-task.SKILL.md
-.agents/skills/task-lifecycle.SKILL.md
-.agents/skills/capture-work-item.SKILL.md
-.agents/skills/close-task.SKILL.md
-.agents/skills/validate-change.SKILL.md
+.agents/skills/bootstrap-project/SKILL.md
+.agents/skills/prepare-task/SKILL.md
+.agents/skills/review-change/SKILL.md
+.agents/skills/execute-step/SKILL.md
+.agents/skills/debug-task/SKILL.md
+.agents/skills/task-lifecycle/SKILL.md
+.agents/skills/capture-work-item/SKILL.md
+.agents/skills/close-task/SKILL.md
+.agents/skills/validate-change/SKILL.md
 ```
+
+Each Skill uses the loader-native directory layout
+`.agents/skills/<skill-name>/SKILL.md`; a flat
+`.agents/skills/<skill-name>.SKILL.md` file is not a valid vNext target.
 
 New Distribution metadata does not contain `hosts: ["codex", "claude"]` or
 another paired-host installation model. Existing `.codex/skills/`,
@@ -178,7 +182,7 @@ The manifest has default-deny ownership. Only its explicit `target_path`
 entries, plus its explicit state/journal paths, may be written by the
 Installer. In Phase 1 the owned target set is limited to the vNext protocol,
 schema, Runtime package, Runtime references, Runtime contracts, and
-`.agents/skills/*.SKILL.md`. It does not include project profile, governance
+`.agents/skills/<skill-name>/SKILL.md`. It does not include project profile, governance
 documents, `docs/workflow/CURRENT_TASK.md`, Contracts, Decisions, STATUS, or
 task definitions.
 
@@ -304,7 +308,8 @@ The Phase 1 implementation must prove:
 9. managed-target drift/conflicts never get silently overwritten;
 10. promotion failure restores the preimage or retains an explicit recovery
     journal;
-11. `.agents/skills/` is complete and no host-specific path is canonical;
+11. every required `.agents/skills/<skill-name>/SKILL.md` is complete and no
+    host-specific path is canonical;
 12. the project-local Runtime contract reads back successfully; and
 13. daily Runtime entry after install but before bootstrap returns
     `BOOTSTRAP_REQUIRED` (or its equivalent fail-closed result).

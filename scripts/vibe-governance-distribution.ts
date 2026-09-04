@@ -158,7 +158,7 @@ type LoadedPayload = {
 type OldManagedEntry = { path: string; checksum: string };
 
 const NODE_COMMAND = process.platform === 'win32' ? 'node.exe' : 'node';
-const REQUIRED_SKILL_TARGET = /^\.agents\/skills\/[a-z][a-z0-9-]*\.SKILL\.md$/u;
+const REQUIRED_SKILL_TARGET = /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u;
 const HASH64 = /^[a-f0-9]{64}$/u;
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/u;
 const LEGACY_HOST_SKILL_DIRECTORIES = ['.claude/skills', '.codex/skills', '.factory/skills'] as const;
@@ -781,6 +781,9 @@ function runTransactionalPromotion(
   // installation and all destination checks happen before target mutation.
   const preimageTreeHash = computeCompleteTreeHash(targetRoot, [payload.manifest.state.in_progress_path]);
   const rollbackDirectories = [
+    ...payload.manifest.artifacts
+      .filter(artifact => artifact.category === 'skill')
+      .map(artifact => path.posix.dirname(artifact.target_path)),
     '.agents/skills',
     '.agents',
     payload.manifest.runtime_dependency_path,

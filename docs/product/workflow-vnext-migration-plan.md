@@ -93,7 +93,7 @@ The Migration Pack is a separate, one-time, offline conversion tool. It is the o
 | `STATUS` / `BASELINES` and other long-term governance documents | mechanical structure and path/reference conversion |
 | `TASK` archives | archive path/schema/reference conversion only |
 | workflow schema/version metadata | version and schema-field conversion/validation |
-| Skill installation surface | managed legacy-surface conversion into canonical `.agents/skills/` for the vNext Distribution |
+| Skill installation surface | managed legacy-surface conversion into canonical `.agents/skills/<skill-name>/SKILL.md` for the vNext Distribution |
 
 `CURRENT_TASK.md` is a migration precondition, not a hot-migration input. Active findings, finding-repair state, paused packages, interrupted runtime state, and other unfinished lifecycle state are outside the pack scope and make the source project non-idle.
 
@@ -130,7 +130,7 @@ Installation occurs only after the offline pack is complete and valid. The insta
 - converted Markdown/YAML governance documents;
 - no old Skill files, old registry entries, aliases, old-state adapters, or legacy host routes.
 
-The old names are not resolvable after installation. A target project is not expected to keep the old runtime available as a fallback. The canonical Skill surface is `.agents/skills/`; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` are retained only as legacy/source compatibility inputs and are not new Distribution targets.
+The old names are not resolvable after installation. A target project is not expected to keep the old runtime available as a fallback. The canonical Skill surface is `.agents/skills/<skill-name>/SKILL.md`; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` are retained only as legacy/source compatibility inputs and are not new Distribution targets.
 
 ### 3.5 Unsupported schema in vNext
 
@@ -255,7 +255,7 @@ a durable draft audit record in `CURRENT_TASK.md`.
 | Slice C ordinary draft / refinement / explicit confirmation | Design and implementation complete; Runtime-bound |
 | close-task | Design and implementation complete; archive, final Contract/Decision admission and promotion, status reconciliation, and admitted Lesson path are Runtime-bound; archive provenance supports re-entry |
 | `inbox-record-transaction` | Design and implementation complete; `capture-work-item:record` Runtime-bound; isolated Virtual Project E2E covered |
-| `validate-change` expert surface | Formal expert source entry, installable vNext Skill under `.agents/skills/`, minimum-sufficient read-only evidence policy, structured result, and isolated Virtual Project coverage implemented; no Runtime operation |
+| `validate-change` expert surface | Formal expert source entry, installable vNext Skill under `.agents/skills/validate-change/SKILL.md`, minimum-sufficient read-only evidence policy, structured result, and isolated Virtual Project coverage implemented; no Runtime operation |
 | `sync-state` logical internal role | No standalone implementation required; current reconciliation/routing responsibilities are fulfilled by caller-local orchestration and existing typed Runtime operations; reserve a facade only for a demonstrated future shared requirement |
 
 This status correction records progression only. It does not redesign Slice A,

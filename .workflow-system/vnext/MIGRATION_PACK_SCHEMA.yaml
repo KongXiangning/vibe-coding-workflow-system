@@ -168,7 +168,7 @@ vnext_bundle:
 installation:
   mode: vnext-distribution-migration
   distribution_state: vnext
-  canonical_skill_surface: .agents/skills/
+  canonical_skill_surface: .agents/skills/<skill-name>/SKILL.md
   all_or_nothing: true
   install_state: .workflow-system/vnext/INSTALL_STATE.json
   receipt: .workflow-system/vnext/MIGRATION_RECEIPT.json

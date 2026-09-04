@@ -960,11 +960,11 @@ function computeBootstrapTargetIdentity(root) {
   const resolved = path3.resolve(root).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
   return sha256(resolved).slice(0, 32);
 }
-function isHostSkillPath(value) {
-  return /^\.agents\/skills\/[a-z][a-z0-9-]*\.SKILL\.md$/u.test(value);
+function isCanonicalSkillPath(value) {
+  return /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(value);
 }
 function isAllowedAssetPath(value) {
-  if (value === "AGENTS.md" || value === "CLAUDE.md" || isHostSkillPath(value))
+  if (value === "AGENTS.md" || value === "CLAUDE.md" || isCanonicalSkillPath(value))
     return true;
   return value === ".workflow-system/PROJECT_PROFILE.yaml" || value === ".workflow-system/WORKFLOW_PROTOCOL.md" || value === ".workflow-system/FILE_SCHEMAS.md" || value.startsWith(".workflow-system/vnext/") || value.startsWith(".workflow-system/runtime/") || value.startsWith("docs/workflow/") || value.startsWith("docs/designs/") || value.startsWith("docs/adoption/");
 }
