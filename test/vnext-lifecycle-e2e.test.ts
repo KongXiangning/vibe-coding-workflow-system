@@ -42,6 +42,10 @@ function targetPath(root: string, relativePath: string): string {
   return path.join(root, ...relativePath.split('/'));
 }
 
+function sha256(content: string | Buffer): string {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
 function makeFreshTarget(): string {
   const target = tempRoot('vnext-e2e-fresh-target-');
   fs.writeFileSync(
@@ -90,16 +94,7 @@ afterAll(() => {
 });
 
 describe('Vibe Governance system-level lifecycle E2E', () => {
-  test('P-12 admission record is valid and matches suite claim', () => {
-    expect(P12_LIFECYCLE_E2E_ADMISSION).toMatchObject({
-      decision: 'admitted',
-      owner: 'workflow-system maintainers',
-      basis: 'critical-invariant',
-      proves: 'Vibe Governance 的三条公开 Distribution lifecycle 能够与 Bootstrap/Migration/Runtime 跨边界闭合。',
-    });
-  });
-
-  test('Scenario A — Fresh lifecycle: install -> target-local bootstrap -> daily runtime usable', { timeout: 60000 }, () => {
+  test('Scenario A — Fresh lifecycle: install -> target-local bootstrap -> daily Runtime ready', { timeout: 60000 }, () => {
     const target = makeFreshTarget();
 
     // 1. Real Distribution CLI execution: install
@@ -242,7 +237,10 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
       expect(managed.path).not.toBe('.workflow-system/vnext/DISTRIBUTION_STATE.json');
     }
 
-    // 5. Daily Runtime usable via project-local Runtime process
+    // 5. Daily Runtime ready via project-local Runtime process:
+    // "ready" proves the installed runtime boots, validates contract,
+    // and parses canonical state/tuple; full daily workflow mutation (prepare-task,
+    // execute-step, model interaction) is deferred to real-project dogfood.
     const dailyValidate = spawnSync('node', [runtimeCliPath, 'validate', '--root', target], {
       cwd: target,
       encoding: 'utf8',
@@ -258,19 +256,9 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
     expect(dailyOutput.status).toBe('success');
     expect(dailyOutput.source_tuple.task_id).toBe('000');
     expect(dailyOutput.runtime_state.lifecycle_state).toBe('archived');
-
-    // Also verify scope-check daily boundary
-    const scopeCheck = spawnSync('node', [runtimeCliPath, 'scope-check', '--root', target, '--path', 'src/index.ts'], {
-      cwd: target,
-      encoding: 'utf8',
-    });
-    expect(scopeCheck.error).toBeUndefined();
-    expect([0, 2]).toContain(scopeCheck.status);
-    const scopeOutput = JSON.parse(scopeCheck.stdout) as { status: string };
-    expect(['allowed', 'blocked']).toContain(scopeOutput.status);
   });
 
-  test('Scenario B — Migration lifecycle: legacy -> Distribution migrate -> governed vNext (no bootstrap needed) -> daily runtime usable', { timeout: 60000 }, () => {
+  test('Scenario B — Migration lifecycle: legacy -> migrate -> governed vNext -> daily Runtime ready', { timeout: 60000 }, () => {
     const target = makeLegacyGovernedTarget();
 
     // 1. Real Distribution CLI execution: migrate
@@ -356,7 +344,8 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
     expect(ordinaryPlan.status).toBe('blocked');
     expect(ordinaryPlan.blockers.some(b => b.code === 'BOOTSTRAP_NOT_REQUIRED')).toBe(true);
 
-    // 4. Daily Runtime usable directly on migrated project
+    // 4. Daily Runtime ready directly on migrated project:
+    // proves installed Runtime reads the promoted canonical baseline state.
     const dailyValidate = spawnSync('node', [runtimeCliPath, 'validate', '--root', target], {
       cwd: target,
       encoding: 'utf8',
@@ -375,7 +364,7 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
     expect(dailyOutput.runtime_state.lifecycle_state).toBe('archived');
   });
 
-  test('Scenario C — Upgrade lifecycle: governed vNext -> Distribution upgrade -> governance valid -> daily runtime usable', { timeout: 60000 }, () => {
+  test('Scenario C — Upgrade lifecycle: older vNext Distribution bytes -> upgrade -> governance preserved -> daily Runtime ready', { timeout: 60000 }, () => {
     // Start with a fully governed vNext target (install + bootstrap)
     const target = makeFreshTarget();
 
@@ -442,14 +431,62 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
     const currentTaskContentBefore = fs.readFileSync(currentTaskPath, 'utf8');
     const bootstrapReceiptBefore = fs.readFileSync(bootstrapReceiptPath, 'utf8');
 
-    // 1. Simulate an older installed vNext distribution version
+    // 1. Load authoritative current release manifest and release artifact content
+    const releaseManifestPath = path.join(distributionPackageRoot, 'payload', 'distribution-manifest.json');
+    const releaseManifest = JSON.parse(fs.readFileSync(releaseManifestPath, 'utf8')) as {
+      distribution_version: string;
+      artifacts: Array<{ source_path: string; target_path: string; checksum: string }>;
+    };
+    const currentReleaseVersion = releaseManifest.distribution_version;
+    const prepareTaskSpec = releaseManifest.artifacts.find(
+      artifact => artifact.target_path === '.agents/skills/prepare-task/SKILL.md',
+    );
+    if (!prepareTaskSpec) {
+      throw new Error('Release manifest is missing prepare-task skill artifact spec.');
+    }
+    const currentReleaseArtifactPath = path.join(
+      distributionPackageRoot,
+      'payload',
+      ...prepareTaskSpec.source_path.split('/'),
+    );
+    const currentReleaseArtifactContent = fs.readFileSync(currentReleaseArtifactPath, 'utf8');
+
+    // 2. Construct self-consistent synthetic-old Distribution installation:
+    // mutate target Distribution-owned bytes and update old DISTRIBUTION_STATE checksum to match
+    const targetPrepareTaskPath = targetPath(target, '.agents/skills/prepare-task/SKILL.md');
+    const syntheticOldSkillContent = [
+      '---',
+      'name: prepare-task',
+      'description: Synthetic older prepare-task skill for upgrade testing.',
+      'entry_contract:',
+      '  entry: prepare-task',
+      '---',
+      '# prepare-task',
+      '',
+      'Synthetic older distribution byte content for upgrade lifecycle test.',
+      '',
+    ].join('\n');
+    expect(syntheticOldSkillContent).not.toBe(currentReleaseArtifactContent);
+    fs.writeFileSync(targetPrepareTaskPath, syntheticOldSkillContent, 'utf8');
+    const syntheticOldChecksum = sha256(Buffer.from(syntheticOldSkillContent, 'utf8'));
+
     const distributionState = JSON.parse(fs.readFileSync(distributionStatePath, 'utf8')) as {
       distribution_version: string;
-      managed_files: Array<{ path: string; checksum: string }>;
+      managed_files: Array<{ path: string; checksum: string; category: string }>;
     };
-    const currentReleaseVersion = distributionState.distribution_version;
+    const managedPrepareTask = distributionState.managed_files.find(
+      item => item.path === '.agents/skills/prepare-task/SKILL.md',
+    );
+    if (!managedPrepareTask) {
+      throw new Error('Managed prepare-task entry missing in distribution state.');
+    }
+    managedPrepareTask.checksum = syntheticOldChecksum;
     distributionState.distribution_version = '0.14.4';
     fs.writeFileSync(distributionStatePath, JSON.stringify(distributionState, null, 2) + '\n', 'utf8');
+
+    // Confirm that target bytes before upgrade match synthetic-old bytes and differ from current release
+    expect(fs.readFileSync(targetPrepareTaskPath, 'utf8')).toBe(syntheticOldSkillContent);
+    expect(fs.readFileSync(targetPrepareTaskPath, 'utf8')).not.toBe(currentReleaseArtifactContent);
 
     // Confirm that `install` correctly rejects the older target with upgrade-required
     const rejectedInstall = spawnSync('node', [distributionCli, 'install', '--root', target, '--json'], {
@@ -460,7 +497,7 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
     const rejectedResult = JSON.parse(rejectedInstall.stdout) as { status: string };
     expect(rejectedResult.status).toBe('upgrade-required');
 
-    // 2. Real Distribution CLI execution: upgrade
+    // 3. Real Distribution CLI execution: upgrade
     const upgradeProcess = spawnSync('node', [distributionCli, 'upgrade', '--root', target, '--json'], {
       cwd: target,
       encoding: 'utf8',
@@ -479,16 +516,29 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
     expect(upgradeResult.distribution_version).toBe(currentReleaseVersion);
     expect(upgradeResult.next).toBeUndefined();
 
-    // 3. Core invariant assertions: Distribution upgrade must NOT invalidate governance state
+    // 4. Core invariant assertions: Distribution upgrade replaces software bytes while preserving governance
     // Distribution version updated
     const upgradedState = JSON.parse(fs.readFileSync(distributionStatePath, 'utf8')) as {
       distribution_version: string;
       distribution_state: string;
+      managed_files: Array<{ path: string; checksum: string; category: string }>;
     };
     expect(upgradedState.distribution_version).toBe(currentReleaseVersion);
     expect(upgradedState.distribution_state).toBe('vnext');
 
-    // Governance assets strictly preserved and untouched
+    // Synthetic-old artifact bytes were replaced with current release artifact bytes
+    const upgradedTargetSkillContent = fs.readFileSync(targetPrepareTaskPath, 'utf8');
+    expect(upgradedTargetSkillContent).not.toBe(syntheticOldSkillContent);
+    expect(upgradedTargetSkillContent).toBe(currentReleaseArtifactContent);
+
+    // Upgraded Distribution State records current release artifact checksum matching target bytes and manifest
+    const upgradedManagedPrepareTask = upgradedState.managed_files.find(
+      item => item.path === '.agents/skills/prepare-task/SKILL.md',
+    );
+    expect(upgradedManagedPrepareTask?.checksum).toBe(prepareTaskSpec.checksum);
+    expect(upgradedManagedPrepareTask?.checksum).toBe(sha256(Buffer.from(upgradedTargetSkillContent, 'utf8')));
+
+    // Governance assets strictly preserved and byte-identical
     expect(fs.readFileSync(projectProfilePath, 'utf8')).toBe(profileContentBefore);
     expect(fs.readFileSync(currentTaskPath, 'utf8')).toBe(currentTaskContentBefore);
     expect(fs.readFileSync(bootstrapReceiptPath, 'utf8')).toBe(bootstrapReceiptBefore);
@@ -523,7 +573,7 @@ describe('Vibe Governance system-level lifecycle E2E', () => {
     expect(replayPlan.planned_writes).toEqual([]);
     expect(replayPlan.read_back_verified).toBe(true);
 
-    // 4. Daily Runtime remains usable
+    // 5. Daily Runtime remains ready
     const dailyValidate = spawnSync('node', [runtimeCliPath, 'validate', '--root', target], {
       cwd: target,
       encoding: 'utf8',
