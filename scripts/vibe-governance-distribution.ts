@@ -277,7 +277,7 @@ function manifestDigest(raw: Record<string, unknown>): string {
   return sha256(stableJson({ ...raw, manifest_digest: '' }));
 }
 
-function isDistributionOwnedTarget(targetPath: string): boolean {
+export function isDistributionOwnedTarget(targetPath: string): boolean {
   if (targetPath === '.workflow-system/WORKFLOW_PROTOCOL.md' || targetPath === '.workflow-system/FILE_SCHEMAS.md') return true;
   if (targetPath === '.workflow-system/vnext/SOURCE_CONTRACT.yaml' || targetPath === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') return true;
   if (targetPath.startsWith('.workflow-system/runtime/')) return true;
@@ -485,13 +485,17 @@ function hasLegacyHostSurface(targetRoot: string): boolean {
 }
 
 function hasLegacySurface(targetRoot: string): boolean {
+  const hasEntries = (relativePath: string): boolean => {
+    const directory = path.join(targetRoot, ...relativePath.split('/'));
+    return fileExists(directory) && fs.statSync(directory).isDirectory() && fs.readdirSync(directory).length > 0;
+  };
   const legacyProtocol = path.join(targetRoot, '.workflow-system', 'WORKFLOW_PROTOCOL.md');
   if (fileExists(legacyProtocol) && /Protocol-Version\s*:\s*0\./iu.test(fs.readFileSync(legacyProtocol, 'utf8'))) return true;
   return fileExists(path.join(targetRoot, '.workflow-system', 'install-state.json'))
     || fileExists(path.join(targetRoot, '.workflow-system', 'WORKFLOW_CAPABILITIES.yaml'))
     || fileExists(path.join(targetRoot, '.workflow-system', 'vnext', 'MIGRATION_PACK_SCHEMA.yaml'))
-    || fileExists(path.join(targetRoot, 'templates', 'skills'))
-    || fileExists(path.join(targetRoot, 'templates', 'docs'))
+    || hasEntries('templates/skills')
+    || hasEntries('templates/docs')
     || hasLegacyHostSurface(targetRoot);
 }
 
@@ -750,6 +754,32 @@ function verifyDistributionInstallation(targetRoot: string, payload: LoadedPaylo
   const skillTargets = payload.manifest.artifacts.filter(artifact => artifact.category === 'skill');
   if (skillTargets.some(artifact => !REQUIRED_SKILL_TARGET.test(artifact.target_path))) throw new Error('Distribution read-back contains a non-canonical Skill path.');
   validateRuntimeReadBack(targetRoot);
+}
+
+export type InstalledDistributionValidation = {
+  manifest: DistributionManifest;
+  bundle: VNextBundleManifest;
+  state: DistributionState;
+};
+
+/**
+ * Read-only prerequisite validation for administrative consumers such as
+ * bootstrap-project. The Distribution module remains the sole owner of
+ * Distribution State, payload admission, artifact checksums, canonical Skill
+ * paths, and project-local Runtime read-back. Callers receive evidence; they
+ * do not receive permission to promote or receipt-own these artifacts.
+ */
+export function validateInstalledDistribution(targetRoot: string, packageRoot?: string): InstalledDistributionValidation {
+  const payload = loadDistributionPayload(path.resolve(packageRoot ?? packageRootFromModule()));
+  const resolvedTargetRoot = path.resolve(targetRoot);
+  const classification = classifyDistribution(resolvedTargetRoot, payload.manifest);
+  if (!classification.valid || classification.state !== 'vnext') {
+    throw new Error(`Installed Distribution is not a valid current vNext distribution: ${classification.reasons.join(' ') || classification.state}.`);
+  }
+  const state = readDistributionState(resolvedTargetRoot, payload.manifest);
+  if (!state) throw new Error('Installed Distribution State is missing.');
+  verifyDistributionInstallation(resolvedTargetRoot, payload);
+  return { manifest: payload.manifest, bundle: payload.bundle, state };
 }
 
 function writeJournal(targetRoot: string, journal: DistributionJournal, manifest: DistributionManifest): void {

@@ -856,6 +856,12 @@ Legacy conversion continues to consume a validated Migration Pack and the
 vNext bundle; that Pack may promote converted governance documents and its
 canonical task baseline as part of the explicit migration transition.
 
+Bootstrap consumes the installed Distribution as a read-only software
+prerequisite. It establishes or reconciles project governance assets only; it
+does not regenerate, promote, or receipt-own the Runtime, Protocol, Schema, or
+canonical Agent Skill surface. Distribution upgrades therefore do not make
+Bootstrap governance provenance stale.
+
 The installed vNext surface contains no old Skill files, old Skill registry entries, legacy aliases, old-state adapters, or compatibility routes. The old names are not resolvable after installation. Re-running the completed pack must not create a second conversion; the exact replay/no-op behavior is an implementation contract, not a compatibility surface.
 
 ### 11.6 Failure and recovery boundary

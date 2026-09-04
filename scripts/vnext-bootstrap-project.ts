@@ -4,28 +4,31 @@
  * vNext bootstrap-project facade.
  *
  * This is the source-side administrative orchestrator. It resolves the
- * target and mode, renders inputs from the vNext source namespace, builds a
- * validated pure-vNext bundle, creates one typed bootstrap proposal, and
- * delegates promotion/read-back to the shared Runtime transaction boundary.
+ * target and mode, validates the already-installed Distribution as a
+ * read-only prerequisite, renders governance inputs from the vNext source
+ * namespace, creates one typed bootstrap proposal, and delegates
+ * promotion/read-back to the shared Runtime transaction boundary.
  * It never edits product code, creates an active task, or invokes the legacy
  * generator/runtime.
  */
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { parse, stringify } from 'yaml';
 import {
-  buildVNextBundle,
   computeCompleteTreeHash,
   getSourceIdentity,
   isFrozenPath,
-  prepareRuntimeDistribution,
-  type PreparedRuntimeDistribution,
-  type VNextBundleManifest,
+  validateVNextCurrentTaskDocument,
+  validateVNextMigrationReceipt,
+  VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH,
 } from './vnext-migration-pack';
-import { checkTargetRoot } from './guard-target-root';
+import {
+  isDistributionOwnedTarget,
+  validateInstalledDistribution,
+} from './vibe-governance-distribution';
+import { checkTargetRoot, normalizeAbsoluteRootPath } from './guard-target-root';
 import { resolveRoot } from './workflow-core';
 import { validateVNextSource } from './vnext-source-contract';
 import {
@@ -47,7 +50,7 @@ export const VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH = '.workflow-system/vnext
 export const BOOTSTRAP_HOSTS = ['codex', 'claude', 'factory'] as const;
 export type BootstrapHost = (typeof BOOTSTRAP_HOSTS)[number];
 
-export type BootstrapTargetState = 'empty' | 'existing' | 'valid' | 'stale' | 'incomplete' | 'conflicting' | 'legacy' | 'in-progress';
+export type BootstrapTargetState = 'empty' | 'existing' | 'valid' | 'stale' | 'incomplete' | 'conflicting' | 'legacy' | 'governed' | 'in-progress';
 export type BootstrapPlanStatus = 'ready' | 'needs-confirmation' | 'blocked' | 'replayed' | 'rejected' | 'installed';
 
 export type BootstrapFact = {
@@ -59,6 +62,8 @@ export type BootstrapFact = {
 
 export type BootstrapProjectOptions = {
   sourceRoot?: string;
+  /** Source-side release package used only to validate the installed target Distribution. */
+  distributionPackageRoot?: string;
   targetRoot: string;
   mode: BootstrapMode;
   write?: boolean;
@@ -94,7 +99,7 @@ export type BootstrapReceipt = {
   target_identity: string;
   project: { name: string; slug: string };
   host: BootstrapHost;
-  source: { revision: string; tree_hash: string; bundle_id: string };
+  source: { revision: string; tree_hash: string };
   input_fingerprint: string;
   completed_at: string;
   managed_files: Array<{ path: string; checksum: string }>;
@@ -110,7 +115,7 @@ export type BootstrapPlan = {
   target_identity: string;
   project: { name: string; slug: string };
   host: BootstrapHost;
-  source: { revision: string; tree_hash: string; bundle_id?: string };
+  source: { revision: string; tree_hash: string };
   planned_writes: string[];
   planned_directories: string[];
   planned_deletes: string[];
@@ -122,10 +127,8 @@ export type BootstrapPlan = {
   read_back_verified: boolean;
   replay: boolean;
   caller_obligation: string;
-  // These fields are internal to the facade and are omitted from CLI output.
+  // The proposal is internal to the facade and is omitted from CLI output.
   proposal?: BootstrapProjectProposal;
-  bundle_dir?: string;
-  prepared_runtime?: PreparedRuntimeDistribution;
 };
 
 const SAFE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -216,6 +219,23 @@ function readJsonObject(filePath: string, code: string): Record<string, unknown>
   }
 }
 
+function isBootstrapForbiddenDistributionPath(relative: string): boolean {
+  return isDistributionOwnedTarget(relative)
+    || relative.startsWith('.workflow-system/runtime/')
+    || relative.startsWith('.agents/skills/')
+    || relative === '.workflow-system/vnext/DISTRIBUTION_STATE.json'
+    || relative === '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json';
+}
+
+function isBootstrapGovernancePath(relative: string): boolean {
+  return relative === 'AGENTS.md'
+    || relative === 'CLAUDE.md'
+    || relative === '.workflow-system/PROJECT_PROFILE.yaml'
+    || relative.startsWith('docs/workflow/')
+    || relative.startsWith('docs/designs/')
+    || relative.startsWith('docs/adoption/');
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -275,12 +295,19 @@ function hasMeaningfulImplementation(targetRoot: string): boolean {
 }
 
 function hasLegacySurface(targetRoot: string): boolean {
+  const hasEntries = (relative: string): boolean => {
+    const directory = targetPath(targetRoot, relative);
+    return fs.existsSync(directory) && fs.statSync(directory).isDirectory() && fs.readdirSync(directory).length > 0;
+  };
   const protocolPath = targetPath(targetRoot, '.workflow-system/WORKFLOW_PROTOCOL.md');
-  if (fs.existsSync(protocolPath) && /Protocol-Version\s*:\s*0\./iu.test(fs.readFileSync(protocolPath, 'utf8'))) return true;
+  if (fs.existsSync(protocolPath)) {
+    const protocol = fs.readFileSync(protocolPath, 'utf8');
+    if (/Protocol-Version\s*:\s*0\./iu.test(protocol) && !/^kind:\s*vnext-protocol\s*$/imu.test(protocol)) return true;
+  }
   if (fs.existsSync(targetPath(targetRoot, '.workflow-system/WORKFLOW_CAPABILITIES.yaml'))) return true;
   if (fs.existsSync(targetPath(targetRoot, '.workflow-system/install-state.json'))) return true;
-  if (fs.existsSync(targetPath(targetRoot, 'templates/skills')) || fs.existsSync(targetPath(targetRoot, 'templates/docs'))) return true;
-  if (fs.existsSync(targetPath(targetRoot, 'docs/workflow/generated'))) return true;
+  if (hasEntries('templates/skills') || hasEntries('templates/docs')) return true;
+  if (hasEntries('docs/workflow/generated')) return true;
   for (const host of ['.claude/skills', '.codex/skills', '.factory/skills']) {
     const directory = targetPath(targetRoot, host);
     if (!fs.existsSync(directory)) continue;
@@ -306,13 +333,16 @@ function readReceipt(targetRoot: string): BootstrapReceipt | null {
   if (Object.keys(raw).sort().join('|') !== [...RECEIPT_KEYS].sort().join('|')) throw new BootstrapFacadeError('BOOTSTRAP_RECEIPT_INVALID', 'bootstrap receipt has an unsupported schema.');
   const project = raw.project;
   const source = raw.source;
-  if (raw.schema_version !== 1 || raw.kind !== 'vnext-bootstrap-receipt' || !BOOTSTRAP_MODES.includes(raw.mode as BootstrapMode) || typeof raw.target_identity !== 'string' || !isRecord(project) || typeof project.name !== 'string' || typeof project.slug !== 'string' || !BOOTSTRAP_HOSTS.includes(raw.host as BootstrapHost) || !isRecord(source) || typeof source.revision !== 'string' || typeof source.tree_hash !== 'string' || !HASH64.test(source.tree_hash) || typeof source.bundle_id !== 'string' || typeof raw.input_fingerprint !== 'string' || !HASH64.test(raw.input_fingerprint) || typeof raw.completed_at !== 'string' || raw.legacy_compatibility !== 'absent' || raw.recovery_boundary !== 'in-progress-marker') {
+  if (raw.schema_version !== 1 || raw.kind !== 'vnext-bootstrap-receipt' || !BOOTSTRAP_MODES.includes(raw.mode as BootstrapMode) || typeof raw.target_identity !== 'string' || !isRecord(project) || typeof project.name !== 'string' || typeof project.slug !== 'string' || !BOOTSTRAP_HOSTS.includes(raw.host as BootstrapHost) || !isRecord(source) || typeof source.revision !== 'string' || typeof source.tree_hash !== 'string' || !HASH64.test(source.tree_hash) || typeof raw.input_fingerprint !== 'string' || !HASH64.test(raw.input_fingerprint) || typeof raw.completed_at !== 'string' || raw.legacy_compatibility !== 'absent' || raw.recovery_boundary !== 'in-progress-marker') {
     throw new BootstrapFacadeError('BOOTSTRAP_RECEIPT_INVALID', 'bootstrap receipt identity or schema fields are invalid.');
   }
   if (!Array.isArray(raw.managed_files) || raw.managed_files.length === 0) throw new BootstrapFacadeError('BOOTSTRAP_RECEIPT_INVALID', 'bootstrap receipt managed_files must be non-empty.');
   const managedFiles = raw.managed_files.map((value, index) => {
     if (!isRecord(value) || typeof value.path !== 'string' || typeof value.checksum !== 'string' || !HASH64.test(value.checksum)) throw new BootstrapFacadeError('BOOTSTRAP_RECEIPT_INVALID', `managed_files[${index}] is invalid.`);
-    return { path: normalizeRelative(value.path), checksum: value.checksum };
+    const relative = normalizeRelative(value.path);
+    if (isBootstrapForbiddenDistributionPath(relative)) throw new BootstrapFacadeError('BOOTSTRAP_RECEIPT_INVALID', `managed_files[${index}] declares Distribution-owned software: ${relative}`);
+    if (!isBootstrapGovernancePath(relative)) throw new BootstrapFacadeError('BOOTSTRAP_RECEIPT_INVALID', `managed_files[${index}] is outside the Bootstrap-owned governance surface: ${relative}`);
+    return { path: relative, checksum: value.checksum };
   });
   return {
     schema_version: 1,
@@ -321,7 +351,7 @@ function readReceipt(targetRoot: string): BootstrapReceipt | null {
     target_identity: raw.target_identity,
     project: { name: project.name, slug: project.slug },
     host: raw.host as BootstrapHost,
-    source: { revision: source.revision, tree_hash: source.tree_hash, bundle_id: source.bundle_id },
+    source: { revision: source.revision, tree_hash: source.tree_hash },
     input_fingerprint: raw.input_fingerprint,
     completed_at: raw.completed_at,
     managed_files: managedFiles,
@@ -377,6 +407,16 @@ function verifyReceiptAssetSet(receipt: BootstrapReceipt, assets: readonly Boots
   }
 }
 
+function readMigrationProvenance(targetRoot: string): ReturnType<typeof validateVNextMigrationReceipt> | null {
+  const filePath = targetPath(targetRoot, VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return validateVNextMigrationReceipt(readJsonObject(filePath, 'vNext migration receipt'), 'vNext migration receipt', { allowHistoricalRuntime: true });
+  } catch (error) {
+    throw new BootstrapFacadeError('MIGRATION_PROVENANCE_INVALID', error instanceof Error ? error.message : String(error));
+  }
+}
+
 export function classifyBootstrapTarget(targetRoot: string): { state: BootstrapTargetState; receipt: BootstrapReceipt | null; reasons: string[] } {
   const resolved = path.resolve(targetRoot);
   const markerPath = targetPath(resolved, VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH);
@@ -392,8 +432,9 @@ export function classifyBootstrapTarget(targetRoot: string): { state: BootstrapT
   if (receipt && receipt.target_identity !== targetIdentity) {
     return { state: 'conflicting', receipt, reasons: ['bootstrap receipt target identity does not match the current target root'] };
   }
+  let profile: Record<string, unknown> | null = null;
   try {
-    const profile = existingProfile(resolved);
+    profile = existingProfile(resolved);
     const profileVNext = profile?.vnext;
     if (isRecord(profileVNext) && profileVNext.target_identity !== undefined && profileVNext.target_identity !== targetIdentity) {
       return { state: 'conflicting', receipt, reasons: ['project profile target identity does not match the current target root'] };
@@ -405,14 +446,42 @@ export function classifyBootstrapTarget(targetRoot: string): { state: BootstrapT
     const missing = receipt.managed_files.filter(file => !fs.existsSync(targetPath(resolved, file.path)) || !fs.statSync(targetPath(resolved, file.path)).isFile() || fileHash(targetPath(resolved, file.path)) !== file.checksum);
     return missing.length === 0 ? { state: 'valid', receipt, reasons: [] } : { state: 'stale', receipt, reasons: missing.map(file => `managed asset drifted: ${file.path}`) };
   }
-  const vnextSignals = [
+  let migrationProvenance: ReturnType<typeof validateVNextMigrationReceipt> | null = null;
+  try {
+    migrationProvenance = readMigrationProvenance(resolved);
+  } catch (error) {
+    return { state: 'conflicting', receipt: null, reasons: [error instanceof Error ? error.message : String(error)] };
+  }
+  if (migrationProvenance) {
+    const migrationProject = profileProject(profile);
+    const expectedMigrationIdentity = migrationProject
+      ? sha256(`${normalizeAbsoluteRootPath(resolved)}\0${migrationProject.slug}`).slice(0, 32)
+      : null;
+    if (expectedMigrationIdentity !== migrationProvenance.target_identity) {
+      return { state: 'conflicting', receipt: null, reasons: ['Migration Pack provenance is not bound to the current target project identity'] };
+    }
+    const hasCanonicalGovernance = profile !== null && fs.existsSync(targetPath(resolved, CURRENT_TASK_RELATIVE_PATH));
+    if (hasCanonicalGovernance) {
+      try {
+        readCanonicalCurrentTask(resolved);
+        return { state: 'governed', receipt: null, reasons: ['the project was governed through the validated Migration Pack; a Bootstrap Receipt is not required'] };
+      } catch (error) {
+        return { state: 'incomplete', receipt: null, reasons: [`Migration Pack provenance exists but canonical CURRENT_TASK is invalid: ${error instanceof Error ? error.message : String(error)}`] };
+      }
+    }
+    return { state: 'incomplete', receipt: null, reasons: ['Migration Pack provenance exists but canonical governance assets are incomplete'] };
+  }
+  const governanceSignals = [
     '.workflow-system/PROJECT_PROFILE.yaml',
-    '.workflow-system/vnext/SOURCE_CONTRACT.yaml',
-    '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
-    '.workflow-system/runtime',
     'docs/workflow/CURRENT_TASK.md',
+    'docs/workflow/CONTRACTS.md',
+    'docs/workflow/DECISIONS.md',
+    'docs/workflow/STATUS.md',
+    'docs/workflow/LESSONS.md',
+    'docs/workflow/ROADMAP.md',
+    'docs/workflow/WORKFLOW_GUIDE.md',
   ];
-  if (vnextSignals.some(signal => fs.existsSync(targetPath(resolved, signal)))) return { state: 'incomplete', receipt: null, reasons: ['vNext assets exist without a valid bootstrap receipt'] };
+  if (governanceSignals.some(signal => fs.existsSync(targetPath(resolved, signal)))) return { state: 'incomplete', receipt: null, reasons: ['vNext governance assets exist without a valid bootstrap or Migration Pack provenance'] };
   return { state: hasMeaningfulImplementation(resolved) ? 'existing' : 'empty', receipt: null, reasons: [] };
 }
 
@@ -495,7 +564,7 @@ function renderWorkflowGuide(project: { name: string; slug: string }): string {
     '',
     '- Runtime state is read from canonical `CURRENT_TASK.md`.',
     '- Contracts, Decisions, Status, and host guidance are changed through typed Runtime proposals.',
-    '- Bootstrap completion requires source/runtime validation, scope admission, atomic promotion, and read-back.',
+    '- Bootstrap completion requires Distribution prerequisite validation, scope admission, governance-only promotion, and read-back.',
     '',
   ].join('\n');
 }
@@ -565,8 +634,8 @@ function renderStatus(project: { name: string; slug: string }, mode: BootstrapMo
     '',
     '## ✅ 已完成且稳定',
     '',
-    '- vNext workflow assets generated from the validated source bundle.',
-    '- Runtime contract, project profile, and canonical task baseline read back successfully.',
+    '- Governance assets generated after the installed Distribution was validated read-only.',
+    '- Project profile and canonical task baseline read back successfully.',
     '',
     '## 🔨 正在开发',
     '',
@@ -654,38 +723,17 @@ function renderRiskRegister(facts: BootstrapFact[] = []): string {
   ].join('\n');
 }
 
-function buildBundle(sourceRoot: string, host: BootstrapHost): { manifest: VNextBundleManifest; bundleDir: string } {
-  const bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), '.workflow-vnext-bootstrap-bundle-'));
-  const skillEntries = ['bootstrap-project', 'prepare-task', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change'];
-  const artifacts: Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> = [
-    { source_path: 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md', target_path: '.workflow-system/WORKFLOW_PROTOCOL.md', category: 'protocol' },
-    { source_path: 'templates/vnext/bootstrap/FILE_SCHEMAS.md', target_path: '.workflow-system/FILE_SCHEMAS.md', category: 'schema' },
-    { source_path: 'templates/vnext/bootstrap/CURRENT_TASK.md', target_path: 'docs/workflow/CURRENT_TASK.md', category: 'generated' },
-    { source_path: '.workflow-system/vnext/SOURCE_CONTRACT.yaml', target_path: '.workflow-system/vnext/SOURCE_CONTRACT.yaml', category: 'config' },
-    { source_path: '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', target_path: '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', category: 'protocol' },
-    { source_path: 'runtime/vnext/dist/cli.js', target_path: '.workflow-system/runtime/dist/cli.js', category: 'runtime' },
-    { source_path: 'runtime/vnext/package.json', target_path: '.workflow-system/runtime/package.json', category: 'runtime' },
-    { source_path: 'runtime/vnext/package-lock.json', target_path: '.workflow-system/runtime/package-lock.json', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/cli.ts', target_path: '.workflow-system/runtime/src/cli.ts', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/current-task.ts', target_path: '.workflow-system/runtime/src/current-task.ts', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/task-state-transaction.ts', target_path: '.workflow-system/runtime/src/task-state-transaction.ts', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/finding-queue-transaction.ts', target_path: '.workflow-system/runtime/src/finding-queue-transaction.ts', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/kernel.ts', target_path: '.workflow-system/runtime/src/kernel.ts', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/runtime-io.ts', target_path: '.workflow-system/runtime/src/runtime-io.ts', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/task-identity.ts', target_path: '.workflow-system/runtime/src/task-identity.ts', category: 'runtime' },
-    { source_path: 'runtime/vnext/src/bootstrap.ts', target_path: '.workflow-system/runtime/src/bootstrap.ts', category: 'runtime' },
-    ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.agents/skills/${entry}/SKILL.md`, category: 'skill' as const })),
-  ];
-  const manifest = buildVNextBundle({ sourceRoot, bundleDir, artifacts });
-  return { manifest, bundleDir };
-}
-
-function bundleAssets(manifest: VNextBundleManifest, bundleDir: string): BootstrapAsset[] {
-  return manifest.artifacts.map(artifact => ({
-    path: artifact.target_path,
-    category: artifact.category === 'generated' ? 'generated' : artifact.category,
-    content: fs.readFileSync(path.join(bundleDir, ...artifact.source_path.split('/')), 'utf8'),
-  }));
+function readBootstrapCurrentTask(sourceRoot: string): string {
+  const relativePath = 'templates/vnext/bootstrap/CURRENT_TASK.md';
+  const filePath = targetPath(sourceRoot, relativePath);
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new BootstrapFacadeError('SOURCE_CONTRACT_INVALID', `Bootstrap governance template is missing: ${relativePath}`);
+  const content = fs.readFileSync(filePath, 'utf8');
+  try {
+    validateVNextCurrentTaskDocument(content, relativePath);
+  } catch (error) {
+    throw new BootstrapFacadeError('SOURCE_CONTRACT_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  return content;
 }
 
 function mergeAssets(...groups: BootstrapAsset[][]): BootstrapAsset[] {
@@ -753,7 +801,7 @@ function renderReceipt(
   targetIdentity: string,
   project: { name: string; slug: string },
   host: BootstrapHost,
-  source: { revision: string; tree_hash: string; bundle_id: string },
+  source: { revision: string; tree_hash: string },
   inputFingerprint: string,
   assets: readonly BootstrapAsset[],
 ): string {
@@ -774,12 +822,11 @@ function renderReceipt(
   return `${JSON.stringify(receipt, null, 2)}\n`;
 }
 
-function receiptMatches(receipt: BootstrapReceipt, expected: { mode: BootstrapMode; targetIdentity: string; project: { name: string; slug: string }; host: BootstrapHost; source: { revision: string; tree_hash: string; bundle_id: string }; inputFingerprint: string }): boolean {
+function receiptMatches(receipt: BootstrapReceipt, expected: { mode: BootstrapMode; targetIdentity: string; project: { name: string; slug: string }; host: BootstrapHost; inputFingerprint: string }): boolean {
   return receipt.mode === expected.mode
     && receipt.target_identity === expected.targetIdentity
     && digest(receipt.project) === digest(expected.project)
     && receipt.host === expected.host
-    && digest(receipt.source) === digest(expected.source)
     && receipt.input_fingerprint === expected.inputFingerprint;
 }
 
@@ -810,7 +857,6 @@ function verifyExistingBootstrapReadBack(
   if (['greenfield', 'adopt', 'realign'].includes(mode)) {
     const profileIdentity = profile?.vnext && isRecord(profile.vnext) ? profile.vnext.target_identity : undefined;
     if (profileIdentity !== targetIdentity) throw new BootstrapFacadeError('BOOTSTRAP_IDENTITY_CONFLICT', 'project profile target_identity does not match the replay target.');
-    validateVNextRuntimeContract(targetRoot, true);
     const current = readCanonicalCurrentTask(targetRoot);
     if (current.runtimeState.workflow_status !== 'closed' || current.runtimeState.lifecycle_state !== 'archived' || current.runtimeState.active_step_status !== 'completed' || (mode !== 'realign' && current.runtimeState.task_id !== '000')) {
       throw new BootstrapFacadeError('BOOTSTRAP_TASK_STATE_INVALID', 'replay target does not retain a closed + archived canonical task state.');
@@ -821,7 +867,7 @@ function verifyExistingBootstrapReadBack(
     id: 'replay-read-back',
     kind: 'receipt-and-authoritative-state-read-back',
     status: 'passed',
-    detail: 'matching ' + mode + ' receipt, project identity ' + project.slug + ', and managed asset/runtime state verified.',
+    detail: 'matching ' + mode + ' receipt, project identity ' + project.slug + ', and Bootstrap-managed governance assets verified; Distribution remains lifecycle-owned.',
   }];
 }
 
@@ -829,24 +875,24 @@ function makeProfileAsset(targetRoot: string, project: { name: string; slug: str
   return { path: '.workflow-system/PROJECT_PROFILE.yaml', category: 'config', content: renderProfile(project, targetIdentity, mode, host, existingProfile(targetRoot)) };
 }
 
-function makeFullAssets(sourceRoot: string, targetRoot: string, project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapHost, facts: BootstrapFact[], designBaseline?: Record<string, string>): { assets: BootstrapAsset[]; bundle: VNextBundleManifest; bundleDir: string } {
-  const { manifest, bundleDir } = buildBundle(sourceRoot, host);
+function renderGovernanceDocument(file: string, project: { name: string; slug: string }, mode: BootstrapMode, facts: BootstrapFact[], designBaseline?: Record<string, string>): string {
+  if (file.endsWith('/CONTRACTS.md')) return renderContracts(project, facts);
+  if (file.endsWith('/DECISIONS.md')) return renderDecisions(project, mode, facts);
+  if (file.endsWith('/STATUS.md')) return renderStatus(project, mode);
+  if (file.endsWith('/LESSONS.md')) return renderLessons();
+  if (file.endsWith('/ROADMAP.md')) return renderRoadmap(project, mode, designBaseline);
+  return renderWorkflowGuide(project);
+}
+
+function makeGovernanceAssets(sourceRoot: string, targetRoot: string, project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapHost, facts: BootstrapFact[], designBaseline?: Record<string, string>): BootstrapAsset[] {
   const generated: BootstrapAsset[] = [
     makeProfileAsset(targetRoot, project, targetIdentity, mode, host),
-    ...FULL_WORKFLOW_DOCS.map(file => {
-      const content = file.endsWith('/CONTRACTS.md') ? renderContracts(project, facts)
-        : file.endsWith('/DECISIONS.md') ? renderDecisions(project, mode, facts)
-          : file.endsWith('/STATUS.md') ? renderStatus(project, mode)
-            : file.endsWith('/LESSONS.md') ? renderLessons()
-              : file.endsWith('/ROADMAP.md') ? renderRoadmap(project, mode, designBaseline)
-              : renderWorkflowGuide(project);
-      return { path: file, category: 'governance' as const, content };
-    }),
+    { path: CURRENT_TASK_RELATIVE_PATH, category: 'generated', content: readBootstrapCurrentTask(sourceRoot) },
+    ...FULL_WORKFLOW_DOCS.map(file => ({ path: file, category: 'governance' as const, content: renderGovernanceDocument(file, project, mode, facts, designBaseline) })),
     { path: 'AGENTS.md', category: 'governance', content: renderGuidance(project) },
     { path: 'CLAUDE.md', category: 'governance', content: renderGuidance(project) },
   ];
-  const assets = mergeAssets(bundleAssets(manifest, bundleDir), generated);
-  return { assets, bundle: manifest, bundleDir };
+  return generated;
 }
 
 function modeFacts(options: BootstrapProjectOptions): BootstrapFact[] {
@@ -885,6 +931,8 @@ function modePrecondition(targetRoot: string, mode: BootstrapMode, state: Bootst
   if (state === 'in-progress') blockers.push({ code: 'BOOTSTRAP_IN_PROGRESS', message: 'an interrupted bootstrap marker requires explicit recovery before retry.' });
   if (state === 'legacy') blockers.push({ code: 'MIGRATION_REQUIRED', message: 'legacy/compatibility assets are outside bootstrap; run the offline migration boundary.' });
   if (state === 'conflicting') blockers.push({ code: 'BOOTSTRAP_CONFLICT', message: 'existing bootstrap receipt or asset identity is conflicting.' });
+  if (state === 'governed' && mode !== 'realign') blockers.push({ code: 'BOOTSTRAP_NOT_REQUIRED', message: 'Migration Pack provenance and canonical governance assets already establish a governed vNext project; Bootstrap is not required.' });
+  if (state === 'governed' && mode !== 'realign') return blockers;
   if (mode === 'design') {
     if (state !== 'empty' && state !== 'existing' && state !== 'valid') blockers.push({ code: 'BOOTSTRAP_STATE_INVALID', message: 'design mode only accepts an uninitialized target or a valid replay.' });
     if (Object.keys(baseline).length === 0) blockers.push({ code: 'DESIGN_EVIDENCE_MISSING', message: 'design mode requires a caller-provided design baseline.' });
@@ -903,7 +951,7 @@ function modePrecondition(targetRoot: string, mode: BootstrapMode, state: Bootst
     if (facts.length === 0) blockers.push({ code: 'ADOPTION_FACTS_MISSING', message: 'adopt mode requires a confirmed/inferred/unknown fact set with provenance.' });
   }
   if (mode === 'realign') {
-    if (!['valid', 'stale', 'incomplete'].includes(state)) blockers.push({ code: 'REALIGN_PRECONDITION', message: 'realign mode requires an existing pure vNext workflow asset surface.' });
+    if (!['valid', 'stale', 'incomplete', 'governed'].includes(state)) blockers.push({ code: 'REALIGN_PRECONDITION', message: 'realign mode requires an existing governed vNext workflow asset surface.' });
   }
   return blockers;
 }
@@ -942,8 +990,8 @@ function modeEvidence(mode: BootstrapMode, state: BootstrapTargetState, source: 
   ];
 }
 
-function publicPlan(plan: BootstrapPlan): Omit<BootstrapPlan, 'proposal' | 'bundle_dir' | 'prepared_runtime'> {
-  const { proposal: _proposal, bundle_dir: _bundle, prepared_runtime: _runtime, ...publicValue } = plan;
+function publicPlan(plan: BootstrapPlan): Omit<BootstrapPlan, 'proposal'> {
+  const { proposal: _proposal, ...publicValue } = plan;
   return publicValue;
 }
 
@@ -988,17 +1036,22 @@ export function buildBootstrapPlan(options: BootstrapProjectOptions): BootstrapP
   const baseline = designFacts(options);
   const facts = modeFacts(options);
   const preconditionBlockers = modePrecondition(targetRoot, mode, classification.state, options, baseline, facts);
-  const evidence = modeEvidence(mode, classification.state, source, facts);
+  let evidence = modeEvidence(mode, classification.state, source, facts);
   if (preconditionBlockers.length > 0) return { status: preconditionBlockers.some(issue => issue.code.endsWith('CONFIRMATION_REQUIRED') || issue.code === 'DESIGN_EVIDENCE_MISSING' || issue.code === 'INVENTORY_REQUIRED' || issue.code === 'ADOPTION_FACTS_MISSING') ? 'needs-confirmation' : 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: preconditionBlockers, warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), evidence, read_back_verified: false, replay: false, caller_obligation: 'Satisfy the mode-specific precondition and rerun with the same target identity.' };
 
+  const distributionPackageRoot = path.resolve(options.distributionPackageRoot ?? path.join(sourceRoot, 'packages', 'vibe-governance'));
+  let distribution: ReturnType<typeof validateInstalledDistribution>;
+  try {
+    distribution = validateInstalledDistribution(targetRoot, distributionPackageRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: [{ code: 'DISTRIBUTION_PREREQUISITE_FAILED', message: `Bootstrap requires a valid installed Vibe Governance Distribution: ${message}` }], warnings: classification.reasons.map(messageValue => ({ code: 'TARGET_STATE', message: messageValue })), evidence: [...evidence, { id: 'distribution-read-back', kind: 'installed-distribution-read-back', status: 'blocked', detail: message }], read_back_verified: false, replay: false, caller_obligation: 'Run or repair the Distribution install/migrate/upgrade boundary, then rerun Bootstrap.' };
+  }
+  evidence = [...evidence, { id: 'distribution-read-back', kind: 'installed-distribution-read-back', status: 'passed', detail: `Distribution ${distribution.state.distribution_version} and ${distribution.manifest.artifacts.length} managed software artifacts passed payload, state, checksum, Skill-layout, and project-local Runtime read-back.` }];
+
   let assets: BootstrapAsset[];
-  let bundle: VNextBundleManifest | undefined;
-  let bundleDir: string | undefined;
   if (['greenfield', 'adopt', 'realign'].includes(mode)) {
-    const full = makeFullAssets(sourceRoot, targetRoot, project, targetIdentity, mode, host, facts, baseline);
-    assets = full.assets;
-    bundle = full.bundle;
-    bundleDir = full.bundleDir;
+    assets = makeGovernanceAssets(sourceRoot, targetRoot, project, targetIdentity, mode, host, facts, baseline);
     const extra = mode === 'adopt' ? [{ path: 'docs/adoption/ADOPTION_DECISION.md', category: 'governance' as const, content: renderDecisions(project, mode, facts) }] : [];
     assets = mergeAssets(assets, extra);
     if (mode === 'realign' && fs.existsSync(targetPath(targetRoot, CURRENT_TASK_RELATIVE_PATH))) {
@@ -1008,17 +1061,17 @@ export function buildBootstrapPlan(options: BootstrapProjectOptions): BootstrapP
     assets = makeModeAssets(targetRoot, project, mode, baseline, facts);
   }
   const inputFingerprint = digest({ mode, project, host, baseline, facts, targetIdentity });
-  const receiptAsset: BootstrapAsset = { path: VNEXT_BOOTSTRAP_RECEIPT_RELATIVE_PATH, category: 'config', content: renderReceipt(mode, targetIdentity, project, host, { revision: source.revision, tree_hash: source.tree_hash, bundle_id: bundle?.bundle_id ?? `stage-${inputFingerprint.slice(0, 24)}` }, inputFingerprint, assets) };
+  const receiptAsset: BootstrapAsset = { path: VNEXT_BOOTSTRAP_RECEIPT_RELATIVE_PATH, category: 'config', content: renderReceipt(mode, targetIdentity, project, host, source, inputFingerprint, assets) };
   assets = mergeAssets(assets, [receiptAsset]);
-  const expected = { mode, targetIdentity, project, host, source: { revision: source.revision, tree_hash: source.tree_hash, bundle_id: bundle?.bundle_id ?? ('stage-' + inputFingerprint.slice(0, 24)) }, inputFingerprint };
+  const expected = { mode, targetIdentity, project, host, inputFingerprint };
   const plannedWrites = assets.map(asset => asset.path).sort();
-  const plannedDirectories = ['greenfield', 'adopt', 'realign'].includes(mode) ? ['.workflow-system/runtime/node_modules'] : [];
+  const plannedDirectories: string[] = [];
   if (classification.state === 'valid' && classification.receipt && receiptMatches(classification.receipt, expected)) {
     try {
       const replayEvidence = verifyExistingBootstrapReadBack(targetRoot, mode, targetIdentity, project, classification.receipt, assets);
-      return { status: 'replayed', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], evidence: [...evidence, ...replayEvidence], read_back_verified: true, replay: true, caller_obligation: 'No mutation is required; continue through the existing daily task preparation path.' };
+      return { status: 'replayed', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], evidence: [...evidence, ...replayEvidence], read_back_verified: true, replay: true, caller_obligation: 'No mutation is required; continue through the existing daily task preparation path.' };
     } catch (error) {
-      return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapFacadeError ? error.code : 'BOOTSTRAP_REPLAY_READ_BACK_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: [], evidence, read_back_verified: false, replay: false, caller_obligation: 'Repair the authoritative target drift before retrying bootstrap replay.' };
+      return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapFacadeError ? error.code : 'BOOTSTRAP_REPLAY_READ_BACK_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: [], evidence, read_back_verified: false, replay: false, caller_obligation: 'Repair the authoritative target governance drift before retrying bootstrap replay.' };
     }
   }
   const conditionalPaths = classification.state === 'stale' || classification.state === 'incomplete' || mode === 'realign'
@@ -1044,8 +1097,8 @@ export function buildBootstrapPlan(options: BootstrapProjectOptions): BootstrapP
       { kind: 'evidence-admission', source: 'bootstrap evidence plan', subject: `source:${source.tree_hash}` },
     ],
     semantic_operations: semanticOperations(assets, mode),
-    preconditions: [`target state admitted: ${classification.state}`, 'source/runtime contract validation passed', 'no legacy compatibility surface is promoted'],
-    evidence_refs: ['evidence:source-contract', 'evidence:runtime-contract', 'evidence:bundle-validation', 'evidence:read-back'],
+    preconditions: [`target state admitted: ${classification.state}`, 'source/runtime contract validation passed', 'installed Distribution payload/state/runtime/Skill read-back validation passed', 'Bootstrap promotes governance assets only', 'no legacy compatibility surface is promoted'],
+    evidence_refs: ['evidence:source-contract', 'evidence:runtime-contract', 'evidence:distribution-read-back', 'evidence:read-back'],
     idempotency_key: `bootstrap-${mode}-${targetIdentity}-${inputFingerprint.slice(0, 16)}`,
     requested_write_targets: plannedWrites,
     requested_directory_targets: plannedDirectories,
@@ -1065,40 +1118,28 @@ export function buildBootstrapPlan(options: BootstrapProjectOptions): BootstrapP
   } catch (error) {
     blockers.push({ code: error instanceof BootstrapFacadeError ? error.code : 'BOOTSTRAP_SCOPE_BLOCKED', message: error instanceof Error ? error.message : String(error) });
   }
-  if (blockers.length > 0) return { status: changedPaths.length === 0 ? 'needs-confirmation' : 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: { ...source, ...(bundle ? { bundle_id: bundle.bundle_id } : {}) }, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers, warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), evidence, read_back_verified: false, replay: false, caller_obligation: `Caller must provide changed_paths exactly equal to ${allChangedPaths.join(', ')} and authorize Conditional targets with evidence and authority.`, proposal, bundle_dir: bundleDir };
+  if (blockers.length > 0) return { status: changedPaths.length === 0 ? 'needs-confirmation' : 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers, warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), evidence, read_back_verified: false, replay: false, caller_obligation: `Caller must provide changed_paths exactly equal to ${allChangedPaths.join(', ')} and authorize Conditional targets with evidence and authority.`, proposal };
 
   if (classification.state === 'valid' && classification.receipt && !isValidReceiptModeTransition(classification.receipt.mode, mode)) {
-    return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [{ code: 'BOOTSTRAP_IDENTITY_CONFLICT', message: 'a valid bootstrap receipt exists but its source, mode, host, or input identity differs.' }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: 'Use realign with explicit Conditional authorization or preserve the existing valid bootstrap.', proposal, bundle_dir: bundleDir };
-  }
-  let preparedRuntime: PreparedRuntimeDistribution | undefined;
-  if (options.write && plannedDirectories.length > 0 && bundle) {
-    try {
-      preparedRuntime = prepareRuntimeDistribution(bundleDir!, bundle.artifacts);
-    } catch (error) {
-      return { status: 'rejected', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [{ code: 'RUNTIME_STAGE_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: 'Repair the staged Runtime distribution failure; no target promotion occurred.', proposal, bundle_dir: bundleDir };
-    }
+    return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [{ code: 'BOOTSTRAP_IDENTITY_CONFLICT', message: 'a valid bootstrap receipt exists but its mode, host, or input identity differs.' }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: 'Use realign with explicit Conditional authorization or preserve the existing valid bootstrap.', proposal };
   }
   const markerPath = targetPath(targetRoot, VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH);
   if (options.write && changedPaths.length === 0) {
-    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
-    return { status: 'needs-confirmation', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: [], blockers: [{ code: 'CHANGED_PATHS_REQUIRED', message: `caller must provide exact changed_paths: ${allChangedPaths.join(', ')}` }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: `Provide changed_paths exactly equal to ${allChangedPaths.join(', ')}.`, proposal, bundle_dir: bundleDir, prepared_runtime: preparedRuntime };
+    return { status: 'needs-confirmation', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: [], blockers: [{ code: 'CHANGED_PATHS_REQUIRED', message: `caller must provide exact changed_paths: ${allChangedPaths.join(', ')}` }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: `Provide changed_paths exactly equal to ${allChangedPaths.join(', ')}.`, proposal };
   }
   if (!options.write) {
-    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
-    return { status: 'ready', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [], warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), evidence: [...evidence, { id: 'scope-admission', kind: 'mutation-scope', status: 'passed', detail: 'exact changed_paths admitted by the shared evaluator.' }], scope, read_back_verified: false, replay: false, caller_obligation: 'Dry-run only. Reinvoke with --write and the exact planned changed_paths to promote.', proposal, bundle_dir: bundleDir };
+    return { status: 'ready', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [], warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), evidence: [...evidence, { id: 'scope-admission', kind: 'mutation-scope', status: 'passed', detail: 'exact changed_paths admitted by the shared evaluator.' }], scope, read_back_verified: false, replay: false, caller_obligation: 'Dry-run only. Reinvoke with --write and the exact planned changed_paths to promote governance assets only.', proposal };
   }
   for (const relative of plannedWrites) {
     if (isFrozenPath(targetRoot, relative)) {
-      if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
-      return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [{ code: 'FROZEN_PATH', message: 'bootstrap cannot replace a frozen target.', path: relative }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: 'Unfreeze only through the target owner and rerun with explicit authority.', proposal, bundle_dir: bundleDir };
+      return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [{ code: 'FROZEN_PATH', message: 'bootstrap cannot replace a frozen target.', path: relative }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: 'Unfreeze only through the target owner and rerun with explicit authority.', proposal };
     }
     const existing = targetPath(targetRoot, relative);
     if (fs.existsSync(existing) && !existingIsWorkflowOwned(targetRoot, relative, classification.receipt)) {
-      if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
-      return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [{ code: 'HOST_OR_ASSET_CONFLICT', message: 'target-owned/native asset would be overwritten.', path: relative }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: 'Classify the asset as workflow-owned or provide a conflict resolution; bootstrap will not overwrite it.', proposal, bundle_dir: bundleDir };
+      return { status: 'blocked', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [{ code: 'HOST_OR_ASSET_CONFLICT', message: 'target-owned/native asset would be overwritten.', path: relative }], warnings: [], evidence, scope, read_back_verified: false, replay: false, caller_obligation: 'Classify the asset as workflow-owned or provide a conflict resolution; bootstrap will not overwrite it.', proposal };
     }
   }
-  return { status: 'ready', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source: expected.source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [], warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), evidence: [...evidence, { id: 'scope-admission', kind: 'mutation-scope', status: 'passed', detail: 'exact changed_paths admitted by the shared evaluator.' }, { id: 'bundle-validation', kind: 'pure-vnext-bundle', status: 'passed', detail: `bundle ${bundle?.bundle_id ?? 'mode-only'} validated.` }], scope, read_back_verified: false, replay: false, caller_obligation: 'Promotion is authorized by the validated proposal; post-promotion health/read-back is mandatory.', proposal, bundle_dir: bundleDir, prepared_runtime: preparedRuntime };
+  return { status: 'ready', mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project, host, source, planned_writes: plannedWrites, planned_directories: plannedDirectories, planned_deletes: [], changed_paths: changedPaths, blockers: [], warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), evidence: [...evidence, { id: 'scope-admission', kind: 'mutation-scope', status: 'passed', detail: 'exact changed_paths admitted by the shared evaluator.' }], scope, read_back_verified: false, replay: false, caller_obligation: 'Promotion is authorized by the validated proposal; post-promotion governance health/read-back is mandatory.', proposal };
 }
 
 function verifyNoLegacySurface(targetRoot: string): void {
@@ -1112,8 +1153,14 @@ function verifyNoLegacySurface(targetRoot: string): void {
   }
 }
 
-function verifyBootstrapHealth(targetRoot: string, proposal: BootstrapProjectProposal): BootstrapEvidence[] {
-  const evidence: BootstrapEvidence[] = [];
+function verifyBootstrapHealth(targetRoot: string, proposal: BootstrapProjectProposal, distributionPackageRoot: string): BootstrapEvidence[] {
+  const distribution = validateInstalledDistribution(targetRoot, distributionPackageRoot);
+  const evidence: BootstrapEvidence[] = [{
+    id: 'distribution-read-back',
+    kind: 'installed-distribution-read-back',
+    status: 'passed',
+    detail: `Distribution ${distribution.state.distribution_version} remained valid while Bootstrap read back governance assets only.`,
+  }];
   if (['greenfield', 'adopt', 'realign'].includes(proposal.mode)) {
     const runtime = validateVNextRuntimeContract(targetRoot, true);
     evidence.push({ id: 'runtime-read-back', kind: 'runtime-contract-and-dependency-read-back', status: 'passed', detail: `Runtime ${runtime.runtime_distribution.package_version} and locked dependency tree verified.` });
@@ -1147,21 +1194,18 @@ export function bootstrapProject(options: BootstrapProjectOptions): BootstrapPla
   if (plan.status !== 'ready' || options.write !== true || !plan.proposal) return plan;
   const beforeHash = computeCompleteTreeHash(plan.target_root, [VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH]);
   const markerPath = targetPath(plan.target_root, VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH);
+  const distributionPackageRoot = path.resolve(options.distributionPackageRoot ?? path.join(path.resolve(options.sourceRoot ?? resolveRoot()), 'packages', 'vibe-governance'));
   try {
     fs.mkdirSync(path.dirname(markerPath), { recursive: true });
     fs.writeFileSync(markerPath, markerValue(plan), 'utf8');
-    const directories = plan.prepared_runtime ? [{ path: '.workflow-system/runtime/node_modules', sourcePath: plan.prepared_runtime.sourceNodeModulesPath }] : [];
     applyBootstrapProjectProposal(plan.target_root, plan.proposal, {
-      directory_sources: directories,
       verify: () => {
-        verifyBootstrapHealth(plan.target_root, plan.proposal!);
+        verifyBootstrapHealth(plan.target_root, plan.proposal!, distributionPackageRoot);
       },
     });
     if (fs.existsSync(markerPath)) fs.rmSync(markerPath, { force: true });
-    if (plan.prepared_runtime) fs.rmSync(plan.prepared_runtime.stagingRoot, { recursive: true, force: true });
-    return { ...plan, status: 'installed', read_back_verified: true, evidence: [...plan.evidence, ...verifyBootstrapHealth(plan.target_root, plan.proposal)], caller_obligation: 'Bootstrap complete. Prepare the first real task through the daily Runtime path.' };
+    return { ...plan, status: 'installed', read_back_verified: true, evidence: [...plan.evidence, ...verifyBootstrapHealth(plan.target_root, plan.proposal, distributionPackageRoot)], caller_obligation: 'Bootstrap complete. Prepare the first real task through the daily Runtime path.' };
   } catch (error) {
-    if (plan.prepared_runtime) fs.rmSync(plan.prepared_runtime.stagingRoot, { recursive: true, force: true });
     let rollbackVerified = false;
     try {
       rollbackVerified = computeCompleteTreeHash(plan.target_root, [VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH]) === beforeHash;
@@ -1188,7 +1232,6 @@ export function recoverBootstrapProject(targetRoot: string): { status: 'recovere
       verifyReceiptManagedFiles(targetRoot, receipt);
       verifyNoLegacySurface(targetRoot);
       if (['greenfield', 'adopt', 'realign'].includes(receipt.mode)) {
-        validateVNextRuntimeContract(targetRoot, true);
         const current = readCanonicalCurrentTask(targetRoot);
         if (current.runtimeState.workflow_status !== 'closed' || current.runtimeState.lifecycle_state !== 'archived' || current.runtimeState.active_step_status !== 'completed' || (receipt.mode !== 'realign' && current.runtimeState.task_id !== '000')) {
           throw new BootstrapFacadeError('BOOTSTRAP_TASK_STATE_INVALID', 'completed bootstrap receipt does not retain a closed + archived canonical task state.');

@@ -1148,9 +1148,20 @@ function validateBootstrapRuntimeContract(value: unknown): string[] {
 
   const assetBoundary = expectRecord(bootstrap.asset_boundary, 'Runtime contract.bootstrap_project.asset_boundary');
   expectExactKeys(assetBoundary, ['allowed_roots', 'forbidden_targets', 'generated_categories'], 'Runtime contract.bootstrap_project.asset_boundary');
-  expectStringArray(assetBoundary.allowed_roots, 'Runtime contract.bootstrap_project.asset_boundary.allowed_roots');
-  expectStringArray(assetBoundary.forbidden_targets, 'Runtime contract.bootstrap_project.asset_boundary.forbidden_targets');
-  expectStringArray(assetBoundary.generated_categories, 'Runtime contract.bootstrap_project.asset_boundary.generated_categories');
+  expectSetEqual(
+    expectStringArray(assetBoundary.allowed_roots, 'Runtime contract.bootstrap_project.asset_boundary.allowed_roots'),
+    ['.workflow-system/PROJECT_PROFILE.yaml', '.workflow-system/vnext/BOOTSTRAP_RECEIPT.json', 'docs/workflow/', 'docs/designs/', 'docs/adoption/', 'AGENTS.md', 'CLAUDE.md'],
+    'bootstrap allowed asset roots',
+  );
+  const forbiddenTargets = expectStringArray(assetBoundary.forbidden_targets, 'Runtime contract.bootstrap_project.asset_boundary.forbidden_targets');
+  for (const required of ['.workflow-system/WORKFLOW_PROTOCOL.md', '.workflow-system/FILE_SCHEMAS.md', '.workflow-system/vnext/SOURCE_CONTRACT.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', '.workflow-system/runtime/**', '.agents/skills/**']) {
+    if (!forbiddenTargets.includes(required)) fail('RUNTIME_CONTRACT_INVALID', `bootstrap forbidden target must include ${required}.`);
+  }
+  expectSetEqual(
+    expectStringArray(assetBoundary.generated_categories, 'Runtime contract.bootstrap_project.asset_boundary.generated_categories'),
+    ['config', 'generated', 'governance'],
+    'bootstrap generated asset categories',
+  );
 
   const operations = bootstrap.operations;
   if (!Array.isArray(operations) || operations.length !== BOOTSTRAP_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', `bootstrap_project must declare exactly ${BOOTSTRAP_OPERATION_KINDS.length} typed operations.`);
@@ -1182,7 +1193,7 @@ function validateBootstrapRuntimeContract(value: unknown): string[] {
   if (recovery.marker !== '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' || recovery.interrupted !== 'fail-closed-explicit-recovery' || recovery.rollback !== 'verify-pre-bootstrap-snapshot-before-marker-clear') fail('RUNTIME_CONTRACT_INVALID', 'bootstrap recovery must use the explicit interruption marker and verified rollback boundary.');
   const readBack = expectRecord(bootstrap.read_back, 'Runtime contract.bootstrap_project.read_back');
   expectExactKeys(readBack, ['required'], 'Runtime contract.bootstrap_project.read_back');
-  expectSetEqual(expectStringArray(readBack.required, 'Runtime contract.bootstrap_project.read_back.required'), ['asset-checksums', 'project-identity', 'runtime-contract', 'canonical-CURRENT_TASK', 'host-isolation'], 'bootstrap read-back evidence');
+  expectSetEqual(expectStringArray(readBack.required, 'Runtime contract.bootstrap_project.read_back.required'), ['asset-checksums', 'project-identity', 'runtime-contract', 'distribution-prerequisite', 'canonical-CURRENT_TASK', 'host-isolation'], 'bootstrap read-back evidence');
   return bound;
 }
 

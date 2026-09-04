@@ -413,7 +413,7 @@ capabilities:
   - id: host-isolation-guard
     exposure: internal
     trigger:
-      - bootstrap or synchronization may touch a host guidance or Skill surface
+      - bootstrap or synchronization may touch a host guidance surface
     input_contract:
       - target host and paired guidance paths
       - target-owned, native, frozen, and workflow-owned asset classification

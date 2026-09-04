@@ -132,6 +132,13 @@ Installation occurs only after the offline pack is complete and valid. The insta
 
 The old names are not resolvable after installation. A target project is not expected to keep the old runtime available as a fallback. The canonical Skill surface is `.agents/skills/<skill-name>/SKILL.md`; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` are retained only as legacy/source compatibility inputs and are not new Distribution targets.
 
+After migration, the converted project is already governed through the
+Migration Pack provenance and canonical governance documents. It does not need
+`BOOTSTRAP_RECEIPT.json` to be recognized as governed, and Bootstrap is not a
+second software-installation phase. Bootstrap may later perform an explicit
+governance-only realignment, while Runtime, Protocol, Schema, and Agent Skills
+remain owned exclusively by the Distribution lifecycle.
+
 ### 3.5 Unsupported schema in vNext
 
 vNext readers support only the vNext schema. They may perform a schema check, but they do not become long-term version-aware readers and do not parse legacy content.

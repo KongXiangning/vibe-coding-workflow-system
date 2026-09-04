@@ -685,11 +685,12 @@ export function computeTreeHash(root: string, ignoredRelativePaths: readonly str
 }
 
 /**
- * Bootstrap rollback snapshots must include the promoted Runtime `dist/` and
- * locked dependency tree. The source/migration identity hash intentionally
- * excludes those generated directories, so keep this stricter snapshot
- * separate from computeTreeHash rather than changing existing migration
- * identity semantics.
+ * This stricter snapshot is retained for the existing bootstrap rollback
+ * boundary, whose caller may need to prove that the target was restored after
+ * a governance transaction failure. Distribution install/upgrade uses the
+ * scoped hash below instead; it must never snapshot the whole business tree.
+ * Keep this separate from computeTreeHash so source/migration identity
+ * semantics do not change.
  */
 export function computeCompleteTreeHash(root: string, ignoredRelativePaths: readonly string[] = []): string {
   const resolvedRoot = path.resolve(root);
@@ -2890,24 +2891,34 @@ function validateInProgressMarker(targetRoot: string): VNextMigrationInProgress 
   return result;
 }
 
-function validateRuntimeDistributionIdentity(value: unknown, location: string): RuntimeDistributionIdentity | null {
+type RuntimeDistributionValidationOptions = {
+  allowHistoricalRuntime?: boolean;
+};
+
+function validateRuntimeDistributionIdentity(value: unknown, location: string, options: RuntimeDistributionValidationOptions = {}): RuntimeDistributionIdentity | null {
   if (value === null) return null;
   const distribution = expectRecord(value, location);
   expectExactKeys(distribution, ['kind', 'package_path', 'entrypoint', 'package_version', 'node_min_version', 'package_lock_sha256', 'entrypoint_sha256'], location);
+  const packageVersion = expectString(distribution.package_version, location + '.package_version');
+  const nodeMinVersion = expectString(distribution.node_min_version, location + '.node_min_version');
   const packageLockSha = expectString(distribution.package_lock_sha256, location + '.package_lock_sha256');
   const entrypointSha = expectString(distribution.entrypoint_sha256, location + '.entrypoint_sha256');
   if (!/^[a-f0-9]{64}$/.test(packageLockSha) || !/^[a-f0-9]{64}$/.test(entrypointSha)) {
     throw new MigrationPackError('INSTALL_CONFLICT', location + ' checksum fields are invalid.');
   }
-  if (distribution.kind !== 'project-local-node' || distribution.package_path !== VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH || distribution.entrypoint !== VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH || distribution.package_version !== VNEXT_RUNTIME_PACKAGE_VERSION || distribution.node_min_version !== VNEXT_RUNTIME_NODE_MIN_VERSION) {
+  const hasCanonicalIdentity = distribution.kind === 'project-local-node'
+    && distribution.package_path === VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH
+    && distribution.entrypoint === VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH;
+  const hasCurrentRuntimeIdentity = packageVersion === VNEXT_RUNTIME_PACKAGE_VERSION && nodeMinVersion === VNEXT_RUNTIME_NODE_MIN_VERSION;
+  if (!hasCanonicalIdentity || (!options.allowHistoricalRuntime && !hasCurrentRuntimeIdentity)) {
     throw new MigrationPackError('INSTALL_CONFLICT', location + ' does not declare the canonical Runtime distribution identity.');
   }
   return {
     kind: 'project-local-node',
     package_path: VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
     entrypoint: VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH,
-    package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
-    node_min_version: VNEXT_RUNTIME_NODE_MIN_VERSION,
+    package_version: packageVersion,
+    node_min_version: nodeMinVersion,
     package_lock_sha256: packageLockSha,
     entrypoint_sha256: entrypointSha,
   };
@@ -2984,7 +2995,12 @@ function validateVNextInstallState(value: unknown, location: string): VNextInsta
   };
 }
 
-function validateVNextMigrationReceipt(value: unknown, location: string): { migration_pack_id: string; bundle_id: string; source_revision: string; source_tree_hash: string; target_identity: string; runtime_distribution: RuntimeDistributionIdentity | null; installed_at: string; converted_artifact_ids: string[] } {
+export type VNextMigrationReceiptValidationOptions = {
+  /** Bootstrap treats migration Runtime identity as historical provenance. */
+  allowHistoricalRuntime?: boolean;
+};
+
+export function validateVNextMigrationReceipt(value: unknown, location: string, options: VNextMigrationReceiptValidationOptions = {}): { migration_pack_id: string; bundle_id: string; source_revision: string; source_tree_hash: string; target_identity: string; runtime_distribution: RuntimeDistributionIdentity | null; installed_at: string; converted_artifact_ids: string[] } {
   const receipt = expectRecord(value, location);
   expectExactKeys(receipt, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility'], location);
   if (receipt.schema_version !== 1 || receipt.kind !== 'vnext-migration-receipt' || receipt.legacy_compatibility !== 'absent') {
@@ -2994,7 +3010,7 @@ function validateVNextMigrationReceipt(value: unknown, location: string): { migr
   const bundleId = expectString(receipt.bundle_id, `${location}.bundle_id`);
   const sourceTreeHash = expectString(receipt.source_tree_hash, `${location}.source_tree_hash`);
   const targetIdentity = expectString(receipt.target_identity, `${location}.target_identity`);
-  const runtimeDistribution = validateRuntimeDistributionIdentity(receipt.runtime_distribution, `${location}.runtime_distribution`);
+  const runtimeDistribution = validateRuntimeDistributionIdentity(receipt.runtime_distribution, `${location}.runtime_distribution`, options);
   if (!/^migration-[a-f0-9]{24}$/.test(migrationPackId) || !/^bundle-[a-f0-9]{24}$/.test(bundleId) || !/^[a-f0-9]{64}$/.test(sourceTreeHash) || !/^[a-f0-9]{32}$/.test(targetIdentity)) {
     throw new MigrationPackError('INSTALL_CONFLICT', `${location} has invalid identity fields.`);
   }
@@ -3010,6 +3026,15 @@ function validateVNextMigrationReceipt(value: unknown, location: string): { migr
     installed_at: expectString(receipt.installed_at, `${location}.installed_at`),
     converted_artifact_ids: convertedArtifactIds,
   };
+}
+
+/**
+ * Validate the source-side canonical CURRENT_TASK template without building
+ * or promoting a Distribution bundle. Bootstrap uses this existing bundle
+ * content validator for its governance baseline only.
+ */
+export function validateVNextCurrentTaskDocument(content: string, location = 'vNext bootstrap CURRENT_TASK.md'): void {
+  validateVNextCurrentTaskBundleContent(content, location);
 }
 
 type AtomicDirectoryWrite = { path: string; sourcePath: string };

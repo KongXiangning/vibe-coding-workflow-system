@@ -23,7 +23,9 @@ Skill.
   their typed Runtime operation boundaries.
 - vNext Skills are installed canonically under `.agents/skills/<skill-name>/SKILL.md`; old
   host-specific Skill directories are compatibility inputs only.
-- Generated assets are staged, validated, promoted atomically, and read back.
+- Bootstrap-owned governance assets are staged, validated, promoted atomically,
+  and read back; Distribution software is validated separately as a read-only
+  prerequisite.
 - An interruption marker is fail-closed evidence, not permission to guess a
   recovery action.
 

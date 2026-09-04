@@ -898,11 +898,10 @@ var BOOTSTRAP_OPERATION_KINDS = [
   "project-status-transaction",
   "paired-host-guidance-transaction"
 ];
-var BOOTSTRAP_ASSET_CATEGORIES = ["protocol", "schema", "skill", "runtime", "config", "generated", "governance"];
+var BOOTSTRAP_ASSET_CATEGORIES = ["config", "generated", "governance"];
 var SAFE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u;
 var TARGET_IDENTITY_PATTERN = /^[a-f0-9]{32}$/u;
 var SHA256_PATTERN = /^[a-f0-9]{64}$/u;
-var HOST_GUIDANCE_PATHS = new Set(["AGENTS.md", "CLAUDE.md"]);
 
 class BootstrapRuntimeError extends Error {
   code;
@@ -960,21 +959,19 @@ function computeBootstrapTargetIdentity(root) {
   const resolved = path3.resolve(root).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
   return sha256(resolved).slice(0, 32);
 }
-function isCanonicalSkillPath(value) {
-  return /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(value);
-}
 function isAllowedAssetPath(value) {
-  if (value === "AGENTS.md" || value === "CLAUDE.md" || isCanonicalSkillPath(value))
+  if (value === "AGENTS.md" || value === "CLAUDE.md")
     return true;
-  return value === ".workflow-system/PROJECT_PROFILE.yaml" || value === ".workflow-system/WORKFLOW_PROTOCOL.md" || value === ".workflow-system/FILE_SCHEMAS.md" || value.startsWith(".workflow-system/vnext/") || value.startsWith(".workflow-system/runtime/") || value.startsWith("docs/workflow/") || value.startsWith("docs/designs/") || value.startsWith("docs/adoption/");
+  return value === ".workflow-system/PROJECT_PROFILE.yaml" || value === ".workflow-system/vnext/BOOTSTRAP_RECEIPT.json" || value.startsWith("docs/workflow/") || value.startsWith("docs/designs/") || value.startsWith("docs/adoption/");
 }
 function isForbiddenAssetPath(value) {
-  if (value.startsWith(".workflow-system/runtime/"))
-    return false;
+  const distributionOwned = value === ".workflow-system/WORKFLOW_PROTOCOL.md" || value === ".workflow-system/FILE_SCHEMAS.md" || value === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || value === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || value === ".workflow-system/vnext/DISTRIBUTION_STATE.json" || value === ".workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json" || value.startsWith(".workflow-system/runtime/") || value.startsWith(".agents/skills/");
+  if (distributionOwned)
+    return true;
   const segments = value.split("/");
   if (segments.includes(".git"))
     return true;
-  if (segments.includes("node_modules") && !value.startsWith(".workflow-system/runtime/"))
+  if (segments.includes("node_modules"))
     return true;
   if (["src", "app", "lib", "packages"].some((segment) => segments.includes(segment)))
     return true;
@@ -1055,13 +1052,11 @@ function validateTargetSet(proposal, assets) {
   const actual = new Set(assetPaths);
   if (requested.size !== actual.size || [...requested].some((value) => !actual.has(value)))
     fail("BOOTSTRAP_TARGET_CONFLICT", "requested_write_targets must equal the generated asset target set.");
-  for (const directory of proposal.requested_directory_targets) {
-    if (!directory.endsWith("/node_modules") || !directory.startsWith(".workflow-system/runtime/"))
-      fail("BOOTSTRAP_TARGET_FORBIDDEN", `directory target is outside the Runtime dependency boundary: ${directory}`);
-  }
+  if (proposal.requested_directory_targets.length > 0)
+    fail("BOOTSTRAP_TARGET_FORBIDDEN", "Bootstrap cannot promote Distribution directories; project-local Runtime dependencies are installed by Distribution.");
   const expectedChanged = new Set([...assetPaths, ...proposal.requested_directory_targets]);
   if (expectedChanged.size !== proposal.changed_paths.length || proposal.changed_paths.some((value) => !expectedChanged.has(value)))
-    fail("BOOTSTRAP_SCOPE_INVALID", "changed_paths must enumerate every generated file and staged Runtime directory exactly once.");
+    fail("BOOTSTRAP_SCOPE_INVALID", "changed_paths must enumerate every generated governance asset exactly once.");
   if (proposal.delete_targets.length > 0)
     fail("BOOTSTRAP_SCOPE_INVALID", "bootstrap does not support untyped deletion; use realign with an explicit implementation change.");
 }
@@ -1177,27 +1172,7 @@ function absoluteTarget(root, relativePath) {
 function contentHash(content) {
   return sha256(Buffer.from(content, "utf8"));
 }
-function validateDirectorySources(proposal, sources) {
-  const requested = new Set(proposal.requested_directory_targets);
-  const normalized = sources.map((source, index) => {
-    const relative = normalizeRepoPath(source.path, `directory_sources[${index}].path`);
-    if (typeof source.sourcePath !== "string" || source.sourcePath.trim().length === 0) {
-      fail("BOOTSTRAP_SCHEMA_INVALID", `directory_sources[${index}].sourcePath must be non-empty.`);
-    }
-    if (!requested.has(relative))
-      fail("BOOTSTRAP_TARGET_CONFLICT", `directory source is not requested by the proposal: ${relative}`);
-    if (!fs2.existsSync(source.sourcePath) || !fs2.statSync(source.sourcePath).isDirectory())
-      fail("BOOTSTRAP_TARGET_CONFLICT", `directory source is missing: ${source.sourcePath}`);
-    return { path: relative, sourcePath: path3.resolve(source.sourcePath) };
-  });
-  if (new Set(normalized.map((source) => source.path)).size !== normalized.length)
-    fail("BOOTSTRAP_TARGET_CONFLICT", "directory_sources must not contain duplicate paths.");
-  if (requested.size !== normalized.length || [...requested].some((relative) => !normalized.some((source) => source.path === relative))) {
-    fail("BOOTSTRAP_TARGET_CONFLICT", "directory_sources must exactly cover requested_directory_targets.");
-  }
-  return normalized;
-}
-function applyAtomicBootstrapTransaction(root, proposal, directorySources, verify) {
+function applyAtomicBootstrapTransaction(root, proposal, verify) {
   const resolvedRoot = path3.resolve(root);
   const stagingRoot = fs2.mkdtempSync(path3.join(path3.dirname(resolvedRoot), ".workflow-vnext-bootstrap-"));
   const backups = [];
@@ -1210,14 +1185,7 @@ function applyAtomicBootstrapTransaction(root, proposal, directorySources, verif
       fs2.writeFileSync(stagedPath, asset.content, "utf8");
       stagedFiles.push({ relative: asset.path, path: stagedPath });
     }
-    const stagedDirectories = [];
-    for (const [index, source] of directorySources.entries()) {
-      const stagedPath = path3.join(stagingRoot, "directories", String(index));
-      fs2.mkdirSync(path3.dirname(stagedPath), { recursive: true });
-      fs2.cpSync(source.sourcePath, stagedPath, { recursive: true });
-      stagedDirectories.push({ relative: source.path, path: stagedPath });
-    }
-    const touched = [...stagedFiles.map((item) => item.relative), ...stagedDirectories.map((item) => item.relative)];
+    const touched = stagedFiles.map((item) => item.relative);
     for (const [index, relative] of touched.entries()) {
       const targetPath = absoluteTarget(resolvedRoot, relative);
       if (!fs2.existsSync(targetPath))
@@ -1233,22 +1201,11 @@ function applyAtomicBootstrapTransaction(root, proposal, directorySources, verif
       fs2.renameSync(staged.path, targetPath);
       newlyPromoted.push(targetPath);
     }
-    for (const staged of stagedDirectories) {
-      const targetPath = absoluteTarget(resolvedRoot, staged.relative);
-      fs2.mkdirSync(path3.dirname(targetPath), { recursive: true });
-      fs2.renameSync(staged.path, targetPath);
-      newlyPromoted.push(targetPath);
-    }
     for (const asset of proposal.assets) {
       const targetPath = absoluteTarget(resolvedRoot, asset.path);
       if (!fs2.existsSync(targetPath) || contentHash(fs2.readFileSync(targetPath, "utf8")) !== contentHash(asset.content)) {
         fail("BOOTSTRAP_READ_BACK_FAILED", `promoted asset did not read back identically: ${asset.path}`);
       }
-    }
-    for (const source of directorySources) {
-      const targetPath = absoluteTarget(resolvedRoot, source.path);
-      if (!fs2.existsSync(targetPath) || !fs2.statSync(targetPath).isDirectory())
-        fail("BOOTSTRAP_READ_BACK_FAILED", `promoted Runtime directory did not read back: ${source.path}`);
     }
     verify?.();
     fs2.rmSync(stagingRoot, { recursive: true, force: true });
@@ -1274,8 +1231,6 @@ function applyBootstrapProjectProposal(root, value, options = {}) {
   const { proposal, scope } = validation;
   if (computeBootstrapTargetIdentity(root) !== proposal.target_identity)
     fail("BOOTSTRAP_IDENTITY_CONFLICT", "proposal target_identity does not match the target root.");
-  const suppliedDirectorySources = options.directory_sources ?? [];
-  const directorySources = options.dryRun && suppliedDirectorySources.length === 0 && proposal.requested_directory_targets.length > 0 ? [] : validateDirectorySources(proposal, suppliedDirectorySources);
   const plannedWrites = proposal.assets.map((asset) => asset.path);
   const base = {
     operation_kind: "bootstrap-project",
@@ -1289,7 +1244,7 @@ function applyBootstrapProjectProposal(root, value, options = {}) {
   };
   if (options.dryRun)
     return { ...base, status: "ready", committed: false, read_back_verified: false, message: "bootstrap proposal validated; no files were written." };
-  applyAtomicBootstrapTransaction(root, proposal, directorySources, options.verify);
+  applyAtomicBootstrapTransaction(root, proposal, options.verify);
   return { ...base, status: "success", committed: true, read_back_verified: true, message: "bootstrap proposal committed and read-back verified." };
 }
 function parseJsonFile(filePath) {
@@ -1303,20 +1258,6 @@ function readFlag(argv, name) {
   const index = argv.indexOf(name);
   return index >= 0 ? argv[index + 1] : undefined;
 }
-function readDirectorySources(argv) {
-  const sources = [];
-  for (let index = 0;index < argv.length; index += 1) {
-    if (argv[index] !== "--directory-source")
-      continue;
-    const value = argv[index + 1] ?? "";
-    const separator = value.indexOf("=");
-    if (separator <= 0 || separator === value.length - 1)
-      throw new BootstrapRuntimeError("BOOTSTRAP_SCHEMA_INVALID", "--directory-source must use <repo-relative-target>=<staged-absolute-directory>.");
-    sources.push({ path: value.slice(0, separator), sourcePath: value.slice(separator + 1) });
-    index += 1;
-  }
-  return sources;
-}
 async function runBootstrapCli(argv = process.argv.slice(1)) {
   try {
     const root = readFlag(argv, "--root") ?? process.cwd();
@@ -1324,7 +1265,7 @@ async function runBootstrapCli(argv = process.argv.slice(1)) {
     if (!proposalFile)
       throw new BootstrapRuntimeError("BOOTSTRAP_SCHEMA_INVALID", "bootstrap-project requires --proposal-file <json>.");
     const dryRun = argv.includes("--dry-run");
-    const result = applyBootstrapProjectProposal(root, parseJsonFile(proposalFile), { dryRun, directory_sources: readDirectorySources(argv) });
+    const result = applyBootstrapProjectProposal(root, parseJsonFile(proposalFile), { dryRun });
     console.log(JSON.stringify(result, null, 2));
     return result.status === "ready" || result.status === "success" || result.status === "no-op" ? 0 : 1;
   } catch (error) {
@@ -1725,9 +1666,13 @@ function validateBootstrapRuntimeContract(value) {
   expectSetEqual(expectStringArray2(scopeOutput.required, "Runtime contract.bootstrap_project.mutation_scope.output.required"), ["per-path-admission-and-blocker", "source-revision"], "bootstrap mutation scope output");
   const assetBoundary = expectRecord2(bootstrap.asset_boundary, "Runtime contract.bootstrap_project.asset_boundary");
   expectExactKeys2(assetBoundary, ["allowed_roots", "forbidden_targets", "generated_categories"], "Runtime contract.bootstrap_project.asset_boundary");
-  expectStringArray2(assetBoundary.allowed_roots, "Runtime contract.bootstrap_project.asset_boundary.allowed_roots");
-  expectStringArray2(assetBoundary.forbidden_targets, "Runtime contract.bootstrap_project.asset_boundary.forbidden_targets");
-  expectStringArray2(assetBoundary.generated_categories, "Runtime contract.bootstrap_project.asset_boundary.generated_categories");
+  expectSetEqual(expectStringArray2(assetBoundary.allowed_roots, "Runtime contract.bootstrap_project.asset_boundary.allowed_roots"), [".workflow-system/PROJECT_PROFILE.yaml", ".workflow-system/vnext/BOOTSTRAP_RECEIPT.json", "docs/workflow/", "docs/designs/", "docs/adoption/", "AGENTS.md", "CLAUDE.md"], "bootstrap allowed asset roots");
+  const forbiddenTargets = expectStringArray2(assetBoundary.forbidden_targets, "Runtime contract.bootstrap_project.asset_boundary.forbidden_targets");
+  for (const required of [".workflow-system/WORKFLOW_PROTOCOL.md", ".workflow-system/FILE_SCHEMAS.md", ".workflow-system/vnext/SOURCE_CONTRACT.yaml", ".workflow-system/vnext/RUNTIME_CONTRACT.yaml", ".workflow-system/runtime/**", ".agents/skills/**"]) {
+    if (!forbiddenTargets.includes(required))
+      fail2("RUNTIME_CONTRACT_INVALID", `bootstrap forbidden target must include ${required}.`);
+  }
+  expectSetEqual(expectStringArray2(assetBoundary.generated_categories, "Runtime contract.bootstrap_project.asset_boundary.generated_categories"), ["config", "generated", "governance"], "bootstrap generated asset categories");
   const operations = bootstrap.operations;
   if (!Array.isArray(operations) || operations.length !== BOOTSTRAP_OPERATION_KINDS.length)
     fail2("RUNTIME_CONTRACT_INVALID", `bootstrap_project must declare exactly ${BOOTSTRAP_OPERATION_KINDS.length} typed operations.`);
@@ -1762,7 +1707,7 @@ function validateBootstrapRuntimeContract(value) {
     fail2("RUNTIME_CONTRACT_INVALID", "bootstrap recovery must use the explicit interruption marker and verified rollback boundary.");
   const readBack = expectRecord2(bootstrap.read_back, "Runtime contract.bootstrap_project.read_back");
   expectExactKeys2(readBack, ["required"], "Runtime contract.bootstrap_project.read_back");
-  expectSetEqual(expectStringArray2(readBack.required, "Runtime contract.bootstrap_project.read_back.required"), ["asset-checksums", "project-identity", "runtime-contract", "canonical-CURRENT_TASK", "host-isolation"], "bootstrap read-back evidence");
+  expectSetEqual(expectStringArray2(readBack.required, "Runtime contract.bootstrap_project.read_back.required"), ["asset-checksums", "project-identity", "runtime-contract", "distribution-prerequisite", "canonical-CURRENT_TASK", "host-isolation"], "bootstrap read-back evidence");
   return bound;
 }
 function validateVNextRuntimeContract(root, requireDependencies = false) {

@@ -31,6 +31,7 @@ entry_contract:
       - an active task, task identity, or task execution state
       - unconfirmed Contracts, Decisions, or project facts
       - native or user-owned host guidance
+      - Distribution-owned Runtime, Protocol, Schema, or Agent Skill assets
       - paths outside the admitted bootstrap asset set
   internal_capabilities:
     - project-context-resolver
@@ -69,10 +70,13 @@ auditable bootstrap transaction. This administrative entry preserves distinct
 mode preconditions and stop conditions; it is not a daily execution entry and
 does not create feature implementation or an active task.
 
-The Node Distribution installer has already installed software and the
-canonical `.agents/skills/<skill-name>/SKILL.md` Skills. This entry is the separate governance transition: it may
+The Node Distribution installer has already installed the project-local
+Runtime, Protocol, Schema, and canonical `.agents/skills/<skill-name>/SKILL.md`
+Agent Skills. This entry is the separate governance transition: it may
 establish project identity and canonical governance facts only after its mode
-preconditions and authority evidence pass.
+preconditions and authority evidence pass. Those Distribution assets are
+read-only prerequisites here; Bootstrap never generates, promotes, or
+receipt-owns them.
 
 ## Operating rules
 
@@ -103,23 +107,26 @@ preconditions and authority evidence pass.
    discovery context may be broader; it never grants write authority. Forbidden
    paths always block, and every Conditional path requires exact authorization,
    evidence references, and explicit authority.
-6. Generate assets from the vNext source templates and validated bundle. Stage
-   runtime dependencies before promotion. Do not hand-copy files, invoke the
-   legacy generator, or write a generic Markdown editor. The Runtime owns the
-   typed contract/decision/status/host transactions and the atomic file
-   boundary.
-7. Before promotion, validate source/runtime contracts, asset checksums, host
-   isolation, canonical `CURRENT_TASK.md`, and the selected mode's evidence.
-   Promote the complete asset set atomically, read every promoted target back,
-   and record the source/target identity and evidence in the completion receipt.
+6. Validate the already-installed Distribution through its existing payload,
+   state, checksum, Skill-layout, and project-local Runtime read-back. Generate
+   governance assets from the vNext source templates only. Do not build or
+   promote Runtime, Protocol, Schema, or Agent Skills; do not hand-copy files,
+   invoke the legacy generator, or write a generic Markdown editor.
+7. Before promotion, validate the Distribution prerequisite, governance asset
+   checksums, host isolation, canonical `CURRENT_TASK.md`, and the selected
+   mode's evidence. Promote the governance asset set atomically, read every
+   promoted target back, and record only Bootstrap-owned governance assets in
+   the completion receipt. The Runtime owns the typed governance transactions
+   and the atomic file boundary.
 8. The bootstrap baseline is a closed, archived administrative baseline. It is
    not an active task and it does not authorize `execute-step`. A later task
    preparation must establish its own confirmed identity and owner through the
    existing daily Runtime path.
-9. Replay only when the target identity, source identity, mode inputs, receipt,
-   and every managed checksum match. Missing, stale, incomplete, conflicting,
-   or interrupted state fails closed; repair requires an explicit realign or
-   retry with a fresh admitted diff.
+9. Replay only when the target identity, mode inputs, receipt, and every
+   Bootstrap-managed governance checksum match. Distribution software drift is
+   owned by the Distribution lifecycle and must not make Bootstrap provenance
+   stale; missing, stale, incomplete, conflicting, or interrupted governance
+   state still fails closed.
 10. Validation is evidence, not an automatic request for a persistent test.
     Reuse contract, freshness, runtime, read-back, and health checks first. A
     new persistent test needs a separate P-12 admission with owner, claim,
@@ -130,7 +137,8 @@ preconditions and authority evidence pass.
 
 Return one structured `bootstrap-result` containing the selected mode, target
 classification, project identity, authority/provenance decisions, exact
-planned writes, exact changed-path scope verdict, generated bundle identity,
-mode evidence, validation/read-back evidence, replay or recovery disposition,
-and any remaining caller obligation. Do not report initialization as complete
-until the Runtime transaction and all post-promotion reads succeed.
+planned writes, exact changed-path scope verdict, Bootstrap governance
+provenance, mode evidence, Distribution and governance read-back evidence,
+replay or recovery disposition, and any remaining caller obligation. Do not
+report initialization as complete until the governance transaction and all
+post-promotion reads succeed.

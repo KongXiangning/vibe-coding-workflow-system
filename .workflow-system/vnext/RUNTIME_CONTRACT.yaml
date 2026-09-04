@@ -663,23 +663,28 @@ bootstrap_project:
         - source-revision
   asset_boundary:
     allowed_roots:
-      - .workflow-system/
+      - .workflow-system/PROJECT_PROFILE.yaml
+      - .workflow-system/vnext/BOOTSTRAP_RECEIPT.json
       - docs/workflow/
       - docs/designs/
       - docs/adoption/
-      - selected host Skill directory
-      - paired host guidance files
+      - AGENTS.md
+      - CLAUDE.md
     forbidden_targets:
       - .git/
       - product source directories
       - package manifests at project root
       - native or user-owned host assets
-      - paths outside the generated bootstrap set
+      - .workflow-system/WORKFLOW_PROTOCOL.md
+      - .workflow-system/FILE_SCHEMAS.md
+      - .workflow-system/vnext/SOURCE_CONTRACT.yaml
+      - .workflow-system/vnext/RUNTIME_CONTRACT.yaml
+      - .workflow-system/vnext/DISTRIBUTION_STATE.json
+      - .workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json
+      - .workflow-system/runtime/**
+      - .agents/skills/**
+      - paths outside the generated governance set
     generated_categories:
-      - protocol
-      - schema
-      - skill
-      - runtime
       - config
       - generated
       - governance
@@ -767,5 +772,6 @@ bootstrap_project:
       - asset-checksums
       - project-identity
       - runtime-contract
+      - distribution-prerequisite
       - canonical-CURRENT_TASK
       - host-isolation

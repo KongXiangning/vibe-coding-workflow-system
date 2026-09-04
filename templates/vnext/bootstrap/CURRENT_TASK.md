@@ -67,11 +67,10 @@ runtime_state:
 
 - bootstrap-baseline: record the non-executable bootstrap baseline
   - Purpose: make the initial project state readable without creating an active task
-  - Mutation scope: docs/workflow/**
-  - Required evidence: bootstrap asset checksums and Runtime read-back
+  - Mutation scope: PROJECT_PROFILE.yaml, docs/workflow/**, mode-dependent docs/designs/** and docs/adoption/**, AGENTS.md, and CLAUDE.md
+  - Required evidence: Bootstrap-owned governance asset checksums, installed Distribution prerequisite, and project-local Runtime read-back
   - Review checkpoint: not-required
 
 ## 执行记录
 
 - Bootstrap creates no active execution record.
-

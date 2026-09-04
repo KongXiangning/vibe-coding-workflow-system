@@ -5,7 +5,10 @@
  * reuses the shared mutation-scope evaluator, and atomically writes the
  * caller-provided generated asset set. Project identity, mode admission,
  * source generation, and evidence selection remain in the bootstrap facade;
- * this module owns the write boundary and read-back behavior.
+ * this module owns the governance-only write boundary and read-back behavior.
+ * Distribution software is a read-only prerequisite owned by the ephemeral
+ * Distribution installer; it is deliberately not an admissible Bootstrap
+ * asset or directory target.
  */
 
 import * as crypto from 'crypto';
@@ -32,7 +35,7 @@ export const BOOTSTRAP_OPERATION_KINDS = [
 ] as const;
 export type BootstrapOperationKind = (typeof BOOTSTRAP_OPERATION_KINDS)[number];
 
-export const BOOTSTRAP_ASSET_CATEGORIES = ['protocol', 'schema', 'skill', 'runtime', 'config', 'generated', 'governance'] as const;
+export const BOOTSTRAP_ASSET_CATEGORIES = ['config', 'generated', 'governance'] as const;
 export type BootstrapAssetCategory = (typeof BOOTSTRAP_ASSET_CATEGORIES)[number];
 
 export type BootstrapAuthorityEvidence = {
@@ -81,11 +84,6 @@ export type BootstrapRuntimeValidation = {
   scope: MutationScopeCheckResult;
 };
 
-export type BootstrapDirectorySource = {
-  path: string;
-  sourcePath: string;
-};
-
 export type BootstrapRuntimeResult = {
   status: 'ready' | 'success' | 'no-op' | 'conflict' | 'blocked';
   operation_kind: 'bootstrap-project';
@@ -104,8 +102,6 @@ export type BootstrapRuntimeResult = {
 const SAFE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u;
 const TARGET_IDENTITY_PATTERN = /^[a-f0-9]{32}$/u;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
-const HOST_GUIDANCE_PATHS = new Set(['AGENTS.md', 'CLAUDE.md']);
-
 export class BootstrapRuntimeError extends Error {
   readonly code: string;
 
@@ -176,31 +172,28 @@ export function computeBootstrapTargetIdentity(root: string): string {
   return sha256(resolved).slice(0, 32);
 }
 
-function isCanonicalSkillPath(value: string): boolean {
-  return /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(value);
-}
-
 function isAllowedAssetPath(value: string): boolean {
-  if (value === 'AGENTS.md' || value === 'CLAUDE.md' || isCanonicalSkillPath(value)) return true;
+  if (value === 'AGENTS.md' || value === 'CLAUDE.md') return true;
   return value === '.workflow-system/PROJECT_PROFILE.yaml'
-    || value === '.workflow-system/WORKFLOW_PROTOCOL.md'
-    || value === '.workflow-system/FILE_SCHEMAS.md'
-    || value.startsWith('.workflow-system/vnext/')
-    || value.startsWith('.workflow-system/runtime/')
+    || value === '.workflow-system/vnext/BOOTSTRAP_RECEIPT.json'
     || value.startsWith('docs/workflow/')
     || value.startsWith('docs/designs/')
     || value.startsWith('docs/adoption/');
 }
 
 function isForbiddenAssetPath(value: string): boolean {
-  // The project-local Runtime distribution is an explicitly admitted
-  // bootstrap boundary; its `src/` and package metadata are not product
-  // mutations. Keep the broader product/source guard below for every other
-  // path.
-  if (value.startsWith('.workflow-system/runtime/')) return false;
+  const distributionOwned = value === '.workflow-system/WORKFLOW_PROTOCOL.md'
+    || value === '.workflow-system/FILE_SCHEMAS.md'
+    || value === '.workflow-system/vnext/SOURCE_CONTRACT.yaml'
+    || value === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml'
+    || value === '.workflow-system/vnext/DISTRIBUTION_STATE.json'
+    || value === '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json'
+    || value.startsWith('.workflow-system/runtime/')
+    || value.startsWith('.agents/skills/');
+  if (distributionOwned) return true;
   const segments = value.split('/');
   if (segments.includes('.git')) return true;
-  if (segments.includes('node_modules') && !value.startsWith('.workflow-system/runtime/')) return true;
+  if (segments.includes('node_modules')) return true;
   if (['src', 'app', 'lib', 'packages'].some(segment => segments.includes(segment))) return true;
   if (['package.json', 'package-lock.json', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock'].includes(value)) return true;
   return false;
@@ -272,11 +265,9 @@ function validateTargetSet(
   const requested = new Set(proposal.requested_write_targets);
   const actual = new Set(assetPaths);
   if (requested.size !== actual.size || [...requested].some(value => !actual.has(value))) fail('BOOTSTRAP_TARGET_CONFLICT', 'requested_write_targets must equal the generated asset target set.');
-  for (const directory of proposal.requested_directory_targets) {
-    if (!directory.endsWith('/node_modules') || !directory.startsWith('.workflow-system/runtime/')) fail('BOOTSTRAP_TARGET_FORBIDDEN', `directory target is outside the Runtime dependency boundary: ${directory}`);
-  }
+  if (proposal.requested_directory_targets.length > 0) fail('BOOTSTRAP_TARGET_FORBIDDEN', 'Bootstrap cannot promote Distribution directories; project-local Runtime dependencies are installed by Distribution.');
   const expectedChanged = new Set([...assetPaths, ...proposal.requested_directory_targets]);
-  if (expectedChanged.size !== proposal.changed_paths.length || proposal.changed_paths.some(value => !expectedChanged.has(value))) fail('BOOTSTRAP_SCOPE_INVALID', 'changed_paths must enumerate every generated file and staged Runtime directory exactly once.');
+  if (expectedChanged.size !== proposal.changed_paths.length || proposal.changed_paths.some(value => !expectedChanged.has(value))) fail('BOOTSTRAP_SCOPE_INVALID', 'changed_paths must enumerate every generated governance asset exactly once.');
   if (proposal.delete_targets.length > 0) fail('BOOTSTRAP_SCOPE_INVALID', 'bootstrap does not support untyped deletion; use realign with an explicit implementation change.');
 }
 
@@ -368,31 +359,9 @@ function contentHash(content: string): string {
   return sha256(Buffer.from(content, 'utf8'));
 }
 
-function validateDirectorySources(
-  proposal: BootstrapProjectProposal,
-  sources: readonly BootstrapDirectorySource[],
-): BootstrapDirectorySource[] {
-  const requested = new Set(proposal.requested_directory_targets);
-  const normalized = sources.map((source, index) => {
-    const relative = normalizeRepoPath(source.path, `directory_sources[${index}].path`);
-    if (typeof source.sourcePath !== 'string' || source.sourcePath.trim().length === 0) {
-      fail('BOOTSTRAP_SCHEMA_INVALID', `directory_sources[${index}].sourcePath must be non-empty.`);
-    }
-    if (!requested.has(relative)) fail('BOOTSTRAP_TARGET_CONFLICT', `directory source is not requested by the proposal: ${relative}`);
-    if (!fs.existsSync(source.sourcePath) || !fs.statSync(source.sourcePath).isDirectory()) fail('BOOTSTRAP_TARGET_CONFLICT', `directory source is missing: ${source.sourcePath}`);
-    return { path: relative, sourcePath: path.resolve(source.sourcePath) };
-  });
-  if (new Set(normalized.map(source => source.path)).size !== normalized.length) fail('BOOTSTRAP_TARGET_CONFLICT', 'directory_sources must not contain duplicate paths.');
-  if (requested.size !== normalized.length || [...requested].some(relative => !normalized.some(source => source.path === relative))) {
-    fail('BOOTSTRAP_TARGET_CONFLICT', 'directory_sources must exactly cover requested_directory_targets.');
-  }
-  return normalized;
-}
-
 function applyAtomicBootstrapTransaction(
   root: string,
   proposal: BootstrapProjectProposal,
-  directorySources: readonly BootstrapDirectorySource[],
   verify: (() => void) | undefined,
 ): void {
   const resolvedRoot = path.resolve(root);
@@ -407,14 +376,7 @@ function applyAtomicBootstrapTransaction(
       fs.writeFileSync(stagedPath, asset.content, 'utf8');
       stagedFiles.push({ relative: asset.path, path: stagedPath });
     }
-    const stagedDirectories: Array<{ relative: string; path: string }> = [];
-    for (const [index, source] of directorySources.entries()) {
-      const stagedPath = path.join(stagingRoot, 'directories', String(index));
-      fs.mkdirSync(path.dirname(stagedPath), { recursive: true });
-      fs.cpSync(source.sourcePath, stagedPath, { recursive: true });
-      stagedDirectories.push({ relative: source.path, path: stagedPath });
-    }
-    const touched = [...stagedFiles.map(item => item.relative), ...stagedDirectories.map(item => item.relative)];
+    const touched = stagedFiles.map(item => item.relative);
     for (const [index, relative] of touched.entries()) {
       const targetPath = absoluteTarget(resolvedRoot, relative);
       if (!fs.existsSync(targetPath)) continue;
@@ -429,21 +391,11 @@ function applyAtomicBootstrapTransaction(
       fs.renameSync(staged.path, targetPath);
       newlyPromoted.push(targetPath);
     }
-    for (const staged of stagedDirectories) {
-      const targetPath = absoluteTarget(resolvedRoot, staged.relative);
-      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-      fs.renameSync(staged.path, targetPath);
-      newlyPromoted.push(targetPath);
-    }
     for (const asset of proposal.assets) {
       const targetPath = absoluteTarget(resolvedRoot, asset.path);
       if (!fs.existsSync(targetPath) || contentHash(fs.readFileSync(targetPath, 'utf8')) !== contentHash(asset.content)) {
         fail('BOOTSTRAP_READ_BACK_FAILED', `promoted asset did not read back identically: ${asset.path}`);
       }
-    }
-    for (const source of directorySources) {
-      const targetPath = absoluteTarget(resolvedRoot, source.path);
-      if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isDirectory()) fail('BOOTSTRAP_READ_BACK_FAILED', `promoted Runtime directory did not read back: ${source.path}`);
     }
     verify?.();
     fs.rmSync(stagingRoot, { recursive: true, force: true });
@@ -466,15 +418,11 @@ function applyAtomicBootstrapTransaction(
 export function applyBootstrapProjectProposal(
   root: string,
   value: unknown,
-  options: { dryRun?: boolean; directory_sources?: readonly BootstrapDirectorySource[]; verify?: () => void } = {},
+  options: { dryRun?: boolean; verify?: () => void } = {},
 ): BootstrapRuntimeResult {
   const validation = validateBootstrapProjectProposal(value);
   const { proposal, scope } = validation;
   if (computeBootstrapTargetIdentity(root) !== proposal.target_identity) fail('BOOTSTRAP_IDENTITY_CONFLICT', 'proposal target_identity does not match the target root.');
-  const suppliedDirectorySources = options.directory_sources ?? [];
-  const directorySources = options.dryRun && suppliedDirectorySources.length === 0 && proposal.requested_directory_targets.length > 0
-    ? []
-    : validateDirectorySources(proposal, suppliedDirectorySources);
   const plannedWrites = proposal.assets.map(asset => asset.path);
   const base = {
     operation_kind: 'bootstrap-project' as const,
@@ -488,7 +436,7 @@ export function applyBootstrapProjectProposal(
   };
   if (options.dryRun) return { ...base, status: 'ready', committed: false, read_back_verified: false, message: 'bootstrap proposal validated; no files were written.' };
 
-  applyAtomicBootstrapTransaction(root, proposal, directorySources, options.verify);
+  applyAtomicBootstrapTransaction(root, proposal, options.verify);
   return { ...base, status: 'success', committed: true, read_back_verified: true, message: 'bootstrap proposal committed and read-back verified.' };
 }
 
@@ -505,26 +453,13 @@ function readFlag(argv: string[], name: string): string | undefined {
   return index >= 0 ? argv[index + 1] : undefined;
 }
 
-function readDirectorySources(argv: string[]): BootstrapDirectorySource[] {
-  const sources: BootstrapDirectorySource[] = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] !== '--directory-source') continue;
-    const value = argv[index + 1] ?? '';
-    const separator = value.indexOf('=');
-    if (separator <= 0 || separator === value.length - 1) throw new BootstrapRuntimeError('BOOTSTRAP_SCHEMA_INVALID', '--directory-source must use <repo-relative-target>=<staged-absolute-directory>.');
-    sources.push({ path: value.slice(0, separator), sourcePath: value.slice(separator + 1) });
-    index += 1;
-  }
-  return sources;
-}
-
 export async function runBootstrapCli(argv: string[] = process.argv.slice(1)): Promise<number> {
   try {
     const root = readFlag(argv, '--root') ?? process.cwd();
     const proposalFile = readFlag(argv, '--proposal-file') ?? readFlag(argv, '--proposal');
     if (!proposalFile) throw new BootstrapRuntimeError('BOOTSTRAP_SCHEMA_INVALID', 'bootstrap-project requires --proposal-file <json>.');
     const dryRun = argv.includes('--dry-run');
-    const result = applyBootstrapProjectProposal(root, parseJsonFile(proposalFile), { dryRun, directory_sources: readDirectorySources(argv) });
+    const result = applyBootstrapProjectProposal(root, parseJsonFile(proposalFile), { dryRun });
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'ready' || result.status === 'success' || result.status === 'no-op' ? 0 : 1;
   } catch (error) {

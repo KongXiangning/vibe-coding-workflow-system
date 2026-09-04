@@ -199,6 +199,24 @@ global long-lived Vibe Governance executable. The Runtime may continue to use
 `package.json`, `package-lock.json`, and an internal `npm ci --omit=dev`
 staging step; those are implementation details hidden from target users.
 
+### 4.1 Bootstrap consumes Distribution; it does not own it
+
+`bootstrap-project` runs only after the Distribution boundary has installed and
+read back the project-local Runtime, Protocol, Schema, and nine canonical Agent
+Skills. Bootstrap may validate those assets as read-only prerequisites, but it
+does not regenerate, stage, promote, or receipt-own any Distribution-managed
+software path. Its mutation set is limited to project identity, canonical
+governance documents, mode-dependent design/adoption evidence, paired host
+guidance, and Bootstrap transaction provenance.
+
+`BOOTSTRAP_RECEIPT.json` is therefore a record of one Bootstrap transaction,
+not a universal governed-vNext validity token. A fresh installed project needs
+Bootstrap to establish governance. A project whose idle legacy state was
+successfully converted by the Migration Pack is already governed through
+Migration Pack provenance and canonical governance state; it does not become
+`incomplete` merely because no Bootstrap Receipt exists. Distribution upgrades
+must not make a Bootstrap Receipt stale by changing software checksums.
+
 ## 5. Release Distribution Manifest
 
 Every release package carries one minimal
@@ -431,6 +449,12 @@ The Phase 1 implementation must prove:
 - [x] Current Distribution State upgrades delete exactly old managed paths no
   longer in the new manifest after checksum verification; old
   `INSTALL_STATE.json` uses a separate conservative compatibility mapping.
+- [x] Bootstrap validates the installed Distribution read-only and promotes
+  governance assets only; it never regenerates, promotes, or receipt-owns
+  Runtime, Protocol, Schema, or Agent Skills.
+- [x] `BOOTSTRAP_RECEIPT.json` records Bootstrap governance provenance only,
+  and validated Migration Pack provenance can establish governed state without
+  a Bootstrap Receipt.
 - [x] CLI-level tests prove that `--root` without a value, or followed by a
   flag, exits before dispatch and cannot target the current directory.
 - [x] Runtime, Migration Pack, bootstrap, source contract, freshness, health,

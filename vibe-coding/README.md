@@ -123,6 +123,8 @@ workflow-system 的治理产出物分工如下。这里说明使用入口和更�
 
 ## 常用命令模版
 
+> 本节及其后续的 Bun / pack / bundle / sync 命令仅用于源码仓库开发、release engineering 或 legacy compatibility。它们不是普通目标项目的 vNext 安装入口；普通用户应从根目录 `README.md` 的 `npx vibe-governance@latest install|migrate|upgrade` 开始。
+
 本节只放可直接复制后替换少量路径的命令。正式命令行为以根目录的 [`package.json`](../package.json) 和 [`.workflow-system/WORKFLOW_PROTOCOL.md`](../.workflow-system/WORKFLOW_PROTOCOL.md) 为准。
 
 ### 打包 workflow-system
