@@ -28,6 +28,11 @@ import {
 import { computeScopedTreeHash } from './scoped-tree-hash';
 import { readCanonicalCurrentTask, validateVNextRuntimeContract } from './kernel';
 import type { ConditionalScopeAuthorization } from './mutation-scope';
+import {
+  validateCompletedMigrationProvenance,
+  MigrationProvenanceError,
+  type CompletedMigrationProvenance,
+} from './migration-provenance';
 
 export const BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH = '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl' as const;
 export const BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH = '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' as const;
@@ -103,9 +108,21 @@ export type BootstrapSupportOptions = {
   adoptionConfirmed?: boolean;
   changedPaths?: string[];
   conditionalAuthorizations?: ConditionalScopeAuthorization[];
+  /** Source-side facade may supply its validated source identity. */
+  source?: { revision: string; tree_hash: string };
+  /** Legacy-aware adapters may report a detected legacy surface. */
+  legacySurfacePresent?: boolean;
+  /** Source-side Migration Pack admission; target-local uses the neutral verifier. */
+  migrationAdmission?: BootstrapMigrationAdmission;
 };
 
-export type BootstrapSupportState = 'empty' | 'existing' | 'valid' | 'stale' | 'incomplete' | 'conflicting' | 'in-progress' | 'migration-owned';
+export type BootstrapSupportState = 'empty' | 'existing' | 'valid' | 'stale' | 'incomplete' | 'conflicting' | 'legacy' | 'governed' | 'in-progress';
+
+export type BootstrapMigrationAdmission = {
+  status: 'none' | 'valid' | 'invalid';
+  provenance?: CompletedMigrationProvenance;
+  reason?: string;
+};
 
 export type BootstrapSupportPlan = {
   status: 'ready' | 'needs-confirmation' | 'replayed' | 'installed' | 'blocked';
@@ -127,7 +144,7 @@ export type BootstrapSupportPlan = {
   proposal?: BootstrapProjectProposal;
 };
 
-type BootstrapReceipt = {
+export type BootstrapReceipt = {
   schema_version: 1;
   kind: 'vnext-bootstrap-receipt';
   mode: BootstrapMode;
@@ -142,7 +159,7 @@ type BootstrapReceipt = {
   recovery_boundary: 'in-progress-marker';
 };
 
-type DistributionReadback = {
+export type DistributionReadback = {
   distribution_version: string;
   manifest_digest: string;
   state_content: string;
@@ -631,6 +648,7 @@ function existingIsWorkflowOwned(root: string, relative: string, receipt: Bootst
   const filePath = targetPath(root, relative);
   if (!fs.existsSync(filePath)) return true;
   if (isFrozenPath(root, relative)) return false;
+  if (relative === BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH && receipt) return true;
   if (receipt?.managed_files.some(file => file.path === relative)) return true;
   if (relative.startsWith('.workflow-system/')) return relative === PROJECT_PROFILE_RELATIVE_PATH;
   if (relative === 'AGENTS.md' || relative === 'CLAUDE.md') return isVNextMarkerFile(root, relative);
@@ -655,37 +673,49 @@ function renderReceipt(mode: BootstrapMode, targetIdentity: string, project: { n
   }, null, 2)}\n`;
 }
 
-function classifyTarget(root: string): { state: BootstrapSupportState; receipt: BootstrapReceipt | null; reasons: string[] } {
-  if (fs.existsSync(targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH))) return { state: 'in-progress', receipt: null, reasons: ['an explicit Bootstrap interruption marker is present'] };
+function migrationAdmission(root: string, supplied?: BootstrapMigrationAdmission): BootstrapMigrationAdmission {
+  if (supplied) return supplied;
+  try {
+    const provenance = validateCompletedMigrationProvenance(root);
+    return provenance ? { status: 'valid', provenance } : { status: 'none' };
+  } catch (error) {
+    return { status: 'invalid', reason: error instanceof MigrationProvenanceError ? error.message : String(error) };
+  }
+}
+
+export type BootstrapTargetClassification = { state: BootstrapSupportState; receipt: BootstrapReceipt | null; migration: BootstrapMigrationAdmission; reasons: string[] };
+
+export function classifyBootstrapTargetLocal(root: string, options: { legacySurfacePresent?: boolean; migrationAdmission?: BootstrapMigrationAdmission } = {}): BootstrapTargetClassification {
+  if (fs.existsSync(targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH))) return { state: 'in-progress', receipt: null, migration: { status: 'none' }, reasons: ['an explicit Bootstrap interruption marker is present'] };
   let receipt: BootstrapReceipt | null = null;
   try {
     receipt = readBootstrapReceipt(root);
   } catch (error) {
-    return { state: 'conflicting', receipt: null, reasons: [error instanceof Error ? error.message : String(error)] };
+    return { state: 'conflicting', receipt: null, migration: { status: 'none' }, reasons: [error instanceof Error ? error.message : String(error)] };
   }
-  const migrationMarker = targetPath(root, '.workflow-system/vnext/MIGRATION_RECEIPT.json');
-  const migrationState = targetPath(root, '.workflow-system/vnext/INSTALL_STATE.json');
-  const hasMigrationMarker = fs.existsSync(migrationMarker);
-  const hasMigrationState = fs.existsSync(migrationState);
-  if (hasMigrationMarker !== hasMigrationState) {
-    return { state: 'conflicting', receipt, reasons: ['Migration Pack completed-state markers are incomplete; Bootstrap cannot infer migration provenance.'] };
-  }
-  if (hasMigrationMarker || hasMigrationState) {
-    if (receipt) return { state: 'conflicting', receipt, reasons: ['Bootstrap Receipt cannot coexist with Migration Pack completed-state markers.'] };
-    return { state: 'migration-owned', receipt, reasons: ['Migration Pack owns completed legacy provenance; Bootstrap does not reinterpret or replace it.'] };
-  }
+  const migration = migrationAdmission(root, options.migrationAdmission);
+  if (migration.status === 'invalid') return { state: 'conflicting', receipt, migration, reasons: [migration.reason ?? 'completed Migration Pack provenance is invalid'] };
+  if (options.legacySurfacePresent) return { state: 'legacy', receipt, migration, reasons: ['a compatibility or legacy workflow surface is present; use the offline Migration Pack boundary'] };
   const targetIdentity = computeBootstrapTargetIdentity(root);
-  if (receipt && receipt.target_identity !== targetIdentity) return { state: 'conflicting', receipt, reasons: ['Bootstrap receipt target identity does not match the current target root'] };
+  if (receipt && receipt.target_identity !== targetIdentity) return { state: 'conflicting', receipt, migration, reasons: ['Bootstrap receipt target identity does not match the current target root'] };
+  try {
+    const profile = existingProfile(root);
+    const profileVNext = profile?.vnext;
+    if (isRecord(profileVNext) && profileVNext.target_identity !== undefined && profileVNext.target_identity !== targetIdentity) return { state: 'conflicting', receipt, migration, reasons: ['project profile target identity does not match the current target root'] };
+  } catch (error) {
+    return { state: 'conflicting', receipt, migration, reasons: [error instanceof Error ? error.message : String(error)] };
+  }
   if (receipt) {
     const drift = receipt.managed_files.filter(file => {
       const filePath = targetPath(root, file.path);
       return !fs.existsSync(filePath) || !fs.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum;
     });
-    return drift.length === 0 ? { state: 'valid', receipt, reasons: [] } : { state: 'stale', receipt, reasons: drift.map(file => `managed governance asset drifted: ${file.path}`) };
+    return drift.length === 0 ? { state: 'valid', receipt, migration, reasons: [] } : { state: 'stale', receipt, migration, reasons: drift.map(file => `managed governance asset drifted: ${file.path}`) };
   }
+  if (migration.status === 'valid') return { state: 'governed', receipt: null, migration, reasons: ['the project was admitted by the completed Migration Pack provenance verifier; a Bootstrap Receipt is not required'] };
   const governanceSignals = [PROJECT_PROFILE_RELATIVE_PATH, CURRENT_TASK_RELATIVE_PATH, ...FULL_WORKFLOW_DOCS];
-  if (governanceSignals.some(relative => fs.existsSync(targetPath(root, relative)))) return { state: 'incomplete', receipt: null, reasons: ['governance assets exist without Bootstrap transaction provenance'] };
-  return { state: hasMeaningfulImplementation(root) ? 'existing' : 'empty', receipt: null, reasons: [] };
+  if (governanceSignals.some(relative => fs.existsSync(targetPath(root, relative)))) return { state: 'incomplete', receipt: null, migration, reasons: ['governance assets exist without Bootstrap transaction provenance'] };
+  return { state: hasMeaningfulImplementation(root) ? 'existing' : 'empty', receipt: null, migration, reasons: [] };
 }
 
 function isValidReceiptModeTransition(receiptMode: BootstrapMode, requestedMode: BootstrapMode): boolean {
@@ -695,28 +725,47 @@ function isValidReceiptModeTransition(receiptMode: BootstrapMode, requestedMode:
     || (receiptMode === 'inventory' && requestedMode === 'adopt');
 }
 
-function modeBlockers(root: string, state: BootstrapSupportState, mode: BootstrapMode, options: BootstrapSupportOptions, baseline: Record<string, string>, facts: BootstrapSupportFact[], receipt: BootstrapReceipt | null): Array<{ code: string; message: string }> {
+function modeBlockers(root: string, state: BootstrapSupportState, mode: BootstrapMode, options: BootstrapSupportOptions, baseline: Record<string, string>, facts: BootstrapSupportFact[], receipt: BootstrapReceipt | null, migration: BootstrapMigrationAdmission): Array<{ code: string; message: string }> {
   const blockers: Array<{ code: string; message: string }> = [];
   if (state === 'in-progress') blockers.push({ code: 'BOOTSTRAP_IN_PROGRESS', message: 'an interrupted Bootstrap marker requires explicit recovery before retry.' });
+  if (state === 'legacy') blockers.push({ code: 'MIGRATION_REQUIRED', message: 'legacy/compatibility assets are outside Bootstrap; run the offline Migration Pack boundary.' });
   if (state === 'conflicting') blockers.push({ code: 'BOOTSTRAP_CONFLICT', message: 'existing Bootstrap receipt or target identity is conflicting.' });
-  if (state === 'migration-owned') blockers.push({ code: 'BOOTSTRAP_NOT_REQUIRED', message: 'Migration Pack provenance owns this governed target; do not run Bootstrap after migration.' });
+  if (migration.status === 'valid' && mode !== 'realign' && !['in-progress', 'legacy', 'conflicting'].includes(state)) {
+    blockers.push({ code: 'BOOTSTRAP_NOT_REQUIRED', message: 'Migration Pack provenance already establishes a governed vNext project; ordinary Bootstrap is not required.' });
+    return blockers;
+  }
+  if (['greenfield', 'adopt', 'realign'].includes(mode) && fs.existsSync(targetPath(root, CURRENT_TASK_RELATIVE_PATH))) {
+    try {
+      const current = readCanonicalCurrentTask(root);
+      if (current.runtimeState.workflow_status !== 'closed'
+        || current.runtimeState.lifecycle_state !== 'archived'
+        || current.runtimeState.active_step_status !== 'completed'
+        || (mode !== 'realign' && current.runtimeState.task_id !== '000')) {
+        blockers.push({ code: 'BOOTSTRAP_TASK_STATE_INVALID', message: mode === 'realign'
+          ? 'realign cannot run over an active or invalid canonical CURRENT_TASK; close or recover the task through the daily Runtime first.'
+          : 'bootstrap cannot replace an existing active or non-baseline canonical CURRENT_TASK; continue through the daily Runtime or close/recover it first.' });
+      }
+    } catch (error) {
+      blockers.push({ code: 'BOOTSTRAP_TASK_STATE_INVALID', message: `existing canonical CURRENT_TASK is not a readable vNext baseline: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }
   if (state === 'valid' && receipt && receipt.mode !== mode && !isValidReceiptModeTransition(receipt.mode, mode)) blockers.push({ code: 'BOOTSTRAP_IDENTITY_CONFLICT', message: 'an existing Bootstrap receipt does not admit this mode transition; replay the same mode or use realign.' });
   if (mode === 'design') {
     if (!['empty', 'existing', 'valid'].includes(state)) blockers.push({ code: 'BOOTSTRAP_STATE_INVALID', message: 'design mode only accepts an uninitialized target or valid Bootstrap replay.' });
     if (Object.keys(baseline).length === 0) blockers.push({ code: 'DESIGN_EVIDENCE_MISSING', message: 'design mode requires a caller-provided design baseline.' });
   }
   if (mode === 'greenfield') {
-    if (state !== 'empty' && state !== 'existing' && state !== 'valid') blockers.push({ code: 'GREENFIELD_PRECONDITION', message: 'greenfield mode requires an empty/existing target or valid Bootstrap replay.' });
+    if (state !== 'empty' && state !== 'valid' && !(state === 'existing' && !hasMeaningfulImplementation(root))) blockers.push({ code: 'GREENFIELD_PRECONDITION', message: 'greenfield mode requires an empty target, design-only preparation, or a valid Bootstrap replay.' });
     if (Object.keys(baseline).length === 0 || options.designConfirmed !== true) blockers.push({ code: 'DESIGN_CONFIRMATION_REQUIRED', message: 'greenfield mode requires a confirmed design baseline.' });
   }
-  if (mode === 'inventory' && state !== 'existing' && state !== 'valid') blockers.push({ code: 'INVENTORY_PRECONDITION', message: 'inventory mode requires an existing implementation or valid Bootstrap replay.' });
+  if (mode === 'inventory' && state !== 'valid' && (state !== 'existing' || !hasMeaningfulImplementation(root))) blockers.push({ code: 'INVENTORY_PRECONDITION', message: 'inventory mode requires an existing project implementation or valid Bootstrap replay.' });
   if (mode === 'adopt') {
-    if (!['existing', 'incomplete', 'valid'].includes(state) || (!hasMeaningfulImplementation(root) && state !== 'valid')) blockers.push({ code: 'ADOPT_PRECONDITION', message: 'adopt mode requires an existing project implementation or valid replay.' });
+    if (state !== 'valid' && (!['existing', 'incomplete'].includes(state) || !hasMeaningfulImplementation(root))) blockers.push({ code: 'ADOPT_PRECONDITION', message: 'adopt mode requires an existing project implementation or valid replay.' });
     if (state !== 'valid' && !fs.existsSync(targetPath(root, 'docs/adoption/architecture-inventory.md'))) blockers.push({ code: 'INVENTORY_REQUIRED', message: 'adopt mode requires inventory evidence from inventory mode.' });
     if (options.adoptionConfirmed !== true) blockers.push({ code: 'ADOPTION_CONFIRMATION_REQUIRED', message: 'adopt mode requires explicit project-owner confirmation.' });
     if (facts.length === 0) blockers.push({ code: 'ADOPTION_FACTS_MISSING', message: 'adopt mode requires facts with provenance.' });
   }
-  if (mode === 'realign' && !['valid', 'stale', 'incomplete'].includes(state)) blockers.push({ code: 'REALIGN_PRECONDITION', message: 'realign mode requires an existing Bootstrap-owned governance surface.' });
+  if (mode === 'realign' && !['valid', 'stale', 'incomplete', 'governed'].includes(state)) blockers.push({ code: 'REALIGN_PRECONDITION', message: 'realign mode requires an existing governed vNext workflow asset surface.' });
   return blockers;
 }
 
@@ -765,21 +814,24 @@ function markerValue(proposal: BootstrapProjectProposal): string {
   return `${JSON.stringify({ schema_version: 1, kind: 'vnext-bootstrap-in-progress', target_identity: proposal.target_identity, mode: proposal.mode, source_revision: proposal.source_revision, source_tree_hash: proposal.source_tree_hash, planned_writes: proposal.requested_write_targets, planned_directories: proposal.requested_directory_targets, recovery: 'fail-closed-explicit-recovery' }, null, 2)}\n`;
 }
 
-function prepareProposal(options: BootstrapSupportOptions, distribution: DistributionReadback, classification: { state: BootstrapSupportState; receipt: BootstrapReceipt | null; reasons: string[] }): { proposal: BootstrapProjectProposal; project: { name: string; slug: string }; host: BootstrapSupportHost; baseline: Record<string, string>; facts: BootstrapSupportFact[]; plannedWrites: string[]; inputFingerprint: string } {
+function prepareProposal(options: BootstrapSupportOptions, distribution: DistributionReadback, classification: BootstrapTargetClassification): { proposal: BootstrapProjectProposal; project: { name: string; slug: string }; host: BootstrapSupportHost; baseline: Record<string, string>; facts: BootstrapSupportFact[]; plannedWrites: string[]; inputFingerprint: string } {
   const root = path.resolve(options.targetRoot);
   const project = resolveProject(root, options, classification.receipt);
   const host = options.host ?? 'codex';
   const baseline = normalizeBaseline(options.designBaseline);
   const facts = normalizeFacts(options.mode === 'inventory' ? (options.inventoryFacts ?? options.confirmedFacts) : options.confirmedFacts, options.mode === 'inventory' ? 'inventoryFacts' : 'confirmedFacts');
-  const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, facts, classification.receipt);
+  const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, facts, classification.receipt, classification.migration);
   if (modeIssues.length > 0) fail(modeIssues[0]!.code, modeIssues.map(issue => issue.message).join(' '));
   let assets = ['greenfield', 'adopt', 'realign'].includes(options.mode)
     ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline)
     : makeModeAssets(root, project, options.mode, baseline, facts);
   if (options.mode === 'adopt') assets = mergeAssets(assets, [{ path: 'docs/adoption/ADOPTION_DECISION.md', category: 'governance', content: renderDecisions(project, options.mode, facts) }]);
-  if (options.mode === 'realign' && fs.existsSync(targetPath(root, CURRENT_TASK_RELATIVE_PATH))) assets = assets.filter(asset => asset.path !== CURRENT_TASK_RELATIVE_PATH);
+  if (options.mode === 'realign') {
+    const preservedMigrationPaths = new Set(classification.migration.provenance?.converted_artifact_paths ?? []);
+    assets = assets.filter(asset => asset.path !== CURRENT_TASK_RELATIVE_PATH && !(preservedMigrationPaths.has(asset.path) && fs.existsSync(targetPath(root, asset.path))));
+  }
   const targetIdentity = computeBootstrapTargetIdentity(root);
-  const source = { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest };
+  const source = options.source ?? { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest };
   const inputFingerprint = digest({ mode: options.mode, project, host, baseline, facts, targetIdentity });
   assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: 'config', content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
   const plannedWrites = assets.map(asset => asset.path).sort((left, right) => left.localeCompare(right));
@@ -845,7 +897,10 @@ export function bootstrapProjectTargetLocal(options: BootstrapSupportOptions): B
     return { status: 'blocked', target_root: root, target_state: 'conflicting', target_identity: computeBootstrapTargetIdentity(root), mode: options.mode, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source: { revision: 'unavailable', tree_hash: '0'.repeat(64) }, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : 'BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID', message: error instanceof Error ? error.message : String(error) }], warnings: [], read_back_verified: false,
     };
   }
-  const classification = classifyTarget(root);
+  const classification = classifyBootstrapTargetLocal(root, {
+    legacySurfacePresent: options.legacySurfacePresent,
+    migrationAdmission: options.migrationAdmission,
+  });
   try {
     const prepared = prepareProposal(options, distribution, classification);
     const proposal = prepared.proposal;

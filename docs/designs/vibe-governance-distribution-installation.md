@@ -233,10 +233,24 @@ The immutable `support/bootstrap/CURRENT_TASK.md.tmpl` file and the bundled
 They contain no target-project facts and do not initialize governance during
 install. The support layer reads and validates Distribution software, accepts
 mode-specific evidence, renders the governance-only proposal, and delegates
-the commit to the project-local Runtime. It does not parse legacy state; a
-target carrying Migration Pack markers is routed back to the Migration Pack
-boundary. The source-side Bun facade remains a development/release tool and is
-not required by an installed target.
+the commit to the project-local Runtime. Its target-local migration admission
+consumes the shared, read-only completed-migration provenance verifier; marker
+presence alone is not authority. The shared verifier checks paired identity,
+current canonical conversion envelopes, and Pack-declared removed paths; the
+Migration Pack facade retains the full legacy-surface audit. The target-local
+support layer does not parse legacy protocol, schema, or document surfaces. A
+valid migrated target does not need ordinary Bootstrap, but an explicit
+governance-only `realign` remains
+admissible. Migration `INSTALL_STATE.json` and `MIGRATION_RECEIPT.json` remain
+read-only provenance and may coexist with a later `BOOTSTRAP_RECEIPT.json`.
+The source-side Bun facade remains a development/release adapter and is not
+required by an installed target.
+
+Bootstrap rollback is independently scoped to the exact governance paths in
+the typed Bootstrap proposal plus the in-progress control marker. Its preimage
+does not traverse the repository root, Runtime directory, or unmanaged business
+trees; the marker is excluded from the content hash and is cleared only after
+scoped rollback/read-back verification.
 
 ## 5. Release Distribution Manifest
 
@@ -506,3 +520,4 @@ Implementation and verification:
 |---|---:|---|
 | 2026-09-04 | 1.0 | Froze Phase 1 Vibe Governance Distribution boundary and implemented the Node Installer contract. |
 | 2026-09-04 | 1.1 | Closed the Bootstrap/Distribution ownership boundary with scoped Bootstrap rollback, target-local Bootstrap support, and Migration Pack completed-state admission. |
+| 2026-09-04 | 1.2 | Unified source-side and target-local Bootstrap preparation semantics and made completed migration provenance historical rather than a mutable governance snapshot. |

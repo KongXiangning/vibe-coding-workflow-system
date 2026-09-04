@@ -88,6 +88,7 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
       ['bundle/runtime-task-identity.ts', '.workflow-system/runtime/src/task-identity.ts', 'runtime'],
       ['bundle/runtime-bootstrap.ts', '.workflow-system/runtime/src/bootstrap.ts', 'runtime'],
       ['bundle/runtime-bootstrap-support.ts', '.workflow-system/runtime/src/bootstrap-support.ts', 'runtime'],
+      ['bundle/runtime-migration-provenance.ts', '.workflow-system/runtime/src/migration-provenance.ts', 'runtime'],
       ['bundle/runtime-scoped-tree-hash.ts', '.workflow-system/runtime/src/scoped-tree-hash.ts', 'runtime'],
       ['bundle/runtime-bootstrap-support-template.md', '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl', 'runtime'],
       ['bundle/runtime-contract.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', 'protocol'],
@@ -292,7 +293,7 @@ describe('one-time vNext Migration Pack', () => {
     const currentTaskPath = path.join(target, 'docs', 'workflow', 'CURRENT_TASK.md');
     const currentTaskBeforeDrift = fs.readFileSync(currentTaskPath, 'utf8');
     fs.appendFileSync(currentTaskPath, '\nprovenance drift\n', 'utf8');
-    expect(() => validateCompletedMigration(target)).toThrow('CURRENT_TASK.md drifted');
+    expect(validateCompletedMigration(target)).toMatchObject({ migration_pack_id: manifest.pack_id });
     fs.writeFileSync(currentTaskPath, currentTaskBeforeDrift, 'utf8');
 
     const replay = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target });

@@ -263,9 +263,14 @@ After fresh installation, `bootstrap-project` uses the target-local
 installed Distribution and support bytes, accepts mode-specific evidence,
 constructs the exact governance-only proposal and changed-path set, and lets
 the project-local Runtime commit/read back the transaction. The source-side
-Bun bootstrap facade remains a source-development/release tool; it is not a
-production target dependency. Bootstrap never regenerates or receipt-owns the
-Distribution software.
+Bun bootstrap facade remains a source-development/release adapter; it is not a
+production target dependency. Both entries call the same target-local
+preparation core for classification, mode transitions, governance rendering,
+scope preparation, Bootstrap Receipt construction, and completed-migration
+admission. The source adapter may add source/legacy diagnostics, but it does
+not duplicate those semantics. Bootstrap never regenerates or receipt-owns the
+Distribution software; migration provenance and a later Bootstrap Receipt may
+legitimately coexist.
 
 ### 3.6 Core Daily Execution Semantics freeze
 

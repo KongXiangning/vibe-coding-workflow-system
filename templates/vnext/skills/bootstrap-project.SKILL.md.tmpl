@@ -104,9 +104,13 @@ repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
    `realign`. Keep the mode's precondition and terminal result explicit. A
    missing design baseline routes to a design result; an incomplete inventory
    routes to inventory or user confirmation; an unsupported old schema routes
-   to the offline migration boundary. The only chained mode transitions are
-   `design` → `greenfield` and `inventory` → `adopt`; other valid receipts
-   require replay or explicit `realign`.
+   to the offline migration boundary. Completed migration admission comes from
+   the installed read-only Migration Pack provenance verifier, not from the
+   presence of either migration marker alone. A migrated governed target does
+   not require ordinary Bootstrap, but an explicit `realign` remains allowed.
+   The only chained mode transitions are `design` → `greenfield` and
+   `inventory` → `adopt`; other valid receipts require replay or explicit
+   `realign`.
 3. Record confirmed facts with their authority and provenance. Keep inferred or
    unknown facts visible as such. Adoption may not turn an unresolved consumer,
    interface, or ownership conflict into a locked Contract or Decision.
@@ -116,8 +120,11 @@ repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
    product files. Adopt mode promotes only confirmed facts. Realign mode may
    touch workflow-owned vNext assets only and must preserve the canonical
    `CURRENT_TASK.md` (including a completed task identity), target facts, user
-   documentation, native host assets, and frozen paths. An active or invalid
-   task state blocks realign.
+   documentation, native host assets, and frozen paths. Migration
+   `INSTALL_STATE.json` and `MIGRATION_RECEIPT.json` are read-only historical
+   provenance; they may coexist with a later Bootstrap Receipt, and realign
+   must not update or receipt-own them. An active or invalid task state blocks
+   realign.
 5. Keep the caller's `changed_paths` as the authoritative proposed diff target.
    Feed the exact paths through the existing mutation scope evaluator. Read or
    discovery context may be broader; it never grants write authority. Forbidden

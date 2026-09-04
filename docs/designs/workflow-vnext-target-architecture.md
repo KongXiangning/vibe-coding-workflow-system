@@ -865,6 +865,15 @@ does not regenerate, promote, or receipt-own the Runtime, Protocol, Schema,
 Bootstrap support, or canonical Agent Skill surface. Distribution upgrades
 therefore do not make Bootstrap governance provenance stale.
 
+Source-side development/release orchestration and the installed target-local
+entry share one Bootstrap preparation core for classification, mode admission,
+rendering, scope preparation, receipt construction, and migration-provenance
+behavior. The source facade may add source-repository and legacy-surface
+validation, but it does not maintain a second planner. A completed migration is
+admitted through the shared read-only provenance verifier; a later explicit
+`realign` may coexist with that migration provenance and creates only a
+Bootstrap-owned receipt.
+
 The source-side Bun bootstrap facade remains a development/release
 orchestrator. A fresh installed target does not need the workflow-system source
 repository, Bun, `WORKFLOW_SYSTEM_ROOT`, or source-side generation/sync/pack

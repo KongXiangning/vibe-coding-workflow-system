@@ -3,9 +3,10 @@
  *
  * Bootstrap does not own an active task. It validates a closed proposal,
  * reuses the shared mutation-scope evaluator, and atomically writes the
- * caller-provided generated asset set. Project identity, mode admission,
- * source generation, and evidence selection remain in the bootstrap facade;
- * this module owns the governance-only write boundary and read-back behavior.
+ * caller-provided generated asset set. The target-local Bootstrap support core
+ * owns shared project identity, mode admission, preparation, and evidence
+ * selection; source-side callers are only environment adapters. This module
+ * owns the governance-only write boundary and read-back behavior.
  * Distribution software is a read-only prerequisite owned by the ephemeral
  * Distribution installer; it is deliberately not an admissible Bootstrap
  * asset or directory target.

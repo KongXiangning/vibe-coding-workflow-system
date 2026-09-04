@@ -145,9 +145,15 @@ Bootstrap classification of this state is admitted by the Migration Pack's
 completed-migration verifier, not by reading a standalone
 `MIGRATION_RECEIPT.json`. The verifier binds the receipt to the paired
 `INSTALL_STATE.json`, converted artifact records, target identity, and absence
-of the legacy surface. The Runtime identity recorded there is historical
+of the legacy surface (with the full legacy-surface audit remaining in the
+Migration Pack facade). The Runtime identity recorded there is historical
 provenance; a later Distribution upgrade does not invalidate it merely because
-the current project-local Runtime version is newer.
+the current project-local Runtime version is newer. Migration-time checksums
+and converted artifact hashes remain historical evidence; mutable governance
+documents, including `CURRENT_TASK.md`, are admitted by their current vNext
+canonical schema/identity and need not retain migration-time bytes. The paired
+Migration state and receipt remain read-only through later Bootstrap realign,
+and may coexist with a later Bootstrap Receipt.
 
 ### 3.5 Unsupported schema in vNext
 
