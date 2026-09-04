@@ -6,6 +6,7 @@
 - Behavior impact: `none`
 - Design references:
   - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
+  - [`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md)
   - [`.workflow-system/WORKFLOW_CAPABILITIES.yaml`](../../.workflow-system/WORKFLOW_CAPABILITIES.yaml)
   - [`test/fixtures/workflow-capability-cases.yaml`](../../test/fixtures/workflow-capability-cases.yaml)
 
@@ -29,10 +30,12 @@ deterministic Runtime transactions
         ↓
 canonical Markdown/YAML knowledge
 
-Upgrade boundary:
+Legacy migration boundary:
 old idle project
         ↓  one-time offline Migration Pack
-pure vNext installation
+vNext Distribution installed
+        ↓
+governance bootstrap remains a separate `/bootstrap-project` transition
 ```
 
 The target is a smaller user intent surface with fewer model-visible workflow nodes and no loss of boundary, authority, state, evidence, stop, or escalation semantics. The old Skill graph is migration input, not a vNext runtime layer.
@@ -42,13 +45,18 @@ The target is a smaller user intent surface with fewer model-visible workflow no
 This target design does not:
 
 - make vNext Skills understand, parse, or execute the old protocol;
-- retain old Skills or compatibility aliases in a pure vNext installation;
+- retain old Skills or compatibility aliases in a vNext Distribution;
 - make Runtime or a vNext Skill perform legacy-document conversion;
 - introduce a second project-truth store beside canonical Markdown/YAML knowledge;
 - let an unsupported schema continue into task execution;
 - define implementation-specific CLI/API syntax in this architecture document.
 
 The old manifest and governance documents are inputs to the one-time Migration Pack only. A vNext manifest/schema is a new contract and must not silently reinterpret an old schema.
+
+Distribution and governance are separate concerns. The normative installer,
+manifest ownership, `uninstalled | legacy | vnext(version)` state model, and
+the `Install != Bootstrap` boundary are frozen in
+[`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md).
 
 ## 3. Normative architecture principles
 
@@ -97,15 +105,15 @@ The model and user own semantic judgment and authority. Runtime owns determinist
 
 ### P-08 — Legacy understanding belongs only to the one-time Migration Pack
 
-The vNext runtime is not a compatibility runtime. It does not parse old protocol/schema documents, resolve old Skill names, or execute legacy modes. A separate, one-time Migration Pack is the only legacy-aware component; it converts an idle old project offline before pure vNext installation. The resulting vNext installation contains no old Skills or compatibility aliases.
+The vNext runtime is not a compatibility runtime. It does not parse old protocol/schema documents, resolve old Skill names, or execute legacy modes. A separate, one-time Migration Pack is the only legacy-aware component; it converts an idle old project offline before the vNext Distribution is installed. The resulting Distribution contains no old Skills or compatibility aliases.
 
 ### P-09 — Project knowledge is selected by relevance and admitted by evidence
 
 The system does not load all accumulated governance knowledge into every task and does not persist every observation. `project-context-resolver` selects relevant canonical context with source locators, precedence, freshness, and conflicts. `knowledge-admission-policy` admits, merges, supersedes, defers, or rejects candidates for `CONTRACTS`, `DECISIONS`, and `LESSONS` based on authority, stability, novelty, reuse value, and evidence.
 
-### P-10 — Upgrade is an idle-only, one-time offline conversion
+### P-10 — Legacy migration is idle-only and one-time offline
 
-Only an old project in `idle` state may upgrade. The one-time Migration Pack converts old governance documents offline, validates the converted canonical Markdown/YAML documents, and only then permits installation of pure vNext. A non-idle project is not upgraded and is left on the old installation until its state is settled. The pack must preserve authoritative facts, report ambiguity, and never invent completion, ownership, recovery, or evidence.
+Only a legacy project in `idle` state may enter migration. The one-time Migration Pack converts old governance documents offline, validates the converted canonical Markdown/YAML documents, and only then permits installation of the vNext Distribution. A non-idle project is not migrated and is left on the old installation until its state is settled. The pack must preserve authoritative facts, report ambiguity, and never invent completion, ownership, recovery, or evidence.
 
 ### P-11 — Unsupported schema fails closed
 
@@ -782,15 +790,15 @@ or silent reinterpretation. If a future released supported durable schema
 changes incompatibly, an explicit schema-evolution / offline-migration boundary
 must be defined before ordinary readers accept that shape.
 
-### 11.2 Idle-only upgrade precondition
+### 11.2 Idle-only legacy-migration precondition
 
-An old project may upgrade only when its old runtime reports the canonical `idle` state and `CURRENT_TASK.md` has already completed its `close`/`archive` flow. A project with an active task, unresolved finding/repair, paused or interrupted work, pending lifecycle/recovery work, or an ambiguous/unreadable state is not eligible. Recoverable paused or interrupted work is also non-idle and must be settled through the old workflow first. The Migration Pack must reject it without changing the old installation or its governance documents.
+An old project may migrate only when its old runtime reports the canonical `idle` state and `CURRENT_TASK.md` has already completed its `close`/`archive` flow. A project with an active task, unresolved finding/repair, paused or interrupted work, pending lifecycle/recovery work, or an ambiguous/unreadable state is not eligible. Recoverable paused or interrupted work is also non-idle and must be settled through the old workflow first. The Migration Pack must reject it without changing the old installation or its governance documents.
 
 The Migration Pack does not close/archive `CURRENT_TASK`, select an owner, invent recovery facts, reset attempts, or turn an unfinished state into `idle`. The old installation remains authoritative until the project reaches `idle` through the old workflow.
 
-### 11.3 Fixed upgrade flow
+### 11.3 Fixed legacy migration flow
 
-The upgrade is a single offline conversion followed by a clean vNext installation:
+Legacy migration is a single offline conversion followed by a clean vNext Distribution installation:
 
 ```text
 old project in `idle`
@@ -801,7 +809,7 @@ offline conversion of old governance documents
         ↓
 validate the complete converted pack
         ↓
-install pure vNext
+install vNext Distribution through the explicit `migrate` boundary
         ↓
 old Skills no longer exist
 ```
@@ -820,7 +828,7 @@ The pack reads a declared old protocol/schema and an exact source revision, then
 - workflow schema/version metadata;
 - the Skill installation surface.
 
-`CURRENT_TASK.md` is an upgrade precondition, not a migration input. Active findings, finding-repair state, paused packages, interrupted runtime state, and other unfinished lifecycle state are outside the pack scope and make the source project non-idle.
+`CURRENT_TASK.md` is a migration precondition, not a hot-migration input. Active findings, finding-repair state, paused packages, interrupted runtime state, and other unfinished lifecycle state are outside the pack scope and make the source project non-idle.
 
 The converted output remains Markdown/YAML canonical knowledge and project truth; temporary mapping objects, reports, and indexes are evidence only.
 
@@ -834,9 +842,17 @@ Conversion must:
 
 Migration is mechanical structure conversion. It does not require AI to re-understand every historical document and must not guess Lesson-to-symbol applicability, semantic duplicates, semantic tags, or inferred rewrite/merge/supersede decisions. Later vNext retrieval uses the original text through `project-context-resolver`; `knowledge-admission-policy` governs new or explicitly proposed knowledge rather than reclassifying the legacy corpus during migration.
 
-### 11.5 Pure vNext installation
+### 11.5 vNext Distribution installation
 
-Installation consumes only a validated Migration Pack and the vNext bundle. It installs the vNext protocol/schema, generated references, host surface, and the seven daily intent entries plus their administrative, expert, internal, and Runtime surfaces defined by this architecture.
+The accepted architecture is distributed through the separate `Vibe Governance`
+Distribution Boundary. A fresh Distribution install writes only explicitly
+manifest-owned software: the vNext protocol/schema, the project-local Runtime,
+Runtime contracts, and the canonical `.agents/skills/` surface. It does not
+bootstrap project facts or install `CURRENT_TASK.md`.
+
+Legacy conversion continues to consume a validated Migration Pack and the
+vNext bundle; that Pack may promote converted governance documents and its
+canonical task baseline as part of the explicit migration transition.
 
 The installed vNext surface contains no old Skill files, old Skill registry entries, legacy aliases, old-state adapters, or compatibility routes. The old names are not resolvable after installation. Re-running the completed pack must not create a second conversion; the exact replay/no-op behavior is an implementation contract, not a compatibility surface.
 
@@ -844,11 +860,13 @@ The installed vNext surface contains no old Skill files, old Skill registry entr
 
 The pack is fail-closed and all-or-nothing with respect to vNext installation:
 
-- non-idle or ambiguous old state stops the upgrade before conversion is accepted;
+- non-idle or ambiguous old state stops migration before conversion is accepted;
 - conversion or validation failure leaves the old installation and source documents unchanged;
 - vNext installation is forbidden when the pack is incomplete, stale, conflicting, or not bound to the target root and source revision;
-- a vNext process that finds an old/unsupported schema returns `migration-required` and stops; it does not fall back to an old Skill because pure vNext has no old Skills;
-- no partial vNext host surface, registry state, schema marker, or generated output may be promoted as a successful installation.
+- a vNext process that finds an old/unsupported schema returns `migration-required` and stops; it does not fall back to an old Skill;
+- no partial vNext Agent surface, registry state, schema marker, or generated output may be promoted as a successful installation;
+- Distribution state is classified only as `uninstalled`, `legacy`, or `vnext(version)`; `pure vNext` is descriptive surface terminology, not a project state;
+- `.agents/skills/` is the canonical vNext Skill surface; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` remain legacy/source compatibility only.
 
 ## 12. Macro transition policy
 
@@ -1030,7 +1048,7 @@ The following cases define the target behavior:
 | `TA-09` | Runtime proposal uses a valid path assigned to the wrong operation | operation-specific handler rejects it before mutation |
 | `TA-10` | Interrupted task resumes | atomic restore succeeds, then macro-routes to readiness review rather than implementation |
 | `TA-11` | CI requests regression evidence | `validate-change` is callable without appearing as a required daily user step |
-| `TA-12` | A legacy Skill name is encountered during upgrade or installation | only the offline Migration Pack may read it; pure vNext contains no old Skill, alias, or callable compatibility route |
+| `TA-12` | A legacy Skill name is encountered during migration or installation | only the offline Migration Pack may read it; the vNext Distribution contains no old Skill, alias, or callable compatibility route |
 | `TA-13` | Verification repeatedly exposes distinct strong blockers | one bounded new-finding wave is admitted; the cycle-level budget then terminates in `needs-debug`, `needs-user`, or `blocked` instead of restarting discovery |
 | `TA-14` | Review or evidence work crosses a session boundary | canonical task/finding records preserve diff target, fingerprints, budgets, claims, and evidence state; a new session cannot reset attempts or widen the test plan from memory |
 | `TA-15` | Small bug matches one Contract, one Decision, and one prior Lesson | resolver returns exact relevant locators and excludes unrelated knowledge without weakening precedence |
@@ -1039,15 +1057,15 @@ The following cases define the target behavior:
 | `TA-18` | One-off workaround is proposed as a Lesson | knowledge admission rejects/defer it; no durable knowledge is appended |
 | `TA-19` | Equivalent Decision/Lesson candidate already exists | disposition is `merge` or `no-op`; provenance is preserved and no duplicate entry is created |
 | `TA-20` | Required context exceeds the configured budget | resolver returns `required-context-exceeds-budget`; it chunks/escalates rather than dropping authoritative context |
-| `TA-21` | Idle legacy project enters upgrade | a one-time Migration Pack converts old governance documents offline, validates the complete pack, and then permits pure vNext installation |
-| `TA-22` | Legacy project is active, paused, interrupted, unresolved, or ambiguous | upgrade stops as non-idle; old installation/documents remain unchanged and no vNext surface is installed |
+| `TA-21` | Idle legacy project enters migration | a one-time Migration Pack converts old governance documents offline, validates the complete pack, and then permits vNext Distribution installation |
+| `TA-22` | Legacy project is active, paused, interrupted, unresolved, or ambiguous | migration stops as non-idle; old installation/documents remain unchanged and no vNext surface is installed |
 | `TA-23` | Offline conversion encounters old task/finding/lifecycle records that are not idle | the pack does not select, resume, close, or guess; conversion is rejected until the old project is idle |
 | `TA-24` | A vNext entry detects an old or unsupported schema | result is `migration-required` → stop; no legacy parsing, task execution, or mutation occurs |
 | `TA-25` | Converted documents contain target-owned fields or managed drift | valid facts are preserved and drift/ambiguity is reported; conversion never overwrites target-owned content to mimic a fresh install |
-| `TA-26` | Offline conversion or pack validation is interrupted | old source documents remain unchanged, the pack is incomplete, and pure vNext installation is forbidden |
+| `TA-26` | Offline conversion or pack validation is interrupted | old source documents remain unchanged, the pack is incomplete, and vNext Distribution installation is forbidden |
 | `TA-27` | A completed Migration Pack is presented again | the system does not perform a second conversion or create a partial installation; replay is bound to the original source and target identity |
 | `TA-28` | Conversion output lacks required facts or contains conflicting authority | the pack is rejected with explicit blockers; no vNext installation or guessed canonical fact is produced |
-| `TA-29` | Pure vNext installation completes | old Skill files, registry entries, aliases, adapters, and host routes are absent and old names are not resolvable |
+| `TA-29` | vNext Distribution installation completes | old Skill files, registry entries, aliases, adapters, and host routes are absent and old names are not resolvable |
 | `TA-30` | A claim-bound Project Profile validation command creates only declared ephemeral output | command runs with `shell: false` in a disposable clean copy; evidence is bound to claim/diff/context/command revisions, ephemeral output is audited and cleaned, and the live workspace has zero diff |
 | `TA-31` | Validation changes a governed sandbox file or escapes into the live workspace | result is `blocked`, the exact unexpected paths and governed mutation count are reported, and disposable cleanup still runs |
 | `TA-32` | Validation command grammar, command revision, context revision, target identity, or diff target is unsafe/stale | subprocess does not execute and the mismatch is reported as a blocker; external-documentation and approval evidence also remain outside subprocess authority |
@@ -1061,7 +1079,7 @@ The following cases define the target behavior:
 | `TA-40` | A draft is refined repeatedly | `update-draft` preserves TASK_ID/TASK_SLUG/document_id, changes only typed definition sections, and leaves the task in `draft + active` |
 | `TA-41` | A stale or unauthorized `prepare-task:confirm` is presented | Runtime returns `conflict`/`blocked`, performs no write, and does not auto-confirm the draft |
 | `TA-42` | A confirmed draft is executed and later closed, then another request is prepared | the first archive remains byte-stable and immutable; the next draft receives a new identity with no dual current owner |
-| `TA-43` | An active pure-vNext Virtual Project captures a proven-unrelated work item | exactly one identity-derived inbox record is committed; exact replay is byte-identical no-op; stale, non-unrelated, unresolved, colliding, or failed transactions write nothing and leave task state unchanged |
+| `TA-43` | An active vNext Virtual Project captures a proven-unrelated work item | exactly one identity-derived inbox record is committed; exact replay is byte-identical no-op; stale, non-unrelated, unresolved, colliding, or failed transactions write nothing and leave task state unchanged |
 
 ## 15. Success measures
 
@@ -1083,8 +1101,8 @@ Hard requirements:
 - knowledge candidates deduplicate, preserve provenance, and cannot bypass authority or stability gates;
 - Runtime has operation-specific source/write boundaries and no second state source;
 - only an old project in `idle` state may enter the one-time Migration Pack flow;
-- converted canonical Markdown/YAML documents are validated before pure vNext installation;
-- old Skills, aliases, and compatibility routes are absent from pure vNext;
+- converted canonical Markdown/YAML documents are validated before vNext Distribution installation;
+- old Skills, aliases, and compatibility routes are absent from the vNext Distribution;
 - old or unsupported schemas return `migration-required` and stop.
 
 Soft improvement measures:
@@ -1113,10 +1131,10 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 - A Runtime handler writes through a broad glob or borrows another operation's valid target.
 - Resume selects the “latest” package or leaves two active owners.
 - Internal `sync-state` becomes a way to overwrite semantic facts without eligibility evidence.
-- Host sync exposes internal capabilities as daily entries or installs any old Skill/alias in pure vNext.
+- Distribution exposes internal capabilities as daily entries or installs any old Skill/alias in the vNext Distribution.
 - A task loads all Contracts/Decisions/Lessons without relevance tracing, or silently drops required context to fit a token budget.
 - A model observation or one-off workaround becomes a Contract, Decision, or Lesson without authority/evidence/deduplication.
-- An upgrade accepts a non-idle old project, guesses unfinished-state facts, or converts old documents inside a vNext Skill.
+- A legacy migration accepts a non-idle old project, guesses unfinished-state facts, or converts old documents inside a vNext Skill.
 - A vNext entry continues after detecting an old/unsupported schema instead of returning `migration-required` and stopping.
 - Different models or harnesses change authority, stop, owner, or mutation verdicts rather than only cost, wording, or turn count.
 - Validation runs through a shell, accepts a stale/unregistered command, writes a governed path, or reports success after an unexpected live/sandbox diff.
@@ -1133,7 +1151,7 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 6. Runtime uses a common transaction kernel plus exact typed handlers and canonical sources only.
 7. The old protocol is read only by a one-time Migration Pack; vNext has an explicit schema boundary and does not interpret legacy documents.
 8. `project-context-resolver` performs relevance/precedence/conflict-aware retrieval; `knowledge-admission-policy` governs durable Contract/Decision/Lesson growth.
-9. Only an `idle` old project may upgrade: offline document conversion happens once, then pure vNext is installed and old Skills no longer exist.
+9. Only an `idle` old project may migrate: offline document conversion happens once, then the vNext Distribution is installed and old Skills no longer exist.
 10. Ordinary independent requests first create a durable `draft + active` task through `prepare-task` and may be refined in place; only explicit `prepare-task:confirm` grants `active + active` execution authority.
 11. The existing `task-state-transaction` owns the closed `create-draft`, `update-draft`, and `confirm-draft` actions with exact source revision, identity, authority, atomicity, replay, rollback, and read-back checks.
 
@@ -1159,4 +1177,4 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 
 ## 17. Decision outcome
 
-The accepted target is a pure vNext architecture with seven daily intents, adaptive internal capabilities, unified review and Review Convergence, Evidence Admission, `project-context-resolver`, `knowledge-admission-policy`, a shared Runtime transaction kernel, and Markdown/YAML canonical knowledge. Upgrade is idle-only and one-time: the Migration Pack performs offline conversion of old governance documents, after which pure vNext is installed and old Skills are absent. vNext Skills do not understand the old protocol; an old or unsupported schema returns `migration-required` and stops.
+The accepted target is a vNext architecture with seven daily intents, adaptive internal capabilities, unified review and Review Convergence, Evidence Admission, `project-context-resolver`, `knowledge-admission-policy`, a shared Runtime transaction kernel, and Markdown/YAML canonical knowledge. Migration is idle-only and one-time: the Migration Pack performs offline conversion of old governance documents, after which the vNext Distribution is installed and old Skills are absent. vNext Skills do not understand the old protocol; an old or unsupported schema returns `migration-required` and stops.

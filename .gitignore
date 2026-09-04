@@ -19,3 +19,5 @@ generated/
 !docs/workflow/generated/workflow-docs/**
 !docs/workflow/generated/workflow-skills/
 !docs/workflow/generated/workflow-skills/**
+packages/vibe-governance/dist/
+packages/vibe-governance/payload/

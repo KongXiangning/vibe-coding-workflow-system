@@ -57,6 +57,7 @@ export const VNEXT_BUNDLE_FILE = 'vnext-bundle.json';
 export const VNEXT_INSTALL_STATE_RELATIVE_PATH = '.workflow-system/vnext/INSTALL_STATE.json';
 export const VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH = '.workflow-system/vnext/MIGRATION_RECEIPT.json';
 export const VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH = '.workflow-system/vnext/MIGRATION_IN_PROGRESS.json';
+export const VNEXT_DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH = '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json';
 
 const LEGACY_PROTOCOL_VERSION_PATTERN = /^0\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/;
 const VNEXT_SCHEMA_VERSION_PATTERN = /(?:^|\n)\s*(?:schema_version|vnext_schema_version)\s*:\s*1\b/i;
@@ -418,7 +419,8 @@ export type RuntimeDistributionIdentity = {
 export type VNextInstallState = {
   schema_version: 1;
   kind: 'vnext-install-state';
-  mode: 'pure-vnext';
+  distribution_state: 'vnext';
+  distribution_version: string;
   migration_pack_id: string;
   bundle_id: string;
   source_revision: string;
@@ -478,6 +480,12 @@ export type InstallPackOptions = {
   targetRoot: string;
   sourceRoot?: string;
   dryRun?: boolean;
+  /** Extra, already-validated writes owned by the outer Distribution boundary. */
+  additionalWrites?: Array<{ path: string; content: string }>;
+  /** Release bundles are portable across package installation paths. */
+  portableBundle?: boolean;
+  /** Read-back hook for an outer Distribution transaction. */
+  postPromotionVerify?: () => void;
 };
 
 export class MigrationPackError extends Error {
@@ -647,7 +655,10 @@ function getGitRevision(root: string): string | null {
 export function computeTreeHash(root: string, ignoredRelativePaths: readonly string[] = []): string {
   const resolvedRoot = path.resolve(root);
   const files = listFiles(resolvedRoot, { skipDirectories: SKIP_TREE_DIRECTORIES });
-  const ignored = new Set(ignoredRelativePaths.map(relativePath => normalizeRepoPath(relativePath, 'tree hash ignored path')));
+  const ignored = new Set([
+    ...ignoredRelativePaths,
+    VNEXT_DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH,
+  ].map(relativePath => normalizeRepoPath(relativePath, 'tree hash ignored path')));
   const hash = crypto.createHash('sha256');
   for (const filePath of files) {
     const relative = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
@@ -1428,7 +1439,10 @@ export function preflightMigration(options: PreflightOptions): MigrationPrefligh
     blockers.push({ severity: 'error', code: 'VNEXT_INSTALL_IN_PROGRESS', message: 'An interrupted vNext installation marker is present; inspect or explicitly recover it before retrying migration.', path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH });
   } else {
     const vnextDirectory = path.join(targetRoot, '.workflow-system', 'vnext');
-    const partialFiles = listFiles(vnextDirectory).filter(filePath => path.basename(filePath) !== 'MIGRATION_PACK_SCHEMA.yaml');
+    const partialFiles = listFiles(vnextDirectory).filter(filePath => {
+      const basename = path.basename(filePath);
+      return basename !== 'MIGRATION_PACK_SCHEMA.yaml' && basename !== path.basename(VNEXT_DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH);
+    });
     if (partialFiles.length > 0) {
       blockers.push({ severity: 'error', code: 'VNEXT_ALREADY_PRESENT', message: 'A partial vNext surface is present without a completed install marker; repair it explicitly before migration.', path: path.relative(targetRoot, partialFiles[0]).replace(/\\/g, '/') });
     }
@@ -1752,13 +1766,13 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
   return manifest;
 }
 
-function validateSourceIdentity(actual: SourceIdentity, expected: SourceIdentity, location: string): void {
+function validateSourceIdentity(actual: SourceIdentity, expected: SourceIdentity, location: string, portable = false): void {
   if (
-    actual.root_identity !== expected.root_identity ||
     actual.revision !== expected.revision ||
     actual.tree_hash !== expected.tree_hash
+    || (!portable && actual.root_identity !== expected.root_identity)
   ) {
-    throw new MigrationPackError('PACK_STALE', `${location} does not match the exact source identity/revision.`);
+    throw new MigrationPackError('PACK_STALE', `${location} does not match the exact source identity/revision${portable ? ' and content hash' : ''}.`);
   }
 }
 
@@ -2390,7 +2404,12 @@ function sourceDeclaresPhase2Runtime(sourceRoot: string): boolean {
   return parsed.errors.length === 0 && parsed.toJS()?.phase === 'Phase 2';
 }
 
-function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkillNames: readonly string[]): VNextBundleManifest {
+function loadAndValidateBundle(
+  bundleDir: string,
+  sourceRoot: string,
+  legacySkillNames: readonly string[],
+  portable = false,
+): VNextBundleManifest {
   validateSourceContractIfPresent(sourceRoot);
   const manifestPath = path.join(path.resolve(bundleDir), VNEXT_BUNDLE_FILE);
   if (!fs.existsSync(manifestPath)) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle manifest is missing: ${manifestPath}`);
@@ -2406,7 +2425,7 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
   const bundleId = expectString(raw.bundle_id, 'vNext bundle.bundle_id');
   if (!/^bundle-[a-f0-9]{24}$/.test(bundleId)) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle.bundle_id is invalid.');
   const source = validateSourceIdentityShape(raw.source, 'vNext bundle.source');
-  validateSourceIdentity(source, getSourceIdentity(sourceRoot), 'vNext bundle source');
+  validateSourceIdentity(source, getSourceIdentity(sourceRoot), 'vNext bundle source', portable);
   if (!Array.isArray(raw.artifacts) || raw.artifacts.length === 0) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle.artifacts must be non-empty.');
   const artifacts: VNextBundleArtifact[] = [];
   const paths = new Set<string>();
@@ -2432,6 +2451,9 @@ function loadAndValidateBundle(bundleDir: string, sourceRoot: string, legacySkil
       throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle must not own Migration Pack state: ${artifact.target_path}`);
     }
     if (artifact.category === 'skill') {
+      if (!artifact.target_path.startsWith('.agents/skills/')) {
+        throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use the canonical .agents/skills/ surface: ${artifact.target_path}`);
+      }
       const skillBasename = path.posix.basename(artifact.target_path);
       if (!/^[a-z][a-z0-9-]*\.SKILL\.md$/.test(skillBasename) || skillBasename.startsWith('workflow-system-')) throw new MigrationPackError('BUNDLE_INVALID', `vNext Skill target must use a canonical unprefixed entry filename: ${artifact.target_path}`);
     }
@@ -2583,6 +2605,23 @@ export function buildVNextBundle(options: {
   return loadAndValidateBundle(bundleDir, sourceRoot, mergeLegacySkillNames(sourceRoot, []));
 }
 
+/**
+ * Validate a prebuilt vNext bundle without exposing the private evaluator to
+ * the Distribution layer.  `portable` is reserved for release payloads: the
+ * content/revision identity stays bound, while the package cache path is
+ * allowed to differ between build and install machines.
+ */
+export function validateVNextBundle(options: {
+  bundleDir: string;
+  sourceRoot?: string;
+  legacySkillNames?: readonly string[];
+  portable?: boolean;
+}): VNextBundleManifest {
+  const sourceRoot = path.resolve(options.sourceRoot ?? resolveRoot());
+  const legacySkillNames = options.legacySkillNames ?? mergeLegacySkillNames(sourceRoot, []);
+  return loadAndValidateBundle(path.resolve(options.bundleDir), sourceRoot, legacySkillNames, options.portable === true);
+}
+
 function readBundleContent(bundleDir: string, artifact: VNextBundleArtifact): string {
   return fs.readFileSync(resolveRepoPath(bundleDir, artifact.source_path, 'vNext bundle source path'), 'utf8');
 }
@@ -2636,7 +2675,11 @@ export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonl
     }
     const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     try {
-      execFileSync(npmCommand, ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], {
+      const npmArgs = ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'];
+      const npmInvocation = process.platform === 'win32'
+        ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `${npmCommand} ${npmArgs.join(' ')}`]] as const
+        : [npmCommand, npmArgs] as const;
+      execFileSync(npmInvocation[0], npmInvocation[1], {
         cwd: runtimeDirectory,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -2761,13 +2804,22 @@ function validateRuntimeDistributionIdentity(value: unknown, location: string): 
 
 function validateVNextInstallState(value: unknown, location: string): VNextInstallState {
   const state = expectRecord(value, location);
+  const legacyStateShape = 'mode' in state && !('distribution_state' in state);
   expectExactKeys(
     state,
-    ['schema_version', 'kind', 'mode', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'managed_files', 'removed_legacy_files', 'legacy_compatibility', 'recovery_boundary'],
+    legacyStateShape
+      ? ['schema_version', 'kind', 'mode', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'managed_files', 'removed_legacy_files', 'legacy_compatibility', 'recovery_boundary']
+      : ['schema_version', 'kind', 'distribution_state', 'distribution_version', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'managed_files', 'removed_legacy_files', 'legacy_compatibility', 'recovery_boundary'],
     location,
   );
-  if (state.schema_version !== 1 || state.kind !== 'vnext-install-state' || state.mode !== 'pure-vnext' || state.legacy_compatibility !== 'absent' || state.recovery_boundary !== 'in-progress-marker') {
-    throw new MigrationPackError('INSTALL_CONFLICT', `${location} is not a pure-vNext install state.`);
+  if (
+    state.schema_version !== 1
+    || state.kind !== 'vnext-install-state'
+    || (legacyStateShape ? state.mode !== 'pure-vnext' : state.distribution_state !== 'vnext')
+    || state.legacy_compatibility !== 'absent'
+    || state.recovery_boundary !== 'in-progress-marker'
+  ) {
+    throw new MigrationPackError('INSTALL_CONFLICT', `${location} is not a valid vNext install state.`);
   }
   const migrationPackId = expectString(state.migration_pack_id, `${location}.migration_pack_id`);
   const bundleId = expectString(state.bundle_id, `${location}.bundle_id`);
@@ -2801,7 +2853,12 @@ function validateVNextInstallState(value: unknown, location: string): VNextInsta
   return {
     schema_version: 1,
     kind: 'vnext-install-state',
-    mode: 'pure-vnext',
+    distribution_state: 'vnext',
+    distribution_version: legacyStateShape
+      ? (state.runtime_distribution && typeof state.runtime_distribution === 'object' && !Array.isArray(state.runtime_distribution) && typeof (state.runtime_distribution as Record<string, unknown>).package_version === 'string'
+        ? (state.runtime_distribution as Record<string, unknown>).package_version as string
+        : 'unknown')
+      : expectString(state.distribution_version, `${location}.distribution_version`),
     migration_pack_id: migrationPackId,
     bundle_id: bundleId,
     source_revision: sourceRevision,
@@ -2984,7 +3041,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
       const bundleId = existing.bundle_id;
       if (samePack && receipt.migration_pack_id === candidatePack.pack_id && receipt.bundle_id === bundleId && receipt.source_revision === candidatePack.source.revision && receipt.source_tree_hash === candidatePack.source.tree_hash && receipt.target_identity === candidatePack.target.root_identity) {
         const knownLegacyNames = mergeLegacySkillNames(sourceRoot, candidatePack.legacy_surface.legacy_skill_names);
-        const bundle = loadAndValidateBundle(options.bundleDir, sourceRoot, knownLegacyNames);
+        const bundle = loadAndValidateBundle(options.bundleDir, sourceRoot, knownLegacyNames, options.portableBundle === true);
         if (bundle.bundle_id === bundleId) {
           if (sourceDeclaresPhase2Runtime(sourceRoot)) {
             if (!existing.runtime_distribution) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed vNext installation is missing Runtime distribution identity.');
@@ -3034,7 +3091,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   let bundle: VNextBundleManifest;
   const knownLegacyNames = mergeLegacySkillNames(sourceRoot, pack.legacy_surface.legacy_skill_names);
   try {
-    bundle = loadAndValidateBundle(options.bundleDir, sourceRoot, knownLegacyNames);
+    bundle = loadAndValidateBundle(options.bundleDir, sourceRoot, knownLegacyNames, options.portableBundle === true);
   } catch (error) {
     const bundleError = asBundleError(error);
     const issue = bundleError ? { severity: 'error' as const, code: bundleError.code, message: bundleError.message } : { severity: 'error' as const, code: 'BUNDLE_INVALID' as const, message: String(error) };
@@ -3079,6 +3136,19 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     }
   }
   const runtimeTargetNodeModulesPath = preparedRuntime?.targetNodeModulesPath ?? (phase2Runtime ? VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH + '/node_modules' : undefined);
+  if (runtimeTargetNodeModulesPath) {
+    const runtimeDependencyPath = resolveRepoPath(targetRoot, runtimeTargetNodeModulesPath, 'Runtime dependency target');
+    if (fs.existsSync(runtimeDependencyPath)) {
+      if (!fs.statSync(runtimeDependencyPath).isDirectory()) {
+        if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+        return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'INSTALL_CONFLICT', message: 'Runtime dependency target is not a directory.', path: runtimeTargetNodeModulesPath }], warnings, planned_writes: [], planned_deletes: [] };
+      }
+      if (!fs.existsSync(existingStatePath)) {
+        if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+        return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'INSTALL_CONFLICT', message: 'Runtime dependency directory exists without an admitted prior vNext owner.', path: runtimeTargetNodeModulesPath }], warnings, planned_writes: [], planned_deletes: [] };
+      }
+    }
+  }
   if (runtimeTargetNodeModulesPath && isFrozenPath(targetRoot, runtimeTargetNodeModulesPath)) {
     if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
     return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Migration cannot replace a frozen Runtime dependency directory.', path: runtimeTargetNodeModulesPath }], warnings, planned_writes: [], planned_deletes: [] };
@@ -3088,7 +3158,8 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   const installState: VNextInstallState = {
     schema_version: 1,
     kind: 'vnext-install-state',
-    mode: 'pure-vnext',
+    distribution_state: 'vnext',
+    distribution_version: runtimeDistribution?.package_version ?? 'unknown',
     migration_pack_id: pack.pack_id,
     bundle_id: bundle.bundle_id,
     source_revision: pack.source.revision,
@@ -3116,6 +3187,21 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   };
   writes.push({ path: VNEXT_INSTALL_STATE_RELATIVE_PATH, content: JSON.stringify(installState, null, 2) + '\n' });
   writes.push({ path: VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH, content: JSON.stringify(receipt, null, 2) + '\n' });
+  const additionalWrites = options.additionalWrites ?? [];
+  const existingWritePaths = new Set(writes.map(write => write.path));
+  for (const extra of additionalWrites) {
+    const normalizedPath = normalizeRepoPath(extra.path, 'additional transaction write path');
+    if (isFrozenPath(targetRoot, normalizedPath)) {
+      if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+      return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Additional distribution state cannot replace a frozen path.', path: normalizedPath }], warnings, planned_writes: [], planned_deletes: [] };
+    }
+    if (existingWritePaths.has(normalizedPath)) {
+      if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+      return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'INSTALL_CONFLICT', message: 'Additional transaction write duplicates an existing migration target.', path: normalizedPath }], warnings, planned_writes: [], planned_deletes: [] };
+    }
+    existingWritePaths.add(normalizedPath);
+    writes.push({ path: normalizedPath, content: extra.content });
+  }
   const plannedWrites = [...writes.map(write => write.path), ...(runtimeTargetNodeModulesPath ? [runtimeTargetNodeModulesPath] : [])];
   const plannedDeletes = removedLegacyPaths.filter(relative => !bundleTargetPaths.has(relative) && !writes.some(write => write.path === relative));
   if (options.dryRun) return { status: 'ready', pack_id: pack.pack_id, bundle_id: bundle.bundle_id, target_root: targetRoot, blockers, warnings, planned_writes: plannedWrites, planned_deletes: plannedDeletes };
@@ -3157,6 +3243,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
           const installedRuntime = validateVNextRuntimeContract(targetRoot, true).runtime_distribution;
           if (JSON.stringify(installedRuntime) !== JSON.stringify(runtimeDistribution)) throw new MigrationPackError('INSTALL_CONFLICT', 'Project-local Runtime distribution read-back identity mismatch.');
         }
+        options.postPromotionVerify?.();
       },
       preparedRuntime ? [{ path: preparedRuntime.targetNodeModulesPath, sourcePath: preparedRuntime.sourceNodeModulesPath }] : [],
     );

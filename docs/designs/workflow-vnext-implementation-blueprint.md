@@ -2,7 +2,7 @@
 
 - **Status:** `Implementation blueprint`
 - **Date:** `2026-09-02`
-- **Scope:** 纯 vNext 安装项目的 Skill 重写与 Runtime 责任划分
+- **Scope:** vNext Distribution 安装项目的 Skill 重写与 Runtime 责任划分
 - **Purpose:** 把已确认的 Target Architecture 翻译成一张可直接执行的 Skill owner map
 
 这不是新的 shadow 方案、测试平台或兼容层设计。它是后续重写 Skill 模板时的实施依据：每一个旧 Skill 的治理语义必须有唯一的 vNext 归属；每一项持久化写入必须有明确的 Runtime handler。
@@ -14,6 +14,7 @@
 - [`workflow-vnext-target-architecture.md`](workflow-vnext-target-architecture.md)
 - [`workflow-vnext-migration-plan.md`](../product/workflow-vnext-migration-plan.md)
 - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
+- [`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md)
 
 实施时遵守以下边界：
 
@@ -22,6 +23,8 @@
 - `review-change` 与 `validate-change` 是只读/报告型入口；它们不直接写治理状态，也不直接修复代码。
 - Runtime 只提交 typed semantic proposal，不替模型或用户决定产品语义。
 - Migration Pack 是安装前的独立离线工具，不是 vNext Skill，也不是 Runtime capability。
+- Distribution 与 governance state 分离；正常目标项目通过 `npx vibe-governance@latest install|migrate|upgrade` 获取软件，`Install != Bootstrap`。
+- vNext canonical Skill surface 是 `.agents/skills/`；旧 `.codex/skills/`、`.claude/skills/`、`.factory/skills/` 只保留为 legacy/source compatibility，不进入新的 Distribution metadata。
 - 本蓝图不把 Phase 1 原型脚本、shadow runner、12-case 对照 runner 或测试通过情况当成正式实现基础。
 
 ## 2. vNext 入口实施表
@@ -41,7 +44,7 @@
 | `validate-change`（expert/automation） | `run-regression` | QA evidence closed set；复用同一 diff target；unit/integration/browser/visual/release/canary/benchmark 等由 evidence policy 选择；report-only 不触发 sync/debug/repair；失败只路由到 `debug-task` 或用户，不隐式修复 | `validation-layer-gate`；`diff-target-resolver`；`read-only-review-guard`；`evidence-admission-policy`；`owner-route-resolver`；按触发条件启用 `release-evidence-gate`、`external-documentation-gate` | **无**。允许声明的临时 build/cache/test artifacts，但不写 canonical governance state |
 | `sync-state`（internal） | `sync-current-task`、`sync-status`、`sync-contracts`、`sync-decisions`、`sync-host-guidance`、`sync-review-findings`、`capture-lessons`；以及对应 Runtime transaction surface | 只接受 typed semantic delta；caller 提供 authority、evidence、source tuple、scope 和 idempotency；Contract/Decision/Lesson 使用 knowledge admission；finding 只有 current-owner、in-scope、mechanical 且去重后才能进 queue；append-only/provenance、host pairing、exact source/write allowlist；不是任意 Markdown editor | `knowledge-admission-policy`；`source-authority-policy`；`decision-authority-gate`；`propagation-evidence-validator`；`finding-admission`；`owner-route-resolver`；`host-isolation-guard`；`generation-atomicity-policy`；条件性的 `closure-eligibility-gate` | 按 operation kind 精确调用：`task-state-transaction`、`project-status-transaction`、`contract-candidate-commit`、`decision-record-transaction`、`paired-host-guidance-transaction`、`finding-queue-transaction`、`lesson-record-transaction` |
 
-`execute-current-task` 与 `debug-and-fix-current-task` 都按语义边界拆分到多个新入口；这表示拆责任，不表示保留两个旧 wrapper。其余旧 Skill 由上表唯一归属，旧文件、旧 registry entry 和旧 public route 在纯 vNext 安装中均不存在。
+`execute-current-task` 与 `debug-and-fix-current-task` 都按语义边界拆分到多个新入口；这表示拆责任，不表示保留两个旧 wrapper。其余旧 Skill 由上表唯一归属，旧文件、旧 registry entry 和旧 public route 在 vNext Distribution 安装中均不存在。
 
 ### 2.1 Slice B frozen owner map
 
@@ -420,7 +423,7 @@ one-time offline Migration Pack
         ↓
 validate complete converted pack
         ↓
-install pure vNext
+install vNext Distribution
         ↓
 old Skills no longer exist
 ```
@@ -465,8 +468,8 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 |---|---|---|
 | Phase 1A | 固定 entry contract；建立独立 vNext source namespace；只实现 `prepare-task`、`review-change`、`execute-step` 三个单文件模板及其闭合 capability/Runtime catalog；通过 source-contract validator 与人工去流程化审查后停止 | 不扩张 shadow runner；不把旧 Skill 安装到 target；不让 vNext reader 解析旧 schema；不绑定 Runtime 写入；不实现非 idle state migration |
 | Phase 1（后续） | 在 Phase 1A 检查点通过后，补齐其余 daily entry 的最小结构，并保持同一 contract/capability/runtime 边界 | 不把外围入口提前混入 Phase 1A；不以新增测试基础设施作为交付目标 |
-| Migration Pack | 实现 idle preflight、离线副本转换、stable ID/provenance/path-reference、完整 validation 和 pure-vNext atomic installation | 不关闭/归档 active task；不恢复 paused/interrupted；不做语义去重或 AI 历史重写 |
-| Phase 2 existing execution/finding slice | 纯 vNext `execute-step` state-changing workflow；task-state/finding queue；evidence admission、finding admission、Review Convergence 和 read-back | 不保留 legacy fallback；不把 review/validation 变成修复入口；该 slice 已实现 |
+| Migration Pack | 实现 idle preflight、离线副本转换、stable ID/provenance/path-reference、完整 validation 和 vNext Distribution atomic installation | 不关闭/归档 active task；不恢复 paused/interrupted；不做语义去重或 AI 历史重写 |
+| Phase 2 existing execution/finding slice | vNext `execute-step` state-changing workflow；task-state/finding queue；evidence admission、finding admission、Review Convergence 和 read-back | 不保留 legacy fallback；不把 review/validation 变成修复入口；该 slice 已实现 |
 | Phase 2 Slice A | `task-lifecycle` 的 pause、interrupt、resume-paused、resume-interrupted lifecycle transaction；resume 后经 `prepare-task` readiness/resume review 清除 gate；双文件原子提交、read-back 与 rollback | 不实现通用 lifecycle framework、recovery registry 或 legacy 多阶段事务；该 slice 已实现 |
 | Phase 2 Slice B | same-task supersede / replan：保留 identity，分离 invalidation 与 replacement，closed ReplanDelta，deterministic normalization、rollback、idempotence、read-back | 不创建新 task identity、第二份 CURRENT_TASK 或 arbitrary Markdown editor；该 slice 已实现 |
 | Phase 2 Slice C | ordinary independent request 的 durable `draft + active`、same-identity refinement、explicit `prepare-task:confirm` / `confirm-draft`、fresh identity allocation、draft non-execution、audit/replay/rollback/read-back | 不创建 draft Skill、registry/catalog/queue、cancel/discard state 或第二份 CURRENT_TASK；该 slice 已实现 |
@@ -500,7 +503,7 @@ legacy compatibility layer。
 - 每一项治理持久化写入都映射到一个 exact Runtime handler，且没有 generic document editor；
 - 普通任务的 Contract / Decision final knowledge admission 在 `close-task` 中完成；archive 保存 admission provenance，Implementation Anchors 仅作为可选的 observed navigation hints，由未来消费者按当前代码实时验证和扩散；
 - Migration Pack 与 vNext runtime 完全分离，旧 schema 在 vNext 中只能得到 `migration-required → stop`；
-- 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是纯 vNext。
+- 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是 vNext Distribution，治理事实仍须通过独立 `/bootstrap-project` 建立。
 - Phase 1A source validator 对三个模板、闭集 mode、零写入 review、引用闭合、内部 capability exposure 和旧 Skill 禁止规则有直接测试；测试不替代人工检查模板是否真正表达单一 intent。
 
 本文件不记录运行时行为测试或模型质量评分；本次 docs-only freeze 不实现上述

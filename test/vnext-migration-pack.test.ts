@@ -65,16 +65,16 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
     ['bundle/protocol.md', '.workflow-system/WORKFLOW_PROTOCOL.md', 'protocol'],
     ['bundle/schema.md', '.workflow-system/FILE_SCHEMAS.md', 'schema'],
     ['bundle/current-task.md', 'docs/workflow/CURRENT_TASK.md', 'generated'],
-    ['bundle/prepare-task.SKILL.md', '.claude/skills/prepare-task.SKILL.md', 'skill'],
-    ['bundle/review-change.SKILL.md', '.claude/skills/review-change.SKILL.md', 'skill'],
-    ['bundle/execute-step.SKILL.md', '.claude/skills/execute-step.SKILL.md', 'skill'],
-    ['bundle/debug-task.SKILL.md', '.claude/skills/debug-task.SKILL.md', 'skill'],
-    ['bundle/task-lifecycle.SKILL.md', '.claude/skills/task-lifecycle.SKILL.md', 'skill'],
-    ['bundle/capture-work-item.SKILL.md', '.claude/skills/capture-work-item.SKILL.md', 'skill'],
-    ['bundle/close-task.SKILL.md', '.claude/skills/close-task.SKILL.md', 'skill'],
-    ['bundle/validate-change.SKILL.md', '.claude/skills/validate-change.SKILL.md', 'skill'],
+    ['bundle/prepare-task.SKILL.md', '.agents/skills/prepare-task.SKILL.md', 'skill'],
+    ['bundle/review-change.SKILL.md', '.agents/skills/review-change.SKILL.md', 'skill'],
+    ['bundle/execute-step.SKILL.md', '.agents/skills/execute-step.SKILL.md', 'skill'],
+    ['bundle/debug-task.SKILL.md', '.agents/skills/debug-task.SKILL.md', 'skill'],
+    ['bundle/task-lifecycle.SKILL.md', '.agents/skills/task-lifecycle.SKILL.md', 'skill'],
+    ['bundle/capture-work-item.SKILL.md', '.agents/skills/capture-work-item.SKILL.md', 'skill'],
+    ['bundle/close-task.SKILL.md', '.agents/skills/close-task.SKILL.md', 'skill'],
+    ['bundle/validate-change.SKILL.md', '.agents/skills/validate-change.SKILL.md', 'skill'],
     ...(phase2 ? [
-      ['bundle/bootstrap-project.SKILL.md', '.claude/skills/bootstrap-project.SKILL.md', 'skill'],
+      ['bundle/bootstrap-project.SKILL.md', '.agents/skills/bootstrap-project.SKILL.md', 'skill'],
       ['bundle/runtime-cli.js', '.workflow-system/runtime/dist/cli.js', 'runtime'],
       ['bundle/runtime-package.json', '.workflow-system/runtime/package.json', 'runtime'],
       ['bundle/runtime-package-lock.json', '.workflow-system/runtime/package-lock.json', 'runtime'],
@@ -264,7 +264,7 @@ describe('one-time vNext Migration Pack', () => {
     const bundleDir = tempRoot('workflow-vnext-bundle-');
     writeBundle(source, target, bundleDir);
     const bundle = JSON.parse(fs.readFileSync(path.join(bundleDir, 'vnext-bundle.json'), 'utf8')) as { artifacts: Array<{ target_path: string; source_path: string }> };
-    const expertArtifact = bundle.artifacts.find(artifact => artifact.target_path === '.claude/skills/validate-change.SKILL.md');
+    const expertArtifact = bundle.artifacts.find(artifact => artifact.target_path === '.agents/skills/validate-change.SKILL.md');
     expect(expertArtifact).toBeDefined();
     expect(fs.readFileSync(path.join(bundleDir, ...expertArtifact!.source_path.split('/')), 'utf8')).not.toContain('validate-change:regression');
     fs.mkdirSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff'), { recursive: true });
@@ -279,7 +279,7 @@ describe('one-time vNext Migration Pack', () => {
     expect(installed.status).toBe('installed');
     expect(fs.existsSync(path.join(target, '.claude', 'skills', 'workflow-system-create-current-task.SKILL.md'))).toBe(false);
     expect(fs.existsSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'))).toBe(false);
-    expect(fs.existsSync(path.join(target, '.claude', 'skills', 'prepare-task.SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(target, '.agents', 'skills', 'prepare-task.SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(target, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/')))).toBe(true);
 
     const replay = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target });

@@ -1,0 +1,20 @@
+{
+  "name": "vibe-governance",
+  "version": "0.14.5",
+  "description": "Ephemeral Node installer for the Vibe Governance distribution.",
+  "type": "module",
+  "bin": {
+    "vibe-governance": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist/",
+    "payload/",
+    "README.md"
+  ],
+  "dependencies": {
+    "yaml": "2.8.3"
+  }
+}

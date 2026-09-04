@@ -961,7 +961,7 @@ function computeBootstrapTargetIdentity(root) {
   return sha256(resolved).slice(0, 32);
 }
 function isHostSkillPath(value) {
-  return /^(?:\.claude|\.codex|\.factory)\/skills\/[a-z][a-z0-9-]*\.SKILL\.md$/u.test(value);
+  return /^\.agents\/skills\/[a-z][a-z0-9-]*\.SKILL\.md$/u.test(value);
 }
 function isAllowedAssetPath(value) {
   if (value === "AGENTS.md" || value === "CLAUDE.md" || isHostSkillPath(value))
@@ -8285,6 +8285,22 @@ function validateInstalledRuntimeForCli(root) {
     validateVNextRuntimeContract(root, true);
   }
 }
+function requireBootstrappedProject(root) {
+  const profilePath = getWorkflowProfilePath(root);
+  if (!fs3.existsSync(profilePath)) {
+    fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Run /bootstrap-project before using daily Runtime entries.");
+  }
+  let profile;
+  try {
+    profile = loadProfile(profilePath);
+  } catch (error) {
+    fail2("BOOTSTRAP_REQUIRED", "Project governance profile is unavailable or invalid; run /bootstrap-project before using daily Runtime entries.");
+  }
+  const currentTaskPath = getWorkflowDocPath(root, profile, "CURRENT_TASK.md");
+  if (!fs3.existsSync(currentTaskPath)) {
+    fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Run /bootstrap-project before using daily Runtime entries.");
+  }
+}
 async function runCli(argv = process.argv.slice(2)) {
   try {
     validateRuntimeEnvironment();
@@ -8294,10 +8310,12 @@ async function runCli(argv = process.argv.slice(2)) {
       console.log(JSON.stringify(validateVNextRuntimeContract(args.root), null, 2));
     } else if (args.command === "validate") {
       validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       console.log(JSON.stringify({ status: "success", source_tuple: current.sourceTuple, runtime_state: current.runtimeState }, null, 2));
     } else if (args.command === "scope-check") {
       validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       const scope = parseMutationScope(current.body, current.sourceTuple.revision);
       const result = evaluateMutationScope(scope, readScopeCheckInput(args));
@@ -8306,6 +8324,7 @@ async function runCli(argv = process.argv.slice(2)) {
         return 2;
     } else {
       validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
       const proposalText = args.proposalFile ? fs3.readFileSync(path4.resolve(args.proposalFile), "utf8") : !process.stdin.isTTY ? fs3.readFileSync(0, "utf8") : "";
       if (!proposalText.trim())
         throw new Error("apply requires a JSON proposal on stdin or via --proposal-file <json-file>.");

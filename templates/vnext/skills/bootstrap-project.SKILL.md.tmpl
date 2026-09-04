@@ -7,7 +7,7 @@ entry_contract:
     - inventory
     - adopt
     - realign
-  intent: Establish or reconcile a pure vNext project workflow surface without creating feature implementation or an active task.
+  intent: Establish or reconcile a vNext governed project surface after Distribution installation without creating feature implementation or an active task.
   input_contract:
     required:
       - target project root and project identity
@@ -62,10 +62,15 @@ entry_contract:
 
 ## Intent
 
-Establish the target project's pure vNext workflow surface through one typed,
+Establish the target project's governed vNext workflow surface through one typed,
 auditable bootstrap transaction. This administrative entry preserves distinct
 mode preconditions and stop conditions; it is not a daily execution entry and
 does not create feature implementation or an active task.
+
+The Node Distribution installer has already installed software and
+`.agents/skills/`. This entry is the separate governance transition: it may
+establish project identity and canonical governance facts only after its mode
+preconditions and authority evidence pass.
 
 ## Operating rules
 

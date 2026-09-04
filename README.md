@@ -1,8 +1,10 @@
 # Vibe Coding Workflow System
 
-`vibe-coding-workflow-system` is the standalone source repository for the Vibe Coding governance workflow.
+`vibe-coding-workflow-system` is the standalone source repository for the Vibe Governance workflow.
 
-It owns the protocol, schemas, templates, generators, runtime sync/install scripts, and reference generated outputs used to install workflow governance into target projects.
+It owns the protocol, schemas, templates, generators, project-local Runtime,
+release payload, and source-side validation used to build the Vibe Governance
+distribution for target projects.
 
 ## Attribution
 
@@ -36,82 +38,66 @@ bun run test:workflow-all
 bun run workflow:health
 ```
 
-## Package and Inspect
+## Normal target-project installation
 
-Package the workflow-system for a target project:
+The official user-facing entry is the ephemeral Node CLI:
 
-```powershell
-bun run workflow:pack --json
+```bash
+npx vibe-governance@latest install
 ```
 
-Inspect the import/install contract:
+It installs the validated Vibe Governance distribution, including the
+project-local Node Runtime and all canonical Agent Skills under
+`.agents/skills/`. It does not create project profile facts, Contracts,
+Decisions, STATUS, or a task definition.
 
-```powershell
-bun run workflow:manifest --json
+After a successful install, continue in the target project with:
+
+```text
+Next: /bootstrap-project
 ```
 
-## Install Into a Target Project
+The three explicit Distribution transitions are:
 
-Choose the latest bundle:
-
-```powershell
-$bundle = Get-ChildItem "dist\workflow-system" -Directory |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1
+```bash
+npx vibe-governance@latest install
+npx vibe-governance@latest migrate
+npx vibe-governance@latest upgrade
 ```
 
-Dry-run the install first:
+`install` handles an uninstalled target, `migrate` invokes the independent
+idle-only Migration Pack for a legacy target, and `upgrade` handles an older
+vNext Distribution. They never perform one another's transition implicitly.
+Daily Skills invoke the fixed project-local Runtime, for example:
 
-```powershell
-$target = "E:\coding\github\your-project"
-
-bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --json
+```bash
+node .workflow-system/runtime/dist/cli.js validate --root .
 ```
 
-If the dry-run report is clean, apply the install:
+Before `/bootstrap-project`, that command returns `BOOTSTRAP_REQUIRED` rather
+than guessing project governance state.
+
+## Source-development and legacy tooling
+
+The following commands remain available to maintain this source repository and
+to support the legacy compatibility boundary; they are not the normal target
+installation protocol:
 
 ```powershell
-bun run workflow:install --bundle $bundle.FullName --root $target
-```
-
-For a target repo that already installed workflow-system and completed bootstrap or adoption, do not delete `.workflow-system/`, `docs/workflow/`, `.claude/skills/`, or `.codex/skills/` and reinstall from scratch. If the normal dry-run reports `local_drift`, first confirm the drift is limited to workflow-system managed files, then dry-run the repair flags:
-
-```powershell
-bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --json --replace-managed-drift --repair-bootstrap-drift
-```
-
-`--replace-managed-drift` allows install to replace or prune install-state entries marked `replace-managed`, such as protocol/schema files, runtime scripts, and templates. `--repair-bootstrap-drift` allows install to re-render or prune install-state entries marked `bootstrap-skill-install`, which are the preinstalled bootstrap skills. These flags do not reinitialize target project facts, do not overwrite existing `AGENTS.md` / `CLAUDE.md`, and do not redo inventory or adoption.
-
-After reviewing the planned writes and deletes, apply the drift repair:
-
-```powershell
-bun run workflow:install --bundle $bundle.FullName --root $target --replace-managed-drift --repair-bootstrap-drift
-```
-
-Install writes the workflow runtime, templates, protocol files, and the bootstrap skill set into the target repo. It also scaffolds `AGENTS.md`, `CLAUDE.md`, and `docs/workflow/WORKFLOW_GUIDE.md` only when they are missing.
-
-Generation and runtime sync are driven from this workflow-system source repo. Use `WORKFLOW_SYSTEM_ROOT` and `--root <target-repo>` when commands need to render or inspect a target project.
-
-## Bootstrap and Adoption Flow
-
-After `workflow:install`, use the bootstrap skill chain in the target host:
-
-- New project: `/design-baseline-init` -> `/greenfield-init`
-- New project with existing workflow assets to realign first: `/realign-workflow-assets` -> `/greenfield-init`
-- Existing project: `/legacy-inventory` -> `/adopt-existing-project`
-
-After bootstrap or adoption, return to this workflow-system source repo to render and sync the full workflow runtime. Do not run `bun install`, `bun run gen:all`, or `workflow:sync` inside the target repo just to migrate workflow-system.
-
-```powershell
-$target = "E:\coding\github\your-project"
-
-$env:WORKFLOW_SYSTEM_ROOT = $target
+bun install
 bun run gen:all
-$env:WORKFLOW_SYSTEM_ROOT = $null
-
-bun run workflow:sync --root $target --host claude --write
-bun run workflow:sync --root $target --host codex --write
-bun run workflow:health --root $target
+bun run workflow:pack --json
+bun run workflow:install --bundle <legacy-bundle> --root <target>
+bun run workflow:sync --root <target> --host <legacy-host> --write
 ```
 
-`workflow:install` preinstalls only the bootstrap skills. The full workflow skill set is rendered after `gen:all` and expanded into the host runtime by `workflow:sync`.
+Release engineering builds the publishable package with:
+
+```powershell
+bun run build:vibe-governance-distribution
+```
+
+Target projects do not need Bun, `WORKFLOW_SYSTEM_ROOT`, `gen:*`, `workflow:pack`,
+`workflow:sync`, or manual bundle/path selection. See
+[the Distribution design](docs/designs/vibe-governance-distribution-installation.md)
+for the frozen boundary and compatibility policy.

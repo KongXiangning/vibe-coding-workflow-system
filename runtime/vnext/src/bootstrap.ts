@@ -177,7 +177,7 @@ export function computeBootstrapTargetIdentity(root: string): string {
 }
 
 function isHostSkillPath(value: string): boolean {
-  return /^(?:\.claude|\.codex|\.factory)\/skills\/[a-z][a-z0-9-]*\.SKILL\.md$/u.test(value);
+  return /^\.agents\/skills\/[a-z][a-z0-9-]*\.SKILL\.md$/u.test(value);
 }
 
 function isAllowedAssetPath(value: string): boolean {

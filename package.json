@@ -25,6 +25,7 @@
     "workflow:install": "bun run scripts/workflow-runtime.ts install",
     "validate:vnext-source": "bun run scripts/vnext-source-contract.ts",
     "build:vnext-runtime": "bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml",
+    "build:vibe-governance-distribution": "bun run scripts/build-vibe-governance-distribution.ts",
     "validate:vnext-runtime": "bun run build:vnext-runtime && bun run scripts/vnext-runtime.ts validate-contract --root .",
     "vnext:runtime": "bun run scripts/vnext-runtime.ts",
     "test:workflow-capabilities": "bun test test/workflow-capabilities.test.ts",
@@ -36,6 +37,7 @@
     "test:workflow-vnext-knowledge": "bun test test/vnext-knowledge-promotion.test.ts",
     "test:workflow-vnext-migration": "bun test test/vnext-migration-pack.test.ts",
     "test:workflow-vnext-bootstrap": "bun run build:vnext-runtime && bun test test/vnext-bootstrap-project.test.ts",
+    "test:workflow-distribution": "bun run build:vnext-runtime && bun run build:vibe-governance-distribution && bun test test/vibe-governance-distribution.test.ts",
     "test:workflow-skills": "bun run gen:workflow-skills --dry-run && bun test test/gen-workflow-skills.test.ts && bun run test:workflow-capabilities",
     "test:workflow-docs": "bun run gen:workflow-docs --dry-run && bun test test/gen-workflow-docs.test.ts",
     "test:registry": "bun run gen:registry --dry-run && bun test test/gen-registry.test.ts",
@@ -44,7 +46,7 @@
     "test:validation-model": "bun test test/validation-model.test.ts",
     "test:run-validation": "bun test test/run-validation.test.ts",
     "test:workflow-runtime": "bun test test/workflow-runtime.test.ts",
-    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-vnext-source && bun run test:workflow-vnext-expert && bun run test:workflow-vnext-runtime && bun run test:workflow-vnext-system-e2e && bun run test:workflow-vnext-knowledge && bun run test:workflow-vnext-migration && bun run test:workflow-vnext-bootstrap && bun run test:workflow-docs && bun run test:registry && bun test test/bootstrap-project-governance.test.ts test/task-identity.test.ts test/validation-model.test.ts test/run-validation.test.ts test/workflow-core.test.ts test/workflow-runtime.test.ts",
+    "test:workflow-all": "bun run test:workflow-skills && bun run test:workflow-vnext-source && bun run test:workflow-vnext-expert && bun run test:workflow-vnext-runtime && bun run test:workflow-vnext-system-e2e && bun run test:workflow-vnext-knowledge && bun run test:workflow-vnext-migration && bun run test:workflow-vnext-bootstrap && bun run test:workflow-distribution && bun run test:workflow-docs && bun run test:registry && bun test test/bootstrap-project-governance.test.ts test/task-identity.test.ts test/validation-model.test.ts test/run-validation.test.ts test/workflow-core.test.ts test/workflow-runtime.test.ts",
     "test": "bun run test:workflow-all"
   },
   "dependencies": {

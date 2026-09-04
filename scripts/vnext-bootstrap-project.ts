@@ -674,7 +674,7 @@ function buildBundle(sourceRoot: string, host: BootstrapHost): { manifest: VNext
     { source_path: 'runtime/vnext/src/runtime-io.ts', target_path: '.workflow-system/runtime/src/runtime-io.ts', category: 'runtime' },
     { source_path: 'runtime/vnext/src/task-identity.ts', target_path: '.workflow-system/runtime/src/task-identity.ts', category: 'runtime' },
     { source_path: 'runtime/vnext/src/bootstrap.ts', target_path: '.workflow-system/runtime/src/bootstrap.ts', category: 'runtime' },
-    ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.${host === 'factory' ? 'factory' : host}/skills/${entry}.SKILL.md`, category: 'skill' as const })),
+    ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.agents/skills/${entry}.SKILL.md`, category: 'skill' as const })),
   ];
   const manifest = buildVNextBundle({ sourceRoot, bundleDir, artifacts });
   return { manifest, bundleDir };
@@ -790,6 +790,7 @@ function existingIsWorkflowOwned(targetRoot: string, relative: string, receipt: 
   if (receipt?.managed_files.some(file => file.path === relative)) return true;
   if (relative.startsWith('.workflow-system/')) return true;
   if (relative === 'AGENTS.md' || relative === 'CLAUDE.md') return isVNextMarkerFile(relative, targetRoot);
+  if (relative.startsWith('.agents/skills/')) return isVNextMarkerFile(relative, targetRoot);
   if (relative.startsWith('.codex/skills/') || relative.startsWith('.claude/skills/') || relative.startsWith('.factory/skills/')) return isVNextMarkerFile(relative, targetRoot);
   if (relative.startsWith('docs/workflow/') || relative.startsWith('docs/designs/') || relative.startsWith('docs/adoption/')) return isVNextMarkerFile(relative, targetRoot);
   return false;

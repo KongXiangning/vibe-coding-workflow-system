@@ -3,23 +3,23 @@
 - Status: `Target architecture accepted; core daily-semantics freeze accepted`
 - Planning date: `2026-09-02`
 - Target architecture: [workflow-vnext-target-architecture.md](../designs/workflow-vnext-target-architecture.md)
-- Product rule: an installed project runs either the old workflow or pure vNext; it does not run a long-lived legacy/vNext hybrid
+- Distribution design: [vibe-governance-distribution-installation.md](../designs/vibe-governance-distribution-installation.md)
+- Product rule: Distribution state is `uninstalled`, `legacy`, or `vnext(version)`; a successful target never keeps a legacy/vNext hybrid
 
 ## 1. Product rollout principle
 
 The product migration has one narrow boundary:
 
 ```text
-old project in `idle`
-        ↓
-one-time Migration Pack
-        ↓
-offline conversion of old governance documents
-        ↓
-install pure vNext
-        ↓
-old Skills no longer exist
+uninstalled ──install──> vNext Distribution installed
+legacy     ──migrate──> offline conversion + vNext Distribution installed
+vnext(old) ──upgrade──> newer vNext Distribution installed
 ```
+
+`install`, `migrate`, and `upgrade` are explicit non-converting transitions.
+The normal user-facing entry is `npx vibe-governance@latest <command>`;
+`Install != Bootstrap`, so a fresh install ends with governance unbootstrapped
+and directs the user to `/bootstrap-project`.
 
 The old Skill graph, old protocol, and old schema are migration inputs only. They are not a compatibility runtime layer in vNext. Existing projects do not receive a partial vNext surface while they are still running the old workflow.
 
@@ -73,13 +73,13 @@ Phase 1 must not:
 - introduce a complex legacy fallback route;
 - install old Skills, aliases, adapters, or a shadow surface into a target project.
 
-## 3. Migration Pack — idle-only, one-time offline upgrade
+## 3. Migration Pack — idle-only, one-time offline migration
 
-### 3.1 Upgrade precondition
+### 3.1 Migration precondition
 
-Only an old project in its canonical `idle` state may enter the Migration Pack flow. `CURRENT_TASK.md` must already have completed its `close`/`archive` flow before the pack is allowed to run. An active task, unresolved finding/repair, paused work, interrupted work, pending lifecycle/recovery work, or ambiguous state is non-idle and blocks the upgrade.
+Only an old project in its canonical `idle` state may enter the Migration Pack flow. `CURRENT_TASK.md` must already have completed its `close`/`archive` flow before the pack is allowed to run. An active task, unresolved finding/repair, paused work, interrupted work, pending lifecycle/recovery work, or ambiguous state is non-idle and blocks migration.
 
-Recoverable paused or interrupted work is also non-idle. It must be completed or otherwise settled through the old workflow before upgrade. The Migration Pack does not close/archive `CURRENT_TASK`, select an owner, reset attempts, invent recovery facts, or convert unfinished work into `idle`. When the precondition fails, the old installation and old governance documents remain unchanged; this is a migration stop, not a runtime fallback architecture.
+Recoverable paused or interrupted work is also non-idle. It must be completed or otherwise settled through the old workflow before migration. The Migration Pack does not close/archive `CURRENT_TASK`, select an owner, reset attempts, invent recovery facts, or convert unfinished work into `idle`. When the precondition fails, the old installation and old governance documents remain unchanged; this is a migration stop, not a runtime fallback architecture.
 
 ### 3.2 Migration Pack scope
 
@@ -93,9 +93,9 @@ The Migration Pack is a separate, one-time, offline conversion tool. It is the o
 | `STATUS` / `BASELINES` and other long-term governance documents | mechanical structure and path/reference conversion |
 | `TASK` archives | archive path/schema/reference conversion only |
 | workflow schema/version metadata | version and schema-field conversion/validation |
-| Skill installation surface | managed installation, registry, host, and generated-path conversion required for pure vNext |
+| Skill installation surface | managed legacy-surface conversion into canonical `.agents/skills/` for the vNext Distribution |
 
-`CURRENT_TASK.md` is an upgrade precondition, not a hot-migration input. Active findings, finding-repair state, paused packages, interrupted runtime state, and other unfinished lifecycle state are outside the pack scope and make the source project non-idle.
+`CURRENT_TASK.md` is a migration precondition, not a hot-migration input. Active findings, finding-repair state, paused packages, interrupted runtime state, and other unfinished lifecycle state are outside the pack scope and make the source project non-idle.
 
 The pack must read the exact source project identity, transform copies offline, preserve original text and authoritative facts, record stable IDs and provenance, and validate the complete converted pack before installation. Conversion artifacts, mappings, and reports remain outside the vNext runtime truth model.
 
@@ -121,7 +121,7 @@ The pack must not guess:
 
 It preserves the original text and records unresolved structure as provenance or an explicit conversion issue. Later vNext use of the original text is the responsibility of `project-context-resolver`; `knowledge-admission-policy` governs new or explicitly proposed durable knowledge and is not a requirement for semantic reclassification during migration.
 
-### 3.4 Pure vNext installation
+### 3.4 vNext Distribution after migration
 
 Installation occurs only after the offline pack is complete and valid. The installed result contains:
 
@@ -130,7 +130,7 @@ Installation occurs only after the offline pack is complete and valid. The insta
 - converted Markdown/YAML governance documents;
 - no old Skill files, old registry entries, aliases, old-state adapters, or legacy host routes.
 
-The old names are not resolvable after installation. A target project is not expected to keep the old runtime available as a fallback.
+The old names are not resolvable after installation. A target project is not expected to keep the old runtime available as a fallback. The canonical Skill surface is `.agents/skills/`; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` are retained only as legacy/source compatibility inputs and are not new Distribution targets.
 
 ### 3.5 Unsupported schema in vNext
 
@@ -153,10 +153,10 @@ Migration is fail-closed and all-or-nothing with respect to vNext installation:
 - a `CURRENT_TASK.md` that has not completed `close`/`archive` blocks the pack;
 - conversion or validation failure leaves the old project unchanged;
 - an incomplete or stale pack cannot install vNext;
-- no partial vNext registry, host surface, schema marker, or generated output is promoted;
-- after pure vNext installation, an old schema produces `migration-required`, not legacy fallback.
+- no partial vNext registry, Agent surface, schema marker, or generated output is promoted;
+- after vNext Distribution installation, an old schema produces `migration-required`, not legacy fallback.
 
-## 4. Phase 2 — Pure vNext state-changing workflow
+## 4. Phase 2 — vNext state-changing workflow
 
 After the minimum structure and Migration Pack boundary were defined, Phase 2 began the state-changing vNext workflow. It runs only against vNext canonical schemas and does not carry an old-runtime compatibility branch. The source-repository Runtime is the project-local Node package under `.workflow-system/runtime/` (with the implementation in `runtime/vnext/src/` and a development-only `scripts/vnext-runtime.ts` wrapper). The existing Phase 2 execution/finding slice is bound to `execute-step`; Slice A binds lifecycle handling to `task-lifecycle` and the minimal resume-review gate clear action to `prepare-task`; Slice B, Slice C, and close-task are also implemented in the source-repository Runtime.
 
@@ -255,7 +255,7 @@ a durable draft audit record in `CURRENT_TASK.md`.
 | Slice C ordinary draft / refinement / explicit confirmation | Design and implementation complete; Runtime-bound |
 | close-task | Design and implementation complete; archive, final Contract/Decision admission and promotion, status reconciliation, and admitted Lesson path are Runtime-bound; archive provenance supports re-entry |
 | `inbox-record-transaction` | Design and implementation complete; `capture-work-item:record` Runtime-bound; isolated Virtual Project E2E covered |
-| `validate-change` expert surface | Formal expert source entry, installable pure-vNext Skill, minimum-sufficient read-only evidence policy, structured result, and isolated Virtual Project coverage implemented; no Runtime operation |
+| `validate-change` expert surface | Formal expert source entry, installable vNext Skill under `.agents/skills/`, minimum-sufficient read-only evidence policy, structured result, and isolated Virtual Project coverage implemented; no Runtime operation |
 | `sync-state` logical internal role | No standalone implementation required; current reconciliation/routing responsibilities are fulfilled by caller-local orchestration and existing typed Runtime operations; reserve a facade only for a demonstrated future shared requirement |
 
 This status correction records progression only. It does not redesign Slice A,
@@ -267,7 +267,7 @@ robustness backlog as part of the next implementation boundary.
 The target implementation boundaries are now resolved. The next rollout work is
 validation rather than another implementation boundary:
 
-1. **System-level E2E validation** — exercise the complete pure-vNext boundary set across isolated project fixtures and representative cross-entry flows.
+1. **System-level E2E validation** — exercise the complete vNext Distribution boundary set across isolated project fixtures and representative cross-entry flows.
 2. **Real-project dogfood** — validate installation, daily use, recovery, and read-only expert evidence on an explicitly selected real project.
 
 Core Daily Execution Semantics Stabilization is a Phase 2 boundary, not a new
@@ -319,7 +319,7 @@ Each later phase must preserve the seven-intent daily surface, adaptive internal
 - any active, unresolved, paused, interrupted, or ambiguous old state is rejected without mutation;
 - old governance documents are converted offline into validated canonical Markdown/YAML documents;
 - conversion does not perform active-state hot migration or invoke vNext Skills to parse the old protocol;
-- pure vNext installation contains no old Skill or compatibility surface;
+- vNext Distribution installation contains no old Skill or compatibility surface;
 - an old/unsupported schema in vNext returns `migration-required` and stops.
 
 ### 6.3 Phase 2 and later gates
@@ -466,6 +466,18 @@ The one-time implementation lives in `scripts/vnext-migration-pack.ts`; it is
 not an additional Skill and is not called by `workflow-runtime.ts`. The command
 surface is intentionally small:
 
+The normal target-project entry is the independent Node Distribution CLI:
+
+```text
+npx vibe-governance@latest install
+npx vibe-governance@latest migrate
+npx vibe-governance@latest upgrade
+```
+
+The Bun command surface below is source-development/legacy tooling. It remains
+useful for direct Pack conformance tests, but is not the target installation
+protocol and does not require target projects to own Bun.
+
 ```text
 bun run scripts/vnext-migration-pack.ts preflight --target <old-project>
 bun run scripts/vnext-migration-pack.ts convert --target <old-project> --out <pack-dir>
@@ -491,7 +503,7 @@ Lesson applicability inference, and AI rewriting are out of scope.
 same validated install path. Omitting `--write` keeps the install phase in
 dry-run mode; no target files are changed until `--write` is supplied.
 
-`install` requires both a validated pack and a separately validated
+The low-level Migration Pack `install` command requires both a validated pack and a separately validated
 `vnext-bundle.json`. The bundle is bound to the exact source root identity,
 revision, and tree hash and must declare `legacy_compatibility: absent` plus
 explicit vNext protocol/schema markers, canonical `CURRENT_TASK`, valid Skill
@@ -514,7 +526,7 @@ Runtime as a partial vNext surface. Promotion stages the package and runs
 `npm ci --omit=dev` plus the Runtime self-check before the project-local
 `.workflow-system/runtime/` directory is atomically promoted.
 
-Installation writes a pure-vNext surface through one rollback-capable file
+Installation writes a vNext surface through one rollback-capable file
 transaction, replaces the old `CURRENT_TASK.md` and protocol/schema with the
 bundle artifacts, removes the old managed host/generated/registry surface, and
 writes `.workflow-system/vnext/INSTALL_STATE.json` plus

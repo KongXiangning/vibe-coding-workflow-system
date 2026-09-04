@@ -3,10 +3,16 @@ kind: vnext-protocol
 
 # vNext Workflow Protocol
 
-This protocol describes the pure vNext project surface. The project-local
+This protocol describes the vNext governed project surface. The project-local
 Runtime is the only writer of authoritative task state. Bootstrap is an
 administrative transaction that establishes governed assets and never creates
 an active task or feature implementation.
+
+The Vibe Governance Distribution is installed separately from governance
+bootstrap. `Install != Bootstrap`: a fresh Node Distribution install provides
+software and the canonical `.agents/skills/` surface, but does not create
+`PROJECT_PROFILE.yaml`, Contracts, Decisions, STATUS, or `CURRENT_TASK.md`.
+The next required project transition is `/bootstrap-project`.
 
 ## Authoritative boundaries
 
@@ -14,6 +20,8 @@ an active task or feature implementation.
 - `docs/workflow/CURRENT_TASK.md` is the sole task and advancement state source.
 - Contracts, Decisions, Status, and host guidance are written only through
   their typed Runtime operation boundaries.
+- vNext Skills are installed canonically under `.agents/skills/`; old
+  host-specific Skill directories are compatibility inputs only.
 - Generated assets are staged, validated, promoted atomically, and read back.
 - An interruption marker is fail-closed evidence, not permission to guess a
   recovery action.

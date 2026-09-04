@@ -8941,6 +8941,23 @@ function validateInstalledRuntimeForCli(root: string): void {
   }
 }
 
+function requireBootstrappedProject(root: string): void {
+  const profilePath = getWorkflowProfilePath(root);
+  if (!fs.existsSync(profilePath)) {
+    fail('BOOTSTRAP_REQUIRED', 'Project governance is not bootstrapped. Run /bootstrap-project before using daily Runtime entries.');
+  }
+  let profile: AnyRecord;
+  try {
+    profile = loadProfile(profilePath);
+  } catch (error) {
+    fail('BOOTSTRAP_REQUIRED', 'Project governance profile is unavailable or invalid; run /bootstrap-project before using daily Runtime entries.');
+  }
+  const currentTaskPath = getWorkflowDocPath(root, profile, 'CURRENT_TASK.md');
+  if (!fs.existsSync(currentTaskPath)) {
+    fail('BOOTSTRAP_REQUIRED', 'Project governance is not bootstrapped. Run /bootstrap-project before using daily Runtime entries.');
+  }
+}
+
 export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   try {
     validateRuntimeEnvironment();
@@ -8950,10 +8967,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       console.log(JSON.stringify(validateVNextRuntimeContract(args.root), null, 2));
     } else if (args.command === 'validate') {
       validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       console.log(JSON.stringify({ status: 'success', source_tuple: current.sourceTuple, runtime_state: current.runtimeState }, null, 2));
     } else if (args.command === 'scope-check') {
       validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       const scope = parseMutationScope(current.body, current.sourceTuple.revision);
       const result = evaluateMutationScope(scope, readScopeCheckInput(args));
@@ -8961,6 +8980,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       if (result.status === 'blocked') return 2;
     } else {
       validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
       const proposalText = args.proposalFile
         ? fs.readFileSync(path.resolve(args.proposalFile), 'utf8')
         : (!process.stdin.isTTY ? fs.readFileSync(0, 'utf8') : '');
