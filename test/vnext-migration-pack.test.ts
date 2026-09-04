@@ -11,6 +11,7 @@ import {
   installMigrationPack,
   preflightMigration,
   validateMigrationPack,
+  validateCompletedMigration,
   VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH,
   VNEXT_INSTALL_STATE_RELATIVE_PATH,
 } from '../scripts/vnext-migration-pack';
@@ -86,6 +87,9 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
       ['bundle/runtime-io.ts', '.workflow-system/runtime/src/runtime-io.ts', 'runtime'],
       ['bundle/runtime-task-identity.ts', '.workflow-system/runtime/src/task-identity.ts', 'runtime'],
       ['bundle/runtime-bootstrap.ts', '.workflow-system/runtime/src/bootstrap.ts', 'runtime'],
+      ['bundle/runtime-bootstrap-support.ts', '.workflow-system/runtime/src/bootstrap-support.ts', 'runtime'],
+      ['bundle/runtime-scoped-tree-hash.ts', '.workflow-system/runtime/src/scoped-tree-hash.ts', 'runtime'],
+      ['bundle/runtime-bootstrap-support-template.md', '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl', 'runtime'],
       ['bundle/runtime-contract.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', 'protocol'],
     ] as BundleFile[] : []),
     ...extraFiles,
@@ -283,10 +287,26 @@ describe('one-time vNext Migration Pack', () => {
     expect(fs.existsSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'))).toBe(false);
     expect(fs.existsSync(path.join(target, '.agents', 'skills', 'prepare-task', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(target, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/')))).toBe(true);
+    const completedMigration = validateCompletedMigration(target);
+    expect(completedMigration).toMatchObject({ migration_pack_id: manifest.pack_id, bundle_id: expect.any(String), target_identity: expect.any(String) });
+    const currentTaskPath = path.join(target, 'docs', 'workflow', 'CURRENT_TASK.md');
+    const currentTaskBeforeDrift = fs.readFileSync(currentTaskPath, 'utf8');
+    fs.appendFileSync(currentTaskPath, '\nprovenance drift\n', 'utf8');
+    expect(() => validateCompletedMigration(target)).toThrow('CURRENT_TASK.md drifted');
+    fs.writeFileSync(currentTaskPath, currentTaskBeforeDrift, 'utf8');
 
     const replay = installMigrationPack({ packDir, bundleDir, sourceRoot: source, targetRoot: target });
     expect(replay.status).toBe('replayed');
     expect(replay.pack_id).toBe(manifest.pack_id);
+
+    const receiptPath = path.join(target, '.workflow-system', 'vnext', 'MIGRATION_RECEIPT.json');
+    const receiptBeforeTamper = fs.readFileSync(receiptPath, 'utf8');
+    const tamperedReceipt = JSON.parse(receiptBeforeTamper) as { bundle_id: string };
+    tamperedReceipt.bundle_id = 'bundle-000000000000000000000000';
+    fs.writeFileSync(receiptPath, JSON.stringify(tamperedReceipt, null, 2) + '\n', 'utf8');
+    expect(() => validateCompletedMigration(target)).toThrow('same conversion');
+    fs.writeFileSync(receiptPath, receiptBeforeTamper, 'utf8');
+    expect(validateCompletedMigration(target)).toMatchObject({ migration_pack_id: manifest.pack_id });
   });
 
   test('leaves the target unchanged when the vNext bundle is invalid', () => {

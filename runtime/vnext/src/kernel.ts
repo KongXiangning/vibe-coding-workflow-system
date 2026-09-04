@@ -1190,7 +1190,7 @@ function validateBootstrapRuntimeContract(value: unknown): string[] {
 
   const recovery = expectRecord(bootstrap.recovery, 'Runtime contract.bootstrap_project.recovery');
   expectExactKeys(recovery, ['marker', 'interrupted', 'rollback'], 'Runtime contract.bootstrap_project.recovery');
-  if (recovery.marker !== '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' || recovery.interrupted !== 'fail-closed-explicit-recovery' || recovery.rollback !== 'verify-pre-bootstrap-snapshot-before-marker-clear') fail('RUNTIME_CONTRACT_INVALID', 'bootstrap recovery must use the explicit interruption marker and verified rollback boundary.');
+  if (recovery.marker !== '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' || recovery.interrupted !== 'fail-closed-explicit-recovery' || recovery.rollback !== 'verify-scoped-pre-bootstrap-preimage-before-marker-clear') fail('RUNTIME_CONTRACT_INVALID', 'bootstrap recovery must use the explicit interruption marker and verified scoped rollback boundary.');
   const readBack = expectRecord(bootstrap.read_back, 'Runtime contract.bootstrap_project.read_back');
   expectExactKeys(readBack, ['required'], 'Runtime contract.bootstrap_project.read_back');
   expectSetEqual(expectStringArray(readBack.required, 'Runtime contract.bootstrap_project.read_back.required'), ['asset-checksums', 'project-identity', 'runtime-contract', 'distribution-prerequisite', 'canonical-CURRENT_TASK', 'host-isolation'], 'bootstrap read-back evidence');

@@ -2,7 +2,7 @@
 
 Status: Approved (Phase 1 design frozen)
 Owner: `vibe-coding-workflow-system` maintainers
-Version: 1.0
+Version: 1.1
 Updated: 2026-09-04
 Product: **Vibe Governance**  
 CLI / package working name: **`vibe-governance`**  
@@ -189,6 +189,7 @@ The target project's Runtime remains a fixed project-local installation:
 ├── dist/cli.js
 ├── package.json
 ├── package-lock.json
+├── support/bootstrap/CURRENT_TASK.md.tmpl
 ├── src/
 └── node_modules/
 ```
@@ -216,6 +217,26 @@ successfully converted by the Migration Pack is already governed through
 Migration Pack provenance and canonical governance state; it does not become
 `incomplete` merely because no Bootstrap Receipt exists. Distribution upgrades
 must not make a Bootstrap Receipt stale by changing software checksums.
+
+The installed production Bootstrap path is target-local:
+
+```text
+bootstrap-project Agent Skill
+  -> .workflow-system/runtime/dist/cli.js bootstrap-support prepare
+  -> typed governance proposal with exact planned_writes
+  -> project-local Runtime bootstrap-project transaction
+  -> governance read-back and Bootstrap Receipt
+```
+
+The immutable `support/bootstrap/CURRENT_TASK.md.tmpl` file and the bundled
+`bootstrap-support` preparation code are Distribution-owned support software.
+They contain no target-project facts and do not initialize governance during
+install. The support layer reads and validates Distribution software, accepts
+mode-specific evidence, renders the governance-only proposal, and delegates
+the commit to the project-local Runtime. It does not parse legacy state; a
+target carrying Migration Pack markers is routed back to the Migration Pack
+boundary. The source-side Bun facade remains a development/release tool and is
+not required by an installed target.
 
 ## 5. Release Distribution Manifest
 
@@ -249,10 +270,10 @@ manifest_digest: <sha256>
 The manifest has default-deny ownership. Only its explicit `target_path`
 entries, plus its explicit state/journal paths, may be written by the
 Installer. In Phase 1 the owned target set is limited to the vNext protocol,
-schema, Runtime package, Runtime references, Runtime contracts, and
-`.agents/skills/<skill-name>/SKILL.md`. It does not include project profile, governance
-documents, `docs/workflow/CURRENT_TASK.md`, Contracts, Decisions, STATUS, or
-task definitions.
+schema, Runtime package, Runtime references, Runtime contracts, immutable
+Bootstrap support, and `.agents/skills/<skill-name>/SKILL.md`. It does not
+include project profile, governance documents, `docs/workflow/CURRENT_TASK.md`,
+Contracts, Decisions, STATUS, or task definitions.
 
 The fixed `runtime_dependency_path` is the one explicitly declared derived
 directory produced by the Runtime's `npm ci` staging strategy; no other
@@ -373,6 +394,8 @@ The release artifact carries, after release-time validation:
 - the Distribution Manifest;
 - the vNext Runtime package, lockfile, generated Node entrypoint, and required
   source references;
+- immutable target-local Bootstrap support used to prepare a typed governance
+  proposal;
 - the vNext protocol/schema and Runtime contracts;
 - prebuilt vNext Agent Skills;
 - static migration inputs and bundle assets required by the independent
@@ -482,3 +505,4 @@ Implementation and verification:
 | Date | Version | Change |
 |---|---:|---|
 | 2026-09-04 | 1.0 | Froze Phase 1 Vibe Governance Distribution boundary and implemented the Node Installer contract. |
+| 2026-09-04 | 1.1 | Closed the Bootstrap/Distribution ownership boundary with scoped Bootstrap rollback, target-local Bootstrap support, and Migration Pack completed-state admission. |

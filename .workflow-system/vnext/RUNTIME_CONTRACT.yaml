@@ -766,7 +766,7 @@ bootstrap_project:
   recovery:
     marker: .workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json
     interrupted: fail-closed-explicit-recovery
-    rollback: verify-pre-bootstrap-snapshot-before-marker-clear
+    rollback: verify-scoped-pre-bootstrap-preimage-before-marker-clear
   read_back:
     required:
       - asset-checksums

@@ -194,6 +194,7 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
+    expect(fs.existsSync(targetPath(target, '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl'))).toBe(true);
     const skillDirectories = fs.readdirSync(targetPath(target, '.agents/skills')).sort();
     expect(skillDirectories).toEqual([
       'bootstrap-project',

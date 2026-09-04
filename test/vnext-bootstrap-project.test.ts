@@ -13,9 +13,10 @@ import {
   classifyBootstrapTarget,
   type BootstrapProjectOptions,
 } from '../scripts/vnext-bootstrap-project';
+import { computeBootstrapPreimageHash } from '../runtime/vnext/src/bootstrap-support';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { installDistribution, migrateDistribution, validateInstalledDistribution } from '../scripts/vibe-governance-distribution';
-import { computeCompleteTreeHash } from '../scripts/vnext-migration-pack';
+import { validateCompletedMigration } from '../scripts/vnext-migration-pack';
 
 // P-12 admission for this persistent bootstrap guard:
 // the bootstrap boundary combines installed-Distribution prerequisite
@@ -27,9 +28,9 @@ const P12_BOOTSTRAP_TEST_ADMISSION = {
   decision: 'admitted',
   owner: 'workflow-system maintainers',
   basis: 'critical-invariant',
-  proves: 'bootstrap validates one installed Distribution read-only, promotes governance assets only, preserves the explicit inventory-to-adoption transition, leaves no active task, and replays only after authoritative read-back',
-  existingEvidenceInsufficiency: 'source contract, Runtime contract, Distribution tests, and atomic helper tests do not cover the facade-to-disposable-target composition, governance-only receipt boundary, or migrated classification together',
-  assertionBoundary: 'bootstrap-project source facade, installed Distribution read-back, authoritative Runtime bootstrap transaction, canonical CURRENT_TASK read-back, governance-only receipt, and mode-specific transition',
+  proves: 'bootstrap validates one installed Distribution read-only, promotes governance assets only, preserves the explicit inventory-to-adoption transition, leaves no active task, replays only after authoritative read-back, and closes the target-local Node support path without source-repository inputs',
+  existingEvidenceInsufficiency: 'source contract, Runtime contract, Distribution tests, and atomic helper tests do not cover the facade-to-disposable-target composition, target-local support execution, governance-only receipt boundary, or migrated classification together',
+  assertionBoundary: 'bootstrap-project source facade, target-local bootstrap-support entrypoint, installed Distribution read-back, authoritative Runtime bootstrap transaction, canonical CURRENT_TASK read-back, governance-only receipt, and mode-specific transition',
   failureDisposition: 'block the bootstrap implementation boundary until the target remains unchanged on verifier failure and a successful install is replay-safe',
 } as const;
 
@@ -182,16 +183,58 @@ describe('vNext bootstrap-project', () => {
     expect(migrated.status).toBe('installed');
     expect(validateInstalledDistribution(migratedTarget, distributionPackageRoot).state.distribution_state).toBe('vnext');
     expect(classifyBootstrapTarget(migratedTarget).state).toBe('governed');
+    expect(validateCompletedMigration(migratedTarget)).not.toBeNull();
     const migrationReceiptPath = path.join(migratedTarget, '.workflow-system', 'vnext', 'MIGRATION_RECEIPT.json');
-    const migrationReceipt = JSON.parse(fs.readFileSync(migrationReceiptPath, 'utf8')) as { runtime_distribution?: { package_version?: string } };
-    if (migrationReceipt.runtime_distribution) migrationReceipt.runtime_distribution.package_version = '0.13.0';
+    const migrationStatePath = path.join(migratedTarget, '.workflow-system', 'vnext', 'INSTALL_STATE.json');
+    const migrationReceiptBeforeTamper = fs.readFileSync(migrationReceiptPath, 'utf8');
+    const migrationStateBeforeHistoricalFixture = fs.readFileSync(migrationStatePath, 'utf8');
+    const migrationReceipt = JSON.parse(migrationReceiptBeforeTamper) as { runtime_distribution?: Record<string, unknown> | null };
+    const migrationState = JSON.parse(migrationStateBeforeHistoricalFixture) as { distribution_version?: string; runtime_distribution?: Record<string, unknown> | null };
+    expect(migrationReceipt.runtime_distribution).not.toBeNull();
+    expect(migrationState.runtime_distribution).not.toBeNull();
+    const historicalRuntime = { ...migrationState.runtime_distribution!, package_version: '0.13.0' };
+    // This is a paired historical-provenance fixture, not a standalone receipt
+    // edit: the Migration Pack verifier admits the state/receipt pair while
+    // the current Distribution remains installed at the newer Runtime version.
+    migrationState.distribution_version = '0.13.0';
+    migrationState.runtime_distribution = historicalRuntime;
+    migrationReceipt.runtime_distribution = historicalRuntime;
+    fs.writeFileSync(migrationStatePath, JSON.stringify(migrationState, null, 2) + '\n', 'utf8');
+    expect(classifyBootstrapTarget(migratedTarget).state).toBe('conflicting');
     fs.writeFileSync(migrationReceiptPath, JSON.stringify(migrationReceipt, null, 2) + '\n', 'utf8');
+    expect(validateCompletedMigration(migratedTarget)).toMatchObject({ runtime_distribution: { package_version: '0.13.0' } });
+    expect(validateInstalledDistribution(migratedTarget, distributionPackageRoot).state.distribution_version).not.toBe('0.13.0');
+    expect(classifyBootstrapTarget(migratedTarget).state).toBe('governed');
+    fs.writeFileSync(migrationStatePath, migrationStateBeforeHistoricalFixture, 'utf8');
+    fs.writeFileSync(migrationReceiptPath, migrationReceiptBeforeTamper, 'utf8');
+    const standaloneTamperedReceipt = JSON.parse(migrationReceiptBeforeTamper) as { runtime_distribution?: { package_version?: string } | null };
+    if (standaloneTamperedReceipt.runtime_distribution) standaloneTamperedReceipt.runtime_distribution.package_version = '0.13.0';
+    fs.writeFileSync(migrationReceiptPath, JSON.stringify(standaloneTamperedReceipt, null, 2) + '\n', 'utf8');
+    expect(classifyBootstrapTarget(migratedTarget).state).toBe('conflicting');
+    fs.writeFileSync(migrationReceiptPath, migrationReceiptBeforeTamper, 'utf8');
     expect(classifyBootstrapTarget(migratedTarget).state).toBe('governed');
     const migratedBootstrap = buildBootstrapPlan({ ...options(migratedTarget), mode: 'greenfield', projectName: undefined, projectSlug: undefined });
     expect(migratedBootstrap.target_state).toBe('governed');
     expect(migratedBootstrap.status).toBe('blocked');
     expect(migratedBootstrap.blockers.some(issue => issue.code === 'BOOTSTRAP_NOT_REQUIRED')).toBe(true);
     expect(migratedBootstrap.blockers.some(issue => issue.code === 'GREENFIELD_PRECONDITION')).toBe(false);
+
+    const localTarget = targetRoot();
+    installDistributionFixture(localTarget);
+    const localCli = path.join(localTarget, '.workflow-system', 'runtime', 'dist', 'cli.js');
+    const supportInputRoot = targetRoot();
+    const designFile = path.join(supportInputRoot, 'design-baseline.json');
+    const changedPathsFile = path.join(supportInputRoot, 'changed-paths.json');
+    fs.writeFileSync(designFile, JSON.stringify({ architecture: 'target-local production support' }) + '\n', 'utf8');
+    const preview = JSON.parse(execFileSync('node', [localCli, 'bootstrap-support', 'prepare', '--root', localTarget, '--mode', 'greenfield', '--design-baseline-file', designFile, '--confirm-design', '--json'], { encoding: 'utf8' })) as { status: string; planned_writes: string[]; target_state: string };
+    expect(preview.status).toBe('needs-confirmation');
+    expect(preview.target_state).toBe('empty');
+    fs.writeFileSync(changedPathsFile, JSON.stringify(preview.planned_writes) + '\n', 'utf8');
+    const localRun = JSON.parse(execFileSync('node', [localCli, 'bootstrap-support', 'prepare', '--root', localTarget, '--mode', 'greenfield', '--design-baseline-file', designFile, '--confirm-design', '--changed-paths-file', changedPathsFile, '--write', '--json'], { encoding: 'utf8' })) as { status: string; read_back_verified: boolean };
+    expect(localRun.status).toBe('installed');
+    expect(localRun.read_back_verified).toBe(true);
+    expect(fs.existsSync(path.join(localTarget, '.workflow-system', 'vnext', 'BOOTSTRAP_RECEIPT.json'))).toBe(true);
+    expect(fs.existsSync(path.join(localTarget, '.workflow-system', 'runtime', 'support', 'bootstrap', 'CURRENT_TASK.md.tmpl'))).toBe(true);
   });
 
   test('rolls back governance files when read-back fails without touching Distribution software', { timeout: 30000 }, () => {
@@ -206,7 +249,13 @@ describe('vNext bootstrap-project', () => {
     expect(staged.proposal).toBeDefined();
     expect(staged.proposal?.requested_directory_targets).toEqual([]);
     expect(staged.proposal?.requested_write_targets.some(relative => relative === '.workflow-system/WORKFLOW_PROTOCOL.md' || relative === '.workflow-system/FILE_SCHEMAS.md' || relative === '.workflow-system/vnext/SOURCE_CONTRACT.yaml' || relative === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml' || relative.startsWith('.workflow-system/runtime/') || relative.startsWith('.agents/skills/'))).toBe(false);
-    const before = computeCompleteTreeHash(target, ['.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json']);
+    const unmanagedLinkSource = targetRoot();
+    fs.writeFileSync(path.join(unmanagedLinkSource, 'package.json'), '{"name":"unmanaged-link"}\n', 'utf8');
+    fs.mkdirSync(path.join(target, 'node_modules'), { recursive: true });
+    fs.symlinkSync(unmanagedLinkSource, path.join(target, 'node_modules', 'workspace-link'), 'junction');
+    fs.mkdirSync(path.join(target, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'build', 'large-output.bin'), 'unmanaged build output\n', 'utf8');
+    const before = computeBootstrapPreimageHash(target, staged.proposal!);
 
     expect(() => applyBootstrapProjectProposal(target, { ...staged.proposal!, semantic_operations: [] }, {
     })).toThrow('BOOTSTRAP_BOUNDARY_VIOLATION');
@@ -217,7 +266,7 @@ describe('vNext bootstrap-project', () => {
       },
     })).toThrow('injected bootstrap read-back failure');
 
-    expect(computeCompleteTreeHash(target, ['.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json'])).toBe(before);
+    expect(computeBootstrapPreimageHash(target, staged.proposal!)).toBe(before);
     expect(fs.existsSync(path.join(target, '.workflow-system', 'vnext', 'BOOTSTRAP_RECEIPT.json'))).toBe(false);
     expect(fs.existsSync(path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js'))).toBe(true);
     expect(fs.existsSync(path.join(target, '.agents', 'skills', 'prepare-task', 'SKILL.md'))).toBe(true);

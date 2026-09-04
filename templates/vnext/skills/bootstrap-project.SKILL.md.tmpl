@@ -78,6 +78,22 @@ preconditions and authority evidence pass. Those Distribution assets are
 read-only prerequisites here; Bootstrap never generates, promotes, or
 receipt-owns them.
 
+The production execution path is target-local. After collecting the user's
+mode-specific evidence, use the immutable support surface and Runtime already
+installed at `.workflow-system/runtime/`:
+
+```text
+node .workflow-system/runtime/dist/cli.js bootstrap-support prepare \\
+  --root <project> --mode <mode> [evidence/input flags] --json
+```
+
+Review the returned typed plan and its exact `planned_writes`, then provide
+that exact list through the existing Bootstrap changed-path protocol and rerun
+with `--write`. The support command prepares the typed proposal and the
+project-local Runtime commits it; the Skill never edits governance Markdown
+directly. This path does not require Bun, the workflow-system source
+repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
+
 ## Operating rules
 
 1. Resolve the target root, project identity, existing workflow assets, host
@@ -108,16 +124,18 @@ receipt-owns them.
    paths always block, and every Conditional path requires exact authorization,
    evidence references, and explicit authority.
 6. Validate the already-installed Distribution through its existing payload,
-   state, checksum, Skill-layout, and project-local Runtime read-back. Generate
-   governance assets from the vNext source templates only. Do not build or
-   promote Runtime, Protocol, Schema, or Agent Skills; do not hand-copy files,
-   invoke the legacy generator, or write a generic Markdown editor.
+   state, checksum, Skill-layout, immutable Bootstrap support, and project-local
+   Runtime read-back. Generate governance assets only through the target-local
+   Bootstrap support surface. Do not build or promote Runtime, Protocol, Schema,
+   or Agent Skills; do not hand-copy files, invoke the legacy generator, or
+   write a generic Markdown editor.
 7. Before promotion, validate the Distribution prerequisite, governance asset
    checksums, host isolation, canonical `CURRENT_TASK.md`, and the selected
    mode's evidence. Promote the governance asset set atomically, read every
    promoted target back, and record only Bootstrap-owned governance assets in
-   the completion receipt. The Runtime owns the typed governance transactions
-   and the atomic file boundary.
+   the completion receipt. The project-local Runtime owns the typed governance
+   transaction and atomic file boundary; the target-local support layer owns
+   only immutable preparation support.
 8. The bootstrap baseline is a closed, archived administrative baseline. It is
    not an active task and it does not authorize `execute-step`. A later task
    preparation must establish its own confirmed identity and owner through the

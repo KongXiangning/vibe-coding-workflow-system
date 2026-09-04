@@ -251,11 +251,21 @@ source-repository Runtime. `debug-task`
 and the remaining later operation callers remain proposal-only until their own
 phase. The Runtime never parses or hot-migrates legacy paused/interrupted
 artifacts.
-The Runtime package, lockfile, generated Node entrypoint, and Skill artifacts
-are promoted from one source-bound bundle; installation stages its own
-`node_modules` with `npm ci --omit=dev` and runs the Node self-check before
-atomic promotion. The target's business package and `node_modules` are outside
-this boundary.
+The Runtime package, lockfile, generated Node entrypoint, immutable Bootstrap
+support (`.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl`),
+and Skill artifacts are promoted from one source-bound Distribution bundle;
+installation stages its own `node_modules` with `npm ci --omit=dev` and runs
+the Node self-check before atomic promotion. The target's business package and
+`node_modules` are outside this boundary.
+
+After fresh installation, `bootstrap-project` uses the target-local
+`bootstrap-support prepare` entry in that Runtime package. It reads the
+installed Distribution and support bytes, accepts mode-specific evidence,
+constructs the exact governance-only proposal and changed-path set, and lets
+the project-local Runtime commit/read back the transaction. The source-side
+Bun bootstrap facade remains a source-development/release tool; it is not a
+production target dependency. Bootstrap never regenerates or receipt-owns the
+Distribution software.
 
 ### 3.6 Core Daily Execution Semantics freeze
 
@@ -477,7 +487,7 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 | Phase 2 Slice C | ordinary independent request 的 durable `draft + active`、same-identity refinement、explicit `prepare-task:confirm` / `confirm-draft`、fresh identity allocation、draft non-execution、audit/replay/rollback/read-back | 不创建 draft Skill、registry/catalog/queue、cancel/discard state 或第二份 CURRENT_TASK；该 slice 已实现 |
 | Phase 2 close-task | closure eligibility、archive 前 Contract/Decision/Lesson admission、`archive-transaction`、Contract/Decision/STATUS/Lesson reconciliation，以及可从 archive provenance 重建的 re-entry；`closed + archived` terminal contract | 不引入 pending-closure state、第二次 archive 或 `TASK_SUMMARY` vNext output；design + implementation 已完成 |
 | Core Daily Execution Semantics Stabilization（已实现） | 只实现本次冻结的三项：Evidence-first / Persistent Test Admission、Mutation-oriented Scope、multi-step advancement / risk-based Review Checkpoint / repair verification integration；已通过 daily-loop E2E gate | 不混入现有 Runtime robustness backlog；不新增 Test Skill/registry/state machine、ACL subsystem、review-step/advance-step public surface；不改变 Slice A/B/close-task 语义 |
-| bootstrap-project（已实现） | 在上述 daily semantics 完成并通过 E2E gate 后实现正式 admin surface；已完成 source facade、Runtime atomic boundary 与 disposable-project verification；只消费已安装 Distribution 并以只读方式验证，不重新生成/推广 Runtime、Protocol、Schema 或 Agent Skills | 不把未稳定的 prepare/execute/review 行为提前推广到新项目；不覆盖 `sync-state` internal surface；不把 Distribution software 写入 Bootstrap Receipt |
+| bootstrap-project（已实现） | 在上述 daily semantics 完成并通过 E2E gate 后实现正式 admin surface；已完成 source facade、target-local Bootstrap support、Runtime atomic boundary 与 component/disposable-project verification；只消费已安装 Distribution 并以只读方式验证，不重新生成/推广 Runtime、Protocol、Schema 或 Agent Skills | 不把未稳定的 prepare/execute/review 行为提前推广到新项目；不覆盖 `sync-state` internal surface；不把 Distribution software 写入 Bootstrap Receipt |
 | vNext implementation status | Target implementation boundaries resolved；`sync-state` 为已由 caller-local orchestration 与 typed Runtime operations 覆盖的逻辑 internal role，无 standalone implementation required | 不新增独立 `sync-state` Runtime、Skill、facade、transaction 或 durable artifact，除非未来证明存在 genuine shared reconciliation/routing requirement |
 | next phase | system-level E2E validation and real-project dogfood | 不把验证阶段重新包装成 implementation boundary，不扩大 daily intent 或 Runtime surface |
 

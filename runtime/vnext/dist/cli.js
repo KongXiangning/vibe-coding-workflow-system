@@ -1703,8 +1703,8 @@ function validateBootstrapRuntimeContract(value) {
   expectSetEqual(bound, [...BOOTSTRAP_OPERATION_KINDS], "bootstrap Runtime bound operations");
   const recovery = expectRecord2(bootstrap.recovery, "Runtime contract.bootstrap_project.recovery");
   expectExactKeys2(recovery, ["marker", "interrupted", "rollback"], "Runtime contract.bootstrap_project.recovery");
-  if (recovery.marker !== ".workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json" || recovery.interrupted !== "fail-closed-explicit-recovery" || recovery.rollback !== "verify-pre-bootstrap-snapshot-before-marker-clear")
-    fail2("RUNTIME_CONTRACT_INVALID", "bootstrap recovery must use the explicit interruption marker and verified rollback boundary.");
+  if (recovery.marker !== ".workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json" || recovery.interrupted !== "fail-closed-explicit-recovery" || recovery.rollback !== "verify-scoped-pre-bootstrap-preimage-before-marker-clear")
+    fail2("RUNTIME_CONTRACT_INVALID", "bootstrap recovery must use the explicit interruption marker and verified scoped rollback boundary.");
   const readBack = expectRecord2(bootstrap.read_back, "Runtime contract.bootstrap_project.read_back");
   expectExactKeys2(readBack, ["required"], "Runtime contract.bootstrap_project.read_back");
   expectSetEqual(expectStringArray2(readBack.required, "Runtime contract.bootstrap_project.read_back.required"), ["asset-checksums", "project-identity", "runtime-contract", "distribution-prerequisite", "canonical-CURRENT_TASK", "host-isolation"], "bootstrap read-back evidence");
@@ -8290,13 +8290,1174 @@ async function runCli(argv = process.argv.slice(2)) {
   }
 }
 
+// runtime/vnext/src/bootstrap-support.ts
+import * as crypto5 from "crypto";
+import * as fs5 from "fs";
+import * as path6 from "path";
+import { parse as parse2, parseDocument as parseDocument2, stringify as stringify2 } from "yaml";
+
+// runtime/vnext/src/scoped-tree-hash.ts
+import * as crypto4 from "crypto";
+import * as fs4 from "fs";
+import * as path5 from "path";
+
+class ScopedTreeHashError extends Error {
+  code = "UNSAFE_PATH";
+  constructor(message) {
+    super(message);
+    this.name = "ScopedTreeHashError";
+  }
+}
+function sha2563(value) {
+  return crypto4.createHash("sha256").update(value).digest("hex");
+}
+function normalizeRepoPath3(value, location) {
+  const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").replace(/\/+/gu, "/");
+  if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:\//u.test(normalized) || normalized.split("/").some((segment) => segment === ".." || segment.length === 0) || /[\0-\x1F\x7F]/u.test(normalized) || normalized.includes("*")) {
+    throw new ScopedTreeHashError(`${location} must be a repository-relative concrete path: ${value}`);
+  }
+  return normalized;
+}
+function resolveRepoPath(root, relativePath, location) {
+  const normalized = normalizeRepoPath3(relativePath, location);
+  const resolvedRoot = path5.resolve(root);
+  const resolved = path5.resolve(resolvedRoot, ...normalized.split("/"));
+  const prefix = resolvedRoot.endsWith(path5.sep) ? resolvedRoot : `${resolvedRoot}${path5.sep}`;
+  if (resolved !== resolvedRoot && !resolved.startsWith(prefix)) {
+    throw new ScopedTreeHashError(`${location} escapes the target root: ${relativePath}`);
+  }
+  return resolved;
+}
+function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths = []) {
+  const resolvedRoot = path5.resolve(root);
+  const included = [...new Set(includedRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash included path")))].sort((left, right) => left.localeCompare(right));
+  const ignored = new Set(ignoredRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash ignored path")));
+  const visited = new Set;
+  const hash2 = crypto4.createHash("sha256");
+  const isMissingPathError = (error) => {
+    if (!error || typeof error !== "object" || !("code" in error))
+      return false;
+    return error.code === "ENOENT";
+  };
+  const lstatOrMissing = (fullPath) => {
+    try {
+      return fs4.lstatSync(fullPath);
+    } catch (error) {
+      if (isMissingPathError(error))
+        return null;
+      throw error;
+    }
+  };
+  const record = (relativePath, kind, value = "") => {
+    hash2.update(relativePath);
+    hash2.update("\x00");
+    hash2.update(kind);
+    hash2.update("\x00");
+    hash2.update(value);
+    hash2.update(`
+`);
+  };
+  const assertNoSymlinkParent = (relativePath) => {
+    const parts = relativePath.split("/");
+    let current = resolvedRoot;
+    for (let index = 0;index < parts.length - 1; index += 1) {
+      current = path5.join(current, parts[index]);
+      const status = lstatOrMissing(current);
+      if (!status)
+        return;
+      if (status.isSymbolicLink()) {
+        throw new ScopedTreeHashError(`scoped tree hash cannot traverse a symbolic-link parent: ${relativePath}`);
+      }
+      if (!status.isDirectory())
+        return;
+    }
+  };
+  const visit = (relativePath, fullPath) => {
+    if (ignored.has(relativePath) || visited.has(relativePath))
+      return;
+    const status = lstatOrMissing(fullPath);
+    if (!status) {
+      visited.add(relativePath);
+      record(relativePath, "missing");
+      return;
+    }
+    visited.add(relativePath);
+    if (status.isSymbolicLink()) {
+      record(relativePath, "symlink", fs4.readlinkSync(fullPath));
+      return;
+    }
+    if (status.isDirectory()) {
+      record(relativePath, "directory");
+      for (const name of fs4.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
+        visit(`${relativePath}/${name}`, path5.join(fullPath, name));
+      }
+      return;
+    }
+    if (status.isFile()) {
+      const content = fs4.readFileSync(fullPath);
+      record(relativePath, "file", `${content.byteLength}\x00${sha2563(content)}`);
+      return;
+    }
+    record(relativePath, "special", String(status.mode));
+  };
+  for (const relativePath of included) {
+    assertNoSymlinkParent(relativePath);
+    visit(relativePath, resolveRepoPath(resolvedRoot, relativePath, "scoped tree hash included path"));
+  }
+  return hash2.digest("hex");
+}
+
+// runtime/vnext/src/bootstrap-support.ts
+var BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH = ".workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl";
+var BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH = ".workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json";
+var BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH = ".workflow-system/vnext/BOOTSTRAP_RECEIPT.json";
+var DISTRIBUTION_STATE_RELATIVE_PATH = ".workflow-system/vnext/DISTRIBUTION_STATE.json";
+var DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH = ".workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json";
+var CURRENT_TASK_RELATIVE_PATH = "docs/workflow/CURRENT_TASK.md";
+var PROJECT_PROFILE_RELATIVE_PATH = ".workflow-system/PROJECT_PROFILE.yaml";
+var FULL_WORKFLOW_DOCS = [
+  "docs/workflow/CONTRACTS.md",
+  "docs/workflow/DECISIONS.md",
+  "docs/workflow/STATUS.md",
+  "docs/workflow/LESSONS.md",
+  "docs/workflow/ROADMAP.md",
+  "docs/workflow/WORKFLOW_GUIDE.md"
+];
+var DESIGN_PATHS = [
+  "docs/designs/architecture.md",
+  "docs/designs/database.md",
+  "docs/designs/detailed-design.md",
+  "docs/designs/api-contracts.md",
+  "docs/designs/domain-model.md"
+];
+var INVENTORY_PATHS = [
+  "docs/adoption/architecture-inventory.md",
+  "docs/adoption/database-inventory.md",
+  "docs/adoption/API_INVENTORY.md",
+  "docs/adoption/RISK_REGISTER.md"
+];
+var REQUIRED_SKILL_ENTRIES = [
+  "bootstrap-project",
+  "prepare-task",
+  "review-change",
+  "execute-step",
+  "debug-task",
+  "task-lifecycle",
+  "capture-work-item",
+  "close-task",
+  "validate-change"
+];
+var SAFE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+var HASH64 = /^[a-f0-9]{64}$/u;
+var BOOTSTRAP_RECEIPT_KEYS = [
+  "schema_version",
+  "kind",
+  "mode",
+  "target_identity",
+  "project",
+  "host",
+  "source",
+  "input_fingerprint",
+  "completed_at",
+  "managed_files",
+  "legacy_compatibility",
+  "recovery_boundary"
+];
+var DISTRIBUTION_STATE_KEYS = [
+  "schema_version",
+  "kind",
+  "distribution_state",
+  "distribution_version",
+  "manifest_digest",
+  "installed_at",
+  "managed_files",
+  "legacy_compatibility",
+  "recovery_boundary"
+];
+
+class BootstrapSupportError extends Error {
+  code;
+  constructor(code, message) {
+    super(`${code}: ${message}`);
+    this.name = "BootstrapSupportError";
+    this.code = code;
+  }
+}
+function fail3(code, message) {
+  throw new BootstrapSupportError(code, message);
+}
+function isRecord3(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function expectRecord3(value, location) {
+  if (!isRecord3(value))
+    fail3("BOOTSTRAP_SUPPORT_SCHEMA_INVALID", `${location} must be a mapping.`);
+  return value;
+}
+function expectString3(value, location) {
+  if (typeof value !== "string" || value.trim().length === 0)
+    fail3("BOOTSTRAP_SUPPORT_SCHEMA_INVALID", `${location} must be a non-empty string.`);
+  return value.trim();
+}
+function expectExactKeys3(value, keys, location) {
+  const expected = new Set(keys);
+  const missing = keys.filter((key) => !(key in value));
+  const extra = Object.keys(value).filter((key) => !expected.has(key));
+  if (missing.length > 0 || extra.length > 0)
+    fail3("BOOTSTRAP_SUPPORT_SCHEMA_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
+}
+function sha2564(value) {
+  return crypto5.createHash("sha256").update(value).digest("hex");
+}
+function stableValue2(value) {
+  if (Array.isArray(value))
+    return value.map(stableValue2);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue2(value[key])]));
+  return value;
+}
+function digest2(value) {
+  return sha2564(JSON.stringify(stableValue2(value)));
+}
+function normalizeRelative(value, location = "path") {
+  const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").replace(/\/+/gu, "/");
+  if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:\//u.test(normalized) || normalized.split("/").some((segment) => segment === ".." || segment.length === 0) || /[\0-\x1F\x7F]/u.test(normalized) || normalized.includes("*"))
+    fail3("BOOTSTRAP_SUPPORT_PATH_INVALID", `${location} must be a concrete repository-relative path.`);
+  return normalized;
+}
+function targetPath(root, relative2) {
+  const resolvedRoot = path6.resolve(root);
+  const resolved = path6.resolve(resolvedRoot, ...normalizeRelative(relative2).split("/"));
+  const prefix = resolvedRoot.endsWith(path6.sep) ? resolvedRoot : `${resolvedRoot}${path6.sep}`;
+  if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
+    fail3("BOOTSTRAP_SUPPORT_PATH_INVALID", `target path escapes root: ${relative2}`);
+  return resolved;
+}
+function readJsonObject2(filePath, location) {
+  if (!fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile())
+    fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", `${location} is missing.`);
+  try {
+    return expectRecord3(JSON.parse(fs5.readFileSync(filePath, "utf8")), location);
+  } catch (error) {
+    if (error instanceof BootstrapSupportError)
+      throw error;
+    fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", `${location} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function readYamlObject(filePath, location) {
+  if (!fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile())
+    return {};
+  try {
+    const value = parse2(fs5.readFileSync(filePath, "utf8"));
+    return value === null ? {} : expectRecord3(value, location);
+  } catch (error) {
+    fail3("BOOTSTRAP_SUPPORT_PROFILE_INVALID", `${location} is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function fileHash(filePath) {
+  return sha2564(fs5.readFileSync(filePath));
+}
+function existingProfile(root) {
+  const filePath = targetPath(root, PROJECT_PROFILE_RELATIVE_PATH);
+  if (!fs5.existsSync(filePath))
+    return null;
+  return readYamlObject(filePath, PROJECT_PROFILE_RELATIVE_PATH);
+}
+function profileProject(profile) {
+  const project = profile?.project;
+  if (!isRecord3(project) || typeof project.name !== "string" || typeof project.slug !== "string")
+    return null;
+  return { name: project.name.trim(), slug: project.slug.trim() };
+}
+function safeSlug(value) {
+  const normalized = value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "");
+  return normalized || "project";
+}
+function resolveProject(root, options, receipt) {
+  const profile = existingProfile(root);
+  const profileIdentity = profileProject(profile);
+  let packageName = null;
+  const packagePath = targetPath(root, "package.json");
+  if (fs5.existsSync(packagePath)) {
+    try {
+      const packageJson = readJsonObject2(packagePath, "package.json");
+      packageName = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name.trim() : null;
+    } catch {
+      packageName = null;
+    }
+  }
+  const name = options.projectName?.trim() || profileIdentity?.name || receipt?.project.name || packageName || path6.basename(path6.resolve(root));
+  const slug = options.projectSlug?.trim() || profileIdentity?.slug || receipt?.project.slug || safeSlug(name);
+  if (!SAFE_SLUG.test(slug))
+    fail3("BOOTSTRAP_SUPPORT_PROFILE_INVALID", `project slug must be lowercase kebab-case: ${slug}`);
+  if (profileIdentity && options.projectName && profileIdentity.name !== options.projectName.trim())
+    fail3("BOOTSTRAP_SUPPORT_IDENTITY_CONFLICT", "caller project name conflicts with the existing project profile.");
+  if (profileIdentity && options.projectSlug && profileIdentity.slug !== options.projectSlug.trim())
+    fail3("BOOTSTRAP_SUPPORT_IDENTITY_CONFLICT", "caller project slug conflicts with the existing project profile.");
+  if (profile?.paths && isRecord3(profile.paths) && profile.paths.workflow_home !== undefined && profile.paths.workflow_home !== "docs/workflow")
+    fail3("BOOTSTRAP_SUPPORT_IDENTITY_CONFLICT", "existing paths.workflow_home is not the canonical vNext workflow home.");
+  return { name, slug };
+}
+function listTopLevelNames(root) {
+  if (!fs5.existsSync(root))
+    return [];
+  return fs5.readdirSync(root, { withFileTypes: true }).map((entry) => entry.name).sort();
+}
+function hasMeaningfulImplementation(root) {
+  const names = listTopLevelNames(root);
+  if (names.some((name) => ["src", "app", "lib", "packages", "server", "client"].includes(name)))
+    return true;
+  return names.some((name) => /\.(?:ts|tsx|js|jsx|py|go|rs|java|cs|php|rb|swift)$/iu.test(name));
+}
+function isVNextMarkerFile(root, relative2) {
+  const filePath = targetPath(root, relative2);
+  if (!fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile())
+    return false;
+  return /vnext|vNext/iu.test(fs5.readFileSync(filePath, "utf8").slice(0, 1600));
+}
+function isFrozenPath(root, relative2) {
+  const normalized = normalizeRelative(relative2, "freeze check");
+  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file) => targetPath(root, file)).filter((file) => fs5.existsSync(file) && fs5.statSync(file).isFile());
+  for (const registry of registries) {
+    if (fs5.readFileSync(registry, "utf8").split(/\r?\n/u).some((line) => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/iu.test(line)))
+      return true;
+  }
+  const filePath = targetPath(root, normalized);
+  if (fs5.existsSync(filePath) && fs5.statSync(filePath).isFile()) {
+    const head = fs5.readFileSync(filePath, "utf8").split(/\r?\n/u).slice(0, 20).join(`
+`);
+    if (/@frozen|DO NOT MODIFY/iu.test(head))
+      return true;
+  }
+  return false;
+}
+function readBootstrapReceipt(root) {
+  const filePath = targetPath(root, BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH);
+  if (!fs5.existsSync(filePath))
+    return null;
+  const raw = readJsonObject2(filePath, "BOOTSTRAP_RECEIPT.json");
+  expectExactKeys3(raw, BOOTSTRAP_RECEIPT_KEYS, "BOOTSTRAP_RECEIPT.json");
+  const project = expectRecord3(raw.project, "BOOTSTRAP_RECEIPT.json.project");
+  const source = expectRecord3(raw.source, "BOOTSTRAP_RECEIPT.json.source");
+  if (raw.schema_version !== 1 || raw.kind !== "vnext-bootstrap-receipt" || !BOOTSTRAP_MODES.includes(raw.mode) || typeof raw.target_identity !== "string" || typeof project.name !== "string" || typeof project.slug !== "string" || !["codex", "claude", "factory"].includes(raw.host) || typeof source.revision !== "string" || typeof source.tree_hash !== "string" || !HASH64.test(source.tree_hash) || typeof raw.input_fingerprint !== "string" || !HASH64.test(raw.input_fingerprint) || typeof raw.completed_at !== "string" || raw.legacy_compatibility !== "absent" || raw.recovery_boundary !== "in-progress-marker") {
+    fail3("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", "BOOTSTRAP_RECEIPT.json identity or schema fields are invalid.");
+  }
+  if (!Array.isArray(raw.managed_files) || raw.managed_files.length === 0)
+    fail3("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", "BOOTSTRAP_RECEIPT.json.managed_files must be non-empty.");
+  const managed = raw.managed_files.map((item, index) => {
+    const record = expectRecord3(item, `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
+    expectExactKeys3(record, ["path", "checksum"], `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
+    const relative2 = normalizeRelative(expectString3(record.path, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].path`));
+    const checksum = expectString3(record.checksum, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].checksum`);
+    if (!HASH64.test(checksum))
+      fail3("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP_RECEIPT.json.managed_files[${index}].checksum is invalid.`);
+    if (relative2.startsWith(".workflow-system/runtime/") || relative2.startsWith(".agents/skills/") || relative2 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative2 === ".workflow-system/FILE_SCHEMAS.md" || relative2 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative2 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml")
+      fail3("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP receipt cannot own Distribution software: ${relative2}`);
+    return { path: relative2, checksum };
+  });
+  if (new Set(managed.map((item) => item.path)).size !== managed.length)
+    fail3("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", "BOOTSTRAP_RECEIPT.json.managed_files contains duplicates.");
+  return {
+    schema_version: 1,
+    kind: "vnext-bootstrap-receipt",
+    mode: raw.mode,
+    target_identity: raw.target_identity,
+    project: { name: project.name, slug: project.slug },
+    host: raw.host,
+    source: { revision: source.revision, tree_hash: source.tree_hash },
+    input_fingerprint: raw.input_fingerprint,
+    completed_at: raw.completed_at,
+    managed_files: managed,
+    legacy_compatibility: "absent",
+    recovery_boundary: "in-progress-marker"
+  };
+}
+function isDistributionManagedPath(relative2) {
+  return relative2 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative2 === ".workflow-system/FILE_SCHEMAS.md" || relative2 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative2 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative2.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative2);
+}
+function validateSkillFile(root, entry) {
+  const relative2 = `.agents/skills/${entry}/SKILL.md`;
+  const filePath = targetPath(root, relative2);
+  if (!fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile())
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `required Distribution Skill is missing: ${relative2}`);
+  const content = fs5.readFileSync(filePath, "utf8");
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/u.exec(content);
+  if (!match)
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2} is missing Agent Skill frontmatter.`);
+  const document = parseDocument2(match[1], { uniqueKeys: true });
+  const diagnostics = [...document.errors, ...document.warnings];
+  if (diagnostics.length > 0)
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2} frontmatter is invalid: ${diagnostics.map((item) => item.message).join("; ")}`);
+  const frontmatter = expectRecord3(document.toJS(), `${relative2} frontmatter`);
+  if (frontmatter.name !== entry || typeof frontmatter.description !== "string" || !frontmatter.description.trim())
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2} must declare name=${entry} and a non-empty description.`);
+  const contract = expectRecord3(frontmatter.entry_contract, `${relative2}.entry_contract`);
+  if (contract.entry !== entry)
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2}.entry_contract.entry is not canonical.`);
+}
+function validateInstalledDistributionReadback(root) {
+  const statePath = targetPath(root, DISTRIBUTION_STATE_RELATIVE_PATH);
+  const journalPath = targetPath(root, DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH);
+  if (fs5.existsSync(journalPath))
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution has an interrupted transaction marker; recover through Distribution before Bootstrap.");
+  const raw = readJsonObject2(statePath, "DISTRIBUTION_STATE.json");
+  expectExactKeys3(raw, DISTRIBUTION_STATE_KEYS, "DISTRIBUTION_STATE.json");
+  if (raw.schema_version !== 1 || raw.kind !== "vibe-governance-distribution-state" || raw.distribution_state !== "vnext" || raw.legacy_compatibility !== "absent" || raw.recovery_boundary !== "distribution-journal")
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "DISTRIBUTION_STATE.json is not a completed vNext Distribution state.");
+  const version = expectString3(raw.distribution_version, "DISTRIBUTION_STATE.json.distribution_version");
+  const manifestDigest = expectString3(raw.manifest_digest, "DISTRIBUTION_STATE.json.manifest_digest");
+  if (!HASH64.test(manifestDigest) || !/^\d+\.\d+\.\d+$/u.test(version))
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution State version or manifest digest is invalid.");
+  if (!Array.isArray(raw.managed_files) || raw.managed_files.length === 0)
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "DISTRIBUTION_STATE.json.managed_files must be non-empty.");
+  const managed = raw.managed_files.map((item, index) => {
+    const record = expectRecord3(item, `DISTRIBUTION_STATE.json.managed_files[${index}]`);
+    expectExactKeys3(record, ["path", "checksum", "category"], `DISTRIBUTION_STATE.json.managed_files[${index}]`);
+    const relative2 = normalizeRelative(expectString3(record.path, `DISTRIBUTION_STATE.json.managed_files[${index}].path`));
+    const checksum = expectString3(record.checksum, `DISTRIBUTION_STATE.json.managed_files[${index}].checksum`);
+    if (!isDistributionManagedPath(relative2) || !HASH64.test(checksum))
+      fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an invalid managed path/checksum: ${relative2}`);
+    const category = expectString3(record.category, `DISTRIBUTION_STATE.json.managed_files[${index}].category`);
+    if (!["protocol", "schema", "skill", "runtime", "config"].includes(category))
+      fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an unsupported managed category: ${relative2}`);
+    return { path: relative2, checksum, category };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  if (new Set(managed.map((item) => item.path)).size !== managed.length)
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "DISTRIBUTION_STATE.json.managed_files contains duplicates.");
+  const managedMap = new Map(managed.map((item) => [item.path, item]));
+  for (const entry of managed) {
+    const filePath = targetPath(root, entry.path);
+    if (!fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile() || fileHash(filePath) !== entry.checksum)
+      fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution managed artifact read-back failed: ${entry.path}`);
+  }
+  const required = [
+    ".workflow-system/WORKFLOW_PROTOCOL.md",
+    ".workflow-system/FILE_SCHEMAS.md",
+    ".workflow-system/vnext/SOURCE_CONTRACT.yaml",
+    ".workflow-system/vnext/RUNTIME_CONTRACT.yaml",
+    ".workflow-system/runtime/dist/cli.js",
+    ".workflow-system/runtime/package.json",
+    ".workflow-system/runtime/package-lock.json",
+    BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH,
+    ...REQUIRED_SKILL_ENTRIES.map((entry) => `.agents/skills/${entry}/SKILL.md`)
+  ];
+  for (const relative2 of required) {
+    const entry = managedMap.get(relative2);
+    if (!entry)
+      fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State does not admit required artifact: ${relative2}`);
+  }
+  const runtime = validateVNextRuntimeContract(root, true).runtime_distribution;
+  if (runtime.package_version !== version)
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution State and project-local Runtime versions differ.");
+  const protocol = fs5.readFileSync(targetPath(root, ".workflow-system/WORKFLOW_PROTOCOL.md"), "utf8");
+  const schema = fs5.readFileSync(targetPath(root, ".workflow-system/FILE_SCHEMAS.md"), "utf8");
+  if (!/^kind:\s*vnext-protocol\s*$/imu.test(protocol) || !/schema_version\s*:\s*1/iu.test(protocol))
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Protocol is invalid.");
+  if (!/^kind:\s*vnext-file-schema\s*$/imu.test(schema) || !/CURRENT_TASK\.md/iu.test(schema))
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Schema is invalid.");
+  const supportTemplate = fs5.readFileSync(targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH), "utf8");
+  if (!/^kind:\s*vnext-current-task\s*$/imu.test(supportTemplate) || !supportTemplate.includes("# vNext CURRENT_TASK"))
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed Bootstrap support template is invalid.");
+  for (const entry of REQUIRED_SKILL_ENTRIES)
+    validateSkillFile(root, entry);
+  return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs5.readFileSync(statePath, "utf8"), managed_files: managed };
+}
+function renderProfile(project, targetIdentity, mode, host, existing) {
+  const existingProject = existing?.project && isRecord3(existing.project) ? existing.project : {};
+  const existingPaths = existing?.paths && isRecord3(existing.paths) ? existing.paths : {};
+  const existingVNext = existing?.vnext && isRecord3(existing.vnext) ? existing.vnext : {};
+  const existingHosts = Array.isArray(existingProject.primary_hosts) ? existingProject.primary_hosts.filter((value) => typeof value === "string" && value.trim()) : [];
+  return stringify2({
+    ...existing ?? {},
+    schema_version: 1,
+    kind: "vnext-project-profile",
+    project: {
+      ...existingProject,
+      name: project.name,
+      slug: project.slug,
+      type: typeof existingProject.type === "string" && existingProject.type.trim() ? existingProject.type : "application",
+      primary_hosts: existingHosts.length > 0 ? existingHosts : [host]
+    },
+    paths: { ...existingPaths, workflow_home: "docs/workflow" },
+    vnext: {
+      ...existingVNext,
+      bootstrap_mode: mode,
+      target_identity: targetIdentity,
+      source_contract: ".workflow-system/vnext/SOURCE_CONTRACT.yaml",
+      runtime_contract: ".workflow-system/vnext/RUNTIME_CONTRACT.yaml",
+      runtime_entrypoint: ".workflow-system/runtime/dist/cli.js",
+      legacy_compatibility: "absent"
+    }
+  });
+}
+function renderGuidance(project) {
+  return [
+    "<!-- vNext bootstrap managed guidance; preserve target-owned additions outside this block. -->",
+    `# ${project.name} workflow guidance`,
+    "",
+    "This project uses the pure vNext workflow surface.",
+    "",
+    "- Use `bootstrap-project` only for project setup or explicit realignment.",
+    "- Use `prepare-task` before executing a new task.",
+    "- Use `execute-step` only for the admitted current step.",
+    "- Use `review-change`, `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task` according to their contracts.",
+    "- The project-local Runtime and canonical `docs/workflow/CURRENT_TASK.md` are authoritative for task state.",
+    "- Do not edit governance state directly or treat discovery context as write authority.",
+    "",
+    `Project slug: ${project.slug}`,
+    ""
+  ].join(`
+`);
+}
+function renderWorkflowGuide(project) {
+  return [
+    "# vNext Workflow Guide",
+    "",
+    `Project: ${project.name} (${project.slug})`,
+    "",
+    "## Administrative entry",
+    "",
+    "- `bootstrap-project`: design, greenfield, inventory, adopt, or realign.",
+    "",
+    "## Daily entries",
+    "",
+    "- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.",
+    "- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.",
+    "- `capture-work-item` remains record-only.",
+    "",
+    "## Authoritative state",
+    "",
+    "- Runtime state is read from canonical `CURRENT_TASK.md`.",
+    "- Contracts, Decisions, Status, and host guidance are changed through typed Runtime proposals.",
+    "- Bootstrap completion requires Distribution prerequisite validation, scope admission, governance-only promotion, and read-back.",
+    ""
+  ].join(`
+`);
+}
+function renderContracts(project, facts = []) {
+  const confirmed = facts.filter((fact) => fact.certainty === "confirmed");
+  return [
+    "# vNext Contracts",
+    "",
+    `Project: ${project.name} (${project.slug})`,
+    "",
+    "## Confirmed boundaries",
+    "",
+    "- Bootstrap writes only the admitted workflow asset set.",
+    "- Task state remains in canonical `CURRENT_TASK.md`.",
+    ...confirmed.map((fact) => `- ${fact.key}: ${fact.value} (source: ${fact.source})`),
+    "",
+    "## Candidate status",
+    "",
+    "- These entries are the confirmed bootstrap baseline; unconfirmed facts remain outside the locked Contract.",
+    "",
+    "## vNext Contract Records",
+    "",
+    "- Normal close-task Contract admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.",
+    ""
+  ].join(`
+`);
+}
+function renderDecisions(project, mode, facts = [], draft = false) {
+  const confirmed = facts.filter((fact) => fact.certainty === "confirmed");
+  const unresolved = facts.filter((fact) => fact.certainty !== "confirmed");
+  return [
+    "# vNext Decisions",
+    "",
+    `Project: ${project.name} (${project.slug})`,
+    "",
+    "## Bootstrap decision",
+    "",
+    `- mode: ${mode}`,
+    `- status: ${draft ? "draft" : "confirmed"}`,
+    "- authority: project owner",
+    "",
+    "## Confirmed facts",
+    "",
+    ...confirmed.length > 0 ? confirmed.map((fact) => `- ${fact.key}: ${fact.value} (source: ${fact.source})`) : ["- none"],
+    "",
+    "## Inferred or unknown facts",
+    "",
+    ...unresolved.length > 0 ? unresolved.map((fact) => `- ${fact.key}: ${fact.value} [${fact.certainty}; source: ${fact.source}]`) : ["- none"],
+    "",
+    "## vNext Decision Records",
+    "",
+    "- Normal close-task Decision admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.",
+    ""
+  ].join(`
+`);
+}
+function renderStatus(project, mode) {
+  return ["# STATUS.md", "", "## 项目概览", "", `- 项目：${project.name}`, `- slug：${project.slug}`, `- bootstrap mode：${mode}`, "", "## ✅ 已完成且稳定", "", "- Governance assets generated after the installed Distribution was validated read-only.", "- Project profile and canonical task baseline read back successfully.", "", "## \uD83D\uDD28 正在开发", "", "- No active task exists. The next task must be prepared through the daily Runtime path.", "", "## ⚠️ 当前阻塞", "", "- None recorded by bootstrap.", ""].join(`
+`);
+}
+function renderLessons() {
+  return ["# LESSONS.md", "", "## Reusable lessons", "", "- Bootstrap evidence is recorded as a receipt and must not be inferred from file existence alone.", "- Unknown adoption facts remain visible until a source and authority promote them.", ""].join(`
+`);
+}
+function renderRoadmap(project, mode, baseline) {
+  return ["# ROADMAP.md", "", `Project: ${project.name} (${project.slug})`, "", "## Current boundary", "", `- ${mode} bootstrap completed as an administrative workflow operation.`, "", "## Next boundary", "", "- Prepare a concrete task with confirmed acceptance, exact mutation scope, and minimum-sufficient evidence.", ...baseline ? ["", "## Design baseline consumed", "", ...Object.keys(baseline).sort().map((key) => `- ${key}`)] : [], ""].join(`
+`);
+}
+function renderDesignDocument(filePath, baseline) {
+  const key = path6.basename(filePath, ".md");
+  const value = baseline[key] ?? baseline[filePath] ?? "No confirmed content was supplied for this design section.";
+  return [`# Design baseline: ${key}`, "", "## Authority", "", "- source: caller-provided confirmed design baseline", "- certainty: confirmed or explicitly awaiting confirmation", "", "## Content", "", value, ""].join(`
+`);
+}
+function renderBaselineDoc(baseline) {
+  return ["# vNext Design Baselines", "", "The following design inputs are caller-provided proposals. They do not authorize feature implementation.", "", ...Object.keys(baseline).sort().map((key) => `- ${key}: ${baseline[key]}`), ""].join(`
+`);
+}
+function renderInventoryFile(title, root, facts = []) {
+  const names = listTopLevelNames(root);
+  return [`# ${title}`, "", "## Observed project surface", "", ...names.length > 0 ? names.map((name) => `- ${name}`) : ["- empty target root"], "", "## Evidence and certainty", "", ...facts.length > 0 ? facts.map((fact) => `- ${fact.key}: ${fact.value} [${fact.certainty}; source: ${fact.source}]`) : ["- observed from target-root directory listing"], ""].join(`
+`);
+}
+function renderRiskRegister(facts = []) {
+  const unknown = facts.filter((fact) => fact.certainty !== "confirmed");
+  return ["# Adoption Risk Register", "", "## Open evidence gaps", "", ...unknown.length > 0 ? unknown.map((fact) => `- ${fact.key}: ${fact.value}; source=${fact.source}; disposition=confirm before promotion`) : ["- none recorded"], ""].join(`
+`);
+}
+function mergeAssets(...groups) {
+  const map = new Map;
+  for (const asset of groups.flat()) {
+    if (map.has(asset.path))
+      fail3("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `generated asset path is duplicated: ${asset.path}`);
+    map.set(asset.path, asset);
+  }
+  return [...map.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+function renderGovernanceDocument(file, project, mode, facts, baseline) {
+  if (file.endsWith("/CONTRACTS.md"))
+    return renderContracts(project, facts);
+  if (file.endsWith("/DECISIONS.md"))
+    return renderDecisions(project, mode, facts);
+  if (file.endsWith("/STATUS.md"))
+    return renderStatus(project, mode);
+  if (file.endsWith("/LESSONS.md"))
+    return renderLessons();
+  if (file.endsWith("/ROADMAP.md"))
+    return renderRoadmap(project, mode, baseline);
+  return renderWorkflowGuide(project);
+}
+function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, baseline) {
+  const templatePath = targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
+  if (!fs5.existsSync(templatePath) || !fs5.statSync(templatePath).isFile())
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
+  return [
+    { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root)) },
+    { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs5.readFileSync(templatePath, "utf8") },
+    ...FULL_WORKFLOW_DOCS.map((file) => ({ path: file, category: "governance", content: renderGovernanceDocument(file, project, mode, facts, baseline) })),
+    { path: "AGENTS.md", category: "governance", content: renderGuidance(project) },
+    { path: "CLAUDE.md", category: "governance", content: renderGuidance(project) }
+  ];
+}
+function makeModeAssets(root, project, mode, baseline, facts) {
+  if (mode === "design") {
+    return mergeAssets(DESIGN_PATHS.map((file) => ({ path: file, category: "governance", content: renderDesignDocument(file, baseline) })), [
+      { path: "docs/workflow/BASELINES.md", category: "governance", content: renderBaselineDoc(baseline) },
+      { path: "docs/workflow/ROADMAP.md", category: "governance", content: renderRoadmap(project, mode, baseline) },
+      { path: "docs/workflow/DECISIONS.md", category: "governance", content: renderDecisions(project, mode, [], true) }
+    ]);
+  }
+  if (mode === "inventory") {
+    return [
+      { path: INVENTORY_PATHS[0], category: "governance", content: renderInventoryFile("Architecture Inventory", root, facts) },
+      { path: INVENTORY_PATHS[1], category: "governance", content: renderInventoryFile("Database Inventory", root, facts) },
+      { path: INVENTORY_PATHS[2], category: "governance", content: renderInventoryFile("API Inventory", root, facts) },
+      { path: INVENTORY_PATHS[3], category: "governance", content: renderRiskRegister(facts) }
+    ];
+  }
+  return [];
+}
+function renderScopeDocument(allowed) {
+  return [
+    "## 允许修改范围",
+    "",
+    "### Allowed Files",
+    "",
+    ...allowed.map((file) => `- \`${file}\``),
+    "",
+    "### Conditional Files",
+    "",
+    "- none",
+    "",
+    "## 禁止修改范围",
+    "",
+    "### Forbidden Files",
+    "",
+    "- `.git/**`",
+    "- `src/**`",
+    "- `app/**`",
+    "- `lib/**`",
+    "- `packages/**`",
+    "- `package.json`",
+    "- `package-lock.json`",
+    "- `node_modules/**`",
+    ""
+  ].join(`
+`);
+}
+function semanticOperations(assets, mode) {
+  const paths = new Set(assets.map((asset) => asset.path));
+  const operations = [];
+  const add = (operation_kind, target_paths) => {
+    const existing = target_paths.filter((target) => paths.has(target));
+    if (existing.length > 0)
+      operations.push({ operation_kind, target_paths: existing, evidence_refs: [`evidence:bootstrap:${mode}:${operation_kind}`] });
+  };
+  add("decision-record-transaction", ["docs/workflow/DECISIONS.md"]);
+  add("contract-candidate-commit", ["docs/workflow/CONTRACTS.md"]);
+  add("project-status-transaction", ["docs/workflow/STATUS.md"]);
+  add("paired-host-guidance-transaction", ["AGENTS.md", "CLAUDE.md"]);
+  return operations;
+}
+function normalizeFacts(value, location) {
+  return (value ?? []).map((fact, index) => {
+    if (!fact || typeof fact.key !== "string" || typeof fact.value !== "string" || typeof fact.source !== "string" || !["confirmed", "inferred", "unknown"].includes(fact.certainty))
+      fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", `${location}[${index}] is invalid.`);
+    return { key: fact.key.trim(), value: fact.value.trim(), source: fact.source.trim(), certainty: fact.certainty };
+  });
+}
+function normalizeBaseline(value) {
+  return Object.fromEntries(Object.entries(value ?? {}).filter(([key, entry]) => key.trim() && typeof entry === "string" && entry.trim()).map(([key, entry]) => [key.trim(), entry.trim()]));
+}
+function existingIsWorkflowOwned(root, relative2, receipt = null) {
+  const filePath = targetPath(root, relative2);
+  if (!fs5.existsSync(filePath))
+    return true;
+  if (isFrozenPath(root, relative2))
+    return false;
+  if (receipt?.managed_files.some((file) => file.path === relative2))
+    return true;
+  if (relative2.startsWith(".workflow-system/"))
+    return relative2 === PROJECT_PROFILE_RELATIVE_PATH;
+  if (relative2 === "AGENTS.md" || relative2 === "CLAUDE.md")
+    return isVNextMarkerFile(root, relative2);
+  if (relative2.startsWith("docs/workflow/") || relative2.startsWith("docs/designs/") || relative2.startsWith("docs/adoption/"))
+    return isVNextMarkerFile(root, relative2);
+  return false;
+}
+function renderReceipt(mode, targetIdentity, project, host, source, inputFingerprint, assets) {
+  return `${JSON.stringify({
+    schema_version: 1,
+    kind: "vnext-bootstrap-receipt",
+    mode,
+    target_identity: targetIdentity,
+    project,
+    host,
+    source,
+    input_fingerprint: inputFingerprint,
+    completed_at: new Date().toISOString(),
+    managed_files: assets.map((asset) => ({ path: asset.path, checksum: sha2564(Buffer.from(asset.content, "utf8")) })).sort((left, right) => left.path.localeCompare(right.path)),
+    legacy_compatibility: "absent",
+    recovery_boundary: "in-progress-marker"
+  }, null, 2)}
+`;
+}
+function classifyTarget(root) {
+  if (fs5.existsSync(targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH)))
+    return { state: "in-progress", receipt: null, reasons: ["an explicit Bootstrap interruption marker is present"] };
+  let receipt = null;
+  try {
+    receipt = readBootstrapReceipt(root);
+  } catch (error) {
+    return { state: "conflicting", receipt: null, reasons: [error instanceof Error ? error.message : String(error)] };
+  }
+  const migrationMarker = targetPath(root, ".workflow-system/vnext/MIGRATION_RECEIPT.json");
+  const migrationState = targetPath(root, ".workflow-system/vnext/INSTALL_STATE.json");
+  const hasMigrationMarker = fs5.existsSync(migrationMarker);
+  const hasMigrationState = fs5.existsSync(migrationState);
+  if (hasMigrationMarker !== hasMigrationState) {
+    return { state: "conflicting", receipt, reasons: ["Migration Pack completed-state markers are incomplete; Bootstrap cannot infer migration provenance."] };
+  }
+  if (hasMigrationMarker || hasMigrationState) {
+    if (receipt)
+      return { state: "conflicting", receipt, reasons: ["Bootstrap Receipt cannot coexist with Migration Pack completed-state markers."] };
+    return { state: "migration-owned", receipt, reasons: ["Migration Pack owns completed legacy provenance; Bootstrap does not reinterpret or replace it."] };
+  }
+  const targetIdentity = computeBootstrapTargetIdentity(root);
+  if (receipt && receipt.target_identity !== targetIdentity)
+    return { state: "conflicting", receipt, reasons: ["Bootstrap receipt target identity does not match the current target root"] };
+  if (receipt) {
+    const drift = receipt.managed_files.filter((file) => {
+      const filePath = targetPath(root, file.path);
+      return !fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum;
+    });
+    return drift.length === 0 ? { state: "valid", receipt, reasons: [] } : { state: "stale", receipt, reasons: drift.map((file) => `managed governance asset drifted: ${file.path}`) };
+  }
+  const governanceSignals = [PROJECT_PROFILE_RELATIVE_PATH, CURRENT_TASK_RELATIVE_PATH, ...FULL_WORKFLOW_DOCS];
+  if (governanceSignals.some((relative2) => fs5.existsSync(targetPath(root, relative2))))
+    return { state: "incomplete", receipt: null, reasons: ["governance assets exist without Bootstrap transaction provenance"] };
+  return { state: hasMeaningfulImplementation(root) ? "existing" : "empty", receipt: null, reasons: [] };
+}
+function isValidReceiptModeTransition(receiptMode, requestedMode) {
+  if (requestedMode === "realign")
+    return true;
+  if (receiptMode === requestedMode)
+    return false;
+  return receiptMode === "design" && requestedMode === "greenfield" || receiptMode === "inventory" && requestedMode === "adopt";
+}
+function modeBlockers(root, state, mode, options, baseline, facts, receipt) {
+  const blockers = [];
+  if (state === "in-progress")
+    blockers.push({ code: "BOOTSTRAP_IN_PROGRESS", message: "an interrupted Bootstrap marker requires explicit recovery before retry." });
+  if (state === "conflicting")
+    blockers.push({ code: "BOOTSTRAP_CONFLICT", message: "existing Bootstrap receipt or target identity is conflicting." });
+  if (state === "migration-owned")
+    blockers.push({ code: "BOOTSTRAP_NOT_REQUIRED", message: "Migration Pack provenance owns this governed target; do not run Bootstrap after migration." });
+  if (state === "valid" && receipt && receipt.mode !== mode && !isValidReceiptModeTransition(receipt.mode, mode))
+    blockers.push({ code: "BOOTSTRAP_IDENTITY_CONFLICT", message: "an existing Bootstrap receipt does not admit this mode transition; replay the same mode or use realign." });
+  if (mode === "design") {
+    if (!["empty", "existing", "valid"].includes(state))
+      blockers.push({ code: "BOOTSTRAP_STATE_INVALID", message: "design mode only accepts an uninitialized target or valid Bootstrap replay." });
+    if (Object.keys(baseline).length === 0)
+      blockers.push({ code: "DESIGN_EVIDENCE_MISSING", message: "design mode requires a caller-provided design baseline." });
+  }
+  if (mode === "greenfield") {
+    if (state !== "empty" && state !== "existing" && state !== "valid")
+      blockers.push({ code: "GREENFIELD_PRECONDITION", message: "greenfield mode requires an empty/existing target or valid Bootstrap replay." });
+    if (Object.keys(baseline).length === 0 || options.designConfirmed !== true)
+      blockers.push({ code: "DESIGN_CONFIRMATION_REQUIRED", message: "greenfield mode requires a confirmed design baseline." });
+  }
+  if (mode === "inventory" && state !== "existing" && state !== "valid")
+    blockers.push({ code: "INVENTORY_PRECONDITION", message: "inventory mode requires an existing implementation or valid Bootstrap replay." });
+  if (mode === "adopt") {
+    if (!["existing", "incomplete", "valid"].includes(state) || !hasMeaningfulImplementation(root) && state !== "valid")
+      blockers.push({ code: "ADOPT_PRECONDITION", message: "adopt mode requires an existing project implementation or valid replay." });
+    if (state !== "valid" && !fs5.existsSync(targetPath(root, "docs/adoption/architecture-inventory.md")))
+      blockers.push({ code: "INVENTORY_REQUIRED", message: "adopt mode requires inventory evidence from inventory mode." });
+    if (options.adoptionConfirmed !== true)
+      blockers.push({ code: "ADOPTION_CONFIRMATION_REQUIRED", message: "adopt mode requires explicit project-owner confirmation." });
+    if (facts.length === 0)
+      blockers.push({ code: "ADOPTION_FACTS_MISSING", message: "adopt mode requires facts with provenance." });
+  }
+  if (mode === "realign" && !["valid", "stale", "incomplete"].includes(state))
+    blockers.push({ code: "REALIGN_PRECONDITION", message: "realign mode requires an existing Bootstrap-owned governance surface." });
+  return blockers;
+}
+function verifyReceiptReadBack(root, receipt, assets) {
+  const expectedPaths = assets.filter((asset) => asset.path !== BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH).map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
+  const actualPaths = receipt.managed_files.map((file) => file.path).sort((left, right) => left.localeCompare(right));
+  if (JSON.stringify(expectedPaths) !== JSON.stringify(actualPaths))
+    fail3("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed-file paths do not match the governance proposal.");
+  for (const file of receipt.managed_files) {
+    const filePath = targetPath(root, file.path);
+    if (!fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum)
+      fail3("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `Bootstrap governance asset read-back failed: ${file.path}`);
+  }
+}
+function verifyReceipt(root, receipt, assets) {
+  verifyReceiptReadBack(root, receipt, assets);
+  const expected = assets.filter((asset) => asset.path !== BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH).map((asset) => ({ path: asset.path, checksum: sha2564(Buffer.from(asset.content, "utf8")) })).sort((left, right) => left.path.localeCompare(right.path));
+  const actual = receipt.managed_files.slice().sort((left, right) => left.path.localeCompare(right.path));
+  if (JSON.stringify(expected) !== JSON.stringify(actual))
+    fail3("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed_files does not match the governance proposal.");
+}
+function verifyBootstrapHealth(root, proposal, distributionBefore) {
+  const distributionAfter = validateInstalledDistributionReadback(root);
+  if (distributionAfter.state_content !== distributionBefore.state_content)
+    fail3("BOOTSTRAP_SUPPORT_DISTRIBUTION_MUTATED", "Bootstrap changed Distribution State bytes.");
+  for (const asset of proposal.assets) {
+    const filePath = targetPath(root, asset.path);
+    if (!fs5.existsSync(filePath) || !fs5.statSync(filePath).isFile() || fileHash(filePath) !== sha2564(Buffer.from(asset.content, "utf8")))
+      fail3("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `promoted governance asset did not read back identically: ${asset.path}`);
+  }
+  const receipt = readBootstrapReceipt(root);
+  if (!receipt || receipt.target_identity !== proposal.target_identity || receipt.mode !== proposal.mode)
+    fail3("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt identity did not read back correctly.");
+  verifyReceipt(root, receipt, proposal.assets);
+  if (["greenfield", "adopt", "realign"].includes(proposal.mode)) {
+    const current = readCanonicalCurrentTask(root);
+    if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived" || current.runtimeState.active_step_status !== "completed" || proposal.mode !== "realign" && current.runtimeState.task_id !== "000")
+      fail3("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "canonical CURRENT_TASK is not a closed + archived Bootstrap baseline.");
+  }
+}
+function bootstrapRollbackScope(proposal) {
+  return [...new Set([...proposal.requested_write_targets, ...proposal.delete_targets, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH])].sort((left, right) => left.localeCompare(right));
+}
+function computeBootstrapPreimageHash(root, proposal) {
+  return computeScopedTreeHash(root, bootstrapRollbackScope(proposal), [BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH]);
+}
+function markerValue(proposal) {
+  return `${JSON.stringify({ schema_version: 1, kind: "vnext-bootstrap-in-progress", target_identity: proposal.target_identity, mode: proposal.mode, source_revision: proposal.source_revision, source_tree_hash: proposal.source_tree_hash, planned_writes: proposal.requested_write_targets, planned_directories: proposal.requested_directory_targets, recovery: "fail-closed-explicit-recovery" }, null, 2)}
+`;
+}
+function prepareProposal(options, distribution, classification) {
+  const root = path6.resolve(options.targetRoot);
+  const project = resolveProject(root, options, classification.receipt);
+  const host = options.host ?? "codex";
+  const baseline = normalizeBaseline(options.designBaseline);
+  const facts = normalizeFacts(options.mode === "inventory" ? options.inventoryFacts ?? options.confirmedFacts : options.confirmedFacts, options.mode === "inventory" ? "inventoryFacts" : "confirmedFacts");
+  const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, facts, classification.receipt);
+  if (modeIssues.length > 0)
+    fail3(modeIssues[0].code, modeIssues.map((issue) => issue.message).join(" "));
+  let assets = ["greenfield", "adopt", "realign"].includes(options.mode) ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline) : makeModeAssets(root, project, options.mode, baseline, facts);
+  if (options.mode === "adopt")
+    assets = mergeAssets(assets, [{ path: "docs/adoption/ADOPTION_DECISION.md", category: "governance", content: renderDecisions(project, options.mode, facts) }]);
+  if (options.mode === "realign" && fs5.existsSync(targetPath(root, CURRENT_TASK_RELATIVE_PATH)))
+    assets = assets.filter((asset) => asset.path !== CURRENT_TASK_RELATIVE_PATH);
+  const targetIdentity = computeBootstrapTargetIdentity(root);
+  const source = { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest };
+  const inputFingerprint = digest2({ mode: options.mode, project, host, baseline, facts, targetIdentity });
+  assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: "config", content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
+  const plannedWrites = assets.map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
+  for (const relative2 of plannedWrites) {
+    if (isFrozenPath(root, relative2))
+      fail3("BOOTSTRAP_SUPPORT_FROZEN_PATH", `Bootstrap cannot replace a frozen target: ${relative2}`);
+    if (!existingIsWorkflowOwned(root, relative2, classification.receipt))
+      fail3("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `target-owned/native asset would be overwritten: ${relative2}`);
+  }
+  const changedPaths = (options.changedPaths ?? []).map((value) => normalizeRelative(value, "changed_paths")).sort((left, right) => left.localeCompare(right));
+  const proposal = {
+    schema_version: 1,
+    kind: "vnext-bootstrap-proposal",
+    caller: "bootstrap-project",
+    mode: options.mode,
+    target_identity: targetIdentity,
+    source_revision: source.revision,
+    source_tree_hash: source.tree_hash,
+    scope_document: renderScopeDocument(plannedWrites),
+    changed_paths: changedPaths.length > 0 ? changedPaths : plannedWrites,
+    conditional_authorizations: options.conditionalAuthorizations ?? [],
+    transformation_kind: "localized",
+    authority_evidence: [
+      { kind: "project-owner", source: "target-local bootstrap input", subject: `${project.slug}:${options.mode}` },
+      { kind: "scope-admission", source: "target-local bootstrap proposal.scope_document", subject: targetIdentity },
+      { kind: "evidence-admission", source: "target-local Distribution support", subject: distribution.manifest_digest }
+    ],
+    semantic_operations: semanticOperations(assets, options.mode),
+    preconditions: ["project-local Distribution read-back passed", "target-local immutable Bootstrap support is present", "Bootstrap writes governance assets only", "project-local Runtime owns the typed commit"],
+    evidence_refs: ["evidence:distribution-read-back", "evidence:bootstrap-support", "evidence:runtime-read-back"],
+    idempotency_key: `bootstrap-${options.mode}-${targetIdentity}-${inputFingerprint.slice(0, 16)}`,
+    requested_write_targets: plannedWrites,
+    requested_directory_targets: [],
+    delete_targets: [],
+    assets
+  };
+  try {
+    validateBootstrapProjectProposal(proposal);
+  } catch (error) {
+    fail3(error instanceof Error && "code" in error ? String(error.code) : "BOOTSTRAP_SUPPORT_PROPOSAL_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint };
+}
+function publicPlan(plan) {
+  const { proposal: _proposal, ...publicValue } = plan;
+  return publicValue;
+}
+function bootstrapProjectTargetLocal(options) {
+  const root = path6.resolve(options.targetRoot);
+  if (!BOOTSTRAP_MODES.includes(options.mode))
+    return {
+      status: "blocked",
+      target_root: root,
+      target_state: "conflicting",
+      target_identity: computeBootstrapTargetIdentity(root),
+      mode: options.mode,
+      project: { name: "unknown", slug: "unknown" },
+      host: options.host ?? "codex",
+      source: { revision: "unavailable", tree_hash: "0".repeat(64) },
+      planned_writes: [],
+      planned_directories: [],
+      planned_deletes: [],
+      changed_paths: options.changedPaths ?? [],
+      blockers: [{ code: "BOOTSTRAP_SUPPORT_MODE_INVALID", message: "mode is outside the closed Bootstrap mode set." }],
+      warnings: [],
+      read_back_verified: false
+    };
+  let distribution;
+  try {
+    distribution = validateInstalledDistributionReadback(root);
+  } catch (error) {
+    return {
+      status: "blocked",
+      target_root: root,
+      target_state: "conflicting",
+      target_identity: computeBootstrapTargetIdentity(root),
+      mode: options.mode,
+      project: { name: "unknown", slug: "unknown" },
+      host: options.host ?? "codex",
+      source: { revision: "unavailable", tree_hash: "0".repeat(64) },
+      planned_writes: [],
+      planned_directories: [],
+      planned_deletes: [],
+      changed_paths: options.changedPaths ?? [],
+      blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", message: error instanceof Error ? error.message : String(error) }],
+      warnings: [],
+      read_back_verified: false
+    };
+  }
+  const classification = classifyTarget(root);
+  try {
+    const prepared = prepareProposal(options, distribution, classification);
+    const proposal = prepared.proposal;
+    if (classification.state === "valid" && classification.receipt && classification.receipt.mode === options.mode) {
+      if (classification.receipt.input_fingerprint !== prepared.inputFingerprint)
+        return {
+          status: "blocked",
+          target_root: root,
+          target_state: "valid",
+          target_identity: proposal.target_identity,
+          mode: proposal.mode,
+          project: prepared.project,
+          host: prepared.host,
+          source: classification.receipt.source,
+          planned_writes: prepared.plannedWrites,
+          planned_directories: [],
+          planned_deletes: [],
+          changed_paths: options.changedPaths ?? [],
+          blockers: [{ code: "BOOTSTRAP_IDENTITY_CONFLICT", message: "a valid Bootstrap receipt exists but its mode inputs or project identity differ." }],
+          warnings: [],
+          read_back_verified: false,
+          proposal
+        };
+      try {
+        verifyReceiptReadBack(root, classification.receipt, proposal.assets);
+        return { status: "replayed", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], read_back_verified: true };
+      } catch (error) {
+        return { status: "blocked", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_REPLAY_READ_BACK_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [], read_back_verified: false, proposal };
+      }
+    }
+    if (!options.write) {
+      return { status: options.changedPaths && options.changedPaths.length > 0 ? "ready" : "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), read_back_verified: false, proposal };
+    }
+    if (!options.changedPaths || options.changedPaths.length === 0)
+      return { status: "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: "CHANGED_PATHS_REQUIRED", message: `caller must provide exact changed_paths: ${prepared.plannedWrites.join(", ")}` }], warnings: [], read_back_verified: false, proposal };
+    const beforeHash = computeBootstrapPreimageHash(root, proposal);
+    const markerPath = targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH);
+    try {
+      fs5.mkdirSync(path6.dirname(markerPath), { recursive: true });
+      fs5.writeFileSync(markerPath, markerValue(proposal), "utf8");
+      const runtimeResult = applyBootstrapProjectProposal(root, proposal, { verify: () => verifyBootstrapHealth(root, proposal, distribution) });
+      if (fs5.existsSync(markerPath))
+        fs5.rmSync(markerPath, { force: true });
+      return { status: "installed", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
+    } catch (error) {
+      let rollbackVerified = false;
+      try {
+        rollbackVerified = computeBootstrapPreimageHash(root, proposal) === beforeHash;
+      } catch {
+        rollbackVerified = false;
+      }
+      if (rollbackVerified && fs5.existsSync(markerPath))
+        fs5.rmSync(markerPath, { force: true });
+      return { status: "blocked", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_TRANSACTION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? "ROLLBACK_VERIFIED" : "RECOVERY_REQUIRED", message: rollbackVerified ? "Bootstrap-owned governance scope was restored and its interruption marker was cleared." : "Bootstrap rollback could not be verified; interruption marker retained for explicit recovery." }], read_back_verified: false, proposal };
+    }
+  } catch (error) {
+    return { status: "blocked", target_root: root, target_state: classification.state, target_identity: computeBootstrapTargetIdentity(root), mode: options.mode, project: { name: "unknown", slug: "unknown" }, host: options.host ?? "codex", source: { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest }, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_PREPARATION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), read_back_verified: false };
+  }
+}
+function parseCliFlags(argv) {
+  const [command = "prepare", ...rest] = argv;
+  const flags = new Map;
+  for (let index = 0;index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (!arg?.startsWith("--"))
+      fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", `unexpected argument: ${arg ?? ""}`);
+    const key = arg.slice(2);
+    const value = rest[index + 1];
+    if (value && !value.startsWith("--")) {
+      flags.set(key, value);
+      index += 1;
+    } else
+      flags.set(key, true);
+  }
+  return { command, flags };
+}
+function flagString(flags, key, required = false) {
+  const value = flags.get(key);
+  if (typeof value === "string" && value.trim())
+    return value;
+  if (value === true)
+    fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", `--${key} requires a value.`);
+  if (required)
+    fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", `--${key} requires a value.`);
+  return;
+}
+function readStringListFile(filePath) {
+  const content = fs5.readFileSync(path6.resolve(filePath), "utf8");
+  if (content.trimStart().startsWith("[")) {
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string"))
+      fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", "changed paths file JSON form must be an array of strings.");
+    return parsed;
+  }
+  return content.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+}
+function readFactsFile(filePath) {
+  const value = JSON.parse(fs5.readFileSync(path6.resolve(filePath), "utf8"));
+  if (!Array.isArray(value))
+    fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", "facts file must contain an array.");
+  return value;
+}
+function readBaselineFile(filePath) {
+  const value = JSON.parse(fs5.readFileSync(path6.resolve(filePath), "utf8"));
+  return expectRecord3(value, "design baseline file");
+}
+function readAuthorizationsFile(filePath) {
+  const value = JSON.parse(fs5.readFileSync(path6.resolve(filePath), "utf8"));
+  if (!Array.isArray(value))
+    fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", "conditional authorizations file must contain an array.");
+  return value;
+}
+async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
+  try {
+    const { command, flags } = parseCliFlags(argv);
+    if (command === "help" || flags.has("help")) {
+      console.log([
+        "Target-local Vibe Governance Bootstrap support",
+        "",
+        "Usage:",
+        "  node .workflow-system/runtime/dist/cli.js bootstrap-support prepare --root <project> --mode <design|greenfield|inventory|adopt|realign> [--write] [--changed-paths-file <file>] [--json]",
+        "",
+        "The support layer prepares a typed proposal from installed immutable bytes; the project-local Runtime commits governance assets."
+      ].join(`
+`));
+      return 0;
+    }
+    if (command !== "prepare")
+      fail3("BOOTSTRAP_SUPPORT_INPUT_INVALID", `unknown bootstrap-support command: ${command}`);
+    const mode = flagString(flags, "mode", true);
+    if (!BOOTSTRAP_MODES.includes(mode))
+      fail3("BOOTSTRAP_SUPPORT_MODE_INVALID", "mode must be one of the closed Bootstrap modes.");
+    const targetRoot = flagString(flags, "root") ?? process.cwd();
+    const changedPathsFile = flagString(flags, "changed-paths-file");
+    const factsFile = flagString(flags, "facts-file");
+    const baselineFile = flagString(flags, "design-baseline-file");
+    const authorizationsFile = flagString(flags, "conditional-authorizations-file");
+    const result = bootstrapProjectTargetLocal({
+      targetRoot,
+      mode,
+      write: flags.get("write") === true,
+      projectName: flagString(flags, "project-name"),
+      projectSlug: flagString(flags, "project-slug"),
+      host: flagString(flags, "host") ?? "codex",
+      designBaseline: baselineFile ? readBaselineFile(baselineFile) : undefined,
+      designConfirmed: flags.get("confirm-design") === true || flags.get("confirm") === true,
+      confirmedFacts: factsFile ? readFactsFile(factsFile) : undefined,
+      inventoryFacts: factsFile ? readFactsFile(factsFile) : undefined,
+      adoptionConfirmed: flags.get("confirm-adoption") === true || flags.get("confirm") === true,
+      changedPaths: changedPathsFile ? readStringListFile(changedPathsFile) : undefined,
+      conditionalAuthorizations: authorizationsFile ? readAuthorizationsFile(authorizationsFile) : undefined
+    });
+    console.log(JSON.stringify(publicPlan(result), null, 2));
+    return ["needs-confirmation", "ready", "installed", "replayed"].includes(result.status) ? 0 : 1;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
 // runtime/vnext/src/cli.ts
 var args = process.argv.slice(2);
-var runner = args[0] === "bootstrap-project" ? runBootstrapCli(args.slice(1)) : runCli(args);
+var runner = args[0] === "bootstrap-project" ? runBootstrapCli(args.slice(1)) : args[0] === "bootstrap-support" ? runBootstrapSupportCli(args.slice(1)) : runCli(args);
 runner.then((exitCode) => {
   process.exitCode = exitCode;
 });
 export {
   runCli,
+  runBootstrapSupportCli,
   runBootstrapCli
 };

@@ -49,6 +49,7 @@ export const VIBE_GOVERNANCE_DISTRIBUTION_MANIFEST_KIND = 'vibe-governance-distr
 export const VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH = '.workflow-system/vnext/DISTRIBUTION_STATE.json' as const;
 export const VIBE_GOVERNANCE_DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH = '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json' as const;
 export const VIBE_GOVERNANCE_RUNTIME_DEPENDENCY_RELATIVE_PATH = '.workflow-system/runtime/node_modules' as const;
+export const VIBE_GOVERNANCE_BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH = '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl' as const;
 
 export type DistributionStateName = 'uninstalled' | 'legacy' | 'vnext';
 export type DistributionOperation = 'install' | 'migrate' | 'upgrade';
@@ -379,8 +380,8 @@ function loadDistributionPayload(packageRoot: string): LoadedPayload {
       throw new Error(`Distribution Manifest does not match vNext bundle artifact ${artifact.target_path}.`);
     }
   }
-  if (!manifestTargets.has('.workflow-system/WORKFLOW_PROTOCOL.md') || !manifestTargets.has('.workflow-system/FILE_SCHEMAS.md') || !manifestTargets.has(VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH)) {
-    throw new Error('Distribution Manifest is missing required Runtime/protocol/schema artifacts.');
+  if (!manifestTargets.has('.workflow-system/WORKFLOW_PROTOCOL.md') || !manifestTargets.has('.workflow-system/FILE_SCHEMAS.md') || !manifestTargets.has(VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH) || !manifestTargets.has(VIBE_GOVERNANCE_BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH)) {
+    throw new Error('Distribution Manifest is missing required Runtime/protocol/schema/Bootstrap support artifacts.');
   }
   const payload: LoadedPayload = { packageRoot, payloadRoot, sourceRoot, bundleDir, manifest, bundle };
   const runtimeIdentity = runtimeIdentityFromPayload(payload);

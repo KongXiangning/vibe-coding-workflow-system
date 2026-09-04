@@ -43,6 +43,9 @@ import {
   VNEXT_RUNTIME_PACKAGE_VERSION,
   validateRuntimeEnvironment,
 } from './vnext-runtime';
+import { computeScopedTreeHash as computeSharedScopedTreeHash } from '../runtime/vnext/src/scoped-tree-hash';
+
+export { computeScopedTreeHash } from '../runtime/vnext/src/scoped-tree-hash';
 
 export const MIGRATION_PACK_SCHEMA_VERSION = 1 as const;
 export const MIGRATION_PACK_KIND = 'workflow-vnext-migration-pack' as const;
@@ -685,12 +688,8 @@ export function computeTreeHash(root: string, ignoredRelativePaths: readonly str
 }
 
 /**
- * This stricter snapshot is retained for the existing bootstrap rollback
- * boundary, whose caller may need to prove that the target was restored after
- * a governance transaction failure. Distribution install/upgrade uses the
- * scoped hash below instead; it must never snapshot the whole business tree.
- * Keep this separate from computeTreeHash so source/migration identity
- * semantics do not change.
+ * This stricter snapshot remains the source/migration identity helper. No
+ * project transaction should use it as a rollback preimage.
  */
 export function computeCompleteTreeHash(root: string, ignoredRelativePaths: readonly string[] = []): string {
   const resolvedRoot = path.resolve(root);
@@ -712,100 +711,10 @@ export function computeCompleteTreeHash(root: string, ignoredRelativePaths: read
 }
 
 /**
- * Compute a rollback preimage over an explicit set of repository-relative
- * paths.  Unlike the source/target identity helpers above, this function
- * never discovers files from the repository root: a directory is traversed
- * only when the caller explicitly includes that directory.  Symlinks are
- * recorded as links and are never followed.
- *
- * Distribution uses this boundary for ordinary install/upgrade rollback.  It
- * intentionally remains separate from computeTreeHash and
- * computeCompleteTreeHash so legacy migration and bootstrap identity/snapshot
- * semantics do not change.
+ * Shared transaction helper re-exported from the neutral Runtime module so
+ * Distribution and target-local Bootstrap use exactly one scoped evaluator.
  */
-export function computeScopedTreeHash(
-  root: string,
-  includedRelativePaths: readonly string[],
-  ignoredRelativePaths: readonly string[] = [],
-): string {
-  const resolvedRoot = path.resolve(root);
-  const included = [...new Set(includedRelativePaths.map(relativePath => normalizeRepoPath(relativePath, 'scoped tree hash included path')))]
-    .sort((left, right) => left.localeCompare(right));
-  const ignored = new Set(ignoredRelativePaths.map(relativePath => normalizeRepoPath(relativePath, 'scoped tree hash ignored path')));
-  const visited = new Set<string>();
-  const hash = crypto.createHash('sha256');
-
-  const isMissingPathError = (error: unknown): boolean => {
-    if (!error || typeof error !== 'object' || !('code' in error)) return false;
-    return (error as { code?: unknown }).code === 'ENOENT';
-  };
-
-  const lstatOrMissing = (fullPath: string): fs.Stats | null => {
-    try {
-      return fs.lstatSync(fullPath);
-    } catch (error) {
-      if (isMissingPathError(error)) return null;
-      throw error;
-    }
-  };
-
-  const record = (relativePath: string, kind: string, value = ''): void => {
-    hash.update(relativePath);
-    hash.update('\0');
-    hash.update(kind);
-    hash.update('\0');
-    hash.update(value);
-    hash.update('\n');
-  };
-
-  const assertNoSymlinkParent = (relativePath: string): void => {
-    const parts = relativePath.split('/');
-    let current = resolvedRoot;
-    for (let index = 0; index < parts.length - 1; index += 1) {
-      current = path.join(current, parts[index]!);
-      const status = lstatOrMissing(current);
-      if (!status) return;
-      if (status.isSymbolicLink()) {
-        throw new MigrationPackError('UNSAFE_PATH', `scoped tree hash cannot traverse a symbolic-link parent: ${relativePath}`);
-      }
-      if (!status.isDirectory()) return;
-    }
-  };
-
-  const visit = (relativePath: string, fullPath: string): void => {
-    if (ignored.has(relativePath) || visited.has(relativePath)) return;
-    const status = lstatOrMissing(fullPath);
-    if (!status) {
-      visited.add(relativePath);
-      record(relativePath, 'missing');
-      return;
-    }
-    visited.add(relativePath);
-    if (status.isSymbolicLink()) {
-      record(relativePath, 'symlink', fs.readlinkSync(fullPath));
-      return;
-    }
-    if (status.isDirectory()) {
-      record(relativePath, 'directory');
-      for (const name of fs.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
-        visit(`${relativePath}/${name}`, path.join(fullPath, name));
-      }
-      return;
-    }
-    if (status.isFile()) {
-      const content = fs.readFileSync(fullPath);
-      record(relativePath, 'file', `${content.byteLength}\0${sha256(content)}`);
-      return;
-    }
-    record(relativePath, 'special', String(status.mode));
-  };
-
-  for (const relativePath of included) {
-    assertNoSymlinkParent(relativePath);
-    visit(relativePath, resolveRepoPath(resolvedRoot, relativePath, 'scoped tree hash included path'));
-  }
-  return hash.digest('hex');
-}
+const computeScopedTreeHash = computeSharedScopedTreeHash;
 
 export function getSourceIdentity(sourceRoot = resolveRoot()): SourceIdentity {
   const rootPath = normalizeAbsoluteRootPath(sourceRoot);
@@ -2431,7 +2340,11 @@ const REQUIRED_RUNTIME_BUNDLE_TARGETS = [
   '.workflow-system/runtime/src/runtime-io.ts',
   '.workflow-system/runtime/src/task-identity.ts',
   '.workflow-system/runtime/src/bootstrap.ts',
+  '.workflow-system/runtime/src/bootstrap-support.ts',
+  '.workflow-system/runtime/src/scoped-tree-hash.ts',
+  '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl',
 ] as const;
+const BOOTSTRAP_SUPPORT_TEMPLATE_TARGET = '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl';
 
 function parseRuntimeBundleJson(content: string, location: string): Record<string, unknown> {
   let parsed: unknown;
@@ -2472,6 +2385,13 @@ function validateRuntimeEntrypointBundleContent(content: string, location: strin
   }
 }
 
+function validateBootstrapSupportTemplateBundleContent(content: string, location: string): void {
+  validateVNextCurrentTaskBundleContent(content, location);
+  if (!content.includes('Bootstrap creates no active execution record.')) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location} is not the canonical target-local Bootstrap support template.`);
+  }
+}
+
 function validateVNextBundleArtifactContent(artifact: VNextBundleArtifact, content: string, location: string): void {
   const isRuntimeContract = artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml';
   if (artifact.category === 'protocol' && !isRuntimeContract) validateVNextProtocolBundleContent(content, location);
@@ -2484,6 +2404,10 @@ function validateVNextBundleArtifactContent(artifact: VNextBundleArtifact, conte
   if (artifact.category === 'runtime' && artifact.target_path === VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) validateRuntimeEntrypointBundleContent(content, location);
   if (artifact.category === 'runtime' && artifact.target_path === VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH) validateRuntimePackageBundleContent(content, location);
   if (artifact.category === 'runtime' && artifact.target_path === VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH) validateRuntimeLockfileBundleContent(content, location);
+  if (artifact.target_path === BOOTSTRAP_SUPPORT_TEMPLATE_TARGET) {
+    if (artifact.category !== 'runtime') throw new MigrationPackError('BUNDLE_INVALID', `${location} Bootstrap support template must be a Runtime artifact.`);
+    validateBootstrapSupportTemplateBundleContent(content, location);
+  }
   if (artifact.target_path === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') {
     if (artifact.category !== 'protocol') throw new MigrationPackError('BUNDLE_INVALID', `${location} Runtime contract must be a protocol artifact.`);
     const parsed = parseDocument(content, { uniqueKeys: true });
@@ -2924,7 +2848,7 @@ function validateRuntimeDistributionIdentity(value: unknown, location: string, o
   };
 }
 
-function validateVNextInstallState(value: unknown, location: string): VNextInstallState {
+function validateVNextInstallState(value: unknown, location: string, options: RuntimeDistributionValidationOptions = {}): VNextInstallState {
   const state = expectRecord(value, location);
   const legacyStateShape = 'mode' in state && !('distribution_state' in state);
   expectExactKeys(
@@ -2951,7 +2875,7 @@ function validateVNextInstallState(value: unknown, location: string): VNextInsta
   const sourceRevision = expectString(state.source_revision, `${location}.source_revision`);
   const sourceTreeHash = expectString(state.source_tree_hash, `${location}.source_tree_hash`);
   const targetIdentity = expectString(state.target_identity, `${location}.target_identity`);
-  const runtimeDistribution = validateRuntimeDistributionIdentity(state.runtime_distribution, `${location}.runtime_distribution`);
+  const runtimeDistribution = validateRuntimeDistributionIdentity(state.runtime_distribution, `${location}.runtime_distribution`, options);
   if (!/^[a-f0-9]{64}$/.test(sourceTreeHash) || !/^[a-f0-9]{32}$/.test(targetIdentity)) {
     throw new MigrationPackError('INSTALL_CONFLICT', `${location} has invalid source/target identity fields.`);
   }
@@ -3025,6 +2949,170 @@ export function validateVNextMigrationReceipt(value: unknown, location: string, 
     runtime_distribution: runtimeDistribution,
     installed_at: expectString(receipt.installed_at, `${location}.installed_at`),
     converted_artifact_ids: convertedArtifactIds,
+  };
+}
+
+export type CompletedMigrationValidation = {
+  migration_pack_id: string;
+  bundle_id: string;
+  source_revision: string;
+  source_tree_hash: string;
+  target_identity: string;
+  runtime_distribution: RuntimeDistributionIdentity | null;
+  installed_at: string;
+  converted_artifact_ids: string[];
+  converted_artifact_paths: string[];
+};
+
+function installedCanonicalArtifactIdentity(targetPath: string, content: string): { stableId: string; sourceRevision: string; sourceTreeHash: string } {
+  let kind: MigrationArtifactKind;
+  let sourcePath: string;
+  let sourceSha: string;
+  let sourceRevision: string;
+  let sourceTreeHash: string;
+  if (targetPath === '.workflow-system/PROJECT_PROFILE.yaml') {
+    const document = parseDocument(content, { uniqueKeys: true });
+    const diagnostics = [...document.errors, ...document.warnings];
+    if (diagnostics.length > 0) throw new MigrationPackError('INSTALL_CONFLICT', `Migrated project profile is invalid: ${diagnostics.map(item => item.message).join('; ')}`);
+    const root = expectRecord(document.toJS(), 'migrated project profile');
+    const metadata = expectRecord(root.vnext_migration, 'migrated project profile.vnext_migration');
+    expectExactKeys(metadata, ['schema_version', 'kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'path_references'], 'migrated project profile.vnext_migration');
+    if (metadata.schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION || metadata.kind !== 'vnext-canonical-profile' || metadata.conversion_rule !== VNEXT_CANONICAL_CONVERSION_RULE || metadata.original_text_preserved !== true) {
+      throw new MigrationPackError('INSTALL_CONFLICT', 'Migrated project profile does not carry the canonical Migration Pack provenance envelope.');
+    }
+    kind = 'project-profile';
+    sourcePath = normalizeRepoPath(expectString(metadata.source_path, 'migrated project profile.vnext_migration.source_path'), 'migrated project profile source_path');
+    sourceSha = expectString(metadata.source_sha256, 'migrated project profile.vnext_migration.source_sha256');
+    sourceRevision = expectString(metadata.legacy_source_revision, 'migrated project profile.vnext_migration.legacy_source_revision');
+    sourceTreeHash = expectString(metadata.legacy_source_tree_hash, 'migrated project profile.vnext_migration.legacy_source_tree_hash');
+    if (metadata.document_id !== canonicalDocumentId(kind, sourcePath, sourceSha)) throw new MigrationPackError('INSTALL_CONFLICT', 'Migrated project profile document_id is not bound to its source identity.');
+  } else {
+    const parsed = parseCanonicalFrontmatter(content, `migrated artifact ${targetPath}`);
+    const header = parsed.header;
+    expectExactKeys(header, ['schema_version', 'kind', 'document_kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'heading_index', 'path_references'], `migrated artifact ${targetPath} frontmatter`);
+    if (header.schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION || header.kind !== VNEXT_CANONICAL_DOCUMENT_KIND || header.conversion_rule !== VNEXT_CANONICAL_CONVERSION_RULE || header.original_text_preserved !== true) {
+      throw new MigrationPackError('INSTALL_CONFLICT', `Migrated artifact ${targetPath} does not carry the canonical Migration Pack provenance envelope.`);
+    }
+    const documentKind = expectString(header.document_kind, `migrated artifact ${targetPath}.document_kind`);
+    if (!['governance-document', 'task-archive', 'target-owned-preserved'].includes(documentKind)) throw new MigrationPackError('INSTALL_CONFLICT', `Migrated artifact ${targetPath} has an unsupported document kind.`);
+    kind = documentKind as Exclude<MigrationArtifactKind, 'project-profile'>;
+    sourcePath = normalizeRepoPath(expectString(header.source_path, `migrated artifact ${targetPath}.source_path`), `migrated artifact ${targetPath}.source_path`);
+    sourceSha = expectString(header.source_sha256, `migrated artifact ${targetPath}.source_sha256`);
+    sourceRevision = expectString(header.legacy_source_revision, `migrated artifact ${targetPath}.legacy_source_revision`);
+    sourceTreeHash = expectString(header.legacy_source_tree_hash, `migrated artifact ${targetPath}.legacy_source_tree_hash`);
+    if (header.document_id !== canonicalDocumentId(kind, sourcePath, sourceSha)) throw new MigrationPackError('INSTALL_CONFLICT', `Migrated artifact ${targetPath} document_id is not bound to its source identity.`);
+  }
+  if (!/^[a-f0-9]{64}$/.test(sourceSha) || !/^[a-f0-9]{64}$/.test(sourceTreeHash) || sourcePath !== targetPath) {
+    throw new MigrationPackError('INSTALL_CONFLICT', `Migrated artifact ${targetPath} has an invalid or unbound source identity.`);
+  }
+  return {
+    stableId: `artifact-${sha256(`${kind}\0${sourcePath}\0${sourceSha}`).slice(0, 24)}`,
+    sourceRevision,
+    sourceTreeHash,
+  };
+}
+
+function sameRuntimeIdentity(left: RuntimeDistributionIdentity | null, right: RuntimeDistributionIdentity | null): boolean {
+  if (left === null || right === null) return left === right;
+  return left.kind === right.kind
+    && left.package_path === right.package_path
+    && left.entrypoint === right.entrypoint
+    && left.package_version === right.package_version
+    && left.node_min_version === right.node_min_version
+    && left.package_lock_sha256 === right.package_lock_sha256
+    && left.entrypoint_sha256 === right.entrypoint_sha256;
+}
+
+/**
+ * Validate completed migration provenance at the Migration Pack boundary.
+ *
+ * Bootstrap consumes this as a read-only admission result. The verifier binds
+ * the receipt to the paired install state and to the canonical converted
+ * artifact envelopes that the Pack wrote; a standalone or edited receipt is
+ * therefore never sufficient. Runtime identity is intentionally historical
+ * here: Distribution may have upgraded the project-local Runtime after the
+ * conversion without invalidating the migration provenance.
+ *
+ * `null` means that neither completed-migration marker is present. Any
+ * partial, inconsistent, drifted, or malformed marker set fails closed.
+ */
+export function validateCompletedMigration(targetRoot: string): CompletedMigrationValidation | null {
+  const resolvedRoot = path.resolve(targetRoot);
+  const statePath = resolveRepoPath(resolvedRoot, VNEXT_INSTALL_STATE_RELATIVE_PATH, 'completed migration install state');
+  const receiptPath = resolveRepoPath(resolvedRoot, VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH, 'completed migration receipt');
+  const hasState = fs.existsSync(statePath);
+  const hasReceipt = fs.existsSync(receiptPath);
+  if (!hasState && !hasReceipt) return null;
+  if (!hasState || !hasReceipt) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration provenance requires both INSTALL_STATE.json and MIGRATION_RECEIPT.json.');
+
+  const state = validateVNextInstallState(parseStrictJson(statePath), 'completed migration install state', { allowHistoricalRuntime: true });
+  const receipt = validateVNextMigrationReceipt(parseStrictJson(receiptPath), 'completed migration receipt', { allowHistoricalRuntime: true });
+  const identityMatches = state.migration_pack_id === receipt.migration_pack_id
+    && state.bundle_id === receipt.bundle_id
+    && state.source_revision === receipt.source_revision
+    && state.source_tree_hash === receipt.source_tree_hash
+    && state.target_identity === receipt.target_identity
+    && state.installed_at === receipt.installed_at
+    && sameRuntimeIdentity(state.runtime_distribution, receipt.runtime_distribution);
+  if (!identityMatches) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration install state and receipt do not describe the same conversion.');
+
+  const profileFile = profilePath(resolvedRoot);
+  if (!fs.existsSync(profileFile) || !fs.statSync(profileFile).isFile()) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration provenance is missing the converted PROJECT_PROFILE.yaml.');
+  const profile = parseStrictYaml(profileFile) as JsonObject;
+  const actualTarget = getProjectIdentity(profile, resolvedRoot);
+  if (actualTarget.root_identity !== state.target_identity) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration target identity does not match the current project profile/root.');
+  const workflowHome = getWorkflowHome(profile);
+  const currentTaskPath = resolveRepoPath(resolvedRoot, [workflowHome, CURRENT_TASK_FILE].filter(Boolean).join('/'), 'completed migration CURRENT_TASK');
+  if (!fs.existsSync(currentTaskPath) || !fs.statSync(currentTaskPath).isFile()) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration provenance is missing the canonical CURRENT_TASK.md.');
+  const currentTaskRecord = state.managed_files.find(entry => entry.path === [workflowHome, CURRENT_TASK_FILE].filter(Boolean).join('/'));
+  if (!currentTaskRecord || currentTaskRecord.category === 'migrated-document' || !/^[a-f0-9]{64}$/.test(currentTaskRecord.checksum)) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration install state does not record the canonical CURRENT_TASK.md baseline.');
+  if (readSha256(currentTaskPath) !== currentTaskRecord.checksum) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration canonical CURRENT_TASK.md drifted from the admitted install state.');
+  try {
+    validateVNextCurrentTaskDocument(fs.readFileSync(currentTaskPath, 'utf8'), 'completed migration CURRENT_TASK.md');
+  } catch (error) {
+    throw new MigrationPackError('INSTALL_CONFLICT', `Completed migration canonical CURRENT_TASK.md is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const migratedFiles = state.managed_files
+    .filter(entry => entry.category === 'migrated-document')
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (migratedFiles.length === 0) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration install state contains no converted artifact records.');
+  if (!migratedFiles.some(entry => entry.path === '.workflow-system/PROJECT_PROFILE.yaml')) throw new MigrationPackError('INSTALL_CONFLICT', 'Completed migration install state does not record the converted PROJECT_PROFILE.yaml artifact.');
+  const derivedArtifacts: Array<{ path: string; stableId: string; sourceRevision: string; sourceTreeHash: string }> = [];
+  for (const entry of migratedFiles) {
+    const fullPath = resolveRepoPath(resolvedRoot, entry.path, `completed migration artifact ${entry.path}`);
+    if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) throw new MigrationPackError('INSTALL_CONFLICT', `Converted migration artifact is missing: ${entry.path}`);
+    if (readSha256(fullPath) !== entry.checksum) throw new MigrationPackError('INSTALL_CONFLICT', `Converted migration artifact drifted: ${entry.path}`);
+    const identity = installedCanonicalArtifactIdentity(entry.path, fs.readFileSync(fullPath, 'utf8'));
+    derivedArtifacts.push({ path: entry.path, ...identity });
+  }
+  const derivedArtifactIds = derivedArtifacts.map(artifact => artifact.stableId);
+  if (JSON.stringify(derivedArtifactIds) !== JSON.stringify(receipt.converted_artifact_ids)) {
+    throw new MigrationPackError('INSTALL_CONFLICT', 'Migration receipt converted_artifact_ids do not match the converted artifact records admitted by INSTALL_STATE.json.');
+  }
+  const provenanceRevision = derivedArtifacts[0]!.sourceRevision;
+  const provenanceTreeHash = derivedArtifacts[0]!.sourceTreeHash;
+  if (derivedArtifacts.some(artifact => artifact.sourceRevision !== provenanceRevision || artifact.sourceTreeHash !== provenanceTreeHash)) {
+    throw new MigrationPackError('INSTALL_CONFLICT', 'Converted artifact records do not share one legacy conversion provenance.');
+  }
+
+  validateNoLegacySurface(
+    resolvedRoot,
+    [],
+    state.removed_legacy_files,
+    state.managed_files.map(entry => entry.path),
+    workflowHome,
+  );
+  return {
+    migration_pack_id: state.migration_pack_id,
+    bundle_id: state.bundle_id,
+    source_revision: state.source_revision,
+    source_tree_hash: state.source_tree_hash,
+    target_identity: state.target_identity,
+    runtime_distribution: state.runtime_distribution,
+    installed_at: state.installed_at,
+    converted_artifact_ids: [...receipt.converted_artifact_ids],
+    converted_artifact_paths: migratedFiles.map(entry => entry.path),
   };
 }
 

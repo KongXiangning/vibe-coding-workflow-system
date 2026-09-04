@@ -127,6 +127,8 @@ Installation occurs only after the offline pack is complete and valid. The insta
 
 - the vNext protocol, File Schema, and canonical project-document schema;
 - the vNext daily, administrative, expert, internal, and Runtime surfaces;
+- immutable target-local Bootstrap support used to prepare a typed
+  governance-only proposal;
 - converted Markdown/YAML governance documents;
 - no old Skill files, old registry entries, aliases, old-state adapters, or legacy host routes.
 
@@ -138,6 +140,14 @@ Migration Pack provenance and canonical governance documents. It does not need
 second software-installation phase. Bootstrap may later perform an explicit
 governance-only realignment, while Runtime, Protocol, Schema, and Agent Skills
 remain owned exclusively by the Distribution lifecycle.
+
+Bootstrap classification of this state is admitted by the Migration Pack's
+completed-migration verifier, not by reading a standalone
+`MIGRATION_RECEIPT.json`. The verifier binds the receipt to the paired
+`INSTALL_STATE.json`, converted artifact records, target identity, and absence
+of the legacy surface. The Runtime identity recorded there is historical
+provenance; a later Distribution upgrade does not invalidate it merely because
+the current project-local Runtime version is newer.
 
 ### 3.5 Unsupported schema in vNext
 

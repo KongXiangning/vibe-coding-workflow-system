@@ -17,18 +17,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse, stringify } from 'yaml';
 import {
-  computeCompleteTreeHash,
   getSourceIdentity,
   isFrozenPath,
+  validateCompletedMigration,
   validateVNextCurrentTaskDocument,
-  validateVNextMigrationReceipt,
-  VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH,
 } from './vnext-migration-pack';
 import {
   isDistributionOwnedTarget,
   validateInstalledDistribution,
 } from './vibe-governance-distribution';
-import { checkTargetRoot, normalizeAbsoluteRootPath } from './guard-target-root';
+import { checkTargetRoot } from './guard-target-root';
 import { resolveRoot } from './workflow-core';
 import { validateVNextSource } from './vnext-source-contract';
 import {
@@ -44,6 +42,7 @@ import {
 } from '../runtime/vnext/src/bootstrap';
 import { readCanonicalCurrentTask, validateVNextRuntimeContract } from '../runtime/vnext/src/kernel';
 import type { ConditionalScopeAuthorization } from '../runtime/vnext/src/mutation-scope';
+import { computeBootstrapPreimageHash } from '../runtime/vnext/src/bootstrap-support';
 
 export const VNEXT_BOOTSTRAP_RECEIPT_RELATIVE_PATH = '.workflow-system/vnext/BOOTSTRAP_RECEIPT.json';
 export const VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH = '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json';
@@ -407,16 +406,6 @@ function verifyReceiptAssetSet(receipt: BootstrapReceipt, assets: readonly Boots
   }
 }
 
-function readMigrationProvenance(targetRoot: string): ReturnType<typeof validateVNextMigrationReceipt> | null {
-  const filePath = targetPath(targetRoot, VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH);
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    return validateVNextMigrationReceipt(readJsonObject(filePath, 'vNext migration receipt'), 'vNext migration receipt', { allowHistoricalRuntime: true });
-  } catch (error) {
-    throw new BootstrapFacadeError('MIGRATION_PROVENANCE_INVALID', error instanceof Error ? error.message : String(error));
-  }
-}
-
 export function classifyBootstrapTarget(targetRoot: string): { state: BootstrapTargetState; receipt: BootstrapReceipt | null; reasons: string[] } {
   const resolved = path.resolve(targetRoot);
   const markerPath = targetPath(resolved, VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH);
@@ -442,34 +431,22 @@ export function classifyBootstrapTarget(targetRoot: string): { state: BootstrapT
   } catch (error) {
     return { state: 'conflicting', receipt, reasons: [error instanceof Error ? error.message : String(error)] };
   }
+  const migrationStatePath = targetPath(resolved, '.workflow-system/vnext/INSTALL_STATE.json');
+  const migrationReceiptPath = targetPath(resolved, '.workflow-system/vnext/MIGRATION_RECEIPT.json');
+  if ((fs.existsSync(migrationStatePath) || fs.existsSync(migrationReceiptPath)) && receipt) {
+    return { state: 'conflicting', receipt, reasons: ['Bootstrap Receipt cannot coexist with Migration Pack completed-state markers.'] };
+  }
   if (receipt) {
     const missing = receipt.managed_files.filter(file => !fs.existsSync(targetPath(resolved, file.path)) || !fs.statSync(targetPath(resolved, file.path)).isFile() || fileHash(targetPath(resolved, file.path)) !== file.checksum);
     return missing.length === 0 ? { state: 'valid', receipt, reasons: [] } : { state: 'stale', receipt, reasons: missing.map(file => `managed asset drifted: ${file.path}`) };
   }
-  let migrationProvenance: ReturnType<typeof validateVNextMigrationReceipt> | null = null;
   try {
-    migrationProvenance = readMigrationProvenance(resolved);
+    const migrationProvenance = validateCompletedMigration(resolved);
+    if (migrationProvenance) {
+      return { state: 'governed', receipt: null, reasons: ['the project was governed through the Migration Pack completed-state verifier; a Bootstrap Receipt is not required'] };
+    }
   } catch (error) {
-    return { state: 'conflicting', receipt: null, reasons: [error instanceof Error ? error.message : String(error)] };
-  }
-  if (migrationProvenance) {
-    const migrationProject = profileProject(profile);
-    const expectedMigrationIdentity = migrationProject
-      ? sha256(`${normalizeAbsoluteRootPath(resolved)}\0${migrationProject.slug}`).slice(0, 32)
-      : null;
-    if (expectedMigrationIdentity !== migrationProvenance.target_identity) {
-      return { state: 'conflicting', receipt: null, reasons: ['Migration Pack provenance is not bound to the current target project identity'] };
-    }
-    const hasCanonicalGovernance = profile !== null && fs.existsSync(targetPath(resolved, CURRENT_TASK_RELATIVE_PATH));
-    if (hasCanonicalGovernance) {
-      try {
-        readCanonicalCurrentTask(resolved);
-        return { state: 'governed', receipt: null, reasons: ['the project was governed through the validated Migration Pack; a Bootstrap Receipt is not required'] };
-      } catch (error) {
-        return { state: 'incomplete', receipt: null, reasons: [`Migration Pack provenance exists but canonical CURRENT_TASK is invalid: ${error instanceof Error ? error.message : String(error)}`] };
-      }
-    }
-    return { state: 'incomplete', receipt: null, reasons: ['Migration Pack provenance exists but canonical governance assets are incomplete'] };
+    return { state: 'conflicting', receipt: null, reasons: [`Migration Pack completed-state admission failed: ${error instanceof Error ? error.message : String(error)}`] };
   }
   const governanceSignals = [
     '.workflow-system/PROJECT_PROFILE.yaml',
@@ -1192,7 +1169,7 @@ function markerValue(plan: BootstrapPlan): string {
 export function bootstrapProject(options: BootstrapProjectOptions): BootstrapPlan {
   const plan = buildBootstrapPlan({ ...options, write: options.write === true });
   if (plan.status !== 'ready' || options.write !== true || !plan.proposal) return plan;
-  const beforeHash = computeCompleteTreeHash(plan.target_root, [VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH]);
+  const beforeHash = computeBootstrapPreimageHash(plan.target_root, plan.proposal);
   const markerPath = targetPath(plan.target_root, VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH);
   const distributionPackageRoot = path.resolve(options.distributionPackageRoot ?? path.join(path.resolve(options.sourceRoot ?? resolveRoot()), 'packages', 'vibe-governance'));
   try {
@@ -1208,12 +1185,12 @@ export function bootstrapProject(options: BootstrapProjectOptions): BootstrapPla
   } catch (error) {
     let rollbackVerified = false;
     try {
-      rollbackVerified = computeCompleteTreeHash(plan.target_root, [VNEXT_BOOTSTRAP_IN_PROGRESS_RELATIVE_PATH]) === beforeHash;
+      rollbackVerified = computeBootstrapPreimageHash(plan.target_root, plan.proposal) === beforeHash;
     } catch {
       rollbackVerified = false;
     }
     if (rollbackVerified && fs.existsSync(markerPath)) fs.rmSync(markerPath, { force: true });
-    return { ...plan, status: 'rejected', planned_writes: rollbackVerified ? [] : plan.planned_writes, planned_directories: rollbackVerified ? [] : plan.planned_directories, blockers: [{ code: error instanceof BootstrapFacadeError ? error.code : 'BOOTSTRAP_TRANSACTION_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: rollbackVerified ? [...plan.warnings, { code: 'ROLLBACK_VERIFIED', message: 'pre-bootstrap snapshot restored and interruption marker cleared.' }] : [...plan.warnings, { code: 'RECOVERY_REQUIRED', message: 'rollback could not be verified; interruption marker retained for explicit recovery.' }], read_back_verified: false, caller_obligation: rollbackVerified ? 'Retry only after re-evaluating the fresh source/target identity.' : 'Inspect BOOTSTRAP_IN_PROGRESS.json and recover explicitly; do not retry automatically.' };
+    return { ...plan, status: 'rejected', planned_writes: rollbackVerified ? [] : plan.planned_writes, planned_directories: rollbackVerified ? [] : plan.planned_directories, blockers: [{ code: error instanceof BootstrapFacadeError ? error.code : 'BOOTSTRAP_TRANSACTION_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: rollbackVerified ? [...plan.warnings, { code: 'ROLLBACK_VERIFIED', message: 'scoped Bootstrap governance preimage restored and interruption marker cleared.' }] : [...plan.warnings, { code: 'RECOVERY_REQUIRED', message: 'scoped Bootstrap rollback could not be verified; interruption marker retained for explicit recovery.' }], read_back_verified: false, caller_obligation: rollbackVerified ? 'Retry only after re-evaluating the fresh source/target identity.' : 'Inspect BOOTSTRAP_IN_PROGRESS.json and recover explicitly; do not retry automatically.' };
   }
 }
 

@@ -848,19 +848,27 @@ Migration is mechanical structure conversion. It does not require AI to re-under
 The accepted architecture is distributed through the separate `Vibe Governance`
 Distribution Boundary. A fresh Distribution install writes only explicitly
 manifest-owned software: the vNext protocol/schema, the project-local Runtime,
-Runtime contracts, and the canonical `.agents/skills/<skill-name>/SKILL.md`
-surface. It does not
-bootstrap project facts or install `CURRENT_TASK.md`.
+immutable target-local Bootstrap support, Runtime contracts, and the canonical
+`.agents/skills/<skill-name>/SKILL.md` surface. It does not bootstrap project
+facts or install `CURRENT_TASK.md`.
 
 Legacy conversion continues to consume a validated Migration Pack and the
 vNext bundle; that Pack may promote converted governance documents and its
 canonical task baseline as part of the explicit migration transition.
 
-Bootstrap consumes the installed Distribution as a read-only software
-prerequisite. It establishes or reconciles project governance assets only; it
-does not regenerate, promote, or receipt-own the Runtime, Protocol, Schema, or
-canonical Agent Skill surface. Distribution upgrades therefore do not make
-Bootstrap governance provenance stale.
+Bootstrap consumes the installed Distribution and its immutable target-local
+support as read-only software prerequisites. The `bootstrap-project` Agent
+Skill calls the target-local support preparation entry, which forms a typed
+governance proposal; the project-local Runtime validates, commits, and reads it
+back. Bootstrap establishes or reconciles project governance assets only; it
+does not regenerate, promote, or receipt-own the Runtime, Protocol, Schema,
+Bootstrap support, or canonical Agent Skill surface. Distribution upgrades
+therefore do not make Bootstrap governance provenance stale.
+
+The source-side Bun bootstrap facade remains a development/release
+orchestrator. A fresh installed target does not need the workflow-system source
+repository, Bun, `WORKFLOW_SYSTEM_ROOT`, or source-side generation/sync/pack
+commands to invoke `$bootstrap-project`.
 
 The installed vNext surface contains no old Skill files, old Skill registry entries, legacy aliases, old-state adapters, or compatibility routes. The old names are not resolvable after installation. Re-running the completed pack must not create a second conversion; the exact replay/no-op behavior is an implementation contract, not a compatibility surface.
 
