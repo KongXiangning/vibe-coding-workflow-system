@@ -33,7 +33,7 @@
     "test:workflow-vnext-source": "bun test test/workflow-vnext-source.test.ts",
     "test:workflow-vnext-expert": "bun test test/vnext-validate-change.test.ts",
     "test:workflow-vnext-runtime": "bun run build:vnext-runtime && bun test test/vnext-runtime.test.ts test/vnext-mutation-scope.test.ts test/vnext-daily-semantics.test.ts",
-    "test:workflow-vnext-system-e2e": "bun test test/vnext-close-reconciliation-e2e.test.ts",
+    "test:workflow-vnext-system-e2e": "bun test test/vnext-lifecycle-e2e.test.ts test/vnext-close-reconciliation-e2e.test.ts",
     "test:workflow-vnext-knowledge": "bun test test/vnext-knowledge-promotion.test.ts",
     "test:workflow-vnext-migration": "bun test test/vnext-migration-pack.test.ts",
     "test:workflow-vnext-bootstrap": "bun run build:vnext-runtime && bun test test/vnext-bootstrap-project.test.ts",
