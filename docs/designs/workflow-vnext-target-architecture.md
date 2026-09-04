@@ -35,7 +35,8 @@ old idle project
         ↓  one-time offline Migration Pack
 vNext Distribution installed
         ↓
-governance bootstrap remains a separate `/bootstrap-project` transition
+governance bootstrap remains a separate `bootstrap-project` Agent Skill
+transition
 ```
 
 The target is a smaller user intent surface with fewer model-visible workflow nodes and no loss of boundary, authority, state, evidence, stop, or escalation semantics. The old Skill graph is migration input, not a vNext runtime layer.

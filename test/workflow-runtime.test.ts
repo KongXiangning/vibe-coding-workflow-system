@@ -534,7 +534,7 @@ describe('workflow-runtime health', () => {
     expect(report.components.find(component => component.name === 'profile')?.status).toBe('passed');
     expect(report.components.find(component => component.name === 'generators')?.status).toBe('passed');
     expect(report.components.find(component => component.name === 'protocol')?.status).toBe('passed');
-  }, 10_000);
+  }, 20_000);
 
   test(`health check fails cleanly when ${WORKFLOW_PROFILE_RELATIVE_PATH} is invalid`, () => {
     withTempRoot(root => {

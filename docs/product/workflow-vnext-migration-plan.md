@@ -19,7 +19,7 @@ vnext(old) ──upgrade──> newer vNext Distribution installed
 `install`, `migrate`, and `upgrade` are explicit non-converting transitions.
 The normal user-facing entry is `npx vibe-governance@latest <command>`;
 `Install != Bootstrap`, so a fresh install ends with governance unbootstrapped
-and directs the user to `/bootstrap-project`.
+and directs the user to invoke the `bootstrap-project` Agent Skill.
 
 The old Skill graph, old protocol, and old schema are migration inputs only. They are not a compatibility runtime layer in vNext. Existing projects do not receive a partial vNext surface while they are still running the old workflow.
 

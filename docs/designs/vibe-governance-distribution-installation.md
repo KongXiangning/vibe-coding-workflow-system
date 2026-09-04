@@ -1,6 +1,9 @@
 # Vibe Governance Distribution / Installer
 
-Status: design frozen for Phase 1 implementation  
+Status: Approved (Phase 1 design frozen)
+Owner: `vibe-coding-workflow-system` maintainers
+Version: 1.0
+Updated: 2026-09-04
 Product: **Vibe Governance**  
 CLI / package working name: **`vibe-governance`**  
 Runtime: **Vibe Governance Runtime**
@@ -8,6 +11,28 @@ Runtime: **Vibe Governance Runtime**
 This document freezes the vNext Distribution Boundary. It is additive to the
 accepted vNext Runtime, bootstrap, and Migration Pack contracts. It does not
 rename the existing project-local `.workflow-system/` storage path.
+
+## Document positioning
+
+- Type: architecture / distribution boundary
+- Purpose: define the reproducible software-delivery surface and its fail-closed
+  install, migration, upgrade, ownership, and transaction contracts.
+- Audience: maintainers of the source repository, release engineering, and
+  implementers of target-project installation tooling.
+- Necessity level: M0; without this boundary, software delivery can be
+  mistaken for project governance initialization or can leave an unsafe hybrid
+  installation.
+
+## Scope
+
+This freeze covers the Phase 1 Node Distribution CLI, release manifest and
+payload, canonical Agent Skill layout, project-local Runtime delivery, explicit
+Distribution state transitions, legacy Migration Pack orchestration, internal
+changed-path calculation, scoped rollback, and target read-back validation.
+
+Project governance initialization remains the `bootstrap-project` Agent Skill
+boundary.
+The explicit non-goals in section 10 are outside this freeze.
 
 ## 1. Boundary and state model
 
@@ -41,7 +66,7 @@ Governance remains independent:
 install
 -> vNext distribution installed
 -> governance not bootstrapped
--> /bootstrap-project
+-> invoke the `bootstrap-project` Agent Skill
 -> governed project
 ```
 
@@ -61,6 +86,11 @@ npx vibe-governance@latest migrate
 npx vibe-governance@latest upgrade
 ```
 
+CLI argument admission is fail-closed: `--root` must be followed by a
+non-empty project path that is not another flag. A missing value never
+resolves to the current working directory, and malformed arguments are
+rejected before any Distribution operation is dispatched.
+
 The commands are strict dispatches:
 
 | Command | Admitted source state | Result | Forbidden implicit action |
@@ -74,9 +104,26 @@ The commands are strict dispatches:
 legacy document itself; it orchestrates the independent Migration Pack.
 `upgrade` never falls back to migration.
 
+The optional `next` result/CLI hint is neutral text. Its value and plain CLI
+rendering are:
+
+```text
+Next:
+  invoke the `bootstrap-project` Agent Skill
+```
+
+It is returned only after an `uninstalled -> vnext` installation commits
+successfully. Same-version `install` no-ops, successful `migrate`, successful
+`upgrade`, and dry-run previews do not return or print that hint because none
+of those outcomes means governance bootstrap is next. Distribution does not
+encode Codex's `$bootstrap-project` syntax or another host's invocation
+syntax.
+
 The package is a distributable release artifact, not a requirement that the
 artifact came from npm. Its payload is self-contained and reproducible so a
-future CI or offline installer can use the same boundary. A target project
+future CI or offline installer can use the same boundary. Portable bundle
+validation binds artifact content hashes while allowing the package path and
+local Git revision to differ between build and install machines. A target project
 does not need Bun, the workflow-system source repository, `WORKFLOW_SYSTEM_ROOT`,
 `gen:*`, `workflow:pack`, `workflow:sync`, or manual bundle/path selection.
 
@@ -123,8 +170,11 @@ The release payload contains the prebuilt nine-entry vNext Skill set:
 ```
 
 Each Skill uses the loader-native directory layout
-`.agents/skills/<skill-name>/SKILL.md`; a flat
-`.agents/skills/<skill-name>.SKILL.md` file is not a valid vNext target.
+`.agents/skills/<skill-name>/SKILL.md` and begins with standard Agent Skill
+frontmatter containing a matching `name` and a non-empty `description`,
+followed by the vNext-specific `entry_contract`. A flat
+`.agents/skills/<skill-name>.SKILL.md` file or a Skill without the required
+standard metadata is not a valid vNext target.
 
 New Distribution metadata does not contain `hosts: ["codex", "claude"]` or
 another paired-host installation model. Existing `.codex/skills/`,
@@ -158,7 +208,7 @@ Every release package carries one minimal
 kind: vibe-governance-distribution-manifest
 product: Vibe Governance
 package_name: vibe-governance
-distribution_version: <semver>
+distribution_version: <release x.y.z>
 minimum_node: ">=20.0.0"
 runtime_dependency_path: .workflow-system/runtime/node_modules
 artifact_source: embedded-release
@@ -195,8 +245,17 @@ promote it during legacy conversion.
 
 Manifest validation is strict: schema/kind/product/package identity, Node
 minimum, canonical target paths, deterministic ordering, manifest digest,
-bundle-manifest digest, every artifact checksum, and the shared vNext bundle
-validator must pass before any target mutation. No `hosts` field is accepted.
+bundle-manifest digest, every artifact checksum, standard Agent Skill metadata,
+and the shared vNext bundle validator must pass before any target mutation. No
+`hosts` field is accepted.
+
+Phase 1 uses lockstep release versioning. The release builder rejects a release
+unless the Distribution package version, Runtime package version, Runtime
+contract `runtime_distribution.package_version`, Runtime source constant
+`VNEXT_RUNTIME_PACKAGE_VERSION`, and the generated Runtime constant all match.
+The Distribution layer admits only plain release SemVer `x.y.z`; prerelease and
+build metadata are not accepted until version comparison is upgraded to full
+SemVer semantics.
 
 ## 6. Distribution State and governance separation
 
@@ -214,6 +273,27 @@ STATUS, or task definition.
 The classifier treats a malformed state, a managed-target drift, a mixed legacy
 surface, or an interrupted journal as invalid and fails closed. It never
 repairs such a target by guessing.
+
+Upgrade ownership convergence is state-format-sensitive. For an admitted
+current-format `DISTRIBUTION_STATE.json`, `managed_files` is authoritative even
+when it is empty. After every old managed file passes the recorded checksum
+check, the upgrade delete set is exactly:
+
+```text
+oldManagedPaths - currentManifestPaths
+```
+
+This removes Distribution artifacts that the newer release intentionally no
+longer declares, including obsolete `.agents/skills/<skill-name>/SKILL.md`
+files and removed Runtime source files. A drifted or missing old managed file
+blocks the upgrade before promotion.
+
+The first upgrade from the older
+`.workflow-system/vnext/INSTALL_STATE.json` format does not use that set
+difference. That state had a wider and less precise compatibility surface, so
+it uses a separate conservative mapping for known legacy host files; entries
+outside that mapping are preserved rather than treated as Distribution-owned.
+The two state formats therefore never share a blanket deletion algorithm.
 
 ## 7. Internal changed paths and transaction protocol
 
@@ -243,6 +323,23 @@ rollback
 -> clear the journal only after verification
 -> otherwise retain the journal and fail closed
 ```
+
+The Distribution rollback preimage is scoped, not a snapshot of the target
+repository. The Installer hashes only the exact Manifest/state paths that the
+plan may write, the exact paths it may delete, and the explicitly declared
+Runtime dependency directory. For `migrate`, the wrapper derives the same
+scoped boundary from the validated Pack/bundle write/delete plan; this does not
+move legacy parsing or conversion ownership out of the Pack. The journal path
+is an explicit control path but is excluded from the content hash because it
+is created after the preimage and removed after commit or verified rollback.
+Directories are traversed only when the plan explicitly includes them;
+symbolic links are recorded as links and never followed. Consequently,
+unmanaged target-project trees such as `node_modules/`, `build/`, `target/`,
+`.gradle/`, `.next/`, and `vendor/` are outside the Distribution preimage, and
+their symlinks cannot make the normal install/upgrade Distribution preimage
+fail or force a large repository scan. The Migration Pack's legacy target
+identity and its own rollback snapshot remain separate legacy-safety semantics
+and are not changed by this scoped Distribution preimage.
 
 The existing shared staging, checksum, Runtime preparation, and atomic
 file-transaction helpers remain the implementation primitives. The journal
@@ -313,3 +410,51 @@ The Phase 1 implementation must prove:
 12. the project-local Runtime contract reads back successfully; and
 13. daily Runtime entry after install but before bootstrap returns
     `BOOTSTRAP_REQUIRED` (or its equivalent fail-closed result).
+
+## 12. Definition of Done
+
+- [x] `uninstalled`, `legacy`, and `vnext(version)` are the only Distribution
+  states, and `install`, `migrate`, and `upgrade` reject implicit transitions.
+- [x] A fresh install writes only manifest-owned software and returns the
+  `bootstrap-project` Agent Skill next step without writing governance facts.
+- [x] All nine canonical Skills install as
+  `.agents/skills/<skill-name>/SKILL.md` with valid `name`, `description`, and
+  `entry_contract` metadata.
+- [x] The release builder enforces lockstep Distribution/Runtime versions and
+  Phase 1 admits only plain `x.y.z` release versions.
+- [x] Payload, manifest, checksums, destination ownership, Runtime contract,
+  and read-back validation are release-time and install-time gates.
+- [x] A packed npm artifact is installed into a temporary npm environment and
+  its published `vibe-governance` bin completes a fresh target install.
+- [x] Distribution rollback hashes only its declared scoped paths and restores
+  or fails closed with a journal on promotion failure.
+- [x] Current Distribution State upgrades delete exactly old managed paths no
+  longer in the new manifest after checksum verification; old
+  `INSTALL_STATE.json` uses a separate conservative compatibility mapping.
+- [x] CLI-level tests prove that `--root` without a value, or followed by a
+  flag, exits before dispatch and cannot target the current directory.
+- [x] Runtime, Migration Pack, bootstrap, source contract, freshness, health,
+  and workflow-wide verification pass.
+
+## 13. Traceability
+
+Upstream architecture and migration constraints:
+
+- [workflow-vnext-target-architecture.md](workflow-vnext-target-architecture.md)
+- [workflow-vnext-implementation-blueprint.md](workflow-vnext-implementation-blueprint.md)
+- [workflow-vnext-migration-plan.md](../product/workflow-vnext-migration-plan.md)
+
+Implementation and verification:
+
+- [vibe-governance-distribution.ts](../../scripts/vibe-governance-distribution.ts)
+- [vnext-migration-pack.ts](../../scripts/vnext-migration-pack.ts)
+- [vibe-governance-distribution.test.ts](../../test/vibe-governance-distribution.test.ts)
+- [vnext-migration-pack.test.ts](../../test/vnext-migration-pack.test.ts)
+- [vnext-runtime.test.ts](../../test/vnext-runtime.test.ts)
+- [vnext-bootstrap-project.test.ts](../../test/vnext-bootstrap-project.test.ts)
+
+## 14. Change history
+
+| Date | Version | Change |
+|---|---:|---|
+| 2026-09-04 | 1.0 | Froze Phase 1 Vibe Governance Distribution boundary and implemented the Node Installer contract. |

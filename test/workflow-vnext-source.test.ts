@@ -420,10 +420,19 @@ describe('vNext Phase 2 source contract', () => {
     replaceIn(
       legacyFieldRoot,
       'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
-      '---\nentry_contract:',
-      '---\nstage: legacy\nentry_contract:',
+      '---\nname: prepare-task',
+      '---\nstage: legacy\nname: prepare-task',
     );
     expect(() => validateVNextSource(legacyFieldRoot)).toThrow(/legacy field "stage"|frontmatter keys mismatch/i);
+
+    const missingMetadataRoot = copyFixture();
+    replaceIn(
+      missingMetadataRoot,
+      'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
+      'description: Prepare or replan a governed implementation task with bounded scope and evidence.\n',
+      '',
+    );
+    expect(() => validateVNextSource(missingMetadataRoot)).toThrow(/description|frontmatter keys mismatch/i);
 
     const legacyTargetRoot = copyFixture();
     const file = fixtureFile(legacyTargetRoot, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');

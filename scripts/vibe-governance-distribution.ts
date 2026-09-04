@@ -17,7 +17,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
   applyAtomicFileTransaction,
-  computeCompleteTreeHash,
+  computeScopedTreeHash,
   createMigrationPack,
   installMigrationPack,
   isFrozenPath,
@@ -133,7 +133,8 @@ export type DistributionOperationResult = {
   blockers: DistributionIssue[];
   warnings: DistributionIssue[];
   read_back_verified: boolean;
-  next?: '/bootstrap-project';
+  /** Optional fresh-install UX hint; not Distribution, Runtime, or governance state. */
+  next?: typeof VIBE_GOVERNANCE_FRESH_INSTALL_NEXT_HINT;
   migration?: MigrationOperationResult;
 };
 
@@ -160,10 +161,12 @@ type OldManagedEntry = { path: string; checksum: string };
 const NODE_COMMAND = process.platform === 'win32' ? 'node.exe' : 'node';
 const REQUIRED_SKILL_TARGET = /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u;
 const HASH64 = /^[a-f0-9]{64}$/u;
-const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/u;
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/u;
 const LEGACY_HOST_SKILL_DIRECTORIES = ['.claude/skills', '.codex/skills', '.factory/skills'] as const;
 const OLD_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 const MIGRATION_ONLY_BUNDLE_TARGETS = new Set(['docs/workflow/CURRENT_TASK.md']);
+
+export const VIBE_GOVERNANCE_FRESH_INSTALL_NEXT_HINT = 'invoke the `bootstrap-project` Agent Skill' as const;
 
 function sha256(value: string | Buffer): string {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -379,7 +382,12 @@ function loadDistributionPayload(packageRoot: string): LoadedPayload {
   if (!manifestTargets.has('.workflow-system/WORKFLOW_PROTOCOL.md') || !manifestTargets.has('.workflow-system/FILE_SCHEMAS.md') || !manifestTargets.has(VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH)) {
     throw new Error('Distribution Manifest is missing required Runtime/protocol/schema artifacts.');
   }
-  return { packageRoot, payloadRoot, sourceRoot, bundleDir, manifest, bundle };
+  const payload: LoadedPayload = { packageRoot, payloadRoot, sourceRoot, bundleDir, manifest, bundle };
+  const runtimeIdentity = runtimeIdentityFromPayload(payload);
+  if (runtimeIdentity.package_version !== manifest.distribution_version) {
+    throw new Error('Distribution Manifest.distribution_version must match the embedded Runtime package version.');
+  }
+  return payload;
 }
 
 function parseDistributionState(value: unknown, location: string): DistributionState {
@@ -562,6 +570,33 @@ function resultBase(operation: DistributionOperation, targetRoot: string, manife
   return { operation, status: 'rejected', target_root: path.resolve(targetRoot), distribution_version: manifest.distribution_version, classification, planned_writes: [], planned_deletes: [], blockers: [], warnings: [], read_back_verified: false };
 }
 
+function distributionPreimagePaths(
+  manifest: DistributionManifest,
+  plannedWrites: readonly string[],
+  plannedDeletes: readonly string[],
+): string[] {
+  return [...new Set([
+    ...plannedWrites,
+    ...plannedDeletes,
+    manifest.state.path,
+    manifest.state.in_progress_path,
+    manifest.runtime_dependency_path,
+  ])].sort((left, right) => left.localeCompare(right));
+}
+
+function computeDistributionPreimageHash(
+  targetRoot: string,
+  manifest: DistributionManifest,
+  plannedWrites: readonly string[],
+  plannedDeletes: readonly string[],
+): string {
+  const includedPaths = distributionPreimagePaths(manifest, plannedWrites, plannedDeletes);
+  // The journal is created after the preimage and is removed after a verified
+  // commit/rollback. Keep it explicit in the control scope, but exclude it
+  // from the content comparison just as the existing transaction protocol did.
+  return computeScopedTreeHash(targetRoot, includedPaths, [manifest.state.in_progress_path]);
+}
+
 function stateManagedMap(state: DistributionState | null): Map<string, string> {
   return new Map((state?.managed_files ?? []).map(entry => [entry.path, entry.checksum]));
 }
@@ -585,11 +620,52 @@ function oldInstallManagedMap(targetRoot: string): Map<string, string> {
   }
 }
 
+function admittedOldManagedMap(targetRoot: string, state: DistributionState | null): Map<string, string> {
+  // A validated Distribution State is authoritative even when its managed
+  // file list is empty. Never fall through to the older INSTALL_STATE shape;
+  // the two state formats have different ownership semantics.
+  return state ? stateManagedMap(state) : oldInstallManagedMap(targetRoot);
+}
+
+function plannedCurrentDistributionDeletes(
+  manifest: DistributionManifest,
+  oldManaged: ReadonlyMap<string, string>,
+): string[] {
+  const currentManifestPaths = new Set(manifest.artifacts.map(artifact => artifact.target_path));
+  // A current-format Distribution State is an admission of every path in
+  // managed_files. Safe upgrade convergence is therefore the exact set
+  // difference, after verifyOldManagedFiles has checked every old checksum.
+  return [...oldManaged.keys()]
+    .filter(relativePath => !currentManifestPaths.has(relativePath))
+    .sort();
+}
+
+function plannedLegacyInstallCompatibilityDeletes(
+  manifest: DistributionManifest,
+  oldManaged: ReadonlyMap<string, string>,
+): string[] {
+  const currentManifestPaths = new Set(manifest.artifacts.map(artifact => artifact.target_path));
+  // A vNext INSTALL_STATE.json is an older, wider compatibility shape. Its
+  // entries cannot be blanket-deleted during the first Distribution upgrade;
+  // retain the existing narrow mapping for known legacy host files only.
+  return [...oldManaged.keys()]
+    .filter(relativePath => LEGACY_HOST_SKILL_DIRECTORIES.some(prefix => relativePath === prefix || relativePath.startsWith(`${prefix}/`)))
+    .filter(relativePath => !currentManifestPaths.has(relativePath))
+    .sort();
+}
+
+function plannedDistributionDeletes(
+  manifest: DistributionManifest,
+  oldState: DistributionState | null,
+  oldManaged: ReadonlyMap<string, string>,
+): string[] {
+  return oldState
+    ? plannedCurrentDistributionDeletes(manifest, oldManaged)
+    : plannedLegacyInstallCompatibilityDeletes(manifest, oldManaged);
+}
+
 function verifyOldManagedFiles(targetRoot: string, state: DistributionState | null): DistributionIssue[] {
-  const managed = stateManagedMap(state);
-  if (managed.size === 0) {
-    for (const [relativePath, checksum] of oldInstallManagedMap(targetRoot)) managed.set(relativePath, checksum);
-  }
+  const managed = admittedOldManagedMap(targetRoot, state);
   const issues: DistributionIssue[] = [];
   for (const [relativePath, checksum] of managed) {
     const fullPath = path.join(targetRoot, ...relativePath.split('/'));
@@ -601,8 +677,7 @@ function verifyOldManagedFiles(targetRoot: string, state: DistributionState | nu
 
 function validateDestinations(targetRoot: string, manifest: DistributionManifest, operation: DistributionOperation, oldState: DistributionState | null): DistributionIssue[] {
   const issues: DistributionIssue[] = [];
-  const oldManaged = stateManagedMap(oldState);
-  if (oldManaged.size === 0) for (const [relativePath, checksum] of oldInstallManagedMap(targetRoot)) oldManaged.set(relativePath, checksum);
+  const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   for (const artifact of manifest.artifacts) {
     const targetPath = resolveRepoPath(targetRoot, artifact.target_path, 'Distribution target');
     if (!fileExists(targetPath)) continue;
@@ -712,11 +787,8 @@ function planFreshOrUpgrade(targetRoot: string, payload: LoadedPayload, operatio
   const prepared: ReturnType<typeof prepareRuntimeDistribution> = prepareRuntimeDistribution(payload.bundleDir, payload.bundle.artifacts);
   const state = parseDistributionState(JSON.parse(stateContent(payload.manifest)), 'planned Distribution State');
   writes.push({ path: payload.manifest.state.path, content: stateContent(payload.manifest) });
-  const oldManaged = stateManagedMap(oldState);
-  if (oldManaged.size === 0) for (const [relativePath, checksum] of oldInstallManagedMap(targetRoot)) oldManaged.set(relativePath, checksum);
-  const deletes = [...oldManaged.keys()]
-    .filter(relativePath => LEGACY_HOST_SKILL_DIRECTORIES.some(prefix => relativePath === prefix || relativePath.startsWith(`${prefix}/`)))
-    .filter(relativePath => !payload.manifest.artifacts.some(artifact => artifact.target_path === relativePath));
+  const oldManaged = admittedOldManagedMap(targetRoot, oldState);
+  const deletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
   return { writes, deletes, directories: prepared ? [{ path: payload.manifest.runtime_dependency_path, sourcePath: prepared.sourceNodeModulesPath }] : [], stagingRoot: prepared?.stagingRoot, state };
 }
 
@@ -742,12 +814,8 @@ function runTransactionalPromotion(
     }
   }
   const plannedWrites = payload.manifest.artifacts.map(artifact => artifact.target_path).concat(payload.manifest.state.path).sort();
-  const oldManaged = stateManagedMap(oldState);
-  if (oldManaged.size === 0) for (const [relativePath, checksum] of oldInstallManagedMap(targetRoot)) oldManaged.set(relativePath, checksum);
-  const plannedDeletes = [...oldManaged.keys()]
-    .filter(relativePath => LEGACY_HOST_SKILL_DIRECTORIES.some(prefix => relativePath === prefix || relativePath.startsWith(`${prefix}/`)))
-    .filter(relativePath => !payload.manifest.artifacts.some(artifact => artifact.target_path === relativePath))
-    .sort();
+  const oldManaged = admittedOldManagedMap(targetRoot, oldState);
+  const plannedDeletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
   result.planned_writes = [...plannedWrites, payload.manifest.runtime_dependency_path];
   result.planned_deletes = plannedDeletes;
   if (isFrozenPath(targetRoot, payload.manifest.state.path)
@@ -779,7 +847,14 @@ function runTransactionalPromotion(
   }
   // The plan is intentionally created before the journal so dependency
   // installation and all destination checks happen before target mutation.
-  const preimageTreeHash = computeCompleteTreeHash(targetRoot, [payload.manifest.state.in_progress_path]);
+  let preimageTreeHash: string;
+  try {
+    preimageTreeHash = computeDistributionPreimageHash(targetRoot, payload.manifest, result.planned_writes, result.planned_deletes);
+  } catch (error) {
+    if (plan.stagingRoot) fs.rmSync(plan.stagingRoot, { recursive: true, force: true });
+    result.blockers.push(distributionIssue('PREIMAGE_FAILED', error instanceof Error ? error.message : String(error)));
+    return result;
+  }
   const rollbackDirectories = [
     ...payload.manifest.artifacts
       .filter(artifact => artifact.category === 'skill')
@@ -826,13 +901,13 @@ function runTransactionalPromotion(
     removeJournal(targetRoot, payload.manifest);
     result.status = operation === 'install' ? 'installed' : 'upgraded';
     result.read_back_verified = true;
-    result.next = '/bootstrap-project';
+    if (operation === 'install') result.next = VIBE_GOVERNANCE_FRESH_INSTALL_NEXT_HINT;
     return result;
   } catch (error) {
     if (plan.stagingRoot) fs.rmSync(plan.stagingRoot, { recursive: true, force: true });
     let rollbackVerified = false;
     try {
-      rollbackVerified = computeCompleteTreeHash(targetRoot, [payload.manifest.state.in_progress_path]) === preimageTreeHash;
+      rollbackVerified = computeDistributionPreimageHash(targetRoot, payload.manifest, result.planned_writes, result.planned_deletes) === preimageTreeHash;
     } catch {
       rollbackVerified = false;
     }
@@ -867,15 +942,11 @@ function runDryRunPromotion(
       return result;
     }
   }
-  const oldManaged = stateManagedMap(oldState);
-  if (oldManaged.size === 0) for (const [relativePath, checksum] of oldInstallManagedMap(targetRoot)) oldManaged.set(relativePath, checksum);
+  const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   result.planned_writes = payload.manifest.artifacts.map(artifact => artifact.target_path)
     .concat(payload.manifest.state.path, payload.manifest.runtime_dependency_path)
     .sort();
-  result.planned_deletes = [...oldManaged.keys()]
-    .filter(relativePath => LEGACY_HOST_SKILL_DIRECTORIES.some(prefix => relativePath === prefix || relativePath.startsWith(`${prefix}/`)))
-    .filter(relativePath => !payload.manifest.artifacts.some(artifact => artifact.target_path === relativePath))
-    .sort();
+  result.planned_deletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
   if (isFrozenPath(targetRoot, payload.manifest.state.path)
     || isFrozenPath(targetRoot, payload.manifest.state.in_progress_path)
     || isFrozenPath(targetRoot, payload.manifest.runtime_dependency_path)
@@ -884,7 +955,6 @@ function runDryRunPromotion(
     return result;
   }
   result.status = 'ready';
-  result.next = '/bootstrap-project';
   return result;
 }
 
@@ -932,7 +1002,6 @@ function runInstall(options: DistributionOperationOptions, payload: LoadedPayloa
         verifyDistributionInstallation(targetRoot, payload);
         result.status = 'no-op';
         result.read_back_verified = true;
-        result.next = '/bootstrap-project';
         return result;
       } catch (error) {
         result.blockers.push(distributionIssue('MANAGED_TARGET_DRIFT', error instanceof Error ? error.message : String(error)));
@@ -982,7 +1051,6 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
       verifyDistributionInstallation(targetRoot, payload);
       result.status = 'no-op';
       result.read_back_verified = true;
-      result.next = '/bootstrap-project';
       return result;
     } catch (error) {
       result.blockers.push(distributionIssue('MANAGED_TARGET_DRIFT', error instanceof Error ? error.message : String(error)));
@@ -1017,32 +1085,19 @@ function runMigrate(options: DistributionOperationOptions, payload: LoadedPayloa
   const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-governance-migration-'));
   let preparedJournal = false;
   let migrationPreimageTreeHash: string | undefined;
+  let migrationPreimageWrites: string[] = [];
+  let migrationPreimageDeletes: string[] = [];
   try {
     const pack = createMigrationPack({ sourceRoot: payload.sourceRoot, targetRoot, outDir: packDir, overwrite: true });
     const runtimeIdentity = runtimeIdentityFromPayload(payload);
     // The Migration Pack remains the only converter. Distribution state is
     // opaque metadata appended to its same transaction, not a second parser.
     const state = JSON.parse(stateContent(payload.manifest)) as DistributionState;
-    const preimageTreeHash = computeCompleteTreeHash(targetRoot, [payload.manifest.state.in_progress_path]);
-    migrationPreimageTreeHash = preimageTreeHash;
-    const journal: DistributionJournal = {
-      schema_version: 1,
-      kind: 'vibe-governance-distribution-in-progress',
-      operation: 'migrate',
-      from_state: 'legacy',
-      to_state: 'vnext',
-      distribution_version: payload.manifest.distribution_version,
-      manifest_digest: payload.manifest.manifest_digest,
-      preimage_tree_hash: preimageTreeHash,
-      planned_writes: [],
-      planned_deletes: [],
-      recovery: 'rollback-read-back-fail-closed',
-    };
     // Validate the Pack before journaling; the journal is excluded from the
     // Migration Pack partial-vNext scan and is created immediately before
     // the shared promotion path.
     const validatedPack = validateMigrationPack({ packDir, sourceRoot: payload.sourceRoot, targetRoot });
-    journal.planned_writes = [
+    const plannedWrites = [
       ...validatedPack.artifacts.map(artifact => artifact.target_path),
       ...payload.bundle.artifacts.map(artifact => artifact.target_path),
       '.workflow-system/vnext/INSTALL_STATE.json',
@@ -1050,7 +1105,9 @@ function runMigrate(options: DistributionOperationOptions, payload: LoadedPayloa
       payload.manifest.state.path,
       payload.manifest.runtime_dependency_path,
     ].sort();
-    journal.planned_deletes = validatedPack.legacy_surface.entries.filter(entry => entry.action === 'remove').map(entry => entry.path).sort();
+    const plannedDeletes = validatedPack.legacy_surface.entries.filter(entry => entry.action === 'remove').map(entry => entry.path).sort();
+    migrationPreimageWrites = plannedWrites;
+    migrationPreimageDeletes = plannedDeletes;
     if (options.dryRun) {
       const migration = installMigrationPack({
         packDir,
@@ -1068,6 +1125,21 @@ function runMigrate(options: DistributionOperationOptions, payload: LoadedPayloa
       result.blockers.push(...migration.blockers.map(issue => distributionIssue(issue.code, issue.message, issue.path)));
       return result;
     }
+    const preimageTreeHash = computeDistributionPreimageHash(targetRoot, payload.manifest, plannedWrites, plannedDeletes);
+    migrationPreimageTreeHash = preimageTreeHash;
+    const journal: DistributionJournal = {
+      schema_version: 1,
+      kind: 'vibe-governance-distribution-in-progress',
+      operation: 'migrate',
+      from_state: 'legacy',
+      to_state: 'vnext',
+      distribution_version: payload.manifest.distribution_version,
+      manifest_digest: payload.manifest.manifest_digest,
+      preimage_tree_hash: preimageTreeHash,
+      planned_writes: plannedWrites,
+      planned_deletes: plannedDeletes,
+      recovery: 'rollback-read-back-fail-closed',
+    };
     if (isFrozenPath(targetRoot, payload.manifest.state.in_progress_path)) return baseRejected('migrate', targetRoot, payload, classification, 'FROZEN_PATH', 'Distribution journal path is frozen.', payload.manifest.state.in_progress_path);
     writeJournal(targetRoot, journal, payload.manifest);
     preparedJournal = true;
@@ -1093,7 +1165,7 @@ function runMigrate(options: DistributionOperationOptions, payload: LoadedPayloa
     if (migration.status !== 'installed' && migration.status !== 'replayed') {
       result.blockers.push(...migration.blockers.map(issue => distributionIssue(issue.code, issue.message, issue.path)));
       let rollbackVerified = false;
-      try { rollbackVerified = computeCompleteTreeHash(targetRoot, [payload.manifest.state.in_progress_path]) === preimageTreeHash; } catch { rollbackVerified = false; }
+      try { rollbackVerified = computeDistributionPreimageHash(targetRoot, payload.manifest, plannedWrites, plannedDeletes) === preimageTreeHash; } catch { rollbackVerified = false; }
       if (rollbackVerified) {
         try { removeJournal(targetRoot, payload.manifest); preparedJournal = false; } catch { /* retain marker */ }
       } else result.warnings.push(distributionIssue('ROLLBACK_UNVERIFIED', 'Migration rollback could not be read-back verified; the Distribution journal was retained.', payload.manifest.state.in_progress_path));
@@ -1102,13 +1174,17 @@ function runMigrate(options: DistributionOperationOptions, payload: LoadedPayloa
     if (preparedJournal) removeJournal(targetRoot, payload.manifest);
     result.status = 'installed';
     result.read_back_verified = true;
-    result.next = '/bootstrap-project';
     return result;
   } catch (error) {
     if (preparedJournal) {
       let rollbackVerified = false;
       if (migrationPreimageTreeHash) {
-        try { rollbackVerified = computeCompleteTreeHash(targetRoot, [payload.manifest.state.in_progress_path]) === migrationPreimageTreeHash; } catch { rollbackVerified = false; }
+        try {
+          // The journal is written only after the Pack has supplied the exact
+          // migration write/delete plan, so recovery uses the same scoped
+          // Distribution boundary as the normal install/upgrade path.
+          rollbackVerified = computeDistributionPreimageHash(targetRoot, payload.manifest, migrationPreimageWrites, migrationPreimageDeletes) === migrationPreimageTreeHash;
+        } catch { rollbackVerified = false; }
       }
       if (rollbackVerified) {
         try { removeJournal(targetRoot, payload.manifest); } catch { /* fail closed by retaining a marker */ }
@@ -1192,7 +1268,7 @@ export function runDistributionCli(argv: string[] = process.argv.slice(2)): numb
       '  npx vibe-governance@latest migrate [--root <project>] [--json] [--dry-run]',
       '  npx vibe-governance@latest upgrade [--root <project>] [--json] [--dry-run]',
       '',
-      'Install owns software distribution only. After success run /bootstrap-project.',
+      'Install owns software distribution only. After a successful fresh install, next: invoke the `bootstrap-project` Agent Skill.',
     ].join('\n'));
     return 0;
   }
@@ -1205,8 +1281,15 @@ export function runDistributionCli(argv: string[] = process.argv.slice(2)): numb
   let dryRun = false;
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
-    if (arg === '--root') targetRoot = rest[++index] ?? '';
-    else if (arg === '--json') json = true;
+    if (arg === '--root') {
+      const value = rest[index + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('--root requires a project path');
+        return 1;
+      }
+      targetRoot = value;
+      index += 1;
+    } else if (arg === '--json') json = true;
     else if (arg === '--dry-run') dryRun = true;
     else if (arg === '--path' || arg === '--paths-file' || arg === '--bundle' || arg === '--source' || arg === '--workflow-system-root') {
       console.error(`${arg} is not part of the Distribution installation protocol.`);
@@ -1224,7 +1307,7 @@ export function runDistributionCli(argv: string[] = process.argv.slice(2)): numb
   if (json) console.log(JSON.stringify(result, null, 2));
   else {
     console.log(JSON.stringify(result, null, 2));
-    if (result.next) console.log(`Next: ${result.next}`);
+    if (result.next) console.log(`Next:\n  ${result.next}`);
   }
   return ['installed', 'upgraded', 'no-op', 'ready'].includes(result.status) ? 0 : 1;
 }

@@ -710,6 +710,102 @@ export function computeCompleteTreeHash(root: string, ignoredRelativePaths: read
   return hash.digest('hex');
 }
 
+/**
+ * Compute a rollback preimage over an explicit set of repository-relative
+ * paths.  Unlike the source/target identity helpers above, this function
+ * never discovers files from the repository root: a directory is traversed
+ * only when the caller explicitly includes that directory.  Symlinks are
+ * recorded as links and are never followed.
+ *
+ * Distribution uses this boundary for ordinary install/upgrade rollback.  It
+ * intentionally remains separate from computeTreeHash and
+ * computeCompleteTreeHash so legacy migration and bootstrap identity/snapshot
+ * semantics do not change.
+ */
+export function computeScopedTreeHash(
+  root: string,
+  includedRelativePaths: readonly string[],
+  ignoredRelativePaths: readonly string[] = [],
+): string {
+  const resolvedRoot = path.resolve(root);
+  const included = [...new Set(includedRelativePaths.map(relativePath => normalizeRepoPath(relativePath, 'scoped tree hash included path')))]
+    .sort((left, right) => left.localeCompare(right));
+  const ignored = new Set(ignoredRelativePaths.map(relativePath => normalizeRepoPath(relativePath, 'scoped tree hash ignored path')));
+  const visited = new Set<string>();
+  const hash = crypto.createHash('sha256');
+
+  const isMissingPathError = (error: unknown): boolean => {
+    if (!error || typeof error !== 'object' || !('code' in error)) return false;
+    return (error as { code?: unknown }).code === 'ENOENT';
+  };
+
+  const lstatOrMissing = (fullPath: string): fs.Stats | null => {
+    try {
+      return fs.lstatSync(fullPath);
+    } catch (error) {
+      if (isMissingPathError(error)) return null;
+      throw error;
+    }
+  };
+
+  const record = (relativePath: string, kind: string, value = ''): void => {
+    hash.update(relativePath);
+    hash.update('\0');
+    hash.update(kind);
+    hash.update('\0');
+    hash.update(value);
+    hash.update('\n');
+  };
+
+  const assertNoSymlinkParent = (relativePath: string): void => {
+    const parts = relativePath.split('/');
+    let current = resolvedRoot;
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      current = path.join(current, parts[index]!);
+      const status = lstatOrMissing(current);
+      if (!status) return;
+      if (status.isSymbolicLink()) {
+        throw new MigrationPackError('UNSAFE_PATH', `scoped tree hash cannot traverse a symbolic-link parent: ${relativePath}`);
+      }
+      if (!status.isDirectory()) return;
+    }
+  };
+
+  const visit = (relativePath: string, fullPath: string): void => {
+    if (ignored.has(relativePath) || visited.has(relativePath)) return;
+    const status = lstatOrMissing(fullPath);
+    if (!status) {
+      visited.add(relativePath);
+      record(relativePath, 'missing');
+      return;
+    }
+    visited.add(relativePath);
+    if (status.isSymbolicLink()) {
+      record(relativePath, 'symlink', fs.readlinkSync(fullPath));
+      return;
+    }
+    if (status.isDirectory()) {
+      record(relativePath, 'directory');
+      for (const name of fs.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
+        visit(`${relativePath}/${name}`, path.join(fullPath, name));
+      }
+      return;
+    }
+    if (status.isFile()) {
+      const content = fs.readFileSync(fullPath);
+      record(relativePath, 'file', `${content.byteLength}\0${sha256(content)}`);
+      return;
+    }
+    record(relativePath, 'special', String(status.mode));
+  };
+
+  for (const relativePath of included) {
+    assertNoSymlinkParent(relativePath);
+    visit(relativePath, resolveRepoPath(resolvedRoot, relativePath, 'scoped tree hash included path'));
+  }
+  return hash.digest('hex');
+}
+
 export function getSourceIdentity(sourceRoot = resolveRoot()): SourceIdentity {
   const rootPath = normalizeAbsoluteRootPath(sourceRoot);
   const treeHash = computeTreeHash(rootPath);
@@ -1778,11 +1874,11 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
 
 function validateSourceIdentity(actual: SourceIdentity, expected: SourceIdentity, location: string, portable = false): void {
   if (
-    actual.revision !== expected.revision ||
     actual.tree_hash !== expected.tree_hash
+    || (!portable && actual.revision !== expected.revision)
     || (!portable && actual.root_identity !== expected.root_identity)
   ) {
-    throw new MigrationPackError('PACK_STALE', `${location} does not match the exact source identity/revision${portable ? ' and content hash' : ''}.`);
+    throw new MigrationPackError('PACK_STALE', `${location} does not match the exact source identity${portable ? ' content hash' : '/revision'}.`);
   }
 }
 
@@ -2179,7 +2275,11 @@ function validateVNextSkillBundleContent(entry: string, content: string, locatio
   if (entry === 'validate-change' && content.includes('validate-change:regression')) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location} restores the legacy validate-change:regression mode.`);
   }
-  expectExactKeys(frontmatter, ['entry_contract'], `${location} frontmatter`);
+  expectExactKeys(frontmatter, ['name', 'description', 'entry_contract'], `${location} frontmatter`);
+  if (expectString(frontmatter.name, `${location}.name`) !== entry) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.name must be ${entry}.`);
+  }
+  expectString(frontmatter.description, `${location}.description`);
   const contract = expectRecord(frontmatter.entry_contract, `${location}.entry_contract`);
   expectExactKeys(contract, ['entry', 'mode', 'intent', 'input_contract', 'authority_owner', 'mutation_boundary', 'internal_capabilities', 'runtime_operations', 'stop_conditions', 'output_kind'], `${location}.entry_contract`);
   if (contract.entry !== entry) throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.entry must be ${entry}.`);
@@ -2482,6 +2582,7 @@ function loadAndValidateBundle(
           const executableCanonicalLines = content.split(/\r?\n/).filter(line => line.includes(legacyName));
           if (executableCanonicalLines.some(line =>
             !new RegExp(`^\\s*entry:\\s*${legacyName}\\s*$`).test(line) &&
+            !new RegExp(`^\\s*name:\\s*${legacyName}\\s*$`).test(line) &&
             !new RegExp(`^# vNext Skill:\\s*${legacyName}\\s*$`).test(line) &&
             !(legacyName === 'capture-work-item' && line.includes('capture-work-item:record'))
           )) {
@@ -2618,8 +2719,8 @@ export function buildVNextBundle(options: {
 /**
  * Validate a prebuilt vNext bundle without exposing the private evaluator to
  * the Distribution layer.  `portable` is reserved for release payloads: the
- * content/revision identity stays bound, while the package cache path is
- * allowed to differ between build and install machines.
+ * content identity stays bound, while the package cache path and local Git
+ * revision are allowed to differ between build and install machines.
  */
 export function validateVNextBundle(options: {
   bundleDir: string;

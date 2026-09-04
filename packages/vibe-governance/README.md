@@ -9,7 +9,8 @@ npx vibe-governance@latest upgrade
 ```
 
 The installer distributes software only. It does not bootstrap project facts;
-after a successful fresh install, continue with `/bootstrap-project`.
+after a successful fresh install, continue by invoking the
+`bootstrap-project` Agent Skill.
 
 The package is assembled by the source repository's release command:
 `bun run build:vibe-governance-distribution`.

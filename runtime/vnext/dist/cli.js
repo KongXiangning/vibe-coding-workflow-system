@@ -8288,17 +8288,17 @@ function validateInstalledRuntimeForCli(root) {
 function requireBootstrappedProject(root) {
   const profilePath = getWorkflowProfilePath(root);
   if (!fs3.existsSync(profilePath)) {
-    fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Run /bootstrap-project before using daily Runtime entries.");
+    fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
   let profile;
   try {
     profile = loadProfile(profilePath);
   } catch (error) {
-    fail2("BOOTSTRAP_REQUIRED", "Project governance profile is unavailable or invalid; run /bootstrap-project before using daily Runtime entries.");
+    fail2("BOOTSTRAP_REQUIRED", "Project governance profile is unavailable or invalid; invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
   const currentTaskPath = getWorkflowDocPath(root, profile, "CURRENT_TASK.md");
   if (!fs3.existsSync(currentTaskPath)) {
-    fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Run /bootstrap-project before using daily Runtime entries.");
+    fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
 }
 async function runCli(argv = process.argv.slice(2)) {

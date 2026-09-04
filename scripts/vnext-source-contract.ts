@@ -625,7 +625,7 @@ function validateLegacyExecutableTargets(content: string, entry: string, legacyS
       if (entry === 'capture-work-item' && legacyName === entry && line.includes('capture-work-item:record')) continue;
       if (
         legacyName === entry &&
-        ((inFrontmatter && /^\s*entry:\s*.+\s*$/.test(line) && line.trim().slice('entry:'.length).trim() === legacyName) ||
+        ((inFrontmatter && /^\s*(?:entry|name):\s*.+\s*$/.test(line) && ['entry:', 'name:'].some(field => line.trim().startsWith(field) && line.trim().slice(field.length).trim() === legacyName)) ||
           new RegExp(`^# vNext Skill:\\s*${escapedName}\\s*$`).test(line))
       ) {
         continue;
@@ -633,6 +633,13 @@ function validateLegacyExecutableTargets(content: string, entry: string, legacyS
       fail(`${entry} contains legacy Skill ID "${legacyName}" as executable source`);
     }
   }
+}
+
+function validateAgentSkillMetadata(frontmatter: UnknownRecord, entry: string): void {
+  expectExactKeys(frontmatter, ['name', 'description', 'entry_contract'], `${entry} frontmatter`);
+  const name = expectString(frontmatter.name, `${entry}.name`);
+  if (name !== entry) fail(`${entry}.name must be "${entry}"`);
+  expectString(frontmatter.description, `${entry}.description`);
 }
 
 function validateTemplate(
@@ -646,7 +653,7 @@ function validateTemplate(
   const templatePath = path.join(root, ...templateRelativePath.split('/'));
   const content = fs.readFileSync(templatePath, 'utf8');
   const { frontmatter } = readStrictFrontmatter(templatePath);
-  expectExactKeys(frontmatter, ['entry_contract'], `${entry} frontmatter`);
+  validateAgentSkillMetadata(frontmatter, entry);
   for (const forbidden of FORBIDDEN_TOP_LEVEL_FIELDS) {
     if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
   }
@@ -727,7 +734,7 @@ function validateAdministrativeTemplate(
   const templatePath = path.join(root, ...templateRelativePath.split('/'));
   const content = fs.readFileSync(templatePath, 'utf8');
   const { frontmatter } = readStrictFrontmatter(templatePath);
-  expectExactKeys(frontmatter, ['entry_contract'], `${entry} frontmatter`);
+  validateAgentSkillMetadata(frontmatter, entry);
   for (const forbidden of FORBIDDEN_TOP_LEVEL_FIELDS) {
     if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
   }
@@ -793,7 +800,7 @@ function validateExpertTemplate(
   const templatePath = path.join(root, ...templateRelativePath.split('/'));
   const content = fs.readFileSync(templatePath, 'utf8');
   const { frontmatter } = readStrictFrontmatter(templatePath);
-  expectExactKeys(frontmatter, ['entry_contract'], `${entry} frontmatter`);
+  validateAgentSkillMetadata(frontmatter, entry);
   for (const forbidden of FORBIDDEN_TOP_LEVEL_FIELDS) {
     if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
   }

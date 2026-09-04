@@ -16,6 +16,7 @@ import {
   validateVNextBundle,
   type VNextBundleManifest,
 } from './vnext-migration-pack';
+import { parseDocument } from 'yaml';
 import {
   VIBE_GOVERNANCE_DISTRIBUTION_MANIFEST_FILE,
   VIBE_GOVERNANCE_DISTRIBUTION_MANIFEST_KIND,
@@ -33,6 +34,9 @@ type BuildDistributionOptions = {
   outputRoot?: string;
 };
 
+const RELEASE_VERSION = /^\d+\.\d+\.\d+$/u;
+const RUNTIME_VERSION_CONSTANT = /(?:export\s+)?(?:const|let|var)\s+VNEXT_RUNTIME_PACKAGE_VERSION\s*=\s*["']([^"']+)["']/u;
+
 function sha256(value: string | Buffer): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -45,6 +49,71 @@ function stableValue(value: unknown): unknown {
 
 function stableJson(value: unknown): string {
   return JSON.stringify(stableValue(value));
+}
+
+function readVersionFromPackage(sourceRoot: string, relativePath: string, label: string): string {
+  const filePath = path.join(sourceRoot, ...relativePath.split('/'));
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`${label} is missing: ${relativePath}`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    throw new Error(`${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || typeof (parsed as Record<string, unknown>).version !== 'string' || !(parsed as Record<string, unknown>).version) {
+    throw new Error(`${label}.version must be a non-empty string.`);
+  }
+  const version = (parsed as Record<string, unknown>).version as string;
+  if (!RELEASE_VERSION.test(version)) throw new Error(`${label}.version must use release SemVer x.y.z: ${version}`);
+  return version;
+}
+
+function readVersionFromRuntimeContract(sourceRoot: string): string {
+  const relativePath = '.workflow-system/vnext/RUNTIME_CONTRACT.yaml';
+  const filePath = path.join(sourceRoot, ...relativePath.split('/'));
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`Runtime contract is missing: ${relativePath}`);
+  const document = parseDocument(fs.readFileSync(filePath, 'utf8'), { uniqueKeys: true });
+  const diagnostics = [...document.errors, ...document.warnings];
+  if (diagnostics.length > 0) throw new Error(`Runtime contract is invalid: ${diagnostics.map(item => item.message).join('; ')}`);
+  const root = document.toJS();
+  if (!root || typeof root !== 'object' || Array.isArray(root)) throw new Error('Runtime contract must be a mapping.');
+  const runtimeDistribution = (root as Record<string, unknown>).runtime_distribution;
+  if (!runtimeDistribution || typeof runtimeDistribution !== 'object' || Array.isArray(runtimeDistribution) || typeof (runtimeDistribution as Record<string, unknown>).package_version !== 'string') {
+    throw new Error('Runtime contract.runtime_distribution.package_version must be a non-empty string.');
+  }
+  const version = (runtimeDistribution as Record<string, unknown>).package_version as string;
+  if (!RELEASE_VERSION.test(version)) throw new Error(`Runtime contract.runtime_distribution.package_version must use release SemVer x.y.z: ${version}`);
+  return version;
+}
+
+function readVersionFromRuntimeConstant(sourceRoot: string, relativePath: string, label: string): string {
+  const filePath = path.join(sourceRoot, ...relativePath.split('/'));
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`${label} is missing: ${relativePath}`);
+  const match = RUNTIME_VERSION_CONSTANT.exec(fs.readFileSync(filePath, 'utf8'));
+  if (!match) throw new Error(`${label} does not embed VNEXT_RUNTIME_PACKAGE_VERSION.`);
+  const version = match[1]!;
+  if (!RELEASE_VERSION.test(version)) throw new Error(`${label} must use release SemVer x.y.z: ${version}`);
+  return version;
+}
+
+/**
+ * Release invariant: one published Distribution version owns one Runtime
+ * package, contract, source constant, and generated Runtime entrypoint.
+ */
+export function validateDistributionVersionLockstep(sourceRootInput: string): string {
+  const sourceRoot = path.resolve(sourceRootInput);
+  const versions = [
+    ['Distribution package', readVersionFromPackage(sourceRoot, 'packages/vibe-governance/package.json', 'Distribution package')] as const,
+    ['Runtime package', readVersionFromPackage(sourceRoot, 'runtime/vnext/package.json', 'Runtime package')] as const,
+    ['Runtime contract', readVersionFromRuntimeContract(sourceRoot)] as const,
+    ['Runtime source constant', readVersionFromRuntimeConstant(sourceRoot, 'runtime/vnext/src/kernel.ts', 'Runtime source')] as const,
+    ['Generated Runtime constant', readVersionFromRuntimeConstant(sourceRoot, 'runtime/vnext/dist/cli.js', 'Generated Runtime')] as const,
+  ];
+  const distinctVersions = new Set(versions.map(([, version]) => version));
+  if (distinctVersions.size !== 1) {
+    throw new Error(`Distribution/Runtime release versions must be lockstep: ${versions.map(([label, version]) => `${label}=${version}`).join(', ')}.`);
+  }
+  return versions[0]![1];
 }
 
 function copyFile(sourceRoot: string, targetRoot: string, relativePath: string): void {
@@ -101,7 +170,7 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
   copyDirectory(sourceRoot, targetRoot, 'runtime/vnext/src');
 }
 
-function buildManifest(bundle: VNextBundleManifest, sourceRoot: string): DistributionManifest {
+function buildManifest(bundle: VNextBundleManifest, distributionVersion: string): DistributionManifest {
   const artifacts = bundle.artifacts
     .filter(artifact => artifact.target_path !== 'docs/workflow/CURRENT_TASK.md')
     .map(artifact => ({
@@ -117,7 +186,7 @@ function buildManifest(bundle: VNextBundleManifest, sourceRoot: string): Distrib
     kind: VIBE_GOVERNANCE_DISTRIBUTION_MANIFEST_KIND,
     product: VIBE_GOVERNANCE_PRODUCT,
     package_name: VIBE_GOVERNANCE_PACKAGE_NAME,
-    distribution_version: JSON.parse(fs.readFileSync(path.join(sourceRoot, 'packages', 'vibe-governance', 'package.json'), 'utf8')).version as string,
+    distribution_version: distributionVersion,
     minimum_node: VNEXT_RUNTIME_NODE_MIN_VERSION,
     runtime_dependency_path: VIBE_GOVERNANCE_RUNTIME_DEPENDENCY_RELATIVE_PATH,
     artifact_source: 'embedded-release' as const,
@@ -138,6 +207,7 @@ function buildManifest(bundle: VNextBundleManifest, sourceRoot: string): Distrib
 
 export function buildVibeGovernanceDistribution(options: BuildDistributionOptions = {}): { packageRoot: string; manifest: DistributionManifest; bundle: VNextBundleManifest } {
   const sourceRoot = path.resolve(options.sourceRoot ?? path.resolve(import.meta.dir, '..'));
+  const distributionVersion = validateDistributionVersionLockstep(sourceRoot);
   const packageRoot = path.resolve(options.outputRoot ?? path.join(sourceRoot, 'packages', 'vibe-governance'));
   if (packageRoot !== path.resolve(sourceRoot, 'packages', 'vibe-governance')) {
     const templateRoot = path.join(sourceRoot, 'packages', 'vibe-governance');
@@ -161,7 +231,7 @@ export function buildVibeGovernanceDistribution(options: BuildDistributionOption
     fs.rmSync(temporaryBundleRoot, { recursive: true, force: true });
   }
   bundle = validateVNextBundle({ bundleDir: bundleRoot, sourceRoot: migrationSourceRoot, portable: true });
-  const manifest = buildManifest(bundle, sourceRoot);
+  const manifest = buildManifest(bundle, distributionVersion);
   const bundleManifestPath = path.join(bundleRoot, 'vnext-bundle.json');
   manifest.support.bundle_manifest_sha256 = sha256(fs.readFileSync(bundleManifestPath));
   manifest.manifest_digest = sha256(stableJson({ ...manifest, manifest_digest: '' }));

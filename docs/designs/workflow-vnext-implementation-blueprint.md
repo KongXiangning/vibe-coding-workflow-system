@@ -83,6 +83,8 @@ never executable until the confirmation transaction succeeds.
 每个 vNext entry 的模板都应先声明以下信息，再写模型行为说明：
 
 ```yaml
+name: <vNext-entry>
+description: <loader-visible skill description>
 entry_contract:
   entry: <vNext-entry>
   mode: [<closed-mode>]
@@ -503,7 +505,7 @@ legacy compatibility layer。
 - 每一项治理持久化写入都映射到一个 exact Runtime handler，且没有 generic document editor；
 - 普通任务的 Contract / Decision final knowledge admission 在 `close-task` 中完成；archive 保存 admission provenance，Implementation Anchors 仅作为可选的 observed navigation hints，由未来消费者按当前代码实时验证和扩散；
 - Migration Pack 与 vNext runtime 完全分离，旧 schema 在 vNext 中只能得到 `migration-required → stop`；
-- 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是 vNext Distribution，治理事实仍须通过独立 `/bootstrap-project` 建立。
+- 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是 vNext Distribution，治理事实仍须通过独立 `bootstrap-project` Agent Skill 建立。
 - Phase 1A source validator 对三个模板、闭集 mode、零写入 review、引用闭合、内部 capability exposure 和旧 Skill 禁止规则有直接测试；测试不替代人工检查模板是否真正表达单一 intent。
 
 本文件不记录运行时行为测试或模型质量评分；本次 docs-only freeze 不实现上述

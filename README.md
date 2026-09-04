@@ -51,11 +51,15 @@ project-local Node Runtime and all canonical Agent Skills under
 `.agents/skills/<skill-name>/SKILL.md`. It does not create project profile facts, Contracts,
 Decisions, STATUS, or a task definition.
 
-After a successful install, continue in the target project with:
+After a successful fresh install, continue in the target project with:
 
 ```text
-Next: /bootstrap-project
+Next:
+  invoke the `bootstrap-project` Agent Skill
 ```
+
+In Codex, invoke that Skill explicitly as `$bootstrap-project`; other Agent
+hosts use their native Agent Skill invocation syntax.
 
 The three explicit Distribution transitions are:
 
@@ -74,8 +78,8 @@ Daily Skills invoke the fixed project-local Runtime, for example:
 node .workflow-system/runtime/dist/cli.js validate --root .
 ```
 
-Before `/bootstrap-project`, that command returns `BOOTSTRAP_REQUIRED` rather
-than guessing project governance state.
+Before invoking the `bootstrap-project` Agent Skill, that command returns
+`BOOTSTRAP_REQUIRED` rather than guessing project governance state.
 
 ## Source-development and legacy tooling
 
