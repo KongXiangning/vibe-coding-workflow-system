@@ -948,7 +948,6 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
     project,
     host,
     baseline,
-    ...(options.mode === 'realign' ? { baselineKeys } : {}),
     facts,
     targetIdentity,
   });

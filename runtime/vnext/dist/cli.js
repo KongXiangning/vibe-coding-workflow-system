@@ -9706,7 +9706,6 @@ function prepareProposal(options, distribution, classification) {
     project,
     host,
     baseline,
-    ...options.mode === "realign" ? { baselineKeys } : {},
     facts,
     targetIdentity
   });
