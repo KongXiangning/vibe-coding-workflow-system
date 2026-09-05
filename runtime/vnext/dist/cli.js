@@ -1274,6 +1274,29 @@ async function runBootstrapCli(argv = process.argv.slice(1)) {
   }
 }
 
+// runtime/vnext/src/status-schema.ts
+var STATUS_SECTIONS = {
+  overview: { title: "项目概览" },
+  completed: { title: "✅ 已完成且稳定" },
+  inProgress: { title: "\uD83D\uDD28 正在开发" },
+  pending: { title: "\uD83D\uDCCB 待开发" },
+  risks: { title: "⚠️ 已知风险 / 观察点" },
+  removedOrDeferred: { title: "❌ 已移除 / 推迟" },
+  nextCheckpoint: { title: "\uD83D\uDD1C 下一检查点" },
+  recentUpdates: { title: "最近更新记录", aliases: ["最近更新记录", "Recent Updates"] }
+};
+var STATUS_SECTION_KEYS = [
+  "overview",
+  "completed",
+  "inProgress",
+  "pending",
+  "risks",
+  "removedOrDeferred",
+  "nextCheckpoint",
+  "recentUpdates"
+];
+var STATUS_REQUIRED_SECTION_TITLES = Object.freeze(STATUS_SECTION_KEYS.map((key) => STATUS_SECTIONS[key].title));
+
 // runtime/vnext/src/kernel.ts
 var VNEXT_RUNTIME_SCHEMA_VERSION = 1;
 var VNEXT_RUNTIME_PROPOSAL_KIND = "vnext-runtime-proposal";
@@ -5007,19 +5030,29 @@ function validateStatusProjectionText(value, location) {
   }
   return value.trim();
 }
-function readStatusSectionLines(content, title, location) {
+function requiredStatusSection(content, sectionKey, location) {
+  const title = STATUS_SECTIONS[sectionKey].title;
   const section = findUniqueMarkdownSection(scanMarkdownSections2(content), [title], 2);
   if (!section)
     fail2("STATUS_INVALID", `${location} is missing the required ## ${title} section.`);
+  return section;
+}
+function validateStatusDocument(content, location = "STATUS.md") {
+  const sections = scanMarkdownSections2(content);
+  for (const title of STATUS_REQUIRED_SECTION_TITLES) {
+    if (!findUniqueMarkdownSection(sections, [title], 2))
+      fail2("STATUS_INVALID", `${location} is missing the required ## ${title} section.`);
+  }
+}
+function readStatusSectionLines(content, sectionKey, location) {
+  const section = requiredStatusSection(content, sectionKey, location);
   const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
 `).trim();
   return body.length > 0 ? body.split(`
 `) : [];
 }
-function replaceStatusSectionBody(content, title, lines, location) {
-  const section = findUniqueMarkdownSection(scanMarkdownSections2(content), [title], 2);
-  if (!section)
-    fail2("STATUS_INVALID", `${location} is missing the required ## ${title} section.`);
+function replaceStatusSectionBody(content, sectionKey, lines, location) {
+  const section = requiredStatusSection(content, sectionKey, location);
   const body = lines.join(`
 `).trim();
   return content.slice(0, section.contentStart) + `${body.length > 0 ? `
@@ -5032,7 +5065,7 @@ function statusItemMatchCount(lines, item) {
   return lines.filter((line) => statusItemText(line) === item).length;
 }
 function projectStatusOverview(content, delta, location) {
-  const lines = readStatusSectionLines(content, "项目概览", location);
+  const lines = readStatusSectionLines(content, "overview", location);
   const statusFieldPattern = /^-\s*(?:当前状态|status)\s*[:：]\s*.*$/i;
   const matches = lines.map((line, index) => ({ line, index })).filter((item) => statusFieldPattern.test(item.line));
   if (matches.length > 1)
@@ -5041,13 +5074,13 @@ function projectStatusOverview(content, delta, location) {
   if (matches.length === 1) {
     const next = [...lines];
     next[matches[0].index] = statusLine;
-    return replaceStatusSectionBody(content, "项目概览", next, location);
+    return replaceStatusSectionBody(content, "overview", next, location);
   }
-  return replaceStatusSectionBody(content, "项目概览", [...lines, statusLine], location);
+  return replaceStatusSectionBody(content, "overview", [...lines, statusLine], location);
 }
 function projectStatusCompletedItems(content, delta, location) {
-  const completedLines = readStatusSectionLines(content, "✅ 已完成且稳定", location);
-  const developmentLines = readStatusSectionLines(content, "\uD83D\uDD28 正在开发", location);
+  const completedLines = readStatusSectionLines(content, "completed", location);
+  const developmentLines = readStatusSectionLines(content, "inProgress", location);
   const unsupportedDevelopmentLines = developmentLines.filter((line) => line.trim().length > 0 && statusItemText(line) === null && !isStatusPlaceholderLine(line));
   if (unsupportedDevelopmentLines.length > 0) {
     fail2("STATUS_RECONCILIATION_CONFLICT", `${location} contains unsupported content in the in-progress section; the old record cannot be identified deterministically.`);
@@ -5080,14 +5113,14 @@ function projectStatusCompletedItems(content, delta, location) {
       nextCompletedLines.pop();
     nextCompletedLines.push(...appendCompleted.map((item) => `- ${item}`));
   }
-  let next = replaceStatusSectionBody(content, "\uD83D\uDD28 正在开发", nextDevelopmentLines, location);
-  return replaceStatusSectionBody(next, "✅ 已完成且稳定", nextCompletedLines, location);
+  let next = replaceStatusSectionBody(content, "inProgress", nextDevelopmentLines, location);
+  return replaceStatusSectionBody(next, "completed", nextCompletedLines, location);
 }
 function projectStatusRemainingRisks(content, delta, location) {
   const riskItems = delta.remaining_risks.map((item) => validateStatusProjectionText(item, `${location}.remaining_risks`));
   if (riskItems.length === 0)
     return content;
-  const lines = readStatusSectionLines(content, "⚠️ 已知风险 / 观察点", location);
+  const lines = readStatusSectionLines(content, "risks", location);
   const appendItems = riskItems.filter((item) => {
     const matches = statusItemMatchCount(lines, item);
     if (matches > 1)
@@ -5100,11 +5133,11 @@ function projectStatusRemainingRisks(content, delta, location) {
   while (nextLines.length > 0 && nextLines[nextLines.length - 1].trim() === "")
     nextLines.pop();
   nextLines.push(...appendItems.map((item) => `- ${item}`));
-  return replaceStatusSectionBody(content, "⚠️ 已知风险 / 观察点", nextLines, location);
+  return replaceStatusSectionBody(content, "risks", nextLines, location);
 }
 function projectStatusCheckpoint(content, delta, location) {
   const checkpoint = validateStatusProjectionText(delta.next_checkpoint, `${location}.next_checkpoint`);
-  const lines = readStatusSectionLines(content, "\uD83D\uDD1C 下一检查点", location);
+  const lines = readStatusSectionLines(content, "nextCheckpoint", location);
   const nonEmpty = lines.filter((line) => line.trim().length > 0);
   if (nonEmpty.some((line) => statusItemText(line) === null && !isStatusPlaceholderLine(line))) {
     fail2("STATUS_RECONCILIATION_CONFLICT", `${location} next checkpoint section contains unsupported non-list content.`);
@@ -5112,7 +5145,7 @@ function projectStatusCheckpoint(content, delta, location) {
   if (nonEmpty.filter((line) => statusItemText(line) !== null).length > 1) {
     fail2("STATUS_RECONCILIATION_CONFLICT", `${location} contains multiple next checkpoint records.`);
   }
-  return replaceStatusSectionBody(content, "\uD83D\uDD1C 下一检查点", [`- ${checkpoint}`], location);
+  return replaceStatusSectionBody(content, "nextCheckpoint", [`- ${checkpoint}`], location);
 }
 function projectStatusDelta(content, delta, location) {
   let next = projectStatusOverview(content, delta, location);
@@ -5121,35 +5154,35 @@ function projectStatusDelta(content, delta, location) {
   return projectStatusCheckpoint(next, delta, location);
 }
 function assertStatusProjection(content, delta, location) {
-  const overviewLines = readStatusSectionLines(content, "项目概览", location);
+  const overviewLines = readStatusSectionLines(content, "overview", location);
   const statusLines = overviewLines.filter((line) => /^-\s*(?:当前状态|status)\s*[:：]\s*.*$/i.test(line));
   if (statusLines.length !== 1 || statusLines[0] !== `- 当前状态：${delta.status}`) {
     fail2("STATUS_PROVENANCE_MISMATCH", `${location} project status projection no longer matches the typed status delta.`);
   }
-  const completedLines = readStatusSectionLines(content, "✅ 已完成且稳定", location);
-  const developmentLines = readStatusSectionLines(content, "\uD83D\uDD28 正在开发", location);
+  const completedLines = readStatusSectionLines(content, "completed", location);
+  const developmentLines = readStatusSectionLines(content, "inProgress", location);
   for (const rawItem of delta.completed_items) {
     const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
     if (statusItemMatchCount(completedLines, item) !== 1 || statusItemMatchCount(developmentLines, item) !== 0) {
       fail2("STATUS_PROVENANCE_MISMATCH", `${location} completed item projection no longer matches "${item}".`);
     }
   }
-  const riskLines = readStatusSectionLines(content, "⚠️ 已知风险 / 观察点", location);
+  const riskLines = readStatusSectionLines(content, "risks", location);
   for (const rawItem of delta.remaining_risks) {
     const item = validateStatusProjectionText(rawItem, `${location}.remaining_risks`);
     if (statusItemMatchCount(riskLines, item) !== 1) {
       fail2("STATUS_PROVENANCE_MISMATCH", `${location} remaining risk projection no longer matches "${item}".`);
     }
   }
-  const checkpointLines = readStatusSectionLines(content, "\uD83D\uDD1C 下一检查点", location);
+  const checkpointLines = readStatusSectionLines(content, "nextCheckpoint", location);
   if (checkpointLines.filter((line) => statusItemText(line) !== null).length !== 1 || statusItemText(checkpointLines.find((line) => statusItemText(line) !== null) ?? "") !== delta.next_checkpoint) {
     fail2("STATUS_PROVENANCE_MISMATCH", `${location} next checkpoint projection no longer matches the typed status delta.`);
   }
 }
 function appendStatusReconciliation(content, marker, location) {
-  const section = findUniqueMarkdownSection(scanMarkdownSections2(content), ["最近更新记录", "Recent Updates"], 2);
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(content), STATUS_SECTIONS.recentUpdates.aliases, 2);
   if (!section)
-    fail2("STATUS_INVALID", `${location} is missing the required ## 最近更新记录 section.`);
+    fail2("STATUS_INVALID", `${location} is missing the required ## ${STATUS_SECTIONS.recentUpdates.title} section.`);
   const existing = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
 `).trimEnd();
   return content.slice(0, section.contentStart) + `
@@ -5165,11 +5198,7 @@ function prepareProjectStatusTransaction(root, current, proposal) {
   if (!fs3.existsSync(target.filePath))
     fail2("RUNTIME_SOURCE_MISSING", `STATUS.md is missing: ${target.relativePath}`);
   const originalStatusContent = fs3.readFileSync(target.filePath, "utf8");
-  const sections = scanMarkdownSections2(originalStatusContent);
-  for (const heading of ["项目概览", "✅ 已完成且稳定", "\uD83D\uDD28 正在开发", "\uD83D\uDCCB 待开发", "⚠️ 已知风险 / 观察点", "❌ 已移除 / 推迟", "\uD83D\uDD1C 下一检查点", "最近更新记录"]) {
-    if (!findUniqueMarkdownSection(sections, [heading], 2))
-      fail2("STATUS_INVALID", `STATUS.md is missing required ## ${heading} section.`);
-  }
+  validateStatusDocument(originalStatusContent, target.relativePath);
   const existingReceipt = matchingStatusReceipt(originalStatusContent, target.relativePath, receipt);
   const deltaDigest = digest(proposal.semantic_delta);
   if (existingReceipt) {
@@ -9235,7 +9264,29 @@ function renderDecisions(project, mode, facts = [], draft = false) {
 `);
 }
 function renderStatus(project, mode) {
-  return ["# STATUS.md", "", "## 项目概览", "", `- 项目：${project.name}`, `- slug：${project.slug}`, `- bootstrap mode：${mode}`, "", "## ✅ 已完成且稳定", "", "- Governance assets generated after the installed Distribution was validated read-only.", "- Project profile and canonical task baseline read back successfully.", "", "## \uD83D\uDD28 正在开发", "", "- No active task exists. The next task must be prepared through the daily Runtime path.", "", "## ⚠️ 当前阻塞", "", "- None recorded by bootstrap.", ""].join(`
+  const sectionBodies = {
+    overview: [`- 项目：${project.name}`, `- slug：${project.slug}`, `- bootstrap mode：${mode}`],
+    completed: [
+      "- Governance assets generated after the installed Distribution was validated read-only.",
+      "- Project profile and canonical task baseline read back successfully."
+    ],
+    inProgress: ["- none"],
+    pending: ["- none"],
+    risks: ["- none"],
+    removedOrDeferred: ["- none"],
+    nextCheckpoint: ["- Prepare the next task through the daily Runtime path."],
+    recentUpdates: ["- Bootstrap generated this canonical STATUS baseline."]
+  };
+  return [
+    "# STATUS.md",
+    "",
+    ...STATUS_SECTION_KEYS.flatMap((key) => [
+      `## ${STATUS_SECTIONS[key].title}`,
+      "",
+      ...sectionBodies[key],
+      ""
+    ])
+  ].join(`
 `);
 }
 function renderLessons() {

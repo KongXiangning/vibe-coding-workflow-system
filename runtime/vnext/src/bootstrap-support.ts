@@ -28,6 +28,7 @@ import {
 import { computeScopedTreeHash } from './scoped-tree-hash';
 import { readCanonicalCurrentTask, validateVNextRuntimeContract } from './kernel';
 import type { ConditionalScopeAuthorization } from './mutation-scope';
+import { STATUS_SECTION_KEYS, STATUS_SECTIONS, type StatusSectionKey } from './status-schema';
 import {
   validateCompletedMigrationProvenance,
   MigrationProvenanceError,
@@ -527,7 +528,29 @@ function renderDecisions(project: { name: string; slug: string }, mode: Bootstra
 }
 
 function renderStatus(project: { name: string; slug: string }, mode: BootstrapMode): string {
-  return ['# STATUS.md', '', '## 项目概览', '', `- 项目：${project.name}`, `- slug：${project.slug}`, `- bootstrap mode：${mode}`, '', '## ✅ 已完成且稳定', '', '- Governance assets generated after the installed Distribution was validated read-only.', '- Project profile and canonical task baseline read back successfully.', '', '## 🔨 正在开发', '', '- No active task exists. The next task must be prepared through the daily Runtime path.', '', '## ⚠️ 当前阻塞', '', '- None recorded by bootstrap.', ''].join('\n');
+  const sectionBodies: Record<StatusSectionKey, readonly string[]> = {
+    overview: [`- 项目：${project.name}`, `- slug：${project.slug}`, `- bootstrap mode：${mode}`],
+    completed: [
+      '- Governance assets generated after the installed Distribution was validated read-only.',
+      '- Project profile and canonical task baseline read back successfully.',
+    ],
+    inProgress: ['- none'],
+    pending: ['- none'],
+    risks: ['- none'],
+    removedOrDeferred: ['- none'],
+    nextCheckpoint: ['- Prepare the next task through the daily Runtime path.'],
+    recentUpdates: ['- Bootstrap generated this canonical STATUS baseline.'],
+  };
+  return [
+    '# STATUS.md',
+    '',
+    ...STATUS_SECTION_KEYS.flatMap((key) => [
+      `## ${STATUS_SECTIONS[key].title}`,
+      '',
+      ...sectionBodies[key],
+      '',
+    ]),
+  ].join('\n');
 }
 
 function renderLessons(): string {

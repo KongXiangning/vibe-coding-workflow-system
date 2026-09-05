@@ -14,6 +14,7 @@ import {
   type BootstrapProjectOptions,
 } from '../scripts/vnext-bootstrap-project';
 import { computeBootstrapPreimageHash } from '../runtime/vnext/src/bootstrap-support';
+import { STATUS_REQUIRED_SECTION_TITLES, validateStatusDocument } from '../runtime/vnext/src/kernel';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { installDistribution, migrateDistribution, validateInstalledDistribution } from '../scripts/vibe-governance-distribution';
 import { validateCompletedMigration } from '../scripts/vnext-migration-pack';
@@ -62,6 +63,12 @@ function installDistributionFixture(target: string): void {
   const result = installDistribution({ targetRoot: target, packageRoot: distributionPackageRoot });
   expect(result.status).toBe('installed');
   expect(result.read_back_verified).toBe(true);
+}
+
+function assertStatusContract(target: string): void {
+  const statusPath = path.join(target, 'docs', 'workflow', 'STATUS.md');
+  const status = fs.readFileSync(statusPath, 'utf8');
+  expect(() => validateStatusDocument(status, 'docs/workflow/STATUS.md')).not.toThrow();
 }
 
 function makeLegacyGovernedTarget(): string {
@@ -134,6 +141,7 @@ describe('vNext bootstrap-project', () => {
     const installed = bootstrapProject({ ...common, write: true, changedPaths });
     expect(installed.status).toBe('installed');
     expect(installed.read_back_verified).toBe(true);
+    assertStatusContract(target);
     expect(installed.proposal?.requested_directory_targets).toEqual([]);
     expect(installed.proposal?.requested_write_targets.some(relative => relative === '.workflow-system/WORKFLOW_PROTOCOL.md' || relative === '.workflow-system/FILE_SCHEMAS.md' || relative === '.workflow-system/vnext/SOURCE_CONTRACT.yaml' || relative === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml' || relative.startsWith('.workflow-system/runtime/') || relative.startsWith('.agents/skills/'))).toBe(false);
     expect(fs.existsSync(path.join(target, '.agents', 'skills', 'validate-change', 'SKILL.md'))).toBe(true);
@@ -255,6 +263,7 @@ describe('vNext bootstrap-project', () => {
     const migrationRealign = JSON.parse(execFileSync('node', [migrationRealignCli, 'bootstrap-support', 'prepare', '--root', migratedTarget, '--mode', 'realign', '--changed-paths-file', migrationRealignPaths, '--write', '--json'], { encoding: 'utf8' })) as { status: string; read_back_verified: boolean };
     expect(migrationRealign.status).toBe('installed');
     expect(migrationRealign.read_back_verified).toBe(true);
+    assertStatusContract(migratedTarget);
     expect(fs.readFileSync(migrationStatePath, 'utf8')).toBe(migrationStateBeforeRealign);
     expect(fs.readFileSync(migrationReceiptPath, 'utf8')).toBe(migrationReceiptBeforeRealign);
     expect(classifyBootstrapTarget(migratedTarget).state).toBe('valid');
@@ -334,6 +343,51 @@ describe('vNext bootstrap-project', () => {
     expect(fs.existsSync(path.join(target, '.agents', 'skills', 'prepare-task', 'SKILL.md'))).toBe(true);
   });
 
+  test('keeps every Bootstrap STATUS baseline within the Runtime section contract', { timeout: 30000 }, () => {
+    const target = targetRoot();
+    const common = options(target);
+    installDistributionFixture(target);
+    const preview = buildBootstrapPlan(common);
+    expect(preview.status).toBe('ready');
+    const installed = bootstrapProject({ ...common, write: true, changedPaths: preview.planned_writes });
+    expect(installed.status).toBe('installed');
+    const statusPath = path.join(target, 'docs', 'workflow', 'STATUS.md');
+    const status = fs.readFileSync(statusPath, 'utf8');
+
+    expect(STATUS_REQUIRED_SECTION_TITLES).toEqual([
+      '项目概览',
+      '✅ 已完成且稳定',
+      '🔨 正在开发',
+      '📋 待开发',
+      '⚠️ 已知风险 / 观察点',
+      '❌ 已移除 / 推迟',
+      '🔜 下一检查点',
+      '最近更新记录',
+    ]);
+    expect(() => validateStatusDocument(status, 'docs/workflow/STATUS.md')).not.toThrow();
+    expect(status).toContain('## 🔨 正在开发\n\n- none');
+    expect(status).toContain('## 📋 待开发\n\n- none');
+    expect(status).toContain('## ⚠️ 已知风险 / 观察点\n\n- none');
+    expect(status).toContain('## ❌ 已移除 / 推迟\n\n- none');
+
+    for (const title of STATUS_REQUIRED_SECTION_TITLES) {
+      const withoutSection = status.replace(`## ${title}\n`, '');
+      expect(withoutSection).not.toBe(status);
+      expect(() => validateStatusDocument(withoutSection, 'docs/workflow/STATUS.md')).toThrow('STATUS_INVALID');
+    }
+
+    const realignPreview = buildBootstrapPlan({ ...common, mode: 'realign' });
+    expect(realignPreview.status).toBe('ready');
+    const realigned = bootstrapProject({
+      ...common,
+      mode: 'realign',
+      write: true,
+      changedPaths: realignPreview.planned_writes,
+    });
+    expect(realigned.status).toBe('installed');
+    expect(() => validateStatusDocument(fs.readFileSync(statusPath, 'utf8'), 'docs/workflow/STATUS.md')).not.toThrow();
+  });
+
   test('fails closed when realign would replace a non-baseline canonical task', { timeout: 15000 }, () => {
     const target = targetRoot();
     const common = options(target);
@@ -401,6 +455,7 @@ describe('vNext bootstrap-project', () => {
     });
     expect(adopt.status).toBe('installed');
     expect(adopt.read_back_verified).toBe(true);
+    assertStatusContract(target);
     expect(buildBootstrapPlan(adoptOptions).status).toBe('replayed');
     expect(fs.readFileSync(path.join(target, 'src', 'main.ts'), 'utf8')).toBe(productBefore);
   });
