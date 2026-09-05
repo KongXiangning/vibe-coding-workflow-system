@@ -372,7 +372,28 @@ describe('vNext bootstrap-project', () => {
 
   test('keeps every Bootstrap STATUS baseline within the Runtime section contract', { timeout: 30000 }, () => {
     const target = targetRoot();
-    const common = options(target);
+    const preservedFacts: NonNullable<BootstrapProjectOptions['confirmedFacts']> = [
+      { key: 'project-name', value: 'Bootstrap Test Project', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'project-slug', value: 'bootstrap-test-project', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'project-purpose', value: 'disposable target for bootstrap invariant', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'tech-runtime', value: 'Node.js', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'tech-framework', value: 'TypeScript', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'tech-database', value: 'none', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'ui-direction', value: 'governance-first', source: 'greenfield inference', certainty: 'inferred' },
+      { key: 'deployment-target', value: 'not supplied', source: 'greenfield inventory', certainty: 'unknown' },
+    ];
+    const preservedBaseline = {
+      'api-contracts': 'confirmed API baseline',
+      architecture: 'confirmed architecture baseline',
+      database: 'confirmed database baseline',
+      'detailed-design': 'confirmed detailed design baseline',
+      'domain-model': 'confirmed domain model baseline',
+    };
+    const common: BootstrapProjectOptions = {
+      ...options(target),
+      confirmedFacts: preservedFacts,
+      designBaseline: preservedBaseline,
+    };
     installDistributionFixture(target);
     const preview = buildBootstrapPlan(common);
     expect(preview.status).toBe('ready');
@@ -380,6 +401,22 @@ describe('vNext bootstrap-project', () => {
     expect(installed.status).toBe('installed');
     const statusPath = path.join(target, 'docs', 'workflow', 'STATUS.md');
     const status = fs.readFileSync(statusPath, 'utf8');
+    const contractsPath = path.join(target, 'docs', 'workflow', 'CONTRACTS.md');
+    const decisionsPath = path.join(target, 'docs', 'workflow', 'DECISIONS.md');
+    const roadmapPath = path.join(target, 'docs', 'workflow', 'ROADMAP.md');
+    const currentTaskPath = path.join(target, 'docs', 'workflow', 'CURRENT_TASK.md');
+    const currentTaskBeforeRealign = fs.readFileSync(currentTaskPath, 'utf8');
+    const contractsBeforeRealign = fs.readFileSync(contractsPath, 'utf8');
+    const decisionsBeforeRealign = fs.readFileSync(decisionsPath, 'utf8');
+    const roadmapBeforeRealign = fs.readFileSync(roadmapPath, 'utf8');
+
+    expect(contractsBeforeRealign).toContain('- project-purpose: disposable target for bootstrap invariant (source: greenfield witness)');
+    expect(decisionsBeforeRealign).toContain('- ui-direction: governance-first [inferred; source: greenfield inference]');
+    expect(decisionsBeforeRealign).toContain('- deployment-target: not supplied [unknown; source: greenfield inventory]');
+    for (const fact of preservedFacts.filter((item) => item.certainty === 'confirmed')) {
+      expect(contractsBeforeRealign).toContain(`- ${fact.key}: ${fact.value} (source: ${fact.source})`);
+    }
+    for (const key of Object.keys(preservedBaseline)) expect(roadmapBeforeRealign).toContain(`- ${key}`);
 
     expect(STATUS_REQUIRED_SECTION_TITLES).toEqual(
       STATUS_SCHEMA.map((section) => section.title),
@@ -396,16 +433,40 @@ describe('vNext bootstrap-project', () => {
       expect(() => validateStatusDocument(withoutSection, 'docs/workflow/STATUS.md')).toThrow('STATUS_INVALID');
     }
 
-    const realignPreview = buildBootstrapPlan({ ...common, mode: 'realign' });
-    expect(realignPreview.status).toBe('ready');
-    const realigned = bootstrapProject({
+    const realignOptions: BootstrapProjectOptions = {
       ...common,
       mode: 'realign',
+      confirmedFacts: undefined,
+      designBaseline: undefined,
+      designConfirmed: undefined,
+    };
+    const realignPreview = buildBootstrapPlan(realignOptions);
+    expect(realignPreview.status).toBe('ready');
+    const realigned = bootstrapProject({
+      ...realignOptions,
       write: true,
       changedPaths: realignPreview.planned_writes,
     });
     expect(realigned.status).toBe('installed');
     expect(() => validateStatusDocument(fs.readFileSync(statusPath, 'utf8'), 'docs/workflow/STATUS.md')).not.toThrow();
+    const contractsAfterRealign = fs.readFileSync(contractsPath, 'utf8');
+    const decisionsAfterRealign = fs.readFileSync(decisionsPath, 'utf8');
+    const roadmapAfterRealign = fs.readFileSync(roadmapPath, 'utf8');
+    // Mutation witness: the realign caller supplied no facts or baseline. The
+    // old empty-input projection would fail these preservation assertions.
+    for (const fact of preservedFacts) {
+      const projection = fact.certainty === 'confirmed'
+        ? `- ${fact.key}: ${fact.value} (source: ${fact.source})`
+        : `- ${fact.key}: ${fact.value} [${fact.certainty}; source: ${fact.source}]`;
+      expect(fact.certainty === 'confirmed' ? contractsAfterRealign : decisionsAfterRealign).toContain(projection);
+    }
+    for (const key of Object.keys(preservedBaseline)) expect(roadmapAfterRealign).toContain(`- ${key}`);
+    expect(fs.readFileSync(currentTaskPath, 'utf8')).toBe(currentTaskBeforeRealign);
+    expect(decisionsAfterRealign).toContain('- mode: realign');
+    expect(roadmapAfterRealign).toContain('- realign bootstrap completed as an administrative workflow operation.');
+    expect(decisionsAfterRealign).not.toBe(decisionsBeforeRealign);
+    expect(roadmapAfterRealign).not.toBe(roadmapBeforeRealign);
+    expect(buildBootstrapPlan(realignOptions).status).toBe('replayed');
   });
 
   test('fails closed when realign would replace a non-baseline canonical task', { timeout: 15000 }, () => {

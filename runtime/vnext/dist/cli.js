@@ -8794,6 +8794,12 @@ var FULL_WORKFLOW_DOCS = [
   "docs/workflow/ROADMAP.md",
   "docs/workflow/WORKFLOW_GUIDE.md"
 ];
+var BOOTSTRAP_GOVERNANCE_SECTIONS = {
+  contractsFacts: "Confirmed boundaries",
+  decisionsFacts: "Confirmed facts",
+  decisionsUnresolved: "Inferred or unknown facts",
+  roadmapBaseline: "Design baseline consumed"
+};
 var DESIGN_PATHS = [
   "docs/designs/architecture.md",
   "docs/designs/database.md",
@@ -8973,6 +8979,73 @@ function listTopLevelNames(root) {
   if (!fs6.existsSync(root))
     return [];
   return fs6.readdirSync(root, { withFileTypes: true }).map((entry) => entry.name).sort();
+}
+function readMarkdownSection(root, relative2, title) {
+  const filePath = targetPath(root, relative2);
+  if (!fs6.existsSync(filePath))
+    return [];
+  if (!fs6.statSync(filePath).isFile())
+    fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative2} is not a regular governance document.`);
+  const lines = fs6.readFileSync(filePath, "utf8").replace(/\r\n?/gu, `
+`).split(`
+`);
+  const heading = `## ${title}`;
+  const starts = lines.flatMap((line, index) => line.trim() === heading ? [index] : []);
+  if (starts.length > 1)
+    fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative2} contains multiple ${heading} sections.`);
+  const start = starts[0];
+  if (start === undefined)
+    return [];
+  const end = lines.findIndex((line, index) => index > start && /^##\s+/u.test(line.trim()));
+  return lines.slice(start + 1, end < 0 ? lines.length : end);
+}
+function parseGovernanceFactLines(lines, location) {
+  const facts = [];
+  for (const [index, line] of lines.entries()) {
+    const normalized = line.trim();
+    if (!normalized.startsWith("- ") || normalized === "- none")
+      continue;
+    const confirmed = /^-\s+([^:\r\n]+):\s+(.+?)\s+\(source:\s+(.+)\)$/u.exec(normalized);
+    if (confirmed) {
+      facts.push({ key: confirmed[1].trim(), value: confirmed[2].trim(), source: confirmed[3].trim(), certainty: "confirmed" });
+      continue;
+    }
+    const unresolved = /^-\s+([^:\r\n]+):\s+(.+?)\s+\[(confirmed|inferred|unknown);\s+source:\s+(.+)\]$/u.exec(normalized);
+    if (unresolved) {
+      facts.push({ key: unresolved[1].trim(), value: unresolved[2].trim(), source: unresolved[4].trim(), certainty: unresolved[3] });
+      continue;
+    }
+    if (normalized.includes(":"))
+      fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${location} contains an unreadable governance fact at line ${index + 1}.`);
+  }
+  return facts;
+}
+function sameGovernanceFact(left, right) {
+  return left.key === right.key && left.value === right.value && left.source === right.source && left.certainty === right.certainty;
+}
+function mergeGovernanceFacts(existing, caller) {
+  const merged = new Map;
+  for (const fact of existing) {
+    const previous = merged.get(fact.key);
+    if (previous && !sameGovernanceFact(previous, fact))
+      fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `existing governance facts conflict for key: ${fact.key}.`);
+    merged.set(fact.key, fact);
+  }
+  for (const fact of caller)
+    merged.set(fact.key, fact);
+  return [...merged.values()];
+}
+function readExistingGovernanceState(root) {
+  const facts = mergeGovernanceFacts([
+    ...parseGovernanceFactLines(readMarkdownSection(root, "docs/workflow/CONTRACTS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts), `docs/workflow/CONTRACTS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`),
+    ...parseGovernanceFactLines(readMarkdownSection(root, "docs/workflow/DECISIONS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts}`),
+    ...parseGovernanceFactLines(readMarkdownSection(root, "docs/workflow/DECISIONS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved}`)
+  ], []);
+  const designBaselineKeys = [...new Set(readMarkdownSection(root, "docs/workflow/ROADMAP.md", BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline).map((line) => /^-\s+(.+?)\s*$/u.exec(line.trim())?.[1]?.trim() ?? "").filter((key) => key.length > 0 && key !== "none"))].sort((left, right) => left.localeCompare(right));
+  return { facts, designBaselineKeys };
+}
+function mergeDesignBaselineKeys(existing, caller) {
+  return [...new Set([...existing, ...Object.keys(caller)])].sort((left, right) => left.localeCompare(right));
 }
 function hasMeaningfulImplementation(root) {
   const names = listTopLevelNames(root);
@@ -9212,7 +9285,7 @@ function renderContracts(project, facts = []) {
     "",
     `Project: ${project.name} (${project.slug})`,
     "",
-    "## Confirmed boundaries",
+    `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`,
     "",
     "- Bootstrap writes only the admitted workflow asset set.",
     "- Task state remains in canonical `CURRENT_TASK.md`.",
@@ -9243,11 +9316,11 @@ function renderDecisions(project, mode, facts = [], draft = false) {
     `- status: ${draft ? "draft" : "confirmed"}`,
     "- authority: project owner",
     "",
-    "## Confirmed facts",
+    `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts}`,
     "",
     ...confirmed.length > 0 ? confirmed.map((fact) => `- ${fact.key}: ${fact.value} (source: ${fact.source})`) : ["- none"],
     "",
-    "## Inferred or unknown facts",
+    `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved}`,
     "",
     ...unresolved.length > 0 ? unresolved.map((fact) => `- ${fact.key}: ${fact.value} [${fact.certainty}; source: ${fact.source}]`) : ["- none"],
     "",
@@ -9288,8 +9361,9 @@ function renderLessons() {
   return ["# LESSONS.md", "", "## Reusable lessons", "", "- Bootstrap evidence is recorded as a receipt and must not be inferred from file existence alone.", "- Unknown adoption facts remain visible until a source and authority promote them.", ""].join(`
 `);
 }
-function renderRoadmap(project, mode, baseline) {
-  return ["# ROADMAP.md", "", `Project: ${project.name} (${project.slug})`, "", "## Current boundary", "", `- ${mode} bootstrap completed as an administrative workflow operation.`, "", "## Next boundary", "", "- Prepare a concrete task with confirmed acceptance, exact mutation scope, and minimum-sufficient evidence.", ...baseline ? ["", "## Design baseline consumed", "", ...Object.keys(baseline).sort().map((key) => `- ${key}`)] : [], ""].join(`
+function renderRoadmap(project, mode, baseline, preservedBaselineKeys = []) {
+  const baselineKeys = [...new Set([...Object.keys(baseline ?? {}), ...preservedBaselineKeys])].sort((left, right) => left.localeCompare(right));
+  return ["# ROADMAP.md", "", `Project: ${project.name} (${project.slug})`, "", "## Current boundary", "", `- ${mode} bootstrap completed as an administrative workflow operation.`, "", "## Next boundary", "", "- Prepare a concrete task with confirmed acceptance, exact mutation scope, and minimum-sufficient evidence.", ...baseline ? ["", `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline}`, "", ...baselineKeys.map((key) => `- ${key}`)] : [], ""].join(`
 `);
 }
 function renderDesignDocument(filePath, baseline) {
@@ -9321,7 +9395,7 @@ function mergeAssets(...groups) {
   }
   return [...map.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
-function renderGovernanceDocument(file, project, mode, facts, baseline) {
+function renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys = []) {
   if (file.endsWith("/CONTRACTS.md"))
     return renderContracts(project, facts);
   if (file.endsWith("/DECISIONS.md"))
@@ -9331,17 +9405,17 @@ function renderGovernanceDocument(file, project, mode, facts, baseline) {
   if (file.endsWith("/LESSONS.md"))
     return renderLessons();
   if (file.endsWith("/ROADMAP.md"))
-    return renderRoadmap(project, mode, baseline);
+    return renderRoadmap(project, mode, baseline, preservedBaselineKeys);
   return renderWorkflowGuide(project);
 }
-function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, baseline) {
+function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, baseline, preservedBaselineKeys = []) {
   const templatePath = targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
   if (!fs6.existsSync(templatePath) || !fs6.statSync(templatePath).isFile())
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
   return [
     { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root)) },
     { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs6.readFileSync(templatePath, "utf8") },
-    ...FULL_WORKFLOW_DOCS.map((file) => ({ path: file, category: "governance", content: renderGovernanceDocument(file, project, mode, facts, baseline) })),
+    ...FULL_WORKFLOW_DOCS.map((file) => ({ path: file, category: "governance", content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys) })),
     { path: "AGENTS.md", category: "governance", content: renderGuidance(project) },
     { path: "CLAUDE.md", category: "governance", content: renderGuidance(project) }
   ];
@@ -9611,11 +9685,14 @@ function prepareProposal(options, distribution, classification) {
   const project = resolveProject(root, options, classification.receipt);
   const host = options.host ?? "codex";
   const baseline = normalizeBaseline(options.designBaseline);
-  const facts = normalizeFacts(options.mode === "inventory" ? options.inventoryFacts ?? options.confirmedFacts : options.confirmedFacts, options.mode === "inventory" ? "inventoryFacts" : "confirmedFacts");
-  const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, facts, classification.receipt, classification.migration);
+  const callerFacts = normalizeFacts(options.mode === "inventory" ? options.inventoryFacts ?? options.confirmedFacts : options.confirmedFacts, options.mode === "inventory" ? "inventoryFacts" : "confirmedFacts");
+  const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, classification.receipt, classification.migration);
   if (modeIssues.length > 0)
     fail4(modeIssues[0].code, modeIssues.map((issue) => issue.message).join(" "));
-  let assets = ["greenfield", "adopt", "realign"].includes(options.mode) ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline) : makeModeAssets(root, project, options.mode, baseline, facts);
+  const existingGovernance = options.mode === "realign" ? readExistingGovernanceState(root) : { facts: [], designBaselineKeys: [] };
+  const facts = options.mode === "realign" ? mergeGovernanceFacts(existingGovernance.facts, callerFacts) : callerFacts;
+  const baselineKeys = options.mode === "realign" ? mergeDesignBaselineKeys(existingGovernance.designBaselineKeys, baseline) : Object.keys(baseline).sort((left, right) => left.localeCompare(right));
+  let assets = ["greenfield", "adopt", "realign"].includes(options.mode) ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys) : makeModeAssets(root, project, options.mode, baseline, facts);
   if (options.mode === "adopt")
     assets = mergeAssets(assets, [{ path: "docs/adoption/ADOPTION_DECISION.md", category: "governance", content: renderDecisions(project, options.mode, facts) }]);
   if (options.mode === "realign") {
@@ -9624,7 +9701,15 @@ function prepareProposal(options, distribution, classification) {
   }
   const targetIdentity = computeBootstrapTargetIdentity(root);
   const source = options.source ?? { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest };
-  const inputFingerprint = digest2({ mode: options.mode, project, host, baseline, facts, targetIdentity });
+  const inputFingerprint = digest2({
+    mode: options.mode,
+    project,
+    host,
+    baseline,
+    ...options.mode === "realign" ? { baselineKeys } : {},
+    facts,
+    targetIdentity
+  });
   assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: "config", content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
   const plannedWrites = assets.map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
   for (const relative2 of plannedWrites) {
