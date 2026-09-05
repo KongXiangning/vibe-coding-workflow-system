@@ -37,6 +37,7 @@ import {
   parseCanonicalBaselineKeys,
   parseCanonicalGovernanceFactLines,
   readCanonicalMarkdownSection,
+  readCanonicalStatusDocumentForBootstrap,
   readStatusReconciliationReceipts,
   validateStatusDocument,
   type ArchiveDelta,
@@ -389,6 +390,76 @@ describe('vNext bootstrap-project', () => {
     const upgradedLessons = fs.readFileSync(lessonsPath, 'utf8');
     expect(() => readCanonicalLessonsDocument(upgradedLessons, 'docs/workflow/LESSONS.md')).not.toThrow();
     expect(upgradedLessons).toContain('- Bootstrap evidence is recorded as a receipt and must not be inferred from file existence alone.');
+  });
+
+  test('replays unchanged historical fact and baseline grammar without reopening the current write validator', { timeout: 30000 }, () => {
+    const target = targetRoot();
+    const common: BootstrapProjectOptions = {
+      ...options(target),
+      confirmedFacts: [{ key: 'runtime-version', value: 'Node.js', source: 'historical caller', certainty: 'confirmed' }],
+      designBaseline: { architecture: 'historical baseline' },
+    };
+    installDistributionFixture(target);
+    const bootstrapPreview = buildBootstrapPlan(common);
+    expect(bootstrapPreview.status).toBe('ready');
+    expect(bootstrapProject({ ...common, write: true, changedPaths: bootstrapPreview.planned_writes }).status).toBe('installed');
+
+    const realignOptions: BootstrapProjectOptions = {
+      ...common,
+      mode: 'realign',
+      confirmedFacts: undefined,
+      designBaseline: undefined,
+      designConfirmed: undefined,
+    };
+    const realignPreview = buildBootstrapPlan(realignOptions);
+    expect(realignPreview.status).toBe('ready');
+    expect(bootstrapProject({ ...realignOptions, write: true, changedPaths: realignPreview.planned_writes }).status).toBe('installed');
+
+    const contractsPath = path.join(target, 'docs', 'workflow', 'CONTRACTS.md');
+    const roadmapPath = path.join(target, 'docs', 'workflow', 'ROADMAP.md');
+    const contracts = fs.readFileSync(contractsPath, 'utf8');
+    const roadmap = fs.readFileSync(roadmapPath, 'utf8');
+    const historicalContracts = contracts.replace(
+      '- runtime-version: Node.js (source: historical caller)',
+      '- runtime:version: Node.js (source: historical caller)',
+    );
+    const historicalRoadmap = roadmap.replace(/^- architecture$/mu, '- none');
+    expect(historicalContracts).not.toBe(contracts);
+    expect(historicalRoadmap).not.toBe(roadmap);
+    fs.writeFileSync(contractsPath, historicalContracts, 'utf8');
+    fs.writeFileSync(roadmapPath, historicalRoadmap, 'utf8');
+
+    const receiptPath = path.join(target, '.workflow-system', 'vnext', 'BOOTSTRAP_RECEIPT.json');
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')) as {
+      input_fingerprint: string;
+      managed_files: Array<{ path: string; checksum: string }>;
+    };
+    receipt.input_fingerprint = crypto.createHash('sha256').update('historical-permissive-input').digest('hex');
+    for (const [relative, content] of [
+      ['docs/workflow/CONTRACTS.md', historicalContracts],
+      ['docs/workflow/ROADMAP.md', historicalRoadmap],
+    ] as const) {
+      const managed = receipt.managed_files.find(file => file.path === relative);
+      expect(managed).toBeDefined();
+      managed!.checksum = crypto.createHash('sha256').update(content).digest('hex');
+    }
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+
+    // These bytes were valid under the historical write grammar but are not
+    // losslessly recoverable by today's canonical projection readers.
+    expect(() => parseCanonicalGovernanceFactLines(
+      readCanonicalMarkdownSection(historicalContracts, ['Confirmed boundaries'])!.split(/\r?\n/u),
+      'historical CONTRACTS.md > Confirmed boundaries',
+    )).toThrow();
+    expect(parseCanonicalBaselineKeys(
+      readCanonicalMarkdownSection(historicalRoadmap, ['Design baseline consumed'])!.split(/\r?\n/u),
+      'historical ROADMAP.md > Design baseline consumed',
+    )).toEqual([]);
+
+    const replay = buildBootstrapPlan(realignOptions);
+    expect(replay.status).toBe('replayed');
+    expect(fs.readFileSync(contractsPath, 'utf8')).toBe(historicalContracts);
+    expect(fs.readFileSync(roadmapPath, 'utf8')).toBe(historicalRoadmap);
   });
 
   test('fails closed for non-round-trippable Bootstrap facts and baseline entries', { timeout: 60000 }, () => {
@@ -926,6 +997,17 @@ describe('vNext bootstrap-project', () => {
       designBaseline: undefined,
       designConfirmed: undefined,
     };
+    const receiptPath = path.join(target, '.workflow-system', 'vnext', 'BOOTSTRAP_RECEIPT.json');
+    const receiptBeforeDrift = fs.readFileSync(receiptPath, 'utf8');
+    const driftedStatus = statusBefore.replace('- realign persistence task', '- drifted completed projection');
+    expect(driftedStatus).not.toBe(statusBefore);
+    fs.writeFileSync(statusPath, driftedStatus, 'utf8');
+    const driftedPlan = buildBootstrapPlan(realignOptions);
+    expect(driftedPlan.status).toBe('blocked');
+    expect(driftedPlan.blockers.some(issue => issue.code === 'BOOTSTRAP_SUPPORT_TARGET_CONFLICT')).toBe(true);
+    expect(fs.readFileSync(receiptPath, 'utf8')).toBe(receiptBeforeDrift);
+    fs.writeFileSync(statusPath, statusBefore, 'utf8');
+
     const realignPreview = buildBootstrapPlan(realignOptions);
     expect(realignPreview.status).toBe('ready');
     expect(bootstrapProject({ ...realignOptions, write: true, changedPaths: realignPreview.planned_writes }).status).toBe('installed');
@@ -939,6 +1021,7 @@ describe('vNext bootstrap-project', () => {
     expect(readCanonicalDurableKnowledgeSection(contractsAfter, 'docs/workflow/CONTRACTS.md', 'contract')?.trim()).toBe(contractSectionBefore?.trim());
     expect(readCanonicalDurableKnowledgeSection(decisionsAfter, 'docs/workflow/DECISIONS.md', 'decision')?.trim()).toBe(decisionSectionBefore?.trim());
     expect(readStatusReconciliationReceipts(statusAfter, 'docs/workflow/STATUS.md')).toEqual(statusReceiptsBefore);
+    expect(() => readCanonicalStatusDocumentForBootstrap(statusAfter, 'docs/workflow/STATUS.md')).not.toThrow();
     expect(readDurableLessonRecords(lessonsAfter, 'docs/workflow/LESSONS.md')).toEqual(lessonRecordsBefore);
     const lessonMarkerBefore = lessonsBefore.match(/<!-- vNext lesson record: \{[^\r\n]+\} -->/u)?.[0];
     expect(lessonMarkerBefore).toBeDefined();

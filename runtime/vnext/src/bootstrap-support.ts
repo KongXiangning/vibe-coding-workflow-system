@@ -37,7 +37,7 @@ import {
   readCanonicalDurableKnowledgeSection,
   readCanonicalMarkdownSection,
   readBootstrapLessonsDocument,
-  readStatusReconciliationReceipts,
+  readCanonicalStatusDocumentForBootstrap,
   validateVNextRuntimeContract,
   type CanonicalGovernanceFact,
 } from './kernel';
@@ -392,7 +392,7 @@ function readExistingGovernanceState(root: string): BootstrapGovernanceState {
     contractRecordsSection: contracts === null ? null : readExistingRuntimeDocument('docs/workflow/CONTRACTS.md', () => readCanonicalDurableKnowledgeSection(contracts, 'docs/workflow/CONTRACTS.md', 'contract')),
     decisionRecordsSection: decisions === null ? null : readExistingRuntimeDocument('docs/workflow/DECISIONS.md', () => readCanonicalDurableKnowledgeSection(decisions, 'docs/workflow/DECISIONS.md', 'decision')),
     statusDocument: status === null ? null : readExistingRuntimeDocument('docs/workflow/STATUS.md', () => {
-      readStatusReconciliationReceipts(status, 'docs/workflow/STATUS.md');
+      readCanonicalStatusDocumentForBootstrap(status, 'docs/workflow/STATUS.md');
       return status;
     }),
     lessonsDocument: lessons === null ? null : readExistingRuntimeDocument('docs/workflow/LESSONS.md', () => readBootstrapLessonsDocument(lessons, 'docs/workflow/LESSONS.md')),
@@ -1093,11 +1093,21 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
   return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint };
 }
 
+function hasRealignSemanticOverlay(options: BootstrapSupportOptions): boolean {
+  const facts = options.confirmedFacts;
+  if (facts !== undefined && (!Array.isArray(facts) || facts.length > 0)) return true;
+  const baseline = options.designBaseline;
+  if (baseline !== undefined && (!isRecord(baseline) || Object.keys(baseline).length > 0)) return true;
+  return false;
+}
+
 /**
  * Preserve replay of realign receipts produced before the current Runtime
- * preservation readers existed. A valid receipt already authenticates every
- * managed byte, so an unchanged replay must not force an old-but-valid
- * workflow document through today's stricter canonicalizer.
+ * preservation readers or current write-input grammar existed. A valid receipt
+ * already authenticates every managed byte, so an unchanged replay must not
+ * force an old-but-valid workflow document or historical input through today's
+ * stricter canonicalizer. New semantic overlays deliberately take the normal
+ * preparation path and therefore use the current strict grammar.
  */
 function replayUnchangedRealignment(
   root: string,
@@ -1106,25 +1116,14 @@ function replayUnchangedRealignment(
 ): BootstrapSupportPlan | null {
   const receipt = classification.receipt;
   if (options.mode !== 'realign' || classification.state !== 'valid' || !receipt || receipt.mode !== 'realign') return null;
+  if (hasRealignSemanticOverlay(options)) return null;
 
   const project = resolveProject(root, options, receipt);
-  const host = options.host ?? 'codex';
-  const baseline = normalizeBaseline(options.designBaseline);
-  const callerFacts = normalizeFacts(options.confirmedFacts, 'confirmedFacts');
-  if (modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, receipt, classification.migration).length > 0) return null;
+  if (project.name !== receipt.project.name || project.slug !== receipt.project.slug) return null;
+  if (options.host !== undefined && options.host !== receipt.host) return null;
+  if (modeBlockers(root, classification.state, options.mode, options, {}, [], receipt, classification.migration).length > 0) return null;
 
-  const existing = readExistingBootstrapProjection(root);
-  const facts = mergeGovernanceFacts(existing.facts, callerFacts);
   const targetIdentity = computeBootstrapTargetIdentity(root);
-  const inputFingerprint = digest({
-    mode: options.mode,
-    project,
-    host,
-    baseline,
-    facts,
-    targetIdentity,
-  });
-  if (receipt.input_fingerprint !== inputFingerprint) return null;
 
   return {
     status: 'replayed',

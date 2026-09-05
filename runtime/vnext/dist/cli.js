@@ -5165,6 +5165,33 @@ function readStatusReconciliationReceipts(content, location = "STATUS.md") {
     evidenceRefs: [...receipt.evidenceRefs]
   }));
 }
+function assertStatusReceiptProjection(content, receipts, location) {
+  if (receipts.length === 0)
+    return;
+  const completedLines = readStatusSectionLines(content, "completed", location);
+  const developmentLines = readStatusSectionLines(content, "inProgress", location);
+  const riskLines = readStatusSectionLines(content, "risks", location);
+  for (const receipt of receipts) {
+    for (const rawItem of receipt.completedItems) {
+      const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
+      if (statusItemMatchCount(completedLines, item) !== 1 || statusItemMatchCount(developmentLines, item) !== 0) {
+        fail2("STATUS_PROVENANCE_MISMATCH", `${location} completed item projection no longer matches "${item}".`);
+      }
+    }
+    for (const rawItem of receipt.remainingRisks) {
+      const item = validateStatusProjectionText(rawItem, `${location}.remaining_risks`);
+      if (statusItemMatchCount(riskLines, item) !== 1) {
+        fail2("STATUS_PROVENANCE_MISMATCH", `${location} remaining risk projection no longer matches "${item}".`);
+      }
+    }
+  }
+  assertStatusProjection(content, statusDeltaFromReceipt(receipts[receipts.length - 1]), location);
+}
+function readCanonicalStatusDocumentForBootstrap(content, location = "STATUS.md") {
+  const receipts = readStatusReconciliationReceipts(content, location);
+  assertStatusReceiptProjection(content, receipts, location);
+  return receipts;
+}
 function canonicalizeStatusOverviewLines(lines, project, mode, location) {
   const fields = [
     { pattern: /^-\s*(?:项目|project)\s*[:：]\s*.*$/i, line: `- 项目：${project.name}` },
@@ -5184,7 +5211,7 @@ function canonicalizeStatusOverviewLines(lines, project, mode, location) {
   return next;
 }
 function canonicalizeStatusDocumentForBootstrap(content, project, mode, location = "STATUS.md") {
-  readStatusReconciliationReceipts(content, location);
+  readCanonicalStatusDocumentForBootstrap(content, location);
   const sections = scanMarkdownSections2(content);
   const canonicalSections = new Set;
   const output = [];
@@ -5215,7 +5242,7 @@ function canonicalizeStatusDocumentForBootstrap(content, project, mode, location
   }
   const next = output.join(`
 `);
-  readStatusReconciliationReceipts(next, location);
+  readCanonicalStatusDocumentForBootstrap(next, location);
   return next;
 }
 function readStatusSectionLines(content, sectionKey, location) {
@@ -9309,7 +9336,7 @@ function readExistingGovernanceState(root) {
     contractRecordsSection: contracts === null ? null : readExistingRuntimeDocument("docs/workflow/CONTRACTS.md", () => readCanonicalDurableKnowledgeSection(contracts, "docs/workflow/CONTRACTS.md", "contract")),
     decisionRecordsSection: decisions === null ? null : readExistingRuntimeDocument("docs/workflow/DECISIONS.md", () => readCanonicalDurableKnowledgeSection(decisions, "docs/workflow/DECISIONS.md", "decision")),
     statusDocument: status === null ? null : readExistingRuntimeDocument("docs/workflow/STATUS.md", () => {
-      readStatusReconciliationReceipts(status, "docs/workflow/STATUS.md");
+      readCanonicalStatusDocumentForBootstrap(status, "docs/workflow/STATUS.md");
       return status;
     }),
     lessonsDocument: lessons === null ? null : readExistingRuntimeDocument("docs/workflow/LESSONS.md", () => readBootstrapLessonsDocument(lessons, "docs/workflow/LESSONS.md"))
@@ -10101,29 +10128,29 @@ function prepareProposal(options, distribution, classification) {
   }
   return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint };
 }
+function hasRealignSemanticOverlay(options) {
+  const facts = options.confirmedFacts;
+  if (facts !== undefined && (!Array.isArray(facts) || facts.length > 0))
+    return true;
+  const baseline = options.designBaseline;
+  if (baseline !== undefined && (!isRecord4(baseline) || Object.keys(baseline).length > 0))
+    return true;
+  return false;
+}
 function replayUnchangedRealignment(root, options, classification) {
   const receipt = classification.receipt;
   if (options.mode !== "realign" || classification.state !== "valid" || !receipt || receipt.mode !== "realign")
     return null;
+  if (hasRealignSemanticOverlay(options))
+    return null;
   const project = resolveProject(root, options, receipt);
-  const host = options.host ?? "codex";
-  const baseline = normalizeBaseline(options.designBaseline);
-  const callerFacts = normalizeFacts(options.confirmedFacts, "confirmedFacts");
-  if (modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, receipt, classification.migration).length > 0)
+  if (project.name !== receipt.project.name || project.slug !== receipt.project.slug)
     return null;
-  const existing = readExistingBootstrapProjection(root);
-  const facts = mergeGovernanceFacts(existing.facts, callerFacts);
+  if (options.host !== undefined && options.host !== receipt.host)
+    return null;
+  if (modeBlockers(root, classification.state, options.mode, options, {}, [], receipt, classification.migration).length > 0)
+    return null;
   const targetIdentity = computeBootstrapTargetIdentity(root);
-  const inputFingerprint = digest2({
-    mode: options.mode,
-    project,
-    host,
-    baseline,
-    facts,
-    targetIdentity
-  });
-  if (receipt.input_fingerprint !== inputFingerprint)
-    return null;
   return {
     status: "replayed",
     target_root: root,

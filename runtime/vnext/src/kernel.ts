@@ -4955,6 +4955,43 @@ export function readStatusReconciliationReceipts(content: string, location = 'ST
   }));
 }
 
+function assertStatusReceiptProjection(content: string, receipts: readonly StatusReceipt[], location: string): void {
+  if (receipts.length === 0) return;
+
+  const completedLines = readStatusSectionLines(content, 'completed', location);
+  const developmentLines = readStatusSectionLines(content, 'inProgress', location);
+  const riskLines = readStatusSectionLines(content, 'risks', location);
+  for (const receipt of receipts) {
+    for (const rawItem of receipt.completedItems) {
+      const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
+      if (statusItemMatchCount(completedLines, item) !== 1 || statusItemMatchCount(developmentLines, item) !== 0) {
+        fail('STATUS_PROVENANCE_MISMATCH', `${location} completed item projection no longer matches "${item}".`);
+      }
+    }
+    for (const rawItem of receipt.remainingRisks) {
+      const item = validateStatusProjectionText(rawItem, `${location}.remaining_risks`);
+      if (statusItemMatchCount(riskLines, item) !== 1) {
+        fail('STATUS_PROVENANCE_MISMATCH', `${location} remaining risk projection no longer matches "${item}".`);
+      }
+    }
+  }
+
+  // STATUS is cumulative: historical completed/risk projections remain, while
+  // the latest transaction owns the current overview and checkpoint projection.
+  assertStatusProjection(content, statusDeltaFromReceipt(receipts[receipts.length - 1]!), location);
+}
+
+/**
+ * Read STATUS for Bootstrap realignment through the Runtime-owned semantic
+ * boundary. In addition to structure and receipt provenance, this validates
+ * the cumulative visible projection against the receipt history.
+ */
+export function readCanonicalStatusDocumentForBootstrap(content: string, location = 'STATUS.md'): StatusReconciliationReceipt[] {
+  const receipts = readStatusReconciliationReceipts(content, location);
+  assertStatusReceiptProjection(content, receipts, location);
+  return receipts;
+}
+
 function canonicalizeStatusOverviewLines(
   lines: readonly string[],
   project: { name: string; slug: string },
@@ -4989,7 +5026,7 @@ export function canonicalizeStatusDocumentForBootstrap(
   mode: BootstrapMode,
   location = 'STATUS.md',
 ): string {
-  readStatusReconciliationReceipts(content, location);
+  readCanonicalStatusDocumentForBootstrap(content, location);
   const sections = scanMarkdownSections(content);
   const canonicalSections = new Set<number>();
   const output: string[] = [];
@@ -5024,7 +5061,7 @@ export function canonicalizeStatusDocumentForBootstrap(
   }
 
   const next = output.join('\n');
-  readStatusReconciliationReceipts(next, location);
+  readCanonicalStatusDocumentForBootstrap(next, location);
   return next;
 }
 
