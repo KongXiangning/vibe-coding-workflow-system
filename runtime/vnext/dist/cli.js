@@ -1275,27 +1275,22 @@ async function runBootstrapCli(argv = process.argv.slice(1)) {
 }
 
 // runtime/vnext/src/status-schema.ts
-var STATUS_SECTIONS = {
-  overview: { title: "项目概览" },
-  completed: { title: "✅ 已完成且稳定" },
-  inProgress: { title: "\uD83D\uDD28 正在开发" },
-  pending: { title: "\uD83D\uDCCB 待开发" },
-  risks: { title: "⚠️ 已知风险 / 观察点" },
-  removedOrDeferred: { title: "❌ 已移除 / 推迟" },
-  nextCheckpoint: { title: "\uD83D\uDD1C 下一检查点" },
-  recentUpdates: { title: "最近更新记录", aliases: ["最近更新记录", "Recent Updates"] }
-};
-var STATUS_SECTION_KEYS = [
-  "overview",
-  "completed",
-  "inProgress",
-  "pending",
-  "risks",
-  "removedOrDeferred",
-  "nextCheckpoint",
-  "recentUpdates"
+var STATUS_SCHEMA = [
+  { key: "overview", title: "项目概览" },
+  { key: "completed", title: "✅ 已完成且稳定" },
+  { key: "inProgress", title: "\uD83D\uDD28 正在开发" },
+  { key: "pending", title: "\uD83D\uDCCB 待开发" },
+  { key: "risks", title: "⚠️ 已知风险 / 观察点" },
+  { key: "removedOrDeferred", title: "❌ 已移除 / 推迟" },
+  { key: "nextCheckpoint", title: "\uD83D\uDD1C 下一检查点" },
+  { key: "recentUpdates", title: "最近更新记录", aliases: ["最近更新记录", "Recent Updates"] }
 ];
-var STATUS_REQUIRED_SECTION_TITLES = Object.freeze(STATUS_SECTION_KEYS.map((key) => STATUS_SECTIONS[key].title));
+function deriveStatusSectionKeys(schema) {
+  return schema.map((section) => section.key);
+}
+var STATUS_SECTION_KEYS = deriveStatusSectionKeys(STATUS_SCHEMA);
+var STATUS_SECTIONS = Object.fromEntries(STATUS_SCHEMA.map(({ key, ...section }) => [key, section]));
+var STATUS_REQUIRED_SECTION_TITLES = Object.freeze(STATUS_SCHEMA.map((section) => section.title));
 
 // runtime/vnext/src/kernel.ts
 var VNEXT_RUNTIME_SCHEMA_VERSION = 1;

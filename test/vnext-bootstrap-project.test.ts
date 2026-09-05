@@ -14,7 +14,13 @@ import {
   type BootstrapProjectOptions,
 } from '../scripts/vnext-bootstrap-project';
 import { computeBootstrapPreimageHash } from '../runtime/vnext/src/bootstrap-support';
-import { STATUS_REQUIRED_SECTION_TITLES, validateStatusDocument } from '../runtime/vnext/src/kernel';
+import {
+  STATUS_REQUIRED_SECTION_TITLES,
+  STATUS_SCHEMA,
+  STATUS_SECTION_KEYS,
+  STATUS_SECTIONS,
+  validateStatusDocument,
+} from '../runtime/vnext/src/kernel';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { installDistribution, migrateDistribution, validateInstalledDistribution } from '../scripts/vibe-governance-distribution';
 import { validateCompletedMigration } from '../scripts/vnext-migration-pack';
@@ -102,6 +108,27 @@ afterEach(() => {
 });
 
 describe('vNext bootstrap-project', () => {
+  test('keeps the canonical STATUS schema and all public projections derived from one declaration', () => {
+    const expectedStatusTitles = [
+      '项目概览',
+      '✅ 已完成且稳定',
+      '🔨 正在开发',
+      '📋 待开发',
+      '⚠️ 已知风险 / 观察点',
+      '❌ 已移除 / 推迟',
+      '🔜 下一检查点',
+      '最近更新记录',
+    ];
+
+    expect(STATUS_SCHEMA.map((section) => section.title)).toEqual(expectedStatusTitles);
+    expect(STATUS_SECTION_KEYS).toEqual(STATUS_SCHEMA.map((section) => section.key));
+    expect(Object.keys(STATUS_SECTIONS)).toEqual(STATUS_SECTION_KEYS);
+    expect(STATUS_REQUIRED_SECTION_TITLES).toEqual(
+      STATUS_SCHEMA.map((section) => section.title),
+    );
+    expect(STATUS_SECTIONS.recentUpdates.aliases).toEqual(['最近更新记录', 'Recent Updates']);
+  });
+
   test('promotes a disposable project, proves the target Runtime, and replays as a no-op', { timeout: 30000 }, () => {
     expect(P12_BOOTSTRAP_TEST_ADMISSION).toMatchObject({
       decision: 'admitted',
@@ -354,16 +381,9 @@ describe('vNext bootstrap-project', () => {
     const statusPath = path.join(target, 'docs', 'workflow', 'STATUS.md');
     const status = fs.readFileSync(statusPath, 'utf8');
 
-    expect(STATUS_REQUIRED_SECTION_TITLES).toEqual([
-      '项目概览',
-      '✅ 已完成且稳定',
-      '🔨 正在开发',
-      '📋 待开发',
-      '⚠️ 已知风险 / 观察点',
-      '❌ 已移除 / 推迟',
-      '🔜 下一检查点',
-      '最近更新记录',
-    ]);
+    expect(STATUS_REQUIRED_SECTION_TITLES).toEqual(
+      STATUS_SCHEMA.map((section) => section.title),
+    );
     expect(() => validateStatusDocument(status, 'docs/workflow/STATUS.md')).not.toThrow();
     expect(status).toContain('## 🔨 正在开发\n\n- none');
     expect(status).toContain('## 📋 待开发\n\n- none');
