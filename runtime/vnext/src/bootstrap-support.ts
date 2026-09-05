@@ -26,7 +26,21 @@ import {
   type BootstrapSemanticOperation,
 } from './bootstrap';
 import { computeScopedTreeHash } from './scoped-tree-hash';
-import { readCanonicalCurrentTask, validateVNextRuntimeContract } from './kernel';
+import {
+  canonicalizeLessonsDocumentForBootstrap,
+  canonicalizeStatusDocumentForBootstrap,
+  normalizeCanonicalBaselineEntries,
+  normalizeCanonicalGovernanceFacts,
+  parseCanonicalBaselineKeys,
+  parseCanonicalGovernanceFactLines,
+  readCanonicalCurrentTask,
+  readCanonicalDurableKnowledgeSection,
+  readCanonicalMarkdownSection,
+  readBootstrapLessonsDocument,
+  readStatusReconciliationReceipts,
+  validateVNextRuntimeContract,
+  type CanonicalGovernanceFact,
+} from './kernel';
 import type { ConditionalScopeAuthorization } from './mutation-scope';
 import { STATUS_SECTION_KEYS, STATUS_SECTIONS, type StatusSectionKey } from './status-schema';
 import {
@@ -94,12 +108,7 @@ const DISTRIBUTION_STATE_KEYS = [
 
 export type BootstrapSupportHost = 'codex' | 'claude' | 'factory';
 
-export type BootstrapSupportFact = {
-  key: string;
-  value: string;
-  source: string;
-  certainty: 'confirmed' | 'inferred' | 'unknown';
-};
+export type BootstrapSupportFact = CanonicalGovernanceFact;
 
 export type BootstrapSupportOptions = {
   targetRoot: string;
@@ -307,41 +316,36 @@ function listTopLevelNames(root: string): string[] {
 type BootstrapGovernanceState = {
   facts: BootstrapSupportFact[];
   designBaselineKeys: string[];
+  contractRecordsSection: string | null;
+  decisionRecordsSection: string | null;
+  statusDocument: string | null;
+  lessonsDocument: string | null;
 };
 
-function readMarkdownSection(root: string, relative: string, title: string): string[] {
+function readExistingDocument(root: string, relative: string): string | null {
   const filePath = targetPath(root, relative);
-  if (!fs.existsSync(filePath)) return [];
+  if (!fs.existsSync(filePath)) return null;
   if (!fs.statSync(filePath).isFile()) fail('BOOTSTRAP_SUPPORT_TARGET_CONFLICT', `${relative} is not a regular governance document.`);
-  const lines = fs.readFileSync(filePath, 'utf8').replace(/\r\n?/gu, '\n').split('\n');
-  const heading = `## ${title}`;
-  const starts = lines.flatMap((line, index) => line.trim() === heading ? [index] : []);
-  if (starts.length > 1) fail('BOOTSTRAP_SUPPORT_TARGET_CONFLICT', `${relative} contains multiple ${heading} sections.`);
-  const start = starts[0];
-  if (start === undefined) return [];
-  const end = lines.findIndex((line, index) => index > start && /^##\s+/u.test(line.trim()));
-  return lines.slice(start + 1, end < 0 ? lines.length : end);
+  return fs.readFileSync(filePath, 'utf8');
 }
 
-function parseGovernanceFactLines(lines: readonly string[], location: string): BootstrapSupportFact[] {
-  const facts: BootstrapSupportFact[] = [];
-  for (const [index, line] of lines.entries()) {
-    const normalized = line.trim();
-    if (!normalized.startsWith('- ') || normalized === '- none') continue;
-    const confirmed = /^-\s+([^:\r\n]+):\s+(.+?)\s+\(source:\s+(.+)\)$/u.exec(normalized);
-    if (confirmed) {
-      facts.push({ key: confirmed[1]!.trim(), value: confirmed[2]!.trim(), source: confirmed[3]!.trim(), certainty: 'confirmed' });
-      continue;
-    }
-    const unresolved = /^-\s+([^:\r\n]+):\s+(.+?)\s+\[(confirmed|inferred|unknown);\s+source:\s+(.+)\]$/u.exec(normalized);
-    if (unresolved) {
-      facts.push({ key: unresolved[1]!.trim(), value: unresolved[2]!.trim(), source: unresolved[4]!.trim(), certainty: unresolved[3] as BootstrapSupportFact['certainty'] });
-      continue;
-    }
-    if (normalized.includes(':')) fail('BOOTSTRAP_SUPPORT_TARGET_CONFLICT', `${location} contains an unreadable governance fact at line ${index + 1}.`);
-  }
-  return facts;
+function readExistingMarkdownSection(root: string, relative: string, title: string): string[] {
+  const content = readExistingDocument(root, relative);
+  if (content === null) return [];
+  const body = readCanonicalMarkdownSection(content, [title]);
+  return body === null ? [] : body.replace(/\r\n?/gu, '\n').split('\n');
 }
+
+function readExistingRuntimeDocument<T>(relative: string, reader: () => T): T {
+  try {
+    return reader();
+  } catch (error) {
+    if (error instanceof BootstrapSupportError) throw error;
+    fail('BOOTSTRAP_SUPPORT_TARGET_CONFLICT', `${relative} contains invalid canonical Runtime governance state: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+type BootstrapGovernanceProjection = Pick<BootstrapGovernanceState, 'facts' | 'designBaselineKeys'>;
 
 function sameGovernanceFact(left: BootstrapSupportFact, right: BootstrapSupportFact): boolean {
   return left.key === right.key
@@ -362,18 +366,37 @@ function mergeGovernanceFacts(existing: readonly BootstrapSupportFact[], caller:
   return [...merged.values()];
 }
 
+function readExistingBootstrapProjection(root: string): BootstrapGovernanceProjection {
+  return readExistingRuntimeDocument('Bootstrap governance projection', () => {
+    const facts = mergeGovernanceFacts([
+      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root, 'docs/workflow/CONTRACTS.md', BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts), `docs/workflow/CONTRACTS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`),
+      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root, 'docs/workflow/DECISIONS.md', BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts}`),
+      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root, 'docs/workflow/DECISIONS.md', BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved}`),
+    ], []);
+    const designBaselineKeys = parseCanonicalBaselineKeys(
+      readExistingMarkdownSection(root, 'docs/workflow/ROADMAP.md', BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline),
+      `docs/workflow/ROADMAP.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline}`,
+    );
+    return { facts, designBaselineKeys };
+  });
+}
+
 function readExistingGovernanceState(root: string): BootstrapGovernanceState {
-  const facts = mergeGovernanceFacts([
-    ...parseGovernanceFactLines(readMarkdownSection(root, 'docs/workflow/CONTRACTS.md', BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts), `docs/workflow/CONTRACTS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`),
-    ...parseGovernanceFactLines(readMarkdownSection(root, 'docs/workflow/DECISIONS.md', BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts}`),
-    ...parseGovernanceFactLines(readMarkdownSection(root, 'docs/workflow/DECISIONS.md', BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved}`),
-  ], []);
-  const designBaselineKeys = [...new Set(
-    readMarkdownSection(root, 'docs/workflow/ROADMAP.md', BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline)
-      .map(line => /^-\s+(.+?)\s*$/u.exec(line.trim())?.[1]?.trim() ?? '')
-      .filter(key => key.length > 0 && key !== 'none'),
-  )].sort((left, right) => left.localeCompare(right));
-  return { facts, designBaselineKeys };
+  const projection = readExistingBootstrapProjection(root);
+  const contracts = readExistingDocument(root, 'docs/workflow/CONTRACTS.md');
+  const decisions = readExistingDocument(root, 'docs/workflow/DECISIONS.md');
+  const status = readExistingDocument(root, 'docs/workflow/STATUS.md');
+  const lessons = readExistingDocument(root, 'docs/workflow/LESSONS.md');
+  return {
+    ...projection,
+    contractRecordsSection: contracts === null ? null : readExistingRuntimeDocument('docs/workflow/CONTRACTS.md', () => readCanonicalDurableKnowledgeSection(contracts, 'docs/workflow/CONTRACTS.md', 'contract')),
+    decisionRecordsSection: decisions === null ? null : readExistingRuntimeDocument('docs/workflow/DECISIONS.md', () => readCanonicalDurableKnowledgeSection(decisions, 'docs/workflow/DECISIONS.md', 'decision')),
+    statusDocument: status === null ? null : readExistingRuntimeDocument('docs/workflow/STATUS.md', () => {
+      readStatusReconciliationReceipts(status, 'docs/workflow/STATUS.md');
+      return status;
+    }),
+    lessonsDocument: lessons === null ? null : readExistingRuntimeDocument('docs/workflow/LESSONS.md', () => readBootstrapLessonsDocument(lessons, 'docs/workflow/LESSONS.md')),
+  };
 }
 
 function mergeDesignBaselineKeys(existing: readonly string[], caller: Record<string, string>): string[] {
@@ -586,30 +609,38 @@ function renderWorkflowGuide(project: { name: string; slug: string }): string {
   ].join('\n');
 }
 
-function renderContracts(project: { name: string; slug: string }, facts: BootstrapSupportFact[] = []): string {
+function preservedSectionBody(content: string | null | undefined, fallback: string): string {
+  const body = content?.replace(/\r\n?/gu, '\n').trim();
+  return body && body.length > 0 ? body : fallback;
+}
+
+function renderContracts(project: { name: string; slug: string }, facts: BootstrapSupportFact[] = [], preservedRecordsSection: string | null = null): string {
   const confirmed = facts.filter(fact => fact.certainty === 'confirmed');
+  const recordsSection = preservedSectionBody(preservedRecordsSection, '- Normal close-task Contract admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.');
   return [
     '# vNext Contracts', '', `Project: ${project.name} (${project.slug})`, '', `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`, '',
     '- Bootstrap writes only the admitted workflow asset set.', '- Task state remains in canonical `CURRENT_TASK.md`.',
     ...confirmed.map(fact => `- ${fact.key}: ${fact.value} (source: ${fact.source})`), '',
     '## Candidate status', '', '- These entries are the confirmed bootstrap baseline; unconfirmed facts remain outside the locked Contract.', '',
-    '## vNext Contract Records', '', '- Normal close-task Contract admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.', '',
+    '## vNext Contract Records', '', recordsSection, '',
   ].join('\n');
 }
 
-function renderDecisions(project: { name: string; slug: string }, mode: BootstrapMode, facts: BootstrapSupportFact[] = [], draft = false): string {
+function renderDecisions(project: { name: string; slug: string }, mode: BootstrapMode, facts: BootstrapSupportFact[] = [], draft = false, preservedRecordsSection: string | null = null): string {
   const confirmed = facts.filter(fact => fact.certainty === 'confirmed');
   const unresolved = facts.filter(fact => fact.certainty !== 'confirmed');
+  const recordsSection = preservedSectionBody(preservedRecordsSection, '- Normal close-task Decision admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.');
   return [
     '# vNext Decisions', '', `Project: ${project.name} (${project.slug})`, '', '## Bootstrap decision', '',
     `- mode: ${mode}`, `- status: ${draft ? 'draft' : 'confirmed'}`, '- authority: project owner', '',
     `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts}`, '', ...(confirmed.length > 0 ? confirmed.map(fact => `- ${fact.key}: ${fact.value} (source: ${fact.source})`) : ['- none']), '',
     `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved}`, '', ...(unresolved.length > 0 ? unresolved.map(fact => `- ${fact.key}: ${fact.value} [${fact.certainty}; source: ${fact.source}]`) : ['- none']), '',
-    '## vNext Decision Records', '', '- Normal close-task Decision admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.', '',
+    '## vNext Decision Records', '', recordsSection, '',
   ].join('\n');
 }
 
-function renderStatus(project: { name: string; slug: string }, mode: BootstrapMode): string {
+function renderStatus(project: { name: string; slug: string }, mode: BootstrapMode, preservedStatusDocument: string | null = null): string {
+  if (preservedStatusDocument !== null) return canonicalizeStatusDocumentForBootstrap(preservedStatusDocument, project, mode, 'docs/workflow/STATUS.md');
   const sectionBodies: Record<StatusSectionKey, readonly string[]> = {
     overview: [`- 项目：${project.name}`, `- slug：${project.slug}`, `- bootstrap mode：${mode}`],
     completed: [
@@ -635,8 +666,62 @@ function renderStatus(project: { name: string; slug: string }, mode: BootstrapMo
   ].join('\n');
 }
 
-function renderLessons(): string {
-  return ['# LESSONS.md', '', '## Reusable lessons', '', '- Bootstrap evidence is recorded as a receipt and must not be inferred from file existence alone.', '- Unknown adoption facts remain visible until a source and authority promote them.', ''].join('\n');
+function renderLessons(preservedLessonsDocument: string | null = null): string {
+  if (preservedLessonsDocument !== null) return canonicalizeLessonsDocumentForBootstrap(preservedLessonsDocument, 'docs/workflow/LESSONS.md');
+  return [
+    '# LESSONS.md',
+    '',
+    '## 使用规则',
+    '',
+    '- 只记录跨任务可复用的经验',
+    '- 每条经验都要说明触发信号和应对动作',
+    '- 不要把一次性聊天过程原样粘贴到这里',
+    '',
+    '## 通用',
+    '',
+    '### Lesson 模板',
+    '',
+    '- 场景：',
+    '- 结论：',
+    '- 触发信号：',
+    '- 应对动作：',
+    '',
+    '## 数据与存储',
+    '',
+    '- 场景：',
+    '  - 结论：',
+    '  - 触发信号：',
+    '  - 应对动作：',
+    '',
+    '## 前端与交互',
+    '',
+    '- 场景：',
+    '  - 结论：',
+    '  - 触发信号：',
+    '  - 应对动作：',
+    '',
+    '## 后端与服务',
+    '',
+    '- 场景：',
+    '  - 结论：',
+    '  - 触发信号：',
+    '  - 应对动作：',
+    '',
+    '## 测试与回归',
+    '',
+    '- 场景：',
+    '  - 结论：',
+    '  - 触发信号：',
+    '  - 应对动作：',
+    '',
+    '## 部署与运行时',
+    '',
+    '- 场景：',
+    '  - 结论：',
+    '  - 触发信号：',
+    '  - 应对动作：',
+    '',
+  ].join('\n');
 }
 
 function renderRoadmap(project: { name: string; slug: string }, mode: BootstrapMode, baseline?: Record<string, string>, preservedBaselineKeys: readonly string[] = []): string {
@@ -673,22 +758,22 @@ function mergeAssets(...groups: BootstrapAsset[][]): BootstrapAsset[] {
   return [...map.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function renderGovernanceDocument(file: string, project: { name: string; slug: string }, mode: BootstrapMode, facts: BootstrapSupportFact[], baseline: Record<string, string>, preservedBaselineKeys: readonly string[] = []): string {
-  if (file.endsWith('/CONTRACTS.md')) return renderContracts(project, facts);
-  if (file.endsWith('/DECISIONS.md')) return renderDecisions(project, mode, facts);
-  if (file.endsWith('/STATUS.md')) return renderStatus(project, mode);
-  if (file.endsWith('/LESSONS.md')) return renderLessons();
+function renderGovernanceDocument(file: string, project: { name: string; slug: string }, mode: BootstrapMode, facts: BootstrapSupportFact[], baseline: Record<string, string>, preservedBaselineKeys: readonly string[] = [], existingGovernance: BootstrapGovernanceState | null = null): string {
+  if (file.endsWith('/CONTRACTS.md')) return renderContracts(project, facts, existingGovernance?.contractRecordsSection);
+  if (file.endsWith('/DECISIONS.md')) return renderDecisions(project, mode, facts, false, existingGovernance?.decisionRecordsSection);
+  if (file.endsWith('/STATUS.md')) return renderStatus(project, mode, existingGovernance?.statusDocument);
+  if (file.endsWith('/LESSONS.md')) return renderLessons(existingGovernance?.lessonsDocument);
   if (file.endsWith('/ROADMAP.md')) return renderRoadmap(project, mode, baseline, preservedBaselineKeys);
   return renderWorkflowGuide(project);
 }
 
-function makeGovernanceAssets(root: string, project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapSupportHost, facts: BootstrapSupportFact[], baseline: Record<string, string>, preservedBaselineKeys: readonly string[] = []): BootstrapAsset[] {
+function makeGovernanceAssets(root: string, project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapSupportHost, facts: BootstrapSupportFact[], baseline: Record<string, string>, preservedBaselineKeys: readonly string[] = [], existingGovernance: BootstrapGovernanceState | null = null): BootstrapAsset[] {
   const templatePath = targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
   if (!fs.existsSync(templatePath) || !fs.statSync(templatePath).isFile()) fail('BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID', `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
   return [
     { path: PROJECT_PROFILE_RELATIVE_PATH, category: 'config', content: renderProfile(project, targetIdentity, mode, host, existingProfile(root)) },
     { path: CURRENT_TASK_RELATIVE_PATH, category: 'generated', content: fs.readFileSync(templatePath, 'utf8') },
-    ...FULL_WORKFLOW_DOCS.map(file => ({ path: file, category: 'governance' as const, content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys) })),
+    ...FULL_WORKFLOW_DOCS.map(file => ({ path: file, category: 'governance' as const, content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: 'AGENTS.md', category: 'governance', content: renderGuidance(project) },
     { path: 'CLAUDE.md', category: 'governance', content: renderGuidance(project) },
   ];
@@ -740,14 +825,21 @@ function semanticOperations(assets: readonly BootstrapAsset[], mode: BootstrapMo
 }
 
 function normalizeFacts(value: BootstrapSupportFact[] | undefined, location: string): BootstrapSupportFact[] {
-  return (value ?? []).map((fact, index) => {
-    if (!fact || typeof fact.key !== 'string' || typeof fact.value !== 'string' || typeof fact.source !== 'string' || !['confirmed', 'inferred', 'unknown'].includes(fact.certainty)) fail('BOOTSTRAP_SUPPORT_INPUT_INVALID', `${location}[${index}] is invalid.`);
-    return { key: fact.key.trim(), value: fact.value.trim(), source: fact.source.trim(), certainty: fact.certainty };
-  });
+  try {
+    return normalizeCanonicalGovernanceFacts(value, location, 'BOOTSTRAP_SUPPORT_INPUT_INVALID') as BootstrapSupportFact[];
+  } catch (error) {
+    if (error instanceof BootstrapSupportError) throw error;
+    fail('BOOTSTRAP_SUPPORT_INPUT_INVALID', error instanceof Error ? error.message : String(error));
+  }
 }
 
 function normalizeBaseline(value: Record<string, string> | undefined): Record<string, string> {
-  return Object.fromEntries(Object.entries(value ?? {}).filter(([key, entry]) => key.trim() && typeof entry === 'string' && entry.trim()).map(([key, entry]) => [key.trim(), entry.trim()]));
+  try {
+    return normalizeCanonicalBaselineEntries(value, 'designBaseline', 'BOOTSTRAP_SUPPORT_INPUT_INVALID');
+  } catch (error) {
+    if (error instanceof BootstrapSupportError) throw error;
+    fail('BOOTSTRAP_SUPPORT_INPUT_INVALID', error instanceof Error ? error.message : String(error));
+  }
 }
 
 function existingIsWorkflowOwned(root: string, relative: string, receipt: BootstrapReceipt | null = null): boolean {
@@ -928,13 +1020,22 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
   const callerFacts = normalizeFacts(options.mode === 'inventory' ? (options.inventoryFacts ?? options.confirmedFacts) : options.confirmedFacts, options.mode === 'inventory' ? 'inventoryFacts' : 'confirmedFacts');
   const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, classification.receipt, classification.migration);
   if (modeIssues.length > 0) fail(modeIssues[0]!.code, modeIssues.map(issue => issue.message).join(' '));
-  const existingGovernance = options.mode === 'realign' ? readExistingGovernanceState(root) : { facts: [], designBaselineKeys: [] };
+  const existingGovernance: BootstrapGovernanceState = options.mode === 'realign'
+    ? readExistingGovernanceState(root)
+    : {
+      facts: [],
+      designBaselineKeys: [],
+      contractRecordsSection: null,
+      decisionRecordsSection: null,
+      statusDocument: null,
+      lessonsDocument: null,
+    };
   const facts = options.mode === 'realign' ? mergeGovernanceFacts(existingGovernance.facts, callerFacts) : callerFacts;
   const baselineKeys = options.mode === 'realign'
     ? mergeDesignBaselineKeys(existingGovernance.designBaselineKeys, baseline)
     : Object.keys(baseline).sort((left, right) => left.localeCompare(right));
   let assets = ['greenfield', 'adopt', 'realign'].includes(options.mode)
-    ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys)
+    ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys, existingGovernance)
     : makeModeAssets(root, project, options.mode, baseline, facts);
   if (options.mode === 'adopt') assets = mergeAssets(assets, [{ path: 'docs/adoption/ADOPTION_DECISION.md', category: 'governance', content: renderDecisions(project, options.mode, facts) }]);
   if (options.mode === 'realign') {
@@ -992,6 +1093,58 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
   return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint };
 }
 
+/**
+ * Preserve replay of realign receipts produced before the current Runtime
+ * preservation readers existed. A valid receipt already authenticates every
+ * managed byte, so an unchanged replay must not force an old-but-valid
+ * workflow document through today's stricter canonicalizer.
+ */
+function replayUnchangedRealignment(
+  root: string,
+  options: BootstrapSupportOptions,
+  classification: BootstrapTargetClassification,
+): BootstrapSupportPlan | null {
+  const receipt = classification.receipt;
+  if (options.mode !== 'realign' || classification.state !== 'valid' || !receipt || receipt.mode !== 'realign') return null;
+
+  const project = resolveProject(root, options, receipt);
+  const host = options.host ?? 'codex';
+  const baseline = normalizeBaseline(options.designBaseline);
+  const callerFacts = normalizeFacts(options.confirmedFacts, 'confirmedFacts');
+  if (modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, receipt, classification.migration).length > 0) return null;
+
+  const existing = readExistingBootstrapProjection(root);
+  const facts = mergeGovernanceFacts(existing.facts, callerFacts);
+  const targetIdentity = computeBootstrapTargetIdentity(root);
+  const inputFingerprint = digest({
+    mode: options.mode,
+    project,
+    host,
+    baseline,
+    facts,
+    targetIdentity,
+  });
+  if (receipt.input_fingerprint !== inputFingerprint) return null;
+
+  return {
+    status: 'replayed',
+    target_root: root,
+    target_state: 'valid',
+    target_identity: targetIdentity,
+    mode: options.mode,
+    project,
+    host: receipt.host,
+    source: receipt.source,
+    planned_writes: [],
+    planned_directories: [],
+    planned_deletes: [],
+    changed_paths: [],
+    blockers: [],
+    warnings: [],
+    read_back_verified: true,
+  };
+}
+
 function publicPlan(plan: BootstrapSupportPlan): Omit<BootstrapSupportPlan, 'proposal'> {
   const { proposal: _proposal, ...publicValue } = plan;
   return publicValue;
@@ -1020,6 +1173,8 @@ export function bootstrapProjectTargetLocal(options: BootstrapSupportOptions): B
     migrationAdmission: options.migrationAdmission,
   });
   try {
+    const replay = replayUnchangedRealignment(root, options, classification);
+    if (replay) return replay;
     const prepared = prepareProposal(options, distribution, classification);
     const proposal = prepared.proposal;
     if (classification.state === 'valid' && classification.receipt && classification.receipt.mode === options.mode) {

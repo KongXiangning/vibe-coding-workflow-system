@@ -56,9 +56,10 @@ import {
 import {
   BOOTSTRAP_MODES,
   BOOTSTRAP_OPERATION_KINDS,
+  type BootstrapMode,
 } from './bootstrap';
 import {
-  STATUS_REQUIRED_SECTION_TITLES,
+  STATUS_SECTION_KEYS,
   STATUS_SECTIONS,
   type StatusSectionKey,
 } from './status-schema';
@@ -2515,7 +2516,8 @@ function validateArchiveDelta(value: unknown): ArchiveDelta {
   };
 }
 
-const LESSON_CATEGORIES: LessonCandidate['category'][] = ['通用', '数据与存储', '前端与交互', '后端与服务', '测试与回归', '部署与运行时'];
+const LESSON_CATEGORIES = ['通用', '数据与存储', '前端与交互', '后端与服务', '测试与回归', '部署与运行时'] as const satisfies readonly LessonCandidate['category'][];
+const LESSON_REQUIRED_SECTION_HEADINGS = ['使用规则', ...LESSON_CATEGORIES] as const;
 
 function validateLessonCandidate(value: unknown, location: string): LessonCandidate {
   const record = expectRecord(value, location);
@@ -3416,6 +3418,139 @@ function findUniqueMarkdownSection(
   );
   if (matches.length > 1) fail('RUNTIME_SECTION_INVALID', `CURRENT_TASK contains duplicate replacement sections: ${aliases.join(' / ')}.`);
   return matches[0] ?? null;
+}
+
+/**
+ * Read a canonical Markdown section through the Runtime's section grammar.
+ * Bootstrap uses this instead of maintaining a second heading/section parser.
+ */
+export function readCanonicalMarkdownSection(
+  content: string,
+  aliases: readonly string[],
+  level = 2,
+): string | null {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), aliases, level);
+  return section ? content.slice(section.contentStart, section.contentEnd) : null;
+}
+
+export type CanonicalGovernanceFact = {
+  key: string;
+  value: string;
+  source: string;
+  certainty: 'confirmed' | 'inferred' | 'unknown';
+};
+
+const CANONICAL_GOVERNANCE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
+
+function canonicalGovernanceFail(code: string, location: string, message: string): never {
+  fail(code, `${location} ${message}`);
+}
+
+export function normalizeCanonicalGovernanceInlineText(value: string, location: string, code = 'GOVERNANCE_INPUT_INVALID'): string {
+  const normalized = value.trim();
+  if (
+    normalized.length === 0
+    || /[\r\n\0\x01-\x1f\x7f]/u.test(normalized)
+    || /```/u.test(normalized)
+    || /<!--|-->/u.test(normalized)
+    || /^(?:#{1,6}\s|[-*+]\s|>\s)/u.test(normalized)
+    || /^[-*_]{3,}$/u.test(normalized)
+  ) {
+    canonicalGovernanceFail(code, location, 'must be a non-empty single-line Markdown-safe value.');
+  }
+  return normalized;
+}
+
+export function normalizeCanonicalGovernanceKey(value: string, location: string, code = 'GOVERNANCE_INPUT_INVALID'): string {
+  const normalized = value.trim();
+  if (!CANONICAL_GOVERNANCE_KEY_PATTERN.test(normalized)) {
+    canonicalGovernanceFail(code, location, 'must match the canonical key grammar [A-Za-z0-9][A-Za-z0-9._/-]*.');
+  }
+  return normalized;
+}
+
+export function normalizeCanonicalGovernanceFacts(
+  value: readonly unknown[] | undefined,
+  location: string,
+  code = 'GOVERNANCE_INPUT_INVALID',
+): CanonicalGovernanceFact[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) canonicalGovernanceFail(code, location, 'must be an array.');
+  const result = new Map<string, CanonicalGovernanceFact>();
+  for (const [index, raw] of value.entries()) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) canonicalGovernanceFail(code, `${location}[${index}]`, 'must be a fact mapping.');
+    const fact = raw as Record<string, unknown>;
+    if (typeof fact.key !== 'string' || typeof fact.value !== 'string' || typeof fact.source !== 'string' || !['confirmed', 'inferred', 'unknown'].includes(fact.certainty as string)) {
+      canonicalGovernanceFail(code, `${location}[${index}]`, 'has an invalid key, value, source, or certainty.');
+    }
+    const normalized: CanonicalGovernanceFact = {
+      key: normalizeCanonicalGovernanceKey(fact.key as string, `${location}[${index}].key`, code),
+      value: normalizeCanonicalGovernanceInlineText(fact.value as string, `${location}[${index}].value`, code),
+      source: normalizeCanonicalGovernanceInlineText(fact.source as string, `${location}[${index}].source`, code),
+      certainty: fact.certainty as CanonicalGovernanceFact['certainty'],
+    };
+    if (/\s+\(source:\s|\s+\[(?:confirmed|inferred|unknown);\s+source:\s/u.test(normalized.value)) {
+      canonicalGovernanceFail(code, `${location}[${index}].value`, 'contains a reserved fact rendering delimiter.');
+    }
+    const previous = result.get(normalized.key);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(normalized)) {
+      canonicalGovernanceFail(code, `${location}[${index}].key`, `conflicts with another fact for key ${normalized.key}.`);
+    }
+    if (!previous) result.set(normalized.key, normalized);
+  }
+  return [...result.values()];
+}
+
+export function parseCanonicalGovernanceFactLines(lines: readonly string[], location: string): CanonicalGovernanceFact[] {
+  const parsed: CanonicalGovernanceFact[] = [];
+  for (const [index, line] of lines.entries()) {
+    const normalized = line.trim();
+    if (!normalized.startsWith('- ') || normalized === '- none') continue;
+    const confirmed = /^-\s+([^:\r\n]+):\s+(.+?)\s+\(source:\s+(.+)\)$/u.exec(normalized);
+    if (confirmed) {
+      parsed.push({ key: confirmed[1]!, value: confirmed[2]!, source: confirmed[3]!, certainty: 'confirmed' });
+      continue;
+    }
+    const unresolved = /^-\s+([^:\r\n]+):\s+(.+?)\s+\[(confirmed|inferred|unknown);\s+source:\s+(.+)\]$/u.exec(normalized);
+    if (unresolved) {
+      parsed.push({ key: unresolved[1]!, value: unresolved[2]!, source: unresolved[4]!, certainty: unresolved[3] as CanonicalGovernanceFact['certainty'] });
+      continue;
+    }
+    if (normalized.includes(':')) canonicalGovernanceFail('GOVERNANCE_FACT_INVALID', `${location}:${index + 1}`, 'contains an unreadable canonical fact.');
+  }
+  return normalizeCanonicalGovernanceFacts(parsed, location, 'GOVERNANCE_FACT_INVALID');
+}
+
+export function normalizeCanonicalBaselineEntries(
+  value: Record<string, string> | undefined,
+  location: string,
+  code = 'GOVERNANCE_INPUT_INVALID',
+): Record<string, string> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) canonicalGovernanceFail(code, location, 'must be a mapping.');
+  const result: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = normalizeCanonicalGovernanceKey(rawKey, `${location}.${rawKey}`, code);
+    if (key === 'none') canonicalGovernanceFail(code, `${location}.${rawKey}`, 'cannot use the reserved empty-baseline placeholder key "none".');
+    if (typeof rawValue !== 'string') canonicalGovernanceFail(code, `${location}.${rawKey}`, 'must have a string value.');
+    const normalizedValue = normalizeCanonicalGovernanceInlineText(rawValue, `${location}.${rawKey}`, code);
+    if (key in result && result[key] !== normalizedValue) canonicalGovernanceFail(code, `${location}.${rawKey}`, `conflicts with another baseline entry for key ${key}.`);
+    result[key] = normalizedValue;
+  }
+  return result;
+}
+
+export function parseCanonicalBaselineKeys(lines: readonly string[], location: string): string[] {
+  const result = new Set<string>();
+  for (const [index, line] of lines.entries()) {
+    const normalized = line.trim();
+    if (!normalized.startsWith('- ')) continue;
+    const rawKey = normalized.slice(2).trim();
+    if (!rawKey || rawKey === 'none') continue;
+    const key = normalizeCanonicalGovernanceKey(rawKey, `${location}:${index + 1}`, 'GOVERNANCE_BASELINE_INVALID');
+    result.add(key);
+  }
+  return [...result].sort((left, right) => left.localeCompare(right));
 }
 
 function resolveReplanSectionRanges(body: string): Partial<Record<ReplanSectionKey, MarkdownSectionRange>> {
@@ -4648,6 +4783,8 @@ type StatusReceipt = {
   evidenceRefs: string[];
 };
 
+export type StatusReconciliationReceipt = StatusReceipt;
+
 function renderStatusReconciliation(proposal: ProjectStatusProposal, delta: ProjectStatusDelta, archive: ArchiveReceipt): string {
   return [
     STATUS_RECONCILIATION_BEGIN,
@@ -4787,17 +4924,108 @@ function validateStatusProjectionText(value: string, location: string): string {
 }
 
 function requiredStatusSection(content: string, sectionKey: StatusSectionKey, location: string): MarkdownSectionRange {
-  const title = STATUS_SECTIONS[sectionKey].title;
-  const section = findUniqueMarkdownSection(scanMarkdownSections(content), [title], 2);
+  const definition = STATUS_SECTIONS[sectionKey];
+  const title = definition.title;
+  const aliases = 'aliases' in definition ? definition.aliases : [title];
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), aliases, 2);
   if (!section) fail('STATUS_INVALID', `${location} is missing the required ## ${title} section.`);
   return section;
 }
 
 export function validateStatusDocument(content: string, location = 'STATUS.md'): void {
   const sections = scanMarkdownSections(content);
-  for (const title of STATUS_REQUIRED_SECTION_TITLES) {
-    if (!findUniqueMarkdownSection(sections, [title], 2)) fail('STATUS_INVALID', `${location} is missing the required ## ${title} section.`);
+  for (const key of STATUS_SECTION_KEYS) {
+    const definition = STATUS_SECTIONS[key];
+    const title = definition.title;
+    const aliases = 'aliases' in definition ? definition.aliases : [title];
+    if (!findUniqueMarkdownSection(sections, aliases, 2)) fail('STATUS_INVALID', `${location} is missing the required ## ${title} section.`);
   }
+}
+
+export function readStatusReconciliationReceipts(content: string, location = 'STATUS.md'): StatusReconciliationReceipt[] {
+  validateStatusDocument(content, location);
+  const beginCount = countExactOccurrences(content, STATUS_RECONCILIATION_BEGIN);
+  const endCount = countExactOccurrences(content, STATUS_RECONCILIATION_END);
+  if (beginCount !== endCount) fail('STATUS_INVALID', `${location} contains an incomplete reconciliation marker.`);
+  return readStatusReceipts(content, location).map(receipt => ({
+    ...receipt,
+    completedItems: [...receipt.completedItems],
+    remainingRisks: [...receipt.remainingRisks],
+    evidenceRefs: [...receipt.evidenceRefs],
+  }));
+}
+
+function canonicalizeStatusOverviewLines(
+  lines: readonly string[],
+  project: { name: string; slug: string },
+  mode: BootstrapMode,
+  location: string,
+): string[] {
+  const fields = [
+    { pattern: /^-\s*(?:项目|project)\s*[:：]\s*.*$/i, line: `- 项目：${project.name}` },
+    { pattern: /^-\s*(?:slug|project[_ ]slug)\s*[:：]\s*.*$/i, line: `- slug：${project.slug}` },
+    { pattern: /^-\s*(?:bootstrap[_ ]mode|bootstrap mode)\s*[:：]\s*.*$/i, line: `- bootstrap mode：${mode}` },
+  ] as const;
+  const next = [...lines];
+  for (const field of fields) {
+    const matches = next
+      .map((line, index) => ({ line, index }))
+      .filter(item => field.pattern.test(item.line));
+    if (matches.length > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains multiple Bootstrap overview fields.`);
+    if (matches.length === 1) next[matches[0]!.index] = field.line;
+    else next.push(field.line);
+  }
+  return next;
+}
+
+/**
+ * Canonicalize the Bootstrap-owned STATUS structure without re-projecting any
+ * Runtime-owned status section or reconciliation receipt. This is shared with
+ * Bootstrap so the Runtime remains the only STATUS semantic parser.
+ */
+export function canonicalizeStatusDocumentForBootstrap(
+  content: string,
+  project: { name: string; slug: string },
+  mode: BootstrapMode,
+  location = 'STATUS.md',
+): string {
+  readStatusReconciliationReceipts(content, location);
+  const sections = scanMarkdownSections(content);
+  const canonicalSections = new Set<number>();
+  const output: string[] = [];
+  const firstTopLevel = sections
+    .filter(section => section.level === 2)
+    .sort((left, right) => left.headingStart - right.headingStart)[0];
+  const prefix = firstTopLevel
+    ? content.slice(0, firstTopLevel.headingStart).replace(/\r\n?/g, '\n').trimEnd()
+    : '';
+  output.push(prefix || '# STATUS.md', '');
+
+  for (const key of STATUS_SECTION_KEYS) {
+    const definition = STATUS_SECTIONS[key];
+    const aliases = 'aliases' in definition ? definition.aliases : [definition.title];
+    const section = findUniqueMarkdownSection(sections, aliases, 2);
+    if (!section) fail('STATUS_INVALID', `${location} is missing the required ## ${definition.title} section.`);
+    canonicalSections.add(section.headingStart);
+    const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trim();
+    const bodyLines = body.length > 0 ? body.split('\n') : [];
+    output.push(
+      `## ${definition.title}`,
+      '',
+      ...(key === 'overview' ? canonicalizeStatusOverviewLines(bodyLines, project, mode, location) : bodyLines),
+      '',
+    );
+  }
+
+  for (const section of sections.filter(item => item.level === 2).sort((left, right) => left.headingStart - right.headingStart)) {
+    if (canonicalSections.has(section.headingStart)) continue;
+    const preserved = content.slice(section.headingStart, section.contentEnd).replace(/\r\n?/g, '\n').trimEnd();
+    if (preserved.trim().length > 0) output.push(preserved, '');
+  }
+
+  const next = output.join('\n');
+  readStatusReconciliationReceipts(next, location);
+  return next;
 }
 
 function readStatusSectionLines(content: string, sectionKey: StatusSectionKey, location: string): string[] {
@@ -5365,6 +5593,88 @@ export function readDurableLessonRecords(content: string, location: string): Dur
   return allRecords;
 }
 
+/**
+ * Validate and preserve the canonical Lessons document for Bootstrap
+ * realignment. Lessons have no Bootstrap-owned projection; their structure is
+ * therefore retained only after the Runtime's category and provenance checks.
+ */
+export function readCanonicalLessonsDocument(content: string, location: string): string {
+  const sections = scanMarkdownSections(content);
+  for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+    if (!findUniqueMarkdownSection(sections, [heading], 2)) fail('LESSON_INVALID', `${location} is missing the required ## ${heading} section.`);
+  }
+  readDurableLessonRecords(content, location);
+  return content;
+}
+
+function isLegacyBootstrapLessonsDocument(content: string, location: string): boolean {
+  const sections = scanMarkdownSections(content);
+  const topLevelTitles = sections
+    .filter(section => section.level === 2)
+    .map(section => section.title);
+  const isLegacySingleSection = topLevelTitles.length === 1 && topLevelTitles[0] === 'Reusable lessons';
+  const isLegacyPairedSections = topLevelTitles.length === 2 && topLevelTitles.includes('使用规则') && topLevelTitles.includes('Reusable lessons');
+  if (!isLegacySingleSection && !isLegacyPairedSections) return false;
+  readDurableLessonRecords(content, location);
+  return true;
+}
+
+/**
+ * Read a Bootstrap-managed Lessons document while recognizing the minimal
+ * baseline emitted by older realign receipts. Runtime lesson transactions
+ * still call readCanonicalLessonsDocument and therefore retain the full contract.
+ */
+export function readBootstrapLessonsDocument(content: string, location = 'LESSONS.md'): string {
+  if (isLegacyBootstrapLessonsDocument(content, location)) return content;
+  return readCanonicalLessonsDocument(content, location);
+}
+
+/**
+ * Rebuild only the canonical Lessons section structure while retaining each
+ * validated section body, including Runtime durable records and provenance.
+ */
+export function canonicalizeLessonsDocumentForBootstrap(content: string, location = 'LESSONS.md'): string {
+  const sections = scanMarkdownSections(content);
+  const legacy = isLegacyBootstrapLessonsDocument(content, location);
+  if (!legacy) readCanonicalLessonsDocument(content, location);
+  const canonicalSections = new Set<number>();
+  const firstTopLevel = sections
+    .filter(section => section.level === 2)
+    .sort((left, right) => left.headingStart - right.headingStart)[0];
+  const prefix = firstTopLevel
+    ? content.slice(0, firstTopLevel.headingStart).replace(/\r\n?/g, '\n').trimEnd()
+    : '';
+  const output: string[] = [prefix || '# LESSONS.md', ''];
+  if (legacy) {
+    const rules = findUniqueMarkdownSection(sections, ['使用规则'], 2);
+    const reusable = findUniqueMarkdownSection(sections, ['Reusable lessons'], 2);
+    if (!reusable) fail('LESSON_INVALID', `${location} is missing the legacy Bootstrap Lessons section.`);
+    if (rules) canonicalSections.add(rules.headingStart);
+    canonicalSections.add(reusable.headingStart);
+    const rulesBody = rules ? content.slice(rules.contentStart, rules.contentEnd).replace(/\r\n?/g, '\n').trim() : '';
+    output.push('## 使用规则', '', ...(rulesBody.length > 0 ? rulesBody.split('\n') : []), '');
+    for (const heading of LESSON_CATEGORIES) output.push(`## ${heading}`, '', '- none', '');
+    const reusableBody = content.slice(reusable.contentStart, reusable.contentEnd).replace(/\r\n?/g, '\n').trim();
+    output.push('## Reusable lessons', '', ...(reusableBody.length > 0 ? reusableBody.split('\n') : []), '');
+  } else {
+    for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+      const section = findUniqueMarkdownSection(sections, [heading], 2);
+      if (!section) fail('LESSON_INVALID', `${location} is missing the required ## ${heading} section.`);
+      canonicalSections.add(section.headingStart);
+      const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trim();
+      output.push(`## ${heading}`, '', ...(body.length > 0 ? body.split('\n') : []), '');
+    }
+  }
+  for (const section of sections.filter(item => item.level === 2).sort((left, right) => left.headingStart - right.headingStart)) {
+    if (canonicalSections.has(section.headingStart)) continue;
+    const preserved = content.slice(section.headingStart, section.contentEnd).replace(/\r\n?/g, '\n').trimEnd();
+    if (preserved.trim().length > 0) output.push(preserved, '');
+  }
+  const next = output.join('\n');
+  readCanonicalLessonsDocument(next, location);
+  return next;
+}
+
 function appendLessonCandidates(content: string, candidates: readonly LessonCandidate[], archive: ArchiveReceipt, location: string): { content: string; candidateCount: number } {
   const additions = new Map<LessonCandidate['category'], LessonCandidate[]>();
   for (const candidate of candidates) {
@@ -5458,7 +5768,7 @@ function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentT
   if (!fs.existsSync(target.filePath)) fail('RUNTIME_SOURCE_MISSING', `LESSONS.md is missing: ${target.relativePath}`);
   const originalLessonsContent = fs.readFileSync(target.filePath, 'utf8');
   const sections = scanMarkdownSections(originalLessonsContent);
-  for (const heading of ['使用规则', '通用', '数据与存储', '前端与交互', '后端与服务', '测试与回归', '部署与运行时']) {
+  for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
     if (!findUniqueMarkdownSection(sections, [heading], 2)) fail('LESSON_INVALID', `LESSONS.md is missing the required ## ${heading} section.`);
   }
   const existingRecords = readDurableLessonRecords(originalLessonsContent, target.relativePath);
@@ -5730,6 +6040,25 @@ export function readDurableKnowledgeRecords(content: string, location: string, e
   if (content.includes('<!-- vNext contract record:') && expectedKind !== 'contract') fail('KNOWLEDGE_RECORD_INVALID', `${location} contains a Contract record in the wrong target.`);
   if (content.includes('<!-- vNext decision record:') && expectedKind !== 'decision') fail('KNOWLEDGE_RECORD_INVALID', `${location} contains a Decision record in the wrong target.`);
   return markers;
+}
+
+/**
+ * Read the complete canonical Runtime knowledge section after validating all
+ * durable records through the Runtime parser. Bootstrap preserves this body
+ * while rebuilding the surrounding workflow-owned document structure.
+ */
+export function readCanonicalDurableKnowledgeSection(
+  content: string,
+  location: string,
+  expectedKind: 'contract' | 'decision',
+): string | null {
+  const records = readDurableKnowledgeRecords(content, location, expectedKind);
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), [knowledgeSectionTitle(expectedKind)], 2);
+  if (!section) {
+    if (records.length > 0) fail('KNOWLEDGE_RECORD_INVALID', `${location} durable records are missing their canonical knowledge section.`);
+    return null;
+  }
+  return content.slice(section.contentStart, section.contentEnd);
 }
 
 function appendKnowledgeSectionIfMissing(content: string, knowledgeKind: 'contract' | 'decision'): string {

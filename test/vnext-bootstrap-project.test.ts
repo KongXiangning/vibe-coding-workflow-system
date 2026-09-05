@@ -19,7 +19,35 @@ import {
   STATUS_SCHEMA,
   STATUS_SECTION_KEYS,
   STATUS_SECTIONS,
+  applyVNextRuntimeProposal,
+  createArchiveProposal,
+  createContractCandidateProposal,
+  createDecisionRecordProposal,
+  createLessonRecordProposal,
+  createPrepareTaskConfirmProposal,
+  createPrepareTaskDraftProposal,
+  createProjectStatusProposal,
+  createTaskStateProposal,
+  knowledgeProvenanceFromArchive,
+  readCanonicalCurrentTask,
+  readCanonicalDurableKnowledgeSection,
+  readCanonicalLessonsDocument,
+  readDurableKnowledgeRecords,
+  readDurableLessonRecords,
+  parseCanonicalBaselineKeys,
+  parseCanonicalGovernanceFactLines,
+  readCanonicalMarkdownSection,
+  readStatusReconciliationReceipts,
   validateStatusDocument,
+  type ArchiveDelta,
+  type AuthorityEvidence,
+  type ClosureEvidence,
+  type DeliverySummary,
+  type DraftTaskDefinition,
+  type KnowledgeAdmissionRecord,
+  type KnowledgeCandidate,
+  type LessonRecordDelta,
+  type ProjectStatusDelta,
 } from '../runtime/vnext/src/kernel';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { installDistribution, migrateDistribution, validateInstalledDistribution } from '../scripts/vibe-governance-distribution';
@@ -77,6 +105,139 @@ function assertStatusContract(target: string): void {
   expect(() => validateStatusDocument(status, 'docs/workflow/STATUS.md')).not.toThrow();
 }
 
+function runtimeAuthority(...kinds: AuthorityEvidence['kind'][]): AuthorityEvidence[] {
+  return kinds.map(kind => ({ kind, source: 'docs/workflow/CURRENT_TASK.md', subject: 'realign-persistence' }));
+}
+
+function runtimeConfirmationAuthority(current: ReturnType<typeof readCanonicalCurrentTask>): AuthorityEvidence[] {
+  return [
+    {
+      kind: 'user-confirmation',
+      source: 'docs/workflow/CURRENT_TASK.md',
+      subject: current.runtimeState.task_id,
+      task_id: current.runtimeState.task_id,
+      document_id: current.sourceTuple.document_id,
+      draft_revision: current.sourceTuple.revision,
+    },
+    {
+      kind: 'evidence-admission',
+      source: 'docs/workflow/CURRENT_TASK.md',
+      subject: current.runtimeState.task_id,
+    },
+  ];
+}
+
+function runtimeDraftDefinition(): DraftTaskDefinition {
+  return {
+    background_context: '- persistent realign regression fixture',
+    acceptance: '- [ ] durable Runtime records survive Bootstrap realign',
+    allowed_scope: '- src/**',
+    conditional_scope: '- docs/workflow/** when the typed Runtime transaction requires it',
+    forbidden_scope: '- .git/**',
+    affected_contracts: '- preserve the canonical governance record boundary',
+    confirmed_decisions: '- realign preserves Runtime-owned semantic state',
+    open_questions: '- none',
+    implementation_plan: '- exercise the typed close and reconciliation transactions',
+    implementation_steps: [
+      '- step-1: exercise Runtime durable state',
+      '  - purpose: create a persisted record set before realign',
+      '  - mutation_scope: src/**',
+      '  - required_evidence: realign:evidence:step',
+      '  - review_checkpoint: not-required',
+    ].join('\n'),
+    regression_checks: '- [ ] verify all durable governance documents after realign',
+    rollback_points: '- restore the canonical fixture if a transaction fails',
+    design_constraints: '- no direct Markdown record append',
+    post_release_validation: '- no release validation is required',
+    propagation_governance: '- preserve Runtime provenance markers',
+  };
+}
+
+function runtimeClosureEvidence(): ClosureEvidence {
+  const notTriggered = { triggered: false, complete: false, evidence_refs: [] as string[] };
+  return {
+    acceptance_satisfied: true,
+    validation_complete: true,
+    no_admitted_or_in_progress_findings: true,
+    no_unresolved_closure_blocker: true,
+    release_evidence: { ...notTriggered },
+    rollback_evidence: { ...notTriggered },
+    observation_evidence: { ...notTriggered },
+    remaining_risks_non_blocking: true,
+    archive_path_verified: true,
+  };
+}
+
+function runtimeDeliverySummary(): DeliverySummary {
+  return {
+    goal: 'prove Bootstrap realign preservation',
+    actual_changes: ['completed the disposable persistence task'],
+    verification: ['typed Runtime persistence transactions passed'],
+    release_evidence: [],
+    rollback_evidence: [],
+    observation_evidence: [],
+    next_action: 'replay the realign preparation',
+  };
+}
+
+function runtimeKnowledgeCandidate(kind: 'contract' | 'decision', candidateId: string): KnowledgeCandidate {
+  const evidenceRef = `realign:evidence:${candidateId}`;
+  return {
+    candidateId,
+    kind,
+    fingerprint: `realign-${kind}-fingerprint`,
+    statement: `The ${kind} durable record survives Bootstrap realignment.`,
+    sourceRefs: [{ locator: 'src/realign-persistence.ts#fixture', revision: 'realign-fixture-r1' }],
+    applicability: {
+      projectTypes: ['application'],
+      pathsSymbolsOrSurfaces: ['src/realign-persistence.ts'],
+      triggerConditions: ['Bootstrap realign runs after Runtime persistence'],
+    },
+    authoritySource: kind === 'decision' ? 'user' : 'verified-evidence',
+    stability: 'stable',
+    evidenceRefs: [evidenceRef],
+    noveltyAgainst: [],
+    conflictSet: [],
+    supersedes: null,
+    reviewOrExpiryTrigger: null,
+    expectedConsumers: ['realign-persistence-regression'],
+    ...(kind === 'decision' ? {
+      decisionContext: {
+        alternatives: ['rebuild the document from the Bootstrap baseline'],
+        constraints: ['preserve canonical Runtime state'],
+      },
+    } : {}),
+  };
+}
+
+function runtimeKnowledgeAdmission(candidate: KnowledgeCandidate): KnowledgeAdmissionRecord {
+  return {
+    candidate,
+    disposition: 'admit',
+    matched_knowledge_id: null,
+    reasons: ['admitted for the persistent realign regression fixture'],
+  };
+}
+
+function runtimeLessonDelta(): LessonRecordDelta {
+  return {
+    kind: 'lesson-record',
+    action: 'record',
+    candidates: [{
+      candidate_ref: 'realign-preservation-lesson',
+      category: '测试与回归',
+      scene: 'A Runtime transaction persisted governance state before Bootstrap realign.',
+      conclusion: 'Realign must preserve canonical Runtime records and provenance.',
+      trigger: 'A governance realign follows close-task reconciliation.',
+      cause: 'Regenerating the initial templates discards durable Runtime state.',
+      action: 'Read and validate canonical state before rebuilding owned structure.',
+      consumer: 'Bootstrap realign regression guard',
+      evidence_refs: ['realign:evidence:lesson'],
+    }],
+    evidence_refs: ['realign:evidence:lesson'],
+  };
+}
+
 function makeLegacyGovernedTarget(): string {
   const target = targetRoot();
   fs.cpSync(path.join(ROOT, '.workflow-system'), path.join(target, '.workflow-system'), { recursive: true });
@@ -129,7 +290,147 @@ describe('vNext bootstrap-project', () => {
     expect(STATUS_SECTIONS.recentUpdates.aliases).toEqual(['最近更新记录', 'Recent Updates']);
   });
 
-  test('promotes a disposable project, proves the target Runtime, and replays as a no-op', { timeout: 30000 }, () => {
+  test('round-trips normalized fact and baseline inputs through the canonical Markdown grammar', { timeout: 30000 }, () => {
+    const target = targetRoot();
+    const facts: NonNullable<BootstrapProjectOptions['confirmedFacts']> = [
+      { key: ' project-name ', value: ' Bootstrap: Project ', source: ' source: caller ', certainty: 'confirmed' },
+      { key: 'project-name', value: 'Bootstrap: Project', source: 'source: caller', certainty: 'confirmed' },
+      { key: 'tech-runtime', value: 'Node.js', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'ui-direction', value: 'governance-first', source: 'greenfield inference', certainty: 'inferred' },
+      { key: 'deployment-target', value: 'not supplied', source: 'greenfield inventory', certainty: 'unknown' },
+    ];
+    const baseline = { ' architecture ': ' confirmed architecture baseline ' };
+    const common: BootstrapProjectOptions = { ...options(target), confirmedFacts: facts, designBaseline: baseline };
+    installDistributionFixture(target);
+    const preview = buildBootstrapPlan(common);
+    expect(preview.status).toBe('ready');
+    expect(bootstrapProject({ ...common, write: true, changedPaths: preview.planned_writes }).status).toBe('installed');
+
+    const contracts = fs.readFileSync(path.join(target, 'docs', 'workflow', 'CONTRACTS.md'), 'utf8');
+    const decisions = fs.readFileSync(path.join(target, 'docs', 'workflow', 'DECISIONS.md'), 'utf8');
+    const roadmap = fs.readFileSync(path.join(target, 'docs', 'workflow', 'ROADMAP.md'), 'utf8');
+    const confirmedBody = readCanonicalMarkdownSection(contracts, ['Confirmed boundaries']);
+    const unresolvedFactsBody = readCanonicalMarkdownSection(decisions, ['Inferred or unknown facts']);
+    const baselineBody = readCanonicalMarkdownSection(roadmap, ['Design baseline consumed']);
+    expect(confirmedBody).not.toBeNull();
+    expect(unresolvedFactsBody).not.toBeNull();
+    expect(baselineBody).not.toBeNull();
+    expect(parseCanonicalGovernanceFactLines(confirmedBody!.split(/\r?\n/u), 'CONTRACTS.md > Confirmed boundaries')).toEqual([
+      { key: 'project-name', value: 'Bootstrap: Project', source: 'source: caller', certainty: 'confirmed' },
+      { key: 'tech-runtime', value: 'Node.js', source: 'greenfield witness', certainty: 'confirmed' },
+    ]);
+    expect(parseCanonicalGovernanceFactLines(unresolvedFactsBody!.split(/\r?\n/u), 'DECISIONS.md > Inferred or unknown facts')).toEqual([
+      { key: 'ui-direction', value: 'governance-first', source: 'greenfield inference', certainty: 'inferred' },
+      { key: 'deployment-target', value: 'not supplied', source: 'greenfield inventory', certainty: 'unknown' },
+    ]);
+    expect(parseCanonicalBaselineKeys(baselineBody!.split(/\r?\n/u), 'ROADMAP.md > Design baseline consumed')).toEqual(['architecture']);
+    expect(contracts.match(/- project-name: Bootstrap: Project \(source: source: caller\)/gu)).toHaveLength(1);
+
+    const realignOptions: BootstrapProjectOptions = {
+      ...common,
+      mode: 'realign',
+      confirmedFacts: undefined,
+      designBaseline: undefined,
+      designConfirmed: undefined,
+    };
+    const realign = buildBootstrapPlan(realignOptions);
+    expect(realign.status).toBe('ready');
+    expect(bootstrapProject({ ...realignOptions, write: true, changedPaths: realign.planned_writes }).status).toBe('installed');
+    expect(fs.readFileSync(path.join(target, 'docs', 'workflow', 'CONTRACTS.md'), 'utf8')).toContain('- project-name: Bootstrap: Project (source: source: caller)');
+    expect(fs.readFileSync(path.join(target, 'docs', 'workflow', 'ROADMAP.md'), 'utf8')).toContain('- architecture');
+  });
+
+  test('replays an older realign receipt without forcing its legacy Lessons layout through the new canonicalizer', { timeout: 30000 }, () => {
+    const target = targetRoot();
+    const common = options(target);
+    installDistributionFixture(target);
+    const bootstrapPreview = buildBootstrapPlan(common);
+    expect(bootstrapPreview.status).toBe('ready');
+    expect(bootstrapProject({ ...common, write: true, changedPaths: bootstrapPreview.planned_writes }).status).toBe('installed');
+
+    const realignOptions: BootstrapProjectOptions = {
+      ...common,
+      mode: 'realign',
+      confirmedFacts: undefined,
+      designBaseline: undefined,
+      designConfirmed: undefined,
+    };
+    const realignPreview = buildBootstrapPlan(realignOptions);
+    expect(realignPreview.status).toBe('ready');
+    expect(bootstrapProject({ ...realignOptions, write: true, changedPaths: realignPreview.planned_writes }).status).toBe('installed');
+
+    const legacyLessons = [
+      '# LESSONS.md',
+      '',
+      '## Reusable lessons',
+      '',
+      '- Bootstrap evidence is recorded as a receipt and must not be inferred from file existence alone.',
+      '- Unknown adoption facts remain visible until a source and authority promote them.',
+      '',
+    ].join('\n');
+    const lessonsPath = path.join(target, 'docs', 'workflow', 'LESSONS.md');
+    fs.writeFileSync(lessonsPath, legacyLessons, 'utf8');
+    const receiptPath = path.join(target, '.workflow-system', 'vnext', 'BOOTSTRAP_RECEIPT.json');
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')) as { mode: string; managed_files: Array<{ path: string; checksum: string }> };
+    const lessonsReceipt = receipt.managed_files.find(file => file.path === 'docs/workflow/LESSONS.md');
+    expect(receipt.mode).toBe('realign');
+    expect(lessonsReceipt).toBeDefined();
+    lessonsReceipt!.checksum = crypto.createHash('sha256').update(legacyLessons).digest('hex');
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+
+    expect(buildBootstrapPlan(realignOptions).status).toBe('replayed');
+    expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(legacyLessons);
+
+    const guidePath = path.join(target, 'docs', 'workflow', 'WORKFLOW_GUIDE.md');
+    fs.appendFileSync(guidePath, '\n<!-- force a realign after the legacy receipt -->\n', 'utf8');
+    const staleRealignPreview = buildBootstrapPlan(realignOptions);
+    expect(staleRealignPreview.status).toBe('ready');
+    expect(bootstrapProject({ ...realignOptions, write: true, changedPaths: staleRealignPreview.planned_writes }).status).toBe('installed');
+    const upgradedLessons = fs.readFileSync(lessonsPath, 'utf8');
+    expect(() => readCanonicalLessonsDocument(upgradedLessons, 'docs/workflow/LESSONS.md')).not.toThrow();
+    expect(upgradedLessons).toContain('- Bootstrap evidence is recorded as a receipt and must not be inferred from file existence alone.');
+  });
+
+  test('fails closed for non-round-trippable Bootstrap facts and baseline entries', { timeout: 60000 }, () => {
+    const invalidCases: Array<{ name: string; options: (target: string) => BootstrapProjectOptions }> = [
+      {
+        name: 'fact key with a colon',
+        options: target => ({ ...options(target), confirmedFacts: [{ key: 'runtime:version', value: 'Node.js', source: 'caller', certainty: 'confirmed' }] }),
+      },
+      {
+        name: 'fact value with a newline',
+        options: target => ({ ...options(target), confirmedFacts: [{ key: 'runtime-version', value: 'Node.js\nBun', source: 'caller', certainty: 'confirmed' }] }),
+      },
+      {
+        name: 'fact source with a Markdown fence',
+        options: target => ({ ...options(target), confirmedFacts: [{ key: 'runtime-version', value: 'Node.js', source: '```caller```', certainty: 'confirmed' }] }),
+      },
+      {
+        name: 'reserved baseline placeholder key',
+        options: target => ({ ...options(target), designBaseline: { none: 'not a real baseline' } }),
+      },
+      {
+        name: 'baseline value with a newline',
+        options: target => ({ ...options(target), designBaseline: { architecture: 'line one\nline two' } }),
+      },
+      {
+        name: 'conflicting duplicate fact keys',
+        options: target => ({ ...options(target), confirmedFacts: [
+          { key: 'runtime-version', value: 'Node.js', source: 'caller-a', certainty: 'confirmed' },
+          { key: 'runtime-version', value: 'Bun', source: 'caller-b', certainty: 'confirmed' },
+        ] }),
+      },
+    ];
+    for (const invalidCase of invalidCases) {
+      const target = targetRoot();
+      installDistributionFixture(target);
+      const plan = buildBootstrapPlan(invalidCase.options(target));
+      expect(plan.status, invalidCase.name).toBe('blocked');
+      expect(plan.blockers.some(issue => issue.code === 'BOOTSTRAP_SUPPORT_INPUT_INVALID'), invalidCase.name).toBe(true);
+    }
+  });
+
+  test('promotes a disposable project, proves the target Runtime, and replays as a no-op', { timeout: 60000 }, () => {
     expect(P12_BOOTSTRAP_TEST_ADMISSION).toMatchObject({
       decision: 'admitted',
       owner: expect.any(String),
@@ -466,6 +767,192 @@ describe('vNext bootstrap-project', () => {
     expect(roadmapAfterRealign).toContain('- realign bootstrap completed as an administrative workflow operation.');
     expect(decisionsAfterRealign).not.toBe(decisionsBeforeRealign);
     expect(roadmapAfterRealign).not.toBe(roadmapBeforeRealign);
+    expect(buildBootstrapPlan(realignOptions).status).toBe('replayed');
+  });
+
+  test('preserves Runtime durable records and STATUS reconciliation across realign', { timeout: 60000 }, () => {
+    const target = targetRoot();
+    const bootstrapFacts: NonNullable<BootstrapProjectOptions['confirmedFacts']> = [
+      { key: 'project-name', value: 'Bootstrap Test Project', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'project-slug', value: 'bootstrap-test-project', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'tech-runtime', value: 'Node.js', source: 'greenfield witness', certainty: 'confirmed' },
+      { key: 'ui-direction', value: 'governance-first', source: 'greenfield inference', certainty: 'inferred' },
+    ];
+    const common: BootstrapProjectOptions = {
+      ...options(target),
+      confirmedFacts: bootstrapFacts,
+      designBaseline: { architecture: 'confirmed disposable baseline' },
+    };
+    installDistributionFixture(target);
+    const bootstrapPreview = buildBootstrapPlan(common);
+    expect(bootstrapPreview.status).toBe('ready');
+    expect(bootstrapProject({ ...common, write: true, changedPaths: bootstrapPreview.planned_writes }).status).toBe('installed');
+
+    fs.mkdirSync(path.join(target, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'src', 'realign-persistence.ts'), 'export const realignPersistenceFixture = true;\n', 'utf8');
+
+    const bootstrapCurrent = readCanonicalCurrentTask(target);
+    const draft = createPrepareTaskDraftProposal(bootstrapCurrent, {
+      action: 'create-draft',
+      task_id: '001',
+      task_slug: 'realign-persistence',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Realign persistence fixture',
+      draft_definition: runtimeDraftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['realign:evidence:draft'],
+      idempotency_key: 'realign-persistence-draft',
+      authority_evidence: runtimeAuthority('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(target, draft).status).toBe('success');
+    const draftCurrent = readCanonicalCurrentTask(target);
+    const confirm = createPrepareTaskConfirmProposal(draftCurrent, {
+      task_id: '001',
+      task_slug: 'realign-persistence',
+      document_id: draftCurrent.sourceTuple.document_id,
+      draft_revision: draftCurrent.sourceTuple.revision,
+      evidence_refs: ['realign:evidence:confirm'],
+      idempotency_key: 'realign-persistence-confirm',
+      authority_evidence: runtimeConfirmationAuthority(draftCurrent),
+    });
+    expect(applyVNextRuntimeProposal(target, confirm).status).toBe('success');
+    const executed = createTaskStateProposal(readCanonicalCurrentTask(target), {
+      mode: 'default',
+      status: 'completed',
+      evidence_refs: ['realign:evidence:step'],
+      idempotency_key: 'realign-persistence-execute',
+      authority_evidence: runtimeAuthority('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(target, executed).status).toBe('success');
+
+    const contractAdmission = runtimeKnowledgeAdmission(runtimeKnowledgeCandidate('contract', 'contract-realign-persistence'));
+    const decisionAdmission = runtimeKnowledgeAdmission(runtimeKnowledgeCandidate('decision', 'decision-realign-persistence'));
+    const lessonDelta = runtimeLessonDelta();
+    const archiveDelta: ArchiveDelta = {
+      kind: 'archive',
+      action: 'archive',
+      closure_evidence: runtimeClosureEvidence(),
+      delivery_summary: runtimeDeliverySummary(),
+      remaining_risks: [],
+      lesson_admission: {
+        decision: 'admit',
+        candidate_refs: lessonDelta.candidates.map(candidate => candidate.candidate_ref),
+        evidence_refs: lessonDelta.evidence_refs,
+      },
+      knowledge_admissions: {
+        contracts: [contractAdmission],
+        decisions: [decisionAdmission],
+      },
+      evidence_refs: [
+        'realign:evidence:closure',
+        ...lessonDelta.evidence_refs,
+        ...contractAdmission.candidate.evidenceRefs,
+        ...decisionAdmission.candidate.evidenceRefs,
+      ],
+    };
+    expect(applyVNextRuntimeProposal(target, createArchiveProposal(readCanonicalCurrentTask(target), {
+      delta: archiveDelta,
+      idempotency_key: 'realign-persistence-archive',
+      authority_evidence: runtimeAuthority('active-task-owner', 'evidence-admission'),
+      evidence_refs: archiveDelta.evidence_refs,
+    })).status).toBe('success');
+
+    const statusDelta: ProjectStatusDelta = {
+      kind: 'project-status',
+      action: 'sync',
+      status: 'completed',
+      summary: 'realign persistence status projection',
+      completed_items: ['realign persistence task'],
+      remaining_risks: ['preservation remains observable'],
+      next_checkpoint: 'replay realign with the same explicit overlay',
+      evidence_refs: ['realign:evidence:status'],
+    };
+    expect(applyVNextRuntimeProposal(target, createProjectStatusProposal(readCanonicalCurrentTask(target), {
+      delta: statusDelta,
+      idempotency_key: 'realign-persistence-status',
+      authority_evidence: runtimeAuthority('evidence-admission'),
+      evidence_refs: statusDelta.evidence_refs,
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(target, createLessonRecordProposal(readCanonicalCurrentTask(target), {
+      delta: lessonDelta,
+      idempotency_key: 'realign-persistence-lesson',
+      authority_evidence: runtimeAuthority('evidence-admission'),
+      evidence_refs: lessonDelta.evidence_refs,
+    })).status).toBe('success');
+
+    const archivedCurrent = readCanonicalCurrentTask(target);
+    const contractEvidence = contractAdmission.candidate.evidenceRefs;
+    const decisionEvidence = decisionAdmission.candidate.evidenceRefs;
+    expect(applyVNextRuntimeProposal(target, createContractCandidateProposal(archivedCurrent, {
+      admission: contractAdmission,
+      provenance: knowledgeProvenanceFromArchive(target, archivedCurrent, contractEvidence),
+      idempotency_key: 'realign-persistence-contract',
+      authority_evidence: runtimeAuthority('evidence-admission'),
+      evidence_refs: contractEvidence,
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(target, createDecisionRecordProposal(archivedCurrent, {
+      admission: decisionAdmission,
+      provenance: knowledgeProvenanceFromArchive(target, archivedCurrent, decisionEvidence),
+      idempotency_key: 'realign-persistence-decision',
+      authority_evidence: runtimeAuthority('evidence-admission'),
+      evidence_refs: decisionEvidence,
+    })).status).toBe('success');
+
+    const contractsPath = path.join(target, 'docs', 'workflow', 'CONTRACTS.md');
+    const decisionsPath = path.join(target, 'docs', 'workflow', 'DECISIONS.md');
+    const statusPath = path.join(target, 'docs', 'workflow', 'STATUS.md');
+    const lessonsPath = path.join(target, 'docs', 'workflow', 'LESSONS.md');
+    const currentTaskPath = path.join(target, 'docs', 'workflow', 'CURRENT_TASK.md');
+    const contractsBefore = fs.readFileSync(contractsPath, 'utf8');
+    const decisionsBefore = fs.readFileSync(decisionsPath, 'utf8');
+    const statusBefore = fs.readFileSync(statusPath, 'utf8');
+    const lessonsBefore = fs.readFileSync(lessonsPath, 'utf8');
+    const currentTaskBefore = fs.readFileSync(currentTaskPath, 'utf8');
+    const contractRecordsBefore = readDurableKnowledgeRecords(contractsBefore, 'docs/workflow/CONTRACTS.md', 'contract');
+    const decisionRecordsBefore = readDurableKnowledgeRecords(decisionsBefore, 'docs/workflow/DECISIONS.md', 'decision');
+    const contractSectionBefore = readCanonicalDurableKnowledgeSection(contractsBefore, 'docs/workflow/CONTRACTS.md', 'contract');
+    const decisionSectionBefore = readCanonicalDurableKnowledgeSection(decisionsBefore, 'docs/workflow/DECISIONS.md', 'decision');
+    const statusReceiptsBefore = readStatusReconciliationReceipts(statusBefore, 'docs/workflow/STATUS.md');
+    const lessonRecordsBefore = readDurableLessonRecords(lessonsBefore, 'docs/workflow/LESSONS.md');
+    expect(contractRecordsBefore).toHaveLength(1);
+    expect(decisionRecordsBefore).toHaveLength(1);
+    expect(statusReceiptsBefore).toHaveLength(1);
+    expect(lessonRecordsBefore).toHaveLength(1);
+
+    const realignOptions: BootstrapProjectOptions = {
+      ...common,
+      mode: 'realign',
+      confirmedFacts: [{ key: 'tech-runtime', value: 'Bun', source: 'realign explicit overlay', certainty: 'confirmed' }],
+      designBaseline: undefined,
+      designConfirmed: undefined,
+    };
+    const realignPreview = buildBootstrapPlan(realignOptions);
+    expect(realignPreview.status).toBe('ready');
+    expect(bootstrapProject({ ...realignOptions, write: true, changedPaths: realignPreview.planned_writes }).status).toBe('installed');
+
+    const contractsAfter = fs.readFileSync(contractsPath, 'utf8');
+    const decisionsAfter = fs.readFileSync(decisionsPath, 'utf8');
+    const statusAfter = fs.readFileSync(statusPath, 'utf8');
+    const lessonsAfter = fs.readFileSync(lessonsPath, 'utf8');
+    expect(readDurableKnowledgeRecords(contractsAfter, 'docs/workflow/CONTRACTS.md', 'contract')).toEqual(contractRecordsBefore);
+    expect(readDurableKnowledgeRecords(decisionsAfter, 'docs/workflow/DECISIONS.md', 'decision')).toEqual(decisionRecordsBefore);
+    expect(readCanonicalDurableKnowledgeSection(contractsAfter, 'docs/workflow/CONTRACTS.md', 'contract')?.trim()).toBe(contractSectionBefore?.trim());
+    expect(readCanonicalDurableKnowledgeSection(decisionsAfter, 'docs/workflow/DECISIONS.md', 'decision')?.trim()).toBe(decisionSectionBefore?.trim());
+    expect(readStatusReconciliationReceipts(statusAfter, 'docs/workflow/STATUS.md')).toEqual(statusReceiptsBefore);
+    expect(readDurableLessonRecords(lessonsAfter, 'docs/workflow/LESSONS.md')).toEqual(lessonRecordsBefore);
+    const lessonMarkerBefore = lessonsBefore.match(/<!-- vNext lesson record: \{[^\r\n]+\} -->/u)?.[0];
+    expect(lessonMarkerBefore).toBeDefined();
+    expect(lessonsAfter).toContain(lessonMarkerBefore!);
+    expect(fs.readFileSync(currentTaskPath, 'utf8')).toBe(currentTaskBefore);
+    expect(() => validateStatusDocument(statusAfter, 'docs/workflow/STATUS.md')).not.toThrow();
+    expect(statusAfter).toContain('- realign persistence task');
+    expect(statusAfter).toContain('realign persistence status projection');
+    expect(statusAfter).toContain('- preservation remains observable');
+    expect(statusAfter).toContain('- replay realign with the same explicit overlay');
+    expect(statusAfter).toContain('## 📋 待开发\n\n- none');
+    expect(statusAfter).toContain('## ❌ 已移除 / 推迟\n\n- none');
+    expect(contractsAfter).toContain('- tech-runtime: Bun (source: realign explicit overlay)');
+    expect(decisionsAfter).toContain('- ui-direction: governance-first [inferred; source: greenfield inference]');
     expect(buildBootstrapPlan(realignOptions).status).toBe('replayed');
   });
 
