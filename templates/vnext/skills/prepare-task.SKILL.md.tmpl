@@ -53,6 +53,10 @@ entry_contract:
     - a user-owned, contract-owned, or release decision remains unresolved
     - required evidence or rollback conditions cannot be stated
     - a claim or evidence plan omits its stable identity, closed claim fields, minimum-sufficient evidence, or disposition
+    - an invariant claim upgrades an initial/default behavior or a current-task exclusion into a global, permanent, or schema-level restriction without explicit Contract/Decision or user-owned design/contract authority
+    - a global/domain/permanent invariant lacks confirmed authority, shared or critical impact, and existing evidence for the explicit Contract/Decision or user-owned design/contract decision
+    - a bounded local mechanical invariant lacks a named operation, transition, or task boundary, a reversibility rationale, or changed-behavior evidence
+    - current acceptance would disable a documented future design/baseline semantic without an explicit contract/design decision
     - exploratory evidence is requested without a bounded probe budget and cleanup/audit rule
     - a persistent test is proposed without a complete P-12 admission record
     - an evidence plan that must survive a turn, session, delegation, pause, or interruption has no typed proposal into an existing canonical task record
@@ -79,6 +83,42 @@ Turn the caller's request into one bounded executable intent. This entry may wor
 4. Keep `Read / discovery context` separate from the mutation boundary. Read context may include broader callers, consumers, types, configuration, tests, and governance sources needed to understand the problem or establish root cause, but reading never grants write authority. Ordinary writes must be as precise as the evidence permits—normally an exact file and, when known, file plus symbol/responsibility. A recursive glob is valid only for an inherently broad transformation.
 5. If the goal, mutation scope, or acceptance changes, treat the change as a supersede/replan decision; do not widen the current task implicitly. Record the scope guard's read/discovery context, exact mutation boundary, conditional evidence/authority, and any bounded widening requirement in the prepared result.
 6. Classify decisions as mechanical, contract/decision-owned, or user-owned. Choose local mechanical details only; stop at unresolved user-owned or conflicting authority.
+
+### Invariant admission boundary
+
+`invariant-admission/v1` is the canonical boundary for promoting a planning
+claim to `kind: invariant`. First classify its semantic strength as either a
+`bounded local/temporal mechanical invariant` or a
+`global/domain/permanent invariant`, and preserve the scope and lifetime
+actually supported by the caller and evidence. Record why that semantic
+strength is needed and who owns it; implementation convenience is not a
+reason for promotion.
+
+- A bounded local mechanical invariant may be admitted without another user
+  confirmation when it is a direct, reversible consequence of an accepted
+  task, confirmed bug, or anchored risk, is limited to a named operation,
+  transition, or task boundary, and has changed-behavior evidence. It must not
+  silently become a schema-wide or future-wide prohibition.
+- A global/domain/permanent/schema constraint requires
+  `owner_source: contract` or `owner_source: user` with `certainty: confirmed`,
+  `impact: shared | critical`, and `existing_evidence` pointing to an explicit
+  Contract/Decision or user-owned design/contract decision. `accepted-task`,
+  `confirmed-bug`, or `risk-analysis` alone cannot authorize that stronger
+  claim.
+- An acceptance of an initial/default value, such as “new entity starts with
+  status=open”, does not imply “storage only permits open forever”. A current
+  task exclusion, such as “status changes are out of scope”, does not imply a
+  permanent prohibition on those changes. Keep the claim local and reversible.
+  A confirmed current acceptance may control behavior inside this task's
+  bounded scope, but it does not rewrite future design semantics. If a future
+  design/baseline documents later states or transitions, preserve those
+  semantics and surface a contract/decision conflict instead of encoding the
+  stronger restriction; only an explicit contract/design decision may change
+  them.
+- When authority supports only an acceptance/default/exclusion, keep that
+  claim at the supported kind, scope, and lifetime; do not upgrade its
+  quantifier, scope, or lifetime for implementation convenience.
+
 7. Plan in this order: business goal and acceptance claims → risks and invariants → minimum-sufficient evidence for each claim → persistent-test admission only where justified → implementation steps. Do not derive a test list mechanically from implementation steps. Each independently verifiable implementation step must carry a stable Step ID, purpose, exact mutation scope, required evidence, and an explicit review checkpoint policy (`required` with its boundary, or `not-required`). Newly created and refined ordinary drafts use strict step admission with complete metadata on every step and must begin at the first admitted implementation step (`active_step_id == implementation_steps[0].id`).
 8. Represent every claim with a stable `id`, `kind` (`acceptance | regression | invariant | bug-reproduction | compatibility | release | exploration`), `owner_source` (`contract | accepted-task | confirmed-bug | risk-analysis | user | none`), `certainty` (`confirmed | provisional | exploratory`), `impact` (`local | shared | critical`), and `existing_evidence`. The claim identifies what must be proved; it does not itself admit a persistent test. `owner_source: none` and provisional/exploratory certainty default to no persistent test.
 9. For every claim, choose the smallest claim-appropriate evidence and first consider existing tests/checks, build or static validation, existing protocol/contract validators, real service/API/browser/device behavior, persisted-state inspection, logs/traces, or other real evidence. Evidence types include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance. Record whether new evidence is needed, the minimum-sufficient evidence type, existing-check reuse, and `existing | reused | newly-executed | deferred | blocked` disposition; validation and test creation are separate decisions. A temporary exploratory probe must declare bounded duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule; an exhausted probe is not silently promoted to sufficient evidence.
@@ -97,6 +137,7 @@ Return a structured `prepared-task` result containing:
 
 - task identity and active owner;
 - one goal and stable, owner-linked acceptance claims with the closed claim fields;
+- for every `kind: invariant` claim, its semantic strength, authority rationale, bounded scope/lifetime or explicit global authority, reversibility rationale, and future design/baseline conflict trace;
 - admitted `Allowed / Conditional / Forbidden` scope;
 - separate `Read / discovery context`, exact mutation boundary, scope-guard result, and any evidence/authority-based widening requirement;
 - authority classification and unresolved decisions;

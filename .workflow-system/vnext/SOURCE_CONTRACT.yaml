@@ -241,6 +241,11 @@ capabilities:
       - a claim, evidence gap, or persistent-test decision is evaluated
     input_contract:
       - 'claim model: id, kind, owner_source, certainty, impact, and existing_evidence'
+      - 'invariant-admission/v1: classify invariants as bounded local/temporal mechanical or global/domain/permanent and preserve the authority, scope, and lifetime supported by the claim'
+      - 'invariant admission records why the chosen semantic strength is needed and who owns it; implementation convenience alone is not authority'
+      - 'bounded local mechanical invariants may be admitted without another user confirmation only when they are reversible, tied to a named operation, transition, or task boundary, and supported by accepted-task, confirmed-bug, or anchored-risk changed-behavior evidence'
+      - 'global/domain/permanent/schema invariants require confirmed owner_source contract or user authority, shared or critical impact, and existing evidence for an explicit Contract/Decision or user-owned design/contract decision'
+      - 'initial/default acceptance and current-task exclusion must not be upgraded into a global/permanent restriction; confirmed current acceptance may control bounded task behavior but does not rewrite future design/baseline semantics unless an explicit contract/design decision changes them'
       - proposed minimum-sufficient evidence type and expected disposition
       - 'evidence types may include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance'
       - 'evidence-plan decision: whether new evidence is needed, minimum-sufficient type, existing-check reuse, temporary exploration, and failure route'
@@ -251,11 +256,16 @@ capabilities:
       - 'when an evidence plan must survive a turn, session, delegation, pause, or interruption: typed proposal to an existing canonical task record'
     output_contract:
       - claim-bound minimum-sufficient evidence plan that separates validation from test creation
+      - 'invariant admission preserves semantic strength: bounded local/temporal mechanical claims remain reversible, while global/domain/permanent claims carry explicit authority and future-design conflict trace'
       - persistent-test not-admitted, admitted, deferred, or rejected decision separate from validation and existing-check reuse
       - 'admitted persistent tests only with an explicit owner, one of acceptance, regression, critical-invariant, or critical-risk, a behavioral or contract boundary assertion, and an expected failure disposition'
       - bounded exploratory-evidence record and cross-turn persistence status when triggered
     stop_conditions:
       - 'claim kind, owner_source, certainty, or impact is missing or outside its closed set'
+      - 'an invariant upgrades an initial/default behavior or current-task exclusion into a global, permanent, or schema-level restriction without the required explicit authority'
+      - 'a global/domain/permanent invariant lacks confirmed contract or user design authority, shared or critical impact, or explicit existing evidence'
+      - 'a bounded local mechanical invariant lacks a named operation, transition, or task boundary, reversibility, or changed-behavior evidence'
+      - 'current acceptance conflicts with a documented future design/baseline and the stronger restriction has no explicit contract/design decision'
       - a proposed persistent test has no authorized owner or authority source
       - evidence is insufficient or unrelated to the claim
       - an exploratory probe lacks a bounded duration, tool/run count, permitted temporary artifact locations, or cleanup/audit rule

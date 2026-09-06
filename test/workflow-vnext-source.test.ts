@@ -314,6 +314,10 @@ describe('vNext Phase 2 source contract', () => {
       assertionBoundary: 'vNext source contract and daily entry template behavior',
     });
     expect(sourceContract).toContain('claim model: id, kind, owner_source, certainty, impact, and existing_evidence');
+    expect(sourceContract).toContain('invariant-admission/v1');
+    expect(sourceContract).toContain('implementation convenience alone is not authority');
+    expect(sourceContract).toContain('confirmed current acceptance may control bounded task behavior but does not rewrite future design/baseline semantics');
+    expect(sourceContract).toContain('global/domain/permanent/schema invariants require confirmed owner_source contract or user authority');
     expect(sourceContract).toContain('default non-admission or user no-test deny');
     expect(sourceContract).toContain('acceptance, regression, critical-invariant, or critical-risk');
     expect(sourceContract).toContain('existing-evidence insufficiency');
@@ -324,6 +328,15 @@ describe('vNext Phase 2 source contract', () => {
     expect(sourceContract).toContain('exploratory probe budget');
     expect(sourceContract).toContain('typed proposal to an existing canonical task record');
     expect(prepare).toContain('owner_source');
+    expect(prepare).toContain('invariant-admission/v1');
+    expect(prepare).toContain('bounded local/temporal mechanical invariant');
+    expect(prepare).toContain('global/domain/permanent invariant');
+    expect(prepare).toContain('implementation convenience is not a');
+    expect(prepare).toContain('new entity starts with');
+    expect(prepare).toContain('storage only permits open forever');
+    expect(prepare).toContain('status changes are out of scope');
+    expect(prepare).toContain('future design/baseline');
+    expect(prepare).toContain('current acceptance may control behavior inside this task');
     expect(prepare).toContain('evidence-admission-policy');
     expect(prepare).toContain('validation and test creation are separate decisions');
     expect(prepare).toContain('an assertion at the behavioral or contract boundary');
@@ -375,6 +388,16 @@ describe('vNext Phase 2 source contract', () => {
     );
 
     expect(() => validateVNextSource(root)).toThrow(/prepare-task.*mandatory capability "evidence-admission-policy"/i);
+  });
+
+  test('requires prepare-task invariant admission guidance and protects the status default/exclusion witness', () => {
+    const root = copyFixture();
+    const file = fixtureFile(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
+    replaceIn(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl', 'storage only permits open forever', 'storage only permits one value forever');
+
+    expect(() => validateVNextSource(root)).toThrow(/prepare-task.*invariant-admission.*storage only permits open forever/i);
+    expect(fs.readFileSync(file, 'utf8')).toContain('new entity starts with');
+    expect(fs.readFileSync(file, 'utf8')).toContain('status changes are out of scope');
   });
 
   test('keeps debug ownership conditional and lesson admission non-blocking for closure', () => {
