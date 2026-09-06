@@ -723,6 +723,16 @@ Scope expansion is bounded: a satisfied existing Conditional condition or newly 
 
 Task skills must treat an unscoped mutation as a blocker. Review skills must compare the actual diff to the declared mutation scope and stop when an unauthorized file appears.
 
+P-13 also covers repo-local command side effects: tracked, untracked, ignored,
+generated, build, cache, temporary, and helper writes are all mutations, and
+`.gitignore` is not an exemption. A known write-capable command requires a
+bounded `expected_write_footprint` admitted through the canonical scope
+evaluator before execution; an unbounded footprint blocks the command. After
+execution, available `observed_write_paths` are evaluated by the same guard,
+and cleanup cannot turn a recorded unauthorized mutation into a pass. A final
+Git diff is evidence only. Without OS-level monitoring, transient create/delete
+history cannot be claimed complete.
+
 ### 4b.4 Change Propagation Check
 
 A task must run the propagation check before implementation and again during diff review when the change touches any of the following:

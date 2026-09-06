@@ -38,9 +38,11 @@ import {
   type TaskLifecycleState,
 } from './task-identity';
 import {
+  auditCommandMutation,
   evaluateMutationScope,
   MutationScopeError,
   parseMutationScope,
+  type CommandMutationAuditInput,
   type ConditionalScopeAuthorization,
   type MutationScopeEvaluationInput,
   type MutationTransformationKind,
@@ -1450,7 +1452,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const mutationScopeContract = expectRecord(contract.mutation_scope, 'Runtime contract.mutation_scope');
   expectExactKeys(
     mutationScopeContract,
-    ['status', 'binding', 'source', 'buckets', 'default_write_policy', 'read_discovery_is_not_write_authority', 'ordinary_write_scope', 'broad_glob_requires', 'conditional_expansion_requires', 'changed_goal_scope_acceptance', 'check_command', 'input', 'output'],
+    ['status', 'binding', 'source', 'buckets', 'default_write_policy', 'read_discovery_is_not_write_authority', 'ordinary_write_scope', 'broad_glob_requires', 'conditional_expansion_requires', 'changed_goal_scope_acceptance', 'check_command', 'input', 'output', 'command_write_footprint'],
     'Runtime contract.mutation_scope',
   );
   if (
@@ -1485,6 +1487,31 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     expectStringArray(mutationScopeOutput.required, 'Runtime contract.mutation_scope.output.required'),
     ['per-path-admission-and-blocker', 'separate-read-discovery-match', 'source-revision'],
     'Runtime mutation scope output',
+  );
+  const commandWriteFootprint = expectRecord(mutationScopeContract.command_write_footprint, 'Runtime contract.mutation_scope.command_write_footprint');
+  expectExactKeys(commandWriteFootprint, ['pre_command', 'expected', 'post_command', 'observation_limitations'], 'Runtime contract.mutation_scope.command_write_footprint');
+  if (commandWriteFootprint.pre_command !== 'required') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command write footprints must be required before a repo-writing command executes.');
+  }
+  const expectedFootprint = expectRecord(commandWriteFootprint.expected, 'Runtime contract.mutation_scope.command_write_footprint.expected');
+  expectExactKeys(expectedFootprint, ['required', 'bounded_kind', 'unbounded_behavior', 'admission'], 'Runtime contract.mutation_scope.command_write_footprint.expected');
+  expectSetEqual(
+    expectStringArray(expectedFootprint.required, 'Runtime contract.mutation_scope.command_write_footprint.expected.required'),
+    ['command', 'kind', 'repository_relative_targets', 'evidence_refs'],
+    'Runtime command expected write footprint fields',
+  );
+  if (expectedFootprint.bounded_kind !== 'bounded' || expectedFootprint.unbounded_behavior !== 'blocked-before-execution' || expectedFootprint.admission !== 'shared-mutation-scope-evaluator') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command expected write footprint admission is not fail-closed or canonical.');
+  }
+  const postCommandFootprint = expectRecord(commandWriteFootprint.post_command, 'Runtime contract.mutation_scope.command_write_footprint.post_command');
+  expectExactKeys(postCommandFootprint, ['observed_field', 'admission', 'cleanup_behavior'], 'Runtime contract.mutation_scope.command_write_footprint.post_command');
+  if (postCommandFootprint.observed_field !== 'observed_write_paths' || postCommandFootprint.admission !== 'shared-mutation-scope-evaluator' || postCommandFootprint.cleanup_behavior !== 'sticky-blocked-after-unauthorized-observation') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command observed-write audit must reuse canonical scope judgment and retain unauthorized observations after cleanup.');
+  }
+  expectSetEqual(
+    expectStringArray(commandWriteFootprint.observation_limitations, 'Runtime contract.mutation_scope.command_write_footprint.observation_limitations'),
+    ['no-os-level-transient-write-history-proof'],
+    'Runtime command write observation limitations',
   );
   const canonical = expectRecord(contract.canonical_current_task, 'Runtime contract.canonical_current_task');
   expectExactKeys(canonical, ['frontmatter', 'runtime_state', 'source_of_truth', 'legacy_schema_behavior'], 'Runtime contract.canonical_current_task');
@@ -9250,11 +9277,13 @@ export type VNextRuntimeCliArguments = {
   pathsStdin: boolean;
   conditionalAuthorizationsFile?: string;
   transformationKind: MutationTransformationKind;
+  commandAuditFile?: string;
+  commandAuditStdin: boolean;
 };
 
 export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   const [command = 'validate', ...rest] = argv;
-  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]');
+  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]');
   let root = process.cwd();
   let proposalFile: string | undefined;
   let dryRun = false;
@@ -9263,6 +9292,8 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   let pathsStdin = false;
   let conditionalAuthorizationsFile: string | undefined;
   let transformationKind: MutationTransformationKind = 'localized';
+  let commandAuditFile: string | undefined;
+  let commandAuditStdin = false;
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === '--root') root = rest[++index] ?? '';
@@ -9270,6 +9301,8 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--path') changedPaths.push(rest[++index] ?? '');
     else if (arg === '--paths-file') pathsFile = rest[++index];
     else if (arg === '--paths-stdin') pathsStdin = true;
+    else if (arg === '--command-audit-file') commandAuditFile = rest[++index];
+    else if (arg === '--command-audit-stdin') commandAuditStdin = true;
     else if (arg === '--conditional-authorizations-file') conditionalAuthorizationsFile = rest[++index];
     else if (arg === '--transformation-kind') {
       const value = rest[++index];
@@ -9279,7 +9312,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--dry-run') dryRun = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
 }
 
 function readCliStringList(filePath: string, label: string): string[] {
@@ -9305,6 +9338,24 @@ function readCliConditionalAuthorizations(filePath: string): ConditionalScopeAut
     throw new Error(`conditional authorizations file must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
   return parsed as ConditionalScopeAuthorization[];
+}
+
+function readCliCommandAudit(args: VNextRuntimeCliArguments): CommandMutationAuditInput {
+  if (args.commandAuditFile && args.commandAuditStdin) throw new Error('--command-audit-file and --command-audit-stdin are mutually exclusive.');
+  if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin) throw new Error('command audit input cannot be combined with ordinary --path, --paths-file, or --paths-stdin scope input.');
+  const content = args.commandAuditFile
+    ? fs.readFileSync(path.resolve(args.commandAuditFile), 'utf8')
+    : (() => {
+      if (process.stdin.isTTY) throw new Error('--command-audit-stdin requires a JSON command audit on stdin.');
+      const input = process.stdin.read();
+      if (typeof input !== 'string' && !Buffer.isBuffer(input)) throw new Error('--command-audit-stdin did not receive JSON.');
+      return typeof input === 'string' ? input : input.toString('utf8');
+    })();
+  try {
+    return JSON.parse(content) as CommandMutationAuditInput;
+  } catch (error) {
+    throw new Error(`command audit input must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function readScopeCheckInput(args: VNextRuntimeCliArguments): MutationScopeEvaluationInput {
@@ -9367,7 +9418,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       const scope = parseMutationScope(current.body, current.sourceTuple.revision);
-      const result = evaluateMutationScope(scope, readScopeCheckInput(args));
+      const result = args.commandAuditFile || args.commandAuditStdin
+        ? auditCommandMutation(scope, readCliCommandAudit(args))
+        : evaluateMutationScope(scope, readScopeCheckInput(args));
       console.log(JSON.stringify(result, null, 2));
       if (result.status === 'blocked') return 2;
     } else {

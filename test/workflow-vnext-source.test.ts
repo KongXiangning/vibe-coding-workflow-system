@@ -249,6 +249,27 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(executeRoot)).toThrow(/execute-step.*governance sources/i);
   });
 
+  test('requires execute-step to distinguish product edits, command footprints, observed writes, and logical diff evidence', () => {
+    const execute = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(execute).toContain('expected_write_footprint');
+    expect(execute).toContain('observed_write_paths');
+    expect(execute).toContain('canonical P-13 mutation-scope evaluator');
+    expect(execute).toContain('`.gitignore` never grants an exemption');
+    expect(execute).toContain('final Git diff is only one evidence source');
+
+    const root = copyFixture();
+    const executeFixture = fixtureFile(root, 'templates/vnext/skills/execute-step.SKILL.md.tmpl');
+    fs.writeFileSync(
+      executeFixture,
+      fs.readFileSync(executeFixture, 'utf8').replaceAll('expected_write_footprint', 'command_footprint_without_admission'),
+      'utf8',
+    );
+    expect(() => validateVNextSource(root)).toThrow(/command-side-effect boundary term "expected_write_footprint"/i);
+  });
+
   test('keeps non-admitted review findings reportable instead of making them entry blockers', () => {
     const file = fixtureFile(ROOT, 'templates/vnext/skills/review-change.SKILL.md.tmpl');
     const content = fs.readFileSync(file, 'utf8');

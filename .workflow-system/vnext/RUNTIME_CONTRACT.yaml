@@ -385,6 +385,23 @@ mutation_scope:
       - per-path-admission-and-blocker
       - separate-read-discovery-match
       - source-revision
+  command_write_footprint:
+    pre_command: required
+    expected:
+      required:
+        - command
+        - kind
+        - repository_relative_targets
+        - evidence_refs
+      bounded_kind: bounded
+      unbounded_behavior: blocked-before-execution
+      admission: shared-mutation-scope-evaluator
+    post_command:
+      observed_field: observed_write_paths
+      admission: shared-mutation-scope-evaluator
+      cleanup_behavior: sticky-blocked-after-unauthorized-observation
+    observation_limitations:
+      - no-os-level-transient-write-history-proof
 
 canonical_current_task:
   frontmatter:

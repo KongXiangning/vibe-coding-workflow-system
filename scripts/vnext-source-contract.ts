@@ -681,6 +681,24 @@ function validatePublicEntryTerminalBoundary(content: string, entry: string): vo
   }
 }
 
+function validateExecuteStepCommandMutationBoundary(content: string): void {
+  const requiredTerms = [
+    'expected_write_footprint',
+    'observed_write_paths',
+    'canonical P-13 mutation-scope evaluator',
+    'scope-check --command-audit-stdin',
+    'footprint cannot be safely bounded',
+    '`.gitignore` never grants an exemption',
+    'final Git diff is only one evidence source',
+    'transient create/delete history cannot be proven complete',
+  ];
+  for (const term of requiredTerms) {
+    if (!content.includes(term)) {
+      fail(`execute-step must declare the command-side-effect boundary term "${term}"`);
+    }
+  }
+}
+
 function validateAgentSkillMetadata(frontmatter: UnknownRecord, entry: string): void {
   expectExactKeys(frontmatter, ['name', 'description', 'entry_contract'], `${entry} frontmatter`);
   const name = expectString(frontmatter.name, `${entry}.name`);
@@ -706,6 +724,7 @@ function validateTemplate(
 
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
   validatePublicEntryTerminalBoundary(content, entry);
+  if (entry === 'execute-step') validateExecuteStepCommandMutationBoundary(content);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(

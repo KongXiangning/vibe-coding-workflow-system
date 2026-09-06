@@ -86,6 +86,72 @@ export type MutationScopeCheckResult = {
   blockers: string[];
 };
 
+/**
+ * A command footprint is an admission claim, not a prediction exemption.
+ *
+ * `targets` may contain bounded repository-relative glob patterns because a
+ * generator/build command can write an output tree. The footprint evaluator
+ * requires a glob to match an explicit Allowed Files pattern, rejects
+ * conservative overlaps with Forbidden/Conditional entries, and sends
+ * concrete representatives through the same canonical mutation-scope
+ * evaluator used for ordinary product paths.
+ */
+export type CommandWriteFootprint = {
+  kind: 'bounded' | 'unbounded';
+  targets: string[];
+  evidence_refs: string[];
+  reason?: string;
+};
+
+export type CommandWriteFootprintEvaluationInput = {
+  command: string;
+  expected_write_footprint: CommandWriteFootprint;
+  conditional_authorizations?: ConditionalScopeAuthorization[];
+  transformation_kind?: MutationTransformationKind;
+};
+
+export type CommandWriteFootprintTargetEvaluation = {
+  target: string;
+  representative_paths: string[];
+  results: MutationScopeCheckResult[];
+  status: 'pass' | 'blocked';
+};
+
+export type CommandWriteFootprintEvaluationResult = {
+  status: 'pass' | 'blocked';
+  command: string;
+  source_revision: string;
+  expected_write_footprint: CommandWriteFootprint;
+  target_evaluations: CommandWriteFootprintTargetEvaluation[];
+  admitted_targets: string[];
+  blocked_targets: string[];
+  blockers: string[];
+};
+
+export type CommandMutationAuditInput = CommandWriteFootprintEvaluationInput & {
+  observed_write_paths: string[];
+  cleanup?: {
+    performed: boolean;
+    paths?: string[];
+  };
+};
+
+export type CommandMutationAuditResult = {
+  status: 'pass' | 'blocked';
+  command: string;
+  command_may_run: boolean;
+  expected: CommandWriteFootprintEvaluationResult;
+  observed: MutationScopeCheckResult | null;
+  observed_status: 'not-run' | 'no-writes-observed' | 'pass' | 'blocked';
+  observed_write_paths: string[];
+  audited_write_paths: string[];
+  unauthorized_observed_paths: string[];
+  cleanup_performed: boolean;
+  cleanup_paths: string[];
+  blockers: string[];
+  observation_limitations: string[];
+};
+
 type MarkdownSection = {
   title: string;
   level: number;
@@ -331,10 +397,15 @@ function escapeRegex(text: string): string {
 export function mutationScopePatternMatchesPath(file: string, pattern: string): boolean {
   const normalizedFile = normalizeScopePattern(file, 'changed path');
   const normalizedPattern = normalizeScopePattern(pattern, 'scope pattern');
+  const doubleStarSlashToken = '\u0000MUTATION_SCOPE_DOUBLE_STAR_SLASH\u0000';
+  const doubleStarToken = '\u0000MUTATION_SCOPE_DOUBLE_STAR\u0000';
   const regex = escapeRegex(normalizedPattern)
-    .replace(/\*\*\//gu, '(?:.*/)?')
-    .replace(/\*\*/gu, '.*')
-    .replace(/\*/gu, '[^/]*');
+    // Protect ** placeholders from the later single-star replacement.
+    .replace(/\*\*\//gu, doubleStarSlashToken)
+    .replace(/\*\*/gu, doubleStarToken)
+    .replace(/\*/gu, '[^/]*')
+    .replace(/\u0000MUTATION_SCOPE_DOUBLE_STAR_SLASH\u0000/gu, '(?:.*/)?')
+    .replace(/\u0000MUTATION_SCOPE_DOUBLE_STAR\u0000/gu, '.*');
   return new RegExp(`^${regex}$`, 'u').test(normalizedFile);
 }
 
@@ -532,6 +603,277 @@ export function evaluateMutationScope(scope: MutationScope, input: MutationScope
     blockers,
   };
 }
+
+function commandFootprintRepresentatives(pattern: string): string[] {
+  if (!pattern.includes('*')) return [pattern];
+
+  const shallow = pattern
+    .replace(/\*\*/gu, 'workflow-command-output')
+    .replace(/\*/gu, 'workflow-command-output');
+  if (!pattern.includes('**')) return [shallow];
+
+  const nested = pattern.replace(/\*\*/gu, 'workflow-command-output/nested-output').replace(/\*/gu, 'workflow-command-output');
+  return shallow === nested ? [shallow] : [shallow, nested];
+}
+
+function commandFootprintPatternPrefix(pattern: string): string {
+  const wildcardIndex = pattern.search(/\*/u);
+  return wildcardIndex < 0 ? pattern : pattern.slice(0, wildcardIndex);
+}
+
+function commandFootprintPatternsMayOverlap(left: string, right: string): boolean {
+  const leftPrefix = commandFootprintPatternPrefix(left);
+  const rightPrefix = commandFootprintPatternPrefix(right);
+  if (!leftPrefix || !rightPrefix) return true;
+  return leftPrefix.startsWith(rightPrefix) || rightPrefix.startsWith(leftPrefix);
+}
+
+function commandFootprintSafetyBlockers(scope: MutationScope, target: string): string[] {
+  if (!target.includes('*')) return [];
+  const blockers: string[] = [];
+  if (!scope.allowed.some(entry => entry.pattern === target)) {
+    blockers.push('a glob expected_write_footprint must match an explicit Allowed Files pattern exactly; otherwise its full output set cannot be safely bounded.');
+  }
+  const conflictingPatterns = [
+    ...scope.forbidden.map(entry => `Forbidden:${entry.pattern}`),
+    ...scope.conditional.map(entry => `Conditional:${entry.pattern}`),
+  ].filter(entry => commandFootprintPatternsMayOverlap(target, entry.slice(entry.indexOf(':') + 1)));
+  if (conflictingPatterns.length > 0) {
+    blockers.push(`the glob footprint may overlap non-admitted scope entries: ${conflictingPatterns.join(', ')}.`);
+  }
+  return blockers;
+}
+
+function normalizeCommandWriteFootprint(value: CommandWriteFootprint): { footprint: CommandWriteFootprint | null; blockers: string[] } {
+  const blockers: string[] = [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { footprint: null, blockers: ['expected_write_footprint must be a mapping.'] };
+  }
+
+  const kind = (value as { kind?: unknown }).kind;
+  if (kind !== 'bounded' && kind !== 'unbounded') blockers.push('expected_write_footprint.kind must be bounded or unbounded.');
+
+  const rawTargets = (value as { targets?: unknown }).targets;
+  if (!Array.isArray(rawTargets)) {
+    blockers.push('expected_write_footprint.targets must be an array.');
+  }
+
+  const rawEvidenceRefs = (value as { evidence_refs?: unknown }).evidence_refs;
+  if (!Array.isArray(rawEvidenceRefs) || rawEvidenceRefs.some(item => typeof item !== 'string' || item.trim().length === 0)) {
+    blockers.push('expected_write_footprint.evidence_refs must be a list of evidence references.');
+  } else if (kind === 'bounded' && rawEvidenceRefs.length === 0) {
+    blockers.push('a bounded expected_write_footprint must include at least one evidence reference.');
+  }
+
+  const reason = (value as { reason?: unknown }).reason;
+  if (kind === 'unbounded' && (typeof reason !== 'string' || reason.trim().length === 0)) {
+    blockers.push('an unbounded expected_write_footprint must explain why the command cannot be safely bounded.');
+  }
+
+  const targets: string[] = [];
+  if (Array.isArray(rawTargets)) {
+    for (const [index, rawTarget] of rawTargets.entries()) {
+      if (typeof rawTarget !== 'string') {
+        blockers.push(`expected_write_footprint.targets[${index}] must be a repository-relative path pattern.`);
+        continue;
+      }
+      try {
+        targets.push(normalizeScopePattern(rawTarget, `expected_write_footprint.targets[${index}]`));
+      } catch (error) {
+        blockers.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+  if (new Set(targets).size !== targets.length) blockers.push('expected_write_footprint.targets must not contain duplicate path patterns.');
+  if (kind === 'bounded' && targets.length === 0) blockers.push('a bounded expected_write_footprint must list at least one target.');
+
+  if (blockers.length > 0) return { footprint: null, blockers: [...new Set(blockers)] };
+  return {
+    footprint: {
+      kind: kind as CommandWriteFootprint['kind'],
+      targets,
+      evidence_refs: [...new Set((rawEvidenceRefs as string[]).map(item => item.trim()))],
+      ...(typeof reason === 'string' && reason.trim().length > 0 ? { reason: reason.trim() } : {}),
+    },
+    blockers: [],
+  };
+}
+
+function blockedCommandFootprintResult(
+  scope: MutationScope,
+  command: string,
+  footprint: CommandWriteFootprint,
+  blockers: string[],
+): CommandWriteFootprintEvaluationResult {
+  return {
+    status: 'blocked',
+    command,
+    source_revision: scope.source_revision,
+    expected_write_footprint: footprint,
+    target_evaluations: [],
+    admitted_targets: [],
+    blocked_targets: Array.isArray(footprint?.targets) ? footprint.targets : [],
+    blockers: [...new Set(blockers)],
+  };
+}
+
+/**
+ * Admit a command's possible repo-local writes before the command runs.
+ *
+ * This function does not execute or inspect a command. It only establishes a
+ * bounded footprint and sends conservative representatives through
+ * `evaluateMutationScope`. An unbounded footprint is always blocked.
+ */
+export function evaluateCommandWriteFootprint(
+  scope: MutationScope,
+  input: CommandWriteFootprintEvaluationInput,
+): CommandWriteFootprintEvaluationResult {
+  const command = typeof input?.command === 'string' ? input.command.trim() : '';
+  const rawFootprint = input?.expected_write_footprint;
+  const fallbackFootprint: CommandWriteFootprint = rawFootprint && typeof rawFootprint === 'object'
+    ? rawFootprint
+    : { kind: 'unbounded', targets: [], evidence_refs: [], reason: 'missing expected write footprint' };
+  const normalized = normalizeCommandWriteFootprint(fallbackFootprint);
+  const normalizationBlockers = [...normalized.blockers];
+  if (!command) normalizationBlockers.push('command must be a non-empty descriptor.');
+  if (normalizationBlockers.length > 0 || !normalized.footprint) {
+    return blockedCommandFootprintResult(scope, command, fallbackFootprint, normalizationBlockers);
+  }
+
+  const footprint = normalized.footprint;
+  if (footprint.kind === 'unbounded') {
+    return blockedCommandFootprintResult(scope, command, footprint, [
+      footprint.reason ?? 'command write footprint is unbounded; the command must not execute.',
+      'commands with repo-local writes require a bounded expected_write_footprint before execution.',
+    ]);
+  }
+
+  const targetEvaluations: CommandWriteFootprintTargetEvaluation[] = [];
+  const admittedTargets: string[] = [];
+  const blockedTargets: string[] = [];
+  const blockers: string[] = [];
+  for (const target of footprint.targets) {
+    const representativePaths = commandFootprintRepresentatives(target);
+    const safetyBlockers = commandFootprintSafetyBlockers(scope, target);
+    const results = representativePaths.map(representativePath => evaluateMutationScope(scope, {
+      changed_paths: [representativePath],
+      ...(input.conditional_authorizations ? { conditional_authorizations: input.conditional_authorizations } : {}),
+      ...(input.transformation_kind ? { transformation_kind: input.transformation_kind } : {}),
+    }));
+    const targetStatus = safetyBlockers.length === 0 && results.every(result => result.status === 'pass') ? 'pass' : 'blocked';
+    targetEvaluations.push({ target, representative_paths: representativePaths, results, status: targetStatus });
+    if (targetStatus === 'pass') {
+      admittedTargets.push(target);
+    } else {
+      blockedTargets.push(target);
+      for (const blocker of safetyBlockers) blockers.push(`${target}: ${blocker}`);
+      for (const result of results.filter(candidate => candidate.status === 'blocked')) {
+        for (const blocker of result.blockers) blockers.push(`${target}: ${blocker}`);
+      }
+    }
+  }
+
+  return {
+    status: blockers.length === 0 && blockedTargets.length === 0 ? 'pass' : 'blocked',
+    command,
+    source_revision: scope.source_revision,
+    expected_write_footprint: footprint,
+    target_evaluations: targetEvaluations,
+    admitted_targets: admittedTargets,
+    blocked_targets: blockedTargets,
+    blockers: [...new Set(blockers)],
+  };
+}
+
+export const admitCommandWriteFootprint = evaluateCommandWriteFootprint;
+
+/**
+ * Audit caller-supplied post-command write evidence after pre-admission.
+ *
+ * `cleanup` is metadata only: an observed unauthorized path remains a sticky
+ * blocker even when cleanup later removes that path. Without an OS-level
+ * monitor this audit cannot prove a complete create/delete history, which is
+ * why pre-command footprint admission remains the primary boundary.
+ */
+export function auditCommandMutation(
+  scope: MutationScope,
+  input: CommandMutationAuditInput,
+): CommandMutationAuditResult {
+  const command = typeof input?.command === 'string' ? input.command.trim() : '';
+  const expected = evaluateCommandWriteFootprint(scope, input);
+  const observedWritePaths = Array.isArray(input?.observed_write_paths) ? input.observed_write_paths : [];
+  const cleanupPerformed = input?.cleanup?.performed === true;
+  const cleanupPaths = Array.isArray(input?.cleanup?.paths)
+    ? input.cleanup.paths.filter(path => typeof path === 'string').map(path => path.trim()).filter(Boolean)
+    : [];
+  const auditedWritePaths = [...new Set([...observedWritePaths, ...cleanupPaths])];
+  const cleanupBlockers = input?.cleanup !== undefined && typeof input.cleanup.performed !== 'boolean'
+    ? ['cleanup.performed must be a boolean when cleanup audit metadata is supplied.']
+    : [];
+
+  if (expected.status === 'blocked') {
+    return {
+      status: 'blocked',
+      command,
+      command_may_run: false,
+      expected,
+      observed: null,
+      observed_status: 'not-run',
+      observed_write_paths: observedWritePaths,
+      audited_write_paths: auditedWritePaths,
+      unauthorized_observed_paths: [],
+      cleanup_performed: cleanupPerformed,
+      cleanup_paths: cleanupPaths,
+      blockers: [...new Set([...expected.blockers, ...cleanupBlockers])],
+      observation_limitations: ['Observed paths are caller-supplied; without OS-level filesystem instrumentation, transient create/delete history is not provable.'],
+    };
+  }
+
+  if (!Array.isArray(input?.observed_write_paths)) {
+    return {
+      status: 'blocked',
+      command,
+      command_may_run: true,
+      expected,
+      observed: null,
+      observed_status: 'blocked',
+      observed_write_paths: [],
+      audited_write_paths: cleanupPaths,
+      unauthorized_observed_paths: [],
+      cleanup_performed: cleanupPerformed,
+      cleanup_paths: cleanupPaths,
+      blockers: ['observed_write_paths must be an array of repository-relative paths.', ...cleanupBlockers],
+      observation_limitations: ['Observed paths are caller-supplied; without OS-level filesystem instrumentation, transient create/delete history is not provable.'],
+    };
+  }
+
+  const observed = auditedWritePaths.length > 0
+    ? evaluateMutationScope(scope, {
+      changed_paths: auditedWritePaths,
+      ...(input.conditional_authorizations ? { conditional_authorizations: input.conditional_authorizations } : {}),
+      ...(input.transformation_kind ? { transformation_kind: input.transformation_kind } : {}),
+    })
+    : null;
+  const observedStatus = observed === null ? 'no-writes-observed' : observed.status;
+  const blockers = [...(observed?.blockers ?? []), ...cleanupBlockers];
+  return {
+    status: blockers.length === 0 ? 'pass' : 'blocked',
+    command,
+    command_may_run: true,
+    expected,
+    observed,
+    observed_status: observedStatus,
+    observed_write_paths: observedWritePaths,
+    audited_write_paths: auditedWritePaths,
+    unauthorized_observed_paths: observed?.blocked_paths ?? [],
+    cleanup_performed: cleanupPerformed,
+    cleanup_paths: cleanupPaths,
+    blockers: [...new Set(blockers)],
+    observation_limitations: ['Observed paths are caller-supplied; without OS-level filesystem instrumentation, transient create/delete history is not provable.'],
+  };
+}
+
+export const auditCommandWriteFootprint = auditCommandMutation;
 
 export const validateMutationScope = evaluateMutationScope;
 

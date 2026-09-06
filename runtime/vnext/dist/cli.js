@@ -531,7 +531,9 @@ function escapeRegex(text) {
 function mutationScopePatternMatchesPath(file, pattern) {
   const normalizedFile = normalizeScopePattern(file, "changed path");
   const normalizedPattern = normalizeScopePattern(pattern, "scope pattern");
-  const regex = escapeRegex(normalizedPattern).replace(/\*\*\//gu, "(?:.*/)?").replace(/\*\*/gu, ".*").replace(/\*/gu, "[^/]*");
+  const doubleStarSlashToken = "\x00MUTATION_SCOPE_DOUBLE_STAR_SLASH\x00";
+  const doubleStarToken = "\x00MUTATION_SCOPE_DOUBLE_STAR\x00";
+  const regex = escapeRegex(normalizedPattern).replace(/\*\*\//gu, doubleStarSlashToken).replace(/\*\*/gu, doubleStarToken).replace(/\*/gu, "[^/]*").replace(/\u0000MUTATION_SCOPE_DOUBLE_STAR_SLASH\u0000/gu, "(?:.*/)?").replace(/\u0000MUTATION_SCOPE_DOUBLE_STAR\u0000/gu, ".*");
   return new RegExp(`^${regex}$`, "u").test(normalizedFile);
 }
 function normalizeChangedPath(value, index) {
@@ -716,6 +718,226 @@ function evaluateMutationScope(scope, input) {
     admitted_paths: admittedPaths,
     blocked_paths: blockedPaths,
     blockers
+  };
+}
+function commandFootprintRepresentatives(pattern) {
+  if (!pattern.includes("*"))
+    return [pattern];
+  const shallow = pattern.replace(/\*\*/gu, "workflow-command-output").replace(/\*/gu, "workflow-command-output");
+  if (!pattern.includes("**"))
+    return [shallow];
+  const nested = pattern.replace(/\*\*/gu, "workflow-command-output/nested-output").replace(/\*/gu, "workflow-command-output");
+  return shallow === nested ? [shallow] : [shallow, nested];
+}
+function commandFootprintPatternPrefix(pattern) {
+  const wildcardIndex = pattern.search(/\*/u);
+  return wildcardIndex < 0 ? pattern : pattern.slice(0, wildcardIndex);
+}
+function commandFootprintPatternsMayOverlap(left, right) {
+  const leftPrefix = commandFootprintPatternPrefix(left);
+  const rightPrefix = commandFootprintPatternPrefix(right);
+  if (!leftPrefix || !rightPrefix)
+    return true;
+  return leftPrefix.startsWith(rightPrefix) || rightPrefix.startsWith(leftPrefix);
+}
+function commandFootprintSafetyBlockers(scope, target) {
+  if (!target.includes("*"))
+    return [];
+  const blockers = [];
+  if (!scope.allowed.some((entry) => entry.pattern === target)) {
+    blockers.push("a glob expected_write_footprint must match an explicit Allowed Files pattern exactly; otherwise its full output set cannot be safely bounded.");
+  }
+  const conflictingPatterns = [
+    ...scope.forbidden.map((entry) => `Forbidden:${entry.pattern}`),
+    ...scope.conditional.map((entry) => `Conditional:${entry.pattern}`)
+  ].filter((entry) => commandFootprintPatternsMayOverlap(target, entry.slice(entry.indexOf(":") + 1)));
+  if (conflictingPatterns.length > 0) {
+    blockers.push(`the glob footprint may overlap non-admitted scope entries: ${conflictingPatterns.join(", ")}.`);
+  }
+  return blockers;
+}
+function normalizeCommandWriteFootprint(value) {
+  const blockers = [];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { footprint: null, blockers: ["expected_write_footprint must be a mapping."] };
+  }
+  const kind = value.kind;
+  if (kind !== "bounded" && kind !== "unbounded")
+    blockers.push("expected_write_footprint.kind must be bounded or unbounded.");
+  const rawTargets = value.targets;
+  if (!Array.isArray(rawTargets)) {
+    blockers.push("expected_write_footprint.targets must be an array.");
+  }
+  const rawEvidenceRefs = value.evidence_refs;
+  if (!Array.isArray(rawEvidenceRefs) || rawEvidenceRefs.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+    blockers.push("expected_write_footprint.evidence_refs must be a list of evidence references.");
+  } else if (kind === "bounded" && rawEvidenceRefs.length === 0) {
+    blockers.push("a bounded expected_write_footprint must include at least one evidence reference.");
+  }
+  const reason = value.reason;
+  if (kind === "unbounded" && (typeof reason !== "string" || reason.trim().length === 0)) {
+    blockers.push("an unbounded expected_write_footprint must explain why the command cannot be safely bounded.");
+  }
+  const targets = [];
+  if (Array.isArray(rawTargets)) {
+    for (const [index, rawTarget] of rawTargets.entries()) {
+      if (typeof rawTarget !== "string") {
+        blockers.push(`expected_write_footprint.targets[${index}] must be a repository-relative path pattern.`);
+        continue;
+      }
+      try {
+        targets.push(normalizeScopePattern(rawTarget, `expected_write_footprint.targets[${index}]`));
+      } catch (error) {
+        blockers.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+  if (new Set(targets).size !== targets.length)
+    blockers.push("expected_write_footprint.targets must not contain duplicate path patterns.");
+  if (kind === "bounded" && targets.length === 0)
+    blockers.push("a bounded expected_write_footprint must list at least one target.");
+  if (blockers.length > 0)
+    return { footprint: null, blockers: [...new Set(blockers)] };
+  return {
+    footprint: {
+      kind,
+      targets,
+      evidence_refs: [...new Set(rawEvidenceRefs.map((item) => item.trim()))],
+      ...typeof reason === "string" && reason.trim().length > 0 ? { reason: reason.trim() } : {}
+    },
+    blockers: []
+  };
+}
+function blockedCommandFootprintResult(scope, command, footprint, blockers) {
+  return {
+    status: "blocked",
+    command,
+    source_revision: scope.source_revision,
+    expected_write_footprint: footprint,
+    target_evaluations: [],
+    admitted_targets: [],
+    blocked_targets: Array.isArray(footprint?.targets) ? footprint.targets : [],
+    blockers: [...new Set(blockers)]
+  };
+}
+function evaluateCommandWriteFootprint(scope, input) {
+  const command = typeof input?.command === "string" ? input.command.trim() : "";
+  const rawFootprint = input?.expected_write_footprint;
+  const fallbackFootprint = rawFootprint && typeof rawFootprint === "object" ? rawFootprint : { kind: "unbounded", targets: [], evidence_refs: [], reason: "missing expected write footprint" };
+  const normalized = normalizeCommandWriteFootprint(fallbackFootprint);
+  const normalizationBlockers = [...normalized.blockers];
+  if (!command)
+    normalizationBlockers.push("command must be a non-empty descriptor.");
+  if (normalizationBlockers.length > 0 || !normalized.footprint) {
+    return blockedCommandFootprintResult(scope, command, fallbackFootprint, normalizationBlockers);
+  }
+  const footprint = normalized.footprint;
+  if (footprint.kind === "unbounded") {
+    return blockedCommandFootprintResult(scope, command, footprint, [
+      footprint.reason ?? "command write footprint is unbounded; the command must not execute.",
+      "commands with repo-local writes require a bounded expected_write_footprint before execution."
+    ]);
+  }
+  const targetEvaluations = [];
+  const admittedTargets = [];
+  const blockedTargets = [];
+  const blockers = [];
+  for (const target of footprint.targets) {
+    const representativePaths = commandFootprintRepresentatives(target);
+    const safetyBlockers = commandFootprintSafetyBlockers(scope, target);
+    const results = representativePaths.map((representativePath) => evaluateMutationScope(scope, {
+      changed_paths: [representativePath],
+      ...input.conditional_authorizations ? { conditional_authorizations: input.conditional_authorizations } : {},
+      ...input.transformation_kind ? { transformation_kind: input.transformation_kind } : {}
+    }));
+    const targetStatus = safetyBlockers.length === 0 && results.every((result) => result.status === "pass") ? "pass" : "blocked";
+    targetEvaluations.push({ target, representative_paths: representativePaths, results, status: targetStatus });
+    if (targetStatus === "pass") {
+      admittedTargets.push(target);
+    } else {
+      blockedTargets.push(target);
+      for (const blocker of safetyBlockers)
+        blockers.push(`${target}: ${blocker}`);
+      for (const result of results.filter((candidate) => candidate.status === "blocked")) {
+        for (const blocker of result.blockers)
+          blockers.push(`${target}: ${blocker}`);
+      }
+    }
+  }
+  return {
+    status: blockers.length === 0 && blockedTargets.length === 0 ? "pass" : "blocked",
+    command,
+    source_revision: scope.source_revision,
+    expected_write_footprint: footprint,
+    target_evaluations: targetEvaluations,
+    admitted_targets: admittedTargets,
+    blocked_targets: blockedTargets,
+    blockers: [...new Set(blockers)]
+  };
+}
+function auditCommandMutation(scope, input) {
+  const command = typeof input?.command === "string" ? input.command.trim() : "";
+  const expected = evaluateCommandWriteFootprint(scope, input);
+  const observedWritePaths = Array.isArray(input?.observed_write_paths) ? input.observed_write_paths : [];
+  const cleanupPerformed = input?.cleanup?.performed === true;
+  const cleanupPaths = Array.isArray(input?.cleanup?.paths) ? input.cleanup.paths.filter((path3) => typeof path3 === "string").map((path3) => path3.trim()).filter(Boolean) : [];
+  const auditedWritePaths = [...new Set([...observedWritePaths, ...cleanupPaths])];
+  const cleanupBlockers = input?.cleanup !== undefined && typeof input.cleanup.performed !== "boolean" ? ["cleanup.performed must be a boolean when cleanup audit metadata is supplied."] : [];
+  if (expected.status === "blocked") {
+    return {
+      status: "blocked",
+      command,
+      command_may_run: false,
+      expected,
+      observed: null,
+      observed_status: "not-run",
+      observed_write_paths: observedWritePaths,
+      audited_write_paths: auditedWritePaths,
+      unauthorized_observed_paths: [],
+      cleanup_performed: cleanupPerformed,
+      cleanup_paths: cleanupPaths,
+      blockers: [...new Set([...expected.blockers, ...cleanupBlockers])],
+      observation_limitations: ["Observed paths are caller-supplied; without OS-level filesystem instrumentation, transient create/delete history is not provable."]
+    };
+  }
+  if (!Array.isArray(input?.observed_write_paths)) {
+    return {
+      status: "blocked",
+      command,
+      command_may_run: true,
+      expected,
+      observed: null,
+      observed_status: "blocked",
+      observed_write_paths: [],
+      audited_write_paths: cleanupPaths,
+      unauthorized_observed_paths: [],
+      cleanup_performed: cleanupPerformed,
+      cleanup_paths: cleanupPaths,
+      blockers: ["observed_write_paths must be an array of repository-relative paths.", ...cleanupBlockers],
+      observation_limitations: ["Observed paths are caller-supplied; without OS-level filesystem instrumentation, transient create/delete history is not provable."]
+    };
+  }
+  const observed = auditedWritePaths.length > 0 ? evaluateMutationScope(scope, {
+    changed_paths: auditedWritePaths,
+    ...input.conditional_authorizations ? { conditional_authorizations: input.conditional_authorizations } : {},
+    ...input.transformation_kind ? { transformation_kind: input.transformation_kind } : {}
+  }) : null;
+  const observedStatus = observed === null ? "no-writes-observed" : observed.status;
+  const blockers = [...observed?.blockers ?? [], ...cleanupBlockers];
+  return {
+    status: blockers.length === 0 ? "pass" : "blocked",
+    command,
+    command_may_run: true,
+    expected,
+    observed,
+    observed_status: observedStatus,
+    observed_write_paths: observedWritePaths,
+    audited_write_paths: auditedWritePaths,
+    unauthorized_observed_paths: observed?.blocked_paths ?? [],
+    cleanup_performed: cleanupPerformed,
+    cleanup_paths: cleanupPaths,
+    blockers: [...new Set(blockers)],
+    observation_limitations: ["Observed paths are caller-supplied; without OS-level filesystem instrumentation, transient create/delete history is not provable."]
   };
 }
 
@@ -1880,7 +2102,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract reused Lesson markers must use disposition=reused.");
   expectSetEqual(expectStringArray2(reusedLessonMarker.reused_candidate_fields, "Runtime contract.proposal.lesson_marker.reused.reused_candidate_fields"), ["task_id", "document_id", "archive_revision", "candidate_ref"], "Runtime contract reused Lesson candidate identity fields");
   const mutationScopeContract = expectRecord2(contract.mutation_scope, "Runtime contract.mutation_scope");
-  expectExactKeys2(mutationScopeContract, ["status", "binding", "source", "buckets", "default_write_policy", "read_discovery_is_not_write_authority", "ordinary_write_scope", "broad_glob_requires", "conditional_expansion_requires", "changed_goal_scope_acceptance", "check_command", "input", "output"], "Runtime contract.mutation_scope");
+  expectExactKeys2(mutationScopeContract, ["status", "binding", "source", "buckets", "default_write_policy", "read_discovery_is_not_write_authority", "ordinary_write_scope", "broad_glob_requires", "conditional_expansion_requires", "changed_goal_scope_acceptance", "check_command", "input", "output", "command_write_footprint"], "Runtime contract.mutation_scope");
   if (mutationScopeContract.status !== "bound" || mutationScopeContract.binding !== "vnext-runtime-read-only" || mutationScopeContract.source !== "CURRENT_TASK.md" || mutationScopeContract.default_write_policy !== "deny" || mutationScopeContract.read_discovery_is_not_write_authority !== true || mutationScopeContract.ordinary_write_scope !== "exact-file-or-file-plus-symbol" || mutationScopeContract.broad_glob_requires !== "inherently-broad-transformation" || mutationScopeContract.conditional_expansion_requires !== "evidence-and-authority" || mutationScopeContract.changed_goal_scope_acceptance !== "supersede-or-replan" || mutationScopeContract.check_command !== "scope-check") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime mutation scope contract must keep the frozen default-deny and read/write separation semantics.");
   }
@@ -1891,6 +2113,23 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const mutationScopeOutput = expectRecord2(mutationScopeContract.output, "Runtime contract.mutation_scope.output");
   expectExactKeys2(mutationScopeOutput, ["required"], "Runtime contract.mutation_scope.output");
   expectSetEqual(expectStringArray2(mutationScopeOutput.required, "Runtime contract.mutation_scope.output.required"), ["per-path-admission-and-blocker", "separate-read-discovery-match", "source-revision"], "Runtime mutation scope output");
+  const commandWriteFootprint = expectRecord2(mutationScopeContract.command_write_footprint, "Runtime contract.mutation_scope.command_write_footprint");
+  expectExactKeys2(commandWriteFootprint, ["pre_command", "expected", "post_command", "observation_limitations"], "Runtime contract.mutation_scope.command_write_footprint");
+  if (commandWriteFootprint.pre_command !== "required") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime command write footprints must be required before a repo-writing command executes.");
+  }
+  const expectedFootprint = expectRecord2(commandWriteFootprint.expected, "Runtime contract.mutation_scope.command_write_footprint.expected");
+  expectExactKeys2(expectedFootprint, ["required", "bounded_kind", "unbounded_behavior", "admission"], "Runtime contract.mutation_scope.command_write_footprint.expected");
+  expectSetEqual(expectStringArray2(expectedFootprint.required, "Runtime contract.mutation_scope.command_write_footprint.expected.required"), ["command", "kind", "repository_relative_targets", "evidence_refs"], "Runtime command expected write footprint fields");
+  if (expectedFootprint.bounded_kind !== "bounded" || expectedFootprint.unbounded_behavior !== "blocked-before-execution" || expectedFootprint.admission !== "shared-mutation-scope-evaluator") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime command expected write footprint admission is not fail-closed or canonical.");
+  }
+  const postCommandFootprint = expectRecord2(commandWriteFootprint.post_command, "Runtime contract.mutation_scope.command_write_footprint.post_command");
+  expectExactKeys2(postCommandFootprint, ["observed_field", "admission", "cleanup_behavior"], "Runtime contract.mutation_scope.command_write_footprint.post_command");
+  if (postCommandFootprint.observed_field !== "observed_write_paths" || postCommandFootprint.admission !== "shared-mutation-scope-evaluator" || postCommandFootprint.cleanup_behavior !== "sticky-blocked-after-unauthorized-observation") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime command observed-write audit must reuse canonical scope judgment and retain unauthorized observations after cleanup.");
+  }
+  expectSetEqual(expectStringArray2(commandWriteFootprint.observation_limitations, "Runtime contract.mutation_scope.command_write_footprint.observation_limitations"), ["no-os-level-transient-write-history-proof"], "Runtime command write observation limitations");
   const canonical = expectRecord2(contract.canonical_current_task, "Runtime contract.canonical_current_task");
   expectExactKeys2(canonical, ["frontmatter", "runtime_state", "source_of_truth", "legacy_schema_behavior"], "Runtime contract.canonical_current_task");
   const frontmatter = expectRecord2(canonical.frontmatter, "Runtime contract.canonical_current_task.frontmatter");
@@ -8463,7 +8702,7 @@ function applyVNextRuntimeProposal(root, proposal, options = {}) {
 function parseCli(argv) {
   const [command = "validate", ...rest] = argv;
   if (command !== "validate" && command !== "validate-contract" && command !== "apply" && command !== "scope-check")
-    throw new Error("Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]");
+    throw new Error("Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]");
   let root = process.cwd();
   let proposalFile;
   let dryRun = false;
@@ -8472,6 +8711,8 @@ function parseCli(argv) {
   let pathsStdin = false;
   let conditionalAuthorizationsFile;
   let transformationKind = "localized";
+  let commandAuditFile;
+  let commandAuditStdin = false;
   for (let index = 0;index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--root")
@@ -8484,6 +8725,10 @@ function parseCli(argv) {
       pathsFile = rest[++index];
     else if (arg === "--paths-stdin")
       pathsStdin = true;
+    else if (arg === "--command-audit-file")
+      commandAuditFile = rest[++index];
+    else if (arg === "--command-audit-stdin")
+      commandAuditStdin = true;
     else if (arg === "--conditional-authorizations-file")
       conditionalAuthorizationsFile = rest[++index];
     else if (arg === "--transformation-kind") {
@@ -8496,7 +8741,7 @@ function parseCli(argv) {
     else
       throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
 }
 function readCliStringList(filePath, label) {
   const content = fs3.readFileSync(path4.resolve(filePath), "utf8");
@@ -8521,6 +8766,25 @@ function readCliConditionalAuthorizations(filePath) {
     throw new Error(`conditional authorizations file must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
   return parsed;
+}
+function readCliCommandAudit(args) {
+  if (args.commandAuditFile && args.commandAuditStdin)
+    throw new Error("--command-audit-file and --command-audit-stdin are mutually exclusive.");
+  if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin)
+    throw new Error("command audit input cannot be combined with ordinary --path, --paths-file, or --paths-stdin scope input.");
+  const content = args.commandAuditFile ? fs3.readFileSync(path4.resolve(args.commandAuditFile), "utf8") : (() => {
+    if (process.stdin.isTTY)
+      throw new Error("--command-audit-stdin requires a JSON command audit on stdin.");
+    const input = process.stdin.read();
+    if (typeof input !== "string" && !Buffer.isBuffer(input))
+      throw new Error("--command-audit-stdin did not receive JSON.");
+    return typeof input === "string" ? input : input.toString("utf8");
+  })();
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw new Error(`command audit input must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 function readScopeCheckInput(args) {
   const changedPaths = [...args.changedPaths];
@@ -8580,7 +8844,7 @@ async function runCli(argv = process.argv.slice(2)) {
       requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       const scope = parseMutationScope(current.body, current.sourceTuple.revision);
-      const result = evaluateMutationScope(scope, readScopeCheckInput(args));
+      const result = args.commandAuditFile || args.commandAuditStdin ? auditCommandMutation(scope, readCliCommandAudit(args)) : evaluateMutationScope(scope, readScopeCheckInput(args));
       console.log(JSON.stringify(result, null, 2));
       if (result.status === "blocked")
         return 2;

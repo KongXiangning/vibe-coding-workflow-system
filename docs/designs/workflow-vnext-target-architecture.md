@@ -138,6 +138,17 @@ Validation of a business claim, reuse or execution of an existing test/check, an
 
 `Allowed`, `Conditional`, and `Forbidden` scope describe the mutation boundary. Read / discovery context may be broader when needed to understand the problem, trace callers and consumers, or establish root cause. Ordinary write scope is as narrow as evidence permits—normally an exact file and, when known, symbol / responsibility. A directory glob is reserved for inherently broad transformations. Scope expands only through a satisfied Conditional condition or evidence-proven bounded propagation; a changed goal, scope, or acceptance is a supersede / replan decision.
 
+P-13 covers every repo-local write, including tracked, untracked, ignored,
+generated, build, cache, temporary, and helper output. `.gitignore` is not a
+scope exemption. Before a known write-capable command executes, its bounded
+`expected_write_footprint` is admitted through the canonical mutation-scope
+evaluator; an unbounded footprint is blocked before execution. Afterward,
+caller-supplied `observed_write_paths` are evaluated by that same evaluator,
+and an unauthorized observation remains blocked even if cleanup removes the
+file. A final Git diff is evidence only, not the write oracle. Without an
+OS-level filesystem monitor, the Runtime does not claim complete proof of
+transient create/delete history.
+
 ### P-14 — One task, admitted steps, and risk-based review checkpoints
 
 A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each step executes only after admission of its bounded mutation scope and required evidence. Review is placed at logical or risk boundaries rather than after every step; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.

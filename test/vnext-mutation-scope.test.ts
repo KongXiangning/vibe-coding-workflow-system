@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  auditCommandMutation,
   assertMutationScope,
+  evaluateCommandWriteFootprint,
   evaluateMutationScope,
   MutationScopeError,
   parseMutationScope,
+  type CommandWriteFootprint,
 } from '../runtime/vnext/src/mutation-scope';
 import { parseCli } from '../runtime/vnext/src/kernel';
 
@@ -61,6 +64,15 @@ function directScopeBody(): string {
     '',
     '- .git/**',
   ].join('\n');
+}
+
+function commandFootprint(targets: string[], overrides: Partial<CommandWriteFootprint> = {}): CommandWriteFootprint {
+  return {
+    kind: 'bounded',
+    targets,
+    evidence_refs: ['config:known-command-output'],
+    ...overrides,
+  };
 }
 
 describe('vNext Mutation-oriented Scope', () => {
@@ -179,6 +191,145 @@ describe('vNext Mutation-oriented Scope', () => {
     }
   });
 
+  test('blocks a Forbidden ignored build output before the command can run', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'src/app.ts',
+      forbidden: 'dist/**',
+    }), '5'.repeat(64));
+    const result = auditCommandMutation(scope, {
+      command: 'npm run build',
+      expected_write_footprint: commandFootprint(['dist/**'], {
+        evidence_refs: ['tsconfig.json#compilerOptions.outDir'],
+      }),
+      observed_write_paths: [],
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.command_may_run).toBe(false);
+    expect(result.observed_status).toBe('not-run');
+    expect(result.expected.blocked_targets).toEqual(['dist/**']);
+    expect(result.blockers.join(' ')).toMatch(/Forbidden Files takes precedence/);
+  });
+
+  test('admits an explicitly bounded generated output and audits the observed path through the same scope judgment', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'dist/generated.js',
+      forbidden: '.git/**',
+    }), '6'.repeat(64));
+    const result = auditCommandMutation(scope, {
+      command: 'node scripts/generate.ts',
+      expected_write_footprint: commandFootprint(['dist/generated.js'], {
+        evidence_refs: ['generator-config:dist/generated.js'],
+      }),
+      observed_write_paths: ['dist/generated.js'],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.command_may_run).toBe(true);
+    expect(result.expected.status).toBe('pass');
+    expect(result.observed_status).toBe('pass');
+    expect(result.observed?.admitted_paths).toEqual(['dist/generated.js']);
+  });
+
+  test('admits a bounded output tree only when the existing broad-scope rule also admits it', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'build/**',
+      forbidden: '.git/**',
+    }), '7'.repeat(64));
+    const result = auditCommandMutation(scope, {
+      command: 'npm run generated-build',
+      expected_write_footprint: commandFootprint(['build/**'], {
+        evidence_refs: ['build-config:outDir'],
+      }),
+      transformation_kind: 'inherently-broad',
+      observed_write_paths: ['build/output.js'],
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.expected.target_evaluations[0]?.representative_paths.length).toBe(2);
+    expect(result.observed?.decisions[0]?.classification).toBe('allowed-broad');
+  });
+
+  test('blocks unknown untracked and unknown ignored outputs by default deny', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'src/app.ts',
+      forbidden: '.git/**',
+    }), '8'.repeat(64));
+    const untracked = auditCommandMutation(scope, {
+      command: 'node scripts/generate.ts',
+      expected_write_footprint: commandFootprint(['tmp/generated.txt']),
+      observed_write_paths: [],
+    });
+    const ignored = auditCommandMutation(scope, {
+      command: 'node scripts/generate-cache.ts',
+      expected_write_footprint: commandFootprint(['.cache/generated.json']),
+      observed_write_paths: [],
+    });
+    const install = auditCommandMutation(scope, {
+      command: 'npm install',
+      expected_write_footprint: commandFootprint(['node_modules/**'], {
+        evidence_refs: ['package.json#dependencies', 'package-lock.json'],
+      }),
+      observed_write_paths: [],
+    });
+
+    expect(untracked.status).toBe('blocked');
+    expect(untracked.command_may_run).toBe(false);
+    expect(untracked.blockers.join(' ')).toMatch(/not listed in Allowed Files/);
+    expect(ignored.status).toBe('blocked');
+    expect(ignored.command_may_run).toBe(false);
+    expect(ignored.blockers.join(' ')).toMatch(/not listed in Allowed Files/);
+    expect(install.status).toBe('blocked');
+    expect(install.command_may_run).toBe(false);
+  });
+
+  test('keeps an observed unauthorized mutation blocked after cleanup', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'src/app.ts',
+      forbidden: 'dist/**',
+    }), '9'.repeat(64));
+    const result = auditCommandMutation(scope, {
+      command: 'node scripts/side-effectful-check.ts',
+      expected_write_footprint: commandFootprint(['src/app.ts']),
+      observed_write_paths: ['src/app.ts', 'dist/output.js'],
+      cleanup: { performed: true, paths: ['dist/output.js'] },
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.command_may_run).toBe(true);
+    expect(result.observed_status).toBe('blocked');
+    expect(result.unauthorized_observed_paths).toEqual(['dist/output.js']);
+    expect(result.cleanup_performed).toBe(true);
+    expect(result.cleanup_paths).toEqual(['dist/output.js']);
+    expect(result.audited_write_paths).toEqual(['src/app.ts', 'dist/output.js']);
+  });
+
+  test('blocks a repo-writing command when its expected footprint is unbounded before execution', () => {
+    const scope = parseMutationScope(nestedScopeBody(), 'a'.repeat(64));
+    const result = evaluateCommandWriteFootprint(scope, {
+      command: 'custom-tool --write-anywhere',
+      expected_write_footprint: {
+        kind: 'unbounded',
+        targets: [],
+        evidence_refs: [],
+        reason: 'the tool can write arbitrary repository paths',
+      },
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.blockers.join(' ')).toMatch(/unbounded|bounded expected_write_footprint/i);
+    expect(auditCommandMutation(scope, {
+      command: 'custom-tool --write-anywhere',
+      expected_write_footprint: {
+        kind: 'unbounded',
+        targets: [],
+        evidence_refs: [],
+        reason: 'the tool can write arbitrary repository paths',
+      },
+      observed_write_paths: ['src/app.ts'],
+    }).observed_status).toBe('not-run');
+  });
+
   test('exposes scope-check as a read-only Runtime command with an explicit diff target', () => {
     expect(parseCli([
       'scope-check',
@@ -193,6 +344,18 @@ describe('vNext Mutation-oriented Scope', () => {
       root: '.',
       changedPaths: ['src/app.ts'],
       transformationKind: 'localized',
+    });
+  });
+
+  test('exposes command-footprint audit through the existing read-only scope-check boundary', () => {
+    expect(parseCli([
+      'scope-check',
+      '--root',
+      '.',
+      '--command-audit-stdin',
+    ])).toMatchObject({
+      command: 'scope-check',
+      commandAuditStdin: true,
     });
   });
 });
