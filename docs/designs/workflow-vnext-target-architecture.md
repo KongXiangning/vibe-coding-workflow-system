@@ -7,6 +7,7 @@
 - Design references:
   - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
   - [`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md)
+  - [`trusted-authority-channel.md`](trusted-authority-channel.md)
   - [`.workflow-system/WORKFLOW_CAPABILITIES.yaml`](../../.workflow-system/WORKFLOW_CAPABILITIES.yaml)
   - [`test/fixtures/workflow-capability-cases.yaml`](../../test/fixtures/workflow-capability-cases.yaml)
 
@@ -99,6 +100,15 @@ Review may inspect the full risk surface. A discovered issue enters repair only 
 ### P-06 — Model proposes; Runtime commits
 
 The model and user own semantic judgment and authority. Runtime owns deterministic validation, exact write boundaries, conflict detection, idempotence, atomic commit, and read-back. Runtime cannot promote an unconfirmed proposal into project truth.
+
+For administrative mutations, especially `bootstrap-project:realign`, the
+proposal's `authority_evidence` is not a trust root. Human authority must enter
+Runtime through the separate Trusted Authority Channel defined in
+[`trusted-authority-channel.md`](trusted-authority-channel.md). Runtime Core
+remains harness-neutral; unsupported harnesses fail closed. Until a real
+trusted provider exists, an Agent may prepare or preview a realign proposal but
+may not autonomously commit a mutating realign. A true unchanged zero-write
+replay may remain idempotent without a new authority.
 
 ### P-07 — Canonical governance documents remain the only project truth
 

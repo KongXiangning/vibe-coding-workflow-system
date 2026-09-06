@@ -12,6 +12,7 @@
 本蓝图以以下文档为输入：
 
 - [`workflow-vnext-target-architecture.md`](workflow-vnext-target-architecture.md)
+- [`trusted-authority-channel.md`](trusted-authority-channel.md)
 - [`workflow-vnext-migration-plan.md`](../product/workflow-vnext-migration-plan.md)
 - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
 - [`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md)
@@ -311,6 +312,25 @@ introduced. The current Runtime makes the ordinary draft/confirm boundary
 durable through typed `create-draft`, `update-draft`, and `confirm-draft`
 actions; ordinary `STEP-N → STEP-N+1` advancement remains the later execution
 slice described below.
+
+### 3.7 Trusted Authority Channel architecture freeze
+
+The Trusted Authority Channel is frozen as an architecture constraint, but its
+mutating realign implementation is blocked. The existing
+`bootstrap-project` implementation status does not mean that a trusted caller
+boundary exists: proposal-owned `authority_evidence` remains untrusted.
+
+- Architecture: frozen in [`trusted-authority-channel.md`](trusted-authority-channel.md).
+- Trusted realign commit: blocked; no autonomous mutating realign is permitted
+  without a trusted authority context outside the proposal.
+- Unblock condition: at least one real `TrustedAuthorityProvider` / harness
+  adapter boundary exists and can bind authority to the exact target, mode, and
+  canonical proposal digest.
+- Until then, prepare/preview and true zero-write replay may remain available;
+  mutating realign must fail closed.
+
+This is an implementation sequencing constraint, not a Runtime protocol or
+behavior change.
 
 ## 4. 关键宏观路由
 
