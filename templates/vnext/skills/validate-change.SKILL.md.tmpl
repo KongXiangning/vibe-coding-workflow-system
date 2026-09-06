@@ -138,3 +138,8 @@ validation_result:
 The result must preserve the actual distinction between a failed check and an
 unavailable or insufficient check, and must report zero product mutations,
 zero governance mutations, and zero Runtime transactions for this entry.
+
+`recommended_route` is at most one informational `next_route` recommendation;
+it must not invoke another public Skill. `terminal_boundary: public-entry-terminal/v1`
+applies after this result: return to the caller and stop. Runtime cannot
+observe the conversation-level invocation boundary.

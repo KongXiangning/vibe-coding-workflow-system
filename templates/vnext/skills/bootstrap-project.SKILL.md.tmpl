@@ -109,8 +109,9 @@ repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
    presence of either migration marker alone. A migrated governed target does
    not require ordinary Bootstrap, but an explicit `realign` remains allowed.
    The only chained mode transitions are `design` → `greenfield` and
-   `inventory` → `adopt`; other valid receipts require replay or explicit
-   `realign`.
+   `inventory` → `adopt`; these are internal mode transitions within this
+   single public entry, not invocation of another public Skill. Other valid
+   receipts require replay or explicit `realign`.
 3. Record confirmed facts with their authority and provenance. Keep inferred or
    unknown facts visible as such. Adoption may not turn an unresolved consumer,
    interface, or ownership conflict into a locked Contract or Decision.
@@ -166,4 +167,6 @@ planned writes, exact changed-path scope verdict, Bootstrap governance
 provenance, mode evidence, Distribution and governance read-back evidence,
 replay or recovery disposition, and any remaining caller obligation. Do not
 report initialization as complete until the governance transaction and all
-post-promotion reads succeed.
+post-promotion reads succeed;
+- at most one `next_route` recommendation, if applicable; it is informational only and must not invoke another public Skill;
+- `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. The permitted internal Bootstrap mode transitions above are not public Skill chaining.

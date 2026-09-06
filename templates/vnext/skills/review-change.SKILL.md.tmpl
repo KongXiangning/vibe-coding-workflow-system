@@ -83,7 +83,8 @@ Return one structured `review_result` containing:
 - claim-bound evidence results, exploratory probe audit when used, and separate `persistent_test: false | true` admission disposition;
 - when admitted, the persistent-test owner, basis, proved claim/failure, existing-evidence insufficiency reason, behavioral/contract assertion boundary, and expected failure disposition;
 - one verdict: `clean`, `findings`, `needs-evidence`, `blocked`, `needs-user`, or `needs-debug`;
-- a recommended macro route as a report field only;
+- at most one `next_route` / recommended macro route as a report field only; it must not invoke another public Skill;
 - `governed_mutation_count: 0` and declared ephemeral effects.
+- `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. Internal review capabilities are not public Skill chaining.
 
 The review result is not a Runtime proposal. Finding persistence, repair, synchronization, and closure are separate authorized routes and must not be started implicitly by this entry.

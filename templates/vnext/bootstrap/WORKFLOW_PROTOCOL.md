@@ -29,6 +29,30 @@ Skill.
 - An interruption marker is fail-closed evidence, not permission to guess a
   recovery action.
 
+## Public entry invocation terminal boundary
+
+`public-entry-terminal/v1` is the canonical invocation boundary for every
+public daily, administrative, and expert entry in the vNext surface. One
+explicit public Skill invocation may complete only that entry's intent, its
+declared internal capabilities, and its bound Runtime operations.
+
+When the entry reaches its result—success, blocked, no-op, report, or another
+declared terminal result—it must return to the caller and stop. A result may
+contain at most one `next_route` recommendation for a later public entry or
+mode, but that recommendation is informational only: the current invocation
+must not invoke the next public Skill.
+
+Internal capabilities and the Runtime operations declared by the current entry
+are not public Skill chaining. Bootstrap's explicitly permitted `design` →
+`greenfield` and `inventory` → `adopt` transitions remain internal mode
+transitions of the same `bootstrap-project` invocation; they do not authorize
+invoking another public Skill.
+
+This is an instruction-level and host-guidance boundary. The current Runtime
+cannot observe conversation-level public Skill invocations, so it must not be
+described as machine-enforced by Runtime. Runtime continues to enforce only
+the typed operations and write boundaries it can observe.
+
 ## Bootstrap modes
 
 `design`, `greenfield`, `inventory`, `adopt`, and `realign` have distinct

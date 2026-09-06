@@ -21,6 +21,7 @@ import {
 const ROOT = path.resolve(import.meta.dir, '..');
 const packageRoot = path.join(ROOT, 'packages', 'vibe-governance');
 const NPM_COMMAND = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const PUBLIC_ENTRY_TERMINAL_MARKER = 'public-entry-terminal/v1';
 const temporaryRoots: string[] = [];
 
 function tempRoot(prefix: string): string {
@@ -195,6 +196,9 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
     expect(fs.existsSync(targetPath(target, '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl'))).toBe(true);
+    const installedProtocol = fs.readFileSync(targetPath(target, '.workflow-system/WORKFLOW_PROTOCOL.md'), 'utf8');
+    expect(installedProtocol).toContain(PUBLIC_ENTRY_TERMINAL_MARKER);
+    expect(installedProtocol).toContain('cannot observe conversation-level public Skill invocations');
     const skillDirectories = fs.readdirSync(targetPath(target, '.agents/skills')).sort();
     expect(skillDirectories).toEqual([
       'bootstrap-project',
@@ -219,6 +223,9 @@ describe('Vibe Governance Distribution / Installer', () => {
       expect(typeof frontmatter.description).toBe('string');
       expect(String(frontmatter.description).trim().length).toBeGreaterThan(0);
       expect((frontmatter.entry_contract as Record<string, unknown>).entry).toBe(skill);
+      const skillContent = fs.readFileSync(skillFile, 'utf8');
+      expect(skillContent).toContain(`terminal_boundary: ${PUBLIC_ENTRY_TERMINAL_MARKER}`);
+      expect(skillContent).toContain('must not invoke another public Skill');
     }
     const runtimeCli = targetPath(target, '.workflow-system/runtime/dist/cli.js');
     expect(() => execFileSync('node', [runtimeCli, 'validate-contract', '--root', target], { encoding: 'utf8' })).not.toThrow();

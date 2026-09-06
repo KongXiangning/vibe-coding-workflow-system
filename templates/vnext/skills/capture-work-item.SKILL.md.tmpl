@@ -67,4 +67,6 @@ Return one structured `capture_result` containing:
 - work-item identity, relation evidence, duplicate check, and owner route;
 - record-only admission verdict and exact inbox target;
 - a single inbox Runtime proposal and its truthful Runtime result, or a blocked/user result;
-- explicit confirmation that active task, lifecycle, identity, catalog, and archive state were not mutated.
+- explicit confirmation that active task, lifecycle, identity, catalog, and archive state were not mutated;
+- at most one `next_route` recommendation, if applicable; it is informational only and must not invoke another public Skill;
+- `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. Record-only capabilities are not public Skill chaining.

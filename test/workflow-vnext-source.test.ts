@@ -59,6 +59,38 @@ afterEach(() => {
 });
 
 describe('vNext Phase 2 source contract', () => {
+  test('every public vNext entry carries the canonical terminal boundary', () => {
+    const result = validateVNextSource(ROOT);
+    const publicEntries = [
+      ...result.entries,
+      ...result.administrativeEntries,
+      ...result.expertEntries,
+    ];
+    const protocol = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md'),
+      'utf8',
+    );
+
+    expect(protocol).toContain('## Public entry invocation terminal boundary');
+    expect(protocol).toContain('public-entry-terminal/v1');
+    expect(protocol).toContain('must not invoke the next public Skill');
+    expect(protocol).toContain('cannot observe conversation-level public Skill invocations');
+
+    for (const entry of publicEntries) {
+      const content = fs.readFileSync(
+        fixtureFile(ROOT, `templates/vnext/skills/${entry}.SKILL.md.tmpl`),
+        'utf8',
+      );
+      const requiredResult = content.indexOf('## Required result');
+      const terminalMarker = content.indexOf('terminal_boundary: public-entry-terminal/v1');
+
+      expect(requiredResult).toBeGreaterThanOrEqual(0);
+      expect(terminalMarker).toBeGreaterThan(requiredResult);
+      expect(content).toContain('next_route');
+      expect(content).toContain('must not invoke another public Skill');
+    }
+  });
+
   test('accepts exactly the seven daily entries and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 

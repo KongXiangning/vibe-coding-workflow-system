@@ -86,6 +86,8 @@ Return one structured `closure_result` containing:
 - delivery summary with release/rollback/observation evidence and remaining risks;
 - preview or ordinary closure semantics and the exact status/archive targets;
 - explicit Contract/Decision admission dispositions plus Lesson admission, defer, or no-op decision;
-- typed Runtime proposals only when each operation's preconditions pass.
+- typed Runtime proposals only when each operation's preconditions pass;
+- at most one `next_route` recommendation, if applicable; it is informational only and must not invoke another public Skill;
+- `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. Internal closure capabilities and declared Runtime operations are not public Skill chaining.
 
 The fixed ordinary order is `archive-transaction` → admitted `contract-candidate-commit` / `decision-record-transaction` → optional `lesson-record-transaction` → `project-status-transaction`. Closure is not complete until Runtime validates and commits the authorized proposals; downstream failure never rolls back a successful archive, and re-entry repairs only missing durable knowledge/status/Lesson records.

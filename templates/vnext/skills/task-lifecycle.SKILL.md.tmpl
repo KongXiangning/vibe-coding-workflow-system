@@ -82,6 +82,8 @@ Return one structured `lifecycle_result` containing:
 - preserved claim-bound evidence-plan state across pause, interruption, or resume when triggered;
 - normalized next workflow/lifecycle tuple or a truthful blocked/user result;
 - rollback and recovery conditions, owner route, and review readiness;
-- one typed `LifecycleProposal` only when all model-visible transition preconditions pass.
+- one typed `LifecycleProposal` only when all model-visible transition preconditions pass;
+- at most one `next_route` recommendation, if applicable; it is informational only and must not invoke another public Skill;
+- `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. Internal lifecycle capabilities are not public Skill chaining.
 
 No transition is complete merely because a proposal was described. Slice B binds `lifecycle-transaction` for pause, interrupt, the two explicit resume modes, and `supersede`. Supersede only invalidates the old definition; use `prepare-task` in `replan` mode for a later same-task replacement, and report a truthful blocked result if that replacement cannot be committed.

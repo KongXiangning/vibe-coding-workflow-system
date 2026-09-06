@@ -85,8 +85,9 @@ Return one structured `debug_result` containing:
 - claim-bound evidence decision and exploratory probe budget/audit, separate from the `persistent_test: false | true` disposition;
 - when applicable, the persistent-test owner, basis, proved claim/failure, existing-evidence insufficiency reason, behavioral/contract assertion boundary, and expected failure disposition;
 - any cross-turn evidence-plan persistence proposal and its canonical task-record target;
-- `investigate-only` or `resolve` disposition and the one authorized next route;
+- `investigate-only` or `resolve` disposition and at most one authorized `next_route` recommendation;
 - evidence gaps, user/other-owner blockers, and stop conditions;
 - a conditional task-state proposal only when current-task diagnostic evidence is admitted.
+- `terminal_boundary: public-entry-terminal/v1`; the recommended route is informational only. After this result, return to the caller and stop; the current invocation must not invoke another public Skill.
 
 `resolve` may recommend `execute-step:repair` as a result field after proof and authority. It does not invoke that entry or write product files itself.
