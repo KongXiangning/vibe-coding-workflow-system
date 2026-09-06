@@ -98,9 +98,11 @@ Validation obligation, reuse of an existing check, and admission of a new
 persistent automated test are separate decisions. This entry never creates or
 modifies `*.test.*`, `*.spec.*`, integration fixtures, or another persistent
 test artifact merely because evidence is missing. If minimum-sufficient proof
-requires a new persistent test, return an evidence gap and route it to
-`execute-step` with a reason that explicit P-12 admission and write authority
-are required. Do not silently register, save, or promote a temporary probe.
+requires a new persistent test, return a terminal evidence-gap result. It may
+carry `recommended_route: execute-step` for a later caller invocation after
+explicit P-12 admission and write authority are established; this invocation
+must not route to, invoke, call, or hand off to `execute-step`. Do not silently
+register, save, or promote a temporary probe.
 
 ## Failure and ownership boundary
 

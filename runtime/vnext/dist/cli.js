@@ -9574,6 +9574,8 @@ function renderWorkflowGuide(project) {
     "",
     "## Daily entries",
     "",
+    "- Public-entry progression is caller-driven: each arrow below means a later independent caller invocation.",
+    "- Every public Skill returns its terminal result to the caller; a next route is recommendation-only and never an automatic public-entry handoff.",
     "- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.",
     "- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.",
     "- `capture-work-item` remains record-only.",

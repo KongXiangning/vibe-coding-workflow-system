@@ -35,13 +35,10 @@ const PUBLIC_ENTRY_NAMES_PATTERN = PUBLIC_ENTRY_IDS
   .join('|');
 const PUBLIC_ENTRY_TARGET_PATTERN = `(?:${PUBLIC_ENTRY_NAMES_PATTERN})(?::[a-z0-9-]+)?`;
 const PUBLIC_ENTRY_CONTINUATION_PATTERN = new RegExp(
-  `\\b(?:invoke|call|start|proceed\\s+to|continue\\s+with|hand\\s+off\\s+to|handoff\\s+to|route\\s+(?:to|through))\\s+(?:the\\s+)?(?:public\\s+)?(?:Skill\\s+)?${PUBLIC_ENTRY_TARGET_PATTERN}\\b`,
+  `\\b(?:invoke|call|start|proceed\\s+to|continue\\s+with|hand\\s+off\\s+to|handoff\\s+to|route\\s+(?:(?:(?:this|the)\\s+result|it|that)\\s+)?(?:to|through))\\s+(?:the\\s+)?(?:public\\s+)?(?:Skill\\s+)?\`?${PUBLIC_ENTRY_TARGET_PATTERN}\\b\`?`,
   'iu',
 );
-const PUBLIC_ENTRY_AUTOMATIC_CONTINUATION_PATTERN = new RegExp(
-  `(?:\\b(?:automatically|immediately|directly)\\s+${PUBLIC_ENTRY_CONTINUATION_PATTERN.source}|${PUBLIC_ENTRY_CONTINUATION_PATTERN.source}\\s+(?:automatically|immediately)\\b)`,
-  'iu',
-);
+const PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN = new RegExp(PUBLIC_ENTRY_CONTINUATION_PATTERN.source, 'giu');
 
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan'],
@@ -666,9 +663,21 @@ function validatePublicEntryTerminalBoundary(content: string, entry: string): vo
   }
 
   for (const [lineIndex, line] of content.split(/\r?\n/u).entries()) {
-    if (!PUBLIC_ENTRY_CONTINUATION_PATTERN.test(line)) continue;
-    if (!PUBLIC_ENTRY_AUTOMATIC_CONTINUATION_PATTERN.test(line)) continue;
-    fail(`${entry} contains an automatic cross-public-entry continuation at line ${lineIndex + 1}`);
+    for (const clause of line.split(/[.;]/u)) {
+      for (const match of clause.matchAll(PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN)) {
+        if (match.index === undefined) continue;
+        const before = clause.slice(0, match.index);
+        const after = clause.slice(match.index + match[0].length);
+        const prohibition = /\b(?:do not|must not|does not|never|cannot)\b/iu.test(before)
+          && !/\b(?:then|and then|however|but)\b[\s\S]*$/iu.test(before);
+        const callerLater = /\bcaller\s+(?:may|can|should)\b/iu.test(before) && /\blater\b/iu.test(after);
+        const recommendation = /\b(?:recommend(?:ed|ation)?|next_route|recommended_route)\b/iu.test(before)
+          && /\b(?:later caller invocation|later)\b/iu.test(after)
+          && !/\b(?:then|and then|and)\s*$/iu.test(before);
+        if (prohibition || callerLater || recommendation) continue;
+        fail(`${entry} contains an executable cross-public-entry continuation at line ${lineIndex + 1}`);
+      }
+    }
   }
 }
 

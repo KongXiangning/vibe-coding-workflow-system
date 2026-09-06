@@ -91,12 +91,35 @@ describe('vNext Phase 2 source contract', () => {
     }
   });
 
-  test('rejects an explicit automatic cross-public-entry continuation', () => {
-    const root = copyFixture();
-    const file = fixtureFile(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
-    fs.appendFileSync(file, '\nAfter this result, automatically invoke execute-step.\n');
+  test('rejects positive cross-public-entry continuations while allowing caller recommendations and prohibitions', () => {
+    for (const continuation of [
+      'After this result, route to execute-step.',
+      'After this result, route through execute-step.',
+      'After this result, route it to execute-step.',
+      'Proceed to close-task.',
+      'Invoke review-change.',
+      'Call review-change.',
+      'Start execute-step.',
+      'Continue with debug-task.',
+      'Hand off to prepare-task.',
+      'Handoff to review-change.',
+      'After this result, invoke `review-change`.',
+      'After this result, automatically invoke execute-step.',
+      'The caller may invoke execute-step later, then invoke execute-step.',
+    ]) {
+      const root = copyFixture();
+      const file = fixtureFile(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
+      fs.appendFileSync(file, `\n${continuation}\n`);
+      expect(() => validateVNextSource(root)).toThrow(/executable cross-public-entry continuation/i);
+    }
 
-    expect(() => validateVNextSource(root)).toThrow(/automatic cross-public-entry continuation/i);
+    const allowedRoot = copyFixture();
+    const allowedFile = fixtureFile(allowedRoot, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
+    fs.appendFileSync(
+      allowedFile,
+      '\nRecommend next_route: execute-step for a later caller invocation; do not invoke it from this invocation.\nRecommend route to execute-step for a later caller invocation.\nThe caller may invoke execute-step later.\nDo not invoke execute-step.\nMust not hand off to review-change.\n',
+    );
+    expect(() => validateVNextSource(allowedRoot)).not.toThrow();
   });
 
   test('accepts exactly the seven daily entries and closed catalogs', () => {

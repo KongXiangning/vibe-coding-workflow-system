@@ -616,7 +616,7 @@ function renderWorkflowGuide(project: { name: string; slug: string }): string {
   return [
     '# vNext Workflow Guide', '', `Project: ${project.name} (${project.slug})`, '',
     '## Administrative entry', '', '- `bootstrap-project`: design, greenfield, inventory, adopt, or realign.', '',
-    '## Daily entries', '', '- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.', '- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.', '- `capture-work-item` remains record-only.', '',
+    '## Daily entries', '', '- Public-entry progression is caller-driven: each arrow below means a later independent caller invocation.', '- Every public Skill returns its terminal result to the caller; a next route is recommendation-only and never an automatic public-entry handoff.', '- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.', '- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.', '- `capture-work-item` remains record-only.', '',
     '## Authoritative state', '', '- Runtime state is read from canonical `CURRENT_TASK.md`.', '- Contracts, Decisions, Status, and host guidance are changed through typed Runtime proposals.', '- Bootstrap completion requires Distribution prerequisite validation, scope admission, governance-only promotion, and read-back.', '',
   ].join('\n');
 }

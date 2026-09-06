@@ -116,6 +116,14 @@ function assertPublicEntryTerminalGuidance(target: string): void {
   }
 }
 
+function assertCallerDrivenWorkflowGuide(target: string): void {
+  const guide = fs.readFileSync(path.join(target, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'), 'utf8');
+  expect(guide).toContain('Public-entry progression is caller-driven');
+  expect(guide).toContain('later independent caller invocation');
+  expect(guide).toContain('never an automatic public-entry handoff');
+  expect(guide).toContain('`prepare-task` → `execute-step`');
+}
+
 function runtimeAuthority(...kinds: AuthorityEvidence['kind'][]): AuthorityEvidence[] {
   return kinds.map(kind => ({ kind, source: 'docs/workflow/CURRENT_TASK.md', subject: 'realign-persistence' }));
 }
@@ -552,6 +560,7 @@ describe('vNext bootstrap-project', () => {
     expect(installed.read_back_verified).toBe(true);
     assertStatusContract(target);
     assertPublicEntryTerminalGuidance(target);
+    assertCallerDrivenWorkflowGuide(target);
     expect(installed.proposal?.requested_directory_targets).toEqual([]);
     expect(installed.proposal?.requested_write_targets.some(relative => relative === '.workflow-system/WORKFLOW_PROTOCOL.md' || relative === '.workflow-system/FILE_SCHEMAS.md' || relative === '.workflow-system/vnext/SOURCE_CONTRACT.yaml' || relative === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml' || relative.startsWith('.workflow-system/runtime/') || relative.startsWith('.agents/skills/'))).toBe(false);
     expect(fs.existsSync(path.join(target, '.agents', 'skills', 'validate-change', 'SKILL.md'))).toBe(true);
