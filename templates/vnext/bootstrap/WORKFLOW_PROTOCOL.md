@@ -93,6 +93,14 @@ current draft revision and explicit user or authorized-caller authority.
 Execution and finding admission reject drafts until that Runtime transition
 succeeds; the prior archive remains immutable.
 
+For tasks with `claim_evidence_required: true`, task completion is bound to
+the structured per-claim/per-slot evidence state in the same canonical
+`CURRENT_TASK.runtime_state`. Every planned slot must be `existing`, `reused`,
+or `newly-executed` and carry `evidence_refs`; `missing`, `deferred`, or
+`blocked` evidence cannot become `task-complete`. `close-task` consumes this
+durable state to derive `acceptance_satisfied` and `validation_complete`; an
+aggregate command result or free-text note is not sufficient.
+
 ## Durable Lesson marker boundary
 
 The installed vNext Runtime accepts only the current

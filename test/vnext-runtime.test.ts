@@ -29,6 +29,8 @@ import {
   type AuthorityEvidence,
   type ArchiveDelta,
   type ClosureEvidence,
+  type ClaimEvidenceDisposition,
+  type ClaimEvidenceRecord,
   type DeliverySummary,
   type DraftTaskDefinition,
   type FindingRecord,
@@ -284,8 +286,74 @@ function confirmationAuthority(
   ];
 }
 
+function completeClaimEvidence(): ClaimEvidenceRecord[] {
+  return [
+    {
+      claim_id: 'A1',
+      claim_kind: 'acceptance' as const,
+      slots: [{
+        slot_id: 'a1',
+        minimum_type: 'focused-test',
+        disposition: 'newly-executed' as const,
+        evidence_refs: ['test:evidence:claim-complete'],
+      }],
+    },
+  ];
+}
+
+function claimEvidenceFixture(overrides: {
+  location?: ClaimEvidenceDisposition;
+  staticInspection?: ClaimEvidenceDisposition;
+} = {}): ClaimEvidenceRecord[] {
+  const locationDisposition = overrides.location ?? 'newly-executed';
+  const staticDisposition = overrides.staticInspection ?? 'reused';
+  return [
+    {
+      claim_id: 'A4',
+      claim_kind: 'acceptance',
+      slots: [
+        {
+          slot_id: 'missing-title',
+          minimum_type: 'focused-test',
+          disposition: 'newly-executed',
+          evidence_refs: ['test:evidence:a4-missing-title'],
+        },
+        {
+          slot_id: 'missing-location',
+          minimum_type: 'focused-test',
+          disposition: locationDisposition,
+          evidence_refs: locationDisposition === 'missing' || locationDisposition === 'deferred' || locationDisposition === 'blocked'
+            ? []
+            : ['test:evidence:a4-missing-location'],
+        },
+      ],
+    },
+    {
+      claim_id: 'I1',
+      claim_kind: 'invariant',
+      slots: [
+        {
+          slot_id: 'focused-db-test',
+          minimum_type: 'focused-test',
+          disposition: 'newly-executed',
+          evidence_refs: ['test:evidence:i1-focused-db'],
+        },
+        {
+          slot_id: 'static-sqlite-check',
+          minimum_type: 'static-inspection',
+          disposition: staticDisposition,
+          evidence_refs: staticDisposition === 'missing' || staticDisposition === 'deferred' || staticDisposition === 'blocked'
+            ? []
+            : ['test:evidence:i1-static-sqlite-check'],
+        },
+      ],
+    },
+  ];
+}
+
 function taskProposal(root: string, overrides: Partial<Parameters<typeof createTaskStateProposal>[1]> = {}): RuntimeProposal {
   const current = readCanonicalCurrentTask(root);
+  const claimEvidence = overrides.claim_evidence ?? (current.runtimeState.claim_evidence_required ? completeClaimEvidence() : undefined);
   return createTaskStateProposal(current, {
     mode: 'default',
     status: 'completed',
@@ -293,6 +361,7 @@ function taskProposal(root: string, overrides: Partial<Parameters<typeof createT
     idempotency_key: 'proposal-step-1-complete',
     authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
     ...overrides,
+    ...(claimEvidence === undefined ? {} : { claim_evidence: claimEvidence }),
   });
 }
 
@@ -718,6 +787,84 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(replay.status).toBe('no-op');
     expect(replay.committed).toBe(false);
     expect(readCanonicalCurrentTask(root).runtimeState.execution_log).toHaveLength(1);
+  });
+
+  test('requires every planned claim-evidence slot for task-complete and rejects aggregate success as a substitute', () => {
+    const cases: Array<{ name: string; claimEvidence: ClaimEvidenceRecord[]; expected: 'success' | 'blocked' }> = [
+      { name: 'all planned evidence complete', claimEvidence: claimEvidenceFixture(), expected: 'success' },
+      { name: 'missing acceptance slot', claimEvidence: claimEvidenceFixture({ location: 'missing' }), expected: 'blocked' },
+      { name: 'focused test without static inspection', claimEvidence: claimEvidenceFixture({ staticInspection: 'missing' }), expected: 'blocked' },
+      { name: 'deferred evidence', claimEvidence: claimEvidenceFixture({ location: 'deferred' }), expected: 'blocked' },
+      { name: 'blocked evidence', claimEvidence: claimEvidenceFixture({ staticInspection: 'blocked' }), expected: 'blocked' },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const root = makeRoot(makeRuntimeState({ claim_evidence_required: true, claim_evidence: [] }));
+      const result = applyVNextRuntimeProposal(root, taskProposal(root, {
+        idempotency_key: `claim-evidence-completion-${index}`,
+        note: 'npm test passed',
+        evidence_refs: ['npm:test:aggregate'],
+        claim_evidence: testCase.claimEvidence,
+      }));
+      expect(result.status, testCase.name).toBe(testCase.expected);
+      if (testCase.expected === 'blocked') {
+        expect(result.code, testCase.name).toBe('CLAIM_EVIDENCE_INCOMPLETE');
+        expect(readCanonicalCurrentTask(root).runtimeState.active_step_status, testCase.name).toBe('ready');
+      } else {
+        expect(result.advancement, testCase.name).toMatchObject({ outcome: 'task-complete' });
+        expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence, testCase.name).toEqual(testCase.claimEvidence);
+      }
+    }
+  });
+
+  test('does not let step-progress replace or omit the durable claim-evidence plan', () => {
+    const planned = claimEvidenceFixture();
+    const root = makeRoot(makeRuntimeState({
+      claim_evidence_required: true,
+      claim_evidence: planned,
+    }));
+    const current = readCanonicalCurrentTask(root);
+    const omitted = createTaskStateProposal(current, {
+      mode: 'default',
+      status: 'completed',
+      evidence_refs: ['test:evidence:aggregate-only'],
+      note: 'npm test passed',
+      idempotency_key: 'claim-evidence-plan-omitted',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    const omittedResult = applyVNextRuntimeProposal(root, omitted);
+    expect(omittedResult.status).toBe('blocked');
+    expect(omittedResult.code).toBe('CLAIM_EVIDENCE_REQUIRED');
+
+    const narrowed = createTaskStateProposal(current, {
+      mode: 'default',
+      status: 'completed',
+      evidence_refs: ['test:evidence:aggregate-only'],
+      note: 'npm test passed',
+      idempotency_key: 'claim-evidence-plan-narrowed',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      claim_evidence: [planned[0]!],
+    });
+    const narrowedResult = applyVNextRuntimeProposal(root, narrowed);
+    expect(narrowedResult.status).toBe('blocked');
+    expect(narrowedResult.code).toBe('CLAIM_EVIDENCE_PLAN_CONFLICT');
+    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence).toEqual(planned);
+  });
+
+  test('close-task derives validation truth from durable claim evidence and blocks incomplete state', () => {
+    const root = makeRoot(makeRuntimeState({
+      active_step_status: 'completed',
+      claim_evidence_required: true,
+      claim_evidence: claimEvidenceFixture({ staticInspection: 'missing' }),
+    }));
+    const preview = previewCloseTask(root, archiveDelta());
+    expect(preview.closure_eligibility.eligible).toBe(false);
+    expect(preview.closure_eligibility.blockers.join(' ')).toContain('durable claim-bound validation evidence is incomplete');
+
+    const result = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'claim-evidence-incomplete-close'));
+    expect(result.status).toBe('blocked');
+    expect(result.code).toBe('CLOSURE_NOT_ELIGIBLE');
+    expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
   });
 
   test('captures one unrelated work item in an isolated pure-vNext Virtual Project and preserves record-only state', () => {

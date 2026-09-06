@@ -21,6 +21,16 @@ The canonical project surface contains the following governed documents:
 contains the task identity, acceptance, Allowed / Conditional / Forbidden
 scope buckets, implementation steps, and execution evidence.
 
+New and refined drafts use the same canonical `runtime_state` to store
+`claim_evidence_required: true` and a bounded `claim_evidence` array. Legacy
+documents may omit these fields and remain readable, but cannot claim
+structured completion without them. Each record has `claim_id`, `claim_kind`, and planned
+`slots`; each slot has `slot_id`, `minimum_type`, `disposition`, and
+`evidence_refs`. Only `existing`, `reused`, and `newly-executed` dispositions
+with refs are complete. `missing`, `deferred`, and `blocked` slots prevent
+Runtime `task-complete` and close-task validation. Aggregate command success,
+notes, and model summaries are not a second evidence state source.
+
 For an ordinary independent request, `CURRENT_TASK.md` is first written by the
 typed `create-draft` action as `draft + active`. The definition is closed to
 the existing task sections (`background_context`, `acceptance`, the three scope

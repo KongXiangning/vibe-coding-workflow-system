@@ -914,6 +914,16 @@ describe('vNext bootstrap-project', () => {
       evidence_refs: ['realign:evidence:step'],
       idempotency_key: 'realign-persistence-execute',
       authority_evidence: runtimeAuthority('active-task-owner', 'scope-admission', 'evidence-admission'),
+      claim_evidence: [{
+        claim_id: 'A1',
+        claim_kind: 'acceptance',
+        slots: [{
+          slot_id: 'a1',
+          minimum_type: 'focused-test',
+          disposition: 'newly-executed',
+          evidence_refs: ['realign:evidence:claim'],
+        }],
+      }],
     });
     expect(applyVNextRuntimeProposal(target, executed).status).toBe('success');
 

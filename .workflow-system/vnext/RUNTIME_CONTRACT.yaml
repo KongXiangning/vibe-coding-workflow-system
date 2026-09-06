@@ -79,6 +79,27 @@ proposal:
         - repair_fingerprint
         - diff_target
         - review_receipt
+        - claim_evidence
+    claim_evidence:
+      stored_in: canonical CURRENT_TASK.runtime_state
+      record_fields:
+        - claim_id
+        - claim_kind
+        - slots
+      slot_fields:
+        - slot_id
+        - minimum_type
+        - disposition
+        - evidence_refs
+      complete_dispositions:
+        - existing
+        - reused
+        - newly-executed
+      incomplete_dispositions:
+        - missing
+        - deferred
+        - blocked
+      completion_rule: every planned slot is complete and has evidence_refs
     advancement_outcomes:
       - not-applicable
       - repair-awaiting-verification
@@ -126,6 +147,7 @@ proposal:
         - design_constraints
         - post_release_validation
         - propagation_governance
+      claim_evidence: required-for-new-or-refined-drafts; legacy documents remain readable but cannot claim structured completion without it
       create_from: closed + archived
       update_from: draft + active
       target: draft + active
@@ -282,6 +304,7 @@ proposal:
       - active + active
     terminal_to:
       - closed + archived
+    claim_evidence: derive acceptance_satisfied and validation_complete from durable CURRENT_TASK claim_evidence; aggregate command success is insufficient
     lesson_admission:
       - admit
       - defer
@@ -427,6 +450,8 @@ canonical_current_task:
       - findings
       - execution_log
       - applied_proposals
+      - claim_evidence_required
+      - claim_evidence
     review_cycle:
       fields:
         - id
