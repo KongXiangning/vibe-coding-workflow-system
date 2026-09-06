@@ -106,9 +106,11 @@ are required. Do not silently register, save, or promote a temporary probe.
 
 A failed validation is an evidence result only. It does not admit a finding,
 start root-cause work, repair product code, advance a task, change lifecycle,
-or invoke another entry implicitly. The caller may route a failed result to
-`debug-task` or a user, and may route an admitted repair or test addition to
-`execute-step`; those entries retain their own authority and admission rules.
+or invoke another entry implicitly. The terminal result may carry at most one
+`recommended_route` for a later caller invocation of `debug-task`, a user
+decision, or (after admission) `execute-step`; those routes retain their own
+authority and admission rules, and this invocation does not invoke or hand off
+to them.
 
 ## Required result
 

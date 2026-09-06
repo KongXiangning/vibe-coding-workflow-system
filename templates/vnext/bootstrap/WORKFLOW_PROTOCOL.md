@@ -120,7 +120,9 @@ documentation, or release-health evidence; these are policy choices, not
 public modes. The entry has no Runtime operation and must not mutate product,
 governance, task, finding, host, or persistent-test state. A failed result is
 not a finding admission, and a missing persistent regression is an evidence gap
-that must route to an entry with explicit P-12 write authority.
+that must return a terminal result with an optional `recommended_route` for a
+later caller invocation of an entry with explicit P-12 write authority; the
+current invocation must not invoke or hand off to that entry.
 
 ## Durable Contract / Decision promotion
 

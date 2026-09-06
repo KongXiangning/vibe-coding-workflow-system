@@ -581,6 +581,16 @@ function renderProfile(project: { name: string; slug: string }, targetIdentity: 
   });
 }
 
+const PUBLIC_ENTRY_TERMINAL_GUIDANCE = [
+  '## Public entry terminal boundary',
+  '',
+  '`public-entry-terminal/v1` applies to every public Skill invocation.',
+  '- Complete only this entry intent, its internal capabilities, and its bound Runtime operations.',
+  '- After a terminal result, return to the caller and stop.',
+  '- Report at most one `next_route` / `recommended_route`; it is recommendation-only for a later caller invocation, and the current invocation must not invoke another public Skill.',
+  '- This is instruction-level host guidance; the current Runtime cannot observe conversation-level public Skill chaining.',
+] as const;
+
 function renderGuidance(project: { name: string; slug: string }): string {
   return [
     '<!-- vNext bootstrap managed guidance; preserve target-owned additions outside this block. -->',
@@ -594,6 +604,8 @@ function renderGuidance(project: { name: string; slug: string }): string {
     '- Use `review-change`, `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task` according to their contracts.',
     '- The project-local Runtime and canonical `docs/workflow/CURRENT_TASK.md` are authoritative for task state.',
     '- Do not edit governance state directly or treat discovery context as write authority.',
+    '',
+    ...PUBLIC_ENTRY_TERMINAL_GUIDANCE,
     '',
     `Project slug: ${project.slug}`,
     '',

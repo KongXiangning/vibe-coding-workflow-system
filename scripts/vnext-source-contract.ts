@@ -24,6 +24,25 @@ export type AdminEntry = (typeof ADMIN_ENTRIES)[number];
 export const EXPERT_ENTRIES = ['validate-change'] as const;
 export type ExpertEntry = (typeof EXPERT_ENTRIES)[number];
 
+const PUBLIC_ENTRY_IDS = [
+  ...PHASE_1_ENTRIES,
+  ...ADMIN_ENTRIES,
+  ...EXPERT_ENTRIES,
+] as const;
+const PUBLIC_ENTRY_TERMINAL_MARKER = 'terminal_boundary: public-entry-terminal/v1';
+const PUBLIC_ENTRY_NAMES_PATTERN = PUBLIC_ENTRY_IDS
+  .map(entry => entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|');
+const PUBLIC_ENTRY_TARGET_PATTERN = `(?:${PUBLIC_ENTRY_NAMES_PATTERN})(?::[a-z0-9-]+)?`;
+const PUBLIC_ENTRY_CONTINUATION_PATTERN = new RegExp(
+  `\\b(?:invoke|call|start|proceed\\s+to|continue\\s+with|hand\\s+off\\s+to|handoff\\s+to|route\\s+(?:to|through))\\s+(?:the\\s+)?(?:public\\s+)?(?:Skill\\s+)?${PUBLIC_ENTRY_TARGET_PATTERN}\\b`,
+  'iu',
+);
+const PUBLIC_ENTRY_AUTOMATIC_CONTINUATION_PATTERN = new RegExp(
+  `(?:\\b(?:automatically|immediately|directly)\\s+${PUBLIC_ENTRY_CONTINUATION_PATTERN.source}|${PUBLIC_ENTRY_CONTINUATION_PATTERN.source}\\s+(?:automatically|immediately)\\b)`,
+  'iu',
+);
+
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan'],
   'review-change': ['default', 'report-only'],
@@ -635,6 +654,24 @@ function validateLegacyExecutableTargets(content: string, entry: string, legacyS
   }
 }
 
+function validatePublicEntryTerminalBoundary(content: string, entry: string): void {
+  if (!content.includes(PUBLIC_ENTRY_TERMINAL_MARKER)) {
+    fail(`${entry} must declare ${PUBLIC_ENTRY_TERMINAL_MARKER}`);
+  }
+  if (!content.includes('next_route') && !content.includes('recommended_route')) {
+    fail(`${entry} must expose a next_route or recommended_route recommendation field`);
+  }
+  if (!/must not invoke another public Skill/iu.test(content)) {
+    fail(`${entry} must state that a recommendation must not invoke another public Skill`);
+  }
+
+  for (const [lineIndex, line] of content.split(/\r?\n/u).entries()) {
+    if (!PUBLIC_ENTRY_CONTINUATION_PATTERN.test(line)) continue;
+    if (!PUBLIC_ENTRY_AUTOMATIC_CONTINUATION_PATTERN.test(line)) continue;
+    fail(`${entry} contains an automatic cross-public-entry continuation at line ${lineIndex + 1}`);
+  }
+}
+
 function validateAgentSkillMetadata(frontmatter: UnknownRecord, entry: string): void {
   expectExactKeys(frontmatter, ['name', 'description', 'entry_contract'], `${entry} frontmatter`);
   const name = expectString(frontmatter.name, `${entry}.name`);
@@ -659,6 +696,7 @@ function validateTemplate(
   }
 
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
+  validatePublicEntryTerminalBoundary(content, entry);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(
@@ -739,6 +777,7 @@ function validateAdministrativeTemplate(
     if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
   }
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
+  validatePublicEntryTerminalBoundary(content, entry);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(
@@ -805,6 +844,7 @@ function validateExpertTemplate(
     if (forbidden in frontmatter) fail(`${entry} must not declare legacy field "${forbidden}"`);
   }
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
+  validatePublicEntryTerminalBoundary(content, entry);
   if (content.includes('validate-change:regression')) {
     fail(`${entry} must not restore the legacy validate-change:regression mode`);
   }

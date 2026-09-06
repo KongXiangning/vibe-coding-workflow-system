@@ -91,6 +91,14 @@ describe('vNext Phase 2 source contract', () => {
     }
   });
 
+  test('rejects an explicit automatic cross-public-entry continuation', () => {
+    const root = copyFixture();
+    const file = fixtureFile(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
+    fs.appendFileSync(file, '\nAfter this result, automatically invoke execute-step.\n');
+
+    expect(() => validateVNextSource(root)).toThrow(/automatic cross-public-entry continuation/i);
+  });
+
   test('accepts exactly the seven daily entries and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 
@@ -374,7 +382,8 @@ describe('vNext Phase 2 source contract', () => {
       'utf8',
     );
     expect(execute).toContain('resume_requires_review');
-    expect(execute).toContain('route through `prepare-task` readiness/resume review');
+    expect(execute).toContain('readiness/resume review to be invoked later by the caller');
+    expect(execute).toContain('do not implement directly or invoke `prepare-task` from this invocation');
   });
 
   test('rejects cycle phases promoted into a mode', () => {

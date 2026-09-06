@@ -106,6 +106,16 @@ function assertStatusContract(target: string): void {
   expect(() => validateStatusDocument(status, 'docs/workflow/STATUS.md')).not.toThrow();
 }
 
+function assertPublicEntryTerminalGuidance(target: string): void {
+  for (const file of ['AGENTS.md', 'CLAUDE.md']) {
+    const guidance = fs.readFileSync(path.join(target, file), 'utf8');
+    expect(guidance).toContain('public-entry-terminal/v1');
+    expect(guidance).toContain('return to the caller and stop');
+    expect(guidance).toContain('recommendation-only');
+    expect(guidance).toContain('must not invoke another public Skill');
+  }
+}
+
 function runtimeAuthority(...kinds: AuthorityEvidence['kind'][]): AuthorityEvidence[] {
   return kinds.map(kind => ({ kind, source: 'docs/workflow/CURRENT_TASK.md', subject: 'realign-persistence' }));
 }
@@ -541,6 +551,7 @@ describe('vNext bootstrap-project', () => {
     expect(installed.status).toBe('installed');
     expect(installed.read_back_verified).toBe(true);
     assertStatusContract(target);
+    assertPublicEntryTerminalGuidance(target);
     expect(installed.proposal?.requested_directory_targets).toEqual([]);
     expect(installed.proposal?.requested_write_targets.some(relative => relative === '.workflow-system/WORKFLOW_PROTOCOL.md' || relative === '.workflow-system/FILE_SCHEMAS.md' || relative === '.workflow-system/vnext/SOURCE_CONTRACT.yaml' || relative === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml' || relative.startsWith('.workflow-system/runtime/') || relative.startsWith('.agents/skills/'))).toBe(false);
     expect(fs.existsSync(path.join(target, '.agents', 'skills', 'validate-change', 'SKILL.md'))).toBe(true);
@@ -821,6 +832,7 @@ describe('vNext bootstrap-project', () => {
     });
     expect(realigned.status).toBe('installed');
     expect(() => validateStatusDocument(fs.readFileSync(statusPath, 'utf8'), 'docs/workflow/STATUS.md')).not.toThrow();
+    assertPublicEntryTerminalGuidance(target);
     const contractsAfterRealign = fs.readFileSync(contractsPath, 'utf8');
     const decisionsAfterRealign = fs.readFileSync(decisionsPath, 'utf8');
     const roadmapAfterRealign = fs.readFileSync(roadmapPath, 'utf8');
