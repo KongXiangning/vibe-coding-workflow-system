@@ -199,6 +199,12 @@ describe('Vibe Governance Distribution / Installer', () => {
     const installedProtocol = fs.readFileSync(targetPath(target, '.workflow-system/WORKFLOW_PROTOCOL.md'), 'utf8');
     expect(installedProtocol).toContain(PUBLIC_ENTRY_TERMINAL_MARKER);
     expect(installedProtocol).toContain('cannot observe conversation-level public Skill invocations');
+    expect(installedProtocol).toContain('tracked, untracked, ignored');
+    expect(installedProtocol).toContain('`.gitignore` is not an exemption');
+    expect(installedProtocol).toContain('`expected_write_footprint`');
+    expect(installedProtocol).toContain('`observed_write_paths`');
+    expect(installedProtocol).toContain('Git diff is evidence only');
+    expect(installedProtocol).toContain('transient create/delete');
     const skillDirectories = fs.readdirSync(targetPath(target, '.agents/skills')).sort();
     expect(skillDirectories).toEqual([
       'bootstrap-project',

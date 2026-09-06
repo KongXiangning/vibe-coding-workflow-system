@@ -29,6 +29,18 @@ Skill.
 - An interruption marker is fail-closed evidence, not permission to guess a
   recovery action.
 
+## P-13 Mutation Scope and Command Side Effects
+
+P-13 also covers repo-local command side effects: tracked, untracked, ignored,
+generated, build, cache, temporary, and helper writes are all mutations, and
+`.gitignore` is not an exemption. A known write-capable command requires a
+bounded `expected_write_footprint` admitted through the canonical scope
+evaluator before execution; an unbounded footprint blocks the command. After
+execution, available `observed_write_paths` are evaluated by the same guard,
+and cleanup cannot turn a recorded unauthorized mutation into a pass. A final
+Git diff is evidence only. Without OS-level monitoring, transient create/delete
+history cannot be claimed complete.
+
 ## Public entry invocation terminal boundary
 
 `public-entry-terminal/v1` is the canonical invocation boundary for every
