@@ -1599,6 +1599,7 @@ var STEP_STATUSES = ["ready", "in-progress", "completed", "blocked"];
 var FINDING_STATUSES = ["admitted", "in-progress", "resolved", "deferred", "rejected"];
 var REPLAN_TASK_STATE_ACTIONS = ["mark-replan-blocked", "clear-replan-block", "commit-replan"];
 var DRAFT_TASK_STATE_ACTIONS = ["create-draft", "update-draft", "confirm-draft"];
+var CLAIM_EVIDENCE_MIGRATION_ACTIONS = ["migrate-claim-evidence"];
 var DRAFT_AUDIT_ACTIONS = ["create-draft", "update-draft", "confirm-draft"];
 var REPLAN_AUDIT_ACTIONS = [
   "supersede",
@@ -1998,8 +1999,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(findingQueueAdmission, ["required"], "Runtime contract.proposal.finding_queue_admission");
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
-  expectExactKeys2(taskStateContract, ["actions", "step_progress", "claim_evidence", "advancement_outcomes", "review_receipt", "draft", "confirm"], "Runtime contract.proposal.task_state");
-  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
+  expectExactKeys2(taskStateContract, ["actions", "step_progress", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "draft", "confirm"], "Runtime contract.proposal.task_state");
+  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
   const stepProgressContract = expectRecord2(taskStateContract.step_progress, "Runtime contract.proposal.task_state.step_progress");
   expectExactKeys2(stepProgressContract, ["required", "optional"], "Runtime contract.proposal.task_state.step_progress");
   expectSetEqual(expectStringArray2(stepProgressContract.required, "Runtime contract.proposal.task_state.step_progress.required"), ["step_id", "status", "evidence_refs"], "Runtime contract task-state required fields");
@@ -2016,6 +2017,19 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence completion must require a non-empty frozen plan with an acceptance claim and every planned slot with its evidence_refs.");
   }
+  const claimEvidenceMigrationContract = expectRecord2(taskStateContract.claim_evidence_migration, "Runtime contract.proposal.task_state.claim_evidence_migration");
+  expectExactKeys2(claimEvidenceMigrationContract, ["mode", "action", "required", "from", "to", "mutation", "preserves"], "Runtime contract.proposal.task_state.claim_evidence_migration");
+  if (claimEvidenceMigrationContract.mode !== "default" || claimEvidenceMigrationContract.action !== "migrate-claim-evidence") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence migration must use default/migrate-claim-evidence.");
+  }
+  expectSetEqual(expectStringArray2(claimEvidenceMigrationContract.required, "Runtime contract claim evidence migration required"), ["claim_evidence", "evidence_refs"], "Runtime contract claim evidence migration required fields");
+  if (claimEvidenceMigrationContract.from !== "active + active legacy-or-empty-plan" || claimEvidenceMigrationContract.to !== "active + active") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence migration transition is invalid.");
+  }
+  if (claimEvidenceMigrationContract.mutation !== "install one non-empty acceptance-bearing frozen claim_evidence plan; do not change task semantics") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence migration mutation boundary is invalid.");
+  }
+  expectSetEqual(expectStringArray2(claimEvidenceMigrationContract.preserves, "Runtime contract claim evidence migration preserves"), ["TASK_ID", "TASK_SLUG", "document_id", "goal", "scope", "acceptance", "implementation steps", "active step/status", "execution history", "findings", "review state", "lifecycle tuple"], "Runtime claim evidence migration preserved fields");
   expectSetEqual(expectStringArray2(taskStateContract.advancement_outcomes, "Runtime contract.proposal.task_state.advancement_outcomes"), [...STEP_ADVANCEMENT_OUTCOMES], "Runtime contract task-state advancement outcomes");
   const reviewReceiptContract = expectRecord2(taskStateContract.review_receipt, "Runtime contract.proposal.task_state.review_receipt");
   expectExactKeys2(reviewReceiptContract, ["required", "verdict", "cycle_phase", "target_verification"], "Runtime contract.proposal.task_state.review_receipt");
@@ -2063,12 +2077,15 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (confirmContract.from !== "draft + active" || confirmContract.to !== "active + active")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract task-state confirm transition is invalid.");
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
-  expectExactKeys2(prepareTaskContract, ["bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
-  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task bound actions");
+  expectExactKeys2(prepareTaskContract, ["bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
+  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task bound actions");
   if (prepareTaskContract.draft_mode !== "default" || prepareTaskContract.confirm_mode !== "confirm")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task draft/confirm modes are invalid.");
   expectSetEqual(expectStringArray2(prepareTaskContract.draft_actions, "Runtime contract.proposal.prepare_task.draft_actions"), ["create-draft", "update-draft"], "Runtime contract prepare-task draft actions");
   expectSetEqual(expectStringArray2(prepareTaskContract.confirm_actions, "Runtime contract.proposal.prepare_task.confirm_actions"), ["confirm-draft"], "Runtime contract prepare-task confirm actions");
+  if (prepareTaskContract.migration_mode !== "default")
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task migration_mode must be default.");
+  expectSetEqual(expectStringArray2(prepareTaskContract.migration_actions, "Runtime contract prepare-task migration_actions"), [...CLAIM_EVIDENCE_MIGRATION_ACTIONS], "Runtime contract prepare-task migration actions");
   if (prepareTaskContract.replan_mode !== "replan")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task replan_mode must be replan.");
   expectSetEqual(expectStringArray2(prepareTaskContract.replan_actions, "Runtime contract.proposal.prepare_task.replan_actions"), [...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task replan actions");
@@ -2667,7 +2684,7 @@ function effectiveCheckpointPolicy(resolution) {
 function validateTaskStateDelta(value) {
   const record = expectRecord2(value, "semantic_delta");
   const kind = expectEnum(record.kind, ["task-state"], "semantic_delta.kind");
-  const action = expectEnum(record.action, ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
+  const action = expectEnum(record.action, ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
   if (action === "create-draft" || action === "update-draft") {
     const allowedKeys = ["kind", "action", "task_id", "task_slug", "document_id", "task_title", "draft_definition", "active_step_id", "evidence_refs", "claim_evidence"];
     if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
@@ -2696,6 +2713,15 @@ function validateTaskStateDelta(value) {
       action,
       ...identity,
       draft_revision: draftRevision,
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
+    };
+  }
+  if (action === "migrate-claim-evidence") {
+    expectExactKeys2(record, ["kind", "action", "claim_evidence", "evidence_refs"], "semantic_delta");
+    return {
+      kind,
+      action,
+      claim_evidence: validateClaimEvidence(record.claim_evidence, "semantic_delta.claim_evidence"),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
@@ -3500,8 +3526,14 @@ function validateRuntimeProposal(value) {
   if (operationKind === "task-state-transaction") {
     if (caller === "prepare-task") {
       if (mode === "default") {
-        if (semanticDelta.kind !== "task-state" || !["clear-resume-review-gate", "create-draft", "update-draft"].includes(semanticDelta.action)) {
-          fail2("RUNTIME_CALLER_NOT_BOUND", "prepare-task default mode is bound only to clear-resume-review-gate, create-draft, or update-draft.");
+        if (semanticDelta.kind !== "task-state" || !["clear-resume-review-gate", "create-draft", "update-draft", ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
+          fail2("RUNTIME_CALLER_NOT_BOUND", "prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, or migrate-claim-evidence.");
+        }
+        if (semanticDelta.kind === "task-state" && semanticDelta.action === "migrate-claim-evidence") {
+          const requiredPreconditions = ["current-task-is-active", "legacy-claim-evidence-state", "acceptance-bearing-plan"];
+          const missingPreconditions = requiredPreconditions.filter((precondition) => !preconditions.includes(precondition));
+          if (missingPreconditions.length > 0)
+            fail2("RUNTIME_PRECONDITION_MISSING", `migrate-claim-evidence is missing required preconditions: ${missingPreconditions.join(", ")}.`);
         }
       } else if (mode === "confirm") {
         if (semanticDelta.kind !== "task-state" || semanticDelta.action !== "confirm-draft") {
@@ -3861,8 +3893,93 @@ function validateDraftAuditLogEntry(value, location, taskId, taskSlug) {
     recorded_at: recordedAt
   };
 }
+function validateClaimEvidenceMigrationAuditLogEntry(value, location, taskId, taskSlug) {
+  expectExactKeys2(value, [
+    "action",
+    "idempotency_key",
+    "operation_kind",
+    "caller",
+    "mode",
+    "from_task_id",
+    "from_task_slug",
+    "from_document_id",
+    "task_id",
+    "task_slug",
+    "document_id",
+    "from_workflow_status",
+    "from_lifecycle_state",
+    "to_workflow_status",
+    "to_lifecycle_state",
+    "source_revision",
+    "authority_evidence",
+    "evidence_refs",
+    "claim_evidence_digest",
+    "recorded_at"
+  ], location);
+  if (value.action !== "migrate-claim-evidence" || value.operation_kind !== "task-state-transaction" || value.caller !== "prepare-task" || value.mode !== "default") {
+    fail2("RUNTIME_STATE_CONFLICT", `${location} claim evidence migration audit has an invalid operation binding.`);
+  }
+  const fromTaskId = expectString2(value.from_task_id, `${location}.from_task_id`);
+  const fromTaskSlug = expectString2(value.from_task_slug, `${location}.from_task_slug`);
+  const entryTaskId = expectString2(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString2(value.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(fromTaskId);
+    validateTaskSlug(fromTaskSlug);
+    validateTaskId(entryTaskId);
+    validateTaskSlug(entryTaskSlug);
+  } catch (error) {
+    fail2("RUNTIME_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug)
+    fail2("RUNTIME_STATE_CONFLICT", `${location} target identity does not match runtime_state.`);
+  if (fromTaskId !== entryTaskId || fromTaskSlug !== entryTaskSlug)
+    fail2("RUNTIME_STATE_CONFLICT", `${location} migration must preserve task identity.`);
+  const fromDocumentId = expectString2(value.from_document_id, `${location}.from_document_id`);
+  const documentId = expectString2(value.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(fromDocumentId) || !DOCUMENT_ID_PATTERN.test(documentId)) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.document_id fields are invalid.`);
+  }
+  if (fromDocumentId !== documentId)
+    fail2("RUNTIME_STATE_CONFLICT", `${location} migration must preserve document_id.`);
+  if (value.from_workflow_status !== "active" || value.from_lifecycle_state !== "active" || value.to_workflow_status !== "active" || value.to_lifecycle_state !== "active") {
+    fail2("RUNTIME_STATE_CONFLICT", `${location} migration must preserve the active + active lifecycle tuple.`);
+  }
+  const sourceRevision = expectString2(value.source_revision, `${location}.source_revision`);
+  if (!SHA256_PATTERN2.test(sourceRevision))
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.source_revision must be SHA-256.`);
+  const authorityEvidence = validateAuthorityEvidence2(value.authority_evidence);
+  const evidenceRefs = validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`);
+  const claimEvidenceDigest = expectString2(value.claim_evidence_digest, `${location}.claim_evidence_digest`);
+  if (!SHA256_PATTERN2.test(claimEvidenceDigest))
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.claim_evidence_digest must be SHA-256.`);
+  return {
+    action: "migrate-claim-evidence",
+    idempotency_key: expectString2(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "default",
+    from_task_id: fromTaskId,
+    from_task_slug: fromTaskSlug,
+    from_document_id: fromDocumentId,
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: "active",
+    from_lifecycle_state: "active",
+    to_workflow_status: "active",
+    to_lifecycle_state: "active",
+    source_revision: sourceRevision,
+    authority_evidence: authorityEvidence,
+    evidence_refs: evidenceRefs,
+    claim_evidence_digest: claimEvidenceDigest,
+    recorded_at: expectString2(value.recorded_at, `${location}.recorded_at`)
+  };
+}
 function validateExecutionLogEntry(value, location, taskId, taskSlug) {
   const record = expectRecord2(value, location);
+  if (record.action === "migrate-claim-evidence")
+    return validateClaimEvidenceMigrationAuditLogEntry(record, location, taskId, taskSlug);
   if (DRAFT_AUDIT_ACTIONS.includes(record.action))
     return validateDraftAuditLogEntry(record, location, taskId, taskSlug);
   if (record.action === "archive")
@@ -4485,6 +4602,12 @@ function renderExecutionAuditRecord(audit, includeEmptyKnowledge = true) {
     if (includeEmptyKnowledge || audit.knowledge_admissions.contracts.length > 0 || audit.knowledge_admissions.decisions.length > 0) {
       lines.push(`  knowledge_admissions: ${JSON.stringify(audit.knowledge_admissions)}`);
     }
+  } else if (audit.action === "migrate-claim-evidence") {
+    const migrationAudit = audit;
+    lines.push(`  from_task_id: ${migrationAudit.from_task_id}`);
+    lines.push(`  from_task_slug: ${migrationAudit.from_task_slug}`);
+    lines.push(`  from_document_id: ${migrationAudit.from_document_id}`);
+    lines.push(`  claim_evidence_digest: ${migrationAudit.claim_evidence_digest}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action)) {
     const draftAudit = audit;
     lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
@@ -6972,6 +7095,37 @@ function makeDraftAudit(current, proposal, next, now) {
   const confirmDelta = delta;
   return { ...base, draft_revision: confirmDelta.draft_revision };
 }
+function makeClaimEvidenceMigrationAudit(current, proposal, next, now) {
+  if (proposal.semantic_delta.kind !== "task-state" || proposal.semantic_delta.action !== "migrate-claim-evidence") {
+    fail2("RUNTIME_SCHEMA_INVALID", "Only claim evidence migration transitions may create a claim evidence migration audit record.");
+  }
+  if (next.workflow_status !== "active" || next.lifecycle_state !== "active") {
+    fail2("RUNTIME_STATE_CONFLICT", "Claim evidence migration must preserve the active + active lifecycle tuple.");
+  }
+  const delta = proposal.semantic_delta;
+  return {
+    action: "migrate-claim-evidence",
+    idempotency_key: proposal.idempotency_key,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "default",
+    from_task_id: current.runtimeState.task_id,
+    from_task_slug: current.runtimeState.task_slug,
+    from_document_id: current.sourceTuple.document_id,
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    document_id: current.sourceTuple.document_id,
+    from_workflow_status: "active",
+    from_lifecycle_state: "active",
+    to_workflow_status: "active",
+    to_lifecycle_state: "active",
+    source_revision: current.sourceTuple.revision,
+    authority_evidence: proposal.authority_evidence.map((item) => ({ ...item })),
+    evidence_refs: [...delta.evidence_refs],
+    claim_evidence_digest: digest(delta.claim_evidence),
+    recorded_at: now
+  };
+}
 function readDraftDefinitionFromBody(body) {
   const ranges = resolveReplanSectionRanges(body);
   const values = {};
@@ -7069,6 +7223,32 @@ function assertDraftTaskReplay(current, proposal) {
     }
   }
 }
+function expectedClaimEvidenceMigrationReplayAudit(current, proposal) {
+  const entry = current.runtimeState.execution_log.find((item) => ("action" in item) && item.action === "migrate-claim-evidence" && item.idempotency_key === proposal.idempotency_key);
+  if (!entry)
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "claim evidence migration replay is missing its durable execution audit record.");
+  return entry;
+}
+function assertClaimEvidenceMigrationReplay(current, proposal) {
+  if (proposal.semantic_delta.kind !== "task-state" || proposal.semantic_delta.action !== "migrate-claim-evidence")
+    return;
+  const delta = proposal.semantic_delta;
+  const audit = expectedClaimEvidenceMigrationReplayAudit(current, proposal);
+  assertExecutionAuditInBody(current.body, audit);
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "claim evidence migration replay no longer has the active + active tuple.");
+  }
+  if (current.runtimeState.claim_evidence_required !== true || current.runtimeState.claim_evidence.length === 0) {
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "claim evidence migration replay no longer has a strict non-empty plan.");
+  }
+  requireAcceptanceClaim(current.runtimeState.claim_evidence, "claim evidence migration replay claim_evidence");
+  if (digest(current.runtimeState.claim_evidence) !== digest(delta.claim_evidence)) {
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "claim evidence migration replay no longer has the proposal plan in canonical CURRENT_TASK.");
+  }
+  if (audit.idempotency_key !== proposal.idempotency_key || audit.source_revision !== proposal.source_tuple.revision || audit.evidence_refs.join("|") !== delta.evidence_refs.join("|") || audit.claim_evidence_digest !== digest(delta.claim_evidence) || audit.task_id !== current.runtimeState.task_id || audit.task_slug !== current.runtimeState.task_slug || audit.document_id !== current.sourceTuple.document_id) {
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "claim evidence migration replay audit does not match the proposal identity, plan, or evidence.");
+  }
+}
 function expectedReplanReplayAudit(current, proposal) {
   const entry = current.runtimeState.execution_log.find((item) => ("action" in item) && REPLAN_AUDIT_ACTIONS.includes(item.action) && item.idempotency_key === proposal.idempotency_key);
   if (!entry)
@@ -7117,6 +7297,10 @@ function assertTaskStateReplay(current, proposal) {
     assertStepProgressReplay(current, proposal);
     return;
   }
+  if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "migrate-claim-evidence") {
+    assertClaimEvidenceMigrationReplay(current, proposal);
+    return;
+  }
   if (proposal.semantic_delta.kind !== "task-state" || !REPLAN_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action))
     return;
   const delta = proposal.semantic_delta;
@@ -7152,6 +7336,31 @@ function applyTaskStateDelta(root, current, proposal, now) {
   if (proposal.semantic_delta.kind !== "task-state")
     fail2("RUNTIME_SCHEMA_INVALID", "Expected task-state delta.");
   const delta = proposal.semantic_delta;
+  if (delta.action === "migrate-claim-evidence") {
+    ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
+    ensureAnyAuthorityKind(proposal, ["active-task-owner", "user-confirmation", "authorized-caller"]);
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+      fail2("CLAIM_EVIDENCE_MIGRATION_NOT_APPLICABLE", "claim evidence migration requires a legacy active + active task.");
+    }
+    if (current.runtimeState.claim_evidence.length > 0) {
+      fail2("CLAIM_EVIDENCE_MIGRATION_NOT_APPLICABLE", "claim evidence migration cannot replace an existing structured claim_evidence plan.");
+    }
+    const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "migrate-claim-evidence claim_evidence");
+    requireAcceptanceClaim(claimEvidence, "migrate-claim-evidence claim_evidence");
+    const nextWithoutAudit = {
+      ...current.runtimeState,
+      workflow_status: "active",
+      lifecycle_state: "active",
+      claim_evidence_required: true,
+      claim_evidence: copyClaimEvidence(claimEvidence),
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
+    };
+    const audit = makeClaimEvidenceMigrationAudit(current, proposal, nextWithoutAudit, now);
+    return {
+      next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
+      audit
+    };
+  }
   if (delta.action === "create-draft") {
     ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
     ensureAnyAuthorityKind(proposal, ["user-confirmation", "authorized-caller"]);

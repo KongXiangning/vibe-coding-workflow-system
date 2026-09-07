@@ -250,6 +250,7 @@ capabilities:
       - 'evidence types may include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance'
       - 'evidence-plan decision: whether new evidence is needed, minimum-sufficient type, existing-check reuse, temporary exploration, and failure route'
       - 'prepare-task creates and persists a non-empty canonical CURRENT_TASK.runtime_state.claim_evidence plan with at least one acceptance claim; each claim has stable claim_id/claim_kind and each planned slot has slot_id, minimum_type, disposition, and evidence_refs'
+      - 'prepare-task:default:migrate-claim-evidence is the canonical schema-migration transition for legacy active + active tasks; it installs only a non-empty acceptance-bearing plan and preserves task identity, definition, scope, acceptance, implementation state, execution history, findings, review state, and lifecycle tuple'
       - 'existing, reused, and newly-executed slots require evidence_refs; missing, deferred, and blocked slots are not completion evidence'
       - 'execute-step may update only disposition and evidence_refs for an existing plan; it cannot add, remove, or redefine claims or evidence slots'
       - 'legacy CURRENT_TASK documents remain readable but require prepare-task refinement/migration before task-complete or terminal close-task; aggregate command success cannot provide completion compatibility'
@@ -483,6 +484,7 @@ runtime_operations:
       - prepare-task:default:create-draft
       - prepare-task:default:update-draft
       - prepare-task:confirm:confirm-draft
+      - prepare-task:default:migrate-claim-evidence
       - prepare-task:replan:mark-replan-blocked
       - prepare-task:replan:clear-replan-block
       - prepare-task:replan:commit-replan

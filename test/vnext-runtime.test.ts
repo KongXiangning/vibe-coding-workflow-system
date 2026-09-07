@@ -12,6 +12,7 @@ import {
   createLessonRecordProposal,
   createLifecycleProposal,
   createProjectStatusProposal,
+  createPrepareTaskClaimEvidenceMigrationProposal,
   createPrepareTaskReplanProposal,
   createPrepareTaskConfirmProposal,
   createPrepareTaskDraftProposal,
@@ -360,6 +361,15 @@ function taskProposal(root: string, overrides: Partial<Parameters<typeof createT
     idempotency_key: 'proposal-step-1-complete',
     authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
     ...overrides,
+  });
+}
+
+function claimEvidenceMigrationProposal(root: string, claimEvidence = completeClaimEvidence(), idempotencyKey = 'legacy-claim-evidence-migration'): RuntimeProposal {
+  return createPrepareTaskClaimEvidenceMigrationProposal(readCanonicalCurrentTask(root), {
+    claim_evidence: claimEvidence,
+    evidence_refs: ['test:evidence:claim-evidence-migration'],
+    idempotency_key: idempotencyKey,
+    authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
   });
 }
 
@@ -1026,6 +1036,79 @@ describe('vNext Phase 2 Runtime contract', () => {
     const legacyReadable = readCanonicalCurrentTask(makeRoot());
     expect(legacyReadable.runtimeState.claim_evidence_required).toBe(false);
     expect(legacyReadable.runtimeState.claim_evidence).toEqual([]);
+  });
+
+  test('provides a canonical claim-evidence migration for legacy active tasks without changing task semantics', () => {
+    const root = makeRoot();
+    const before = readCanonicalCurrentTask(root);
+    const plan = completeClaimEvidence();
+    const migration = claimEvidenceMigrationProposal(root, plan, 'legacy-claim-evidence-migration-active');
+
+    const result = applyVNextRuntimeProposal(root, migration);
+
+    expect(result.status).toBe('success');
+    expect(result.committed).toBe(true);
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.workflow_status).toBe('active');
+    expect(after.runtimeState.lifecycle_state).toBe('active');
+    expect(after.runtimeState.task_id).toBe(before.runtimeState.task_id);
+    expect(after.runtimeState.task_slug).toBe(before.runtimeState.task_slug);
+    expect(after.sourceTuple.document_id).toBe(before.sourceTuple.document_id);
+    expect(after.runtimeState.active_step_id).toBe(before.runtimeState.active_step_id);
+    expect(after.runtimeState.active_step_status).toBe(before.runtimeState.active_step_status);
+    expect(after.runtimeState.claim_evidence_required).toBe(true);
+    expect(after.runtimeState.claim_evidence).toEqual(plan);
+    expect(after.body).toContain('original acceptance');
+    expect(after.body).toContain('original implementation plan');
+    expect(after.body).toContain('action: migrate-claim-evidence');
+    expect(after.runtimeState.execution_log).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'migrate-claim-evidence',
+        from_workflow_status: 'active',
+        from_lifecycle_state: 'active',
+        to_workflow_status: 'active',
+        to_lifecycle_state: 'active',
+        claim_evidence_digest: expect.any(String),
+      }),
+    ]));
+
+    const migratedBytes = fs.readFileSync(after.filePath, 'utf8');
+    const replay = applyVNextRuntimeProposal(root, migration);
+    expect(replay.status).toBe('no-op');
+    expect(replay.read_back_verified).toBe(true);
+    expect(fs.readFileSync(after.filePath, 'utf8')).toBe(migratedBytes);
+
+    const shapeMutation = applyVNextRuntimeProposal(root, taskProposal(root, {
+      idempotency_key: 'legacy-migration-plan-shape-mutation',
+      claim_evidence: [
+        ...plan,
+        {
+          claim_id: 'I1',
+          claim_kind: 'invariant',
+          slots: [{
+            slot_id: 'i1',
+            minimum_type: 'static-inspection',
+            disposition: 'reused',
+            evidence_refs: ['test:evidence:shape-mutation'],
+          }],
+        },
+      ],
+    }));
+    expect(shapeMutation.status).toBe('blocked');
+    expect(shapeMutation.code).toBe('CLAIM_EVIDENCE_PLAN_CONFLICT');
+  });
+
+  test('restores legacy completed tasks to strict close-task eligibility through migration', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+
+    expect(applyVNextRuntimeProposal(root, claimEvidenceMigrationProposal(root, completeClaimEvidence(), 'legacy-claim-evidence-migration-completed')).status).toBe('success');
+    const preview = previewCloseTask(root, archiveDelta());
+    expect(preview.closure_eligibility.eligible).toBe(true);
+
+    const close = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'legacy-migrated-close'));
+    expect(close.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
+    expect(readCanonicalCurrentTask(root).runtimeState.lifecycle_state).toBe('archived');
   });
 
   test('preserves a frozen plan identity while allowing only slot fulfillment updates', () => {

@@ -103,7 +103,13 @@ be `existing`, `reused`, or `newly-executed` and carry `evidence_refs`;
 `close-task` consumes this durable state to derive `acceptance_satisfied` and
 `validation_complete`; an aggregate command result or free-text note is not
 sufficient. Legacy CURRENT_TASK documents remain readable, but require
-prepare-task refinement/migration before terminal completion.
+prepare-task refinement/migration before terminal completion. For an active +
+active legacy task, the canonical migration is the typed
+`prepare-task:default:migrate-claim-evidence` task-state transaction: it
+installs only a non-empty acceptance-bearing plan and preserves the existing
+task identity, definition, scope, implementation state, execution history,
+findings, review state, and lifecycle tuple. It is schema migration, not
+business replan or lifecycle supersede.
 
 ## Durable Lesson marker boundary
 

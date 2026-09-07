@@ -221,6 +221,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'prepare-task:default:create-draft',
     'prepare-task:default:update-draft',
     'prepare-task:confirm:confirm-draft',
+    'prepare-task:default:migrate-claim-evidence',
     'prepare-task:replan:mark-replan-blocked',
     'prepare-task:replan:clear-replan-block',
     'prepare-task:replan:commit-replan',

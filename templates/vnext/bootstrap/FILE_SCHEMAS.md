@@ -30,6 +30,11 @@ and remain readable, but require prepare-task refinement/migration before
 `disposition`, and `evidence_refs`. Only `existing`, `reused`, and
 `newly-executed` dispositions with refs are complete. `missing`, `deferred`,
 and `blocked` slots prevent Runtime `task-complete` and close-task validation.
+An active + active legacy task is migrated through the typed
+`prepare-task:default:migrate-claim-evidence` transaction, which installs only
+the non-empty acceptance-bearing plan and preserves the task's existing
+identity, definition, scope, execution state, history, findings, review state,
+and lifecycle tuple; it is not a replan or lifecycle supersede.
 The plan shape is frozen at prepare/confirm time: execute-step may update only
 slot disposition and refs, and cannot add, remove, or redefine claims or
 slots. Aggregate command success, notes, and model summaries are not a second

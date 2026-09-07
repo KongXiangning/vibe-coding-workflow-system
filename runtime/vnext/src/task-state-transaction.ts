@@ -1,6 +1,7 @@
 /** Task-state proposal factory exposed by the project-local Runtime. */
 
 export {
+  createPrepareTaskClaimEvidenceMigrationProposal,
   createPrepareTaskConfirmProposal,
   createPrepareTaskCreateDraftProposal,
   createPrepareTaskDraftProposal,
@@ -10,6 +11,7 @@ export {
 } from './kernel';
 export type {
   AuthorityEvidence,
+  ClaimEvidenceMigrationAction,
   DraftTaskDefinition,
   DraftTaskIdentity,
   ReplanTaskStateAction,

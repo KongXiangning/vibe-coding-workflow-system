@@ -66,6 +66,7 @@ proposal:
       - create-draft
       - update-draft
       - confirm-draft
+      - migrate-claim-evidence
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
@@ -100,6 +101,28 @@ proposal:
         - deferred
         - blocked
       completion_rule: non-empty frozen plan with at least one acceptance claim; every planned slot is complete and has evidence_refs
+    claim_evidence_migration:
+      mode: default
+      action: migrate-claim-evidence
+      required:
+        - claim_evidence
+        - evidence_refs
+      from: active + active legacy-or-empty-plan
+      to: active + active
+      mutation: install one non-empty acceptance-bearing frozen claim_evidence plan; do not change task semantics
+      preserves:
+        - TASK_ID
+        - TASK_SLUG
+        - document_id
+        - goal
+        - scope
+        - acceptance
+        - implementation steps
+        - active step/status
+        - execution history
+        - findings
+        - review state
+        - lifecycle tuple
     advancement_outcomes:
       - not-applicable
       - repair-awaiting-verification
@@ -191,6 +214,7 @@ proposal:
       - create-draft
       - update-draft
       - confirm-draft
+      - migrate-claim-evidence
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
@@ -201,6 +225,9 @@ proposal:
     confirm_mode: confirm
     confirm_actions:
       - confirm-draft
+    migration_mode: default
+    migration_actions:
+      - migrate-claim-evidence
     replan_mode: replan
     replan_actions:
       - mark-replan-blocked
