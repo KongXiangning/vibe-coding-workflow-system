@@ -2,9 +2,9 @@
  * Human-semantic adapter for prepare-task.
  *
  * The public entry accepts task design content only. Runtime-owned proposal
- * fields, authority, source coordinates, identity allocation, evidence-plan
- * scaffolding, write targets, commit, and read-back remain inside this module
- * and the transaction kernel.
+ * fields, source coordinates, identity allocation, evidence-plan scaffolding,
+ * write targets, commit, and read-back remain inside this module and the
+ * transaction kernel. Caller authority enters only through exact receipts.
  */
 
 import * as crypto from 'crypto';
@@ -20,6 +20,7 @@ import {
   createPrepareTaskReplanProposal,
   createPrepareTaskResumeReviewProposal,
   readCanonicalCurrentTask,
+  readDraftDefinitionFromBody,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
@@ -31,6 +32,7 @@ import {
 } from './kernel';
 import {
   evaluateMutationScope,
+  isLikelyPersistentTestPath,
   mutationScopePatternMatchesPath,
   parseMutationScope,
 } from './mutation-scope';
@@ -69,7 +71,31 @@ export type PrepareTaskSemanticDraft = {
 };
 
 export type PrepareTaskResumeReviewInput = {
-  readiness_evidence: string[];
+  readiness_receipt: ResumeReadinessReceipt;
+};
+
+export type DraftConfirmationReceipt = {
+  kind: 'prepare-draft-confirmation/v1';
+  task_id: string;
+  document_id: string;
+  draft_revision: string;
+};
+
+export type ConfirmDraftInput = {
+  confirmation_receipt: DraftConfirmationReceipt;
+};
+
+export type ResumeReadinessReceipt = {
+  kind: 'resume-readiness/v1';
+  task_id: string;
+  document_id: string;
+  source_revision: string;
+  reviewed_reasons: string[];
+  evidence_refs: string[];
+};
+
+export type PrepareDraftResult = RuntimeResult & {
+  confirmation_receipt?: DraftConfirmationReceipt;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -153,6 +179,48 @@ function normalizeScopePathList(value: unknown, location: string): string[] {
   const paths = value.map((item, index) => normalizeScopePath(item, `${location}[${index}]`, true));
   if (new Set(paths).size !== paths.length) fail('PREPARE_ADAPTER_INPUT_INVALID', `${location} must not contain duplicates.`);
   return paths;
+}
+
+function sha256Revision(value: unknown, location: string): string {
+  const normalized = text(value, location, 64);
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', `${location} must be a SHA-256 revision.`);
+  }
+  return normalized;
+}
+
+function normalizeConfirmationReceipt(input: unknown): DraftConfirmationReceipt {
+  const source = record(input, 'confirmation_receipt');
+  exactKeys(source, ['kind', 'task_id', 'document_id', 'draft_revision'], 'confirmation_receipt');
+  if (source.kind !== 'prepare-draft-confirmation/v1') {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', 'confirmation_receipt.kind must be prepare-draft-confirmation/v1.');
+  }
+  return {
+    kind: source.kind,
+    task_id: text(source.task_id, 'confirmation_receipt.task_id', 128),
+    document_id: text(source.document_id, 'confirmation_receipt.document_id', 128),
+    draft_revision: sha256Revision(source.draft_revision, 'confirmation_receipt.draft_revision'),
+  };
+}
+
+function normalizeResumeReadinessReceipt(input: unknown): ResumeReadinessReceipt {
+  const source = record(input, 'readiness_receipt');
+  exactKeys(
+    source,
+    ['kind', 'task_id', 'document_id', 'source_revision', 'reviewed_reasons', 'evidence_refs'],
+    'readiness_receipt',
+  );
+  if (source.kind !== 'resume-readiness/v1') {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', 'readiness_receipt.kind must be resume-readiness/v1.');
+  }
+  return {
+    kind: source.kind,
+    task_id: text(source.task_id, 'readiness_receipt.task_id', 128),
+    document_id: text(source.document_id, 'readiness_receipt.document_id', 128),
+    source_revision: sha256Revision(source.source_revision, 'readiness_receipt.source_revision'),
+    reviewed_reasons: textList(source.reviewed_reasons, 'readiness_receipt.reviewed_reasons', false),
+    evidence_refs: textList(source.evidence_refs, 'readiness_receipt.evidence_refs', false),
+  };
 }
 
 function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
@@ -241,6 +309,9 @@ function markdownBullets(items: readonly string[], checklist = false): string {
 }
 
 function scopeBody(input: PrepareTaskSemanticDraft): string {
+  const persistentTests = input.persistent_tests === 'none'
+    ? ['- none']
+    : input.persistent_tests.map(test => `- \`${test.path}\``);
   return [
     '## 允许修改范围',
     '',
@@ -258,16 +329,32 @@ function scopeBody(input: PrepareTaskSemanticDraft): string {
     '',
     markdownBullets(input.mutation_scope.forbidden.map(item => `\`${item}\``)),
     '',
+    '## 回归检查项',
+    '',
+    '### Persistent Tests',
+    '',
+    ...persistentTests,
+    '',
   ].join('\n');
 }
 
 function assertSemanticScopeIsExecutable(input: PrepareTaskSemanticDraft): void {
   const scope = parseMutationScope(scopeBody(input));
   const persistentTests = input.persistent_tests === 'none' ? [] : input.persistent_tests;
+  const persistentTestPaths = new Set(persistentTests.map(test => test.path));
   const allowedExact = new Set(input.mutation_scope.allowed.filter(item => !item.includes('*')));
   for (const test of persistentTests) {
     if (!allowedExact.has(test.path)) {
       fail('PERSISTENT_TEST_SCOPE_INVALID', `persistent test ${test.path} must also appear as an exact mutation_scope.allowed entry.`);
+    }
+  }
+  const testLikeScopeEntries = [
+    ...input.mutation_scope.allowed,
+    ...input.mutation_scope.conditional.map(item => item.path),
+  ].filter(isLikelyPersistentTestPath);
+  for (const entry of testLikeScopeEntries) {
+    if (entry.includes('*') || !persistentTestPaths.has(entry)) {
+      fail('PERSISTENT_TEST_SCOPE_INVALID', `test-like mutation scope entry ${entry} is not an exact path in persistent_tests.`);
     }
   }
   if (persistentTests.length > 0) {
@@ -295,6 +382,11 @@ function assertSemanticScopeIsExecutable(input: PrepareTaskSemanticDraft): void 
 
 function semanticDigest(input: PrepareTaskSemanticDraft): string {
   return crypto.createHash('sha256').update(JSON.stringify(input)).digest('hex');
+}
+
+function adapterIdempotencyKey(prefix: string, value: unknown): string {
+  const digest = crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  return `${prefix}-${digest.slice(0, 48)}`;
 }
 
 function taskSlug(goal: string): string {
@@ -382,13 +474,101 @@ function verifyAdapterReadBack(root: string, result: RuntimeResult, options: Run
   return result;
 }
 
-export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function currentMatchesSemanticDraft(current: CanonicalCurrentTask, semantic: PrepareTaskSemanticDraft): boolean {
+  return current.runtimeState.active_step_id === semantic.implementation_steps[0]!.id
+    && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic))
+    && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
+}
+
+function semanticNoOp(
+  current: CanonicalCurrentTask,
+  idempotencyKey: string,
+  message: string,
+  options: RuntimeApplyOptions = {},
+): RuntimeResult {
+  const state = current.runtimeState;
+  return {
+    status: 'no-op',
+    operation_kind: 'task-state-transaction',
+    idempotency_key: idempotencyKey,
+    target_path: current.relativePath,
+    dry_run: options.dryRun === true,
+    committed: false,
+    message,
+    previous_revision: current.sourceTuple.revision,
+    resulting_revision: current.sourceTuple.revision,
+    planned_writes: [],
+    governed_mutation_count: 0,
+    read_back_verified: true,
+    state: {
+      task_id: state.task_id,
+      workflow_status: state.workflow_status,
+      lifecycle_state: state.lifecycle_state,
+      resume_requires_review: state.resume_requires_review,
+      resume_review_reasons: [...state.resume_review_reasons],
+      active_step_id: state.active_step_id,
+      active_step_status: state.active_step_status,
+      finding_queue_revision: state.finding_queue_revision,
+      review_cycle_id: state.review_cycle.id,
+      repair_round: state.review_cycle.repair_round,
+    },
+  };
+}
+
+function confirmationReceipt(current: CanonicalCurrentTask): DraftConfirmationReceipt {
+  return {
+    kind: 'prepare-draft-confirmation/v1',
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    draft_revision: current.sourceTuple.revision,
+  };
+}
+
+function withConfirmationReceipt(
+  root: string,
+  result: RuntimeResult,
+  options: RuntimeApplyOptions,
+): PrepareDraftResult {
+  if (options.dryRun || (result.status !== 'success' && result.status !== 'no-op')) return result;
+  const current = readCanonicalCurrentTask(root);
+  if (current.runtimeState.workflow_status !== 'draft' || current.runtimeState.lifecycle_state !== 'active') return result;
+  return { ...result, confirmation_receipt: confirmationReceipt(current) };
+}
+
+function hasAppliedProposal(current: CanonicalCurrentTask, idempotencyKey: string): boolean {
+  return current.runtimeState.applied_proposals.some(item => item.idempotency_key === idempotencyKey);
+}
+
+function isCurrentConfirmationReplay(
+  current: CanonicalCurrentTask,
+  idempotencyKey: string,
+  receipt: DraftConfirmationReceipt,
+): boolean {
+  const confirmationIndex = current.runtimeState.execution_log.findIndex(item =>
+    'action' in item
+    && item.action === 'confirm-draft'
+    && item.idempotency_key === idempotencyKey
+    && item.task_id === receipt.task_id
+    && item.document_id === receipt.document_id
+    && item.draft_revision === receipt.draft_revision,
+  );
+  if (confirmationIndex < 0) return false;
+  return !current.runtimeState.execution_log.slice(confirmationIndex + 1).some(item =>
+    'action' in item && (item.action === 'supersede' || item.action === 'commit-replan'),
+  );
+}
+
+export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
   const semantic = normalizeSemanticDraft(input);
   const current = readCanonicalCurrentTask(root);
   const creating = current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived';
   const updating = current.runtimeState.workflow_status === 'draft' && current.runtimeState.lifecycle_state === 'active';
   if (!creating && !updating) {
-    fail('PREPARE_DRAFT_STATE_INVALID', 'prepare-draft requires closed + archived to create, or draft + active to update. Use replan for an existing confirmed task.');
+    fail('PREPARE_DRAFT_STATE_INVALID', 'prepare-draft requires closed + archived to create, or draft + active to update. A confirmed task must first be invalidated through the authorized task-lifecycle supersede route, then replaced with replan.');
   }
   const identity = creating
     ? {
@@ -404,6 +584,10 @@ export function prepareDraft(root: string, input: unknown, options: RuntimeApply
       document_id: current.sourceTuple.document_id,
     };
   const digest = semanticDigest(semantic);
+  const retryKey = adapterIdempotencyKey('prepare-draft', { task_id: identity.task_id, semantic });
+  if (updating && currentMatchesSemanticDraft(current, semantic)) {
+    return withConfirmationReceipt(root, semanticNoOp(current, retryKey, 'The requested semantic draft already matches canonical CURRENT_TASK.', options), options);
+  }
   const evidenceRefs = [`adapter:prepare-draft:${digest.slice(0, 16)}`];
   const proposal = createPrepareTaskDraftProposal(current, {
     action: creating ? 'create-draft' : 'update-draft',
@@ -412,43 +596,62 @@ export function prepareDraft(root: string, input: unknown, options: RuntimeApply
     active_step_id: semantic.implementation_steps[0]!.id,
     evidence_refs: evidenceRefs,
     claim_evidence: claimEvidence(semantic),
-    idempotency_key: `prepare-draft-${identity.task_id}-${current.sourceTuple.revision.slice(0, 12)}-${digest.slice(0, 12)}`,
+    idempotency_key: adapterIdempotencyKey('prepare-draft-commit', {
+      task_id: identity.task_id,
+      source_revision: current.sourceTuple.revision,
+      semantic,
+    }),
     authority_evidence: authority(current, identity.task_id, creating
       ? ['authorized-caller', 'scope-admission', 'evidence-admission']
       : ['active-task-owner', 'scope-admission', 'evidence-admission']),
   });
-  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+  const result = verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+  return withConfirmationReceipt(root, result, options);
 }
 
-function emptyInput(input: unknown, location: string): void {
-  const value = input === undefined ? {} : record(input, location);
-  exactKeys(value, [], location);
-}
-
-export function confirmDraft(root: string, input?: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
-  emptyInput(input, 'confirm-draft input');
+export function confirmDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const source = record(input, 'confirm-draft input');
+  exactKeys(source, ['confirmation_receipt'], 'confirm-draft input');
+  const receipt = normalizeConfirmationReceipt(source.confirmation_receipt);
   const current = readCanonicalCurrentTask(root);
+  const idempotencyKey = adapterIdempotencyKey('confirm-draft', receipt);
+  if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
+    fail('DRAFT_IDENTITY_CONFLICT', 'confirmation_receipt does not identify the current draft.');
+  }
+  if (hasAppliedProposal(current, idempotencyKey)) {
+    if (
+      current.runtimeState.workflow_status !== 'active'
+      || current.runtimeState.lifecycle_state !== 'active'
+      || !isCurrentConfirmationReplay(current, idempotencyKey, receipt)
+    ) {
+      fail('DRAFT_REVISION_CONFLICT', 'confirmation_receipt belongs to an earlier task-definition generation.');
+    }
+    return semanticNoOp(current, idempotencyKey, 'This exact draft confirmation was already committed.', options);
+  }
   if (current.runtimeState.workflow_status !== 'draft' || current.runtimeState.lifecycle_state !== 'active') {
     fail('DRAFT_CONFIRMATION_BLOCKED', 'confirm-draft requires the current task to be draft + active.');
   }
-  const evidenceRefs = [`adapter:confirm-draft:${current.sourceTuple.revision.slice(0, 16)}`];
+  if (receipt.draft_revision !== current.sourceTuple.revision) {
+    fail('DRAFT_REVISION_CONFLICT', `confirmation_receipt draft_revision ${receipt.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
+  }
+  const evidenceRefs = [`adapter:confirm-draft:${receipt.draft_revision.slice(0, 16)}`];
   const proposal = createPrepareTaskConfirmProposal(current, {
-    task_id: current.runtimeState.task_id,
+    task_id: receipt.task_id,
     task_slug: current.runtimeState.task_slug,
-    document_id: current.sourceTuple.document_id,
-    draft_revision: current.sourceTuple.revision,
+    document_id: receipt.document_id,
+    draft_revision: receipt.draft_revision,
     evidence_refs: evidenceRefs,
-    idempotency_key: `confirm-draft-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 16)}`,
+    idempotency_key: idempotencyKey,
     authority_evidence: [
       {
-        kind: 'user-confirmation',
+        kind: 'authorized-caller',
         source: current.relativePath,
-        subject: current.runtimeState.task_id,
-        task_id: current.runtimeState.task_id,
-        document_id: current.sourceTuple.document_id,
-        draft_revision: current.sourceTuple.revision,
+        subject: receipt.task_id,
+        task_id: receipt.task_id,
+        document_id: receipt.document_id,
+        draft_revision: receipt.draft_revision,
       },
-      ...authority(current, current.runtimeState.task_id, ['evidence-admission']),
+      ...authority(current, receipt.task_id, ['evidence-admission']),
     ],
   });
   return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
@@ -456,19 +659,43 @@ export function confirmDraft(root: string, input?: unknown, options: RuntimeAppl
 
 export function clearResumeReview(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input, 'clear-resume-review input');
-  exactKeys(source, ['readiness_evidence'], 'clear-resume-review input');
-  const readinessEvidence = textList(source.readiness_evidence, 'readiness_evidence', false);
+  exactKeys(source, ['readiness_receipt'], 'clear-resume-review input');
+  const receipt = normalizeResumeReadinessReceipt(source.readiness_receipt);
   const current = readCanonicalCurrentTask(root);
+  const idempotencyKey = adapterIdempotencyKey('clear-resume-review', receipt);
   if (!current.runtimeState.resume_requires_review) {
+    if (hasAppliedProposal(current, idempotencyKey)) {
+      return semanticNoOp(current, idempotencyKey, 'This exact resume-readiness receipt was already committed.', options);
+    }
     fail('RESUME_REVIEW_NOT_REQUIRED', 'clear-resume-review requires an active resume-review gate.');
   }
-  const evidenceDigest = crypto.createHash('sha256').update(JSON.stringify(readinessEvidence)).digest('hex');
-  const evidenceRefs = [`adapter:resume-readiness:${evidenceDigest.slice(0, 16)}`];
+  if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
+    fail('RESUME_READINESS_IDENTITY_CONFLICT', 'readiness_receipt does not identify the current task document.');
+  }
+  if (receipt.source_revision !== current.sourceTuple.revision) {
+    fail('RESUME_READINESS_REVISION_CONFLICT', `readiness_receipt source_revision ${receipt.source_revision} does not match current revision ${current.sourceTuple.revision}.`);
+  }
+  if (!sameValue(receipt.reviewed_reasons, current.runtimeState.resume_review_reasons)) {
+    fail('RESUME_READINESS_REASON_CONFLICT', 'readiness_receipt must cover the exact current resume-review reasons.');
+  }
+  if (hasAppliedProposal(current, idempotencyKey)) {
+    fail('RESUME_READINESS_REVISION_CONFLICT', 'readiness_receipt was committed for an earlier resume-review gate generation.');
+  }
   const proposal = createPrepareTaskResumeReviewProposal(current, {
     mode: 'default',
-    evidence_refs: evidenceRefs,
-    idempotency_key: `clear-resume-review-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 16)}-${evidenceDigest.slice(0, 12)}`,
-    authority_evidence: authority(current, current.runtimeState.task_id, ['active-task-owner', 'resume-review', 'evidence-admission']),
+    evidence_refs: receipt.evidence_refs,
+    idempotency_key: idempotencyKey,
+    authority_evidence: [
+      {
+        kind: 'authorized-caller',
+        source: current.relativePath,
+        subject: receipt.task_id,
+        task_id: receipt.task_id,
+        document_id: receipt.document_id,
+        source_revision: receipt.source_revision,
+      },
+      ...authority(current, receipt.task_id, ['active-task-owner', 'resume-review', 'evidence-admission']),
+    ],
   });
   return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
@@ -477,6 +704,23 @@ export function replan(root: string, input: unknown, options: RuntimeApplyOption
   const semantic = normalizeSemanticDraft(input);
   const current = readCanonicalCurrentTask(root);
   const digest = semanticDigest(semantic);
+  const retryKey = adapterIdempotencyKey('replan', { task_id: current.runtimeState.task_id, semantic });
+  if (
+    current.runtimeState.workflow_status === 'active'
+    && current.runtimeState.lifecycle_state === 'active'
+    && currentMatchesSemanticDraft(current, semantic)
+  ) {
+    return semanticNoOp(current, retryKey, 'The requested replan already matches canonical CURRENT_TASK.', options);
+  }
+  if (current.runtimeState.workflow_status === 'active' && current.runtimeState.lifecycle_state === 'active') {
+    fail('REPLAN_INVALIDATION_REQUIRED', 'replan cannot replace a confirmed active task until an authorized task-lifecycle supersede invocation has invalidated it.');
+  }
+  if (current.runtimeState.workflow_status === 'blocked_by_replan' && current.runtimeState.lifecycle_state === 'active') {
+    fail('REPLAN_BLOCKED', 'replan is blocked by unresolved authoritative evidence; the Runtime convergence owner must clear the existing replan block first.');
+  }
+  if (current.runtimeState.workflow_status !== 'superseded' || current.runtimeState.lifecycle_state !== 'active') {
+    fail('REPLAN_STATE_INVALID', 'replan requires an authorized superseded + active task.');
+  }
   const evidenceRefs = [`adapter:replan:${digest.slice(0, 16)}`];
   const proposal = createPrepareTaskReplanProposal(current, {
     delta: {
@@ -487,7 +731,11 @@ export function replan(root: string, input: unknown, options: RuntimeApplyOption
       evidence_refs: evidenceRefs,
       claim_evidence: claimEvidence(semantic),
     },
-    idempotency_key: `replan-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 12)}-${digest.slice(0, 12)}`,
+    idempotency_key: adapterIdempotencyKey('replan-commit', {
+      task_id: current.runtimeState.task_id,
+      source_revision: current.sourceTuple.revision,
+      semantic,
+    }),
     authority_evidence: authority(current, current.runtimeState.task_id, ['active-task-owner', 'scope-admission', 'evidence-admission']),
     evidence_refs: evidenceRefs,
   });
@@ -520,7 +768,6 @@ export function parsePrepareTaskAdapterCli(argv: string[]): PrepareTaskAdapterCl
 function readSemanticStdin(command: PrepareTaskAdapterCommand): unknown {
   const raw = !process.stdin.isTTY ? fs.readFileSync(0, 'utf8') : '';
   if (!raw.trim()) {
-    if (command === 'confirm-draft') return {};
     throw new Error(`${command} requires semantic JSON on stdin.`);
   }
   try {

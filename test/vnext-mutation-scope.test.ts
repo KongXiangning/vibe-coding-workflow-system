@@ -28,6 +28,7 @@ function nestedScopeBody(options: {
   conditional?: string;
   forbidden?: string;
   readDiscovery?: string;
+  persistentTests?: string;
 } = {}): string {
   return [
     '## 允许修改范围',
@@ -47,6 +48,14 @@ function nestedScopeBody(options: {
     '',
     `- ${options.forbidden ?? '.git/**'}`,
     '',
+    ...(options.persistentTests === undefined ? [] : [
+      '## 回归检查项',
+      '',
+      '### Persistent Tests',
+      '',
+      `- ${options.persistentTests}`,
+      '',
+    ]),
   ].join('\n');
 }
 
@@ -148,6 +157,40 @@ describe('vNext Mutation-oriented Scope', () => {
         mutation_admitted: false,
       }),
     ]);
+  });
+
+  test('blocks an unlisted persistent test even when a broad Allowed pattern matches', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'test/**',
+      persistentTests: '`test/tickets.test.ts`',
+    }), '6'.repeat(64));
+    const result = evaluateMutationScope(scope, {
+      changed_paths: ['test/tickets.test.ts', 'test/unlisted.test.ts'],
+      transformation_kind: 'inherently-broad',
+    });
+
+    expect(scope.persistent_tests).toEqual(['test/tickets.test.ts']);
+    expect(result.status).toBe('blocked');
+    expect(result.admitted_paths).toEqual(['test/tickets.test.ts']);
+    expect(result.decisions[1]).toMatchObject({
+      path: 'test/unlisted.test.ts',
+      classification: 'persistent-test-unadmitted',
+      mutation_admitted: false,
+    });
+  });
+
+  test('uses an explicit persistent-test disposition for unconventional test paths', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'qa/check.ts',
+      persistentTests: 'none',
+    }), '7'.repeat(64));
+    const result = evaluateMutationScope(scope, {
+      changed_paths: ['qa/check.ts'],
+      persistent_test_paths: ['qa/check.ts'],
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.decisions[0]?.classification).toBe('persistent-test-unadmitted');
   });
 
   test('requires exact evidence-backed authorization for Conditional Files', () => {
@@ -362,12 +405,15 @@ describe('vNext Mutation-oriented Scope', () => {
       '.',
       '--path',
       'src/app.ts',
+      '--persistent-test-path',
+      'qa/check.ts',
       '--transformation-kind',
       'localized',
     ])).toMatchObject({
       command: 'scope-check',
       root: '.',
       changedPaths: ['src/app.ts'],
+      persistentTestPaths: ['qa/check.ts'],
       transformationKind: 'localized',
     });
   });

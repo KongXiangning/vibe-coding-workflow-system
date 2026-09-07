@@ -4,7 +4,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { stringify } from 'yaml';
+import { parse, stringify } from 'yaml';
 import {
   applyVNextRuntimeProposal,
   createArchiveProposal,
@@ -1850,7 +1850,17 @@ describe('vNext Phase 2 Runtime contract', () => {
       mode: 'default',
       evidence_refs: ['test:evidence:resume-review'],
       idempotency_key: 'resume-review-cleared-1',
-      authority_evidence: evidence('active-task-owner', 'resume-review', 'evidence-admission'),
+      authority_evidence: [
+        {
+          kind: 'authorized-caller',
+          source: resumedCurrent.relativePath,
+          subject: resumedCurrent.runtimeState.task_id,
+          task_id: resumedCurrent.runtimeState.task_id,
+          document_id: resumedCurrent.sourceTuple.document_id,
+          source_revision: resumedCurrent.sourceTuple.revision,
+        },
+        ...evidence('active-task-owner', 'resume-review', 'evidence-admission'),
+      ],
     }));
     expect(cleared.status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.resume_requires_review).toBe(false);
@@ -2062,7 +2072,17 @@ describe('vNext Phase 2 Runtime contract', () => {
       mode: 'default',
       evidence_refs: ['test:evidence:resume-review'],
       idempotency_key: 'resume-review-cross-kind',
-      authority_evidence: evidence('active-task-owner', 'resume-review', 'evidence-admission'),
+      authority_evidence: [
+        {
+          kind: 'authorized-caller',
+          source: resumed.relativePath,
+          subject: resumed.runtimeState.task_id,
+          task_id: resumed.runtimeState.task_id,
+          document_id: resumed.sourceTuple.document_id,
+          source_revision: resumed.sourceTuple.revision,
+        },
+        ...evidence('active-task-owner', 'resume-review', 'evidence-admission'),
+      ],
     })).status).toBe('success');
 
     const active = readCanonicalCurrentTask(root);
@@ -4682,6 +4702,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(prepared.status).toBe('success');
     expect(prepared.committed).toBe(true);
     expect(prepared.read_back_verified).toBe(true);
+    expect(prepared.confirmation_receipt).toMatchObject({
+      kind: 'prepare-draft-confirmation/v1',
+      task_id: '001',
+    });
 
     let draft = readCanonicalCurrentTask(root);
     expect(draft.runtimeState).toMatchObject({
@@ -4707,6 +4731,14 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(draft.body).toContain('### Persistent Tests');
     expect(draft.body).toContain('`test/vnext-runtime.test.ts`');
     expect(draft.body).toContain('- `test/vnext-runtime.test.ts`');
+    expect(prepared.confirmation_receipt?.draft_revision).toBe(draft.sourceTuple.revision);
+
+    const firstReceipt = prepared.confirmation_receipt!;
+    const firstDraftBytes = fs.readFileSync(draft.filePath, 'utf8');
+    const repeatedPrepare = prepareDraft(root, semanticDraft());
+    expect(repeatedPrepare.status).toBe('no-op');
+    expect(repeatedPrepare.confirmation_receipt).toEqual(firstReceipt);
+    expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(firstDraftBytes);
 
     const scope = parseMutationScope(draft.body, draft.sourceTuple.revision);
     const scopeResult = evaluateMutationScope(scope, {
@@ -4726,11 +4758,42 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(draft.sourceTuple.document_id).toBe(firstDocumentId);
     expect(draft.body).toContain('The refined semantic adapter persists');
 
+    const refinedReceipt = refined.confirmation_receipt!;
+    expect(refinedReceipt.draft_revision).toBe(draft.sourceTuple.revision);
+    const refinedBytes = fs.readFileSync(draft.filePath, 'utf8');
+    expect(() => confirmDraft(root, { confirmation_receipt: firstReceipt })).toThrow('DRAFT_REVISION_CONFLICT');
+    expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(refinedBytes);
+
+    const repeatedRefinement = prepareDraft(root, semanticDraft({
+      acceptance: ['The refined semantic adapter persists and reads back a canonical draft'],
+    }));
+    expect(repeatedRefinement.status).toBe('no-op');
+    expect(repeatedRefinement.confirmation_receipt).toEqual(refinedReceipt);
+    expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(refinedBytes);
+
     const draftRevision = draft.sourceTuple.revision;
-    const confirmed = confirmDraft(root, {});
+    const confirmed = confirmDraft(root, { confirmation_receipt: refinedReceipt });
     expect(confirmed.status).toBe('success');
     expect(confirmed.previous_revision).toBe(draftRevision);
-    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('active');
+    const confirmedCurrent = readCanonicalCurrentTask(root);
+    expect(confirmedCurrent.runtimeState.workflow_status).toBe('active');
+    const confirmationAudit = confirmedCurrent.runtimeState.execution_log.find(item => 'action' in item && item.action === 'confirm-draft');
+    expect(confirmationAudit && 'authority_evidence' in confirmationAudit ? confirmationAudit.authority_evidence : []).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'authorized-caller',
+        task_id: refinedReceipt.task_id,
+        document_id: refinedReceipt.document_id,
+        draft_revision: refinedReceipt.draft_revision,
+      }),
+    ]));
+    expect(confirmationAudit && 'authority_evidence' in confirmationAudit
+      ? confirmationAudit.authority_evidence.some(item => item.kind === 'user-confirmation')
+      : true).toBe(false);
+
+    const confirmedBytes = fs.readFileSync(draft.filePath, 'utf8');
+    const repeatedConfirm = confirmDraft(root, { confirmation_receipt: refinedReceipt });
+    expect(repeatedConfirm.status).toBe('no-op');
+    expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(confirmedBytes);
   });
 
   test('rejects a persistent test that is absent from exact Allowed mutation scope', () => {
@@ -4753,16 +4816,69 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
   });
 
+  test('rejects test-like mutation scope that is broader than Persistent Tests', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const input = semanticDraft({
+      mutation_scope: {
+        allowed: [
+          'runtime/vnext/src/prepare-task-adapter.ts',
+          'test/vnext-runtime.test.ts',
+          'test/**',
+        ],
+        conditional: [],
+        forbidden: ['.git/**'],
+      },
+    });
+
+    expect(() => prepareDraft(root, input)).toThrow('PERSISTENT_TEST_SCOPE_INVALID');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
+  });
+
   test('wraps resume review and replan without public proposal fields', () => {
     const resumeRoot = makeRoot(makeRuntimeState({
       resume_requires_review: true,
       resume_review_reasons: ['manual_review_pending'],
     }));
-    const cleared = clearResumeReview(resumeRoot, {
-      readiness_evidence: ['Reviewed the recovered diff and confirmed the active step remains executable'],
-    });
+    const resumeCurrent = readCanonicalCurrentTask(resumeRoot);
+    const readinessReceipt = {
+      kind: 'resume-readiness/v1' as const,
+      task_id: resumeCurrent.runtimeState.task_id,
+      document_id: resumeCurrent.sourceTuple.document_id,
+      source_revision: resumeCurrent.sourceTuple.revision,
+      reviewed_reasons: [...resumeCurrent.runtimeState.resume_review_reasons],
+      evidence_refs: ['review:resume-readiness:001'],
+    };
+    const resumeBytes = fs.readFileSync(resumeCurrent.filePath, 'utf8');
+    const missingCallerAuthority = applyVNextRuntimeProposal(resumeRoot, createPrepareTaskResumeReviewProposal(resumeCurrent, {
+      mode: 'default',
+      evidence_refs: readinessReceipt.evidence_refs,
+      idempotency_key: 'resume-review-missing-caller-authority',
+      authority_evidence: evidence('active-task-owner', 'resume-review', 'evidence-admission'),
+    }));
+    expect(missingCallerAuthority).toMatchObject({ status: 'blocked', code: 'RUNTIME_AUTHORITY_MISSING' });
+    expect(fs.readFileSync(resumeCurrent.filePath, 'utf8')).toBe(resumeBytes);
+    expect(() => clearResumeReview(resumeRoot, {
+      readiness_receipt: { ...readinessReceipt, source_revision: 'f'.repeat(64) },
+    })).toThrow('RESUME_READINESS_REVISION_CONFLICT');
+    expect(fs.readFileSync(resumeCurrent.filePath, 'utf8')).toBe(resumeBytes);
+
+    const cleared = clearResumeReview(resumeRoot, { readiness_receipt: readinessReceipt });
     expect(cleared.status).toBe('success');
     expect(readCanonicalCurrentTask(resumeRoot).runtimeState.resume_requires_review).toBe(false);
+    const clearedBytes = fs.readFileSync(resumeCurrent.filePath, 'utf8');
+    expect(clearResumeReview(resumeRoot, { readiness_receipt: readinessReceipt }).status).toBe('no-op');
+    expect(fs.readFileSync(resumeCurrent.filePath, 'utf8')).toBe(clearedBytes);
+
+    const activeReplanRoot = makeRoot();
+    const activeBytes = fs.readFileSync(readCanonicalCurrentTask(activeReplanRoot).filePath, 'utf8');
+    expect(() => replan(activeReplanRoot, semanticDraft())).toThrow('REPLAN_INVALIDATION_REQUIRED');
+    expect(fs.readFileSync(readCanonicalCurrentTask(activeReplanRoot).filePath, 'utf8')).toBe(activeBytes);
 
     const replanRoot = makeRoot(makeRuntimeState({
       workflow_status: 'superseded',
@@ -4774,6 +4890,20 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(current.runtimeState.workflow_status).toBe('active');
     expect(current.runtimeState.active_step_id).toBe('step-1');
     expect(current.body).toContain('Add the prepare-task Runtime adapter');
+    const replannedBytes = fs.readFileSync(current.filePath, 'utf8');
+    expect(replan(replanRoot, semanticDraft()).status).toBe('no-op');
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(replannedBytes);
+  });
+
+  test('keeps migration and replan convergence actions internal to Runtime owners', () => {
+    const contract = parse(fs.readFileSync(path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml'), 'utf8')) as {
+      proposal: { prepare_task: { semantic_adapter: { internal_action_owners: Record<string, string> } } };
+    };
+    expect(contract.proposal.prepare_task.semantic_adapter.internal_action_owners).toEqual({
+      'migrate-claim-evidence': 'runtime-compatibility',
+      'mark-replan-blocked': 'runtime-convergence',
+      'clear-replan-block': 'runtime-convergence',
+    });
   });
 
   test('accepts semantic prepare input on stdin and rejects project-local proposal files', () => {

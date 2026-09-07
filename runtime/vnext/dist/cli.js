@@ -310,6 +310,7 @@ var READ_DISCOVERY_HEADINGS = new Set([
   "读取/发现上下文",
   "发现上下文"
 ]);
+var PERSISTENT_TEST_HEADINGS = new Set(["persistent tests", "持久测试"]);
 var EMPTY_SCOPE_MARKER = /^(?:none|n\/a|na|nil|empty|no\s+(?:files?|targets?|scope)|无|暂无|不适用)[.!。]?$/iu;
 var CONDITIONAL_LANGUAGE = /(?:when|if|after|once|upon|provided|only|condition|evidence|authority|approval|authorized|confirmed|满足|条件|证据|依据|授权|审批|确认|批准)/iu;
 var PATH_PREFIX = /^(?:file|files|path|paths|target|targets|文件|路径|目标)\s*[:：]\s*/iu;
@@ -490,6 +491,45 @@ function parseScopeBucket(body, section, bucket) {
     failInvalid(`${section.title} contains duplicate path patterns.`);
   return entries;
 }
+function parsePersistentTests(body, sections) {
+  const matches = sections.filter((section2) => PERSISTENT_TEST_HEADINGS.has(normalizeHeading(section2.title)));
+  if (matches.length > 1)
+    failInvalid("CURRENT_TASK contains duplicate Persistent Tests sections.");
+  const section = matches[0];
+  if (!section)
+    return null;
+  const entries = [];
+  let sawMarker = false;
+  let bulletCount = 0;
+  for (const rawLine of body.slice(section.content_start, section.content_end).split(/\r?\n/u)) {
+    if (!rawLine.trim() || /^\s*<!--.*-->\s*$/u.test(rawLine))
+      continue;
+    if (/^\s+(?:[-*+]\s+|\d+[.)]\s+)/u.test(rawLine))
+      continue;
+    const bullet = /^(?:[-*+]\s+|\d+[.)]\s+)(.*)$/u.exec(rawLine);
+    if (!bullet)
+      failInvalid(`Persistent Tests contains a non-list declaration: ${rawLine.trim()}`);
+    bulletCount += 1;
+    const declaration = bullet[1].replace(/^\[[ xX]\]\s*/u, "").trim();
+    if (isEmptyMarker(declaration)) {
+      if (entries.length > 0 || sawMarker)
+        failInvalid("Persistent Tests mixes an empty marker with path declarations.");
+      sawMarker = true;
+      continue;
+    }
+    if (sawMarker)
+      failInvalid("Persistent Tests mixes an empty marker with path declarations.");
+    const path3 = normalizeScopePattern(extractDeclarationPath(declaration).pattern, "Persistent Tests declaration");
+    if (path3.includes("*"))
+      failInvalid(`Persistent Tests declaration ${path3} must be an exact path.`);
+    entries.push(path3);
+  }
+  if (bulletCount === 0)
+    failInvalid("Persistent Tests must explicitly list exact paths or declare none.");
+  if (new Set(entries).size !== entries.length)
+    failInvalid("Persistent Tests contains duplicate paths.");
+  return entries;
+}
 function hash(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -498,7 +538,8 @@ function scopeSummary(scope) {
     allowed: scope.allowed.map((entry) => entry.pattern),
     conditional: scope.conditional.map((entry) => entry.pattern),
     forbidden: scope.forbidden.map((entry) => entry.pattern),
-    read_discovery: scope.read_discovery.map((entry) => entry.pattern)
+    read_discovery: scope.read_discovery.map((entry) => entry.pattern),
+    persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests]
   };
 }
 function parseMutationScope(body, sourceRevision = hash(body)) {
@@ -522,8 +563,13 @@ function parseMutationScope(body, sourceRevision = hash(body)) {
     allowed: parseScopeBucket(body, allowedSection, "allowed"),
     conditional: parseScopeBucket(body, conditionalSection, "conditional"),
     forbidden: parseScopeBucket(body, forbiddenSection, "forbidden"),
-    read_discovery: readSection ? parseScopeBucket(body, readSection, "read_discovery") : []
+    read_discovery: readSection ? parseScopeBucket(body, readSection, "read_discovery") : [],
+    persistent_tests: parsePersistentTests(body, sections)
   };
+}
+function isLikelyPersistentTestPath(value) {
+  const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").toLocaleLowerCase();
+  return /(?:^|\/)(?:test|tests|__tests__|spec|specs|e2e)(?:\/|$)/u.test(normalized) || /(?:^|\/)[^/]+\.(?:test|spec)\.[^/]+$/u.test(normalized) || /\.snap$/u.test(normalized);
 }
 function escapeRegex(text) {
   return text.replace(/[|\\{}()[\]^$+?.]/gu, "\\$&");
@@ -628,6 +674,19 @@ function evaluateMutationScope(scope, input) {
   if (authorizationResult.blockers.length > 0) {
     return blockedResult(scope, input.changed_paths, transformationKind, authorizationResult.blockers);
   }
+  const explicitPersistentTests = new Set;
+  if (input.persistent_test_paths !== undefined) {
+    if (!Array.isArray(input.persistent_test_paths)) {
+      return blockedResult(scope, input.changed_paths, transformationKind, ["persistent_test_paths must be an array."]);
+    }
+    for (const [index, rawPath] of input.persistent_test_paths.entries()) {
+      const pathValue = normalizeChangedPath(rawPath, index);
+      if (!pathValue) {
+        return blockedResult(scope, input.changed_paths, transformationKind, [`persistent_test_paths[${index}] must be an exact repository-relative path.`]);
+      }
+      explicitPersistentTests.add(pathValue);
+    }
+  }
   const decisions = [];
   const seen = new Set;
   const inputBlockers = [];
@@ -670,6 +729,19 @@ function evaluateMutationScope(scope, input) {
     const readDiscoveryMatches = readMatches.map((entry) => entry.pattern);
     if (forbidden.length > 0) {
       decisions.push({ path: pathValue, classification: "forbidden", mutation_admitted: false, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: "Forbidden Files takes precedence over every other bucket." });
+      continue;
+    }
+    const frozenPersistentTests = scope.persistent_tests;
+    const isPersistentTest = explicitPersistentTests.has(pathValue) || isLikelyPersistentTestPath(pathValue);
+    if (frozenPersistentTests !== null && isPersistentTest && !frozenPersistentTests.includes(pathValue)) {
+      decisions.push({
+        path: pathValue,
+        classification: "persistent-test-unadmitted",
+        mutation_admitted: false,
+        matched_scope: matchedScope,
+        read_discovery_matches: readDiscoveryMatches,
+        reason: "the path is a persistent test but is absent from the frozen Persistent Tests allowlist."
+      });
       continue;
     }
     if (allowed.length > 0 && conditional.length > 0) {
@@ -2079,7 +2151,18 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
   expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
   const prepareTaskAdapter = expectRecord2(prepareTaskContract.semantic_adapter, "Runtime contract.proposal.prepare_task.semantic_adapter");
-  expectExactKeys2(prepareTaskAdapter, ["input", "commands", "draft_fields", "persistent_tests_storage", "proposal_file_policy"], "Runtime contract.proposal.prepare_task.semantic_adapter");
+  expectExactKeys2(prepareTaskAdapter, [
+    "input",
+    "commands",
+    "draft_fields",
+    "confirmation_binding",
+    "resume_review_binding",
+    "replan_entry",
+    "persistent_tests_storage",
+    "persistent_tests_enforcement",
+    "proposal_file_policy",
+    "internal_action_owners"
+  ], "Runtime contract.proposal.prepare_task.semantic_adapter");
   if (prepareTaskAdapter.input !== "stdin-json")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter input must remain stdin-json.");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "confirm-draft", "clear-resume-review", "replan"], "Runtime contract prepare-task adapter commands");
@@ -2087,8 +2170,25 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (prepareTaskAdapter.persistent_tests_storage !== "existing-scope-and-regression-sections") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter must map persistent tests into existing canonical sections.");
   }
+  if (prepareTaskAdapter.confirmation_binding !== "runtime-issued-draft-receipt-plus-authorized-caller") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task confirmation must bind a Runtime-issued draft receipt to the authorized caller.");
+  }
+  if (prepareTaskAdapter.resume_review_binding !== "caller-provided-exact-readiness-receipt") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task resume review must consume a caller-provided exact readiness receipt.");
+  }
+  if (prepareTaskAdapter.replan_entry !== "superseded + active") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task replan must enter from superseded + active.");
+  }
+  if (prepareTaskAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task persistent tests must be enforced by the frozen section and scope evaluator.");
+  }
   if (prepareTaskAdapter.proposal_file_policy !== "project-external-only") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter proposal files must remain project-external-only.");
+  }
+  const internalActionOwners = expectRecord2(prepareTaskAdapter.internal_action_owners, "Runtime contract.proposal.prepare_task.semantic_adapter.internal_action_owners");
+  expectExactKeys2(internalActionOwners, ["migrate-claim-evidence", "mark-replan-blocked", "clear-replan-block"], "Runtime contract.proposal.prepare_task.semantic_adapter.internal_action_owners");
+  if (internalActionOwners["migrate-claim-evidence"] !== "runtime-compatibility" || internalActionOwners["mark-replan-blocked"] !== "runtime-convergence" || internalActionOwners["clear-replan-block"] !== "runtime-convergence") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task internal action ownership is invalid.");
   }
   expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task bound actions");
   if (prepareTaskContract.draft_mode !== "default" || prepareTaskContract.confirm_mode !== "confirm")
@@ -2173,11 +2273,16 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract reused Lesson markers must use disposition=reused.");
   expectSetEqual(expectStringArray2(reusedLessonMarker.reused_candidate_fields, "Runtime contract.proposal.lesson_marker.reused.reused_candidate_fields"), ["task_id", "document_id", "archive_revision", "candidate_ref"], "Runtime contract reused Lesson candidate identity fields");
   const mutationScopeContract = expectRecord2(contract.mutation_scope, "Runtime contract.mutation_scope");
-  expectExactKeys2(mutationScopeContract, ["status", "binding", "source", "buckets", "default_write_policy", "read_discovery_is_not_write_authority", "ordinary_write_scope", "broad_glob_requires", "conditional_expansion_requires", "changed_goal_scope_acceptance", "check_command", "input", "output", "command_write_footprint"], "Runtime contract.mutation_scope");
+  expectExactKeys2(mutationScopeContract, ["status", "binding", "source", "buckets", "default_write_policy", "read_discovery_is_not_write_authority", "ordinary_write_scope", "broad_glob_requires", "conditional_expansion_requires", "persistent_test_policy", "changed_goal_scope_acceptance", "check_command", "input", "output", "command_write_footprint"], "Runtime contract.mutation_scope");
   if (mutationScopeContract.status !== "bound" || mutationScopeContract.binding !== "vnext-runtime-read-only" || mutationScopeContract.source !== "CURRENT_TASK.md" || mutationScopeContract.default_write_policy !== "deny" || mutationScopeContract.read_discovery_is_not_write_authority !== true || mutationScopeContract.ordinary_write_scope !== "exact-file-or-file-plus-symbol" || mutationScopeContract.broad_glob_requires !== "inherently-broad-transformation" || mutationScopeContract.conditional_expansion_requires !== "evidence-and-authority" || mutationScopeContract.changed_goal_scope_acceptance !== "supersede-or-replan" || mutationScopeContract.check_command !== "scope-check") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime mutation scope contract must keep the frozen default-deny and read/write separation semantics.");
   }
   expectSetEqual(expectStringArray2(mutationScopeContract.buckets, "Runtime contract.mutation_scope.buckets"), ["Allowed Files", "Conditional Files", "Forbidden Files"], "Runtime mutation scope buckets");
+  const persistentTestPolicy = expectRecord2(mutationScopeContract.persistent_test_policy, "Runtime contract.mutation_scope.persistent_test_policy");
+  expectExactKeys2(persistentTestPolicy, ["source", "when_present", "conventional_paths", "nonconventional_paths", "legacy_missing_section"], "Runtime contract.mutation_scope.persistent_test_policy");
+  if (persistentTestPolicy.source !== "CURRENT_TASK Persistent Tests section" || persistentTestPolicy.when_present !== "exact-allowlist-default-deny" || persistentTestPolicy.conventional_paths !== "runtime-classified" || persistentTestPolicy.nonconventional_paths !== "caller-declared" || persistentTestPolicy.legacy_missing_section !== "compatibility-unenforced") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime persistent-test mutation policy is invalid.");
+  }
   const mutationScopeInput = expectRecord2(mutationScopeContract.input, "Runtime contract.mutation_scope.input");
   expectExactKeys2(mutationScopeInput, ["required"], "Runtime contract.mutation_scope.input");
   expectSetEqual(expectStringArray2(mutationScopeInput.required, "Runtime contract.mutation_scope.input.required"), ["explicit_changed_paths", "conditional_authorizations_with_evidence_and_authority", "transformation_kind"], "Runtime mutation scope input");
@@ -2323,9 +2428,15 @@ function validateAuthorityEvidence2(value) {
     const record = expectRecord2(raw, `authority_evidence[${index}]`);
     const kind = expectEnum(record.kind, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission", "dangerous-operation", "resume-review", "user-confirmation", "authorized-caller"], `authority_evidence[${index}].kind`);
     const source = normalizeRepoPath2(expectString2(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`);
-    const hasConfirmationBinding = "task_id" in record || "document_id" in record || "draft_revision" in record;
-    if (hasConfirmationBinding) {
-      const expectedKeys = "subject" in record ? ["kind", "source", "subject", "task_id", "document_id", "draft_revision"] : ["kind", "source", "task_id", "document_id", "draft_revision"];
+    const hasDraftBinding = "draft_revision" in record;
+    const hasSourceBinding = "source_revision" in record;
+    const hasCoordinateBinding = "task_id" in record || "document_id" in record || hasDraftBinding || hasSourceBinding;
+    if (hasDraftBinding && hasSourceBinding) {
+      fail2("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}] cannot bind both draft_revision and source_revision.`);
+    }
+    if (hasCoordinateBinding) {
+      const revisionField = hasSourceBinding ? "source_revision" : "draft_revision";
+      const expectedKeys = "subject" in record ? ["kind", "source", "subject", "task_id", "document_id", revisionField] : ["kind", "source", "task_id", "document_id", revisionField];
       expectExactKeys2(record, expectedKeys, `authority_evidence[${index}]`);
       const taskId = expectString2(record.task_id, `authority_evidence[${index}].task_id`);
       try {
@@ -2336,16 +2447,16 @@ function validateAuthorityEvidence2(value) {
       const documentId = expectString2(record.document_id, `authority_evidence[${index}].document_id`);
       if (!DOCUMENT_ID_PATTERN.test(documentId))
         fail2("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}].document_id is invalid.`);
-      const draftRevision = expectString2(record.draft_revision, `authority_evidence[${index}].draft_revision`);
-      if (!/^[a-f0-9]{64}$/.test(draftRevision))
-        fail2("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}].draft_revision must be SHA-256.`);
+      const authorityRevision = expectString2(record[revisionField], `authority_evidence[${index}].${revisionField}`);
+      if (!/^[a-f0-9]{64}$/.test(authorityRevision))
+        fail2("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}].${revisionField} must be SHA-256.`);
       result.push({
         kind,
         source,
         subject: "subject" in record ? expectText(record.subject, `authority_evidence[${index}].subject`, 256) : taskId,
         task_id: taskId,
         document_id: documentId,
-        draft_revision: draftRevision
+        [revisionField]: authorityRevision
       });
     } else {
       expectExactKeys2(record, ["kind", "source", "subject"], `authority_evidence[${index}]`);
@@ -7526,7 +7637,19 @@ function applyTaskStateDelta(root, current, proposal, now) {
     return { next: next2, audit };
   }
   if (delta.action === "clear-resume-review-gate") {
-    ensureAuthorityKinds(proposal, ["active-task-owner", "resume-review", "evidence-admission"]);
+    ensureAuthorityKinds(proposal, ["authorized-caller", "active-task-owner", "resume-review", "evidence-admission"]);
+    const callerAuthorities = proposal.authority_evidence.filter((item) => item.kind === "authorized-caller");
+    for (const auth of callerAuthorities) {
+      if (!auth.task_id || !auth.document_id || !auth.source_revision) {
+        fail2("RUNTIME_AUTHORITY_INVALID", "clear-resume-review-gate caller authority must bind task_id, document_id, and source revision.");
+      }
+      if (auth.task_id !== current.runtimeState.task_id || auth.document_id !== current.sourceTuple.document_id) {
+        fail2("RESUME_READINESS_IDENTITY_CONFLICT", "clear-resume-review-gate caller authority does not identify the current task document.");
+      }
+      if (auth.source_revision !== current.sourceTuple.revision) {
+        fail2("RESUME_READINESS_REVISION_CONFLICT", "clear-resume-review-gate caller authority does not bind the exact current source revision.");
+      }
+    }
     if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
       fail2("TASK_STATE_NOT_ACTIVE", "resume review can be cleared only after the task has resumed to active + active.");
     }
@@ -9294,13 +9417,15 @@ function createPrepareTaskReplanProposal(current, input) {
 function parseCli(argv) {
   const [command = "validate", ...rest] = argv;
   if (command !== "validate" && command !== "validate-contract" && command !== "apply" && command !== "scope-check")
-    throw new Error("Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]");
+    throw new Error("Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--persistent-test-path <repo-relative>] [--persistent-test-paths-file <path>] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]");
   let root = process.cwd();
   let proposalFile;
   let dryRun = false;
   const changedPaths = [];
   let pathsFile;
   let pathsStdin = false;
+  const persistentTestPaths = [];
+  let persistentTestPathsFile;
   let conditionalAuthorizationsFile;
   let transformationKind = "localized";
   let commandAuditFile;
@@ -9317,6 +9442,10 @@ function parseCli(argv) {
       pathsFile = rest[++index];
     else if (arg === "--paths-stdin")
       pathsStdin = true;
+    else if (arg === "--persistent-test-path")
+      persistentTestPaths.push(rest[++index] ?? "");
+    else if (arg === "--persistent-test-paths-file")
+      persistentTestPathsFile = rest[++index];
     else if (arg === "--command-audit-file")
       commandAuditFile = rest[++index];
     else if (arg === "--command-audit-stdin")
@@ -9333,7 +9462,7 @@ function parseCli(argv) {
     else
       throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
 }
 function resolveExternalProposalFile(root, proposalFile) {
   const resolvedRoot = path4.resolve(root);
@@ -9372,8 +9501,9 @@ function readCliConditionalAuthorizations(filePath) {
 function readCliCommandAudit(args) {
   if (args.commandAuditFile && args.commandAuditStdin)
     throw new Error("--command-audit-file and --command-audit-stdin are mutually exclusive.");
-  if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin)
-    throw new Error("command audit input cannot be combined with ordinary --path, --paths-file, or --paths-stdin scope input.");
+  if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin || args.persistentTestPaths.length > 0 || args.persistentTestPathsFile) {
+    throw new Error("command audit input cannot be combined with ordinary path or persistent-test scope input.");
+  }
   const content = args.commandAuditFile ? fs3.readFileSync(path4.resolve(args.commandAuditFile), "utf8") : (() => {
     if (process.stdin.isTTY)
       throw new Error("--command-audit-stdin requires a JSON command audit on stdin.");
@@ -9401,9 +9531,14 @@ function readScopeCheckInput(args) {
     const text = typeof stdinContent === "string" ? stdinContent : stdinContent.toString("utf8");
     changedPaths.push(...text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
   }
+  const persistentTestPaths = [...args.persistentTestPaths];
+  if (args.persistentTestPathsFile) {
+    persistentTestPaths.push(...readCliStringList(args.persistentTestPathsFile, "--persistent-test-paths-file"));
+  }
   return {
     changed_paths: changedPaths,
     ...args.conditionalAuthorizationsFile ? { conditional_authorizations: readCliConditionalAuthorizations(args.conditionalAuthorizationsFile) } : {},
+    ...persistentTestPaths.length > 0 ? { persistent_test_paths: persistentTestPaths } : {},
     transformation_kind: args.transformationKind
   };
 }
@@ -11337,6 +11472,41 @@ function normalizeScopePathList(value, location) {
     fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must not contain duplicates.`);
   return paths;
 }
+function sha256Revision(value, location) {
+  const normalized = text(value, location, 64);
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be a SHA-256 revision.`);
+  }
+  return normalized;
+}
+function normalizeConfirmationReceipt(input) {
+  const source = record(input, "confirmation_receipt");
+  exactKeys(source, ["kind", "task_id", "document_id", "draft_revision"], "confirmation_receipt");
+  if (source.kind !== "prepare-draft-confirmation/v1") {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "confirmation_receipt.kind must be prepare-draft-confirmation/v1.");
+  }
+  return {
+    kind: source.kind,
+    task_id: text(source.task_id, "confirmation_receipt.task_id", 128),
+    document_id: text(source.document_id, "confirmation_receipt.document_id", 128),
+    draft_revision: sha256Revision(source.draft_revision, "confirmation_receipt.draft_revision")
+  };
+}
+function normalizeResumeReadinessReceipt(input) {
+  const source = record(input, "readiness_receipt");
+  exactKeys(source, ["kind", "task_id", "document_id", "source_revision", "reviewed_reasons", "evidence_refs"], "readiness_receipt");
+  if (source.kind !== "resume-readiness/v1") {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "readiness_receipt.kind must be resume-readiness/v1.");
+  }
+  return {
+    kind: source.kind,
+    task_id: text(source.task_id, "readiness_receipt.task_id", 128),
+    document_id: text(source.document_id, "readiness_receipt.document_id", 128),
+    source_revision: sha256Revision(source.source_revision, "readiness_receipt.source_revision"),
+    reviewed_reasons: textList(source.reviewed_reasons, "readiness_receipt.reviewed_reasons", false),
+    evidence_refs: textList(source.evidence_refs, "readiness_receipt.evidence_refs", false)
+  };
+}
 function normalizeSemanticDraft(input) {
   const source = record(input, "prepare-task semantic draft");
   exactKeys(source, SEMANTIC_DRAFT_FIELDS, "prepare-task semantic draft");
@@ -11421,6 +11591,7 @@ function markdownBullets(items, checklist = false) {
 `);
 }
 function scopeBody(input) {
+  const persistentTests = input.persistent_tests === "none" ? ["- none"] : input.persistent_tests.map((test) => `- \`${test.path}\``);
   return [
     "## 允许修改范围",
     "",
@@ -11437,6 +11608,12 @@ function scopeBody(input) {
     "### Forbidden Files",
     "",
     markdownBullets(input.mutation_scope.forbidden.map((item) => `\`${item}\``)),
+    "",
+    "## 回归检查项",
+    "",
+    "### Persistent Tests",
+    "",
+    ...persistentTests,
     ""
   ].join(`
 `);
@@ -11444,10 +11621,20 @@ function scopeBody(input) {
 function assertSemanticScopeIsExecutable(input) {
   const scope = parseMutationScope(scopeBody(input));
   const persistentTests = input.persistent_tests === "none" ? [] : input.persistent_tests;
+  const persistentTestPaths = new Set(persistentTests.map((test) => test.path));
   const allowedExact = new Set(input.mutation_scope.allowed.filter((item) => !item.includes("*")));
   for (const test of persistentTests) {
     if (!allowedExact.has(test.path)) {
       fail5("PERSISTENT_TEST_SCOPE_INVALID", `persistent test ${test.path} must also appear as an exact mutation_scope.allowed entry.`);
+    }
+  }
+  const testLikeScopeEntries = [
+    ...input.mutation_scope.allowed,
+    ...input.mutation_scope.conditional.map((item) => item.path)
+  ].filter(isLikelyPersistentTestPath);
+  for (const entry of testLikeScopeEntries) {
+    if (entry.includes("*") || !persistentTestPaths.has(entry)) {
+      fail5("PERSISTENT_TEST_SCOPE_INVALID", `test-like mutation scope entry ${entry} is not an exact path in persistent_tests.`);
     }
   }
   if (persistentTests.length > 0) {
@@ -11474,6 +11661,10 @@ function assertSemanticScopeIsExecutable(input) {
 }
 function semanticDigest(input) {
   return crypto7.createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+function adapterIdempotencyKey(prefix, value) {
+  const digest3 = crypto7.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return `${prefix}-${digest3.slice(0, 48)}`;
 }
 function taskSlug(goal) {
   const ascii = goal.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 80).replace(/-+$/gu, "");
@@ -11554,13 +11745,73 @@ function verifyAdapterReadBack(root, result, options) {
   }
   return result;
 }
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function currentMatchesSemanticDraft(current, semantic) {
+  return current.runtimeState.active_step_id === semantic.implementation_steps[0].id && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic)) && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
+}
+function semanticNoOp(current, idempotencyKey, message, options = {}) {
+  const state = current.runtimeState;
+  return {
+    status: "no-op",
+    operation_kind: "task-state-transaction",
+    idempotency_key: idempotencyKey,
+    target_path: current.relativePath,
+    dry_run: options.dryRun === true,
+    committed: false,
+    message,
+    previous_revision: current.sourceTuple.revision,
+    resulting_revision: current.sourceTuple.revision,
+    planned_writes: [],
+    governed_mutation_count: 0,
+    read_back_verified: true,
+    state: {
+      task_id: state.task_id,
+      workflow_status: state.workflow_status,
+      lifecycle_state: state.lifecycle_state,
+      resume_requires_review: state.resume_requires_review,
+      resume_review_reasons: [...state.resume_review_reasons],
+      active_step_id: state.active_step_id,
+      active_step_status: state.active_step_status,
+      finding_queue_revision: state.finding_queue_revision,
+      review_cycle_id: state.review_cycle.id,
+      repair_round: state.review_cycle.repair_round
+    }
+  };
+}
+function confirmationReceipt(current) {
+  return {
+    kind: "prepare-draft-confirmation/v1",
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    draft_revision: current.sourceTuple.revision
+  };
+}
+function withConfirmationReceipt(root, result, options) {
+  if (options.dryRun || result.status !== "success" && result.status !== "no-op")
+    return result;
+  const current = readCanonicalCurrentTask(root);
+  if (current.runtimeState.workflow_status !== "draft" || current.runtimeState.lifecycle_state !== "active")
+    return result;
+  return { ...result, confirmation_receipt: confirmationReceipt(current) };
+}
+function hasAppliedProposal(current, idempotencyKey) {
+  return current.runtimeState.applied_proposals.some((item) => item.idempotency_key === idempotencyKey);
+}
+function isCurrentConfirmationReplay(current, idempotencyKey, receipt) {
+  const confirmationIndex = current.runtimeState.execution_log.findIndex((item) => ("action" in item) && item.action === "confirm-draft" && item.idempotency_key === idempotencyKey && item.task_id === receipt.task_id && item.document_id === receipt.document_id && item.draft_revision === receipt.draft_revision);
+  if (confirmationIndex < 0)
+    return false;
+  return !current.runtimeState.execution_log.slice(confirmationIndex + 1).some((item) => ("action" in item) && (item.action === "supersede" || item.action === "commit-replan"));
+}
 function prepareDraft(root, input, options = {}) {
   const semantic = normalizeSemanticDraft(input);
   const current = readCanonicalCurrentTask(root);
   const creating = current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived";
   const updating = current.runtimeState.workflow_status === "draft" && current.runtimeState.lifecycle_state === "active";
   if (!creating && !updating) {
-    fail5("PREPARE_DRAFT_STATE_INVALID", "prepare-draft requires closed + archived to create, or draft + active to update. Use replan for an existing confirmed task.");
+    fail5("PREPARE_DRAFT_STATE_INVALID", "prepare-draft requires closed + archived to create, or draft + active to update. A confirmed task must first be invalidated through the authorized task-lifecycle supersede route, then replaced with replan.");
   }
   const identity = creating ? {
     task_id: allocateNextTaskId(root, current.runtimeState.task_id),
@@ -11574,6 +11825,10 @@ function prepareDraft(root, input, options = {}) {
     document_id: current.sourceTuple.document_id
   };
   const digest3 = semanticDigest(semantic);
+  const retryKey = adapterIdempotencyKey("prepare-draft", { task_id: identity.task_id, semantic });
+  if (updating && currentMatchesSemanticDraft(current, semantic)) {
+    return withConfirmationReceipt(root, semanticNoOp(current, retryKey, "The requested semantic draft already matches canonical CURRENT_TASK.", options), options);
+  }
   const evidenceRefs = [`adapter:prepare-draft:${digest3.slice(0, 16)}`];
   const proposal = createPrepareTaskDraftProposal(current, {
     action: creating ? "create-draft" : "update-draft",
@@ -11582,58 +11837,98 @@ function prepareDraft(root, input, options = {}) {
     active_step_id: semantic.implementation_steps[0].id,
     evidence_refs: evidenceRefs,
     claim_evidence: claimEvidence(semantic),
-    idempotency_key: `prepare-draft-${identity.task_id}-${current.sourceTuple.revision.slice(0, 12)}-${digest3.slice(0, 12)}`,
+    idempotency_key: adapterIdempotencyKey("prepare-draft-commit", {
+      task_id: identity.task_id,
+      source_revision: current.sourceTuple.revision,
+      semantic
+    }),
     authority_evidence: authority(current, identity.task_id, creating ? ["authorized-caller", "scope-admission", "evidence-admission"] : ["active-task-owner", "scope-admission", "evidence-admission"])
   });
-  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
-}
-function emptyInput(input, location) {
-  const value = input === undefined ? {} : record(input, location);
-  exactKeys(value, [], location);
+  const result = verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+  return withConfirmationReceipt(root, result, options);
 }
 function confirmDraft(root, input, options = {}) {
-  emptyInput(input, "confirm-draft input");
+  const source = record(input, "confirm-draft input");
+  exactKeys(source, ["confirmation_receipt"], "confirm-draft input");
+  const receipt = normalizeConfirmationReceipt(source.confirmation_receipt);
   const current = readCanonicalCurrentTask(root);
+  const idempotencyKey = adapterIdempotencyKey("confirm-draft", receipt);
+  if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
+    fail5("DRAFT_IDENTITY_CONFLICT", "confirmation_receipt does not identify the current draft.");
+  }
+  if (hasAppliedProposal(current, idempotencyKey)) {
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active" || !isCurrentConfirmationReplay(current, idempotencyKey, receipt)) {
+      fail5("DRAFT_REVISION_CONFLICT", "confirmation_receipt belongs to an earlier task-definition generation.");
+    }
+    return semanticNoOp(current, idempotencyKey, "This exact draft confirmation was already committed.", options);
+  }
   if (current.runtimeState.workflow_status !== "draft" || current.runtimeState.lifecycle_state !== "active") {
     fail5("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the current task to be draft + active.");
   }
-  const evidenceRefs = [`adapter:confirm-draft:${current.sourceTuple.revision.slice(0, 16)}`];
+  if (receipt.draft_revision !== current.sourceTuple.revision) {
+    fail5("DRAFT_REVISION_CONFLICT", `confirmation_receipt draft_revision ${receipt.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
+  }
+  const evidenceRefs = [`adapter:confirm-draft:${receipt.draft_revision.slice(0, 16)}`];
   const proposal = createPrepareTaskConfirmProposal(current, {
-    task_id: current.runtimeState.task_id,
+    task_id: receipt.task_id,
     task_slug: current.runtimeState.task_slug,
-    document_id: current.sourceTuple.document_id,
-    draft_revision: current.sourceTuple.revision,
+    document_id: receipt.document_id,
+    draft_revision: receipt.draft_revision,
     evidence_refs: evidenceRefs,
-    idempotency_key: `confirm-draft-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 16)}`,
+    idempotency_key: idempotencyKey,
     authority_evidence: [
       {
-        kind: "user-confirmation",
+        kind: "authorized-caller",
         source: current.relativePath,
-        subject: current.runtimeState.task_id,
-        task_id: current.runtimeState.task_id,
-        document_id: current.sourceTuple.document_id,
-        draft_revision: current.sourceTuple.revision
+        subject: receipt.task_id,
+        task_id: receipt.task_id,
+        document_id: receipt.document_id,
+        draft_revision: receipt.draft_revision
       },
-      ...authority(current, current.runtimeState.task_id, ["evidence-admission"])
+      ...authority(current, receipt.task_id, ["evidence-admission"])
     ]
   });
   return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
 function clearResumeReview(root, input, options = {}) {
   const source = record(input, "clear-resume-review input");
-  exactKeys(source, ["readiness_evidence"], "clear-resume-review input");
-  const readinessEvidence = textList(source.readiness_evidence, "readiness_evidence", false);
+  exactKeys(source, ["readiness_receipt"], "clear-resume-review input");
+  const receipt = normalizeResumeReadinessReceipt(source.readiness_receipt);
   const current = readCanonicalCurrentTask(root);
+  const idempotencyKey = adapterIdempotencyKey("clear-resume-review", receipt);
   if (!current.runtimeState.resume_requires_review) {
+    if (hasAppliedProposal(current, idempotencyKey)) {
+      return semanticNoOp(current, idempotencyKey, "This exact resume-readiness receipt was already committed.", options);
+    }
     fail5("RESUME_REVIEW_NOT_REQUIRED", "clear-resume-review requires an active resume-review gate.");
   }
-  const evidenceDigest = crypto7.createHash("sha256").update(JSON.stringify(readinessEvidence)).digest("hex");
-  const evidenceRefs = [`adapter:resume-readiness:${evidenceDigest.slice(0, 16)}`];
+  if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
+    fail5("RESUME_READINESS_IDENTITY_CONFLICT", "readiness_receipt does not identify the current task document.");
+  }
+  if (receipt.source_revision !== current.sourceTuple.revision) {
+    fail5("RESUME_READINESS_REVISION_CONFLICT", `readiness_receipt source_revision ${receipt.source_revision} does not match current revision ${current.sourceTuple.revision}.`);
+  }
+  if (!sameValue(receipt.reviewed_reasons, current.runtimeState.resume_review_reasons)) {
+    fail5("RESUME_READINESS_REASON_CONFLICT", "readiness_receipt must cover the exact current resume-review reasons.");
+  }
+  if (hasAppliedProposal(current, idempotencyKey)) {
+    fail5("RESUME_READINESS_REVISION_CONFLICT", "readiness_receipt was committed for an earlier resume-review gate generation.");
+  }
   const proposal = createPrepareTaskResumeReviewProposal(current, {
     mode: "default",
-    evidence_refs: evidenceRefs,
-    idempotency_key: `clear-resume-review-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 16)}-${evidenceDigest.slice(0, 12)}`,
-    authority_evidence: authority(current, current.runtimeState.task_id, ["active-task-owner", "resume-review", "evidence-admission"])
+    evidence_refs: receipt.evidence_refs,
+    idempotency_key: idempotencyKey,
+    authority_evidence: [
+      {
+        kind: "authorized-caller",
+        source: current.relativePath,
+        subject: receipt.task_id,
+        task_id: receipt.task_id,
+        document_id: receipt.document_id,
+        source_revision: receipt.source_revision
+      },
+      ...authority(current, receipt.task_id, ["active-task-owner", "resume-review", "evidence-admission"])
+    ]
   });
   return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
@@ -11641,6 +11936,19 @@ function replan(root, input, options = {}) {
   const semantic = normalizeSemanticDraft(input);
   const current = readCanonicalCurrentTask(root);
   const digest3 = semanticDigest(semantic);
+  const retryKey = adapterIdempotencyKey("replan", { task_id: current.runtimeState.task_id, semantic });
+  if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active" && currentMatchesSemanticDraft(current, semantic)) {
+    return semanticNoOp(current, retryKey, "The requested replan already matches canonical CURRENT_TASK.", options);
+  }
+  if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active") {
+    fail5("REPLAN_INVALIDATION_REQUIRED", "replan cannot replace a confirmed active task until an authorized task-lifecycle supersede invocation has invalidated it.");
+  }
+  if (current.runtimeState.workflow_status === "blocked_by_replan" && current.runtimeState.lifecycle_state === "active") {
+    fail5("REPLAN_BLOCKED", "replan is blocked by unresolved authoritative evidence; the Runtime convergence owner must clear the existing replan block first.");
+  }
+  if (current.runtimeState.workflow_status !== "superseded" || current.runtimeState.lifecycle_state !== "active") {
+    fail5("REPLAN_STATE_INVALID", "replan requires an authorized superseded + active task.");
+  }
   const evidenceRefs = [`adapter:replan:${digest3.slice(0, 16)}`];
   const proposal = createPrepareTaskReplanProposal(current, {
     delta: {
@@ -11651,7 +11959,11 @@ function replan(root, input, options = {}) {
       evidence_refs: evidenceRefs,
       claim_evidence: claimEvidence(semantic)
     },
-    idempotency_key: `replan-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 12)}-${digest3.slice(0, 12)}`,
+    idempotency_key: adapterIdempotencyKey("replan-commit", {
+      task_id: current.runtimeState.task_id,
+      source_revision: current.sourceTuple.revision,
+      semantic
+    }),
     authority_evidence: authority(current, current.runtimeState.task_id, ["active-task-owner", "scope-admission", "evidence-admission"]),
     evidence_refs: evidenceRefs
   });
@@ -11680,8 +11992,6 @@ function parsePrepareTaskAdapterCli(argv) {
 function readSemanticStdin(command) {
   const raw = !process.stdin.isTTY ? fs7.readFileSync(0, "utf8") : "";
   if (!raw.trim()) {
-    if (command === "confirm-draft")
-      return {};
     throw new Error(`${command} requires semantic JSON on stdin.`);
   }
   try {

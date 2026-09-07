@@ -34,6 +34,8 @@ export type MutationScope = {
   conditional: MutationScopePattern[];
   forbidden: MutationScopePattern[];
   read_discovery: MutationScopePattern[];
+  /** null means the legacy task has no frozen Persistent Tests section. */
+  persistent_tests: string[] | null;
 };
 
 export type ConditionalScopeAuthorization = {
@@ -46,6 +48,8 @@ export type MutationScopeEvaluationInput = {
   changed_paths: string[];
   conditional_authorizations?: ConditionalScopeAuthorization[];
   transformation_kind?: MutationTransformationKind;
+  /** Explicitly identifies non-conventional persistent-test paths. */
+  persistent_test_paths?: string[];
 };
 
 export type MutationScopeDecisionClassification =
@@ -56,6 +60,7 @@ export type MutationScopeDecisionClassification =
   | 'conditional-unapproved'
   | 'ambiguous-overlap'
   | 'broad-scope-unqualified'
+  | 'persistent-test-unadmitted'
   | 'read-context-only'
   | 'unowned'
   | 'invalid';
@@ -78,6 +83,7 @@ export type MutationScopeCheckResult = {
     conditional: string[];
     forbidden: string[];
     read_discovery: string[];
+    persistent_tests: string[] | null;
   };
   changed_paths: string[];
   decisions: MutationScopeDecision[];
@@ -175,6 +181,7 @@ const READ_DISCOVERY_HEADINGS = new Set([
   '读取/发现上下文',
   '发现上下文',
 ]);
+const PERSISTENT_TEST_HEADINGS = new Set(['persistent tests', '持久测试']);
 
 const EMPTY_SCOPE_MARKER = /^(?:none|n\/a|na|nil|empty|no\s+(?:files?|targets?|scope)|无|暂无|不适用)[.!。]?$/iu;
 const CONDITIONAL_LANGUAGE = /(?:when|if|after|once|upon|provided|only|condition|evidence|authority|approval|authorized|confirmed|满足|条件|证据|依据|授权|审批|确认|批准)/iu;
@@ -357,6 +364,37 @@ function parseScopeBucket(body: string, section: MarkdownSection, bucket: ScopeB
   return entries;
 }
 
+function parsePersistentTests(body: string, sections: readonly MarkdownSection[]): string[] | null {
+  const matches = sections.filter(section => PERSISTENT_TEST_HEADINGS.has(normalizeHeading(section.title)));
+  if (matches.length > 1) failInvalid('CURRENT_TASK contains duplicate Persistent Tests sections.');
+  const section = matches[0];
+  if (!section) return null;
+
+  const entries: string[] = [];
+  let sawMarker = false;
+  let bulletCount = 0;
+  for (const rawLine of body.slice(section.content_start, section.content_end).split(/\r?\n/u)) {
+    if (!rawLine.trim() || /^\s*<!--.*-->\s*$/u.test(rawLine)) continue;
+    if (/^\s+(?:[-*+]\s+|\d+[.)]\s+)/u.test(rawLine)) continue;
+    const bullet = /^(?:[-*+]\s+|\d+[.)]\s+)(.*)$/u.exec(rawLine);
+    if (!bullet) failInvalid(`Persistent Tests contains a non-list declaration: ${rawLine.trim()}`);
+    bulletCount += 1;
+    const declaration = bullet[1]!.replace(/^\[[ xX]\]\s*/u, '').trim();
+    if (isEmptyMarker(declaration)) {
+      if (entries.length > 0 || sawMarker) failInvalid('Persistent Tests mixes an empty marker with path declarations.');
+      sawMarker = true;
+      continue;
+    }
+    if (sawMarker) failInvalid('Persistent Tests mixes an empty marker with path declarations.');
+    const path = normalizeScopePattern(extractDeclarationPath(declaration).pattern, 'Persistent Tests declaration');
+    if (path.includes('*')) failInvalid(`Persistent Tests declaration ${path} must be an exact path.`);
+    entries.push(path);
+  }
+  if (bulletCount === 0) failInvalid('Persistent Tests must explicitly list exact paths or declare none.');
+  if (new Set(entries).size !== entries.length) failInvalid('Persistent Tests contains duplicate paths.');
+  return entries;
+}
+
 function hash(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -367,6 +405,7 @@ function scopeSummary(scope: MutationScope): MutationScopeCheckResult['scope'] {
     conditional: scope.conditional.map(entry => entry.pattern),
     forbidden: scope.forbidden.map(entry => entry.pattern),
     read_discovery: scope.read_discovery.map(entry => entry.pattern),
+    persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
   };
 }
 
@@ -387,7 +426,15 @@ export function parseMutationScope(body: string, sourceRevision = hash(body)): M
     conditional: parseScopeBucket(body, conditionalSection, 'conditional'),
     forbidden: parseScopeBucket(body, forbiddenSection, 'forbidden'),
     read_discovery: readSection ? parseScopeBucket(body, readSection, 'read_discovery') : [],
+    persistent_tests: parsePersistentTests(body, sections),
   };
+}
+
+export function isLikelyPersistentTestPath(value: string): boolean {
+  const normalized = value.trim().replace(/\\/gu, '/').replace(/^\.\//u, '').toLocaleLowerCase();
+  return /(?:^|\/)(?:test|tests|__tests__|spec|specs|e2e)(?:\/|$)/u.test(normalized)
+    || /(?:^|\/)[^/]+\.(?:test|spec)\.[^/]+$/u.test(normalized)
+    || /\.snap$/u.test(normalized);
 }
 
 function escapeRegex(text: string): string {
@@ -505,6 +552,19 @@ export function evaluateMutationScope(scope: MutationScope, input: MutationScope
   if (authorizationResult.blockers.length > 0) {
     return blockedResult(scope, input.changed_paths, transformationKind, authorizationResult.blockers);
   }
+  const explicitPersistentTests = new Set<string>();
+  if (input.persistent_test_paths !== undefined) {
+    if (!Array.isArray(input.persistent_test_paths)) {
+      return blockedResult(scope, input.changed_paths, transformationKind, ['persistent_test_paths must be an array.']);
+    }
+    for (const [index, rawPath] of input.persistent_test_paths.entries()) {
+      const pathValue = normalizeChangedPath(rawPath, index);
+      if (!pathValue) {
+        return blockedResult(scope, input.changed_paths, transformationKind, [`persistent_test_paths[${index}] must be an exact repository-relative path.`]);
+      }
+      explicitPersistentTests.add(pathValue);
+    }
+  }
 
   const decisions: MutationScopeDecision[] = [];
   const seen = new Set<string>();
@@ -550,6 +610,19 @@ export function evaluateMutationScope(scope: MutationScope, input: MutationScope
 
     if (forbidden.length > 0) {
       decisions.push({ path: pathValue, classification: 'forbidden', mutation_admitted: false, matched_scope: matchedScope, read_discovery_matches: readDiscoveryMatches, reason: 'Forbidden Files takes precedence over every other bucket.' });
+      continue;
+    }
+    const frozenPersistentTests = scope.persistent_tests;
+    const isPersistentTest = explicitPersistentTests.has(pathValue) || isLikelyPersistentTestPath(pathValue);
+    if (frozenPersistentTests !== null && isPersistentTest && !frozenPersistentTests.includes(pathValue)) {
+      decisions.push({
+        path: pathValue,
+        classification: 'persistent-test-unadmitted',
+        mutation_admitted: false,
+        matched_scope: matchedScope,
+        read_discovery_matches: readDiscoveryMatches,
+        reason: 'the path is a persistent test but is absent from the frozen Persistent Tests allowlist.',
+      });
       continue;
     }
     if (allowed.length > 0 && conditional.length > 0) {

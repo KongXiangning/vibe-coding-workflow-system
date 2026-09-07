@@ -15,6 +15,7 @@ entry_contract:
       - existing_task
       - relevant_design
       - caller_context
+      - operation_receipt
   authority_owner: user
   mutation_boundary:
     product_files: []
@@ -72,13 +73,18 @@ permanent invariant. If the request conflicts with existing design, record the
 conflict instead of silently strengthening or overriding either side.
 
 If Runtime reports a resume-review gate, evaluate only the required readiness
-evidence and submit it through `clear-resume-review`. Do not redesign the task.
+evidence, then submit the caller/host readiness receipt bound to the exact task,
+document, source revision, and gate reasons through `clear-resume-review`. Do not
+redesign the task or reconstruct the receipt from current state.
 
 In `confirm` mode, submit the user's explicit confirmation through
-`confirm-draft`; Runtime binds it to the exact committed draft revision. Report
-the result and stop. In `replan` mode, revise only the task decisions explicitly
-reopened by the user or current task state, persist through `replan`, report the
-result, and stop.
+`confirm-draft` with the exact confirmation receipt returned by the committed
+draft; do not reconstruct it from the current task. Report the result and stop.
+In `replan` mode, revise only the task decisions explicitly reopened by the user
+or current task state. `replan` consumes an authorized supersede result from an
+earlier lifecycle invocation; if that prerequisite is absent, report the route
+instead of exposing or driving Runtime's internal replan actions. Persist the
+replacement through `replan`, report the result, and stop.
 
 Do not implement business code. Once the user confirms the draft,
 `CURRENT_TASK` is the execution authority: later execution must not redesign the
@@ -94,8 +100,10 @@ file, use an OS-temporary location outside the project. Only a successful
 Runtime result proves that the draft was committed.
 
 After an ordinary draft commit, summarize it, ask the user to confirm that exact
-draft, and stop. Confirmation is a later explicit `prepare-task:confirm`
-invocation; never auto-confirm. Return one `prepared-task` result with any
+draft, and include Runtime's confirmation receipt in the prepared result so the
+later confirmation can return it unchanged. Then stop.
+Confirmation is a later explicit `prepare-task:confirm` invocation; never
+auto-confirm. Return one `prepared-task` result with any
 conflict or blocker and at most one informational `next_route`. Set
 `terminal_boundary: public-entry-terminal/v1`. A `next_route` recommendation
 must not invoke another public Skill.

@@ -251,6 +251,7 @@ export type AuthorityEvidence = {
   task_id?: string;
   document_id?: string;
   draft_revision?: string;
+  source_revision?: string;
 };
 
 export type RuntimeSourceTuple = {
@@ -1465,7 +1466,22 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
   expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
   const prepareTaskAdapter = expectRecord(prepareTaskContract.semantic_adapter, 'Runtime contract.proposal.prepare_task.semantic_adapter');
-  expectExactKeys(prepareTaskAdapter, ['input', 'commands', 'draft_fields', 'persistent_tests_storage', 'proposal_file_policy'], 'Runtime contract.proposal.prepare_task.semantic_adapter');
+  expectExactKeys(
+    prepareTaskAdapter,
+    [
+      'input',
+      'commands',
+      'draft_fields',
+      'confirmation_binding',
+      'resume_review_binding',
+      'replan_entry',
+      'persistent_tests_storage',
+      'persistent_tests_enforcement',
+      'proposal_file_policy',
+      'internal_action_owners',
+    ],
+    'Runtime contract.proposal.prepare_task.semantic_adapter',
+  );
   if (prepareTaskAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter input must remain stdin-json.');
   expectSetEqual(
     expectStringArray(prepareTaskAdapter.commands, 'Runtime contract.proposal.prepare_task.semantic_adapter.commands'),
@@ -1480,8 +1496,29 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (prepareTaskAdapter.persistent_tests_storage !== 'existing-scope-and-regression-sections') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must map persistent tests into existing canonical sections.');
   }
+  if (prepareTaskAdapter.confirmation_binding !== 'runtime-issued-draft-receipt-plus-authorized-caller') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task confirmation must bind a Runtime-issued draft receipt to the authorized caller.');
+  }
+  if (prepareTaskAdapter.resume_review_binding !== 'caller-provided-exact-readiness-receipt') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task resume review must consume a caller-provided exact readiness receipt.');
+  }
+  if (prepareTaskAdapter.replan_entry !== 'superseded + active') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task replan must enter from superseded + active.');
+  }
+  if (prepareTaskAdapter.persistent_tests_enforcement !== 'frozen-section-plus-scope-evaluator') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task persistent tests must be enforced by the frozen section and scope evaluator.');
+  }
   if (prepareTaskAdapter.proposal_file_policy !== 'project-external-only') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter proposal files must remain project-external-only.');
+  }
+  const internalActionOwners = expectRecord(prepareTaskAdapter.internal_action_owners, 'Runtime contract.proposal.prepare_task.semantic_adapter.internal_action_owners');
+  expectExactKeys(internalActionOwners, ['migrate-claim-evidence', 'mark-replan-blocked', 'clear-replan-block'], 'Runtime contract.proposal.prepare_task.semantic_adapter.internal_action_owners');
+  if (
+    internalActionOwners['migrate-claim-evidence'] !== 'runtime-compatibility'
+    || internalActionOwners['mark-replan-blocked'] !== 'runtime-convergence'
+    || internalActionOwners['clear-replan-block'] !== 'runtime-convergence'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task internal action ownership is invalid.');
   }
   expectSetEqual(
     expectStringArray(prepareTaskContract.bound_actions, 'Runtime contract.proposal.prepare_task.bound_actions'),
@@ -1618,7 +1655,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const mutationScopeContract = expectRecord(contract.mutation_scope, 'Runtime contract.mutation_scope');
   expectExactKeys(
     mutationScopeContract,
-    ['status', 'binding', 'source', 'buckets', 'default_write_policy', 'read_discovery_is_not_write_authority', 'ordinary_write_scope', 'broad_glob_requires', 'conditional_expansion_requires', 'changed_goal_scope_acceptance', 'check_command', 'input', 'output', 'command_write_footprint'],
+    ['status', 'binding', 'source', 'buckets', 'default_write_policy', 'read_discovery_is_not_write_authority', 'ordinary_write_scope', 'broad_glob_requires', 'conditional_expansion_requires', 'persistent_test_policy', 'changed_goal_scope_acceptance', 'check_command', 'input', 'output', 'command_write_footprint'],
     'Runtime contract.mutation_scope',
   );
   if (
@@ -1640,6 +1677,17 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['Allowed Files', 'Conditional Files', 'Forbidden Files'],
     'Runtime mutation scope buckets',
   );
+  const persistentTestPolicy = expectRecord(mutationScopeContract.persistent_test_policy, 'Runtime contract.mutation_scope.persistent_test_policy');
+  expectExactKeys(persistentTestPolicy, ['source', 'when_present', 'conventional_paths', 'nonconventional_paths', 'legacy_missing_section'], 'Runtime contract.mutation_scope.persistent_test_policy');
+  if (
+    persistentTestPolicy.source !== 'CURRENT_TASK Persistent Tests section'
+    || persistentTestPolicy.when_present !== 'exact-allowlist-default-deny'
+    || persistentTestPolicy.conventional_paths !== 'runtime-classified'
+    || persistentTestPolicy.nonconventional_paths !== 'caller-declared'
+    || persistentTestPolicy.legacy_missing_section !== 'compatibility-unenforced'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime persistent-test mutation policy is invalid.');
+  }
   const mutationScopeInput = expectRecord(mutationScopeContract.input, 'Runtime contract.mutation_scope.input');
   expectExactKeys(mutationScopeInput, ['required'], 'Runtime contract.mutation_scope.input');
   expectSetEqual(
@@ -1817,11 +1865,17 @@ function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
     const record = expectRecord(raw, `authority_evidence[${index}]`);
     const kind = expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation', 'resume-review', 'user-confirmation', 'authorized-caller'], `authority_evidence[${index}].kind`);
     const source = normalizeRepoPath(expectString(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`);
-    const hasConfirmationBinding = 'task_id' in record || 'document_id' in record || 'draft_revision' in record;
-    if (hasConfirmationBinding) {
+    const hasDraftBinding = 'draft_revision' in record;
+    const hasSourceBinding = 'source_revision' in record;
+    const hasCoordinateBinding = 'task_id' in record || 'document_id' in record || hasDraftBinding || hasSourceBinding;
+    if (hasDraftBinding && hasSourceBinding) {
+      fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}] cannot bind both draft_revision and source_revision.`);
+    }
+    if (hasCoordinateBinding) {
+      const revisionField = hasSourceBinding ? 'source_revision' : 'draft_revision';
       const expectedKeys = 'subject' in record
-        ? ['kind', 'source', 'subject', 'task_id', 'document_id', 'draft_revision']
-        : ['kind', 'source', 'task_id', 'document_id', 'draft_revision'];
+        ? ['kind', 'source', 'subject', 'task_id', 'document_id', revisionField]
+        : ['kind', 'source', 'task_id', 'document_id', revisionField];
       expectExactKeys(record, expectedKeys, `authority_evidence[${index}]`);
       const taskId = expectString(record.task_id, `authority_evidence[${index}].task_id`);
       try {
@@ -1831,15 +1885,15 @@ function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
       }
       const documentId = expectString(record.document_id, `authority_evidence[${index}].document_id`);
       if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}].document_id is invalid.`);
-      const draftRevision = expectString(record.draft_revision, `authority_evidence[${index}].draft_revision`);
-      if (!/^[a-f0-9]{64}$/.test(draftRevision)) fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}].draft_revision must be SHA-256.`);
+      const authorityRevision = expectString(record[revisionField], `authority_evidence[${index}].${revisionField}`);
+      if (!/^[a-f0-9]{64}$/.test(authorityRevision)) fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}].${revisionField} must be SHA-256.`);
       result.push({
         kind,
         source,
         subject: 'subject' in record ? expectText(record.subject, `authority_evidence[${index}].subject`, 256) : taskId,
         task_id: taskId,
         document_id: documentId,
-        draft_revision: draftRevision,
+        [revisionField]: authorityRevision,
       });
     } else {
       expectExactKeys(record, ['kind', 'source', 'subject'], `authority_evidence[${index}]`);
@@ -7027,7 +7081,7 @@ function makeClaimEvidenceMigrationAudit(
   };
 }
 
-function readDraftDefinitionFromBody(body: string): DraftTaskDefinition {
+export function readDraftDefinitionFromBody(body: string): DraftTaskDefinition {
   const ranges = resolveReplanSectionRanges(body);
   const values: Partial<Record<ReplanSectionKey, string | null>> = {};
   for (const key of REPLAN_REPLACEMENT_FIELDS) {
@@ -7462,7 +7516,19 @@ function applyTaskStateDelta(
     return { next, audit };
   }
   if (delta.action === 'clear-resume-review-gate') {
-    ensureAuthorityKinds(proposal, ['active-task-owner', 'resume-review', 'evidence-admission']);
+    ensureAuthorityKinds(proposal, ['authorized-caller', 'active-task-owner', 'resume-review', 'evidence-admission']);
+    const callerAuthorities = proposal.authority_evidence.filter(item => item.kind === 'authorized-caller');
+    for (const auth of callerAuthorities) {
+      if (!auth.task_id || !auth.document_id || !auth.source_revision) {
+        fail('RUNTIME_AUTHORITY_INVALID', 'clear-resume-review-gate caller authority must bind task_id, document_id, and source revision.');
+      }
+      if (auth.task_id !== current.runtimeState.task_id || auth.document_id !== current.sourceTuple.document_id) {
+        fail('RESUME_READINESS_IDENTITY_CONFLICT', 'clear-resume-review-gate caller authority does not identify the current task document.');
+      }
+      if (auth.source_revision !== current.sourceTuple.revision) {
+        fail('RESUME_READINESS_REVISION_CONFLICT', 'clear-resume-review-gate caller authority does not bind the exact current source revision.');
+      }
+    }
     if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
       fail('TASK_STATE_NOT_ACTIVE', 'resume review can be cleared only after the task has resumed to active + active.');
     }
@@ -9930,6 +9996,8 @@ export type VNextRuntimeCliArguments = {
   changedPaths: string[];
   pathsFile?: string;
   pathsStdin: boolean;
+  persistentTestPaths: string[];
+  persistentTestPathsFile?: string;
   conditionalAuthorizationsFile?: string;
   transformationKind: MutationTransformationKind;
   commandAuditFile?: string;
@@ -9938,13 +10006,15 @@ export type VNextRuntimeCliArguments = {
 
 export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   const [command = 'validate', ...rest] = argv;
-  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]');
+  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--persistent-test-path <repo-relative>] [--persistent-test-paths-file <path>] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]');
   let root = process.cwd();
   let proposalFile: string | undefined;
   let dryRun = false;
   const changedPaths: string[] = [];
   let pathsFile: string | undefined;
   let pathsStdin = false;
+  const persistentTestPaths: string[] = [];
+  let persistentTestPathsFile: string | undefined;
   let conditionalAuthorizationsFile: string | undefined;
   let transformationKind: MutationTransformationKind = 'localized';
   let commandAuditFile: string | undefined;
@@ -9956,6 +10026,8 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--path') changedPaths.push(rest[++index] ?? '');
     else if (arg === '--paths-file') pathsFile = rest[++index];
     else if (arg === '--paths-stdin') pathsStdin = true;
+    else if (arg === '--persistent-test-path') persistentTestPaths.push(rest[++index] ?? '');
+    else if (arg === '--persistent-test-paths-file') persistentTestPathsFile = rest[++index];
     else if (arg === '--command-audit-file') commandAuditFile = rest[++index];
     else if (arg === '--command-audit-stdin') commandAuditStdin = true;
     else if (arg === '--conditional-authorizations-file') conditionalAuthorizationsFile = rest[++index];
@@ -9967,7 +10039,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--dry-run') dryRun = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
 }
 
 export function resolveExternalProposalFile(root: string, proposalFile: string): string {
@@ -10009,7 +10081,9 @@ function readCliConditionalAuthorizations(filePath: string): ConditionalScopeAut
 
 function readCliCommandAudit(args: VNextRuntimeCliArguments): CommandMutationAuditInput {
   if (args.commandAuditFile && args.commandAuditStdin) throw new Error('--command-audit-file and --command-audit-stdin are mutually exclusive.');
-  if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin) throw new Error('command audit input cannot be combined with ordinary --path, --paths-file, or --paths-stdin scope input.');
+  if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin || args.persistentTestPaths.length > 0 || args.persistentTestPathsFile) {
+    throw new Error('command audit input cannot be combined with ordinary path or persistent-test scope input.');
+  }
   const content = args.commandAuditFile
     ? fs.readFileSync(path.resolve(args.commandAuditFile), 'utf8')
     : (() => {
@@ -10035,11 +10109,16 @@ function readScopeCheckInput(args: VNextRuntimeCliArguments): MutationScopeEvalu
     const text = typeof stdinContent === 'string' ? stdinContent : stdinContent.toString('utf8');
     changedPaths.push(...text.split(/\r?\n/u).map((line: string) => line.trim()).filter(Boolean));
   }
+  const persistentTestPaths = [...args.persistentTestPaths];
+  if (args.persistentTestPathsFile) {
+    persistentTestPaths.push(...readCliStringList(args.persistentTestPathsFile, '--persistent-test-paths-file'));
+  }
   return {
     changed_paths: changedPaths,
     ...(args.conditionalAuthorizationsFile
       ? { conditional_authorizations: readCliConditionalAuthorizations(args.conditionalAuthorizationsFile) }
       : {}),
+    ...(persistentTestPaths.length > 0 ? { persistent_test_paths: persistentTestPaths } : {}),
     transformation_kind: args.transformationKind,
   };
 }
