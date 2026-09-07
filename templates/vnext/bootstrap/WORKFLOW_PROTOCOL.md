@@ -93,13 +93,17 @@ current draft revision and explicit user or authorized-caller authority.
 Execution and finding admission reject drafts until that Runtime transition
 succeeds; the prior archive remains immutable.
 
-For tasks with `claim_evidence_required: true`, task completion is bound to
-the structured per-claim/per-slot evidence state in the same canonical
-`CURRENT_TASK.runtime_state`. Every planned slot must be `existing`, `reused`,
-or `newly-executed` and carry `evidence_refs`; `missing`, `deferred`, or
-`blocked` evidence cannot become `task-complete`. `close-task` consumes this
-durable state to derive `acceptance_satisfied` and `validation_complete`; an
-aggregate command result or free-text note is not sufficient.
+For tasks with `claim_evidence_required: true`, prepare-task must persist a
+non-empty frozen per-claim/per-slot evidence plan in the same canonical
+`CURRENT_TASK.runtime_state`, including at least one `acceptance` claim.
+Execution can update only planned slot disposition and `evidence_refs`; it
+cannot create or redefine the plan at completion time. Every planned slot must
+be `existing`, `reused`, or `newly-executed` and carry `evidence_refs`;
+`missing`, `deferred`, or `blocked` evidence cannot become `task-complete`.
+`close-task` consumes this durable state to derive `acceptance_satisfied` and
+`validation_complete`; an aggregate command result or free-text note is not
+sufficient. Legacy CURRENT_TASK documents remain readable, but require
+prepare-task refinement/migration before terminal completion.
 
 ## Durable Lesson marker boundary
 

@@ -892,6 +892,16 @@ describe('vNext bootstrap-project', () => {
       task_title: 'Realign persistence fixture',
       draft_definition: runtimeDraftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: [{
+        claim_id: 'A1',
+        claim_kind: 'acceptance',
+        slots: [{
+          slot_id: 'a1',
+          minimum_type: 'focused-test',
+          disposition: 'newly-executed',
+          evidence_refs: ['realign:evidence:planned-claim'],
+        }],
+      }],
       evidence_refs: ['realign:evidence:draft'],
       idempotency_key: 'realign-persistence-draft',
       authority_evidence: runtimeAuthority('user-confirmation', 'scope-admission', 'evidence-admission'),

@@ -249,8 +249,10 @@ capabilities:
       - proposed minimum-sufficient evidence type and expected disposition
       - 'evidence types may include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance'
       - 'evidence-plan decision: whether new evidence is needed, minimum-sufficient type, existing-check reuse, temporary exploration, and failure route'
-      - 'when claim evidence is persisted, use the canonical CURRENT_TASK.runtime_state.claim_evidence records: each claim has stable claim_id/claim_kind and each planned slot has slot_id, minimum_type, disposition, and evidence_refs'
+      - 'prepare-task creates and persists a non-empty canonical CURRENT_TASK.runtime_state.claim_evidence plan with at least one acceptance claim; each claim has stable claim_id/claim_kind and each planned slot has slot_id, minimum_type, disposition, and evidence_refs'
       - 'existing, reused, and newly-executed slots require evidence_refs; missing, deferred, and blocked slots are not completion evidence'
+      - 'execute-step may update only disposition and evidence_refs for an existing plan; it cannot add, remove, or redefine claims or evidence slots'
+      - 'legacy CURRENT_TASK documents remain readable but require prepare-task refinement/migration before task-complete or terminal close-task; aggregate command success cannot provide completion compatibility'
       - 'exploratory probe budget: duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule'
       - persistent-test policy, including default non-admission or user no-test deny
       - 'persistent-test admission fields when a persistent test is proposed: owner, basis, proves, existing-evidence insufficiency, assertion boundary, and failure disposition'

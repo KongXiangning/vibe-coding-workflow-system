@@ -22,14 +22,18 @@ contains the task identity, acceptance, Allowed / Conditional / Forbidden
 scope buckets, implementation steps, and execution evidence.
 
 New and refined drafts use the same canonical `runtime_state` to store
-`claim_evidence_required: true` and a bounded `claim_evidence` array. Legacy
-documents may omit these fields and remain readable, but cannot claim
-structured completion without them. Each record has `claim_id`, `claim_kind`, and planned
-`slots`; each slot has `slot_id`, `minimum_type`, `disposition`, and
-`evidence_refs`. Only `existing`, `reused`, and `newly-executed` dispositions
-with refs are complete. `missing`, `deferred`, and `blocked` slots prevent
-Runtime `task-complete` and close-task validation. Aggregate command success,
-notes, and model summaries are not a second evidence state source.
+`claim_evidence_required: true` and a bounded, non-empty `claim_evidence` plan
+with at least one `acceptance` claim. Legacy documents may omit these fields
+and remain readable, but require prepare-task refinement/migration before
+`task-complete` or terminal close-task. Each record has `claim_id`,
+`claim_kind`, and planned `slots`; each slot has `slot_id`, `minimum_type`,
+`disposition`, and `evidence_refs`. Only `existing`, `reused`, and
+`newly-executed` dispositions with refs are complete. `missing`, `deferred`,
+and `blocked` slots prevent Runtime `task-complete` and close-task validation.
+The plan shape is frozen at prepare/confirm time: execute-step may update only
+slot disposition and refs, and cannot add, remove, or redefine claims or
+slots. Aggregate command success, notes, and model summaries are not a second
+evidence state source.
 
 For an ordinary independent request, `CURRENT_TASK.md` is first written by the
 typed `create-draft` action as `draft + active`. The definition is closed to
@@ -42,7 +46,8 @@ and preserves execution/audit history. A draft has no execution authority.
 The typed `confirm-draft` action is the only draft-to-active transition. It
 must repeat the draft identity, carry the exact current `source_tuple.revision`
 as `draft_revision`, include claim-bound evidence and explicit confirmation
-authority, and leave no unresolved user-owned questions. Runtime then changes
+authority, and confirm a non-empty frozen evidence plan with an acceptance
+claim. Runtime then changes
 the tuple to `active + active`; stale, malformed, unauthorized, or conflicting
 proposals fail without mutating the canonical file.
 

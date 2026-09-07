@@ -48,6 +48,19 @@ const DECISIONS = 'docs/workflow/DECISIONS.md';
 const ARCHIVE = `TASKS/TASK-${TASK_ID}-${TASK_SLUG}.md`;
 const temporaryRoots: string[] = [];
 
+function fixtureClaimEvidence(): NonNullable<RuntimeState['claim_evidence']> {
+  return [{
+    claim_id: 'A1',
+    claim_kind: 'acceptance',
+    slots: [{
+      slot_id: 'knowledge-promotion',
+      minimum_type: 'focused-test',
+      disposition: 'existing',
+      evidence_refs: ['e2e:evidence:knowledge-promotion'],
+    }],
+  }];
+}
+
 function runtimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
     schema_version: 1,
@@ -73,6 +86,8 @@ function runtimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     findings: [],
     execution_log: [],
     applied_proposals: [],
+    claim_evidence_required: true,
+    claim_evidence: fixtureClaimEvidence(),
     ...overrides,
   };
 }

@@ -1627,6 +1627,9 @@ var MAX_CLAIM_EVIDENCE_RECORDS = 256;
 var MAX_CLAIM_EVIDENCE_SLOTS = 32;
 var MAX_REPLAN_SECTION_CONTENT_LENGTH = 32768;
 var MAX_REPAIR_ROUNDS = 3;
+var CLAIM_EVIDENCE_COMPLETION_RULE = "non-empty frozen plan with at least one acceptance claim; every planned slot is complete and has evidence_refs";
+var DRAFT_CLAIM_EVIDENCE_REQUIREMENT = "required-and-non-empty-for-new-or-refined-drafts; must-include-an-acceptance-claim; legacy-documents-remain-readable-but-require-migration-before-terminal-completion";
+var CLOSE_TASK_CLAIM_EVIDENCE_RULE = "derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient";
 var MAX_REPAIR_ATTEMPTS = 2;
 var CURRENT_TASK_RELATIVE_FALLBACK = "docs/workflow/CURRENT_TASK.md";
 var INBOX_RECORD_ITEM_ID_PATTERN = /^(\d{8})-([a-z0-9]{4,})$/;
@@ -2010,8 +2013,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(claimEvidenceContract.slot_fields, "Runtime contract claim evidence slot_fields"), ["slot_id", "minimum_type", "disposition", "evidence_refs"], "Runtime claim evidence slot fields");
   expectSetEqual(expectStringArray2(claimEvidenceContract.complete_dispositions, "Runtime contract claim evidence complete_dispositions"), ["existing", "reused", "newly-executed"], "Runtime claim evidence complete dispositions");
   expectSetEqual(expectStringArray2(claimEvidenceContract.incomplete_dispositions, "Runtime contract claim evidence incomplete_dispositions"), ["missing", "deferred", "blocked"], "Runtime claim evidence incomplete dispositions");
-  if (claimEvidenceContract.completion_rule !== "every planned slot is complete and has evidence_refs") {
-    fail2("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence completion must require every planned slot and its evidence_refs.");
+  if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence completion must require a non-empty frozen plan with an acceptance claim and every planned slot with its evidence_refs.");
   }
   expectSetEqual(expectStringArray2(taskStateContract.advancement_outcomes, "Runtime contract.proposal.task_state.advancement_outcomes"), [...STEP_ADVANCEMENT_OUTCOMES], "Runtime contract task-state advancement outcomes");
   const reviewReceiptContract = expectRecord2(taskStateContract.review_receipt, "Runtime contract.proposal.task_state.review_receipt");
@@ -2028,7 +2031,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(draftContract.actions, "Runtime contract.proposal.task_state.draft.actions"), ["create-draft", "update-draft"], "Runtime contract task-state draft actions");
   expectSetEqual(expectStringArray2(draftContract.identity_required, "Runtime contract.proposal.task_state.draft.identity_required"), ["task_id", "task_slug", "document_id", "task_title"], "Runtime contract task-state draft identity fields");
   expectSetEqual(expectStringArray2(draftContract.definition_required, "Runtime contract.proposal.task_state.draft.definition_required"), [...REPLAN_REPLACEMENT_FIELDS], "Runtime contract task-state draft definition fields");
-  if (draftContract.claim_evidence !== "required-for-new-or-refined-drafts; legacy documents remain readable but cannot claim structured completion without it") {
+  if (draftContract.claim_evidence !== DRAFT_CLAIM_EVIDENCE_REQUIREMENT) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime draft claim evidence requirement is invalid.");
   }
   for (const [field, expected] of [["create_from", "closed + archived"], ["update_from", "draft + active"], ["target", "draft + active"]]) {
@@ -2108,7 +2111,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(closeTaskContract.terminal_from, "Runtime contract close-task terminal_from"), ["active + active"], "Runtime contract close-task terminal_from");
   expectSetEqual(expectStringArray2(closeTaskContract.terminal_to, "Runtime contract close-task terminal_to"), ["closed + archived"], "Runtime contract close-task terminal_to");
   expectSetEqual(expectStringArray2(closeTaskContract.lesson_admission, "Runtime contract close-task lesson_admission"), ["admit", "defer", "no-op"], "Runtime contract close-task lesson admission");
-  if (closeTaskContract.claim_evidence !== "derive acceptance_satisfied and validation_complete from durable CURRENT_TASK claim_evidence; aggregate command success is insufficient") {
+  if (closeTaskContract.claim_evidence !== CLOSE_TASK_CLAIM_EVIDENCE_RULE) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime close-task claim evidence derivation rule is invalid.");
   }
   const knowledgeAdmissionContract = expectRecord2(closeTaskContract.knowledge_admission, "Runtime contract.proposal.close_task.knowledge_admission");
@@ -2429,7 +2432,7 @@ function isClaimEvidenceSlotComplete(slot) {
 function evaluateClaimEvidence(records) {
   const validationComplete = records.length > 0 && records.every((record) => record.slots.length > 0 && record.slots.every(isClaimEvidenceSlotComplete));
   const acceptanceRecords = records.filter((record) => record.claim_kind === "acceptance");
-  const acceptanceSatisfied = acceptanceRecords.length === 0 ? validationComplete : acceptanceRecords.every((record) => record.slots.length > 0 && record.slots.every(isClaimEvidenceSlotComplete));
+  const acceptanceSatisfied = acceptanceRecords.length > 0 && acceptanceRecords.every((record) => record.slots.length > 0 && record.slots.every(isClaimEvidenceSlotComplete));
   return {
     acceptance_satisfied: acceptanceSatisfied,
     validation_complete: validationComplete
@@ -2450,9 +2453,21 @@ function copyClaimEvidence(records) {
 function claimEvidenceStateEnabled(runtimeState) {
   return runtimeState.claim_evidence_required === true || (runtimeState.claim_evidence?.length ?? 0) > 0;
 }
+function requireClaimEvidencePlan(records, location, missingCode = "CLAIM_EVIDENCE_REQUIRED") {
+  if (records === undefined || records.length === 0) {
+    fail2(missingCode, `${location} must persist a non-empty claim_evidence plan before the task can proceed.`);
+  }
+  return [...records];
+}
+function requireAcceptanceClaim(records, location) {
+  if (!records.some((record) => record.claim_kind === "acceptance")) {
+    fail2("CLAIM_EVIDENCE_ACCEPTANCE_REQUIRED", `${location} must include at least one acceptance claim; invariant evidence cannot substitute for acceptance evidence.`);
+  }
+}
 function assertClaimEvidencePlanPreserved(planned, proposed, location) {
-  if (planned.length === 0)
-    return;
+  if (planned.length === 0) {
+    fail2("CLAIM_EVIDENCE_REQUIRED", `${location} cannot initialize a claim_evidence plan during execution; prepare-task must persist it first.`);
+  }
   if (planned.length !== proposed.length) {
     fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", `${location} cannot add or remove planned claims during step progress.`);
   }
@@ -5186,7 +5201,9 @@ function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
   }
   if (current.runtimeState.findings.some((item) => item.status === "admitted" || item.status === "in-progress"))
     blockers.push("an admitted or in-progress finding remains unresolved.");
-  if (claimEvidenceStateEnabled(current.runtimeState)) {
+  if (!claimEvidenceStateEnabled(current.runtimeState)) {
+    blockers.push("structured claim-bound evidence migration is required before terminal closure; legacy CURRENT_TASK completion evidence is not sufficient.");
+  } else {
     const durableClaimEvidence = evaluateClaimEvidence(current.runtimeState.claim_evidence ?? []);
     if (delta.closure_evidence.acceptance_satisfied !== durableClaimEvidence.acceptance_satisfied) {
       blockers.push("closure acceptance_satisfied does not match durable claim-bound evidence state.");
@@ -7157,6 +7174,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "create-draft claim_evidence");
+    requireAcceptanceClaim(claimEvidence, "create-draft claim_evidence");
     const draftIdentity = {
       task_id: delta.task_id,
       task_slug: delta.task_slug,
@@ -7180,7 +7199,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       execution_log: [],
       applied_proposals: [],
       claim_evidence_required: true,
-      claim_evidence: copyClaimEvidence(delta.claim_evidence ?? [])
+      claim_evidence: copyClaimEvidence(claimEvidence)
     };
     const draftStateWithProposal = {
       ...emptyDraftState,
@@ -7209,6 +7228,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (currentIdentity.title !== delta.task_title)
       fail2("DRAFT_IDENTITY_IMMUTABLE", "update-draft must preserve the task title identity.");
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "update-draft claim_evidence");
+    requireAcceptanceClaim(claimEvidence, "update-draft claim_evidence");
     const nextWithoutAudit = {
       ...current.runtimeState,
       workflow_status: "draft",
@@ -7216,7 +7237,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       active_step_id: delta.active_step_id,
       active_step_status: "ready",
       claim_evidence_required: true,
-      claim_evidence: delta.claim_evidence === undefined ? copyClaimEvidence(current.runtimeState.claim_evidence ?? []) : copyClaimEvidence(delta.claim_evidence),
+      claim_evidence: copyClaimEvidence(claimEvidence),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);
@@ -7265,6 +7286,11 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the admitted draft step to remain ready.");
     }
     assertDraftDefinitionReady(current.body, current.runtimeState.active_step_id);
+    if (current.runtimeState.claim_evidence_required !== true) {
+      fail2("CLAIM_EVIDENCE_MIGRATION_REQUIRED", "prepare-task refinement must persist a strict claim_evidence plan before confirm-draft; legacy tasks are readable but not terminal-completion compatible.");
+    }
+    const claimEvidence = requireClaimEvidencePlan(current.runtimeState.claim_evidence, "confirm-draft claim_evidence", "CLAIM_EVIDENCE_MIGRATION_REQUIRED");
+    requireAcceptanceClaim(claimEvidence, "confirm-draft claim_evidence");
     const nextWithoutAudit = {
       ...current.runtimeState,
       workflow_status: "active",
@@ -7331,6 +7357,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("REPLAN_TRANSITION_INVALID", "commit-replan requires superseded + active.");
     }
     assertReplacementActiveStep(delta.active_step_id, delta.replacement_definition.implementation_steps);
+    const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "commit-replan claim_evidence");
+    requireAcceptanceClaim(claimEvidence, "commit-replan claim_evidence");
     const findings = current.runtimeState.findings.map((item) => {
       const preserved = { ...item, evidence_refs: [...item.evidence_refs] };
       if (preserved.status === "admitted" || preserved.status === "in-progress") {
@@ -7350,8 +7378,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       finding_queue_revision: hadOpenFindings ? current.runtimeState.finding_queue_revision + 1 : current.runtimeState.finding_queue_revision,
       review_cycle: createReviewCycleZero(),
       findings,
-      claim_evidence_required: delta.claim_evidence === undefined ? current.runtimeState.claim_evidence_required : true,
-      claim_evidence: delta.claim_evidence === undefined ? copyClaimEvidence(current.runtimeState.claim_evidence ?? []) : copyClaimEvidence(delta.claim_evidence),
+      claim_evidence_required: true,
+      claim_evidence: copyClaimEvidence(claimEvidence),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeReplanAudit(current, proposal, nextWithoutAudit, now);
@@ -7375,6 +7403,17 @@ function applyTaskStateDelta(root, current, proposal, now) {
   }
   if (delta.step_id !== current.runtimeState.active_step_id)
     fail2("ACTIVE_STEP_CONFLICT", "Proposal step_id does not match the admitted current step.");
+  const currentClaimEvidenceEnabled = claimEvidenceStateEnabled(current.runtimeState);
+  if (!currentClaimEvidenceEnabled && delta.claim_evidence !== undefined) {
+    fail2("CLAIM_EVIDENCE_MIGRATION_REQUIRED", "execute-step cannot create a claim_evidence plan for a legacy task; prepare-task refinement/migration must persist the plan first.");
+  }
+  if (currentClaimEvidenceEnabled) {
+    const plannedClaimEvidence = current.runtimeState.claim_evidence ?? [];
+    if (plannedClaimEvidence.length === 0) {
+      fail2("CLAIM_EVIDENCE_REQUIRED", "the strict task has an empty claim_evidence plan; prepare-task must repair it before execution.");
+    }
+    requireAcceptanceClaim(plannedClaimEvidence, "current task claim_evidence");
+  }
   const executionMode = proposal.mode;
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
@@ -7407,9 +7446,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
   const legal = oldStatus === newStatus || oldStatus === "ready" && ["in-progress", "completed", "blocked"].includes(newStatus) || oldStatus === "in-progress" && ["completed", "blocked"].includes(newStatus) || oldStatus === "blocked" && executionMode === "repair" && ["in-progress", "completed"].includes(newStatus);
   if (!legal)
     fail2("TASK_STATE_TRANSITION_INVALID", `Cannot transition active step from ${oldStatus} to ${newStatus}.`);
-  const claimEvidenceRequired = claimEvidenceStateEnabled(current.runtimeState) || delta.claim_evidence !== undefined;
+  const claimEvidenceRequired = currentClaimEvidenceEnabled;
   const transitionClaimEvidence = delta.claim_evidence ?? current.runtimeState.claim_evidence ?? [];
-  if (claimEvidenceStateEnabled(current.runtimeState) && delta.claim_evidence !== undefined) {
+  if (currentClaimEvidenceEnabled && delta.claim_evidence !== undefined) {
     assertClaimEvidencePlanPreserved(current.runtimeState.claim_evidence ?? [], delta.claim_evidence, "semantic_delta.claim_evidence");
   }
   let advancement = {
@@ -7479,14 +7518,18 @@ function applyTaskStateDelta(root, current, proposal, now) {
         to_step_id: stepResolution.next.id
       };
     } else {
-      if (claimEvidenceRequired) {
-        if (delta.claim_evidence === undefined) {
-          fail2("CLAIM_EVIDENCE_REQUIRED", "the final task-complete step-progress must carry the durable claim_evidence snapshot.");
-        }
-        const completion = evaluateClaimEvidence(transitionClaimEvidence);
-        if (!completion.validation_complete) {
-          fail2("CLAIM_EVIDENCE_INCOMPLETE", "task-complete requires every planned claim evidence slot to be existing, reused, or newly-executed with evidence_refs.");
-        }
+      if (!claimEvidenceRequired) {
+        fail2("CLAIM_EVIDENCE_MIGRATION_REQUIRED", "legacy CURRENT_TASK requires prepare-task refinement/migration before task-complete; aggregate evidence cannot provide terminal completion.");
+      }
+      if (delta.claim_evidence === undefined) {
+        fail2("CLAIM_EVIDENCE_REQUIRED", "the final task-complete step-progress must carry the durable claim_evidence snapshot.");
+      }
+      const completion = evaluateClaimEvidence(transitionClaimEvidence);
+      if (!completion.validation_complete) {
+        fail2("CLAIM_EVIDENCE_INCOMPLETE", "task-complete requires every planned claim evidence slot to be existing, reused, or newly-executed with evidence_refs.");
+      }
+      if (!completion.acceptance_satisfied) {
+        fail2("CLAIM_EVIDENCE_ACCEPTANCE_REQUIRED", "task-complete requires at least one complete acceptance claim; invariant evidence cannot substitute for acceptance evidence.");
       }
       advancement = {
         ...advancement,

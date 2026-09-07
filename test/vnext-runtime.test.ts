@@ -353,7 +353,6 @@ function claimEvidenceFixture(overrides: {
 
 function taskProposal(root: string, overrides: Partial<Parameters<typeof createTaskStateProposal>[1]> = {}): RuntimeProposal {
   const current = readCanonicalCurrentTask(root);
-  const claimEvidence = overrides.claim_evidence ?? (current.runtimeState.claim_evidence_required ? completeClaimEvidence() : undefined);
   return createTaskStateProposal(current, {
     mode: 'default',
     status: 'completed',
@@ -361,7 +360,6 @@ function taskProposal(root: string, overrides: Partial<Parameters<typeof createT
     idempotency_key: 'proposal-step-1-complete',
     authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
     ...overrides,
-    ...(claimEvidence === undefined ? {} : { claim_evidence: claimEvidence }),
   });
 }
 
@@ -526,7 +524,7 @@ function replanProposal(
   root: string,
   action: ReplanTaskStateAction,
   idempotencyKey: string,
-  overrides: { definition?: ReplanReplacementDefinition; active_step_id?: string; authority?: AuthorityEvidence[]; evidence_refs?: string[] } = {},
+  overrides: { definition?: ReplanReplacementDefinition; active_step_id?: string; authority?: AuthorityEvidence[]; evidence_refs?: string[]; claim_evidence?: ClaimEvidenceRecord[] } = {},
 ): RuntimeProposal {
   const current = readCanonicalCurrentTask(root);
   const delta = action === 'commit-replan'
@@ -536,6 +534,7 @@ function replanProposal(
       replacement_definition: overrides.definition ?? replacementDefinition(),
       active_step_id: overrides.active_step_id ?? 'step-2',
       evidence_refs: overrides.evidence_refs ?? ['test:evidence:replan'],
+      ...(overrides.claim_evidence === undefined ? {} : { claim_evidence: overrides.claim_evidence }),
     }
     : {
       kind: 'task-state' as const,
@@ -769,8 +768,8 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('commits a task-state proposal atomically and replays it as a no-op', () => {
-    const root = makeRoot();
-    const proposal = taskProposal(root);
+    const root = makeRoot(makeRuntimeState({ claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const proposal = taskProposal(root, { claim_evidence: completeClaimEvidence() });
     const beforeBody = readCanonicalCurrentTask(root).body;
 
     const applied = applyVNextRuntimeProposal(root, proposal, { now: () => '2026-08-31T00:00:00.000Z' });
@@ -799,7 +798,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     ];
 
     for (const [index, testCase] of cases.entries()) {
-      const root = makeRoot(makeRuntimeState({ claim_evidence_required: true, claim_evidence: [] }));
+      const root = makeRoot(makeRuntimeState({
+        claim_evidence_required: true,
+        claim_evidence: claimEvidenceFixture(),
+      }));
       const result = applyVNextRuntimeProposal(root, taskProposal(root, {
         idempotency_key: `claim-evidence-completion-${index}`,
         note: 'npm test passed',
@@ -849,6 +851,203 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(narrowedResult.status).toBe('blocked');
     expect(narrowedResult.code).toBe('CLAIM_EVIDENCE_PLAN_CONFLICT');
     expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence).toEqual(planned);
+  });
+
+  test('freezes a non-empty acceptance-bearing plan before confirmation and blocks completion-time plan invention', () => {
+    const bootstrapRoot = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const bootstrap = readCanonicalCurrentTask(bootstrapRoot);
+    const draftInput = {
+      action: 'create-draft' as const,
+      task_id: '001',
+      task_slug: 'plan-freeze-task',
+      document_id: 'doc-111111111111111111111111',
+      task_title: 'Plan freeze task',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:plan-freeze'],
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    };
+    const missingPlan = createPrepareTaskDraftProposal(bootstrap, {
+      ...draftInput,
+      idempotency_key: 'plan-freeze-missing',
+    });
+    const missingResult = applyVNextRuntimeProposal(bootstrapRoot, missingPlan);
+    expect(missingResult.status).toBe('blocked');
+    expect(missingResult.code).toBe('CLAIM_EVIDENCE_REQUIRED');
+
+    const emptyPlan = createPrepareTaskDraftProposal(bootstrap, {
+      ...draftInput,
+      claim_evidence: [],
+      idempotency_key: 'plan-freeze-empty',
+    });
+    const emptyResult = applyVNextRuntimeProposal(bootstrapRoot, emptyPlan);
+    expect(emptyResult.status).toBe('blocked');
+    expect(emptyResult.code).toBe('CLAIM_EVIDENCE_REQUIRED');
+    expect(readCanonicalCurrentTask(bootstrapRoot).runtimeState.task_id).toBe('000');
+
+    const updateRoot = makeRoot(makeRuntimeState({
+      task_id: '001',
+      task_slug: 'plan-freeze-task',
+      workflow_status: 'draft',
+      lifecycle_state: 'active',
+      claim_evidence_required: true,
+      claim_evidence: completeClaimEvidence(),
+    }));
+    const draft = readCanonicalCurrentTask(updateRoot);
+    const missingUpdatePlan = createPrepareTaskUpdateDraftProposal(draft, {
+      task_id: '001',
+      task_slug: 'plan-freeze-task',
+      document_id: draft.sourceTuple.document_id,
+      task_title: 'Runtime fixture',
+      draft_definition: draftDefinition(),
+      active_step_id: 'step-1',
+      evidence_refs: ['test:evidence:plan-freeze-update'],
+      idempotency_key: 'plan-freeze-update-missing',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    const updateResult = applyVNextRuntimeProposal(updateRoot, missingUpdatePlan);
+    expect(updateResult.status).toBe('blocked');
+    expect(updateResult.code).toBe('CLAIM_EVIDENCE_REQUIRED');
+
+    const emptyConfirmRoot = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const emptyConfirmBootstrap = readCanonicalCurrentTask(emptyConfirmRoot);
+    const emptyConfirmCreated = createPrepareTaskDraftProposal(emptyConfirmBootstrap, {
+      ...draftInput,
+      idempotency_key: 'plan-freeze-confirm-seed',
+      claim_evidence: completeClaimEvidence(),
+    });
+    expect(applyVNextRuntimeProposal(emptyConfirmRoot, emptyConfirmCreated).status).toBe('success');
+    const persistedConfirmDraft = readCanonicalCurrentTask(emptyConfirmRoot);
+    fs.writeFileSync(persistedConfirmDraft.filePath, `---\n${stringify({
+      ...persistedConfirmDraft.frontmatter,
+      runtime_state: {
+        ...persistedConfirmDraft.runtimeState,
+        claim_evidence: [],
+      },
+    }).trimEnd()}\n---\n${persistedConfirmDraft.body}`, 'utf8');
+    const emptyConfirmDraft = readCanonicalCurrentTask(emptyConfirmRoot);
+    const emptyConfirm = createPrepareTaskConfirmProposal(emptyConfirmDraft, {
+      task_id: '001',
+      task_slug: 'plan-freeze-task',
+      document_id: emptyConfirmDraft.sourceTuple.document_id,
+      draft_revision: emptyConfirmDraft.sourceTuple.revision,
+      evidence_refs: ['test:evidence:plan-freeze-confirm'],
+      idempotency_key: 'plan-freeze-confirm-empty',
+      authority_evidence: confirmationAuthority(emptyConfirmDraft),
+    });
+    const emptyConfirmResult = applyVNextRuntimeProposal(emptyConfirmRoot, emptyConfirm);
+    expect(emptyConfirmResult.status).toBe('blocked');
+    expect(emptyConfirmResult.code).toBe('CLAIM_EVIDENCE_MIGRATION_REQUIRED');
+
+    const replanRoot = makeRoot();
+    const replanCurrent = readCanonicalCurrentTask(replanRoot);
+    const supersede = createLifecycleProposal(replanCurrent, {
+      mode: 'supersede',
+      delta: supersedeDelta(),
+      idempotency_key: 'plan-freeze-supersede',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    expect(applyVNextRuntimeProposal(replanRoot, supersede).status).toBe('success');
+    const missingReplanPlan = applyVNextRuntimeProposal(
+      replanRoot,
+      replanProposal(replanRoot, 'commit-replan', 'plan-freeze-replan-missing'),
+    );
+    expect(missingReplanPlan.status).toBe('blocked');
+    expect(missingReplanPlan.code).toBe('CLAIM_EVIDENCE_REQUIRED');
+
+    const strictEmptyRoot = makeRoot(makeRuntimeState({
+      claim_evidence_required: true,
+      claim_evidence: [],
+    }));
+    const inventedPlanResult = applyVNextRuntimeProposal(strictEmptyRoot, taskProposal(strictEmptyRoot, {
+      idempotency_key: 'plan-freeze-invented-at-completion',
+      note: 'npm test passed',
+      evidence_refs: ['npm:test:aggregate'],
+      claim_evidence: completeClaimEvidence(),
+    }));
+    expect(inventedPlanResult.status).toBe('blocked');
+    expect(inventedPlanResult.code).toBe('CLAIM_EVIDENCE_REQUIRED');
+    expect(readCanonicalCurrentTask(strictEmptyRoot).runtimeState.active_step_status).toBe('ready');
+  });
+
+  test('blocks strict completion without acceptance evidence and keeps legacy completion read-only', () => {
+    const invariantOnly: ClaimEvidenceRecord[] = [{
+      claim_id: 'I1',
+      claim_kind: 'invariant',
+      slots: [{
+        slot_id: 'i1',
+        minimum_type: 'static-inspection',
+        disposition: 'reused',
+        evidence_refs: ['test:evidence:invariant-only'],
+      }],
+    }];
+    const noAcceptanceRoot = makeRoot(makeRuntimeState({
+      claim_evidence_required: true,
+      claim_evidence: invariantOnly,
+    }));
+    const noAcceptanceResult = applyVNextRuntimeProposal(noAcceptanceRoot, taskProposal(noAcceptanceRoot, {
+      idempotency_key: 'claim-evidence-no-acceptance',
+      claim_evidence: invariantOnly,
+    }));
+    expect(noAcceptanceResult.status).toBe('blocked');
+    expect(noAcceptanceResult.code).toBe('CLAIM_EVIDENCE_ACCEPTANCE_REQUIRED');
+
+    const legacyRoot = makeRoot();
+    const legacyCompletion = applyVNextRuntimeProposal(legacyRoot, taskProposal(legacyRoot, {
+      idempotency_key: 'legacy-task-complete',
+      note: 'npm test passed',
+      evidence_refs: ['npm:test:aggregate'],
+    }));
+    expect(legacyCompletion.status).toBe('blocked');
+    expect(legacyCompletion.code).toBe('CLAIM_EVIDENCE_MIGRATION_REQUIRED');
+
+    const legacyCloseRoot = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const legacyPreview = previewCloseTask(legacyCloseRoot, archiveDelta());
+    expect(legacyPreview.status).toBe('blocked');
+    expect(legacyPreview.closure_eligibility.blockers.join(' ')).toContain('structured claim-bound evidence migration');
+    const legacyClose = applyVNextRuntimeProposal(legacyCloseRoot, archiveProposal(legacyCloseRoot, archiveDelta(), 'legacy-close-task'));
+    expect(legacyClose.status).toBe('blocked');
+    expect(legacyClose.code).toBe('CLOSURE_NOT_ELIGIBLE');
+    expect(fs.existsSync(path.join(legacyCloseRoot, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+
+    const legacyReadable = readCanonicalCurrentTask(makeRoot());
+    expect(legacyReadable.runtimeState.claim_evidence_required).toBe(false);
+    expect(legacyReadable.runtimeState.claim_evidence).toEqual([]);
+  });
+
+  test('preserves a frozen plan identity while allowing only slot fulfillment updates', () => {
+    const planned = claimEvidenceFixture();
+    const root = makeRoot(makeRuntimeState({
+      claim_evidence_required: true,
+      claim_evidence: planned,
+    }));
+    const changedDisposition = planned.map(record => ({
+      ...record,
+      slots: record.slots.map(slot => ({
+        ...slot,
+        disposition: 'existing' as const,
+        evidence_refs: [...slot.evidence_refs, 'test:evidence:reused-plan'],
+      })),
+    }));
+    const result = applyVNextRuntimeProposal(root, taskProposal(root, {
+      idempotency_key: 'claim-evidence-slot-fulfillment',
+      claim_evidence: changedDisposition,
+    }));
+    expect(result.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence).toEqual(changedDisposition);
   });
 
   test('close-task derives validation truth from durable claim evidence and blocks incomplete state', () => {
@@ -911,7 +1110,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('replays a committed capture after CURRENT_TASK advances without rewriting the latest task state', () => {
-    const root = makeRoot(makeRuntimeState({ task_id: '939', task_slug: 'fixture-capture-replay-advance' }));
+    const root = makeRoot(makeRuntimeState({ task_id: '939', task_slug: 'fixture-capture-replay-advance', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const proposal = captureProposal(root);
     const firstResult = applyVNextRuntimeProposal(root, proposal);
     expect(firstResult.status).toBe('success');
@@ -922,6 +1121,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const inboxBeforeAdvance = inboxFiles(root);
     const taskMutation = applyVNextRuntimeProposal(root, taskProposal(root, {
       idempotency_key: 'fixture-capture-replay-advance-task',
+      claim_evidence: completeClaimEvidence(),
     }));
     expect(taskMutation.status).toBe('success');
 
@@ -1059,7 +1259,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('does not overwrite an identity collision even when the conflicting proposal is stale', () => {
-    const collisionRoot = makeRoot(makeRuntimeState({ task_id: '936', task_slug: 'fixture-collision' }));
+    const collisionRoot = makeRoot(makeRuntimeState({ task_id: '936', task_slug: 'fixture-collision', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const firstProposal = captureProposal(collisionRoot);
     expect(applyVNextRuntimeProposal(collisionRoot, firstProposal).status).toBe('success');
     const recordPath = path.join(collisionRoot, ...firstProposal.semantic_delta.target_path.split('/'));
@@ -1078,6 +1278,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     const collisionTaskMutation = applyVNextRuntimeProposal(collisionRoot, taskProposal(collisionRoot, {
       idempotency_key: 'fixture-collision-source-advance',
+      claim_evidence: completeClaimEvidence(),
     }));
     expect(collisionTaskMutation.status).toBe('success');
     const collisionCurrentAfterMutation = readCanonicalCurrentTask(collisionRoot);
@@ -1091,7 +1292,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('rejects an idempotency key already bound to another durable inbox target before stale-source handling', () => {
-    const root = makeRoot(makeRuntimeState({ task_id: '940', task_slug: 'fixture-idempotency-collision' }));
+    const root = makeRoot(makeRuntimeState({ task_id: '940', task_slug: 'fixture-idempotency-collision', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const firstProposal = captureProposal(root);
     expect(applyVNextRuntimeProposal(root, firstProposal).status).toBe('success');
     const sourceBeforeAdvance = readCanonicalCurrentTask(root);
@@ -1113,6 +1314,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     expect(applyVNextRuntimeProposal(root, taskProposal(root, {
       idempotency_key: 'fixture-idempotency-collision-source-advance',
+      claim_evidence: completeClaimEvidence(),
     })).status).toBe('success');
     const currentAfterAdvance = readCanonicalCurrentTask(root);
     const currentBytesAfterAdvance = fs.readFileSync(currentAfterAdvance.filePath, 'utf8');
@@ -1130,10 +1332,11 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('rejects an uncommitted stale capture proposal before writing', () => {
-    const staleRoot = makeRoot(makeRuntimeState({ task_id: '937', task_slug: 'fixture-stale-capture' }));
+    const staleRoot = makeRoot(makeRuntimeState({ task_id: '937', task_slug: 'fixture-stale-capture', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const staleProposal = captureProposal(staleRoot);
     const taskMutation = applyVNextRuntimeProposal(staleRoot, taskProposal(staleRoot, {
       idempotency_key: 'fixture-stale-source-mutation',
+      claim_evidence: completeClaimEvidence(),
     }));
     expect(taskMutation.status).toBe('success');
     const currentAfterMutation = fs.readFileSync(readCanonicalCurrentTask(staleRoot).filePath, 'utf8');
@@ -1196,6 +1399,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: firstDefinition,
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:draft-create'],
       idempotency_key: 'draft-create-001',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -1228,6 +1432,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         background_context: '- refined first-task background',
       }),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:draft-update'],
       idempotency_key: 'draft-update-001',
       authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
@@ -1289,6 +1494,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const executed = applyVNextRuntimeProposal(root, taskProposal(root, {
       idempotency_key: 'draft-execute-after-confirm',
       evidence_refs: ['test:evidence:draft-execute'],
+      claim_evidence: completeClaimEvidence(),
     }));
     expect(executed.status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
@@ -1308,6 +1514,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Second task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:second-create'],
       idempotency_key: 'draft-create-002-premature',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -1327,6 +1534,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Second task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:second-create'],
       idempotency_key: 'draft-create-002',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -1373,6 +1581,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         open_questions: '- user must choose the release channel',
       }),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:unresolved-create'],
       idempotency_key: 'draft-create-unresolved',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -1396,9 +1605,9 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('rolls back and verifies the original CURRENT_TASK when post-commit read-back throws', () => {
-    const root = makeRoot();
+    const root = makeRoot(makeRuntimeState({ claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const current = readCanonicalCurrentTask(root);
-    const proposal = taskProposal(root);
+    const proposal = taskProposal(root, { claim_evidence: completeClaimEvidence() });
     const before = fs.readFileSync(current.filePath, 'utf8');
     let readCount = 0;
     const kernel = new GovernanceTransactionKernel(root, targetRoot => {
@@ -1421,8 +1630,8 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('dry-run and stale source tuple never mutate CURRENT_TASK', () => {
-    const root = makeRoot();
-    const proposal = taskProposal(root);
+    const root = makeRoot(makeRuntimeState({ claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const proposal = taskProposal(root, { claim_evidence: completeClaimEvidence() });
     const before = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
     const dryRun = applyVNextRuntimeProposal(root, proposal, { dryRun: true });
     expect(dryRun.status).toBe('success');
@@ -1932,6 +2141,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       active_step_id: 'step-2',
       definition: replacementDefinition(),
       evidence_refs: ['test:evidence:replan-commit'],
+      claim_evidence: completeClaimEvidence(),
     }), { now: () => '2026-08-31T01:00:00.000Z' });
     expect(committed.status).toBe('success');
     expect(committed.governed_mutation_count).toBe(1);
@@ -2073,7 +2283,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       evidence_refs: ['test:evidence:supersede'],
     });
     expect(applyVNextRuntimeProposal(root, supersedeA).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'commit-generation-replan')).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'commit-generation-replan', {
+      claim_evidence: completeClaimEvidence(),
+    })).status).toBe('success');
 
     const replanned = readCanonicalCurrentTask(root);
     const supersedeB = createLifecycleProposal(replanned, {
@@ -2193,7 +2405,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       evidence_refs: ['test:evidence:supersede'],
     })).status).toBe('success');
     const superseded = readCanonicalCurrentTask(root);
-    const proposal = replanProposal(root, 'commit-replan', 'replan-read-back-failure');
+    const proposal = replanProposal(root, 'commit-replan', 'replan-read-back-failure', {
+      claim_evidence: completeClaimEvidence(),
+    });
     const before = fs.readFileSync(superseded.filePath, 'utf8');
     let readCount = 0;
     const kernel = new GovernanceTransactionKernel(root, targetRoot => {
@@ -2464,7 +2678,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('atomically closes active + active into the canonical archive and preserves task history', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const before = readCanonicalCurrentTask(root);
     const proposal = archiveProposal(root);
     const result = applyVNextRuntimeProposal(root, proposal, { now: () => '2026-09-01T00:00:00.000Z' });
@@ -2526,7 +2740,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('runs STATUS and admitted Lesson as independent typed transactions after archive', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const delta = archiveDelta({
       lesson_admission: {
         decision: 'admit',
@@ -2573,7 +2787,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('projects completed status items into the fixed STATUS sections and fails on ambiguous in-progress records', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
     const statusBeforeArchive = fs.readFileSync(statusPath, 'utf8').replace(
       '## 🔨 正在开发\n\n- [ ] none',
@@ -2592,7 +2806,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(statusReplay.status).toBe('blocked');
     expect(statusReplay.code).toBe('STATUS_PROVENANCE_MISMATCH');
 
-    const ambiguousRoot = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const ambiguousRoot = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const ambiguousStatusPath = path.join(ambiguousRoot, 'docs', 'workflow', 'STATUS.md');
     const ambiguousStatus = fs.readFileSync(ambiguousStatusPath, 'utf8').replace(
       '## 🔨 正在开发\n\n- [ ] none',
@@ -2608,7 +2822,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('fails Lesson replay when the provenance marker survives but its visible record drifts', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const archiveDeltaWithLesson = archiveDelta({
       lesson_admission: {
         decision: 'admit',
@@ -2640,7 +2854,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('persists defer and no-op lesson admission without allowing a Lesson write', () => {
     for (const decision of ['defer', 'no-op'] as const) {
-      const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
       const delta = archiveDelta({ lesson_admission: { decision, candidate_refs: [], evidence_refs: [] } });
       expect(applyVNextRuntimeProposal(root, archiveProposal(root, delta, `archive-${decision}-1`)).status).toBe('success');
       const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
@@ -2653,7 +2867,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('preview returns eligibility and delivery summary without any Runtime mutation', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const currentPath = readCanonicalCurrentTask(root).filePath;
     const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
     const lessonsPath = path.join(root, 'docs', 'workflow', 'LESSONS.md');
@@ -2680,7 +2894,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       { workflow_status: 'suspended', lifecycle_state: 'interrupted', resume_requires_review: true, resume_review_reasons: ['environment_recovery_pending'] },
     ];
     for (const [index, tuple] of illegalTuples.entries()) {
-      const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', ...tuple }));
+      const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence(), ...tuple }));
       const result = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), `archive-illegal-tuple-${index}`));
       expect(result.status).toBe('blocked');
       expect(result.code).toBe('CLOSURE_TUPLE_INVALID');
@@ -2696,13 +2910,13 @@ describe('vNext Phase 2 Runtime contract', () => {
       archiveDelta({ closure_evidence: closureEvidence({ archive_path_verified: false }) }),
     ];
     for (const [index, delta] of blockedDeltas.entries()) {
-      const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
       const result = applyVNextRuntimeProposal(root, archiveProposal(root, delta, `archive-illegal-gate-${index}`));
       expect(result.status).toBe('blocked');
       expect(result.code).toBe('CLOSURE_NOT_ELIGIBLE');
       expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
     }
-    expect(() => archiveProposal(makeRoot(makeRuntimeState({ active_step_status: 'completed' })), archiveDelta({
+    expect(() => archiveProposal(makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() })), archiveDelta({
       closure_evidence: closureEvidence({ release_evidence: { triggered: true, complete: false, evidence_refs: ['test:evidence:release'] } }),
       evidence_refs: ['test:evidence:closure', 'test:evidence:release'],
     }), 'archive-triggered-release-incomplete')).toThrow(/CLOSURE_EVIDENCE_INVALID/);
@@ -2717,7 +2931,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('requires the execution audit section before close and before archive reconciliation', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const current = readCanonicalCurrentTask(root);
     const before = current.raw;
     fs.writeFileSync(current.filePath, before.replace(/\r?\n## 执行记录[\s\S]*$/, '\n'), 'utf8');
@@ -2738,7 +2952,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('rolls back CURRENT_TASK and a newly created archive together when archive read-back fails', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const current = readCanonicalCurrentTask(root);
     const before = current.raw;
     const proposal = archiveProposal(root, archiveDelta(), 'archive-dual-rollback');
@@ -2761,9 +2975,9 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('fails stale archive source tuples before writing either close file', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const proposal = archiveProposal(root, archiveDelta(), 'archive-stale-source');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { status: 'completed', idempotency_key: 'step-drifts-close-source' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { status: 'completed', idempotency_key: 'step-drifts-close-source', claim_evidence: completeClaimEvidence() })).status).toBe('success');
     const currentBefore = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
     const stale = applyVNextRuntimeProposal(root, proposal);
     expect(stale.status).toBe('conflict');
@@ -2773,7 +2987,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('archive replay is a no-op only for the exact receipt and fails closed on missing, drifted, or mismatched provenance', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const proposal = archiveProposal(root, archiveDelta(), 'archive-replay-integrity');
     expect(applyVNextRuntimeProposal(root, proposal).status).toBe('success');
     const archivePath = path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md');
@@ -2801,7 +3015,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('a supersede/replan generation boundary does not let an old archive proposal close again', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const archiveA = archiveProposal(root, archiveDelta(), 'archive-generation-a');
     expect(applyVNextRuntimeProposal(root, archiveA).status).toBe('success');
     const current = readCanonicalCurrentTask(root);
@@ -2813,7 +3027,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('retries STATUS reconciliation without repeating archive and keeps archive on STATUS failure', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const archive = archiveProposal(root, archiveDelta(), 'archive-status-reconcile');
     expect(applyVNextRuntimeProposal(root, archive).status).toBe('success');
     const archivePath = path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md');
@@ -2843,7 +3057,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('lesson persistence failure does not roll back archive or STATUS and later reads admission from archive', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const delta = archiveDelta({
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-runtime-close'], evidence_refs: ['test:evidence:lesson'] },
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
@@ -2882,7 +3096,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('keeps the closed + archived task non-executable, non-resumable, and non-replanable', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-terminal-boundary')).status).toBe('success');
     const closed = readCanonicalCurrentTask(root);
     const execution = applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'step-after-archive' }));
@@ -2949,6 +3163,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:create-1'],
       idempotency_key: 'draft-create-001',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -2965,7 +3180,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       lesson_admission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
@@ -2983,6 +3198,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Second task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:create-2'],
       idempotency_key: 'draft-create-002-unreconciled',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -3020,6 +3236,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:create-1'],
       idempotency_key: 'draft-create-001',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -3036,7 +3253,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
@@ -3057,6 +3274,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Second task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:create-2'],
       idempotency_key: 'draft-create-002-admit-unreconciled',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -3094,6 +3312,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:create'],
       idempotency_key: 'draft-create-owner',
       authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
@@ -3110,6 +3329,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:create'],
       idempotency_key: 'draft-create-001',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
@@ -3164,6 +3384,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition({ background_context: '- updated context' }),
       active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(),
       evidence_refs: ['test:evidence:update'],
       idempotency_key: 'draft-update-1',
       authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
@@ -3217,7 +3438,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Step task',
       draft_definition: draftDefinition({ implementation_steps: '- step-1: single step without metadata' }),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create'],
       idempotency_key: 'draft-single-no-meta',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3242,7 +3464,8 @@ describe('vNext Phase 2 Runtime contract', () => {
         ].join('\n'),
       }),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create'],
       idempotency_key: 'draft-multi-no-meta',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3266,7 +3489,8 @@ describe('vNext Phase 2 Runtime contract', () => {
         ].join('\n'),
       }),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create'],
       idempotency_key: 'draft-no-boundary',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3324,7 +3548,8 @@ describe('vNext Phase 2 Runtime contract', () => {
         ].join('\n'),
       }),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create'],
       idempotency_key: 'draft-valid-steps',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3379,7 +3604,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create-1'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create-1'],
       idempotency_key: 'draft-create-001',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3395,7 +3621,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     // Archive 001 with lesson admission: admit lesson-a
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -3438,7 +3664,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Second task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create-2'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create-2'],
       idempotency_key: 'draft-create-002',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3454,7 +3681,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm002).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     // Archive 002 with lesson admission: admit lesson-b (identical content to lesson-a)
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -3473,7 +3700,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Third task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create-3'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create-3'],
       idempotency_key: 'draft-create-003',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3531,7 +3759,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'First task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create-1'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create-1'],
       idempotency_key: 'draft-create-001',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3547,7 +3776,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     // Archive 001 (defer lesson)
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -3578,7 +3807,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Second task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:create-2'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:create-2'],
       idempotency_key: 'draft-create-002-drift',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
@@ -3642,7 +3872,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Task 1',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:1'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:1'],
       idempotency_key: 'draft-001',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -3656,7 +3887,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-001',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
@@ -3691,7 +3922,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Task 2',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:2'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:2'],
       idempotency_key: 'draft-002',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -3705,7 +3937,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-002',
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completeClaimEvidence() })).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
@@ -3730,7 +3962,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Task 3',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:3'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:3'],
       idempotency_key: 'draft-003',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -3744,7 +3977,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-003',
       authority_evidence: confirmationAuthority(draft003, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-3' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-3', claim_evidence: completeClaimEvidence() })).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-new'], evidence_refs: ['test:evidence:lesson'] },
@@ -3792,7 +4025,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Drift Task 1',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:1'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:1'],
       idempotency_key: 'draft-drift-1',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -3806,7 +4040,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-drift-1',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-target'], evidence_refs: ['test:evidence:lesson'] },
@@ -3841,7 +4075,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Drift Task 2',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:2'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:2'],
       idempotency_key: 'draft-drift-2',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -3855,7 +4090,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-drift-2',
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completeClaimEvidence() })).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-reused'], evidence_refs: ['test:evidence:lesson'] },
@@ -3932,7 +4167,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Same Proposal Task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:1'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:1'],
       idempotency_key: 'draft-same-prop',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -3946,7 +4182,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-same-prop',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     // Archive 001 admitting both candidate-a and candidate-b
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4027,7 +4263,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Diff Evidence Task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:1'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:1'],
       idempotency_key: 'draft-diff-ev',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -4041,7 +4278,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-diff-ev',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:alpha', 'test:evidence:beta'],
@@ -4235,7 +4472,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       task_title: 'Replay Combo Task',
       draft_definition: draftDefinition(),
       active_step_id: 'step-1',
-      evidence_refs: ['test:evidence:1'],
+      claim_evidence: completeClaimEvidence(),
+     evidence_refs: ['test:evidence:1'],
       idempotency_key: 'draft-replay-combo',
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     })).status).toBe('success');
@@ -4249,7 +4487,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-replay-combo',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1' })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completeClaimEvidence() })).status).toBe('success');
 
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],

@@ -57,8 +57,23 @@ function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
     findings: [],
     execution_log: [],
     applied_proposals: [],
+    claim_evidence_required: true,
+    claim_evidence: dailyClaimEvidence(),
     ...overrides,
   };
+}
+
+function dailyClaimEvidence(): NonNullable<RuntimeState['claim_evidence']> {
+  return [{
+    claim_id: 'A1',
+    claim_kind: 'acceptance',
+    slots: [{
+      slot_id: 'daily-semantics',
+      minimum_type: 'focused-test',
+      disposition: 'existing',
+      evidence_refs: ['evidence:daily-semantics'],
+    }],
+  }];
 }
 
 function body(): string {
@@ -297,6 +312,7 @@ describe('vNext Core Daily Execution Semantics', () => {
     const final = applyVNextRuntimeProposal(root, stepProposal(root, {
       idempotency_key: 'daily-step-3-complete',
       evidence_refs: ['evidence:step-3'],
+      claim_evidence: dailyClaimEvidence(),
     }));
     expect(final.status).toBe('success');
     expect(final.advancement).toMatchObject({ outcome: 'task-complete', from_step_id: 'step-3', to_step_id: null });

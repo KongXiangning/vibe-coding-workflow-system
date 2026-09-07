@@ -55,6 +55,19 @@ const STATUS_RECONCILIATION_BEGIN = '<!-- BEGIN vNext close-task STATUS reconcil
 
 const temporaryRoots: string[] = [];
 
+function fixtureClaimEvidence(): NonNullable<RuntimeState['claim_evidence']> {
+  return [{
+    claim_id: 'A1',
+    claim_kind: 'acceptance',
+    slots: [{
+      slot_id: 'close-reconciliation',
+      minimum_type: 'focused-test',
+      disposition: 'existing',
+      evidence_refs: ['e2e:evidence:close-reconciliation'],
+    }],
+  }];
+}
+
 function fixtureState(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
     schema_version: 1,
@@ -80,6 +93,8 @@ function fixtureState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     findings: [],
     execution_log: [],
     applied_proposals: [],
+    claim_evidence_required: true,
+    claim_evidence: fixtureClaimEvidence(),
     ...overrides,
   };
 }
