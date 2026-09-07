@@ -9,7 +9,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.14.5
+  package_version: 0.14.6
   node_min_version: ">=20.0.0"
 
 proposal:
