@@ -2077,7 +2077,19 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (confirmContract.from !== "draft + active" || confirmContract.to !== "active + active")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract task-state confirm transition is invalid.");
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
-  expectExactKeys2(prepareTaskContract, ["bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
+  expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
+  const prepareTaskAdapter = expectRecord2(prepareTaskContract.semantic_adapter, "Runtime contract.proposal.prepare_task.semantic_adapter");
+  expectExactKeys2(prepareTaskAdapter, ["input", "commands", "draft_fields", "persistent_tests_storage", "proposal_file_policy"], "Runtime contract.proposal.prepare_task.semantic_adapter");
+  if (prepareTaskAdapter.input !== "stdin-json")
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter input must remain stdin-json.");
+  expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "confirm-draft", "clear-resume-review", "replan"], "Runtime contract prepare-task adapter commands");
+  expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["goal", "acceptance", "out_of_scope", "design_decisions", "mutation_scope", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
+  if (prepareTaskAdapter.persistent_tests_storage !== "existing-scope-and-regression-sections") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter must map persistent tests into existing canonical sections.");
+  }
+  if (prepareTaskAdapter.proposal_file_policy !== "project-external-only") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter proposal files must remain project-external-only.");
+  }
   expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task bound actions");
   if (prepareTaskContract.draft_mode !== "default" || prepareTaskContract.confirm_mode !== "confirm")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task draft/confirm modes are invalid.");
@@ -4834,6 +4846,9 @@ function collectTaskDocumentIds(root) {
     }
   }
   return documentIds;
+}
+function generatedDraftDocumentId(identity, sourceRevision) {
+  return `doc-${sha2562(`${identity.task_id}:${identity.task_slug}:${sourceRevision}`).slice(0, 24)}`;
 }
 function parseCanonicalCurrentTaskContent(raw, filePath, relativePath) {
   const { frontmatter, body } = parseYamlFrontmatter(raw, relativePath);
@@ -9180,6 +9195,102 @@ class GovernanceTransactionKernel {
 function applyVNextRuntimeProposal(root, proposal, options = {}) {
   return new GovernanceTransactionKernel(root).apply(proposal, options);
 }
+function createPrepareTaskResumeReviewProposal(current, input) {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: "clear-resume-review-gate",
+      evidence_refs: input.evidence_refs
+    },
+    preconditions: ["current-task-is-active", "resume-review-complete"],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createPrepareTaskDraftProposal(current, input) {
+  const documentId = input.document_id ?? generatedDraftDocumentId(input, current.sourceTuple.revision);
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...claimEvidenceRefs(input.claim_evidence ?? [])
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: input.action,
+      task_id: input.task_id,
+      task_slug: input.task_slug,
+      document_id: documentId,
+      task_title: input.task_title,
+      draft_definition: input.draft_definition,
+      active_step_id: input.active_step_id,
+      evidence_refs: input.evidence_refs,
+      ...input.claim_evidence === undefined ? {} : { claim_evidence: input.claim_evidence }
+    },
+    preconditions: input.action === "create-draft" ? ["current-task-is-closed-and-archived", "next-unused-task-identity", "closed-draft-definition"] : ["current-task-is-draft-and-active", "same-task-identity", "closed-draft-definition"],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createPrepareTaskConfirmProposal(current, input) {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "confirm",
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: "confirm-draft",
+      task_id: input.task_id,
+      task_slug: input.task_slug,
+      document_id: input.document_id,
+      draft_revision: input.draft_revision,
+      evidence_refs: input.evidence_refs
+    },
+    preconditions: ["current-task-is-draft-and-active", "exact-draft-revision", "explicit-confirmation-authority", "no-unresolved-decisions"],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createPrepareTaskReplanProposal(current, input) {
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ..."claim_evidence" in input.delta && input.delta.claim_evidence !== undefined ? claimEvidenceRefs(input.delta.claim_evidence) : []
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "replan",
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: input.delta.action === "mark-replan-blocked" ? ["current-task-is-active", "replan-blocker-evidence-complete"] : input.delta.action === "clear-replan-block" ? ["blocked-by-replan", "new-authoritative-evidence"] : ["superseded-task", "closed-replacement-definition", "same-task-identity"],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
 function parseCli(argv) {
   const [command = "validate", ...rest] = argv;
   if (command !== "validate" && command !== "validate-contract" && command !== "apply" && command !== "scope-check")
@@ -9223,6 +9334,16 @@ function parseCli(argv) {
       throw new Error(`Unknown argument: ${arg}`);
   }
   return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
+}
+function resolveExternalProposalFile(root, proposalFile) {
+  const resolvedRoot = path4.resolve(root);
+  const resolvedProposal = path4.resolve(proposalFile);
+  const relative2 = path4.relative(resolvedRoot, resolvedProposal);
+  const insideProject = relative2 === "" || !relative2.startsWith(`..${path4.sep}`) && relative2 !== ".." && !path4.isAbsolute(relative2);
+  if (insideProject) {
+    fail2("PROPOSAL_FILE_INSIDE_PROJECT", "proposal/helper files must not be created inside the target project; send the proposal on stdin or use an OS-temporary path outside the project.");
+  }
+  return resolvedProposal;
 }
 function readCliStringList(filePath, label) {
   const content = fs3.readFileSync(path4.resolve(filePath), "utf8");
@@ -9332,7 +9453,7 @@ async function runCli(argv = process.argv.slice(2)) {
     } else {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);
-      const proposalText = args.proposalFile ? fs3.readFileSync(path4.resolve(args.proposalFile), "utf8") : !process.stdin.isTTY ? fs3.readFileSync(0, "utf8") : "";
+      const proposalText = args.proposalFile ? fs3.readFileSync(resolveExternalProposalFile(args.root, args.proposalFile), "utf8") : !process.stdin.isTTY ? fs3.readFileSync(0, "utf8") : "";
       if (!proposalText.trim())
         throw new Error("apply requires a JSON proposal on stdin or via --proposal-file <json-file>.");
       const proposal = JSON.parse(proposalText);
@@ -11140,13 +11261,486 @@ async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
   }
 }
 
+// runtime/vnext/src/prepare-task-adapter.ts
+import * as crypto7 from "crypto";
+import * as fs7 from "fs";
+import * as path8 from "path";
+var PREPARE_TASK_ADAPTER_COMMANDS = [
+  "prepare-draft",
+  "confirm-draft",
+  "clear-resume-review",
+  "replan"
+];
+var SEMANTIC_DRAFT_FIELDS = [
+  "goal",
+  "acceptance",
+  "out_of_scope",
+  "design_decisions",
+  "mutation_scope",
+  "implementation_steps",
+  "validation_plan",
+  "persistent_tests"
+];
+var STEP_ID_PATTERN3 = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+var WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
+var MAX_ITEMS = 256;
+function fail5(code, message) {
+  throw new VNextRuntimeError(code, message);
+}
+function record(value, location) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be an object.`);
+  }
+  return value;
+}
+function exactKeys(value, expected, location) {
+  const allowed = new Set(expected);
+  const missing = expected.filter((key) => !(key in value));
+  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
+  if (missing.length > 0 || unexpected.length > 0) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${unexpected.join(", ")}].`);
+  }
+}
+function text(value, location, maximumLength = 4096) {
+  if (typeof value !== "string")
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be a string.`);
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maximumLength || /[\r\n]/u.test(normalized)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be one non-empty line of at most ${maximumLength} characters.`);
+  }
+  return normalized;
+}
+function textList(value, location, allowEmpty) {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS || !allowEmpty && value.length === 0) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be a bounded${allowEmpty ? "" : " non-empty"} array.`);
+  }
+  const values = value.map((item, index) => text(item, `${location}[${index}]`));
+  if (new Set(values).size !== values.length) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must not contain duplicates.`);
+  }
+  return values;
+}
+function normalizeScopePath(value, location, allowGlob) {
+  const original = text(value, location, 1024);
+  const normalized = original.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  if (normalized.startsWith("/") || WINDOWS_ABSOLUTE_PATH.test(original) || normalized.split("/").includes("..") || normalized.includes("\x00") || !allowGlob && normalized.includes("*")) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be a repository-relative ${allowGlob ? "path or glob" : "exact path"} without traversal.`);
+  }
+  return normalized;
+}
+function normalizeScopePathList(value, location) {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be a bounded array.`);
+  }
+  const paths = value.map((item, index) => normalizeScopePath(item, `${location}[${index}]`, true));
+  if (new Set(paths).size !== paths.length)
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must not contain duplicates.`);
+  return paths;
+}
+function normalizeSemanticDraft(input) {
+  const source = record(input, "prepare-task semantic draft");
+  exactKeys(source, SEMANTIC_DRAFT_FIELDS, "prepare-task semantic draft");
+  const mutationScope = record(source.mutation_scope, "mutation_scope");
+  exactKeys(mutationScope, ["allowed", "conditional", "forbidden"], "mutation_scope");
+  const allowed = normalizeScopePathList(mutationScope.allowed, "mutation_scope.allowed");
+  if (allowed.length === 0)
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "mutation_scope.allowed must contain at least one executable target.");
+  const forbidden = normalizeScopePathList(mutationScope.forbidden, "mutation_scope.forbidden");
+  if (!Array.isArray(mutationScope.conditional) || mutationScope.conditional.length > MAX_ITEMS) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "mutation_scope.conditional must be a bounded array.");
+  }
+  const conditional = mutationScope.conditional.map((item, index) => {
+    const candidate = record(item, `mutation_scope.conditional[${index}]`);
+    exactKeys(candidate, ["path", "condition"], `mutation_scope.conditional[${index}]`);
+    return {
+      path: normalizeScopePath(candidate.path, `mutation_scope.conditional[${index}].path`, true),
+      condition: text(candidate.condition, `mutation_scope.conditional[${index}].condition`)
+    };
+  });
+  if (new Set(conditional.map((item) => item.path)).size !== conditional.length) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "mutation_scope.conditional must not contain duplicate paths.");
+  }
+  if (!Array.isArray(source.implementation_steps) || source.implementation_steps.length === 0 || source.implementation_steps.length > MAX_ITEMS) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "implementation_steps must be a bounded non-empty array.");
+  }
+  const implementationSteps = source.implementation_steps.map((item, index) => {
+    const step = record(item, `implementation_steps[${index}]`);
+    exactKeys(step, ["id", "description", "mutation_scope", "validation"], `implementation_steps[${index}]`);
+    const id = text(step.id, `implementation_steps[${index}].id`, 128);
+    if (!STEP_ID_PATTERN3.test(id))
+      fail5("PREPARE_ADAPTER_INPUT_INVALID", `implementation_steps[${index}].id is invalid.`);
+    return {
+      id,
+      description: text(step.description, `implementation_steps[${index}].description`),
+      mutation_scope: normalizeScopePathList(step.mutation_scope, `implementation_steps[${index}].mutation_scope`),
+      validation: textList(step.validation, `implementation_steps[${index}].validation`, false)
+    };
+  });
+  if (new Set(implementationSteps.map((step) => step.id)).size !== implementationSteps.length) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "implementation_steps must not contain duplicate IDs.");
+  }
+  if (implementationSteps.some((step) => step.mutation_scope.length === 0)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "every implementation step must name at least one mutation-scope target.");
+  }
+  let persistentTests;
+  if (source.persistent_tests === "none") {
+    persistentTests = "none";
+  } else {
+    if (!Array.isArray(source.persistent_tests) || source.persistent_tests.length === 0 || source.persistent_tests.length > MAX_ITEMS) {
+      fail5("PREPARE_ADAPTER_INPUT_INVALID", 'persistent_tests must be "none" or a bounded non-empty array.');
+    }
+    persistentTests = source.persistent_tests.map((item, index) => {
+      const test = record(item, `persistent_tests[${index}]`);
+      exactKeys(test, ["path", "proves"], `persistent_tests[${index}]`);
+      return {
+        path: normalizeScopePath(test.path, `persistent_tests[${index}].path`, false),
+        proves: textList(test.proves, `persistent_tests[${index}].proves`, false)
+      };
+    });
+    if (new Set(persistentTests.map((test) => test.path)).size !== persistentTests.length) {
+      fail5("PREPARE_ADAPTER_INPUT_INVALID", "persistent_tests must not contain duplicate paths.");
+    }
+  }
+  const normalized = {
+    goal: text(source.goal, "goal", 512),
+    acceptance: textList(source.acceptance, "acceptance", false),
+    out_of_scope: textList(source.out_of_scope, "out_of_scope", true),
+    design_decisions: textList(source.design_decisions, "design_decisions", true),
+    mutation_scope: { allowed, conditional, forbidden },
+    implementation_steps: implementationSteps,
+    validation_plan: textList(source.validation_plan, "validation_plan", false),
+    persistent_tests: persistentTests
+  };
+  assertSemanticScopeIsExecutable(normalized);
+  return normalized;
+}
+function markdownBullets(items, checklist = false) {
+  if (items.length === 0)
+    return "- none";
+  return items.map((item) => checklist ? `- [ ] ${item}` : `- ${item}`).join(`
+`);
+}
+function scopeBody(input) {
+  return [
+    "## 允许修改范围",
+    "",
+    "### Allowed Files",
+    "",
+    markdownBullets(input.mutation_scope.allowed.map((item) => `\`${item}\``)),
+    "",
+    "### Conditional Files",
+    "",
+    markdownBullets(input.mutation_scope.conditional.map((item) => `\`${item.path}\` when ${item.condition}`)),
+    "",
+    "## 禁止修改范围",
+    "",
+    "### Forbidden Files",
+    "",
+    markdownBullets(input.mutation_scope.forbidden.map((item) => `\`${item}\``)),
+    ""
+  ].join(`
+`);
+}
+function assertSemanticScopeIsExecutable(input) {
+  const scope = parseMutationScope(scopeBody(input));
+  const persistentTests = input.persistent_tests === "none" ? [] : input.persistent_tests;
+  const allowedExact = new Set(input.mutation_scope.allowed.filter((item) => !item.includes("*")));
+  for (const test of persistentTests) {
+    if (!allowedExact.has(test.path)) {
+      fail5("PERSISTENT_TEST_SCOPE_INVALID", `persistent test ${test.path} must also appear as an exact mutation_scope.allowed entry.`);
+    }
+  }
+  if (persistentTests.length > 0) {
+    const result = evaluateMutationScope(scope, { changed_paths: persistentTests.map((test) => test.path) });
+    if (result.status !== "pass") {
+      fail5("PERSISTENT_TEST_SCOPE_INVALID", `persistent test scope is not executable: ${result.blockers.join(" ")}`);
+    }
+  }
+  for (const step of input.implementation_steps) {
+    for (const target of step.mutation_scope) {
+      const forbidden = input.mutation_scope.forbidden.some((pattern) => target === pattern || !target.includes("*") && mutationScopePatternMatchesPath(target, pattern));
+      if (forbidden)
+        fail5("STEP_SCOPE_INVALID", `step ${step.id} target ${target} is forbidden.`);
+      const allowed = input.mutation_scope.allowed.includes(target);
+      const conditional = input.mutation_scope.conditional.some((item) => target === item.path || !target.includes("*") && mutationScopePatternMatchesPath(target, item.path));
+      if (!allowed && !conditional) {
+        fail5("STEP_SCOPE_INVALID", `step ${step.id} target ${target} is outside Mutation scope.`);
+      }
+      if (allowed && conditional) {
+        fail5("STEP_SCOPE_INVALID", `step ${step.id} target ${target} is ambiguously both Allowed and Conditional.`);
+      }
+    }
+  }
+}
+function semanticDigest(input) {
+  return crypto7.createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+function taskSlug(goal) {
+  const ascii = goal.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 80).replace(/-+$/gu, "");
+  if (ascii)
+    return ascii;
+  return `task-${crypto7.createHash("sha256").update(goal).digest("hex").slice(0, 12)}`;
+}
+function authority(current, subject, kinds) {
+  return kinds.map((kind) => ({ kind, source: current.relativePath, subject }));
+}
+function claimEvidence(input) {
+  return input.acceptance.map((_, index) => ({
+    claim_id: `acceptance-${index + 1}`,
+    claim_kind: "acceptance",
+    slots: [{
+      slot_id: "validation",
+      minimum_type: "planned-validation",
+      disposition: "missing",
+      evidence_refs: []
+    }]
+  }));
+}
+function semanticDraftDefinition(input) {
+  const persistentTests = input.persistent_tests === "none" ? ["- none"] : input.persistent_tests.flatMap((test) => [
+    `- \`${test.path}\``,
+    ...test.proves.map((proof) => `  - proves: ${proof}`)
+  ]);
+  return {
+    background_context: [
+      "### Goal",
+      "",
+      input.goal,
+      "",
+      "### Out of scope",
+      "",
+      markdownBullets(input.out_of_scope)
+    ].join(`
+`),
+    acceptance: markdownBullets(input.acceptance, true),
+    allowed_scope: markdownBullets(input.mutation_scope.allowed.map((item) => `\`${item}\``)),
+    conditional_scope: markdownBullets(input.mutation_scope.conditional.map((item) => `\`${item.path}\` when ${item.condition}`)),
+    forbidden_scope: markdownBullets(input.mutation_scope.forbidden.map((item) => `\`${item}\``)),
+    affected_contracts: "- none",
+    confirmed_decisions: markdownBullets(input.design_decisions),
+    open_questions: "- none",
+    implementation_plan: input.implementation_steps.map((step) => `- ${step.id}: ${step.description}`).join(`
+`),
+    implementation_steps: input.implementation_steps.flatMap((step) => [
+      `- ${step.id}: ${step.description}`,
+      `  - purpose: ${step.description}`,
+      `  - mutation_scope: ${step.mutation_scope.join(", ")}`,
+      `  - required_evidence: ${step.validation.join("; ")}`,
+      `  - review_checkpoint: required: review ${step.id} diff against the confirmed CURRENT_TASK`
+    ]).join(`
+`),
+    regression_checks: [
+      "### Validation Plan",
+      "",
+      markdownBullets(input.validation_plan, true),
+      "",
+      "### Persistent Tests",
+      "",
+      ...persistentTests
+    ].join(`
+`),
+    rollback_points: "- Revert only the current step changes if its required validation cannot pass.",
+    design_constraints: null,
+    post_release_validation: null,
+    propagation_governance: null
+  };
+}
+function verifyAdapterReadBack(root, result, options) {
+  if (options.dryRun || result.status !== "success" && result.status !== "no-op")
+    return result;
+  const readBack = readCanonicalCurrentTask(root);
+  if (!result.read_back_verified || result.resulting_revision !== readBack.sourceTuple.revision) {
+    fail5("PREPARE_ADAPTER_READ_BACK_FAILED", "prepare-task adapter could not verify the committed canonical CURRENT_TASK revision.");
+  }
+  return result;
+}
+function prepareDraft(root, input, options = {}) {
+  const semantic = normalizeSemanticDraft(input);
+  const current = readCanonicalCurrentTask(root);
+  const creating = current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived";
+  const updating = current.runtimeState.workflow_status === "draft" && current.runtimeState.lifecycle_state === "active";
+  if (!creating && !updating) {
+    fail5("PREPARE_DRAFT_STATE_INVALID", "prepare-draft requires closed + archived to create, or draft + active to update. Use replan for an existing confirmed task.");
+  }
+  const identity = creating ? {
+    task_id: allocateNextTaskId(root, current.runtimeState.task_id),
+    task_slug: taskSlug(semantic.goal),
+    task_title: semantic.goal,
+    document_id: undefined
+  } : {
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    task_title: extractTaskIdentityFromCurrentTask(current.body).title,
+    document_id: current.sourceTuple.document_id
+  };
+  const digest3 = semanticDigest(semantic);
+  const evidenceRefs = [`adapter:prepare-draft:${digest3.slice(0, 16)}`];
+  const proposal = createPrepareTaskDraftProposal(current, {
+    action: creating ? "create-draft" : "update-draft",
+    ...identity,
+    draft_definition: semanticDraftDefinition(semantic),
+    active_step_id: semantic.implementation_steps[0].id,
+    evidence_refs: evidenceRefs,
+    claim_evidence: claimEvidence(semantic),
+    idempotency_key: `prepare-draft-${identity.task_id}-${current.sourceTuple.revision.slice(0, 12)}-${digest3.slice(0, 12)}`,
+    authority_evidence: authority(current, identity.task_id, creating ? ["authorized-caller", "scope-admission", "evidence-admission"] : ["active-task-owner", "scope-admission", "evidence-admission"])
+  });
+  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+function emptyInput(input, location) {
+  const value = input === undefined ? {} : record(input, location);
+  exactKeys(value, [], location);
+}
+function confirmDraft(root, input, options = {}) {
+  emptyInput(input, "confirm-draft input");
+  const current = readCanonicalCurrentTask(root);
+  if (current.runtimeState.workflow_status !== "draft" || current.runtimeState.lifecycle_state !== "active") {
+    fail5("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the current task to be draft + active.");
+  }
+  const evidenceRefs = [`adapter:confirm-draft:${current.sourceTuple.revision.slice(0, 16)}`];
+  const proposal = createPrepareTaskConfirmProposal(current, {
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    document_id: current.sourceTuple.document_id,
+    draft_revision: current.sourceTuple.revision,
+    evidence_refs: evidenceRefs,
+    idempotency_key: `confirm-draft-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 16)}`,
+    authority_evidence: [
+      {
+        kind: "user-confirmation",
+        source: current.relativePath,
+        subject: current.runtimeState.task_id,
+        task_id: current.runtimeState.task_id,
+        document_id: current.sourceTuple.document_id,
+        draft_revision: current.sourceTuple.revision
+      },
+      ...authority(current, current.runtimeState.task_id, ["evidence-admission"])
+    ]
+  });
+  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+function clearResumeReview(root, input, options = {}) {
+  const source = record(input, "clear-resume-review input");
+  exactKeys(source, ["readiness_evidence"], "clear-resume-review input");
+  const readinessEvidence = textList(source.readiness_evidence, "readiness_evidence", false);
+  const current = readCanonicalCurrentTask(root);
+  if (!current.runtimeState.resume_requires_review) {
+    fail5("RESUME_REVIEW_NOT_REQUIRED", "clear-resume-review requires an active resume-review gate.");
+  }
+  const evidenceDigest = crypto7.createHash("sha256").update(JSON.stringify(readinessEvidence)).digest("hex");
+  const evidenceRefs = [`adapter:resume-readiness:${evidenceDigest.slice(0, 16)}`];
+  const proposal = createPrepareTaskResumeReviewProposal(current, {
+    mode: "default",
+    evidence_refs: evidenceRefs,
+    idempotency_key: `clear-resume-review-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 16)}-${evidenceDigest.slice(0, 12)}`,
+    authority_evidence: authority(current, current.runtimeState.task_id, ["active-task-owner", "resume-review", "evidence-admission"])
+  });
+  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+function replan(root, input, options = {}) {
+  const semantic = normalizeSemanticDraft(input);
+  const current = readCanonicalCurrentTask(root);
+  const digest3 = semanticDigest(semantic);
+  const evidenceRefs = [`adapter:replan:${digest3.slice(0, 16)}`];
+  const proposal = createPrepareTaskReplanProposal(current, {
+    delta: {
+      kind: "task-state",
+      action: "commit-replan",
+      replacement_definition: semanticDraftDefinition(semantic),
+      active_step_id: semantic.implementation_steps[0].id,
+      evidence_refs: evidenceRefs,
+      claim_evidence: claimEvidence(semantic)
+    },
+    idempotency_key: `replan-${current.runtimeState.task_id}-${current.sourceTuple.revision.slice(0, 12)}-${digest3.slice(0, 12)}`,
+    authority_evidence: authority(current, current.runtimeState.task_id, ["active-task-owner", "scope-admission", "evidence-admission"]),
+    evidence_refs: evidenceRefs
+  });
+  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+function parsePrepareTaskAdapterCli(argv) {
+  const [command, ...rest] = argv;
+  if (!PREPARE_TASK_ADAPTER_COMMANDS.includes(command)) {
+    throw new Error(`Usage: vnext-runtime <${PREPARE_TASK_ADAPTER_COMMANDS.join("|")}> --root <path> [--dry-run] (semantic JSON on stdin)`);
+  }
+  let root = process.cwd();
+  let dryRun = false;
+  for (let index = 0;index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (arg === "--root")
+      root = rest[++index] ?? "";
+    else if (arg === "--dry-run")
+      dryRun = true;
+    else
+      throw new Error(`Unknown prepare-task adapter argument: ${arg}`);
+  }
+  if (!root)
+    throw new Error("--root requires a path.");
+  return { command, root, dryRun };
+}
+function readSemanticStdin(command) {
+  const raw = !process.stdin.isTTY ? fs7.readFileSync(0, "utf8") : "";
+  if (!raw.trim()) {
+    if (command === "confirm-draft")
+      return {};
+    throw new Error(`${command} requires semantic JSON on stdin.`);
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function validateInstalledRuntime(root) {
+  const runtimeManifest = path8.join(path8.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs7.existsSync(runtimeManifest))
+    validateVNextRuntimeContract(root, true);
+}
+async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
+  try {
+    validateRuntimeEnvironment();
+    const args = parsePrepareTaskAdapterCli(argv);
+    validateInstalledRuntime(args.root);
+    const input = readSemanticStdin(args.command);
+    const options = { dryRun: args.dryRun };
+    let result;
+    switch (args.command) {
+      case "prepare-draft":
+        result = prepareDraft(args.root, input, options);
+        break;
+      case "confirm-draft":
+        result = confirmDraft(args.root, input, options);
+        break;
+      case "clear-resume-review":
+        result = clearResumeReview(args.root, input, options);
+        break;
+      case "replan":
+        result = replan(args.root, input, options);
+        break;
+    }
+    console.log(JSON.stringify(result, null, 2));
+    return result.status === "blocked" || result.status === "conflict" ? 2 : 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
 // runtime/vnext/src/cli.ts
 var args = process.argv.slice(2);
-var runner = args[0] === "bootstrap-project" ? runBootstrapCli(args.slice(1)) : args[0] === "bootstrap-support" ? runBootstrapSupportCli(args.slice(1)) : runCli(args);
+var runner;
+if (args[0] === "bootstrap-project")
+  runner = runBootstrapCli(args.slice(1));
+else if (args[0] === "bootstrap-support")
+  runner = runBootstrapSupportCli(args.slice(1));
+else if (PREPARE_TASK_ADAPTER_COMMANDS.includes(args[0])) {
+  runner = runPrepareTaskAdapterCli(args);
+} else
+  runner = runCli(args);
 runner.then((exitCode) => {
   process.exitCode = exitCode;
 });
 export {
+  runPrepareTaskAdapterCli,
   runCli,
   runBootstrapSupportCli,
   runBootstrapCli

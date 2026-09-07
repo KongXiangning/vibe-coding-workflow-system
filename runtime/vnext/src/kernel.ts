@@ -1463,7 +1463,26 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (confirmCoords.exact_draft_revision !== true) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm authority_coordinates exact_draft_revision must be true.');
   if (confirmContract.from !== 'draft + active' || confirmContract.to !== 'active + active') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm transition is invalid.');
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
-  expectExactKeys(prepareTaskContract, ['bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
+  expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
+  const prepareTaskAdapter = expectRecord(prepareTaskContract.semantic_adapter, 'Runtime contract.proposal.prepare_task.semantic_adapter');
+  expectExactKeys(prepareTaskAdapter, ['input', 'commands', 'draft_fields', 'persistent_tests_storage', 'proposal_file_policy'], 'Runtime contract.proposal.prepare_task.semantic_adapter');
+  if (prepareTaskAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter input must remain stdin-json.');
+  expectSetEqual(
+    expectStringArray(prepareTaskAdapter.commands, 'Runtime contract.proposal.prepare_task.semantic_adapter.commands'),
+    ['prepare-draft', 'confirm-draft', 'clear-resume-review', 'replan'],
+    'Runtime contract prepare-task adapter commands',
+  );
+  expectSetEqual(
+    expectStringArray(prepareTaskAdapter.draft_fields, 'Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields'),
+    ['goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_scope', 'implementation_steps', 'validation_plan', 'persistent_tests'],
+    'Runtime contract prepare-task adapter semantic fields',
+  );
+  if (prepareTaskAdapter.persistent_tests_storage !== 'existing-scope-and-regression-sections') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must map persistent tests into existing canonical sections.');
+  }
+  if (prepareTaskAdapter.proposal_file_policy !== 'project-external-only') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter proposal files must remain project-external-only.');
+  }
   expectSetEqual(
     expectStringArray(prepareTaskContract.bound_actions, 'Runtime contract.proposal.prepare_task.bound_actions'),
     ['clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS],
@@ -9951,6 +9970,18 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
 }
 
+export function resolveExternalProposalFile(root: string, proposalFile: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedProposal = path.resolve(proposalFile);
+  const relative = path.relative(resolvedRoot, resolvedProposal);
+  const insideProject = relative === ''
+    || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  if (insideProject) {
+    fail('PROPOSAL_FILE_INSIDE_PROJECT', 'proposal/helper files must not be created inside the target project; send the proposal on stdin or use an OS-temporary path outside the project.');
+  }
+  return resolvedProposal;
+}
+
 function readCliStringList(filePath: string, label: string): string[] {
   const content = fs.readFileSync(path.resolve(filePath), 'utf8');
   if (content.trimStart().startsWith('[')) {
@@ -10063,7 +10094,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);
       const proposalText = args.proposalFile
-        ? fs.readFileSync(path.resolve(args.proposalFile), 'utf8')
+        ? fs.readFileSync(resolveExternalProposalFile(args.root, args.proposalFile), 'utf8')
         : (!process.stdin.isTTY ? fs.readFileSync(0, 'utf8') : '');
       if (!proposalText.trim()) throw new Error('apply requires a JSON proposal on stdin or via --proposal-file <json-file>.');
       const proposal = JSON.parse(proposalText) as unknown;

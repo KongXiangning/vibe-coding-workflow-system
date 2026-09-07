@@ -209,6 +209,24 @@ proposal:
       from: draft + active
       to: active + active
   prepare_task:
+    semantic_adapter:
+      input: stdin-json
+      commands:
+        - prepare-draft
+        - confirm-draft
+        - clear-resume-review
+        - replan
+      draft_fields:
+        - goal
+        - acceptance
+        - out_of_scope
+        - design_decisions
+        - mutation_scope
+        - implementation_steps
+        - validation_plan
+        - persistent_tests
+      persistent_tests_storage: existing-scope-and-regression-sections
+      proposal_file_policy: project-external-only
     bound_actions:
       - clear-resume-review-gate
       - create-draft

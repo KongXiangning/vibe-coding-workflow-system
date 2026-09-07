@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -18,6 +19,13 @@ import {
   createPrepareTaskDraftProposal,
   createPrepareTaskUpdateDraftProposal,
   createPrepareTaskResumeReviewProposal,
+  clearResumeReview,
+  confirmDraft,
+  prepareDraft,
+  replan,
+  resolveExternalProposalFile,
+  evaluateMutationScope,
+  parseMutationScope,
   createTaskStateProposal,
   createReviewCycleZero,
   GovernanceTransactionKernel,
@@ -44,6 +52,7 @@ import {
   type RuntimeProposal,
   type RuntimeState,
   type ProjectStatusDelta,
+  type PrepareTaskSemanticDraft,
 } from '../scripts/vnext-runtime';
 import { validateCurrentTaskStatusTuple as validatePureVNextStatusTuple } from '../runtime/vnext/src/task-identity';
 
@@ -487,6 +496,38 @@ function draftDefinition(overrides: Partial<DraftTaskDefinition> = {}): DraftTas
     design_constraints: null,
     post_release_validation: null,
     propagation_governance: null,
+    ...overrides,
+  };
+}
+
+function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
+  return {
+    goal: 'Add the prepare-task Runtime adapter',
+    acceptance: ['The semantic adapter persists and reads back a canonical draft'],
+    out_of_scope: ['Do not refactor unrelated Runtime handlers'],
+    design_decisions: ['Keep persistent tests in existing scope and regression sections'],
+    mutation_scope: {
+      allowed: [
+        'runtime/vnext/src/prepare-task-adapter.ts',
+        'test/vnext-runtime.test.ts',
+      ],
+      conditional: [],
+      forbidden: ['.git/**'],
+    },
+    implementation_steps: [{
+      id: 'step-1',
+      description: 'Implement and verify the semantic adapter',
+      mutation_scope: [
+        'runtime/vnext/src/prepare-task-adapter.ts',
+        'test/vnext-runtime.test.ts',
+      ],
+      validation: ['bun test test/vnext-runtime.test.ts'],
+    }],
+    validation_plan: ['Run the focused vNext Runtime test suite'],
+    persistent_tests: [{
+      path: 'test/vnext-runtime.test.ts',
+      proves: ['prepare-task semantic commands remain Runtime-bound'],
+    }],
     ...overrides,
   };
 }
@@ -4626,5 +4667,141 @@ describe('vNext Phase 2 Runtime contract', () => {
     const replay2 = applyVNextRuntimeProposal(root, prop);
     expect(replay2.status).toBe('no-op');
     expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(bytesFirstCommit);
+  });
+
+  test('adapts semantic prepare content into a canonical draft and confirms its exact revision', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+
+    const prepared = prepareDraft(root, semanticDraft());
+    expect(prepared.status).toBe('success');
+    expect(prepared.committed).toBe(true);
+    expect(prepared.read_back_verified).toBe(true);
+
+    let draft = readCanonicalCurrentTask(root);
+    expect(draft.runtimeState).toMatchObject({
+      task_id: '001',
+      workflow_status: 'draft',
+      lifecycle_state: 'active',
+      active_step_id: 'step-1',
+      active_step_status: 'ready',
+      claim_evidence_required: true,
+    });
+    expect(draft.runtimeState.claim_evidence).toEqual([{
+      claim_id: 'acceptance-1',
+      claim_kind: 'acceptance',
+      slots: [{
+        slot_id: 'validation',
+        minimum_type: 'planned-validation',
+        disposition: 'missing',
+        evidence_refs: [],
+      }],
+    }]);
+    expect(draft.body).toContain('### Goal');
+    expect(draft.body).toContain('### Out of scope');
+    expect(draft.body).toContain('### Persistent Tests');
+    expect(draft.body).toContain('`test/vnext-runtime.test.ts`');
+    expect(draft.body).toContain('- `test/vnext-runtime.test.ts`');
+
+    const scope = parseMutationScope(draft.body, draft.sourceTuple.revision);
+    const scopeResult = evaluateMutationScope(scope, {
+      changed_paths: ['test/vnext-runtime.test.ts', 'test/unlisted.test.ts'],
+    });
+    expect(scopeResult.status).toBe('blocked');
+    expect(scopeResult.admitted_paths).toEqual(['test/vnext-runtime.test.ts']);
+    expect(scopeResult.blocked_paths).toEqual(['test/unlisted.test.ts']);
+
+    const firstDocumentId = draft.sourceTuple.document_id;
+    const refined = prepareDraft(root, semanticDraft({
+      acceptance: ['The refined semantic adapter persists and reads back a canonical draft'],
+    }));
+    expect(refined.status).toBe('success');
+    draft = readCanonicalCurrentTask(root);
+    expect(draft.runtimeState.task_id).toBe('001');
+    expect(draft.sourceTuple.document_id).toBe(firstDocumentId);
+    expect(draft.body).toContain('The refined semantic adapter persists');
+
+    const draftRevision = draft.sourceTuple.revision;
+    const confirmed = confirmDraft(root, {});
+    expect(confirmed.status).toBe('success');
+    expect(confirmed.previous_revision).toBe(draftRevision);
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('active');
+  });
+
+  test('rejects a persistent test that is absent from exact Allowed mutation scope', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const input = semanticDraft({
+      mutation_scope: {
+        allowed: ['runtime/vnext/src/prepare-task-adapter.ts'],
+        conditional: [],
+        forbidden: ['.git/**'],
+      },
+    });
+
+    expect(() => prepareDraft(root, input)).toThrow('PERSISTENT_TEST_SCOPE_INVALID');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
+  });
+
+  test('wraps resume review and replan without public proposal fields', () => {
+    const resumeRoot = makeRoot(makeRuntimeState({
+      resume_requires_review: true,
+      resume_review_reasons: ['manual_review_pending'],
+    }));
+    const cleared = clearResumeReview(resumeRoot, {
+      readiness_evidence: ['Reviewed the recovered diff and confirmed the active step remains executable'],
+    });
+    expect(cleared.status).toBe('success');
+    expect(readCanonicalCurrentTask(resumeRoot).runtimeState.resume_requires_review).toBe(false);
+
+    const replanRoot = makeRoot(makeRuntimeState({
+      workflow_status: 'superseded',
+      lifecycle_state: 'active',
+    }));
+    const replanned = replan(replanRoot, semanticDraft());
+    expect(replanned.status).toBe('success');
+    const current = readCanonicalCurrentTask(replanRoot);
+    expect(current.runtimeState.workflow_status).toBe('active');
+    expect(current.runtimeState.active_step_id).toBe('step-1');
+    expect(current.body).toContain('Add the prepare-task Runtime adapter');
+  });
+
+  test('accepts semantic prepare input on stdin and rejects project-local proposal files', () => {
+    const root = makeRoot(makeRuntimeState({
+      task_id: '000',
+      task_slug: 'bootstrap-baseline',
+      workflow_status: 'closed',
+      lifecycle_state: 'archived',
+      active_step_status: 'completed',
+    }));
+    const cli = path.join(ROOT, 'runtime', 'vnext', 'dist', 'cli.js');
+    const result = spawnSync('node', [cli, 'prepare-draft', '--root', root], {
+      cwd: ROOT,
+      input: JSON.stringify(semanticDraft()),
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: 'success',
+      committed: true,
+      read_back_verified: true,
+    });
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('draft');
+
+    const insideProposal = path.join(root, 'prepare-task-proposal.json');
+    fs.writeFileSync(insideProposal, '{}', 'utf8');
+    expect(() => resolveExternalProposalFile(root, insideProposal)).toThrow('PROPOSAL_FILE_INSIDE_PROJECT');
+    const outsideProposal = path.join(os.tmpdir(), 'prepare-task-proposal.json');
+    expect(resolveExternalProposalFile(root, outsideProposal)).toBe(path.resolve(outsideProposal));
   });
 });

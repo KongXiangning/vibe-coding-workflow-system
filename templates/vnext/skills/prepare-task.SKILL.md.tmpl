@@ -72,13 +72,13 @@ permanent invariant. If the request conflicts with existing design, record the
 conflict instead of silently strengthening or overriding either side.
 
 If Runtime reports a resume-review gate, evaluate only the required readiness
-evidence and use the bound gate-clear action. Do not redesign the task.
+evidence and submit it through `clear-resume-review`. Do not redesign the task.
 
-In `confirm` mode, bind the user's explicit confirmation to the exact committed
-draft revision, submit the bound confirm action through Runtime, report the
-result, and stop. In `replan` mode, revise only the task decisions explicitly
-reopened by the user or current task state, persist through the bound Runtime
-action, report the result, and stop.
+In `confirm` mode, submit the user's explicit confirmation through
+`confirm-draft`; Runtime binds it to the exact committed draft revision. Report
+the result and stop. In `replan` mode, revise only the task decisions explicitly
+reopened by the user or current task state, persist through `replan`, report the
+result, and stop.
 
 Do not implement business code. Once the user confirms the draft,
 `CURRENT_TASK` is the execution authority: later execution must not redesign the
@@ -87,12 +87,11 @@ Tests. Changing those decisions requires an explicit replan.
 
 ## Required result
 
-Persist through the declared Runtime operation, following its current interface;
-do not edit `CURRENT_TASK.md` directly or copy Runtime schema into this Skill.
-Send Runtime proposals on stdin. Never create proposal or helper files inside
-the target repository; if the host requires a file, use an OS-temporary location
-outside the project. Only a successful Runtime result proves that the draft was
-committed.
+Submit the draft's semantic content to Runtime through `prepare-draft` on stdin;
+do not construct a proposal or edit `CURRENT_TASK.md` directly. Never create
+proposal or helper files inside the target repository; if the host requires a
+file, use an OS-temporary location outside the project. Only a successful
+Runtime result proves that the draft was committed.
 
 After an ordinary draft commit, summarize it, ask the user to confirm that exact
 draft, and stop. Confirmation is a later explicit `prepare-task:confirm`
