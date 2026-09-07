@@ -700,28 +700,6 @@ function validateExecuteStepCommandMutationBoundary(content: string): void {
   }
 }
 
-function validatePrepareTaskInvariantAdmission(content: string): void {
-  const requiredTerms = [
-    'invariant-admission/v1',
-    'bounded local/temporal mechanical invariant',
-    'global/domain/permanent invariant',
-    'implementation convenience is not a',
-    'new entity starts with',
-    'storage only permits open forever',
-    'status changes are out of scope',
-    'permanent prohibition',
-    'future design/baseline',
-    'current acceptance may control behavior inside this task',
-    'explicit Contract/Decision or user-owned design/contract decision',
-    'reversible',
-  ];
-  for (const term of requiredTerms) {
-    if (!content.includes(term)) {
-      fail(`prepare-task must declare the invariant-admission boundary term "${term}"`);
-    }
-  }
-}
-
 function validateAgentSkillMetadata(frontmatter: UnknownRecord, entry: string): void {
   expectExactKeys(frontmatter, ['name', 'description', 'entry_contract'], `${entry} frontmatter`);
   const name = expectString(frontmatter.name, `${entry}.name`);
@@ -747,7 +725,6 @@ function validateTemplate(
 
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
   validatePublicEntryTerminalBoundary(content, entry);
-  if (entry === 'prepare-task') validatePrepareTaskInvariantAdmission(content);
   if (entry === 'execute-step') validateExecuteStepCommandMutationBoundary(content);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);

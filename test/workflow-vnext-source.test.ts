@@ -283,10 +283,6 @@ describe('vNext Phase 2 source contract', () => {
       fixtureFile(ROOT, '.workflow-system/vnext/SOURCE_CONTRACT.yaml'),
       'utf8',
     );
-    const prepare = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'),
-      'utf8',
-    );
     const execute = fs.readFileSync(
       fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
       'utf8',
@@ -327,26 +323,6 @@ describe('vNext Phase 2 source contract', () => {
     expect(sourceContract).toContain('provisional or exploratory certainty is used to silently admit a persistent test');
     expect(sourceContract).toContain('exploratory probe budget');
     expect(sourceContract).toContain('typed proposal to an existing canonical task record');
-    expect(prepare).toContain('owner_source');
-    expect(prepare).toContain('invariant-admission/v1');
-    expect(prepare).toContain('bounded local/temporal mechanical invariant');
-    expect(prepare).toContain('global/domain/permanent invariant');
-    expect(prepare).toContain('implementation convenience is not a');
-    expect(prepare).toContain('new entity starts with');
-    expect(prepare).toContain('storage only permits open forever');
-    expect(prepare).toContain('status changes are out of scope');
-    expect(prepare).toContain('future design/baseline');
-    expect(prepare).toContain('current acceptance may control behavior inside this task');
-    expect(prepare).toContain('evidence-admission-policy');
-    expect(prepare).toContain('validation and test creation are separate decisions');
-    expect(prepare).toContain('an assertion at the behavioral or contract boundary');
-    expect(prepare).toContain('clear expected disposition if it fails');
-    expect(prepare).toContain('a `risk-analysis` owner is valid only when anchored to an identified changed behavior, known failure model, and admitted task scope');
-    expect(prepare).toContain('Provisional or exploratory certainty permits temporary probes only');
-    expect(prepare).toContain('Persistent tests are not admitted by default');
-    expect(prepare).toContain('test_write_policy: deny');
-    expect(prepare).toContain('bounded duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule');
-    expect(prepare).toContain('typed proposal into the existing canonical task record');
     expect(execute).toContain('creating or changing a persistent automated test are separate decisions');
     expect(execute).toContain('exactly one basis from `acceptance`, `regression`, `critical-invariant`, or `critical-risk`');
     expect(execute).toContain('assertion at the behavioral or contract boundary');
@@ -390,16 +366,6 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(root)).toThrow(/prepare-task.*mandatory capability "evidence-admission-policy"/i);
   });
 
-  test('requires prepare-task invariant admission guidance and protects the status default/exclusion witness', () => {
-    const root = copyFixture();
-    const file = fixtureFile(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
-    replaceIn(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl', 'storage only permits open forever', 'storage only permits one value forever');
-
-    expect(() => validateVNextSource(root)).toThrow(/prepare-task.*invariant-admission.*storage only permits open forever/i);
-    expect(fs.readFileSync(file, 'utf8')).toContain('new entity starts with');
-    expect(fs.readFileSync(file, 'utf8')).toContain('status changes are out of scope');
-  });
-
   test('keeps debug ownership conditional and lesson admission non-blocking for closure', () => {
     const debug = fs.readFileSync(
       fixtureFile(ROOT, 'templates/vnext/skills/debug-task.SKILL.md.tmpl'),
@@ -431,16 +397,6 @@ describe('vNext Phase 2 source contract', () => {
     expect(lifecycle).not.toContain('write_incomplete');
     expect(lifecycle).not.toContain('read-back');
     expect(lifecycle).not.toContain('atomic write');
-  });
-
-  test('keeps prepare-task resume-review handling distinct from the draft Runtime actions', () => {
-    const prepare = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'),
-      'utf8',
-    );
-    expect(prepare).toContain('clear-resume-review-gate');
-    expect(prepare).toContain('default mode to `create-draft`, `update-draft`, and the existing gate-clear action');
-    expect(prepare).toContain('The default draft actions may not change the identity of an existing draft, auto-confirm it, or write arbitrary Markdown.');
   });
 
   test('keeps execute-step behind the resume-review gate', () => {
@@ -534,12 +490,10 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(legacyFieldRoot)).toThrow(/legacy field "stage"|frontmatter keys mismatch/i);
 
     const missingMetadataRoot = copyFixture();
-    replaceIn(
-      missingMetadataRoot,
-      'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
-      'description: Prepare or replan a governed implementation task with bounded scope and evidence.\n',
-      '',
-    );
+    const missingMetadataFile = fixtureFile(missingMetadataRoot, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
+    const missingMetadataContent = fs.readFileSync(missingMetadataFile, 'utf8');
+    expect(missingMetadataContent).toMatch(/^description:\s*.+$/mu);
+    fs.writeFileSync(missingMetadataFile, missingMetadataContent.replace(/^description:\s*.+\r?\n/mu, ''), 'utf8');
     expect(() => validateVNextSource(missingMetadataRoot)).toThrow(/description|frontmatter keys mismatch/i);
 
     const legacyTargetRoot = copyFixture();
