@@ -125,6 +125,31 @@ describe('vNext Mutation-oriented Scope', () => {
     expect(result.admitted_paths).toEqual([]);
   });
 
+  test('admits only the exact persistent-test path frozen into Allowed Files', () => {
+    const scope = parseMutationScope(nestedScopeBody({
+      allowed: 'test/tickets.test.ts',
+      readDiscovery: 'test/**',
+    }), '5'.repeat(64));
+    const result = evaluateMutationScope(scope, {
+      changed_paths: ['test/tickets.test.ts', 'test/persistence.test.ts'],
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.admitted_paths).toEqual(['test/tickets.test.ts']);
+    expect(result.decisions).toEqual([
+      expect.objectContaining({
+        path: 'test/tickets.test.ts',
+        classification: 'allowed-exact',
+        mutation_admitted: true,
+      }),
+      expect.objectContaining({
+        path: 'test/persistence.test.ts',
+        classification: 'read-context-only',
+        mutation_admitted: false,
+      }),
+    ]);
+  });
+
   test('requires exact evidence-backed authorization for Conditional Files', () => {
     const scope = parseMutationScope(nestedScopeBody(), 'e'.repeat(64));
     const blocked = evaluateMutationScope(scope, { changed_paths: ['src/generated/schema.ts'] });

@@ -120,7 +120,7 @@ export const EXPECTED_EXPERT_RUNTIME_OPERATIONS: Record<ExpertEntry, readonly st
 };
 
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
-  'prepare-task': ['scope-guard', 'evidence-admission-policy'],
+  'prepare-task': ['scope-guard', 'evidence-admission-policy', 'resume-review-gate'],
   'review-change': ['scope-guard', 'diff-target-resolver', 'read-only-review-guard', 'review-convergence-policy', 'evidence-admission-policy'],
   'execute-step': ['scope-guard', 'source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy', 'finding-admission', 'review-convergence-policy', 'evidence-admission-policy'],
   'debug-task': ['scope-guard', 'review-convergence-policy', 'evidence-admission-policy'],

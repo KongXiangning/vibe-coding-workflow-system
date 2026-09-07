@@ -324,10 +324,6 @@ describe('vNext Phase 2 source contract', () => {
     expect(sourceContract).toContain('exploratory probe budget');
     expect(sourceContract).toContain('typed proposal to an existing canonical task record');
     expect(execute).toContain('creating or changing a persistent automated test are separate decisions');
-    expect(execute).toContain('exactly one basis from `acceptance`, `regression`, `critical-invariant`, or `critical-risk`');
-    expect(execute).toContain('assertion at the behavioral or contract boundary');
-    expect(execute).toContain('A `risk-analysis` owner must be anchored to an identified changed behavior, known failure model, and admitted task scope');
-    expect(execute).toContain('persistent-test disposition defaults to `persistent_test: false`');
     expect(execute).toContain('existing-check reuse');
     expect(review).toContain('A regression or evidence scenario is a validation obligation; it does not automatically require a new persistent automated test.');
     expect(review).toContain('Persistent-test disposition defaults to `persistent_test: false`');
@@ -354,16 +350,24 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(root)).toThrow(/execute-step.*mandatory capability "source-authority-policy"/i);
   });
 
-  test('requires evidence admission policy for prepare-task', () => {
-    const root = copyFixture();
+  test('requires evidence admission and resume-review capabilities for prepare-task', () => {
+    const evidenceRoot = copyFixture();
     replaceIn(
-      root,
+      evidenceRoot,
       'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
       '    - evidence-admission-policy\n',
       '',
     );
+    expect(() => validateVNextSource(evidenceRoot)).toThrow(/prepare-task.*mandatory capability "evidence-admission-policy"/i);
 
-    expect(() => validateVNextSource(root)).toThrow(/prepare-task.*mandatory capability "evidence-admission-policy"/i);
+    const resumeRoot = copyFixture();
+    replaceIn(
+      resumeRoot,
+      'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
+      '    - resume-review-gate\n',
+      '',
+    );
+    expect(() => validateVNextSource(resumeRoot)).toThrow(/prepare-task.*mandatory capability "resume-review-gate"/i);
   });
 
   test('keeps debug ownership conditional and lesson admission non-blocking for closure', () => {

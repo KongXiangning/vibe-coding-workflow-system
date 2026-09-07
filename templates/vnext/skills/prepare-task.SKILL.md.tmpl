@@ -27,6 +27,7 @@ entry_contract:
     - scope-guard
     - decision-authority-gate
     - evidence-admission-policy
+    - resume-review-gate
   runtime_operations:
     - task-state-transaction
   stop_conditions:
@@ -47,7 +48,7 @@ executable `CURRENT_TASK` draft containing:
 - **Acceptance**
 - **Out of scope**
 - necessary **Design decisions** and any conflict with existing design
-- **Allowed mutation scope**
+- **Mutation scope**: Allowed / Conditional / Forbidden
 - ordered **Implementation steps** that say what to change, where, and how to
   validate the result
 - **Validation plan**
@@ -57,15 +58,27 @@ Read only the context needed to make those decisions. Resolve known scope and
 command blockers before submitting the draft; if a blocker cannot be resolved
 within the user's authority, report it instead of leaving it to `execute-step`.
 
-Persistent Tests are a closed allowlist and default to `none`. List the exact
-test assets and behavior allowed, without adding tests merely for coverage,
-robustness, or reviewer preference. Later execution may create or modify only
-the listed tests; existing tests may still be run for validation.
+Persistent Tests are a closed allowlist and default to `none`. For every listed
+test asset, give its exact repository-relative path and the behavior it proves,
+and add that exact path—not a test-directory glob—to Allowed mutation scope.
+No broader Allowed or Conditional pattern may authorize other persistent-test
+paths. Do not add tests merely for coverage, robustness, or reviewer preference.
+Later execution may create or modify only the listed tests; existing tests may
+still be run for validation.
 
 Keep every requirement at the strength, scope, and lifetime the user actually
 requested. A local behavior, default, or current-task exclusion is not a
 permanent invariant. If the request conflicts with existing design, record the
 conflict instead of silently strengthening or overriding either side.
+
+If Runtime reports a resume-review gate, evaluate only the required readiness
+evidence and use the bound gate-clear action. Do not redesign the task.
+
+In `confirm` mode, bind the user's explicit confirmation to the exact committed
+draft revision, submit the bound confirm action through Runtime, report the
+result, and stop. In `replan` mode, revise only the task decisions explicitly
+reopened by the user or current task state, persist through the bound Runtime
+action, report the result, and stop.
 
 Do not implement business code. Once the user confirms the draft,
 `CURRENT_TASK` is the execution authority: later execution must not redesign the
@@ -76,7 +89,10 @@ Tests. Changing those decisions requires an explicit replan.
 
 Persist through the declared Runtime operation, following its current interface;
 do not edit `CURRENT_TASK.md` directly or copy Runtime schema into this Skill.
-Only a successful Runtime result proves that the draft was committed.
+Send Runtime proposals on stdin. Never create proposal or helper files inside
+the target repository; if the host requires a file, use an OS-temporary location
+outside the project. Only a successful Runtime result proves that the draft was
+committed.
 
 After an ordinary draft commit, summarize it, ask the user to confirm that exact
 draft, and stop. Confirmation is a later explicit `prepare-task:confirm`
