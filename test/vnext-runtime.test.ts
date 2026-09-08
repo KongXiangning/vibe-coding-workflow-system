@@ -505,7 +505,10 @@ function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): Prepa
     goal: 'Add the prepare-task Runtime adapter',
     acceptance: ['The semantic adapter persists and reads back a canonical draft'],
     out_of_scope: ['Do not refactor unrelated Runtime handlers'],
-    design_decisions: ['Keep persistent tests in existing scope and regression sections'],
+    design_decisions: {
+      decided: ['Keep persistent tests in existing scope and regression sections'],
+      unresolved: [],
+    },
     mutation_scope: {
       allowed: [
         'runtime/vnext/src/prepare-task-adapter.ts',
@@ -521,7 +524,11 @@ function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): Prepa
         'runtime/vnext/src/prepare-task-adapter.ts',
         'test/vnext-runtime.test.ts',
       ],
-      validation: ['bun test test/vnext-runtime.test.ts'],
+      commands: [{
+        command: 'bun test test/vnext-runtime.test.ts',
+        expected_repo_writes: 'none',
+      }],
+      validation: ['bun test test/vnext-runtime.test.ts passes'],
     }],
     validation_plan: ['Run the focused vNext Runtime test suite'],
     persistent_tests: [{
@@ -530,6 +537,16 @@ function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): Prepa
     }],
     ...overrides,
   };
+}
+
+function archivedBaselineRoot(): string {
+  return makeRoot(makeRuntimeState({
+    task_id: '000',
+    task_slug: 'bootstrap-baseline',
+    workflow_status: 'closed',
+    lifecycle_state: 'archived',
+    active_step_status: 'completed',
+  }));
 }
 
 function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
@@ -4731,6 +4748,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(draft.body).toContain('### Persistent Tests');
     expect(draft.body).toContain('`test/vnext-runtime.test.ts`');
     expect(draft.body).toContain('- `test/vnext-runtime.test.ts`');
+    expect(draft.body).toContain('planned_command: bun test test/vnext-runtime.test.ts');
     expect(prepared.confirmation_receipt?.draft_revision).toBe(draft.sourceTuple.revision);
 
     const firstReceipt = prepared.confirmation_receipt!;
@@ -4840,6 +4858,113 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
   });
 
+  test('preserves unresolved design choices and blocks confirmation until they are decided', () => {
+    const root = archivedBaselineRoot();
+    const prepared = prepareDraft(root, semanticDraft({
+      design_decisions: {
+        decided: ['Use the existing Runtime adapter boundary'],
+        unresolved: ['Choose the externally observable default when the request does not specify one'],
+      },
+    }));
+    const current = readCanonicalCurrentTask(root);
+    expect(current.body).toContain('Use the existing Runtime adapter boundary');
+    expect(current.body).toContain('Choose the externally observable default');
+    const beforeConfirm = fs.readFileSync(current.filePath, 'utf8');
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt! })).toMatchObject({
+      status: 'blocked',
+      code: 'DRAFT_DECISION_UNRESOLVED',
+      committed: false,
+    });
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(beforeConfirm);
+
+    const refined = prepareDraft(root, semanticDraft({
+      design_decisions: {
+        decided: [
+          'Use the existing Runtime adapter boundary',
+          'The user selected the externally observable default',
+        ],
+        unresolved: [],
+      },
+    }));
+    expect(confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt! }).status).toBe('success');
+  });
+
+  test('preflights declared step command write footprints before committing a draft', () => {
+    const root = archivedBaselineRoot();
+    const toolchainStep = {
+      id: 'toolchain',
+      description: 'Install the declared toolchain',
+      mutation_scope: ['package.json', 'package-lock.json', 'node_modules/**'],
+      commands: [{
+        command: 'npm install',
+        expected_repo_writes: ['package-lock.json', 'node_modules/**'],
+      }],
+      validation: ['npm install completes with the declared lockfile'],
+    };
+    const blocked = semanticDraft({
+      mutation_scope: {
+        allowed: ['package.json', 'package-lock.json', 'test/vnext-runtime.test.ts'],
+        conditional: [{ path: 'node_modules/**', condition: 'when npm install is required' }],
+        forbidden: ['.git/**'],
+      },
+      implementation_steps: [toolchainStep],
+    });
+    expect(() => prepareDraft(root, blocked)).toThrow('COMMAND_FOOTPRINT_BLOCKED');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
+
+    const forbiddenRoot = archivedBaselineRoot();
+    const forbiddenWrite = semanticDraft({
+      mutation_scope: {
+        allowed: ['src/app.ts', 'test/vnext-runtime.test.ts'],
+        conditional: [],
+        forbidden: ['.git/**', 'data/**'],
+      },
+      implementation_steps: [{
+        id: 'smoke',
+        description: 'Run the application smoke check',
+        mutation_scope: ['src/app.ts'],
+        commands: [{
+          command: 'node src/app.ts',
+          expected_repo_writes: ['data/fixflow.sqlite'],
+        }],
+        validation: ['the application smoke check starts successfully'],
+      }],
+    });
+    expect(() => prepareDraft(forbiddenRoot, forbiddenWrite)).toThrow('COMMAND_FOOTPRINT_BLOCKED');
+    expect(readCanonicalCurrentTask(forbiddenRoot).runtimeState.workflow_status).toBe('closed');
+
+    const stepScopeRoot = archivedBaselineRoot();
+    const outsideStepScope = semanticDraft({
+      mutation_scope: {
+        allowed: ['src/app.ts', 'data/fixflow.sqlite', 'test/vnext-runtime.test.ts'],
+        conditional: [],
+        forbidden: ['.git/**'],
+      },
+      implementation_steps: [{
+        id: 'smoke',
+        description: 'Run the application smoke check',
+        mutation_scope: ['src/app.ts'],
+        commands: [{
+          command: 'node src/app.ts',
+          expected_repo_writes: ['data/fixflow.sqlite'],
+        }],
+        validation: ['the application smoke check starts successfully'],
+      }],
+    });
+    expect(() => prepareDraft(stepScopeRoot, outsideStepScope)).toThrow('COMMAND_FOOTPRINT_BLOCKED');
+    expect(readCanonicalCurrentTask(stepScopeRoot).runtimeState.workflow_status).toBe('closed');
+
+    const admitted = semanticDraft({
+      mutation_scope: {
+        allowed: ['package.json', 'package-lock.json', 'node_modules/**', 'test/vnext-runtime.test.ts'],
+        conditional: [],
+        forbidden: ['.git/**'],
+      },
+      implementation_steps: [toolchainStep],
+    });
+    expect(prepareDraft(root, admitted).status).toBe('success');
+  });
+
   test('wraps resume review and replan without public proposal fields', () => {
     const resumeRoot = makeRoot(makeRuntimeState({
       resume_requires_review: true,
@@ -4897,8 +5022,22 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('keeps migration and replan convergence actions internal to Runtime owners', () => {
     const contract = parse(fs.readFileSync(path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml'), 'utf8')) as {
-      proposal: { prepare_task: { semantic_adapter: { internal_action_owners: Record<string, string> } } };
+      proposal: { prepare_task: { semantic_adapter: {
+        decision_partition: { decided: string; unresolved: string };
+        command_footprint_preflight: { source: string; fields: string[]; evaluator: string; timing: string };
+        internal_action_owners: Record<string, string>;
+      } } };
     };
+    expect(contract.proposal.prepare_task.semantic_adapter.decision_partition).toEqual({
+      decided: 'confirmed_decisions',
+      unresolved: 'open_questions',
+    });
+    expect(contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight).toEqual({
+      source: 'implementation_steps[].commands',
+      fields: ['command', 'expected_repo_writes'],
+      evaluator: 'shared-mutation-scope-evaluator',
+      timing: 'before-draft-commit',
+    });
     expect(contract.proposal.prepare_task.semantic_adapter.internal_action_owners).toEqual({
       'migrate-claim-evidence': 'runtime-compatibility',
       'mark-replan-blocked': 'runtime-convergence',

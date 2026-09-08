@@ -225,6 +225,16 @@ proposal:
         - implementation_steps
         - validation_plan
         - persistent_tests
+      decision_partition:
+        decided: confirmed_decisions
+        unresolved: open_questions
+      command_footprint_preflight:
+        source: "implementation_steps[].commands"
+        fields:
+          - command
+          - expected_repo_writes
+        evaluator: shared-mutation-scope-evaluator
+        timing: before-draft-commit
       confirmation_binding: runtime-issued-draft-receipt-plus-authorized-caller
       resume_review_binding: caller-provided-exact-readiness-receipt
       replan_entry: superseded + active

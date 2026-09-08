@@ -31,10 +31,12 @@ import {
   type RuntimeResult,
 } from './kernel';
 import {
+  evaluateCommandWriteFootprint,
   evaluateMutationScope,
   isLikelyPersistentTestPath,
   mutationScopePatternMatchesPath,
   parseMutationScope,
+  type MutationTransformationKind,
 } from './mutation-scope';
 import { extractTaskIdentityFromCurrentTask } from './task-identity';
 
@@ -47,11 +49,19 @@ export const PREPARE_TASK_ADAPTER_COMMANDS = [
 
 export type PrepareTaskAdapterCommand = (typeof PREPARE_TASK_ADAPTER_COMMANDS)[number];
 
+export type PrepareTaskStepCommand = {
+  command: string;
+  expected_repo_writes: 'none' | string[];
+};
+
 export type PrepareTaskSemanticDraft = {
   goal: string;
   acceptance: string[];
   out_of_scope: string[];
-  design_decisions: string[];
+  design_decisions: {
+    decided: string[];
+    unresolved: string[];
+  };
   mutation_scope: {
     allowed: string[];
     conditional: Array<{ path: string; condition: string }>;
@@ -61,6 +71,7 @@ export type PrepareTaskSemanticDraft = {
     id: string;
     description: string;
     mutation_scope: string[];
+    commands: PrepareTaskStepCommand[];
     validation: string[];
   }>;
   validation_plan: string[];
@@ -223,9 +234,55 @@ function normalizeResumeReadinessReceipt(input: unknown): ResumeReadinessReceipt
   };
 }
 
+function normalizeStepCommands(value: unknown, location: string): PrepareTaskStepCommand[] {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', `${location} must be a bounded array.`);
+  }
+  return value.map((item, index) => {
+    const itemLocation = `${location}[${index}]`;
+    const candidate = record(item, itemLocation);
+    exactKeys(candidate, ['command', 'expected_repo_writes'], itemLocation);
+    if (candidate.expected_repo_writes === 'none') {
+      return {
+        command: text(candidate.command, `${itemLocation}.command`),
+        expected_repo_writes: 'none',
+      };
+    }
+    const expectedRepoWrites = normalizeScopePathList(candidate.expected_repo_writes, `${itemLocation}.expected_repo_writes`);
+    if (expectedRepoWrites.length === 0) {
+      fail('PREPARE_ADAPTER_INPUT_INVALID', `${itemLocation}.expected_repo_writes must be none or a non-empty bounded array.`);
+    }
+    return {
+      command: text(candidate.command, `${itemLocation}.command`),
+      expected_repo_writes: expectedRepoWrites,
+    };
+  });
+}
+
+function commandTransformationKind(command: PrepareTaskStepCommand): MutationTransformationKind {
+  return command.expected_repo_writes !== 'none' && command.expected_repo_writes.some(item => item.includes('*'))
+    ? 'inherently-broad'
+    : 'localized';
+}
+
+function stepScopeAdmitsCommandTarget(target: string, stepScope: readonly string[]): boolean {
+  return target.includes('*')
+    ? stepScope.includes(target)
+    : stepScope.some(pattern => mutationScopePatternMatchesPath(target, pattern));
+}
+
 function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   const source = record(input, 'prepare-task semantic draft');
   exactKeys(source, SEMANTIC_DRAFT_FIELDS, 'prepare-task semantic draft');
+
+  const designDecisions = record(source.design_decisions, 'design_decisions');
+  exactKeys(designDecisions, ['decided', 'unresolved'], 'design_decisions');
+  const decided = textList(designDecisions.decided, 'design_decisions.decided', true);
+  const unresolved = textList(designDecisions.unresolved, 'design_decisions.unresolved', true);
+  const duplicatedDecisions = decided.filter(item => unresolved.includes(item));
+  if (duplicatedDecisions.length > 0) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', 'a design decision cannot be both decided and unresolved.');
+  }
 
   const mutationScope = record(source.mutation_scope, 'mutation_scope');
   exactKeys(mutationScope, ['allowed', 'conditional', 'forbidden'], 'mutation_scope');
@@ -252,13 +309,14 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   }
   const implementationSteps = source.implementation_steps.map((item, index) => {
     const step = record(item, `implementation_steps[${index}]`);
-    exactKeys(step, ['id', 'description', 'mutation_scope', 'validation'], `implementation_steps[${index}]`);
+    exactKeys(step, ['id', 'description', 'mutation_scope', 'commands', 'validation'], `implementation_steps[${index}]`);
     const id = text(step.id, `implementation_steps[${index}].id`, 128);
     if (!STEP_ID_PATTERN.test(id)) fail('PREPARE_ADAPTER_INPUT_INVALID', `implementation_steps[${index}].id is invalid.`);
     return {
       id,
       description: text(step.description, `implementation_steps[${index}].description`),
       mutation_scope: normalizeScopePathList(step.mutation_scope, `implementation_steps[${index}].mutation_scope`),
+      commands: normalizeStepCommands(step.commands, `implementation_steps[${index}].commands`),
       validation: textList(step.validation, `implementation_steps[${index}].validation`, false),
     };
   });
@@ -293,7 +351,7 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     goal: text(source.goal, 'goal', 512),
     acceptance: textList(source.acceptance, 'acceptance', false),
     out_of_scope: textList(source.out_of_scope, 'out_of_scope', true),
-    design_decisions: textList(source.design_decisions, 'design_decisions', true),
+    design_decisions: { decided, unresolved },
     mutation_scope: { allowed, conditional, forbidden },
     implementation_steps: implementationSteps,
     validation_plan: textList(source.validation_plan, 'validation_plan', false),
@@ -377,6 +435,31 @@ function assertSemanticScopeIsExecutable(input: PrepareTaskSemanticDraft): void 
         fail('STEP_SCOPE_INVALID', `step ${step.id} target ${target} is ambiguously both Allowed and Conditional.`);
       }
     }
+    for (const [commandIndex, command] of step.commands.entries()) {
+      if (command.expected_repo_writes === 'none') continue;
+      const outsideStepScope = command.expected_repo_writes.filter(target => !stepScopeAdmitsCommandTarget(target, step.mutation_scope));
+      if (outsideStepScope.length > 0) {
+        fail(
+          'COMMAND_FOOTPRINT_BLOCKED',
+          `step ${step.id} command "${command.command}" writes outside the step mutation scope: ${outsideStepScope.join(', ')}.`,
+        );
+      }
+      const result = evaluateCommandWriteFootprint(scope, {
+        command: command.command,
+        expected_write_footprint: {
+          kind: 'bounded',
+          targets: command.expected_repo_writes,
+          evidence_refs: [`adapter:prepare-draft:command:${step.id}:${commandIndex + 1}`],
+        },
+        transformation_kind: commandTransformationKind(command),
+      });
+      if (result.status !== 'pass') {
+        fail(
+          'COMMAND_FOOTPRINT_BLOCKED',
+          `step ${step.id} command "${command.command}" has no executable repository-write plan: ${result.blockers.join(' ')}`,
+        );
+      }
+    }
   }
 }
 
@@ -439,8 +522,8 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
     conditional_scope: markdownBullets(input.mutation_scope.conditional.map(item => `\`${item.path}\` when ${item.condition}`)),
     forbidden_scope: markdownBullets(input.mutation_scope.forbidden.map(item => `\`${item}\``)),
     affected_contracts: '- none',
-    confirmed_decisions: markdownBullets(input.design_decisions),
-    open_questions: '- none',
+    confirmed_decisions: markdownBullets(input.design_decisions.decided),
+    open_questions: markdownBullets(input.design_decisions.unresolved),
     implementation_plan: input.implementation_steps.map(step => `- ${step.id}: ${step.description}`).join('\n'),
     implementation_steps: input.implementation_steps.flatMap(step => [
       `- ${step.id}: ${step.description}`,
@@ -448,6 +531,11 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
       `  - mutation_scope: ${step.mutation_scope.join(', ')}`,
       `  - required_evidence: ${step.validation.join('; ')}`,
       `  - review_checkpoint: required: review ${step.id} diff against the confirmed CURRENT_TASK`,
+      ...step.commands.flatMap(item => [
+        `  - planned_command: ${item.command}`,
+        `    - expected_repo_writes: ${item.expected_repo_writes === 'none' ? 'none' : item.expected_repo_writes.join(', ')}`,
+        `    - transformation_kind: ${commandTransformationKind(item)}`,
+      ]),
     ]).join('\n'),
     regression_checks: [
       '### Validation Plan',

@@ -32,7 +32,8 @@ entry_contract:
   runtime_operations:
     - task-state-transaction
   stop_conditions:
-    - the goal, acceptance, scope, or a required design decision remains unresolved
+    - the goal, acceptance, or mutation boundary is too unclear to form a bounded draft
+    - confirmation is requested while a user-owned design choice remains unresolved
     - a known scope, command, or authority blocker prevents an executable plan
     - Runtime rejects the proposal or the current task state is not eligible for the requested mode
   output_kind: prepared-task
@@ -48,7 +49,8 @@ executable `CURRENT_TASK` draft containing:
 - **Goal**
 - **Acceptance**
 - **Out of scope**
-- necessary **Design decisions** and any conflict with existing design
+- necessary resolved **Design decisions**, unresolved user-owned choices, and
+  any conflict with existing design
 - **Mutation scope**: Allowed / Conditional / Forbidden
 - ordered **Implementation steps** that say what to change, where, and how to
   validate the result
@@ -58,6 +60,8 @@ executable `CURRENT_TASK` draft containing:
 Read only the context needed to make those decisions. Resolve known scope and
 command blockers before submitting the draft; if a blocker cannot be resolved
 within the user's authority, report it instead of leaving it to `execute-step`.
+For every planned command, state its expected repository writes as `none` or
+bounded paths/globs so the adapter can check the plan before committing it.
 
 Persistent Tests are a closed allowlist and default to `none`. For every listed
 test asset, give its exact repository-relative path and the behavior it proves,
@@ -71,6 +75,13 @@ Keep every requirement at the strength, scope, and lifetime the user actually
 requested. A local behavior, default, or current-task exclusion is not a
 permanent invariant. If the request conflicts with existing design, record the
 conflict instead of silently strengthening or overriding either side.
+Necessary design decisions do not authorize inventing unspecified externally
+observable behavior; keep such choices unresolved until the user or an
+authoritative existing design resolves them.
+
+Before submission, make one bounded read-only review of decision authority,
+conflict and invariant strength, step-end executability, and command-footprint
+admission. Revise once or surface unresolved choices; do not broaden the task.
 
 If Runtime reports a resume-review gate, evaluate only the required readiness
 evidence, then submit the caller/host readiness receipt bound to the exact task,
@@ -99,8 +110,9 @@ proposal or helper files inside the target repository; if the host requires a
 file, use an OS-temporary location outside the project. Only a successful
 Runtime result proves that the draft was committed.
 
-After an ordinary draft commit, summarize it, ask the user to confirm that exact
-draft, and include Runtime's confirmation receipt in the prepared result so the
+After an ordinary draft commit, summarize it. If a user-owned choice remains
+unresolved, ask for that decision; otherwise ask the user to confirm that exact
+draft. Include Runtime's confirmation receipt in the prepared result so a
 later confirmation can return it unchanged. Then stop.
 Confirmation is a later explicit `prepare-task:confirm` invocation; never
 auto-confirm. Return one `prepared-task` result with any

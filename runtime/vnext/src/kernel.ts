@@ -1472,6 +1472,8 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
       'input',
       'commands',
       'draft_fields',
+      'decision_partition',
+      'command_footprint_preflight',
       'confirmation_binding',
       'resume_review_binding',
       'replan_entry',
@@ -1492,6 +1494,25 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     expectStringArray(prepareTaskAdapter.draft_fields, 'Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields'),
     ['goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_scope', 'implementation_steps', 'validation_plan', 'persistent_tests'],
     'Runtime contract prepare-task adapter semantic fields',
+  );
+  const decisionPartition = expectRecord(prepareTaskAdapter.decision_partition, 'Runtime contract.proposal.prepare_task.semantic_adapter.decision_partition');
+  expectExactKeys(decisionPartition, ['decided', 'unresolved'], 'Runtime contract.proposal.prepare_task.semantic_adapter.decision_partition');
+  if (decisionPartition.decided !== 'confirmed_decisions' || decisionPartition.unresolved !== 'open_questions') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must preserve decided and unresolved design choices separately.');
+  }
+  const commandFootprintPreflight = expectRecord(prepareTaskAdapter.command_footprint_preflight, 'Runtime contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight');
+  expectExactKeys(commandFootprintPreflight, ['source', 'fields', 'evaluator', 'timing'], 'Runtime contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight');
+  if (
+    commandFootprintPreflight.source !== 'implementation_steps[].commands'
+    || commandFootprintPreflight.evaluator !== 'shared-mutation-scope-evaluator'
+    || commandFootprintPreflight.timing !== 'before-draft-commit'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter command-footprint preflight is not bound to declared step commands before draft commit.');
+  }
+  expectSetEqual(
+    expectStringArray(commandFootprintPreflight.fields, 'Runtime contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight.fields'),
+    ['command', 'expected_repo_writes'],
+    'Runtime prepare-task adapter command-footprint fields',
   );
   if (prepareTaskAdapter.persistent_tests_storage !== 'existing-scope-and-regression-sections') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must map persistent tests into existing canonical sections.');
