@@ -771,11 +771,10 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     }
   }
 
-  const status = outcome === 'blocked'
-    ? 'blocked' as const
-    : receipt.mode === 'repair' || stepPlan.step.review_checkpoint === 'not-required'
-      ? 'completed' as const
-      : 'in-progress' as const;
+  let status: 'blocked' | 'completed' | 'in-progress';
+  if (outcome === 'blocked') status = 'blocked';
+  else if (receipt.mode === 'repair' || stepPlan.step.review_checkpoint === 'not-required') status = 'completed';
+  else status = 'in-progress';
   const proposal = createTaskStateProposal(current, {
     mode: receipt.mode,
     status,

@@ -85,7 +85,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.14.7';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.14.8';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -1303,7 +1303,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord(contract.proposal, 'Runtime contract.proposal');
-  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'task_state', 'prepare_task', 'inbox_record', 'lifecycle', 'close_task', 'lesson_marker'], 'Runtime contract.proposal');
+  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'task_state', 'execute_step', 'prepare_task', 'inbox_record', 'lifecycle', 'close_task', 'lesson_marker'], 'Runtime contract.proposal');
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime proposal contract has an invalid envelope marker.');
   expectSetEqual(expectStringArray(proposal.caller, 'Runtime contract.proposal.caller'), ['execute-step', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'Runtime contract proposal callers');
   expectSetEqual(expectStringArray(proposal.operation_kinds, 'Runtime contract.proposal.operation_kinds'), [...RUNTIME_OPERATION_KINDS], 'Runtime contract operation kinds');
@@ -1463,6 +1463,44 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(expectStringArray(confirmCoords.required, 'Runtime contract.proposal.task_state.confirm.authority_coordinates.required'), ['task_id', 'document_id', 'draft_revision'], 'Runtime contract task-state confirm authority coordinates');
   if (confirmCoords.exact_draft_revision !== true) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm authority_coordinates exact_draft_revision must be true.');
   if (confirmContract.from !== 'draft + active' || confirmContract.to !== 'active + active') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm transition is invalid.');
+  const executeStepContract = expectRecord(proposal.execute_step, 'Runtime contract.proposal.execute_step');
+  expectExactKeys(executeStepContract, ['semantic_adapter', 'bound_actions'], 'Runtime contract.proposal.execute_step');
+  const executeStepAdapter = expectRecord(executeStepContract.semantic_adapter, 'Runtime contract.proposal.execute_step.semantic_adapter');
+  expectExactKeys(
+    executeStepAdapter,
+    [
+      'input',
+      'commands',
+      'step_source',
+      'scope_enforcement',
+      'command_plan_source',
+      'persistent_tests_enforcement',
+      'proposal_file_policy',
+      'advancement_owner',
+    ],
+    'Runtime contract.proposal.execute_step.semantic_adapter',
+  );
+  if (executeStepAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter input must remain stdin-json.');
+  expectSetEqual(
+    expectStringArray(executeStepAdapter.commands, 'Runtime contract.proposal.execute_step.semantic_adapter.commands'),
+    ['preflight-step', 'record-step-result', 'complete-reviewed-step'],
+    'Runtime contract execute-step adapter commands',
+  );
+  if (
+    executeStepAdapter.step_source !== 'confirmed-current-task'
+    || executeStepAdapter.scope_enforcement !== 'task-and-current-step'
+    || executeStepAdapter.command_plan_source !== 'confirmed-current-step'
+    || executeStepAdapter.persistent_tests_enforcement !== 'frozen-section-plus-scope-evaluator'
+    || executeStepAdapter.proposal_file_policy !== 'project-external-only'
+    || executeStepAdapter.advancement_owner !== 'runtime'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter semantic boundary is invalid.');
+  }
+  expectSetEqual(
+    expectStringArray(executeStepContract.bound_actions, 'Runtime contract.proposal.execute_step.bound_actions'),
+    ['step-progress', 'record-repair-attempt', 'resolve'],
+    'Runtime contract execute-step adapter bound actions',
+  );
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
   expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
   const prepareTaskAdapter = expectRecord(prepareTaskContract.semantic_adapter, 'Runtime contract.proposal.prepare_task.semantic_adapter');

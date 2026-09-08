@@ -1598,7 +1598,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.14.7";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.14.8";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -2057,7 +2057,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord2(contract.proposal, "Runtime contract.proposal");
-  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "task_state", "prepare_task", "inbox_record", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
+  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "task_state", "execute_step", "prepare_task", "inbox_record", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime proposal contract has an invalid envelope marker.");
   expectSetEqual(expectStringArray2(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "Runtime contract proposal callers");
@@ -2148,6 +2148,26 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract task-state confirm authority_coordinates exact_draft_revision must be true.");
   if (confirmContract.from !== "draft + active" || confirmContract.to !== "active + active")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract task-state confirm transition is invalid.");
+  const executeStepContract = expectRecord2(proposal.execute_step, "Runtime contract.proposal.execute_step");
+  expectExactKeys2(executeStepContract, ["semantic_adapter", "bound_actions"], "Runtime contract.proposal.execute_step");
+  const executeStepAdapter = expectRecord2(executeStepContract.semantic_adapter, "Runtime contract.proposal.execute_step.semantic_adapter");
+  expectExactKeys2(executeStepAdapter, [
+    "input",
+    "commands",
+    "step_source",
+    "scope_enforcement",
+    "command_plan_source",
+    "persistent_tests_enforcement",
+    "proposal_file_policy",
+    "advancement_owner"
+  ], "Runtime contract.proposal.execute_step.semantic_adapter");
+  if (executeStepAdapter.input !== "stdin-json")
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter input must remain stdin-json.");
+  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
+  if (executeStepAdapter.step_source !== "confirmed-current-task" || executeStepAdapter.scope_enforcement !== "task-and-current-step" || executeStepAdapter.command_plan_source !== "confirmed-current-step" || executeStepAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator" || executeStepAdapter.proposal_file_policy !== "project-external-only" || executeStepAdapter.advancement_owner !== "runtime") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter semantic boundary is invalid.");
+  }
+  expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
   expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
   const prepareTaskAdapter = expectRecord2(prepareTaskContract.semantic_adapter, "Runtime contract.proposal.prepare_task.semantic_adapter");
@@ -9331,6 +9351,37 @@ class GovernanceTransactionKernel {
 function applyVNextRuntimeProposal(root, proposal, options = {}) {
   return new GovernanceTransactionKernel(root).apply(proposal, options);
 }
+function createTaskStateProposal(current, input) {
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...claimEvidenceRefs(input.claim_evidence ?? [])
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "execute-step",
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: "step-progress",
+      step_id: current.runtimeState.active_step_id,
+      status: input.status,
+      evidence_refs: input.evidence_refs,
+      ...input.note ? { note: input.note } : {},
+      ...input.repair_fingerprint ? { repair_fingerprint: input.repair_fingerprint } : {},
+      ...input.diff_target ? { diff_target: input.diff_target } : {},
+      ...input.review_receipt ? { review_receipt: input.review_receipt } : {},
+      ...input.claim_evidence === undefined ? {} : { claim_evidence: input.claim_evidence }
+    },
+    preconditions: ["current-task-is-active", "active-step-matches", "scope-admitted"],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
 function createPrepareTaskResumeReviewProposal(current, input) {
   return validateRuntimeProposal({
     schema_version: 1,
@@ -9423,6 +9474,22 @@ function createPrepareTaskReplanProposal(current, input) {
     semantic_delta: input.delta,
     preconditions: input.delta.action === "mark-replan-blocked" ? ["current-task-is-active", "replan-blocker-evidence-complete"] : input.delta.action === "clear-replan-block" ? ["blocked-by-replan", "new-authoritative-evidence"] : ["superseded-task", "closed-replacement-definition", "same-task-identity"],
     evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createFindingQueueProposal(current, input) {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "finding-queue-transaction",
+    caller: "execute-step",
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ["current-task-is-active", "finding-admitted", "repair-budget-available"],
+    evidence_refs: input.evidence_refs,
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath]
   });
@@ -12112,6 +12179,841 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
   }
 }
 
+// runtime/vnext/src/execute-step-adapter.ts
+import * as crypto8 from "crypto";
+import * as fs8 from "fs";
+import * as path9 from "path";
+var EXECUTE_STEP_ADAPTER_COMMANDS = [
+  "preflight-step",
+  "record-step-result",
+  "complete-reviewed-step"
+];
+var MAX_ITEMS2 = 256;
+var WINDOWS_ABSOLUTE_PATH2 = /^[A-Za-z]:[\\/]/u;
+var SHA256_PATTERN4 = /^[a-f0-9]{64}$/u;
+var SAFE_KEY_PATTERN3 = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+function fail6(code, message) {
+  throw new VNextRuntimeError(code, message);
+}
+function record2(value, location) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be an object.`);
+  }
+  return value;
+}
+function exactKeys2(value, expected, location) {
+  const allowed = new Set(expected);
+  const missing = expected.filter((key) => !(key in value));
+  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
+  if (missing.length > 0 || unexpected.length > 0) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${unexpected.join(", ")}].`);
+  }
+}
+function text2(value, location, maximumLength = 4096) {
+  if (typeof value !== "string")
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be a string.`);
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maximumLength || /[\r\n]/u.test(normalized)) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be one non-empty line of at most ${maximumLength} characters.`);
+  }
+  return normalized;
+}
+function nullableText(value, location, maximumLength = 4096) {
+  return value === null ? null : text2(value, location, maximumLength);
+}
+function textList2(value, location, allowEmpty) {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS2 || !allowEmpty && value.length === 0) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be a bounded${allowEmpty ? "" : " non-empty"} array.`);
+  }
+  const values = value.map((item, index) => text2(item, `${location}[${index}]`));
+  if (new Set(values).size !== values.length) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must not contain duplicates.`);
+  }
+  return values;
+}
+function normalizePath(value, location, allowGlob) {
+  const original = text2(value, location, 1024);
+  const normalized = original.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  if (normalized.startsWith("/") || WINDOWS_ABSOLUTE_PATH2.test(original) || normalized.split("/").includes("..") || normalized.includes("\x00") || !allowGlob && normalized.includes("*")) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be a repository-relative ${allowGlob ? "path or glob" : "exact path"} without traversal.`);
+  }
+  return normalized;
+}
+function pathList(value, location, allowEmpty, allowGlob = false) {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS2 || !allowEmpty && value.length === 0) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be a bounded${allowEmpty ? "" : " non-empty"} array.`);
+  }
+  const values = value.map((item, index) => normalizePath(item, `${location}[${index}]`, allowGlob));
+  if (new Set(values).size !== values.length) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must not contain duplicates.`);
+  }
+  return values;
+}
+function digest3(value) {
+  return crypto8.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+function idempotencyKey(prefix, value) {
+  return `${prefix}-${digest3(value).slice(0, 48)}`;
+}
+function authority2(current, kinds) {
+  return kinds.map((kind) => ({
+    kind,
+    source: current.relativePath,
+    subject: current.runtimeState.task_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision
+  }));
+}
+function assertExecutableTask(current) {
+  if (current.runtimeState.workflow_status === "draft" && current.runtimeState.lifecycle_state === "active") {
+    fail6("DRAFT_NOT_EXECUTABLE", "execute-step requires an explicitly confirmed task; the current task is draft + active.");
+  }
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+    fail6("TASK_STATE_NOT_ACTIVE", "execute-step requires active + active.");
+  }
+  if (current.runtimeState.resume_requires_review) {
+    fail6("RESUME_REVIEW_REQUIRED", "execute-step is blocked by the current resume-review gate.");
+  }
+}
+function parseScopeList(value, location) {
+  if (!value)
+    fail6("TASK_STEP_METADATA_INCOMPLETE", `${location} is missing.`);
+  const items = value.split(",").map((item) => item.replace(/`/gu, "").trim()).filter(Boolean);
+  if (items.length === 0 || new Set(items).size !== items.length) {
+    fail6("TASK_STEP_METADATA_INCOMPLETE", `${location} must be a non-empty list without duplicates.`);
+  }
+  return items.map((item, index) => normalizePath(item, `${location}[${index}]`, true));
+}
+function parseValidationList(value, location) {
+  if (!value)
+    fail6("TASK_STEP_METADATA_INCOMPLETE", `${location} is missing.`);
+  const items = value.split(/;\s+/u).map((item) => item.trim()).filter(Boolean);
+  if (items.length === 0 || new Set(items).size !== items.length) {
+    fail6("TASK_STEP_METADATA_INCOMPLETE", `${location} must be a non-empty list without duplicates.`);
+  }
+  return items;
+}
+function parsePlannedCommands(current, stepId) {
+  const definition = readDraftDefinitionFromBody(current.body);
+  const lines = definition.implementation_steps.replace(/\r\n?/gu, `
+`).split(`
+`);
+  const commands = [];
+  let inCurrentStep = false;
+  for (let index = 0;index < lines.length; index += 1) {
+    const step = /^-\s+([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\s*[:：]/u.exec(lines[index]);
+    if (step) {
+      inCurrentStep = step[1] === stepId;
+      continue;
+    }
+    if (!inCurrentStep)
+      continue;
+    const planned = /^\s{2,}-\s+planned_command:\s*(.+?)\s*$/u.exec(lines[index]);
+    if (!planned)
+      continue;
+    const expected = /^\s{4,}-\s+expected_repo_writes:\s*(.+?)\s*$/u.exec(lines[index + 1] ?? "");
+    const transformation = /^\s{4,}-\s+transformation_kind:\s*(localized|inherently-broad)\s*$/u.exec(lines[index + 2] ?? "");
+    if (!expected || !transformation) {
+      fail6("TASK_STEP_COMMAND_PLAN_INVALID", `planned command "${planned[1].trim()}" is missing canonical write-footprint metadata.`);
+    }
+    const rawTargets = expected[1].trim();
+    const expectedWrites = rawTargets === "none" ? "none" : rawTargets.split(",").map((item, targetIndex) => normalizePath(item.trim(), `planned_command.expected_repo_writes[${targetIndex}]`, true));
+    if (expectedWrites !== "none" && expectedWrites.length === 0) {
+      fail6("TASK_STEP_COMMAND_PLAN_INVALID", `planned command "${planned[1].trim()}" has an empty write footprint.`);
+    }
+    commands.push({
+      command: planned[1].trim(),
+      expected_repo_writes: expectedWrites,
+      transformation_kind: transformation[1]
+    });
+    index += 2;
+  }
+  if (new Set(commands.map((item) => item.command)).size !== commands.length) {
+    fail6("TASK_STEP_COMMAND_PLAN_INVALID", `step ${stepId} contains duplicate planned commands.`);
+  }
+  return commands;
+}
+function currentStepPlan(current) {
+  const resolution = resolveTaskStep(current.body, current.runtimeState.active_step_id);
+  if (!resolution.current.metadata_complete || !resolution.current.purpose || !resolution.current.review_checkpoint) {
+    fail6("TASK_STEP_METADATA_INCOMPLETE", `step ${resolution.current.id} is not executable because its canonical metadata is incomplete.`);
+  }
+  return {
+    step: resolution.current,
+    mutation_scope: parseScopeList(resolution.current.mutation_scope, `step ${resolution.current.id} mutation_scope`),
+    validation: parseValidationList(resolution.current.required_evidence, `step ${resolution.current.id} required_evidence`),
+    commands: parsePlannedCommands(current, resolution.current.id)
+  };
+}
+function stepAdmitsExactPath(file, stepScope) {
+  return stepScope.some((pattern) => mutationScopePatternMatchesPath(file, pattern));
+}
+function stepAdmitsFootprintTarget(target, stepScope) {
+  return target.includes("*") ? stepScope.includes(target) : stepAdmitsExactPath(target, stepScope);
+}
+function assertPathsAdmitted(current, stepPlan, paths, location) {
+  if (paths.length === 0)
+    return;
+  const scopeResult = evaluateMutationScope(parseMutationScope(current.body, current.sourceTuple.revision), {
+    changed_paths: [...paths]
+  });
+  if (scopeResult.status !== "pass") {
+    fail6("EXECUTE_SCOPE_BLOCKED", `${location} is outside confirmed task scope: ${scopeResult.blockers.join(" ")}`);
+  }
+  const outsideStep = paths.filter((file) => !stepAdmitsExactPath(file, stepPlan.mutation_scope));
+  if (outsideStep.length > 0) {
+    fail6("EXECUTE_STEP_SCOPE_BLOCKED", `${location} is outside current step scope: ${outsideStep.join(", ")}.`);
+  }
+}
+function assertCommandPlansAdmitted(current, stepPlan) {
+  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+  for (const command of stepPlan.commands) {
+    if (command.expected_repo_writes === "none")
+      continue;
+    const outsideStep = command.expected_repo_writes.filter((target) => !stepAdmitsFootprintTarget(target, stepPlan.mutation_scope));
+    if (outsideStep.length > 0) {
+      fail6("COMMAND_FOOTPRINT_BLOCKED", `planned command "${command.command}" writes outside current step scope: ${outsideStep.join(", ")}.`);
+    }
+    const result = evaluateCommandWriteFootprint(scope, {
+      command: command.command,
+      expected_write_footprint: {
+        kind: "bounded",
+        targets: command.expected_repo_writes,
+        evidence_refs: [`adapter:execute-preflight:${stepPlan.step.id}`]
+      },
+      transformation_kind: command.transformation_kind
+    });
+    if (result.status !== "pass") {
+      fail6("COMMAND_FOOTPRINT_BLOCKED", `planned command "${command.command}" is not executable: ${result.blockers.join(" ")}`);
+    }
+  }
+}
+function stepPlanRevision(stepPlan) {
+  return digest3({
+    step: stepPlan.step,
+    mutation_scope: stepPlan.mutation_scope,
+    validation: stepPlan.validation,
+    commands: stepPlan.commands
+  });
+}
+function normalizePreflightReceipt(value) {
+  const source = record2(value, "preflight_receipt");
+  exactKeys2(source, [
+    "kind",
+    "task_id",
+    "document_id",
+    "source_revision",
+    "step_id",
+    "plan_revision",
+    "mode",
+    "candidate_paths",
+    "repair_fingerprint",
+    "diff_target"
+  ], "preflight_receipt");
+  if (source.kind !== "execute-step-preflight/v1") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "preflight_receipt.kind must be execute-step-preflight/v1.");
+  }
+  const mode = source.mode;
+  if (mode !== "default" && mode !== "repair") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "preflight_receipt.mode must be default or repair.");
+  }
+  const sourceRevision = text2(source.source_revision, "preflight_receipt.source_revision", 64);
+  const planRevision = text2(source.plan_revision, "preflight_receipt.plan_revision", 64);
+  if (!SHA256_PATTERN4.test(sourceRevision) || !SHA256_PATTERN4.test(planRevision)) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "preflight receipt revisions must be SHA-256 values.");
+  }
+  return {
+    kind: source.kind,
+    task_id: text2(source.task_id, "preflight_receipt.task_id", 128),
+    document_id: text2(source.document_id, "preflight_receipt.document_id", 128),
+    source_revision: sourceRevision,
+    step_id: text2(source.step_id, "preflight_receipt.step_id", 128),
+    plan_revision: planRevision,
+    mode,
+    candidate_paths: pathList(source.candidate_paths, "preflight_receipt.candidate_paths", true),
+    repair_fingerprint: nullableText(source.repair_fingerprint, "preflight_receipt.repair_fingerprint", 128),
+    diff_target: nullableText(source.diff_target, "preflight_receipt.diff_target", 512)
+  };
+}
+function assertCurrentReceipt(current, stepPlan, receipt) {
+  if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
+    fail6("EXECUTE_PREFLIGHT_IDENTITY_CONFLICT", "preflight receipt does not identify the current task document.");
+  }
+  if (receipt.source_revision !== current.sourceTuple.revision) {
+    fail6("EXECUTE_PREFLIGHT_STALE", "CURRENT_TASK changed after preflight; run preflight-step again before editing or committing.");
+  }
+  if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== stepPlanRevision(stepPlan)) {
+    fail6("EXECUTE_PREFLIGHT_STALE", "the active step or its executable plan changed after preflight.");
+  }
+}
+function preflightStep(root, input) {
+  const source = record2(input, "preflight-step input");
+  exactKeys2(source, ["mode", "candidate_paths", "repair_fingerprint", "diff_target"], "preflight-step input");
+  if (source.mode !== "default" && source.mode !== "repair") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "mode must be default or repair.");
+  }
+  const mode = source.mode;
+  const candidatePaths = pathList(source.candidate_paths, "candidate_paths", true);
+  const repairFingerprint = nullableText(source.repair_fingerprint, "repair_fingerprint", 128);
+  const diffTarget = nullableText(source.diff_target, "diff_target", 512);
+  if (mode === "default" && (repairFingerprint !== null || diffTarget !== null)) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "default preflight must use null repair_fingerprint and diff_target.");
+  }
+  if (mode === "repair" && (repairFingerprint === null || diffTarget === null)) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "repair preflight requires repair_fingerprint and diff_target.");
+  }
+  const current = readCanonicalCurrentTask(root);
+  assertExecutableTask(current);
+  const stepPlan = currentStepPlan(current);
+  assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths");
+  assertCommandPlansAdmitted(current, stepPlan);
+  if (repairFingerprint !== null) {
+    const finding = current.runtimeState.findings.find((item) => item.fingerprint === repairFingerprint);
+    if (!finding || !["admitted", "in-progress"].includes(finding.status)) {
+      fail6("FINDING_ADMISSION_REQUIRED", "repair_fingerprint is not an admitted current-task finding.");
+    }
+    if (finding.repair_attempts >= finding.max_repair_attempts) {
+      fail6("REPAIR_BUDGET_EXHAUSTED", `finding ${repairFingerprint} has exhausted its repair budget.`);
+    }
+  }
+  const receipt = {
+    kind: "execute-step-preflight/v1",
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: stepPlan.step.id,
+    plan_revision: stepPlanRevision(stepPlan),
+    mode,
+    candidate_paths: candidatePaths,
+    repair_fingerprint: repairFingerprint,
+    diff_target: diffTarget
+  };
+  return {
+    status: "pass",
+    operation_kind: "execute-step-preflight",
+    committed: false,
+    read_back_verified: true,
+    current_step: {
+      id: stepPlan.step.id,
+      description: stepPlan.step.description,
+      purpose: stepPlan.step.purpose,
+      mutation_scope: stepPlan.mutation_scope,
+      commands: stepPlan.commands,
+      validation: stepPlan.validation,
+      review_checkpoint: stepPlan.step.review_checkpoint
+    },
+    receipt
+  };
+}
+function resultStatus(value, location) {
+  if (value !== "passed" && value !== "failed") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be passed or failed.`);
+  }
+  return value;
+}
+function normalizeCommandResults(value) {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS2) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "command_results must be a bounded array.");
+  }
+  const results = value.map((item, index) => {
+    const location = `command_results[${index}]`;
+    const source = record2(item, location);
+    exactKeys2(source, ["command", "status", "observed_repo_writes", "evidence_refs"], location);
+    return {
+      command: text2(source.command, `${location}.command`),
+      status: resultStatus(source.status, `${location}.status`),
+      observed_repo_writes: pathList(source.observed_repo_writes, `${location}.observed_repo_writes`, true),
+      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, false)
+    };
+  });
+  if (new Set(results.map((item) => item.command)).size !== results.length) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "command_results must not contain duplicate commands.");
+  }
+  return results;
+}
+function normalizeValidationResults(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_ITEMS2) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "validation_results must be a bounded non-empty array.");
+  }
+  const results = value.map((item, index) => {
+    const location = `validation_results[${index}]`;
+    const source = record2(item, location);
+    exactKeys2(source, ["validation", "status", "evidence_refs"], location);
+    return {
+      validation: text2(source.validation, `${location}.validation`),
+      status: resultStatus(source.status, `${location}.status`),
+      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, false)
+    };
+  });
+  if (new Set(results.map((item) => item.validation)).size !== results.length) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "validation_results must not contain duplicate validations.");
+  }
+  return results;
+}
+function normalizeAcceptanceEvidence(value) {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS2) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "acceptance_evidence must be a bounded array.");
+  }
+  const results = value.map((item, index) => {
+    const location = `acceptance_evidence[${index}]`;
+    const source = record2(item, location);
+    exactKeys2(source, ["acceptance", "evidence_refs"], location);
+    return {
+      acceptance: text2(source.acceptance, `${location}.acceptance`),
+      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, false)
+    };
+  });
+  if (new Set(results.map((item) => item.acceptance)).size !== results.length) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "acceptance_evidence must not contain duplicate acceptance text.");
+  }
+  return results;
+}
+function plannedAcceptance(current) {
+  const value = readDraftDefinitionFromBody(current.body).acceptance;
+  const items = value.replace(/\r\n?/gu, `
+`).split(`
+`).map((line) => line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/u, "").trim()).filter(Boolean);
+  if (items.length === 0 || new Set(items).size !== items.length) {
+    fail6("CLAIM_EVIDENCE_PLAN_INVALID", "canonical acceptance must be a non-empty list without duplicates.");
+  }
+  return items;
+}
+function updateClaimEvidence(current, evidence) {
+  if (!current.runtimeState.claim_evidence_required && current.runtimeState.claim_evidence === undefined)
+    return;
+  const plan = current.runtimeState.claim_evidence ?? [];
+  const acceptance = plannedAcceptance(current);
+  const acceptanceClaims = plan.filter((item) => item.claim_kind === "acceptance");
+  if (acceptanceClaims.length !== acceptance.length || acceptanceClaims.some((item) => item.slots.length !== 1)) {
+    fail6("CLAIM_EVIDENCE_PLAN_INVALID", "execute-step semantic evidence requires one frozen acceptance claim slot per canonical acceptance item.");
+  }
+  const evidenceByAcceptance = new Map(evidence.map((item) => [item.acceptance, item.evidence_refs]));
+  for (const item of evidence) {
+    if (!acceptance.includes(item.acceptance)) {
+      fail6("CLAIM_EVIDENCE_PLAN_CONFLICT", `acceptance_evidence is not in the confirmed task: ${item.acceptance}`);
+    }
+  }
+  let acceptanceIndex = 0;
+  return plan.map((item) => {
+    if (item.claim_kind !== "acceptance") {
+      return { ...item, slots: item.slots.map((slot) => ({ ...slot, evidence_refs: [...slot.evidence_refs] })) };
+    }
+    const refs = evidenceByAcceptance.get(acceptance[acceptanceIndex++]);
+    if (!refs)
+      return { ...item, slots: item.slots.map((slot) => ({ ...slot, evidence_refs: [...slot.evidence_refs] })) };
+    return {
+      ...item,
+      slots: item.slots.map((slot) => ({
+        ...slot,
+        disposition: "newly-executed",
+        evidence_refs: [...new Set([...slot.evidence_refs, ...refs])]
+      }))
+    };
+  });
+}
+function assertExactResultSet(actual, expected, location) {
+  const missing = expected.filter((item) => !actual.includes(item));
+  const unexpected = actual.filter((item) => !expected.includes(item));
+  if (missing.length > 0 || unexpected.length > 0) {
+    fail6("EXECUTE_RESULT_PLAN_CONFLICT", `${location} must match the current step plan; missing=[${missing.join(", ")}], unexpected=[${unexpected.join(", ")}].`);
+  }
+}
+function assertObservedWithinExpected(command, observed) {
+  if (command.expected_repo_writes === "none") {
+    if (observed.length > 0) {
+      fail6("COMMAND_OBSERVED_WRITE_BLOCKED", `command "${command.command}" was planned as write-free but observed repository writes: ${observed.join(", ")}.`);
+    }
+    return;
+  }
+  const outside = observed.filter((file) => !command.expected_repo_writes.some((pattern) => mutationScopePatternMatchesPath(file, pattern)));
+  if (outside.length > 0) {
+    fail6("COMMAND_OBSERVED_WRITE_BLOCKED", `command "${command.command}" wrote outside its prepared footprint: ${outside.join(", ")}.`);
+  }
+}
+function assertCommandResults(current, stepPlan, results) {
+  assertExactResultSet(results.map((item) => item.command), stepPlan.commands.map((item) => item.command), "command_results");
+  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+  for (const result of results) {
+    const planned = stepPlan.commands.find((item) => item.command === result.command);
+    assertObservedWithinExpected(planned, result.observed_repo_writes);
+    assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`);
+    if (planned.expected_repo_writes === "none")
+      continue;
+    const audit = auditCommandMutation(scope, {
+      command: planned.command,
+      expected_write_footprint: {
+        kind: "bounded",
+        targets: planned.expected_repo_writes,
+        evidence_refs: result.evidence_refs
+      },
+      transformation_kind: planned.transformation_kind,
+      observed_write_paths: result.observed_repo_writes
+    });
+    if (audit.status !== "pass") {
+      fail6("COMMAND_MUTATION_AUDIT_BLOCKED", `command "${result.command}" failed Runtime mutation audit: ${audit.blockers.join(" ")}`);
+    }
+  }
+}
+function assertValidationResults(stepPlan, results) {
+  assertExactResultSet(results.map((item) => item.validation), stepPlan.validation, "validation_results");
+}
+function allEvidenceRefs(commands, validations, acceptance) {
+  return [...new Set([
+    ...commands.flatMap((item) => item.evidence_refs),
+    ...validations.flatMap((item) => item.evidence_refs),
+    ...acceptance.flatMap((item) => item.evidence_refs)
+  ])];
+}
+function verifyReadBack(root, result, options) {
+  if (options.dryRun || result.status !== "success" && result.status !== "no-op")
+    return result;
+  const readBack = readCanonicalCurrentTask(root);
+  if (!result.read_back_verified || result.resulting_revision !== readBack.sourceTuple.revision) {
+    fail6("EXECUTE_ADAPTER_READ_BACK_FAILED", "execute-step adapter could not verify the committed canonical CURRENT_TASK revision.");
+  }
+  return result;
+}
+function semanticNoOp2(current, key, message, options) {
+  const state = current.runtimeState;
+  return {
+    status: "no-op",
+    operation_kind: "task-state-transaction",
+    idempotency_key: key,
+    target_path: current.relativePath,
+    dry_run: options.dryRun === true,
+    committed: false,
+    message,
+    previous_revision: current.sourceTuple.revision,
+    resulting_revision: current.sourceTuple.revision,
+    planned_writes: [],
+    governed_mutation_count: 0,
+    read_back_verified: true,
+    state: {
+      task_id: state.task_id,
+      workflow_status: state.workflow_status,
+      lifecycle_state: state.lifecycle_state,
+      resume_requires_review: state.resume_requires_review,
+      resume_review_reasons: [...state.resume_review_reasons],
+      active_step_id: state.active_step_id,
+      active_step_status: state.active_step_status,
+      finding_queue_revision: state.finding_queue_revision,
+      review_cycle_id: state.review_cycle.id,
+      repair_round: state.review_cycle.repair_round
+    }
+  };
+}
+function hasAppliedProposal2(current, key) {
+  return current.runtimeState.applied_proposals.some((item) => item.idempotency_key === key);
+}
+function applyRepairAttempt(root, current, receipt, evidenceRefs, keySeed, options) {
+  const fingerprint = receipt.repair_fingerprint;
+  const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+  if (!finding || !["admitted", "in-progress"].includes(finding.status)) {
+    fail6("FINDING_ADMISSION_REQUIRED", "repair_fingerprint is no longer an admitted current-task finding.");
+  }
+  const repairWaveId = `repair-wave-${digest3(keySeed).slice(0, 24)}`;
+  const key = idempotencyKey("execute-repair-attempt", keySeed);
+  if (!hasAppliedProposal2(current, key)) {
+    const proposal = createFindingQueueProposal(current, {
+      mode: "repair",
+      delta: {
+        kind: "finding-queue",
+        action: "record-repair-attempt",
+        fingerprint,
+        review_cycle_id: current.runtimeState.review_cycle.id,
+        repair_wave_id: repairWaveId,
+        evidence_refs: evidenceRefs,
+        note: `execute-step repair for ${receipt.step_id}`
+      },
+      idempotency_key: key,
+      authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
+      evidence_refs: evidenceRefs
+    });
+    const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+    if (result.status !== "success" && result.status !== "no-op")
+      return result;
+    if (options.dryRun)
+      return current;
+  }
+  return readCanonicalCurrentTask(root);
+}
+function recordStepResult(root, input, options = {}) {
+  const source = record2(input, "record-step-result input");
+  exactKeys2(source, [
+    "preflight_receipt",
+    "actual_changed_paths",
+    "command_results",
+    "validation_results",
+    "acceptance_evidence",
+    "outcome",
+    "note"
+  ], "record-step-result input");
+  const receipt = normalizePreflightReceipt(source.preflight_receipt);
+  const actualChangedPaths = pathList(source.actual_changed_paths, "actual_changed_paths", true);
+  const commandResults = normalizeCommandResults(source.command_results);
+  const validationResults = normalizeValidationResults(source.validation_results);
+  const acceptanceEvidence = normalizeAcceptanceEvidence(source.acceptance_evidence);
+  if (source.outcome !== "implemented" && source.outcome !== "blocked") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "outcome must be implemented or blocked.");
+  }
+  const outcome = source.outcome;
+  const note = nullableText(source.note, "note");
+  const resultKeySeed = {
+    receipt,
+    actual_changed_paths: actualChangedPaths,
+    command_results: commandResults,
+    validation_results: validationResults,
+    acceptance_evidence: acceptanceEvidence,
+    outcome,
+    note
+  };
+  const resultKey = idempotencyKey("execute-step-result", resultKeySeed);
+  let current = readCanonicalCurrentTask(root);
+  if (hasAppliedProposal2(current, resultKey)) {
+    return semanticNoOp2(current, resultKey, "This exact execute-step result was already committed.", options);
+  }
+  assertExecutableTask(current);
+  let stepPlan = currentStepPlan(current);
+  assertCurrentReceipt(current, stepPlan, receipt);
+  const unplannedActual = actualChangedPaths.filter((file) => !receipt.candidate_paths.includes(file));
+  if (unplannedActual.length > 0) {
+    fail6("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `actual_changed_paths were not admitted by preflight: ${unplannedActual.join(", ")}.`);
+  }
+  assertPathsAdmitted(current, stepPlan, actualChangedPaths, "actual_changed_paths");
+  assertCommandResults(current, stepPlan, commandResults);
+  assertValidationResults(stepPlan, validationResults);
+  if (outcome === "implemented" && commandResults.some((item) => item.status !== "passed")) {
+    fail6("EXECUTE_RESULT_BLOCKED", "implemented requires every planned command to pass.");
+  }
+  if (outcome === "implemented" && validationResults.some((item) => item.status !== "passed")) {
+    fail6("EXECUTE_RESULT_BLOCKED", "implemented requires every planned validation to pass.");
+  }
+  const evidenceRefs = allEvidenceRefs(commandResults, validationResults, acceptanceEvidence);
+  const claimEvidence2 = updateClaimEvidence(current, acceptanceEvidence);
+  if (receipt.mode === "repair") {
+    const repairState = applyRepairAttempt(root, current, receipt, evidenceRefs, resultKeySeed, options);
+    if ("status" in repairState)
+      return repairState;
+    current = repairState;
+    stepPlan = currentStepPlan(current);
+    if (current.runtimeState.active_step_id !== receipt.step_id || stepPlanRevision(stepPlan) !== receipt.plan_revision) {
+      fail6("EXECUTE_PREFLIGHT_STALE", "repair bookkeeping changed the active step plan unexpectedly.");
+    }
+  }
+  let status;
+  if (outcome === "blocked")
+    status = "blocked";
+  else if (receipt.mode === "repair" || stepPlan.step.review_checkpoint === "not-required")
+    status = "completed";
+  else
+    status = "in-progress";
+  const proposal = createTaskStateProposal(current, {
+    mode: receipt.mode,
+    status,
+    evidence_refs: evidenceRefs,
+    idempotency_key: resultKey,
+    authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "evidence-admission"]),
+    ...note ? { note } : {},
+    ...receipt.repair_fingerprint ? { repair_fingerprint: receipt.repair_fingerprint } : {},
+    ...receipt.diff_target ? { diff_target: receipt.diff_target } : {},
+    ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 }
+  });
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+function normalizeReviewReceipt(value) {
+  const source = record2(value, "review_receipt");
+  exactKeys2(source, [
+    "cycle_id",
+    "cycle_phase",
+    "diff_target",
+    "diff_target_verification",
+    "verdict",
+    "admitted_fingerprints",
+    "evidence_refs"
+  ], "review_receipt");
+  if (source.cycle_phase !== "discovery" && source.cycle_phase !== "verification") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "review_receipt.cycle_phase must be discovery or verification.");
+  }
+  if (source.diff_target_verification !== "verified" && source.diff_target_verification !== "harness-supplied") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "review_receipt.diff_target_verification is invalid.");
+  }
+  if (source.verdict !== "clean") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "complete-reviewed-step requires a clean review receipt.");
+  }
+  return {
+    cycle_id: text2(source.cycle_id, "review_receipt.cycle_id", 128),
+    cycle_phase: source.cycle_phase,
+    diff_target: text2(source.diff_target, "review_receipt.diff_target", 512),
+    diff_target_verification: source.diff_target_verification,
+    verdict: source.verdict,
+    admitted_fingerprints: textList2(source.admitted_fingerprints, "review_receipt.admitted_fingerprints", true),
+    evidence_refs: textList2(source.evidence_refs, "review_receipt.evidence_refs", false)
+  };
+}
+function claimEvidenceComplete(records) {
+  return records.length > 0 && records.every((item) => item.slots.length > 0 && item.slots.every((slot) => ["existing", "reused", "newly-executed"].includes(slot.disposition) && slot.evidence_refs.length > 0));
+}
+function resolveVerifiedFindings(root, current, receipt, options) {
+  for (const fingerprint of receipt.admitted_fingerprints) {
+    const fresh = readCanonicalCurrentTask(root);
+    const finding = fresh.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+    if (!finding)
+      fail6("FINDING_NOT_FOUND", `review receipt finding ${fingerprint} is not in the current queue.`);
+    if (finding.status === "resolved")
+      continue;
+    const key = idempotencyKey("execute-review-resolve", { step_id: current.runtimeState.active_step_id, receipt, fingerprint });
+    const proposal = createFindingQueueProposal(fresh, {
+      mode: "repair",
+      delta: {
+        kind: "finding-queue",
+        action: "resolve",
+        fingerprint,
+        evidence_refs: receipt.evidence_refs,
+        note: `clean verification for ${current.runtimeState.active_step_id}`
+      },
+      idempotency_key: key,
+      authority_evidence: authority2(fresh, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
+      evidence_refs: receipt.evidence_refs
+    });
+    const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+    if (result.status !== "success" && result.status !== "no-op")
+      return result;
+    if (options.dryRun)
+      return current;
+  }
+  return readCanonicalCurrentTask(root);
+}
+function completeReviewedStep(root, input, options = {}) {
+  const source = record2(input, "complete-reviewed-step input");
+  exactKeys2(source, ["step_id", "review_receipt", "acceptance_evidence", "note"], "complete-reviewed-step input");
+  const stepId = text2(source.step_id, "step_id", 128);
+  if (!SAFE_KEY_PATTERN3.test(stepId))
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "step_id is invalid.");
+  const reviewReceipt = normalizeReviewReceipt(source.review_receipt);
+  const acceptanceEvidence = normalizeAcceptanceEvidence(source.acceptance_evidence);
+  const note = nullableText(source.note, "note");
+  const resultKey = idempotencyKey("execute-reviewed-step", { step_id: stepId, review_receipt: reviewReceipt, acceptance_evidence: acceptanceEvidence, note });
+  let current = readCanonicalCurrentTask(root);
+  if (hasAppliedProposal2(current, resultKey)) {
+    return semanticNoOp2(current, resultKey, "This exact reviewed-step completion was already committed.", options);
+  }
+  assertExecutableTask(current);
+  if (current.runtimeState.active_step_id !== stepId) {
+    fail6("ACTIVE_STEP_CONFLICT", `complete-reviewed-step targets ${stepId}, but the current active step is ${current.runtimeState.active_step_id}.`);
+  }
+  const stepPlan = currentStepPlan(current);
+  const priorExecution = current.runtimeState.execution_log.some((item) => !("action" in item) && item.step_id === stepId && item.idempotency_key.startsWith("execute-step-result-"));
+  if (!priorExecution)
+    fail6("EXECUTE_RESULT_REQUIRED", "complete-reviewed-step requires a prior semantic record-step-result for this step.");
+  if (reviewReceipt.cycle_id !== current.runtimeState.review_cycle.id) {
+    fail6("REVIEW_CYCLE_CONFLICT", "review receipt does not belong to the current Runtime review cycle.");
+  }
+  const repairLogs = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
+  const repairedFingerprints = [...new Set(repairLogs.flatMap((item) => item.repair_fingerprint ? [item.repair_fingerprint] : []))];
+  assertExactResultSet(reviewReceipt.admitted_fingerprints, repairedFingerprints, "review_receipt.admitted_fingerprints");
+  if (repairLogs.length > 0) {
+    if (reviewReceipt.cycle_phase !== "verification") {
+      fail6("REVIEW_VERIFICATION_REQUIRED", "a repaired step requires a verification review receipt.");
+    }
+    const repairTargets = [...new Set(repairLogs.flatMap((item) => item.diff_target ? [item.diff_target] : []))];
+    if (repairTargets.length !== 1 || repairTargets[0] !== reviewReceipt.diff_target) {
+      fail6("REPAIR_DIFF_TARGET_CONFLICT", "verification must cover the exact repaired logical diff target.");
+    }
+  } else if (reviewReceipt.cycle_phase !== "discovery") {
+    fail6("REVIEW_PHASE_INVALID", "an unrepaired step requires a discovery review receipt.");
+  }
+  const openFindings = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status));
+  const unverifiedOpen = openFindings.filter((item) => !reviewReceipt.admitted_fingerprints.includes(item.fingerprint));
+  if (unverifiedOpen.length > 0) {
+    fail6("REVIEW_CONVERGENCE_REQUIRED", `open findings are not covered by the clean review receipt: ${unverifiedOpen.map((item) => item.fingerprint).join(", ")}.`);
+  }
+  const claimEvidence2 = updateClaimEvidence(current, acceptanceEvidence);
+  const resolution = resolveTaskStep(current.body, stepId);
+  if (resolution.next === null && (!claimEvidence2 || !claimEvidenceComplete(claimEvidence2))) {
+    fail6("CLAIM_EVIDENCE_INCOMPLETE", "the final step cannot complete until every frozen acceptance-evidence slot has evidence.");
+  }
+  if (reviewReceipt.admitted_fingerprints.length > 0) {
+    const resolved = resolveVerifiedFindings(root, current, reviewReceipt, options);
+    if ("status" in resolved)
+      return resolved;
+    current = resolved;
+  }
+  const evidenceRefs = [...new Set([...reviewReceipt.evidence_refs, ...acceptanceEvidence.flatMap((item) => item.evidence_refs)])];
+  const proposal = createTaskStateProposal(current, {
+    mode: "default",
+    status: "completed",
+    evidence_refs: evidenceRefs,
+    idempotency_key: resultKey,
+    authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "evidence-admission"]),
+    review_receipt: reviewReceipt,
+    diff_target: reviewReceipt.diff_target,
+    ...note ? { note } : {},
+    ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 }
+  });
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+function parseExecuteStepAdapterCli(argv) {
+  const [command, ...rest] = argv;
+  if (!EXECUTE_STEP_ADAPTER_COMMANDS.includes(command)) {
+    throw new Error(`Usage: vnext-runtime <${EXECUTE_STEP_ADAPTER_COMMANDS.join("|")}> --root <path> [--dry-run] (semantic JSON on stdin)`);
+  }
+  let root = process.cwd();
+  let dryRun = false;
+  for (let index = 0;index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (arg === "--root")
+      root = rest[++index] ?? "";
+    else if (arg === "--dry-run")
+      dryRun = true;
+    else
+      throw new Error(`Unknown execute-step adapter argument: ${arg}`);
+  }
+  if (!root)
+    throw new Error("--root requires a path.");
+  return { command, root, dryRun };
+}
+function readSemanticStdin2(command) {
+  const raw = !process.stdin.isTTY ? fs8.readFileSync(0, "utf8") : "";
+  if (!raw.trim())
+    throw new Error(`${command} requires semantic JSON on stdin.`);
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function validateInstalledRuntime2(root) {
+  const runtimeManifest = path9.join(path9.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs8.existsSync(runtimeManifest))
+    validateVNextRuntimeContract(root, true);
+}
+async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
+  try {
+    validateRuntimeEnvironment();
+    const args = parseExecuteStepAdapterCli(argv);
+    validateInstalledRuntime2(args.root);
+    const input = readSemanticStdin2(args.command);
+    let result;
+    switch (args.command) {
+      case "preflight-step":
+        result = preflightStep(args.root, input);
+        break;
+      case "record-step-result":
+        result = recordStepResult(args.root, input, { dryRun: args.dryRun });
+        break;
+      case "complete-reviewed-step":
+        result = completeReviewedStep(args.root, input, { dryRun: args.dryRun });
+        break;
+    }
+    console.log(JSON.stringify(result, null, 2));
+    return result.status === "blocked" || result.status === "conflict" ? 2 : 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
 // runtime/vnext/src/cli.ts
 var args = process.argv.slice(2);
 var runner;
@@ -12121,6 +13023,8 @@ else if (args[0] === "bootstrap-support")
   runner = runBootstrapSupportCli(args.slice(1));
 else if (PREPARE_TASK_ADAPTER_COMMANDS.includes(args[0])) {
   runner = runPrepareTaskAdapterCli(args);
+} else if (EXECUTE_STEP_ADAPTER_COMMANDS.includes(args[0])) {
+  runner = runExecuteStepAdapterCli(args);
 } else
   runner = runCli(args);
 runner.then((exitCode) => {
@@ -12128,6 +13032,7 @@ runner.then((exitCode) => {
 });
 export {
   runPrepareTaskAdapterCli,
+  runExecuteStepAdapterCli,
   runCli,
   runBootstrapSupportCli,
   runBootstrapCli

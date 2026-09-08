@@ -9,7 +9,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.14.7
+  package_version: 0.14.8
   node_min_version: ">=20.0.0"
 
 proposal:
@@ -208,6 +208,23 @@ proposal:
         exact_draft_revision: true
       from: draft + active
       to: active + active
+  execute_step:
+    semantic_adapter:
+      input: stdin-json
+      commands:
+        - preflight-step
+        - record-step-result
+        - complete-reviewed-step
+      step_source: confirmed-current-task
+      scope_enforcement: task-and-current-step
+      command_plan_source: confirmed-current-step
+      persistent_tests_enforcement: frozen-section-plus-scope-evaluator
+      proposal_file_policy: project-external-only
+      advancement_owner: runtime
+    bound_actions:
+      - step-progress
+      - record-repair-attempt
+      - resolve
   prepare_task:
     semantic_adapter:
       input: stdin-json

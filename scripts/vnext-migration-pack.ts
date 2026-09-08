@@ -2168,7 +2168,7 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'validate-change': [],
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
-  'execute-step': ['source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy'],
+  'execute-step': ['scope-guard', 'task-identity-guard', 'finding-admission', 'review-convergence-policy', 'resume-review-gate'],
   'validate-change': ['project-context-resolver', 'evidence-admission-policy', 'adaptive-depth-policy', 'diff-target-resolver', 'read-only-review-guard', 'owner-route-resolver'],
 };
 
