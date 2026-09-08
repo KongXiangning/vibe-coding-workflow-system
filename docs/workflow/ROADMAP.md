@@ -9,7 +9,7 @@
 
 ## 生命周期阶段
 
-- 当前版本：0.14.9
+- 当前版本：0.15.0
 - 当前治理阶段：
   - 阶段名称：source repo self-adoption baseline
   - 目标：使用 legacy inventory 产物建立首版 live governance baseline，明确 source repo / target repo 边界、生成链、runtime sync、质量治理思想、validation layer 隔离和 adoption 风险。

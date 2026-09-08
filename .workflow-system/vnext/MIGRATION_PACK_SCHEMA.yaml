@@ -112,6 +112,7 @@ vnext_bundle:
     - skill
   required_daily_entries:
     - prepare-task
+    - review-draft
     - review-change
     - execute-step
     - debug-task

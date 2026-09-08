@@ -14,6 +14,9 @@ entries:
   - id: prepare-task
     exposure: daily
     template: templates/vnext/skills/prepare-task.SKILL.md.tmpl
+  - id: review-draft
+    exposure: daily
+    template: templates/vnext/skills/review-draft.SKILL.md.tmpl
   - id: review-change
     exposure: daily
     template: templates/vnext/skills/review-change.SKILL.md.tmpl
@@ -149,7 +152,7 @@ capabilities:
   - id: draft-consistency-challenge
     exposure: internal
     trigger:
-      - a complete prepare-task candidate has a material semantic, evidence, or cross-step repairability risk after the always-on transient consistency scan
+      - review-draft evaluates a complete candidate draft against its verbatim request, authoritative sources, evidence plan, and step repairability
     input_contract:
       - verbatim request and exact source locators with authority, relevance, and freshness
       - candidate acceptance, decided and unresolved choices, mutation scope, implementation steps, validation plan, and persistent-test proof claims
@@ -232,7 +235,7 @@ capabilities:
   - id: read-only-review-guard
     exposure: internal
     trigger:
-      - review-change is invoked in any mode
+      - review-draft or review-change is invoked in any mode
     input_contract:
       - review request and declared side-effect policy
     output_contract:

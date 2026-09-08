@@ -1,0 +1,139 @@
+---
+name: review-draft
+description: Independently review one prepared task draft against its original request and authoritative project context without writing state.
+entry_contract:
+  entry: review-draft
+  mode: []
+  intent: Produce one independent, read-only semantic and executability verdict for a current task draft.
+  input_contract:
+    required:
+      - draft_target
+      - verbatim_request_or_exact_request_source
+    optional:
+      - authority_sources
+      - caller_context
+  authority_owner: none
+  mutation_boundary:
+    product_files: []
+    governance_sources: []
+    forbidden_targets:
+      - product files
+      - governance sources
+      - CURRENT_TASK.md
+      - Runtime state
+      - finding queues
+      - review receipts
+      - registry
+      - installation surface
+      - host surface
+  internal_capabilities:
+    - project-context-resolver
+    - source-authority-policy
+    - decision-authority-gate
+    - scope-guard
+    - draft-consistency-challenge
+    - evidence-admission-policy
+    - read-only-review-guard
+  runtime_operations: []
+  stop_conditions:
+    - the target is not one exact draft + active CURRENT_TASK revision
+    - the verbatim request and an exact request source are both unavailable
+    - source authority cannot be established well enough to classify a material conflict
+    - the review would need to mutate product, governance, Runtime, finding, registry, installation, or host state
+  output_kind: draft-review-result
+---
+
+# vNext Skill: review-draft
+
+## Intent
+
+Review one already prepared task draft independently from the authoring pass.
+Evaluate whether the draft preserves the original request, applies existing
+authority correctly, defines observable behavior deliberately, admits
+sufficient proof, and can be executed step by step. This entry is read-only and
+does not repair the draft.
+
+## Input boundary
+
+1. Resolve one exact `draft + active` `CURRENT_TASK` and record its task,
+   document, and draft revision. Do not review an inferred, stale, confirmed,
+   active-execution, or reconstructed draft.
+2. Obtain the verbatim request from the current conversation or from an exact
+   request source supplied by the caller. A different conversation or agent is
+   valid when that input is supplied explicitly. Never reconstruct the request
+   from the candidate draft, its acceptance criteria, or the draft author's
+   summary. If the original request is unavailable, return `needs-user` and
+   identify only that missing input.
+3. Read only the authoritative sources and minimal repository facts needed to
+   evaluate the candidate. Treat prior author rationale and conclusions as
+   untrusted context; evaluate the request, sources, draft, and repository facts
+   directly.
+
+## Review behavior
+
+Build a transient semantic delta map and path-by-step interaction map, then
+apply `draft-consistency-challenge` across these closed dimensions:
+
+- requirement-to-acceptance mapping, including omissions and strengthened or
+  weakened requirements;
+- source conflicts and whether existing source-authority and decision-authority
+  gates classified them without inventing a user-owned choice;
+- externally observable defaults, required fields, accepted values, status
+  codes, response shapes, normalization, stored data, and compatibility;
+- validation and Persistent Tests coverage for each material acceptance or
+  decided observable behavior;
+- step-end executability in the current repository state, including whether a
+  planned command can produce its claimed evidence at that point;
+- cross-step repairability, treating step scopes as permissions rather than
+  exclusive file ownership and checking that later validation has an in-scope
+  repair route for earlier code and configuration.
+
+Use existing authority, scope, and evidence capabilities only to classify what
+the review detects. The review does not become another authority source, decide
+a user-owned behavior, widen scope, admit a new persistent test, or convert a
+recommendation into task state. Do not execute the draft's planned commands or
+create a probe inside the project.
+
+## Required result
+
+Return one self-contained `draft_review_result` that another agent can consume
+without access to this reviewer or its hidden reasoning:
+
+```yaml
+draft_review_result:
+  draft_target:
+    task_id: <id>
+    document_id: <id>
+    draft_revision: <revision>
+  request_basis:
+    kind: conversation-turn | supplied-source
+    locator: <exact locator>
+  verdict: clean | findings | needs-user
+  findings:
+    - id: <stable local id>
+      severity: P0 | P1 | P2
+      category: requirement-mapping | authority-conflict | observable-contract | evidence-plan | step-executability | cross-step-repairability
+      request_refs: []
+      source_refs: []
+      draft_refs: []
+      impact: <externally observable or execution impact>
+      correction_basis: <request/source-determined correction or unresolved choice>
+      owner: prepare-task | user
+  governed_mutation_count: 0
+  next_route: null | prepare-task
+```
+
+Use `clean` only when no material gap remains. Use `findings` when every
+correction is determined by the request or an authoritative source and can be
+applied by a later `prepare-task` invocation. Use `needs-user` when any material
+choice or required original input still belongs to the user. Every finding must
+contain enough references and correction basis to serve as explicit
+`caller_context` in another conversation; hidden conversation history is not a
+handoff mechanism.
+
+The result is not a confirmation receipt and does not authorize execution or
+draft confirmation. `next_route: prepare-task` is only a recommendation for a
+later caller invocation; this invocation must not invoke another public Skill.
+Do not write findings, receipts, review state, or any other content to Runtime or
+the repository. Set `terminal_boundary: public-entry-terminal/v1`, return to the
+caller, and stop.

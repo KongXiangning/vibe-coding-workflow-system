@@ -82,6 +82,7 @@ const REQUIRED_LEGACY_DOCUMENTS: readonly WorkflowDocName[] = [
 const VNEXT_REQUIRED_BUNDLE_CATEGORIES = new Set(['protocol', 'schema', 'skill']);
 const VNEXT_REQUIRED_DAILY_ENTRIES = [
   'prepare-task',
+  'review-draft',
   'review-change',
   'execute-step',
   'debug-task',
@@ -2125,6 +2126,7 @@ function validateBundleArtifactShape(value: unknown, location: string): VNextBun
 
 const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan'],
+  'review-draft': [],
   'review-change': ['default', 'report-only'],
   'execute-step': ['default', 'repair'],
   'debug-task': ['investigate-only', 'resolve'],
@@ -2136,6 +2138,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
 };
 const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'prepare-task': 'prepared-task',
+  'review-draft': 'draft-review-result',
   'review-change': 'report',
   'execute-step': 'change-result',
   'debug-task': 'debug-result',
@@ -2147,6 +2150,7 @@ const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
 };
 const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'prepare-task': 'user',
+  'review-draft': 'none',
   'review-change': 'none',
   'execute-step': 'task',
   'debug-task': 'task',
@@ -2158,6 +2162,7 @@ const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
 };
 const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
+  'review-draft': [],
   'review-change': [],
   'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
   'debug-task': ['task-state-transaction'],
@@ -2168,6 +2173,7 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'validate-change': [],
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
+  'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
   'execute-step': ['scope-guard', 'task-identity-guard', 'finding-admission', 'review-convergence-policy', 'resume-review-gate'],
   'validate-change': ['project-context-resolver', 'evidence-admission-policy', 'adaptive-depth-policy', 'diff-target-resolver', 'read-only-review-guard', 'owner-route-resolver'],
 };
@@ -2256,8 +2262,8 @@ function validateVNextSkillBundleContent(entry: string, content: string, locatio
   if (JSON.stringify([...runtimeOperations].sort()) !== JSON.stringify([...expectedRuntimeOperations].sort())) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.runtime_operations is not valid for ${entry}.`);
   }
-  if (entry === 'review-change' && runtimeOperations.length !== 0) {
-    throw new MigrationPackError('BUNDLE_INVALID', `${location}.review-change must not declare Runtime operations.`);
+  if ((entry === 'review-draft' || entry === 'review-change') && runtimeOperations.length !== 0) {
+    throw new MigrationPackError('BUNDLE_INVALID', `${location}.${entry} must not declare Runtime operations.`);
   }
   expectStringArray(contract.stop_conditions, `${location}.entry_contract.stop_conditions`);
   if (contract.output_kind !== BUNDLE_ENTRY_OUTPUT_KINDS[entry]) {
