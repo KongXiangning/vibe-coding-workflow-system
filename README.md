@@ -101,6 +101,52 @@ Release engineering builds the publishable package with:
 bun run build:vibe-governance-distribution
 ```
 
+## FixFlow dogfood specimen cleanup
+
+To roll a newly committed Vibe Governance version into FixFlow, use the
+upgrade command. It derives the next dogfood branch from the currently
+installed target version, preserves a sole dirty `CURRENT_TASK.md` specimen if
+needed, builds and pins a local tarball, runs the tarball's real published bin,
+validates, commits, and pushes the target upgrade.
+
+```powershell
+# Read-only source/target/branch preflight.
+bun run dogfood:fixflow:upgrade -- --version 0.14.8
+
+# Execute the fixed-version target upgrade.
+bun run dogfood:fixflow:upgrade -- --version 0.14.8 --apply
+```
+
+The Vibe Governance release surface must already be committed, clean, and
+release-lockstep at the requested version. Local documentation, test, and
+FixFlow operational-script changes do not block a release. A tarball at an
+existing version path is reused only when its SHA-256 is identical; otherwise
+the command stops without overwriting the pinned artifact.
+
+`dogfood:fixflow:cleanup` remains available when only specimen preservation
+and baseline restoration are required:
+
+For the local FixFlow dogfood target, use the target-specific cleanup command
+after a `prepare-task` specimen needs preserving. Its target is intentionally
+fixed to `E:\coding\dogfood\fixflow`; the only required variable is the
+installed Vibe Governance version.
+
+```powershell
+# Read-only preflight: it never modifies FixFlow.
+bun run dogfood:fixflow:cleanup -- --version 0.14.7
+
+# Preserve the sole dirty CURRENT_TASK specimen on a new remote branch, then
+# restore only that file and validate the clean committed baseline.
+bun run dogfood:fixflow:cleanup -- --version 0.14.7 --apply
+```
+
+The command accepts only a clean target or exactly one unstaged modification to
+`docs/workflow/CURRENT_TASK.md`. Before any write it verifies the FixFlow
+profile, the declared Distribution/Runtime version, the committed TASK-000
+bootstrap baseline, freeze policy, and the absence of an existing specimen
+branch. It does not use `reset`, `stash`, or `git clean`, and it never runs a
+workflow Skill or a Distribution upgrade.
+
 Target projects do not need Bun, `WORKFLOW_SYSTEM_ROOT`, `gen:*`, `workflow:pack`,
 `workflow:sync`, or manual bundle/path selection. See
 [the Distribution design](docs/designs/vibe-governance-distribution-installation.md)
