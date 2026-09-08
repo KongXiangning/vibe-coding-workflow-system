@@ -11,15 +11,19 @@
 export * from '../runtime/vnext/src/kernel';
 export * from '../runtime/vnext/src/bootstrap';
 export * from '../runtime/vnext/src/prepare-task-adapter';
+export * from '../runtime/vnext/src/execute-step-adapter';
 
 import { runCli } from '../runtime/vnext/src/kernel';
 import { PREPARE_TASK_ADAPTER_COMMANDS, runPrepareTaskAdapterCli } from '../runtime/vnext/src/prepare-task-adapter';
+import { EXECUTE_STEP_ADAPTER_COMMANDS, runExecuteStepAdapterCli } from '../runtime/vnext/src/execute-step-adapter';
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
   let runner: Promise<number>;
   if (PREPARE_TASK_ADAPTER_COMMANDS.includes(args[0] as (typeof PREPARE_TASK_ADAPTER_COMMANDS)[number])) {
     runner = runPrepareTaskAdapterCli(args);
+  } else if (EXECUTE_STEP_ADAPTER_COMMANDS.includes(args[0] as (typeof EXECUTE_STEP_ADAPTER_COMMANDS)[number])) {
+    runner = runExecuteStepAdapterCli(args);
   } else runner = runCli(args);
   runner.then((exitCode) => {
     process.exitCode = exitCode;
