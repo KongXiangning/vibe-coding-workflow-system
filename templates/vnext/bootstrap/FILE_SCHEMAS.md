@@ -11,6 +11,7 @@ The canonical project surface contains the following governed documents:
 - `.workflow-system/WORKFLOW_PROTOCOL.md`
 - `.workflow-system/FILE_SCHEMAS.md`
 - `docs/workflow/CURRENT_TASK.md`
+- `docs/workflow/task-basis/TASK_BASIS-<TASK_ID>.md`
 - `docs/workflow/CONTRACTS.md`
 - `docs/workflow/DECISIONS.md`
 - `docs/workflow/STATUS.md`
@@ -20,6 +21,12 @@ The canonical project surface contains the following governed documents:
 `CURRENT_TASK.md` carries its vNext YAML envelope and runtime state. Its body
 contains the task identity, acceptance, Allowed / Conditional / Forbidden
 scope buckets, implementation steps, and execution evidence.
+
+Every ordinary draft links one identity-derived Task Basis by exact path and
+SHA-256 revision. The Task Basis preserves only the verbatim original request
+and later explicit user decisions, each with an exact source locator. It is
+written and read back atomically with `CURRENT_TASK.md`; author summaries and
+draft review findings are forbidden because they are not request authority.
 
 New and refined drafts use the same canonical `runtime_state` to store
 `claim_evidence_required: true` and a bounded, non-empty `claim_evidence` plan

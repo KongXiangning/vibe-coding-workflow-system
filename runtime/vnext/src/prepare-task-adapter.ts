@@ -20,6 +20,7 @@ import {
   createPrepareTaskReplanProposal,
   createPrepareTaskResumeReviewProposal,
   readCanonicalCurrentTask,
+  readCanonicalTaskBasis,
   readDraftDefinitionFromBody,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
@@ -29,6 +30,7 @@ import {
   type DraftTaskDefinition,
   type RuntimeApplyOptions,
   type RuntimeResult,
+  type TaskBasis,
 } from './kernel';
 import {
   evaluateCommandWriteFootprint,
@@ -55,6 +57,7 @@ export type PrepareTaskStepCommand = {
 };
 
 export type PrepareTaskSemanticDraft = {
+  task_basis: TaskBasis;
   goal: string;
   acceptance: string[];
   out_of_scope: string[];
@@ -112,6 +115,7 @@ export type PrepareDraftResult = RuntimeResult & {
 type JsonRecord = Record<string, unknown>;
 
 const SEMANTIC_DRAFT_FIELDS = [
+  'task_basis',
   'goal',
   'acceptance',
   'out_of_scope',
@@ -155,6 +159,40 @@ function text(value: unknown, location: string, maximumLength = 4096): string {
     fail('PREPARE_ADAPTER_INPUT_INVALID', `${location} must be one non-empty line of at most ${maximumLength} characters.`);
   }
   return normalized;
+}
+
+function verbatim(value: unknown, location: string, maximumLength = 32768): string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > maximumLength || /\0/u.test(value)) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', `${location} must be non-empty verbatim text of at most ${maximumLength} characters.`);
+  }
+  return value;
+}
+
+function normalizeTaskBasisSource(value: unknown, location: string): TaskBasis['original_request'] {
+  const source = record(value, location);
+  exactKeys(source, ['source', 'verbatim'], location);
+  return {
+    source: text(source.source, `${location}.source`, 1024),
+    verbatim: verbatim(source.verbatim, `${location}.verbatim`),
+  };
+}
+
+function normalizeTaskBasis(value: unknown): TaskBasis {
+  const basis = record(value, 'task_basis');
+  exactKeys(basis, ['original_request', 'user_decisions'], 'task_basis');
+  if (!Array.isArray(basis.user_decisions) || basis.user_decisions.length > 64) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', 'task_basis.user_decisions must be a bounded array.');
+  }
+  const userDecisions = basis.user_decisions.map((item, index) =>
+    normalizeTaskBasisSource(item, `task_basis.user_decisions[${index}]`));
+  const keys = userDecisions.map(item => `${item.source}\0${item.verbatim}`);
+  if (new Set(keys).size !== keys.length) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', 'task_basis.user_decisions must not contain duplicate source excerpts.');
+  }
+  return {
+    original_request: normalizeTaskBasisSource(basis.original_request, 'task_basis.original_request'),
+    user_decisions: userDecisions,
+  };
 }
 
 function textList(value: unknown, location: string, allowEmpty: boolean): string[] {
@@ -348,6 +386,7 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   }
 
   const normalized: PrepareTaskSemanticDraft = {
+    task_basis: normalizeTaskBasis(source.task_basis),
     goal: text(source.goal, 'goal', 512),
     acceptance: textList(source.acceptance, 'acceptance', false),
     out_of_scope: textList(source.out_of_scope, 'out_of_scope', true),
@@ -566,8 +605,15 @@ function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function currentMatchesSemanticDraft(current: CanonicalCurrentTask, semantic: PrepareTaskSemanticDraft): boolean {
+function currentMatchesSemanticDraft(root: string, current: CanonicalCurrentTask, semantic: PrepareTaskSemanticDraft): boolean {
+  let basisMatches = false;
+  try {
+    basisMatches = sameValue(readCanonicalTaskBasis(root, current).basis, semantic.task_basis);
+  } catch {
+    basisMatches = false;
+  }
   return current.runtimeState.active_step_id === semantic.implementation_steps[0]!.id
+    && basisMatches
     && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic))
     && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
 }
@@ -673,13 +719,14 @@ export function prepareDraft(root: string, input: unknown, options: RuntimeApply
     };
   const digest = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey('prepare-draft', { task_id: identity.task_id, semantic });
-  if (updating && currentMatchesSemanticDraft(current, semantic)) {
+  if (updating && currentMatchesSemanticDraft(root, current, semantic)) {
     return withConfirmationReceipt(root, semanticNoOp(current, retryKey, 'The requested semantic draft already matches canonical CURRENT_TASK.', options), options);
   }
   const evidenceRefs = [`adapter:prepare-draft:${digest.slice(0, 16)}`];
   const proposal = createPrepareTaskDraftProposal(current, {
     action: creating ? 'create-draft' : 'update-draft',
     ...identity,
+    task_basis: semantic.task_basis,
     draft_definition: semanticDraftDefinition(semantic),
     active_step_id: semantic.implementation_steps[0]!.id,
     evidence_refs: evidenceRefs,
@@ -796,7 +843,7 @@ export function replan(root: string, input: unknown, options: RuntimeApplyOption
   if (
     current.runtimeState.workflow_status === 'active'
     && current.runtimeState.lifecycle_state === 'active'
-    && currentMatchesSemanticDraft(current, semantic)
+    && currentMatchesSemanticDraft(root, current, semantic)
   ) {
     return semanticNoOp(current, retryKey, 'The requested replan already matches canonical CURRENT_TASK.', options);
   }
@@ -814,6 +861,7 @@ export function replan(root: string, input: unknown, options: RuntimeApplyOption
     delta: {
       kind: 'task-state',
       action: 'commit-replan',
+      task_basis: semantic.task_basis,
       replacement_definition: semanticDraftDefinition(semantic),
       active_step_id: semantic.implementation_steps[0]!.id,
       evidence_refs: evidenceRefs,

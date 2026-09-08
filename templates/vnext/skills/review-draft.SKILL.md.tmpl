@@ -8,8 +8,8 @@ entry_contract:
   input_contract:
     required:
       - draft_target
-      - verbatim_request_or_exact_request_source
     optional:
+      - verbatim_request_or_exact_request_source
       - authority_sources
       - caller_context
   authority_owner: none
@@ -37,7 +37,8 @@ entry_contract:
   runtime_operations: []
   stop_conditions:
     - the target is not one exact draft + active CURRENT_TASK revision
-    - the verbatim request and an exact request source are both unavailable
+    - the linked Task Basis and an exact caller-supplied legacy request source are both unavailable
+    - the linked Task Basis is missing, stale, or does not match the draft identity
     - source authority cannot be established well enough to classify a material conflict
     - the review would need to mutate product, governance, Runtime, finding, registry, installation, or host state
   output_kind: draft-review-result
@@ -58,16 +59,23 @@ does not repair the draft.
 1. Resolve one exact `draft + active` `CURRENT_TASK` and record its task,
    document, and draft revision. Do not review an inferred, stale, confirmed,
    active-execution, or reconstructed draft.
-2. Obtain the verbatim request from the current conversation or from an exact
-   request source supplied by the caller. A different conversation or agent is
-   valid when that input is supplied explicitly. Never reconstruct the request
-   from the candidate draft, its acceptance criteria, or the draft author's
-   summary. If the original request is unavailable, return `needs-user` and
-   identify only that missing input.
+2. Resolve the exact Task Basis path and revision linked by `CURRENT_TASK`.
+   Verify that the linked file exists, its content hash and task/document
+   identity match the draft, and then use its verbatim original request plus all
+   recorded user decisions as the request basis. This is what makes a different
+   conversation or agent valid without hidden history. For a legacy draft with
+   no Task Basis link, an exact request source supplied by the caller is the only
+   fallback. Never reconstruct the request from the candidate draft, its
+   acceptance criteria, the draft author's summary, or a previous review.
+   If exact request evidence is unavailable or the link is stale, return
+   `needs-user` for that missing or conflicting input instead of reclassifying
+   already-recorded user decisions as unsupported draft behavior.
 3. Read only the authoritative sources and minimal repository facts needed to
    evaluate the candidate. Treat prior author rationale and conclusions as
    untrusted context; evaluate the request, sources, draft, and repository facts
-   directly.
+   directly. Prior `draft_review_result` documents or messages are findings,
+   not request authority: do not use them as Task Basis or as proof that a user
+   chose an observable behavior.
 
 ## Review behavior
 
@@ -106,8 +114,9 @@ draft_review_result:
     document_id: <id>
     draft_revision: <revision>
   request_basis:
-    kind: conversation-turn | supplied-source
-    locator: <exact locator>
+    kind: linked-task-basis | supplied-source
+    locator: <exact path or locator>
+    revision: <exact revision when linked | null for supplied legacy source>
   verdict: clean | findings | needs-user
   findings:
     - id: <stable local id>

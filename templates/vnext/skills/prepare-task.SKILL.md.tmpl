@@ -47,6 +47,8 @@ entry_contract:
 Understand the request and the relevant existing design, then prepare one
 executable `CURRENT_TASK` draft containing:
 
+- a revision-bound **Task Basis** link to the verbatim original request and
+  later explicit user decisions
 - **Goal**
 - **Acceptance**
 - **Out of scope**
@@ -63,6 +65,16 @@ command blockers before submitting the draft; if a blocker cannot be resolved
 within the user's authority, report it instead of leaving it to `execute-step`.
 For every planned command, state its expected repository writes as `none` or
 bounded paths/globs so the adapter can check the plan before committing it.
+
+Preserve request evidence separately from the draft design. On first prepare,
+record the original request verbatim with its exact conversation or supplied
+source locator. On refinement, keep that original request and append only later
+explicit user statements that decide or change externally observable behavior;
+each entry keeps its verbatim text and exact locator. Reviewer findings, author
+interpretations, and inferred defaults are not user decisions and must never be
+stored in Task Basis. Runtime writes the identity-derived
+`TASK_BASIS-<TASK_ID>.md` and its path/revision link in `CURRENT_TASK` in the
+same atomic draft transaction.
 
 Persistent Tests are a closed allowlist and default to `none`. For every listed
 test asset, give its exact repository-relative path and the behavior it proves,
@@ -125,11 +137,13 @@ Tests. Changing those decisions requires an explicit replan.
 
 ## Required result
 
-Submit the draft's semantic content to Runtime through `prepare-draft` on stdin;
+Submit the draft's semantic content, including `task_basis`, to Runtime through
+`prepare-draft` on stdin;
 do not construct a proposal or edit `CURRENT_TASK.md` directly. Never create
 proposal or helper files inside the target repository; if the host requires a
 file, use an OS-temporary location outside the project. Only a successful
-Runtime result proves that the draft was committed.
+Runtime result with verified `CURRENT_TASK` and Task Basis read-back proves
+that the draft was committed.
 
 After an ordinary draft commit, summarize it. If a user-owned choice remains
 unresolved, ask for that decision; otherwise ask the user to confirm that exact

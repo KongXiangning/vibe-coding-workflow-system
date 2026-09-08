@@ -1598,7 +1598,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.15.0";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.15.1";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -2111,7 +2111,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(reviewReceiptContract.cycle_phase, "Runtime contract.proposal.task_state.review_receipt.cycle_phase"), [...REVIEW_CYCLE_PHASES], "Runtime contract review receipt cycle phases");
   expectSetEqual(expectStringArray2(reviewReceiptContract.target_verification, "Runtime contract.proposal.task_state.review_receipt.target_verification"), [...REVIEW_TARGET_VERIFICATION_STATES], "Runtime contract review receipt target verification states");
   const draftContract = expectRecord2(taskStateContract.draft, "Runtime contract.proposal.task_state.draft");
-  expectExactKeys2(draftContract, ["mode", "actions", "identity_required", "definition_required", "claim_evidence", "create_from", "update_from", "target", "previous_close_reconciliation", "step_admission", "preserves"], "Runtime contract.proposal.task_state.draft");
+  expectExactKeys2(draftContract, ["mode", "actions", "identity_required", "definition_required", "claim_evidence", "task_basis", "create_from", "update_from", "target", "previous_close_reconciliation", "step_admission", "preserves"], "Runtime contract.proposal.task_state.draft");
   if (draftContract.mode !== "default")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract task-state draft mode must remain default.");
   expectSetEqual(expectStringArray2(draftContract.actions, "Runtime contract.proposal.task_state.draft.actions"), ["create-draft", "update-draft"], "Runtime contract task-state draft actions");
@@ -2119,6 +2119,13 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(draftContract.definition_required, "Runtime contract.proposal.task_state.draft.definition_required"), [...REPLAN_REPLACEMENT_FIELDS], "Runtime contract task-state draft definition fields");
   if (draftContract.claim_evidence !== DRAFT_CLAIM_EVIDENCE_REQUIREMENT) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime draft claim evidence requirement is invalid.");
+  }
+  const draftTaskBasis = expectRecord2(draftContract.task_basis, "Runtime contract.proposal.task_state.draft.task_basis");
+  expectExactKeys2(draftTaskBasis, ["required", "source_fields", "storage", "write_binding", "review_results_forbidden"], "Runtime contract.proposal.task_state.draft.task_basis");
+  expectSetEqual(expectStringArray2(draftTaskBasis.required, "Runtime contract draft task basis required fields"), ["original_request", "user_decisions"], "Runtime contract draft task basis required fields");
+  expectSetEqual(expectStringArray2(draftTaskBasis.source_fields, "Runtime contract draft task basis source fields"), ["source", "verbatim"], "Runtime contract draft task basis source fields");
+  if (draftTaskBasis.storage !== "identity-derived-linked-document" || draftTaskBasis.write_binding !== "same-atomic-draft-transaction" || draftTaskBasis.review_results_forbidden !== true) {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime draft task basis storage boundary is invalid.");
   }
   for (const [field, expected] of [["create_from", "closed + archived"], ["update_from", "draft + active"], ["target", "draft + active"]]) {
     if (draftContract[field] !== expected)
@@ -2175,6 +2182,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     "input",
     "commands",
     "draft_fields",
+    "task_basis_storage",
     "decision_partition",
     "command_footprint_preflight",
     "confirmation_binding",
@@ -2188,7 +2196,10 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (prepareTaskAdapter.input !== "stdin-json")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter input must remain stdin-json.");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "confirm-draft", "clear-resume-review", "replan"], "Runtime contract prepare-task adapter commands");
-  expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["goal", "acceptance", "out_of_scope", "design_decisions", "mutation_scope", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
+  expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["task_basis", "goal", "acceptance", "out_of_scope", "design_decisions", "mutation_scope", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
+  if (prepareTaskAdapter.task_basis_storage !== "linked-TASK_BASIS-with-path-and-revision") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter must persist the linked task basis reference.");
+  }
   const decisionPartition = expectRecord2(prepareTaskAdapter.decision_partition, "Runtime contract.proposal.prepare_task.semantic_adapter.decision_partition");
   expectExactKeys2(decisionPartition, ["decided", "unresolved"], "Runtime contract.proposal.prepare_task.semantic_adapter.decision_partition");
   if (decisionPartition.decided !== "confirmed_decisions" || decisionPartition.unresolved !== "open_questions") {
@@ -2387,8 +2398,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
       fail2("RUNTIME_CONTRACT_INVALID", `Runtime contract operation ${id} must identify its logical operation.`);
     const operationContract = {
       "task-state-transaction": {
-        source: ["CURRENT_TASK.md"],
-        writes: ["CURRENT_TASK.md"],
+        source: ["CURRENT_TASK.md", "task-basis/TASK_BASIS-<TASK_ID>.md"],
+        writes: ["CURRENT_TASK.md", "task-basis/TASK_BASIS-<TASK_ID>.md"],
         callers: ["execute-step", "prepare-task"]
       },
       "finding-queue-transaction": {
@@ -2709,6 +2720,42 @@ var REPLAN_REPLACEMENT_FIELDS = [
   "post_release_validation",
   "propagation_governance"
 ];
+function expectVerbatim(value, location, maxLength) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location} must be a non-empty string.`);
+  }
+  if (value.length > maxLength || /\0/u.test(value)) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location} must be at most ${maxLength} characters and contain no NUL byte.`);
+  }
+  return value;
+}
+function validateTaskBasisSource(value, location) {
+  const source = expectRecord2(value, location);
+  expectExactKeys2(source, ["source", "verbatim"], location);
+  const locator = expectText(source.source, `${location}.source`, 1024);
+  if (/[\r\n]/u.test(locator))
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.source must be one line.`);
+  return {
+    source: locator,
+    verbatim: expectVerbatim(source.verbatim, `${location}.verbatim`, MAX_REPLAN_SECTION_CONTENT_LENGTH)
+  };
+}
+function validateTaskBasis(value, location) {
+  const basis = expectRecord2(value, location);
+  expectExactKeys2(basis, ["original_request", "user_decisions"], location);
+  if (!Array.isArray(basis.user_decisions) || basis.user_decisions.length > 64) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.user_decisions must be a bounded array.`);
+  }
+  const userDecisions = basis.user_decisions.map((item, index) => validateTaskBasisSource(item, `${location}.user_decisions[${index}]`));
+  const decisionKeys = userDecisions.map((item) => `${item.source}\x00${item.verbatim}`);
+  if (new Set(decisionKeys).size !== decisionKeys.length) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.user_decisions must not contain duplicate source excerpts.`);
+  }
+  return {
+    original_request: validateTaskBasisSource(basis.original_request, `${location}.original_request`),
+    user_decisions: userDecisions
+  };
+}
 function normalizeReplacementSectionContent(value, location) {
   const normalized = value.replace(/\r\n?/g, `
 `).trim();
@@ -2842,7 +2889,7 @@ function validateTaskStateDelta(value) {
   const kind = expectEnum(record.kind, ["task-state"], "semantic_delta.kind");
   const action = expectEnum(record.action, ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
   if (action === "create-draft" || action === "update-draft") {
-    const allowedKeys = ["kind", "action", "task_id", "task_slug", "document_id", "task_title", "draft_definition", "active_step_id", "evidence_refs", "claim_evidence"];
+    const allowedKeys = ["kind", "action", "task_id", "task_slug", "document_id", "task_title", "task_basis", "draft_definition", "active_step_id", "evidence_refs", "claim_evidence"];
     if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
       fail2("RUNTIME_SCHEMA_INVALID", "draft task-state semantic_delta contains unsupported fields.");
     const identity = validateDraftTaskIdentityFields(record, "semantic_delta", true);
@@ -2850,6 +2897,7 @@ function validateTaskStateDelta(value) {
       kind,
       action,
       ...identity,
+      task_basis: validateTaskBasis(record.task_basis, "semantic_delta.task_basis"),
       draft_definition: validateReplanReplacementDefinition(record.draft_definition, "semantic_delta.draft_definition"),
       active_step_id: expectString2(record.active_step_id, "semantic_delta.active_step_id", STEP_ID_PATTERN2),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
@@ -2898,12 +2946,13 @@ function validateTaskStateDelta(value) {
     };
   }
   if (action === "commit-replan") {
-    const allowedKeys = ["kind", "action", "replacement_definition", "active_step_id", "evidence_refs", "claim_evidence"];
+    const allowedKeys = ["kind", "action", "task_basis", "replacement_definition", "active_step_id", "evidence_refs", "claim_evidence"];
     if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
       fail2("RUNTIME_SCHEMA_INVALID", "replan task-state semantic_delta contains unsupported fields.");
     const result2 = {
       kind,
       action,
+      task_basis: validateTaskBasis(record.task_basis, "semantic_delta.task_basis"),
       replacement_definition: validateReplanReplacementDefinition(record.replacement_definition, "semantic_delta.replacement_definition"),
       active_step_id: expectString2(record.active_step_id, "semantic_delta.active_step_id", STEP_ID_PATTERN2),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
@@ -3675,10 +3724,18 @@ function validateRuntimeProposal(value) {
   const evidenceRefs = validateEvidenceRefs(proposal.evidence_refs, "proposal.evidence_refs");
   const idempotencyKey = expectString2(proposal.idempotency_key, "proposal.idempotency_key", SAFE_KEY_PATTERN2);
   const requestedTargets = expectStringArray2(proposal.requested_write_targets, "proposal.requested_write_targets", false, 4).map((target, index) => normalizeRepoPath2(target, `proposal.requested_write_targets[${index}]`));
-  const targetCount = operationKind === "lifecycle-transaction" && mode !== "supersede" || operationKind === "archive-transaction" ? 2 : 1;
+  const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
+  const writesTaskBasis = semanticDelta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan"].includes(semanticDelta.action);
+  const targetCount = writesTaskBasis || operationKind === "lifecycle-transaction" && mode !== "supersede" || operationKind === "archive-transaction" ? 2 : 1;
   if (requestedTargets.length !== targetCount)
     fail2("RUNTIME_PATH_INVALID", `This Runtime proposal must name exactly ${targetCount} exact write target${targetCount === 1 ? "" : "s"}.`);
-  const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
+  if (writesTaskBasis) {
+    const taskId = semanticDelta.kind === "task-state" && (semanticDelta.action === "create-draft" || semanticDelta.action === "update-draft") ? semanticDelta.task_id : sourceTuple.task_id;
+    const expectedBasisPath = taskBasisRelativePath(sourceTuple.path, taskId);
+    if (requestedTargets[1] !== expectedBasisPath) {
+      fail2("RUNTIME_PATH_INVALID", `draft proposal second write target must be the identity-derived task basis ${expectedBasisPath}.`);
+    }
+  }
   if (operationKind === "task-state-transaction") {
     if (caller === "prepare-task") {
       if (mode === "default") {
@@ -4817,7 +4874,96 @@ function assertExecutionAuditInBody(body, audit) {
     fail2("RUNTIME_REPLAY_INCOMPLETE", `replay is missing the durable body audit for ${audit.action}.`);
   }
 }
-function renderNewDraftBody(identity, definition, runtimeState) {
+var VNEXT_TASK_BASIS_KIND = "vnext-task-basis";
+var TASK_BASIS_HEADING_ALIASES = ["任务输入依据", "Task Basis"];
+function taskBasisRelativePath(currentTaskPath, taskId) {
+  try {
+    validateTaskId(taskId);
+  } catch (error) {
+    fail2("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  const directory = path4.posix.dirname(normalizeRepoPath2(currentTaskPath, "CURRENT_TASK source path"));
+  return path4.posix.join(directory, "task-basis", `TASK_BASIS-${taskId}.md`);
+}
+function taskBasisFilePath(root, relativePath) {
+  const resolvedRoot = path4.resolve(root);
+  const filePath = path4.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath, "task basis path").split("/"));
+  const relative2 = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relative2 || relative2.startsWith("../") || path4.isAbsolute(relative2)) {
+    fail2("RUNTIME_PATH_INVALID", `task basis path escapes the target root: ${relativePath}`);
+  }
+  return filePath;
+}
+function renderTaskBasisContent(identity, basis) {
+  const frontmatter = {
+    schema_version: 1,
+    kind: VNEXT_TASK_BASIS_KIND,
+    task_id: identity.task_id,
+    document_id: identity.document_id,
+    original_request: basis.original_request,
+    user_decisions: basis.user_decisions
+  };
+  return [
+    "---",
+    stringify(frontmatter).trimEnd(),
+    "---",
+    "# vNext TASK_BASIS",
+    "",
+    "This file preserves request evidence for independent draft review.",
+    "It is not a review result and does not replace source-authority or decision-authority policy.",
+    ""
+  ].join(`
+`);
+}
+function materializeTaskBasis(root, current, identity, basis) {
+  const relativePath = taskBasisRelativePath(current.relativePath, identity.task_id);
+  const content = renderTaskBasisContent(identity, basis);
+  return {
+    path: relativePath,
+    filePath: taskBasisFilePath(root, relativePath),
+    revision: sha2562(content),
+    content,
+    basis
+  };
+}
+function readTaskBasisReferenceFromBody(body) {
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(body), TASK_BASIS_HEADING_ALIASES, 2);
+  if (!section)
+    return null;
+  const content = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
+`).trim();
+  const match = /^- path: `([^`]+)`\n- revision: `([a-f0-9]{64})`$/u.exec(content);
+  if (!match)
+    fail2("TASK_BASIS_REFERENCE_INVALID", "CURRENT_TASK task basis reference must contain one exact path and SHA-256 revision.");
+  return {
+    path: normalizeRepoPath2(match[1], "CURRENT_TASK task basis path"),
+    revision: match[2]
+  };
+}
+function renderTaskBasisReference(reference) {
+  return [`- path: \`${reference.path}\``, `- revision: \`${reference.revision}\``].join(`
+`);
+}
+function replaceTaskBasisReference(body, reference) {
+  const sections = scanMarkdownSections2(body);
+  const existing = findUniqueMarkdownSection(sections, TASK_BASIS_HEADING_ALIASES, 2);
+  const rendered = renderTaskBasisReference(reference);
+  if (existing) {
+    return body.slice(0, existing.contentStart) + `
+${rendered}
+
+` + body.slice(existing.contentEnd);
+  }
+  const background = findUniqueMarkdownSection(sections, ["背景与上下文", "Background and Context"], 2);
+  if (!background)
+    fail2("RUNTIME_SECTION_INVALID", "CURRENT_TASK is missing the background section required to insert its task basis reference.");
+  return body.slice(0, background.headingStart) + `## 任务输入依据
+
+${rendered}
+
+` + body.slice(background.headingStart);
+}
+function renderNewDraftBody(identity, definition, runtimeState, taskBasisReference) {
   const optionalSection = (value) => value ?? "";
   return [
     "# vNext CURRENT_TASK",
@@ -4831,6 +4977,10 @@ function renderNewDraftBody(identity, definition, runtimeState) {
     `- 生命周期状态：${runtimeState.lifecycle_state}`,
     `- 恢复需审查：${runtimeState.resume_requires_review ? "true" : "false"}`,
     `- 恢复审查原因：${runtimeState.resume_review_reasons.join(", ")}`,
+    "",
+    "## 任务输入依据",
+    "",
+    renderTaskBasisReference(taskBasisReference),
     "",
     "## 背景与上下文",
     "",
@@ -4913,7 +5063,13 @@ function renderCanonicalCurrentTask(frontmatter, body, runtimeState, options = {
     ...options.draftDocumentId === undefined ? {} : { document_id: options.draftDocumentId },
     runtime_state: runtimeState
   };
-  let nextBody = options.draftDefinition && options.draftIdentity ? renderNewDraftBody(options.draftIdentity, options.draftDefinition, runtimeState) : options.replacementDefinition ? replaceReplanDefinitionSections(body, options.replacementDefinition) : body;
+  if (options.draftDefinition && options.draftIdentity && !options.taskBasisReference) {
+    fail2("TASK_BASIS_MISSING", "A new or refined draft must link its exact task basis.");
+  }
+  let nextBody = options.draftDefinition && options.draftIdentity && options.taskBasisReference ? renderNewDraftBody(options.draftIdentity, options.draftDefinition, runtimeState, options.taskBasisReference) : options.replacementDefinition ? replaceReplanDefinitionSections(body, options.replacementDefinition) : body;
+  if (options.taskBasisReference && !(options.draftDefinition && options.draftIdentity)) {
+    nextBody = replaceTaskBasisReference(nextBody, options.taskBasisReference);
+  }
   if (options.draftIdentity && !(options.draftDefinition && options.draftIdentity)) {
     nextBody = replaceTaskInfoField(nextBody, "任务 ID", options.draftIdentity.task_id);
     nextBody = replaceTaskInfoField(nextBody, "任务标题", options.draftIdentity.task_title);
@@ -5055,6 +5211,46 @@ function readCanonicalCurrentTask(root) {
   if (!fs3.existsSync(filePath))
     fail2("RUNTIME_SOURCE_MISSING", `CURRENT_TASK.md is missing: ${relativePath}`);
   return parseCanonicalCurrentTaskContent(fs3.readFileSync(filePath, "utf8"), filePath, relativePath);
+}
+function readCanonicalTaskBasis(root, current = readCanonicalCurrentTask(root)) {
+  const reference = readTaskBasisReferenceFromBody(current.body);
+  if (!reference)
+    fail2("TASK_BASIS_MISSING", "CURRENT_TASK does not link an exact task basis.");
+  const expectedPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
+  if (reference.path !== expectedPath) {
+    fail2("TASK_BASIS_REFERENCE_INVALID", `CURRENT_TASK task basis path must be ${expectedPath}.`);
+  }
+  const filePath = taskBasisFilePath(root, reference.path);
+  if (!fs3.existsSync(filePath))
+    fail2("TASK_BASIS_MISSING", `Linked task basis is missing: ${reference.path}`);
+  const content = fs3.readFileSync(filePath, "utf8");
+  const revision = sha2562(content);
+  if (revision !== reference.revision)
+    fail2("TASK_BASIS_REVISION_CONFLICT", "Linked task basis revision does not match its file content.");
+  const { frontmatter, body } = parseYamlFrontmatter(content, reference.path);
+  expectExactKeys2(frontmatter, ["schema_version", "kind", "task_id", "document_id", "original_request", "user_decisions"], `${reference.path} frontmatter`);
+  if (frontmatter.schema_version !== 1 || frontmatter.kind !== VNEXT_TASK_BASIS_KIND) {
+    fail2("TASK_BASIS_INVALID", `${reference.path} is not a supported vNext task basis.`);
+  }
+  const taskId = expectString2(frontmatter.task_id, `${reference.path}.task_id`);
+  const documentId = expectString2(frontmatter.document_id, `${reference.path}.document_id`);
+  if (taskId !== current.runtimeState.task_id || documentId !== current.sourceTuple.document_id) {
+    fail2("TASK_BASIS_IDENTITY_CONFLICT", "Linked task basis identity does not match CURRENT_TASK.");
+  }
+  if (!/^# vNext TASK_BASIS\s*$/mu.test(body))
+    fail2("TASK_BASIS_INVALID", `${reference.path} is missing its canonical heading.`);
+  const basis = validateTaskBasis({
+    original_request: frontmatter.original_request,
+    user_decisions: frontmatter.user_decisions
+  }, reference.path);
+  return {
+    ...reference,
+    filePath,
+    content,
+    basis,
+    task_id: taskId,
+    document_id: documentId
+  };
 }
 function workflowDocPathForRoot(root, file, missingCode = "RUNTIME_SOURCE_MISSING") {
   const resolvedRoot = path4.resolve(root);
@@ -7334,7 +7530,7 @@ function expectedDraftReplayAudit(current, proposal) {
     fail2("RUNTIME_REPLAY_INCOMPLETE", "draft replay is missing its durable execution audit record.");
   return entry;
 }
-function assertDraftTaskReplay(current, proposal) {
+function assertDraftTaskReplay(root, current, proposal) {
   if (proposal.semantic_delta.kind !== "task-state" || !DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action))
     return;
   const delta = proposal.semantic_delta;
@@ -7367,6 +7563,10 @@ function assertDraftTaskReplay(current, proposal) {
       if (digest(current.runtimeState.claim_evidence ?? []) !== digest(draftDelta.claim_evidence)) {
         fail2("RUNTIME_REPLAY_INCOMPLETE", `${delta.action} replay no longer has the proposal claim evidence in canonical CURRENT_TASK.`);
       }
+    }
+    const basis = readCanonicalTaskBasis(root, current);
+    if (digest(basis.basis) !== digest(draftDelta.task_basis)) {
+      fail2("RUNTIME_REPLAY_INCOMPLETE", `${delta.action} replay no longer has the proposal task basis.`);
     }
     assertReplanDefinitionSections(current.body, draftDelta.draft_definition);
     if (current.runtimeState.active_step_id !== draftDelta.active_step_id || current.runtimeState.active_step_status !== "ready") {
@@ -7447,9 +7647,9 @@ function assertStepProgressReplay(current, proposal) {
     fail2("RUNTIME_REPLAY_INCOMPLETE", "step-progress replay is missing its durable advancement outcome.");
   }
 }
-function assertTaskStateReplay(current, proposal) {
+function assertTaskStateReplay(root, current, proposal) {
   if (proposal.semantic_delta.kind === "task-state" && DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action)) {
-    assertDraftTaskReplay(current, proposal);
+    assertDraftTaskReplay(root, current, proposal);
     return;
   }
   if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "step-progress") {
@@ -7482,6 +7682,10 @@ function assertTaskStateReplay(current, proposal) {
     if (current.runtimeState.resume_requires_review || current.runtimeState.resume_review_reasons.length > 0)
       fail2("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has a cleared resume gate.");
     assertReplanDefinitionSections(current.body, commitDelta.replacement_definition);
+    const basis = readCanonicalTaskBasis(root, current);
+    if (digest(basis.basis) !== digest(commitDelta.task_basis)) {
+      fail2("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has the proposal task basis.");
+    }
     if (commitDelta.claim_evidence !== undefined && digest(current.runtimeState.claim_evidence ?? []) !== digest(commitDelta.claim_evidence)) {
       fail2("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has the proposal claim evidence in canonical CURRENT_TASK.");
     }
@@ -7580,6 +7784,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       draftDefinition: delta.draft_definition,
       draftIdentity,
       draftDocumentId: delta.document_id,
+      taskBasis: delta.task_basis,
       audit
     };
   }
@@ -7620,6 +7825,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
         task_title: currentIdentity.title
       },
       draftDocumentId: current.sourceTuple.document_id,
+      taskBasis: delta.task_basis,
       audit
     };
   }
@@ -7653,6 +7859,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (current.runtimeState.active_step_status !== "ready") {
       fail2("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the admitted draft step to remain ready.");
     }
+    readCanonicalTaskBasis(root, current);
     assertDraftDefinitionReady(current.body, current.runtimeState.active_step_id);
     if (current.runtimeState.claim_evidence_required !== true) {
       fail2("CLAIM_EVIDENCE_MIGRATION_REQUIRED", "prepare-task refinement must persist a strict claim_evidence plan before confirm-draft; legacy tasks are readable but not terminal-completion compatible.");
@@ -7766,6 +7973,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     return {
       next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
       replacementDefinition: delta.replacement_definition,
+      taskBasis: delta.task_basis,
       audit
     };
   }
@@ -8620,6 +8828,35 @@ function rollbackCurrentTaskAndVerify(root, current, readCurrentTask) {
     };
   }
 }
+function rollbackDraftTransactionAndVerify(root, current, artifact, originalTaskBasisContent, readCurrentTask) {
+  try {
+    const writes = [{ path: current.filePath, content: current.raw }];
+    if (originalTaskBasisContent !== undefined) {
+      writes.push({ path: artifact.filePath, content: originalTaskBasisContent });
+    }
+    executeWrites(writes, false, "vNext Runtime draft rollback after read-back failure");
+    if (originalTaskBasisContent === undefined && fs3.existsSync(artifact.filePath)) {
+      fs3.rmSync(artifact.filePath, { force: true });
+    }
+  } catch (error) {
+    return { verified: false, detail: `rollback failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  try {
+    const rollbackReadBack = readCurrentTask(root);
+    if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
+      return { verified: false, detail: "rollback read-back did not restore the original canonical CURRENT_TASK document." };
+    }
+    if (originalTaskBasisContent === undefined) {
+      if (fs3.existsSync(artifact.filePath))
+        return { verified: false, detail: "rollback left a newly-created task basis behind." };
+    } else if (!fs3.existsSync(artifact.filePath) || fs3.readFileSync(artifact.filePath, "utf8") !== originalTaskBasisContent) {
+      return { verified: false, detail: "rollback read-back did not restore the original task basis." };
+    }
+    return { verified: true, detail: "rollback read-back verified for CURRENT_TASK and task basis." };
+  } catch (error) {
+    return { verified: false, detail: `rollback read-back failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
 function rollbackLifecycleTransactionAndVerify(root, current, plan, readCurrentTask) {
   if (!plan.packageFilePath) {
     return rollbackCurrentTaskAndVerify(root, current, readCurrentTask);
@@ -9126,6 +9363,12 @@ class GovernanceTransactionKernel {
         assertRequestedInboxTargets(this.root, current, proposal);
       } else if (proposal.operation_kind === "archive-transaction" || proposal.operation_kind === "project-status-transaction" || proposal.operation_kind === "lesson-record-transaction" || proposal.operation_kind === "contract-candidate-commit" || proposal.operation_kind === "decision-record-transaction") {
         assertRequestedCloseTargets(this.root, current, proposal);
+      } else if (proposal.operation_kind === "task-state-transaction" && proposal.semantic_delta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan"].includes(proposal.semantic_delta.action)) {
+        const taskId = proposal.semantic_delta.action === "create-draft" || proposal.semantic_delta.action === "update-draft" ? proposal.semantic_delta.task_id : current.runtimeState.task_id;
+        const expectedBasisPath = taskBasisRelativePath(current.relativePath, taskId);
+        if (proposal.requested_write_targets.length !== 2 || proposal.requested_write_targets[0] !== current.relativePath || proposal.requested_write_targets[1] !== expectedBasisPath) {
+          fail2("RUNTIME_PATH_INVALID", "draft proposal must target the exact canonical CURRENT_TASK and identity-derived task basis paths.");
+        }
       } else if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== current.relativePath) {
         fail2("RUNTIME_PATH_INVALID", "proposal write target is not the exact canonical CURRENT_TASK path.");
       }
@@ -9218,7 +9461,7 @@ class GovernanceTransactionKernel {
         }
       } else if (proposal.operation_kind === "task-state-transaction") {
         try {
-          assertTaskStateReplay(current, proposal);
+          assertTaskStateReplay(this.root, current, proposal);
         } catch (error) {
           return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
             code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_REPLAY_INCOMPLETE"
@@ -9292,6 +9535,42 @@ class GovernanceTransactionKernel {
     } catch (error) {
       return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_HANDLER_BLOCKED" });
     }
+    let taskBasisArtifact;
+    let originalTaskBasisContent;
+    try {
+      if (transition.taskBasis) {
+        const currentIdentity = extractTaskIdentityFromCurrentTask(current.body);
+        const identity = transition.draftIdentity ?? {
+          task_id: current.runtimeState.task_id,
+          task_slug: current.runtimeState.task_slug,
+          document_id: current.sourceTuple.document_id,
+          task_title: currentIdentity.title
+        };
+        taskBasisArtifact = materializeTaskBasis(this.root, current, identity, transition.taskBasis);
+        const existingReference = readTaskBasisReferenceFromBody(current.body);
+        const basisExists = fs3.existsSync(taskBasisArtifact.filePath);
+        if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "create-draft") {
+          if (basisExists)
+            fail2("TASK_BASIS_CONFLICT", `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
+        } else if (existingReference) {
+          if (existingReference.path !== taskBasisArtifact.path) {
+            fail2("TASK_BASIS_REFERENCE_INVALID", "CURRENT_TASK links a different task basis path than the draft transaction target.");
+          }
+          if (!basisExists)
+            fail2("TASK_BASIS_MISSING", `Linked task basis is missing: ${taskBasisArtifact.path}`);
+          originalTaskBasisContent = fs3.readFileSync(taskBasisArtifact.filePath, "utf8");
+          if (sha2562(originalTaskBasisContent) !== existingReference.revision) {
+            fail2("TASK_BASIS_REVISION_CONFLICT", "Linked task basis changed outside the Runtime transaction.");
+          }
+        } else if (basisExists) {
+          fail2("TASK_BASIS_CONFLICT", `Unlinked task basis already exists at ${taskBasisArtifact.path}.`);
+        }
+      }
+    } catch (error) {
+      return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof VNextRuntimeError ? error.code : "TASK_BASIS_INVALID"
+      });
+    }
     let nextContent;
     try {
       nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, transition.next, {
@@ -9299,6 +9578,7 @@ class GovernanceTransactionKernel {
         ...transition.draftDefinition ? { draftDefinition: transition.draftDefinition } : {},
         ...transition.draftIdentity ? { draftIdentity: transition.draftIdentity } : {},
         ...transition.draftDocumentId ? { draftDocumentId: transition.draftDocumentId } : {},
+        ...taskBasisArtifact ? { taskBasisReference: { path: taskBasisArtifact.path, revision: taskBasisArtifact.revision } } : {},
         ...transition.audit ? { audit: transition.audit } : {}
       });
     } catch (error) {
@@ -9323,19 +9603,29 @@ class GovernanceTransactionKernel {
       });
     }
     try {
-      executeWrites([{ path: current.filePath, content: nextContent }], false, `vNext Runtime ${proposal.operation_kind} committed`);
+      executeWrites([
+        { path: current.filePath, content: nextContent },
+        ...taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : []
+      ], false, `vNext Runtime ${proposal.operation_kind} committed`);
     } catch (error) {
       return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: "ATOMIC_COMMIT_FAILED" });
     }
     try {
       const readBack = this.readCurrentTask(this.root);
       if (readBack.raw !== nextContent || readBack.sourceTuple.revision !== nextRevision) {
-        const rollback = rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
+        const rollback = taskBasisArtifact ? rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask) : rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
         return buildResult("blocked", proposal, current, options, rollback.verified ? "Runtime read-back did not match the staged canonical document; rollback read-back verified." : `Runtime read-back did not match the staged canonical document; ${rollback.detail}`, { code: rollback.verified ? "READ_BACK_MISMATCH" : "ROLLBACK_FAILED" });
+      }
+      if (taskBasisArtifact) {
+        const basisReadBack = readCanonicalTaskBasis(this.root, readBack);
+        if (basisReadBack.content !== taskBasisArtifact.content || basisReadBack.revision !== taskBasisArtifact.revision) {
+          const rollback = rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask);
+          return buildResult("blocked", proposal, current, options, rollback.verified ? "Runtime task basis read-back did not match the staged artifact; rollback read-back verified." : `Runtime task basis read-back did not match the staged artifact; ${rollback.detail}`, { code: rollback.verified ? "READ_BACK_MISMATCH" : "ROLLBACK_FAILED" });
+        }
       }
       return buildResult("success", proposal, current, options, "typed proposal committed and canonical source read-back verified.", {
         committed: true,
-        governed_mutation_count: 1,
+        governed_mutation_count: taskBasisArtifact ? 2 : 1,
         previous_revision: current.sourceTuple.revision,
         resulting_revision: nextRevision,
         read_back_verified: true,
@@ -9343,7 +9633,7 @@ class GovernanceTransactionKernel {
         ...transition.advancement ? { advancement: transition.advancement } : {}
       });
     } catch (error) {
-      const rollback = rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
+      const rollback = taskBasisArtifact ? rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask) : rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
       return buildResult("blocked", proposal, current, options, rollback.verified ? `Runtime read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.` : `Runtime read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, { code: rollback.verified ? "READ_BACK_FAILED" : "ROLLBACK_FAILED" });
     }
   }
@@ -9423,6 +9713,7 @@ function createPrepareTaskDraftProposal(current, input) {
       task_slug: input.task_slug,
       document_id: documentId,
       task_title: input.task_title,
+      task_basis: input.task_basis,
       draft_definition: input.draft_definition,
       active_step_id: input.active_step_id,
       evidence_refs: input.evidence_refs,
@@ -9431,7 +9722,7 @@ function createPrepareTaskDraftProposal(current, input) {
     preconditions: input.action === "create-draft" ? ["current-task-is-closed-and-archived", "next-unused-task-identity", "closed-draft-definition"] : ["current-task-is-draft-and-active", "same-task-identity", "closed-draft-definition"],
     evidence_refs: proposalEvidenceRefs,
     idempotency_key: input.idempotency_key,
-    requested_write_targets: [current.relativePath]
+    requested_write_targets: [current.relativePath, taskBasisRelativePath(current.relativePath, input.task_id)]
   });
 }
 function createPrepareTaskConfirmProposal(current, input) {
@@ -9475,7 +9766,7 @@ function createPrepareTaskReplanProposal(current, input) {
     preconditions: input.delta.action === "mark-replan-blocked" ? ["current-task-is-active", "replan-blocker-evidence-complete"] : input.delta.action === "clear-replan-block" ? ["blocked-by-replan", "new-authoritative-evidence"] : ["superseded-task", "closed-replacement-definition", "same-task-identity"],
     evidence_refs: proposalEvidenceRefs,
     idempotency_key: input.idempotency_key,
-    requested_write_targets: [current.relativePath]
+    requested_write_targets: input.delta.action === "commit-replan" ? [current.relativePath, taskBasisRelativePath(current.relativePath, current.runtimeState.task_id)] : [current.relativePath]
   });
 }
 function createFindingQueueProposal(current, input) {
@@ -11487,6 +11778,7 @@ var PREPARE_TASK_ADAPTER_COMMANDS = [
   "replan"
 ];
 var SEMANTIC_DRAFT_FIELDS = [
+  "task_basis",
   "goal",
   "acceptance",
   "out_of_scope",
@@ -11524,6 +11816,36 @@ function text(value, location, maximumLength = 4096) {
     fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be one non-empty line of at most ${maximumLength} characters.`);
   }
   return normalized;
+}
+function verbatim(value, location, maximumLength = 32768) {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > maximumLength || /\0/u.test(value)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `${location} must be non-empty verbatim text of at most ${maximumLength} characters.`);
+  }
+  return value;
+}
+function normalizeTaskBasisSource(value, location) {
+  const source = record(value, location);
+  exactKeys(source, ["source", "verbatim"], location);
+  return {
+    source: text(source.source, `${location}.source`, 1024),
+    verbatim: verbatim(source.verbatim, `${location}.verbatim`)
+  };
+}
+function normalizeTaskBasis(value) {
+  const basis = record(value, "task_basis");
+  exactKeys(basis, ["original_request", "user_decisions"], "task_basis");
+  if (!Array.isArray(basis.user_decisions) || basis.user_decisions.length > 64) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "task_basis.user_decisions must be a bounded array.");
+  }
+  const userDecisions = basis.user_decisions.map((item, index) => normalizeTaskBasisSource(item, `task_basis.user_decisions[${index}]`));
+  const keys = userDecisions.map((item) => `${item.source}\x00${item.verbatim}`);
+  if (new Set(keys).size !== keys.length) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", "task_basis.user_decisions must not contain duplicate source excerpts.");
+  }
+  return {
+    original_request: normalizeTaskBasisSource(basis.original_request, "task_basis.original_request"),
+    user_decisions: userDecisions
+  };
 }
 function textList(value, location, allowEmpty) {
   if (!Array.isArray(value) || value.length > MAX_ITEMS || !allowEmpty && value.length === 0) {
@@ -11691,6 +12013,7 @@ function normalizeSemanticDraft(input) {
     }
   }
   const normalized = {
+    task_basis: normalizeTaskBasis(source.task_basis),
     goal: text(source.goal, "goal", 512),
     acceptance: textList(source.acceptance, "acceptance", false),
     out_of_scope: textList(source.out_of_scope, "out_of_scope", true),
@@ -11892,8 +12215,14 @@ function verifyAdapterReadBack(root, result, options) {
 function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
-function currentMatchesSemanticDraft(current, semantic) {
-  return current.runtimeState.active_step_id === semantic.implementation_steps[0].id && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic)) && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
+function currentMatchesSemanticDraft(root, current, semantic) {
+  let basisMatches = false;
+  try {
+    basisMatches = sameValue(readCanonicalTaskBasis(root, current).basis, semantic.task_basis);
+  } catch {
+    basisMatches = false;
+  }
+  return current.runtimeState.active_step_id === semantic.implementation_steps[0].id && basisMatches && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic)) && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
 }
 function semanticNoOp(current, idempotencyKey, message, options = {}) {
   const state = current.runtimeState;
@@ -11970,13 +12299,14 @@ function prepareDraft(root, input, options = {}) {
   };
   const digest3 = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey("prepare-draft", { task_id: identity.task_id, semantic });
-  if (updating && currentMatchesSemanticDraft(current, semantic)) {
+  if (updating && currentMatchesSemanticDraft(root, current, semantic)) {
     return withConfirmationReceipt(root, semanticNoOp(current, retryKey, "The requested semantic draft already matches canonical CURRENT_TASK.", options), options);
   }
   const evidenceRefs = [`adapter:prepare-draft:${digest3.slice(0, 16)}`];
   const proposal = createPrepareTaskDraftProposal(current, {
     action: creating ? "create-draft" : "update-draft",
     ...identity,
+    task_basis: semantic.task_basis,
     draft_definition: semanticDraftDefinition(semantic),
     active_step_id: semantic.implementation_steps[0].id,
     evidence_refs: evidenceRefs,
@@ -12081,7 +12411,7 @@ function replan(root, input, options = {}) {
   const current = readCanonicalCurrentTask(root);
   const digest3 = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey("replan", { task_id: current.runtimeState.task_id, semantic });
-  if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active" && currentMatchesSemanticDraft(current, semantic)) {
+  if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active" && currentMatchesSemanticDraft(root, current, semantic)) {
     return semanticNoOp(current, retryKey, "The requested replan already matches canonical CURRENT_TASK.", options);
   }
   if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active") {
@@ -12098,6 +12428,7 @@ function replan(root, input, options = {}) {
     delta: {
       kind: "task-state",
       action: "commit-replan",
+      task_basis: semantic.task_basis,
       replacement_definition: semanticDraftDefinition(semantic),
       active_step_id: semantic.implementation_steps[0].id,
       evidence_refs: evidenceRefs,

@@ -9,7 +9,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.15.0
+  package_version: 0.15.1
   node_min_version: ">=20.0.0"
 
 proposal:
@@ -171,6 +171,16 @@ proposal:
         - post_release_validation
         - propagation_governance
       claim_evidence: required-and-non-empty-for-new-or-refined-drafts; must-include-an-acceptance-claim; legacy-documents-remain-readable-but-require-migration-before-terminal-completion
+      task_basis:
+        required:
+          - original_request
+          - user_decisions
+        source_fields:
+          - source
+          - verbatim
+        storage: identity-derived-linked-document
+        write_binding: same-atomic-draft-transaction
+        review_results_forbidden: true
       create_from: closed + archived
       update_from: draft + active
       target: draft + active
@@ -234,6 +244,7 @@ proposal:
         - clear-resume-review
         - replan
       draft_fields:
+        - task_basis
         - goal
         - acceptance
         - out_of_scope
@@ -245,6 +256,7 @@ proposal:
       decision_partition:
         decided: confirmed_decisions
         unresolved: open_questions
+      task_basis_storage: linked-TASK_BASIS-with-path-and-revision
       command_footprint_preflight:
         source: "implementation_steps[].commands"
         fields:
@@ -565,8 +577,10 @@ operations:
     operation: task-state-transaction
     source_targets:
       - CURRENT_TASK.md
+      - task-basis/TASK_BASIS-<TASK_ID>.md
     write_targets:
       - CURRENT_TASK.md
+      - task-basis/TASK_BASIS-<TASK_ID>.md
     allowed_callers:
       - execute-step
       - prepare-task
