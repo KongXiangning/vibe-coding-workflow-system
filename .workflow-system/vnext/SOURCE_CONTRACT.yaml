@@ -146,6 +146,24 @@ capabilities:
       - a mandatory gate would be skipped
       - risk evidence is insufficient to select a safe depth
 
+  - id: draft-consistency-challenge
+    exposure: internal
+    trigger:
+      - a complete prepare-task candidate has a material semantic, evidence, or cross-step repairability risk after the always-on transient consistency scan
+    input_contract:
+      - verbatim request and exact source locators with authority, relevance, and freshness
+      - candidate acceptance, decided and unresolved choices, mutation scope, implementation steps, validation plan, and persistent-test proof claims
+      - relevant project facts needed to judge feasibility, excluding the draft author's rationale and prior conclusion
+      - transient semantic delta map and path-by-step interaction map
+    output_contract:
+      - 'one ephemeral verdict: no-material-gap, repairable-gap, or user-decision-required'
+      - bounded discrepancies with request or source reference, draft reference, material impact, and correction owner
+      - explicit cross-step repairability gaps where planned integration or validation can expose a failure outside the current step scope
+      - no authority decision, scope expansion, Runtime proposal, finding-queue write, review receipt, or durable review state
+    stop_conditions:
+      - the verbatim request, source provenance, candidate draft, or relevant feasibility context is unavailable
+      - the challenge would need to invent a user-owned decision, broaden the task, or act as a public review entry
+
   - id: propagation-evidence-validator
     exposure: internal
     trigger:

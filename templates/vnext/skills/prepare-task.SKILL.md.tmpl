@@ -27,6 +27,8 @@ entry_contract:
     - source-authority-policy
     - scope-guard
     - decision-authority-gate
+    - adaptive-depth-policy
+    - draft-consistency-challenge
     - evidence-admission-policy
     - resume-review-gate
   runtime_operations:
@@ -79,9 +81,43 @@ Necessary design decisions do not authorize inventing unspecified externally
 observable behavior; keep such choices unresolved until the user or an
 authoritative existing design resolves them.
 
-Before submission, make one bounded read-only review of decision authority,
-conflict and invariant strength, step-end executability, and command-footprint
-admission. Revise once or surface unresolved choices; do not broaden the task.
+Before submission, form the complete candidate draft and build two transient
+checks that are never persisted as task state:
+
+- a **semantic delta map** from the verbatim request and authoritative source
+  locators to every acceptance claim and every decided behavior that materially
+  changes requiredness, defaults, accepted values, success or failure behavior,
+  stored data, compatibility, or another user-visible contract;
+- a **path-by-step interaction map** covering each planned write, the step that
+  creates it, later steps that integrate or validate it, and an in-scope repair
+  route for failures those later steps can expose. Step scopes are permissions
+  for one step, not exclusive file ownership; repeat exact earlier paths in a
+  later scope or reslice the plan when integration may need to revise them.
+
+Always run the bounded consistency scan over those maps. Trigger one isolated
+`draft-consistency-challenge` when the candidate conflicts with an authority-
+bearing source, adds an unsupported material contract behavior, has multiple
+material interpretations, affects irreversible migration, security, or
+destructive behavior, leaves an acceptance claim with only vague evidence, or
+lacks an in-scope repair route. Simple unambiguous local changes may skip the
+isolated pass, but not the two transient checks.
+
+The challenge receives the verbatim request, source locators with authority,
+relevance, and freshness, the candidate draft, and only the project facts
+needed to judge feasibility. Do not pass the draft author's rationale or prior
+conclusion. Use a fresh context when the host supports it; otherwise do not
+represent the ordinary self-check as independent. The challenge detects gaps
+but does not decide authority, expand scope, invoke a public change-review
+entry, or write Runtime state. Its ephemeral verdict is `no-material-gap`,
+`repairable-gap`, or `user-decision-required`, with source and draft references
+plus concrete impact.
+
+Resolve reported gaps through the existing source-authority, decision-authority,
+scope, and evidence gates. Revise once when the request or an authoritative
+source determines the correction; otherwise surface the material choice as
+unresolved. Recheck only the revised items and their repair routes, then submit
+the candidate. Do not persist challenge findings, a review receipt, or another
+review state, and do not broaden the task.
 
 If Runtime reports a resume-review gate, evaluate only the required readiness
 evidence, then submit the caller/host readiness receipt bound to the exact task,
