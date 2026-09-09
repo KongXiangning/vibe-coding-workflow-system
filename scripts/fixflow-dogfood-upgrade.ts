@@ -11,7 +11,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateDistributionVersionLockstep } from './build-vibe-governance-distribution';
-import { FIXFLOW_ROOT, cleanupFixflowDogfood, splitPorcelainStatusOutput } from './fixflow-dogfood-cleanup';
+import { FIXFLOW_ROOT, cleanupFixflowDogfood, recoverInterruptedSpecimenCapture, splitPorcelainStatusOutput } from './fixflow-dogfood-cleanup';
+import { isFrozenPath } from './vnext-migration-pack';
 
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PACKAGE_ROOT = path.join(SOURCE_ROOT, 'packages', 'vibe-governance');
@@ -27,6 +28,30 @@ const RELEASE_SCRIPT_PATHS = new Set([
   'scripts/vnext-migration-pack.ts',
   'scripts/vnext-runtime.ts',
 ]);
+const SOURCE_VERSION_PATHS = [
+  'VERSION',
+  'package.json',
+  'packages/vibe-governance/package.json',
+  'runtime/vnext/package.json',
+  'runtime/vnext/package-lock.json',
+  '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
+  'runtime/vnext/src/kernel.ts',
+  'docs/workflow/BASELINES.md',
+  'docs/workflow/ROADMAP.md',
+  'docs/workflow/STATUS.md',
+] as const;
+const SOURCE_COMMIT_PATHS = [
+  ...SOURCE_VERSION_PATHS,
+  'runtime/vnext/dist/cli.js',
+  'docs/workflow/generated',
+  'docs/workflow/SKILL_REGISTRY.md',
+] as const;
+const SOURCE_FREEZE_PATHS = [
+  ...SOURCE_VERSION_PATHS,
+  'runtime/vnext/dist/cli.js',
+  'docs/workflow/generated',
+  'docs/workflow/SKILL_REGISTRY.md',
+] as const;
 
 type CommandResult = {
   command: string;
@@ -51,7 +76,9 @@ export type FixflowDogfoodPathClassification = {
 export type FixflowDogfoodUpgradeReport = {
   target_root: string;
   source_head: string;
+  source_before_version: string;
   source_version: string;
+  source_release_commit: string | null;
   target_from_version: string;
   baseline_branch: string;
   baseline_head: string;
@@ -65,12 +92,33 @@ export type FixflowDogfoodUpgradeReport = {
   ownership: FixflowDogfoodPathClassification | null;
 };
 
+type SourceReleaseIdentity = {
+  head: string;
+  version: string;
+};
+
+type SourceReleaseStart = {
+  source: SourceReleaseIdentity;
+  initialNonReleaseStatus: string[];
+  resumeVersionBump: boolean;
+};
+
+type SourceVersionUpdate = {
+  relativePath: string;
+  content: string;
+};
+
 function fail(message: string): never {
   throw new Error(message);
 }
 
 function requireSemver(version: string): void {
   if (!SEMVER.test(version)) fail(`--version must be an exact x.y.z semantic version; received ${JSON.stringify(version)}.`);
+}
+
+export function versionRegexLiteral(version: string): string {
+  requireSemver(version);
+  return version.replaceAll('.', '\\.');
 }
 
 function versionToken(version: string): string {
@@ -133,6 +181,23 @@ function run(command: string, args: string[], cwd: string, allowFailure = false)
   return commandResult;
 }
 
+function commandFailureDetail(result: CommandResult): string {
+  return [result.stderr.trim(), result.stdout.trim()].filter(Boolean).join('\n');
+}
+
+function runWithBuildWriteRetry(command: string, args: string[], cwd: string): CommandResult {
+  let result = run(command, args, cwd, true);
+  for (let attempt = 1; attempt < 3 && result.status !== 0; attempt += 1) {
+    if (!/EUNKNOWN:\s*failed to write file/iu.test(commandFailureDetail(result))) break;
+    result = run(command, args, cwd, true);
+  }
+  if (result.status !== 0) {
+    const detail = commandFailureDetail(result);
+    fail(`${result.command} failed with exit ${result.status}.${detail ? `\n${detail}` : ''}`);
+  }
+  return result;
+}
+
 function git(root: string, args: string[], allowFailure = false): CommandResult {
   return run('git', args, root, allowFailure);
 }
@@ -141,16 +206,28 @@ function gitOutput(root: string, args: string[]): string {
   return git(root, args).stdout.trim();
 }
 
-function readJson(filePath: string, label: string): Record<string, unknown> {
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) fail(`${label} is missing: ${filePath}`);
+function readHeadFile(relativePath: string): string {
+  return git(SOURCE_ROOT, ['show', `HEAD:${relativePath}`]).stdout;
+}
+
+function readHeadJson(relativePath: string, label: string): Record<string, unknown> {
+  return parseJsonText(readHeadFile(relativePath), label);
+}
+
+function parseJsonText(text: string, label: string): Record<string, unknown> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    parsed = JSON.parse(text);
   } catch (error) {
     fail(`${label} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(`${label} must be a JSON object.`);
   return parsed as Record<string, unknown>;
+}
+
+function readJson(filePath: string, label: string): Record<string, unknown> {
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) fail(`${label} is missing: ${filePath}`);
+  return parseJsonText(fs.readFileSync(filePath, 'utf8'), label);
 }
 
 function sha256(filePath: string): string {
@@ -170,6 +247,7 @@ function compareVersions(left: string, right: string): number {
 
 export function isReleaseSurfacePath(relativePath: string): boolean {
   return relativePath === 'VERSION'
+    || relativePath === 'package.json'
     || relativePath.startsWith('.workflow-system/vnext/')
     || relativePath.startsWith('runtime/vnext/')
     || relativePath.startsWith('templates/vnext/')
@@ -180,24 +258,210 @@ export function isReleaseSurfacePath(relativePath: string): boolean {
 
 function releaseSurfaceChanges(): string[] {
   return splitPorcelainStatusOutput(git(SOURCE_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout)
-    .filter(line => isReleaseSurfacePath(line.slice(3).replace(/\\/gu, '/')));
+    .filter(line => isSourceCommitPath(line.slice(3).replace(/\\/gu, '/')));
 }
 
-function assertCleanCommittedSource(version: string): string {
+function nonReleaseSourceStatus(): string[] {
+  return splitPorcelainStatusOutput(git(SOURCE_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout)
+    .filter(line => !isSourceCommitPath(line.slice(3).replace(/\\/gu, '/')));
+}
+
+function assertSourceCommitSetClean(): void {
+  const changed = splitPorcelainStatusOutput(git(SOURCE_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout);
+  const stagedByRelease = changed.filter(line => isSourceCommitPath(line.slice(3).replace(/\\/gu, '/')));
+  if (stagedByRelease.length > 0) fail(`Source release commit paths must be clean before an automatic version bump.\n${stagedByRelease.join('\n')}`);
+}
+
+function readSourceReleaseIdentity(): SourceReleaseIdentity {
   const sourceStatus = releaseSurfaceChanges();
   if (sourceStatus.length > 0) fail(`The Vibe Governance release surface must be committed and clean before building a pinned tarball.\n${sourceStatus.join('\n')}`);
+  assertSourceCommitSetClean();
   const versionFile = fs.readFileSync(path.join(SOURCE_ROOT, 'VERSION'), 'utf8').trim();
   const rootPackage = readJson(path.join(SOURCE_ROOT, 'package.json'), 'Root package');
   const lockstepVersion = validateDistributionVersionLockstep(SOURCE_ROOT);
-  if (versionFile !== version || rootPackage.version !== version || lockstepVersion !== version) {
-    fail(`Source release versions must all equal ${version}; VERSION=${versionFile}, root=${String(rootPackage.version)}, Distribution/Runtime=${lockstepVersion}.`);
+  if (versionFile !== rootPackage.version || versionFile !== lockstepVersion) {
+    fail(`Source release versions must already be lockstep; VERSION=${versionFile}, root=${String(rootPackage.version)}, Distribution/Runtime=${lockstepVersion}.`);
   }
-  return gitOutput(SOURCE_ROOT, ['rev-parse', 'HEAD']);
+  return { head: gitOutput(SOURCE_ROOT, ['rev-parse', 'HEAD']), version: versionFile };
+}
+
+function readSourceReleaseHeadIdentity(): SourceReleaseIdentity {
+  const versionFile = readHeadFile('VERSION').trim();
+  requireSemver(versionFile);
+  const rootPackage = readHeadJson('package.json', 'Committed root package');
+  const distributionPackage = readHeadJson('packages/vibe-governance/package.json', 'Committed Distribution package');
+  const runtimePackage = readHeadJson('runtime/vnext/package.json', 'Committed Runtime package');
+  const runtimeLock = readHeadJson('runtime/vnext/package-lock.json', 'Committed Runtime lockfile');
+  const lockPackages = runtimeLock.packages;
+  const lockRoot = lockPackages && typeof lockPackages === 'object' && !Array.isArray(lockPackages)
+    ? (lockPackages as Record<string, unknown>)['']
+    : undefined;
+  const lockVersion = lockRoot && typeof lockRoot === 'object' && !Array.isArray(lockRoot)
+    ? (lockRoot as Record<string, unknown>).version
+    : undefined;
+  if (rootPackage.version !== versionFile || distributionPackage.version !== versionFile || runtimePackage.version !== versionFile || runtimeLock.version !== versionFile || lockVersion !== versionFile) {
+    fail(`Committed source release versions are not lockstep at ${versionFile}.`);
+  }
+  return { head: gitOutput(SOURCE_ROOT, ['rev-parse', 'HEAD']), version: versionFile };
+}
+
+function readSourceReleaseStart(requestedVersion: string, apply: boolean): SourceReleaseStart {
+  const initialNonReleaseStatus = nonReleaseSourceStatus();
+  const sourceStatus = releaseSurfaceChanges();
+  if (sourceStatus.length === 0) {
+    return { source: readSourceReleaseIdentity(), initialNonReleaseStatus, resumeVersionBump: false };
+  }
+  const nonPlainModifications = sourceStatus.filter(line => !/^ [MD] /u.test(line) && !/^\?\? /u.test(line));
+  if (nonPlainModifications.length > 0) {
+    fail(`Source release changes can include only ordinary unstaged modifications, deletions, or new release-surface files; resolve staged paths first.\n${nonPlainModifications.join('\n')}`);
+  }
+  const source = readSourceReleaseHeadIdentity();
+  const fromVersion = source.version;
+  requireSemver(fromVersion);
+  if (compareVersions(fromVersion, requestedVersion) >= 0) {
+    fail(`Committed source release is already at ${fromVersion}; requested version must be newer.`);
+  }
+  planSourceVersionBump(fromVersion, requestedVersion, relativePath => fs.readFileSync(path.join(SOURCE_ROOT, relativePath), 'utf8'));
+  return { source, initialNonReleaseStatus, resumeVersionBump: apply };
 }
 
 function assertSourceStillCleanAfterBuild(): void {
   const sourceStatus = releaseSurfaceChanges();
   if (sourceStatus.length > 0) fail(`Release build changed the Vibe Governance release surface. Commit the regenerated release outputs before retrying.\n${sourceStatus.join('\n')}`);
+}
+
+function assertSourceVersionPathsNotFrozen(): void {
+  const frozen = SOURCE_FREEZE_PATHS.filter(relativePath => isFrozenPath(SOURCE_ROOT, relativePath));
+  if (frozen.length > 0) fail(`Source release version paths are frozen: ${frozen.join(', ')}.`);
+}
+
+function replaceOne(text: string, matcher: RegExp, replacement: string, label: string): string {
+  const flags = matcher.flags.includes('g') ? matcher.flags : `${matcher.flags}g`;
+  const matches = [...text.matchAll(new RegExp(matcher.source, flags))];
+  if (matches.length !== 1) fail(`${label} must contain exactly one replaceable version value.`);
+  return text.replace(matcher, replacement);
+}
+
+function replaceVersionOrKeep(text: string, fromVersionPattern: string, toVersionPattern: string, field: 'package_version' | 'VNEXT_RUNTIME_PACKAGE_VERSION' | '- 当前版本：', replacement: string, label: string): string {
+  const matcher = (versionPattern: string): RegExp => {
+    if (field === 'package_version') return new RegExp(`^([\\t ]*package_version:[\\t ]*)${versionPattern}[\\t ]*$`, 'mu');
+    if (field === 'VNEXT_RUNTIME_PACKAGE_VERSION') return new RegExp(`(VNEXT_RUNTIME_PACKAGE_VERSION\\s*=\\s*['\"])${versionPattern}(['\"])`, 'u');
+    return new RegExp(`^([\\t ]*- 当前版本：)${versionPattern}[\\t ]*$`, 'mu');
+  };
+  const current = matcher(toVersionPattern);
+  const previous = matcher(fromVersionPattern);
+  const targetFlags = current.flags.includes('g') ? current.flags : `${current.flags}g`;
+  const previousFlags = previous.flags.includes('g') ? previous.flags : `${previous.flags}g`;
+  const targetMatches = [...text.matchAll(new RegExp(current.source, targetFlags))].length;
+  const previousMatches = [...text.matchAll(new RegExp(previous.source, previousFlags))].length;
+  if (targetMatches === 1 && previousMatches === 0) return text;
+  return replaceOne(text, previous, replacement, label);
+}
+
+function updateJsonVersionText(relativePath: string, text: string, fromVersion: string, toVersion: string, updateLockRoot = false): string {
+  const document = parseJsonText(text, relativePath);
+  if (document.version !== fromVersion && document.version !== toVersion) fail(`${relativePath}.version must equal ${fromVersion} or ${toVersion} before release bump.`);
+  if (document.version === toVersion) {
+    if (updateLockRoot) {
+      const packages = document.packages;
+      const rootPackage = packages && typeof packages === 'object' && !Array.isArray(packages)
+        ? (packages as Record<string, unknown>)['']
+        : undefined;
+      if (!rootPackage || typeof rootPackage !== 'object' || Array.isArray(rootPackage) || (rootPackage as Record<string, unknown>).version !== toVersion) {
+        fail(`${relativePath}.packages[\"\"].version must equal ${toVersion} when the lockfile is already bumped.`);
+      }
+    }
+    return text;
+  }
+  document.version = toVersion;
+  if (updateLockRoot) {
+    const packages = document.packages;
+    if (!packages || typeof packages !== 'object' || Array.isArray(packages)) fail(`${relativePath}.packages must be an object.`);
+    const rootPackage = (packages as Record<string, unknown>)[''];
+    if (!rootPackage || typeof rootPackage !== 'object' || Array.isArray(rootPackage) || (rootPackage as Record<string, unknown>).version !== fromVersion) {
+      fail(`${relativePath}.packages[\"\"].version must equal ${fromVersion} before release bump.`);
+    }
+    (rootPackage as Record<string, unknown>).version = toVersion;
+  }
+  return `${JSON.stringify(document, null, 2)}\n`;
+}
+
+function planSourceVersionBump(fromVersion: string, toVersion: string, readFile: (relativePath: string) => string): SourceVersionUpdate[] {
+  const versionText = readFile('VERSION');
+  const versionValue = versionText.trim();
+  if (versionValue !== fromVersion && versionValue !== toVersion) fail(`VERSION must equal ${fromVersion} or ${toVersion} before release bump.`);
+  const updates: SourceVersionUpdate[] = [{ relativePath: 'VERSION', content: versionValue === toVersion ? versionText : `${toVersion}\n` }];
+  for (const [relativePath, updateLockRoot] of [
+    ['package.json', false],
+    ['packages/vibe-governance/package.json', false],
+    ['runtime/vnext/package.json', false],
+    ['runtime/vnext/package-lock.json', true],
+  ] as const) {
+    updates.push({ relativePath, content: updateJsonVersionText(relativePath, readFile(relativePath), fromVersion, toVersion, updateLockRoot) });
+  }
+  const contractPath = '.workflow-system/vnext/RUNTIME_CONTRACT.yaml';
+  updates.push({
+    relativePath: contractPath,
+    content: replaceVersionOrKeep(readFile(contractPath), versionRegexLiteral(fromVersion), versionRegexLiteral(toVersion), 'package_version', `$1${toVersion}`, 'Runtime contract'),
+  });
+  const kernelPath = 'runtime/vnext/src/kernel.ts';
+  updates.push({
+    relativePath: kernelPath,
+    content: replaceVersionOrKeep(readFile(kernelPath), versionRegexLiteral(fromVersion), versionRegexLiteral(toVersion), 'VNEXT_RUNTIME_PACKAGE_VERSION', `$1${toVersion}$2`, 'Runtime source'),
+  });
+  for (const relativePath of ['docs/workflow/BASELINES.md', 'docs/workflow/ROADMAP.md', 'docs/workflow/STATUS.md']) {
+    updates.push({
+      relativePath,
+      content: replaceVersionOrKeep(readFile(relativePath), versionRegexLiteral(fromVersion), versionRegexLiteral(toVersion), '- 当前版本：', `$1${toVersion}`, relativePath),
+    });
+  }
+  return updates;
+}
+
+function applySourceVersionBump(fromVersion: string, toVersion: string, resume: boolean): void {
+  void resume;
+  assertSourceVersionPathsNotFrozen();
+  const updates = planSourceVersionBump(fromVersion, toVersion, relativePath => fs.readFileSync(path.join(SOURCE_ROOT, relativePath), 'utf8'));
+  for (const update of updates) fs.writeFileSync(path.join(SOURCE_ROOT, update.relativePath), update.content, 'utf8');
+}
+
+function isSourceCommitPath(relativePath: string): boolean {
+  return SOURCE_VERSION_PATHS.includes(relativePath as typeof SOURCE_VERSION_PATHS[number])
+    || relativePath === 'runtime/vnext/dist/cli.js'
+    || relativePath === 'docs/workflow/SKILL_REGISTRY.md'
+    || relativePath.startsWith('docs/workflow/generated/')
+    || isReleaseSurfacePath(relativePath);
+}
+
+function validateAndCommitSourceRelease(fromVersion: string, toVersion: string, initialNonReleaseStatus: string[], resumeVersionBump: boolean): string {
+  applySourceVersionBump(fromVersion, toVersion, resumeVersionBump);
+  for (const [command, args] of [
+    ['bun', ['run', 'gen:all']],
+    ['bun', ['run', 'build:vnext-runtime']],
+    ['bun', ['run', 'validate:vnext-source']],
+    ['bun', ['run', 'validate:vnext-runtime']],
+    ['bun', ['run', 'validate:protocol']],
+    ['bun', ['run', 'validate:freshness']],
+    ['bun', ['run', 'test:workflow-all']],
+    ['bun', ['run', 'workflow:health', '--root', '.']],
+  ] as const) {
+    if (command === 'bun' && args[0] === 'run' && args[1] === 'validate:vnext-runtime') runWithBuildWriteRetry(command, [...args], SOURCE_ROOT);
+    else run(command, [...args], SOURCE_ROOT);
+  }
+
+  const changed = splitPorcelainStatusOutput(git(SOURCE_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout);
+  const initialNonRelease = new Set(initialNonReleaseStatus);
+  const unexpected = changed.filter(line => !isSourceCommitPath(line.slice(3).replace(/\\/gu, '/')) && !initialNonRelease.has(line));
+  if (unexpected.length > 0) fail(`Source release generation changed paths outside its committed release set: ${unexpected.join(', ')}.`);
+  const pathsToStage = new Set<string>(SOURCE_COMMIT_PATHS);
+  for (const line of changed) {
+    const relativePath = line.slice(3).replace(/\\/gu, '/');
+    if (isSourceCommitPath(relativePath)) pathsToStage.add(relativePath);
+  }
+  git(SOURCE_ROOT, ['add', '--', ...pathsToStage]);
+  git(SOURCE_ROOT, ['diff', '--cached', '--check']);
+  git(SOURCE_ROOT, ['commit', '-m', `chore: release Vibe Governance ${toVersion}`]);
+  return gitOutput(SOURCE_ROOT, ['rev-parse', 'HEAD']);
 }
 
 function readTargetDistributionVersion(): string {
@@ -345,24 +609,29 @@ function commitUpgrade(branch: string, version: string, manifest: Record<string,
   if (remaining.split(/\r?\n/u).some(line => line.startsWith('??') || line.startsWith(' M') || line.startsWith(' D'))) fail(`Unexpected unstaged or untracked paths remain after staging: ${remaining}`);
   git(FIXFLOW_ROOT, ['commit', '-m', `chore: upgrade Vibe Governance to ${version}`]);
   const commit = gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']);
-  git(FIXFLOW_ROOT, ['push', 'origin', branch]);
-  if (gitOutput(FIXFLOW_ROOT, ['rev-parse', `origin/${branch}`]) !== commit) fail(`origin/${branch} does not resolve to the upgrade commit after push.`);
+  if (gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']) !== branch) fail(`FixFlow left the expected upgrade branch ${branch}.`);
   return { commit, ownership };
 }
 
 export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): FixflowDogfoodUpgradeReport {
-  const sourceHead = assertCleanCommittedSource(options.version);
+  const sourceStart = readSourceReleaseStart(options.version, options.apply);
+  const sourceBefore = sourceStart.source;
+  const initialNonReleaseStatus = sourceStart.initialNonReleaseStatus;
+  if (compareVersions(sourceBefore.version, options.version) > 0) fail(`Source is already at newer version ${sourceBefore.version}; requested version is ${options.version}.`);
+  const fromVersion = readTargetDistributionVersion();
+  recoverInterruptedSpecimenCapture(fromVersion);
   const baselineBranch = gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']);
   const baselineHead = gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']);
-  const fromVersion = readTargetDistributionVersion();
   if (compareVersions(fromVersion, options.version) >= 0) fail(`FixFlow is already at ${fromVersion}; requested upgrade version must be newer.`);
   const upgradeBranch = nextFixflowDogfoodBranch(baselineBranch, fromVersion, options.version);
   assertBranchAbsent(FIXFLOW_ROOT, upgradeBranch, false);
   if (!options.apply) {
     return {
       target_root: FIXFLOW_ROOT,
-      source_head: sourceHead,
+      source_head: sourceBefore.head,
+      source_before_version: sourceBefore.version,
       source_version: options.version,
+      source_release_commit: sourceBefore.version === options.version ? null : 'would-create',
       target_from_version: fromVersion,
       baseline_branch: baselineBranch,
       baseline_head: baselineHead,
@@ -377,11 +646,13 @@ export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): Fi
     };
   }
 
-  // Check the remote before preserving the specimen or creating a branch. A
-  // remote collision therefore has no effect on the target working tree.
-  assertBranchAbsent(FIXFLOW_ROOT, upgradeBranch, true);
+  const sourceReleaseCommit = sourceBefore.version === options.version
+    ? null
+    : validateAndCommitSourceRelease(sourceBefore.version, options.version, initialNonReleaseStatus, sourceStart.resumeVersionBump);
+  const sourceAfter = readSourceReleaseIdentity();
+  if (sourceAfter.version !== options.version) fail(`Source release commit did not produce version ${options.version}.`);
   const artifact = buildPinnedTarball(options.version);
-  const cleanup = cleanupFixflowDogfood({ version: fromVersion, apply: true });
+  const cleanup = cleanupFixflowDogfood({ version: fromVersion, apply: true, push: false });
   if (gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']) !== baselineBranch || gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']) !== baselineHead) {
     fail('FixFlow baseline changed while preserving the prepare-task specimen.');
   }
@@ -394,8 +665,10 @@ export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): Fi
 
   return {
     target_root: FIXFLOW_ROOT,
-    source_head: sourceHead,
+    source_head: sourceAfter.head,
+    source_before_version: sourceBefore.version,
     source_version: options.version,
+    source_release_commit: sourceReleaseCommit,
     target_from_version: fromVersion,
     baseline_branch: baselineBranch,
     baseline_head: baselineHead,
@@ -417,8 +690,8 @@ export function fixflowDogfoodUpgradeUsage(): string {
     '  bun run dogfood:fixflow:upgrade -- --version <x.y.z> --apply',
     '',
     `Target: ${FIXFLOW_ROOT}`,
-    'The Vibe Governance release surface must be committed, clean, and lockstep at --version.',
-    'With --apply, preserve the sole CURRENT_TASK specimen if present, build a fixed local tarball, install it through the published bin, validate, commit, and push the next dogfood branch.',
+    'The committed source release must be lockstep; ordinary unstaged changes and new release-surface files are included in the local release commit after validation.',
+    'With --apply, bump the source release to --version when needed, generate and validate it, create a local source commit, preserve the sole CURRENT_TASK specimen if present, build a fixed local tarball, install it through the published bin, validate, and create a local target commit. It never pushes.',
   ].join('\n');
 }
 

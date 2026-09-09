@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyFixflowChanges, isReleaseSurfacePath, nextFixflowDogfoodBranch, parseFixflowDogfoodUpgradeArgs } from '../scripts/fixflow-dogfood-upgrade';
+import { classifyFixflowChanges, isReleaseSurfacePath, nextFixflowDogfoodBranch, parseFixflowDogfoodUpgradeArgs, versionRegexLiteral } from '../scripts/fixflow-dogfood-upgrade';
 
 describe('fixflow-dogfood-upgrade', () => {
   test('derives the next dogfood branch from the installed target version', () => {
@@ -11,6 +11,12 @@ describe('fixflow-dogfood-upgrade', () => {
     expect(parseFixflowDogfoodUpgradeArgs(['--version', '0.14.8'])).toEqual({ version: '0.14.8', apply: false });
     expect(parseFixflowDogfoodUpgradeArgs(['--version', '0.14.8', '--apply'])).toEqual({ version: '0.14.8', apply: true });
     expect(() => parseFixflowDogfoodUpgradeArgs(['--version', '0.14.8-dev'])).toThrow('exact x.y.z');
+  });
+
+  test('matches an exact dotted version in the runtime contract', () => {
+    const matcher = new RegExp(`^([\\t ]*package_version:[\\t ]*)${versionRegexLiteral('0.14.7')}[\\t ]*$`, 'mu');
+    expect('  package_version: 0.14.7\n').toMatch(matcher);
+    expect('  package_version: 0x14x7\n').not.toMatch(matcher);
   });
 
   test('classifies only manifest paths and runtime dependencies as committable', () => {
@@ -28,9 +34,11 @@ describe('fixflow-dogfood-upgrade', () => {
     expect(classification.E_unknown).toEqual(['unexpected.txt']);
   });
 
-  test('requires a clean release surface but permits local dogfood tooling changes', () => {
+  test('recognizes release-surface paths while excluding local dogfood tooling', () => {
+    expect(isReleaseSurfacePath('package.json')).toBe(true);
     expect(isReleaseSurfacePath('runtime/vnext/src/kernel.ts')).toBe(true);
     expect(isReleaseSurfacePath('templates/skills/prepare-task.SKILL.md.tmpl')).toBe(true);
+    expect(isReleaseSurfacePath('templates/vnext/skills/review-draft.SKILL.md.tmpl')).toBe(true);
     expect(isReleaseSurfacePath('scripts/vibe-governance-distribution.ts')).toBe(true);
     expect(isReleaseSurfacePath('scripts/fixflow-dogfood-upgrade.ts')).toBe(false);
     expect(isReleaseSurfacePath('test/fixflow-dogfood-upgrade.test.ts')).toBe(false);
