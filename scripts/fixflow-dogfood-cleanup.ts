@@ -13,15 +13,19 @@ import { isFrozenPath } from './vnext-migration-pack';
 
 export const FIXFLOW_ROOT = 'E:\\coding\\dogfood\\fixflow';
 export const CURRENT_TASK_PATH = 'docs/workflow/CURRENT_TASK.md';
+export const TASK_BASIS_PATH = 'docs/workflow/task-basis/TASK_BASIS-001.md';
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const CURRENT_TASK_STATUS = ` M ${CURRENT_TASK_PATH}`;
+const TASK_BASIS_STATUS = `?? ${TASK_BASIS_PATH}`;
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NODE_COMMAND = process.platform === 'win32' ? 'node.exe' : 'node';
 
 export type FixflowDogfoodCleanupOptions = {
   version: string;
   apply: boolean;
+  /** Standalone cleanup pushes by default; release orchestration may opt out. */
+  push?: boolean;
 };
 
 type CommandResult = {
@@ -100,6 +104,18 @@ export function parseFixflowDogfoodCleanupArgs(args: string[]): FixflowDogfoodCl
 
 export function isOnlyCurrentTaskWorktreeModification(statusLines: string[]): boolean {
   return statusLines.length === 1 && statusLines[0] === CURRENT_TASK_STATUS;
+}
+
+export function isOnlyPreparedTaskSpecimenModification(statusLines: string[]): boolean {
+  return statusLines.length === 2
+    && statusLines.includes(CURRENT_TASK_STATUS)
+    && statusLines.includes(TASK_BASIS_STATUS);
+}
+
+function preparedTaskSpecimenPaths(statusLines: string[]): string[] | null {
+  if (isOnlyCurrentTaskWorktreeModification(statusLines)) return [CURRENT_TASK_PATH];
+  if (isOnlyPreparedTaskSpecimenModification(statusLines)) return [CURRENT_TASK_PATH, TASK_BASIS_PATH];
+  return null;
 }
 
 export function splitPorcelainStatusOutput(output: string): string[] {
@@ -225,6 +241,7 @@ function assertTargetRoot(root: string): void {
 
 function assertNoFreeze(root: string): void {
   if (isFrozenPath(root, CURRENT_TASK_PATH)) fail(`${CURRENT_TASK_PATH} is frozen; specimen preservation and restore are not allowed.`);
+  if (isFrozenPath(root, TASK_BASIS_PATH)) fail(`${TASK_BASIS_PATH} is frozen; specimen preservation and restore are not allowed.`);
 }
 
 function localOrFetchedRemoteBranchExists(root: string, branch: string): boolean {
@@ -246,6 +263,41 @@ function runRuntimeValidation(root: string, command: 'validate-contract' | 'vali
   run(NODE_COMMAND, [entrypoint, command, '--root', root], root);
 }
 
+export function recoverInterruptedSpecimenCapture(version: string): boolean {
+  const root = path.resolve(FIXFLOW_ROOT);
+  assertTargetRoot(root);
+  assertNoFreeze(root);
+  const specimenBranch = specimenBranchName(version);
+  const baselineCandidates = git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']).stdout.trim().split(/\r?\n/u)
+    .filter(branch => branch && expectedFixflowDogfoodBranch(version).test(branch));
+  if (baselineCandidates.length !== 1) fail(`Could not resolve one baseline dogfood branch for ${version}; found ${baselineCandidates.join(', ') || '(none)'}.`);
+  const baselineBranch = baselineCandidates[0]!;
+  const currentBranch = gitOutput(root, ['branch', '--show-current']);
+  if (currentBranch !== specimenBranch) return false;
+  const baselineHead = gitOutput(root, ['rev-parse', baselineBranch]);
+  const status = splitPorcelainStatusOutput(git(root, ['status', '--porcelain=v1', '--untracked-files=all']).stdout);
+  if (status.length > 0) {
+    const stagedCurrentOnly = status.length === 1 && status[0] === `M  ${CURRENT_TASK_PATH}`;
+    const stagedPair = status.length === 2
+      && status.includes(`M  ${CURRENT_TASK_PATH}`)
+      && status.includes(`A  ${TASK_BASIS_PATH}`);
+    if (!stagedCurrentOnly && !stagedPair) {
+      fail(`Interrupted specimen branch ${specimenBranch} has unexpected worktree state: ${status.join(', ')}`);
+    }
+    git(root, ['commit', '-m', `dogfood: capture v${version} prepare-task failure specimen`]);
+  }
+  const specimenParent = gitOutput(root, ['rev-parse', 'HEAD^']);
+  if (specimenParent !== baselineHead) fail(`Interrupted specimen parent changed unexpectedly: expected ${baselineHead}, got ${specimenParent}.`);
+  git(root, ['switch', baselineBranch]);
+  if (gitOutput(root, ['rev-parse', 'HEAD']) !== baselineHead) fail('Baseline branch HEAD changed while recovering the interrupted specimen.');
+  git(root, ['restore', '--source=HEAD', '--', CURRENT_TASK_PATH]);
+  const finalStatus = git(root, ['status', '--porcelain=v1', '--untracked-files=all']).stdout.trim();
+  if (finalStatus) fail(`FixFlow is not clean after recovering ${CURRENT_TASK_PATH}: ${finalStatus}`);
+  runRuntimeValidation(root, 'validate-contract');
+  runRuntimeValidation(root, 'validate');
+  return true;
+}
+
 function validatePreflight(options: FixflowDogfoodCleanupOptions): Omit<FixflowDogfoodCleanupReport, 'specimen_branch' | 'specimen_commit' | 'action' | 'validation'> & { clean: boolean } {
   const root = path.resolve(FIXFLOW_ROOT);
   assertTargetRoot(root);
@@ -258,8 +310,8 @@ function validatePreflight(options: FixflowDogfoodCleanupOptions): Omit<FixflowD
   const baselineHead = gitOutput(root, ['rev-parse', 'HEAD']);
   const initialStatus = splitPorcelainStatusOutput(git(root, ['status', '--porcelain=v1', '--untracked-files=all']).stdout);
   const clean = initialStatus.length === 0;
-  if (!clean && !isOnlyCurrentTaskWorktreeModification(initialStatus)) {
-    fail(`Refusing to clean: expected a clean tree or exactly ${CURRENT_TASK_STATUS}; got ${initialStatus.join(', ') || '(unparseable status)'}.`);
+  if (!clean && preparedTaskSpecimenPaths(initialStatus) === null) {
+    fail(`Refusing to clean: expected a clean tree, ${CURRENT_TASK_STATUS}, or the exact CURRENT_TASK + Task Basis pair; got ${initialStatus.join(', ') || '(unparseable status)'}.`);
   }
 
   assertDistributionIdentity(root, options.version);
@@ -305,26 +357,31 @@ export function cleanupFixflowDogfood(options: FixflowDogfoodCleanupOptions): Fi
     };
   }
 
-  // Recheck the actual remote immediately before the first mutation. If this
-  // cannot be proven, fail closed rather than risking an existing specimen.
-  assertRemoteBranchAbsent(preflight.target_root, specimenBranch);
+  // Only standalone cleanup needs the actual remote check. The release
+  // orchestrator deliberately preserves its specimen locally without push.
+  if (options.push ?? true) assertRemoteBranchAbsent(preflight.target_root, specimenBranch);
   git(preflight.target_root, ['switch', '-c', specimenBranch]);
-  git(preflight.target_root, ['add', '--', CURRENT_TASK_PATH]);
-  git(preflight.target_root, ['diff', '--cached', '--check']);
+  const specimenPaths = preparedTaskSpecimenPaths(preflight.initial_status);
+  if (!specimenPaths) fail('Prepared-task specimen paths changed after preflight.');
+  git(preflight.target_root, ['add', '--', ...specimenPaths]);
+  // CURRENT_TASK.md and its linked Task Basis are the user-owned failure specimen. Preserve their exact
+  // bytes, including intentional trailing blank lines; generic whitespace
+  // checks must not reject the artifact being captured.
   git(preflight.target_root, ['commit', '-m', `dogfood: capture v${options.version} prepare-task failure specimen`]);
 
   const specimenCommit = gitOutput(preflight.target_root, ['rev-parse', 'HEAD']);
   const specimenParent = gitOutput(preflight.target_root, ['rev-parse', 'HEAD^']);
   if (specimenParent !== preflight.baseline_head) fail(`Specimen commit parent changed unexpectedly: expected ${preflight.baseline_head}, got ${specimenParent}.`);
   const changedPaths = git(preflight.target_root, ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).stdout.trim().split(/\r?\n/u).filter(Boolean);
-  if (changedPaths.length !== 1 || changedPaths[0] !== CURRENT_TASK_PATH) {
-    fail(`Specimen commit must contain only ${CURRENT_TASK_PATH}; got ${changedPaths.join(', ') || '(none)'}.`);
+  if (changedPaths.length !== specimenPaths.length || specimenPaths.some(item => !changedPaths.includes(item))) {
+    fail(`Specimen commit must contain only ${specimenPaths.join(', ')}; got ${changedPaths.join(', ') || '(none)'}.`);
   }
 
-  // Pushing is intentionally before restore: a failed push leaves the
-  // specimen committed on its own local branch and leaves the baseline file
-  // untouched, so there is no data-loss path.
-  git(preflight.target_root, ['push', 'origin', specimenBranch]);
+  // When enabled, pushing is intentionally before restore: a failed push
+  // leaves the specimen committed on its own local branch and leaves the
+  // baseline file untouched. The release orchestrator can deliberately keep
+  // both commits local with push=false.
+  if (options.push ?? true) git(preflight.target_root, ['push', 'origin', specimenBranch]);
   git(preflight.target_root, ['switch', preflight.branch]);
   if (gitOutput(preflight.target_root, ['rev-parse', 'HEAD']) !== preflight.baseline_head) {
     fail(`Baseline branch HEAD changed unexpectedly after specimen capture.`);
@@ -353,7 +410,7 @@ export function fixflowDogfoodCleanupUsage(): string {
     '',
     `The target is fixed to ${FIXFLOW_ROOT}.`,
     'Without --apply, perform the full read-only preflight and print the specimen branch that would be created.',
-    '--apply preserves exactly docs/workflow/CURRENT_TASK.md in a new remote specimen branch, then restores only that file on the original dogfood branch.',
+    '--apply preserves exactly docs/workflow/CURRENT_TASK.md and its linked TASK_BASIS-001.md when present in a new specimen branch, pushes it by default, then restores the baseline worktree.',
   ].join('\n');
 }
 

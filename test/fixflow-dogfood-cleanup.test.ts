@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
   CURRENT_TASK_PATH,
+  TASK_BASIS_PATH,
   assertBootstrapBaselineCurrentTask,
   expectedFixflowDogfoodBranch,
   isOnlyCurrentTaskWorktreeModification,
+  isOnlyPreparedTaskSpecimenModification,
   parseFixflowDogfoodCleanupArgs,
   specimenBranchName,
   splitPorcelainStatusOutput,
@@ -42,6 +44,19 @@ describe('fixflow-dogfood-cleanup', () => {
     expect(isOnlyCurrentTaskWorktreeModification([`M  ${CURRENT_TASK_PATH}`])).toBe(false);
     expect(isOnlyCurrentTaskWorktreeModification([` M ${CURRENT_TASK_PATH}`, '?? notes.txt'])).toBe(false);
     expect(splitPorcelainStatusOutput(` M ${CURRENT_TASK_PATH}\r\n`)).toEqual([` M ${CURRENT_TASK_PATH}`]);
+  });
+
+  test('admits the exact CURRENT_TASK and linked Task Basis specimen pair', () => {
+    expect(isOnlyPreparedTaskSpecimenModification([
+      `?? ${TASK_BASIS_PATH}`,
+      ` M ${CURRENT_TASK_PATH}`,
+    ])).toBe(true);
+    expect(isOnlyPreparedTaskSpecimenModification([` M ${CURRENT_TASK_PATH}`])).toBe(false);
+    expect(isOnlyPreparedTaskSpecimenModification([
+      ` M ${CURRENT_TASK_PATH}`,
+      `?? ${TASK_BASIS_PATH}`,
+      '?? notes.txt',
+    ])).toBe(false);
   });
 
   test('requires the committed task to be the closed bootstrap baseline', () => {
