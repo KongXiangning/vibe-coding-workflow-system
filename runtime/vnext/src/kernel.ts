@@ -138,6 +138,7 @@ const RUNTIME_STATE_FIELDS = [
   'applied_proposals',
   'claim_evidence_required',
   'claim_evidence',
+  'pending_review_result',
 ] as const;
 const REVIEW_CYCLE_FIELDS = [
   'id',
@@ -187,6 +188,9 @@ export type DraftTaskStateAction = (typeof DRAFT_TASK_STATE_ACTIONS)[number];
 export const CLAIM_EVIDENCE_MIGRATION_ACTIONS = ['migrate-claim-evidence'] as const;
 export type ClaimEvidenceMigrationAction = (typeof CLAIM_EVIDENCE_MIGRATION_ACTIONS)[number];
 
+export const REVIEW_TASK_STATE_ACTIONS = ['record-review-result'] as const;
+export type ReviewTaskStateAction = (typeof REVIEW_TASK_STATE_ACTIONS)[number];
+
 export const DRAFT_AUDIT_ACTIONS = ['create-draft', 'update-draft', 'confirm-draft'] as const;
 export type DraftAuditAction = (typeof DRAFT_AUDIT_ACTIONS)[number];
 
@@ -225,11 +229,11 @@ const MAX_EXECUTION_LOG = 256;
 const MAX_CLAIM_EVIDENCE_RECORDS = 256;
 const MAX_CLAIM_EVIDENCE_SLOTS = 32;
 const MAX_REPLAN_SECTION_CONTENT_LENGTH = 32768;
-const MAX_REPAIR_ROUNDS = 3;
+export const MAX_REPAIR_ROUNDS = 3;
 const CLAIM_EVIDENCE_COMPLETION_RULE = 'non-empty frozen plan with at least one acceptance claim; every planned slot is complete and has evidence_refs';
 const DRAFT_CLAIM_EVIDENCE_REQUIREMENT = 'required-and-non-empty-for-new-or-refined-drafts; must-include-an-acceptance-claim; legacy-documents-remain-readable-but-require-migration-before-terminal-completion';
 const CLOSE_TASK_CLAIM_EVIDENCE_RULE = 'derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient';
-const MAX_REPAIR_ATTEMPTS = 2;
+export const MAX_REPAIR_ATTEMPTS = 2;
 const CURRENT_TASK_RELATIVE_FALLBACK = 'docs/workflow/CURRENT_TASK.md';
 const INBOX_RECORD_ITEM_ID_PATTERN = /^(\d{8})-([a-z0-9]{4,})$/;
 const INBOX_RECORD_PATH_PATTERN = /^TASKS\/inbox\/INBOX-(\d{8})-([a-z0-9]{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
@@ -361,6 +365,45 @@ export type StepReviewReceipt = {
   evidence_refs: string[];
 };
 
+export const REVIEW_RESULT_VERDICTS = ['clean', 'findings', 'blocked'] as const;
+export type ReviewResultVerdict = (typeof REVIEW_RESULT_VERDICTS)[number];
+
+export const REVIEW_BLOCKER_ROUTES = ['review-change', 'debug-task', 'prepare-task:replan', 'user'] as const;
+export type ReviewBlockerRoute = (typeof REVIEW_BLOCKER_ROUTES)[number];
+
+export type ReviewFindingCandidate = {
+  fingerprint: string;
+  category: string;
+  file: string;
+  failure_condition: string;
+  required_behavior: string;
+  root_cause_status: 'confirmed' | 'bounded';
+  evidence_refs: string[];
+};
+
+export type ReviewBlocker = {
+  code: string;
+  summary: string;
+  next_route: ReviewBlockerRoute;
+};
+
+export type PendingReviewResult = {
+  kind: 'review-result/v1';
+  review_id: string;
+  execution_id: string;
+  step_id: string;
+  cycle_id: string;
+  cycle_phase: ReviewCyclePhase;
+  diff_target: string;
+  diff_target_verification: ReviewTargetVerificationState;
+  verdict: ReviewResultVerdict;
+  findings: ReviewFindingCandidate[];
+  unresolved_fingerprints: string[];
+  evidence_refs: string[];
+  blocker: ReviewBlocker | null;
+  recorded_at: string;
+};
+
 export type TaskStepProgressDelta = {
   kind: 'task-state';
   action: 'step-progress';
@@ -369,6 +412,8 @@ export type TaskStepProgressDelta = {
   evidence_refs: string[];
   note?: string;
   repair_fingerprint?: string;
+  repair_fingerprints?: string[];
+  repair_wave_id?: string;
   diff_target?: string;
   review_receipt?: StepReviewReceipt;
   claim_evidence?: ClaimEvidenceRecord[];
@@ -422,6 +467,12 @@ export type TaskStateDelta =
       active_step_id: string;
       evidence_refs: string[];
       claim_evidence?: ClaimEvidenceRecord[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'record-review-result';
+      review_result: Omit<PendingReviewResult, 'recorded_at'>;
+      evidence_refs: string[];
     };
 
 export type ReplanDelta = Extract<TaskStateDelta, { action: 'commit-replan' }>;
@@ -688,6 +739,8 @@ export type StepExecutionLogEntry = {
   evidence_refs: string[];
   note?: string;
   repair_fingerprint?: string;
+  repair_fingerprints?: string[];
+  repair_wave_id?: string;
   diff_target?: string;
   checkpoint?: TaskStepCheckpointPolicy;
   advancement?: StepAdvancementOutcome;
@@ -806,7 +859,7 @@ export type RuntimeProposal = {
   schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
   kind: typeof VNEXT_RUNTIME_PROPOSAL_KIND;
   operation_kind: RuntimeOperationKind;
-  caller: 'execute-step' | 'prepare-task' | 'task-lifecycle' | 'capture-work-item' | 'close-task';
+  caller: 'execute-step' | 'review-change' | 'prepare-task' | 'task-lifecycle' | 'capture-work-item' | 'close-task';
   mode: VNextExecuteStepMode | PrepareTaskMode | LifecycleMode | CloseTaskMode;
   source_tuple: RuntimeSourceTuple;
   authority_evidence: AuthorityEvidence[];
@@ -898,6 +951,7 @@ export type RuntimeState = {
    */
   claim_evidence_required?: boolean;
   claim_evidence?: ClaimEvidenceRecord[];
+  pending_review_result: PendingReviewResult | null;
 };
 
 export type CanonicalCurrentTask = {
@@ -1320,9 +1374,9 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord(contract.proposal, 'Runtime contract.proposal');
-  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'task_state', 'execute_step', 'prepare_task', 'inbox_record', 'lifecycle', 'close_task', 'lesson_marker'], 'Runtime contract.proposal');
+  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'task_state', 'execute_step', 'review_change', 'prepare_task', 'inbox_record', 'lifecycle', 'close_task', 'lesson_marker'], 'Runtime contract.proposal');
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime proposal contract has an invalid envelope marker.');
-  expectSetEqual(expectStringArray(proposal.caller, 'Runtime contract.proposal.caller'), ['execute-step', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'Runtime contract proposal callers');
+  expectSetEqual(expectStringArray(proposal.caller, 'Runtime contract.proposal.caller'), ['execute-step', 'review-change', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'Runtime contract proposal callers');
   expectSetEqual(expectStringArray(proposal.operation_kinds, 'Runtime contract.proposal.operation_kinds'), [...RUNTIME_OPERATION_KINDS], 'Runtime contract operation kinds');
   expectSetEqual(
     expectStringArray(proposal.source_tuple, 'Runtime contract.proposal.source_tuple'),
@@ -1349,10 +1403,10 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime contract finding-queue admission fields',
   );
   const taskStateContract = expectRecord(proposal.task_state, 'Runtime contract.proposal.task_state');
-  expectExactKeys(taskStateContract, ['actions', 'step_progress', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
+  expectExactKeys(taskStateContract, ['actions', 'step_progress', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
   expectSetEqual(
     expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
-    ['step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS],
+    ['step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS],
     'Runtime contract task-state actions',
   );
   const stepProgressContract = expectRecord(taskStateContract.step_progress, 'Runtime contract.proposal.task_state.step_progress');
@@ -1364,7 +1418,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   expectSetEqual(
     expectStringArray(stepProgressContract.optional, 'Runtime contract.proposal.task_state.step_progress.optional', true),
-    ['note', 'repair_fingerprint', 'diff_target', 'review_receipt', 'claim_evidence'],
+    ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'diff_target', 'review_receipt', 'claim_evidence'],
     'Runtime contract task-state optional fields',
   );
   const claimEvidenceContract = expectRecord(taskStateContract.claim_evidence, 'Runtime contract.proposal.task_state.claim_evidence');
@@ -1443,6 +1497,14 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     [...REVIEW_TARGET_VERIFICATION_STATES],
     'Runtime contract review receipt target verification states',
   );
+  const reviewResultContract = expectRecord(taskStateContract.review_result, 'Runtime contract.proposal.task_state.review_result');
+  expectExactKeys(reviewResultContract, ['stored_in', 'verdicts', 'binds', 'consumed_by'], 'Runtime contract.proposal.task_state.review_result');
+  if (reviewResultContract.stored_in !== 'canonical CURRENT_TASK.runtime_state.pending_review_result') fail('RUNTIME_CONTRACT_INVALID', 'review result must use canonical pending review storage.');
+  expectSetEqual(expectStringArray(reviewResultContract.verdicts, 'Runtime contract review-result verdicts'), [...REVIEW_RESULT_VERDICTS], 'Runtime contract review-result verdicts');
+  expectSetEqual(expectStringArray(reviewResultContract.binds, 'Runtime contract review-result bindings'), ['active_step_id', 'review_cycle_id', 'latest_execution_id', 'exact_diff_target'], 'Runtime contract review-result bindings');
+  const reviewResultConsumers = expectRecord(reviewResultContract.consumed_by, 'Runtime contract review-result consumers');
+  expectExactKeys(reviewResultConsumers, ['clean', 'findings', 'blocked'], 'Runtime contract review-result consumers');
+  if (reviewResultConsumers.clean !== 'execute-step:complete-reviewed-step' || reviewResultConsumers.findings !== 'execute-step:begin-repair' || reviewResultConsumers.blocked !== 'caller-route') fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-result consumers are invalid.');
   const draftContract = expectRecord(taskStateContract.draft, 'Runtime contract.proposal.task_state.draft');
   expectExactKeys(draftContract, ['mode', 'actions', 'identity_required', 'definition_required', 'claim_evidence', 'task_basis', 'create_from', 'update_from', 'target', 'previous_close_reconciliation', 'step_admission', 'preserves'], 'Runtime contract.proposal.task_state.draft');
   if (draftContract.mode !== 'default') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft mode must remain default.');
@@ -1507,7 +1569,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (executeStepAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter input must remain stdin-json.');
   expectSetEqual(
     expectStringArray(executeStepAdapter.commands, 'Runtime contract.proposal.execute_step.semantic_adapter.commands'),
-    ['preflight-step', 'record-step-result', 'complete-reviewed-step'],
+    ['preflight-step', 'begin-repair', 'record-step-result', 'complete-reviewed-step'],
     'Runtime contract execute-step adapter commands',
   );
   if (
@@ -1522,9 +1584,23 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   expectSetEqual(
     expectStringArray(executeStepContract.bound_actions, 'Runtime contract.proposal.execute_step.bound_actions'),
-    ['step-progress', 'record-repair-attempt', 'resolve'],
+    ['admit', 'step-progress', 'record-repair-attempt', 'resolve'],
     'Runtime contract execute-step adapter bound actions',
   );
+  const reviewChangeContract = expectRecord(proposal.review_change, 'Runtime contract.proposal.review_change');
+  expectExactKeys(reviewChangeContract, ['semantic_adapter', 'bound_actions'], 'Runtime contract.proposal.review_change');
+  const reviewChangeAdapter = expectRecord(reviewChangeContract.semantic_adapter, 'Runtime contract.proposal.review_change.semantic_adapter');
+  expectExactKeys(reviewChangeAdapter, ['input', 'commands', 'context_source', 'diff_target', 'result_storage', 'direct_product_writes', 'advancement_owner'], 'Runtime contract.proposal.review_change.semantic_adapter');
+  if (
+    reviewChangeAdapter.input !== 'stdin-json'
+    || reviewChangeAdapter.context_source !== 'latest-recorded-execution'
+    || reviewChangeAdapter.diff_target !== 'exact-recorded-target'
+    || reviewChangeAdapter.result_storage !== 'canonical-pending-review-result'
+    || reviewChangeAdapter.direct_product_writes !== 'deny'
+    || reviewChangeAdapter.advancement_owner !== 'execute-step'
+  ) fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-change adapter semantic boundary is invalid.');
+  expectSetEqual(expectStringArray(reviewChangeAdapter.commands, 'Runtime contract review-change commands'), ['review-context', 'record-review-result'], 'Runtime contract review-change commands');
+  expectSetEqual(expectStringArray(reviewChangeContract.bound_actions, 'Runtime contract review-change actions'), ['record-review-result'], 'Runtime contract review-change actions');
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
   expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
   const prepareTaskAdapter = expectRecord(prepareTaskContract.semantic_adapter, 'Runtime contract.proposal.prepare_task.semantic_adapter');
@@ -1873,7 +1949,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
       'task-state-transaction': {
         source: ['CURRENT_TASK.md', 'task-basis/TASK_BASIS-<TASK_ID>.md'],
         writes: ['CURRENT_TASK.md', 'task-basis/TASK_BASIS-<TASK_ID>.md'],
-        callers: ['execute-step', 'prepare-task'],
+        callers: ['execute-step', 'review-change', 'prepare-task'],
       },
       'finding-queue-transaction': {
         source: ['CURRENT_TASK.md'],
@@ -2214,6 +2290,101 @@ function validateStepReviewReceipt(value: unknown, location: string): StepReview
   };
 }
 
+function validateReviewFindingCandidate(value: unknown, location: string): ReviewFindingCandidate {
+  const record = expectRecord(value, location);
+  expectExactKeys(
+    record,
+    ['fingerprint', 'category', 'file', 'failure_condition', 'required_behavior', 'root_cause_status', 'evidence_refs'],
+    location,
+  );
+  return {
+    fingerprint: expectString(record.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    category: expectText(record.category, `${location}.category`, 256),
+    file: normalizeRepoPath(expectString(record.file, `${location}.file`), `${location}.file`),
+    failure_condition: expectText(record.failure_condition, `${location}.failure_condition`),
+    required_behavior: expectText(record.required_behavior, `${location}.required_behavior`, 512),
+    root_cause_status: expectEnum(record.root_cause_status, ['confirmed', 'bounded'], `${location}.root_cause_status`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+  };
+}
+
+function validateReviewBlocker(value: unknown, location: string): ReviewBlocker {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ['code', 'summary', 'next_route'], location);
+  return {
+    code: expectString(record.code, `${location}.code`, SAFE_KEY_PATTERN),
+    summary: expectText(record.summary, `${location}.summary`),
+    next_route: expectEnum(record.next_route, REVIEW_BLOCKER_ROUTES, `${location}.next_route`),
+  };
+}
+
+function validatePendingReviewResult(
+  value: unknown,
+  location: string,
+  includeRecordedAt: boolean,
+): PendingReviewResult | Omit<PendingReviewResult, 'recorded_at'> {
+  const record = expectRecord(value, location);
+  const keys = [
+    'kind',
+    'review_id',
+    'execution_id',
+    'step_id',
+    'cycle_id',
+    'cycle_phase',
+    'diff_target',
+    'diff_target_verification',
+    'verdict',
+    'findings',
+    'unresolved_fingerprints',
+    'evidence_refs',
+    'blocker',
+    ...(includeRecordedAt ? ['recorded_at'] : []),
+  ];
+  expectExactKeys(record, keys, location);
+  if (record.kind !== 'review-result/v1') fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be review-result/v1.`);
+  if (!Array.isArray(record.findings) || record.findings.length > MAX_FINDINGS) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.findings must be a bounded array.`);
+  }
+  const findings = record.findings.map((item, index) => validateReviewFindingCandidate(item, `${location}.findings[${index}]`));
+  if (new Set(findings.map(item => item.fingerprint)).size !== findings.length) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.findings fingerprints must be unique.`);
+  }
+  const unresolvedFingerprints = expectStringArray(record.unresolved_fingerprints, `${location}.unresolved_fingerprints`, true, MAX_FINDINGS)
+    .map((fingerprint, index) => expectString(fingerprint, `${location}.unresolved_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  if (new Set(unresolvedFingerprints).size !== unresolvedFingerprints.length) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.unresolved_fingerprints must be unique.`);
+  }
+  const verdict = expectEnum(record.verdict, REVIEW_RESULT_VERDICTS, `${location}.verdict`);
+  const blocker = record.blocker === null ? null : validateReviewBlocker(record.blocker, `${location}.blocker`);
+  if (verdict === 'clean' && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker !== null)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} clean result must not contain findings or a blocker.`);
+  }
+  if (verdict === 'findings' && (findings.length === 0 && unresolvedFingerprints.length === 0 || blocker !== null)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} findings result requires a finding and must not contain a blocker.`);
+  }
+  if (verdict === 'blocked' && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker === null)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} blocked result requires only a blocker.`);
+  }
+  const result = {
+    kind: 'review-result/v1' as const,
+    review_id: expectString(record.review_id, `${location}.review_id`, SAFE_KEY_PATTERN),
+    execution_id: expectString(record.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN),
+    step_id: expectString(record.step_id, `${location}.step_id`, STEP_ID_PATTERN),
+    cycle_id: expectString(record.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN),
+    cycle_phase: expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
+    diff_target: expectText(record.diff_target, `${location}.diff_target`, 512),
+    diff_target_verification: expectEnum(record.diff_target_verification, REVIEW_TARGET_VERIFICATION_STATES, `${location}.diff_target_verification`),
+    verdict,
+    findings,
+    unresolved_fingerprints: unresolvedFingerprints,
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+    blocker,
+  };
+  return includeRecordedAt
+    ? { ...result, recorded_at: expectString(record.recorded_at, `${location}.recorded_at`) }
+    : result;
+}
+
 const REPLAN_REPLACEMENT_FIELDS = [
   'background_context',
   'acceptance',
@@ -2415,7 +2586,7 @@ function effectiveCheckpointPolicy(resolution: TaskStepResolution): TaskStepChec
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
-  const action = expectEnum(record.action, ['step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], 'semantic_delta.action');
+  const action = expectEnum(record.action, ['step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], 'semantic_delta.action');
   if (action === 'create-draft' || action === 'update-draft') {
     const allowedKeys = ['kind', 'action', 'task_id', 'task_slug', 'document_id', 'task_title', 'task_basis', 'draft_definition', 'active_step_id', 'evidence_refs', 'claim_evidence'];
     if (Object.keys(record).some(key => !allowedKeys.includes(key))) fail('RUNTIME_SCHEMA_INVALID', 'draft task-state semantic_delta contains unsupported fields.');
@@ -2462,6 +2633,15 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
     };
   }
+  if (action === 'record-review-result') {
+    expectExactKeys(record, ['kind', 'action', 'review_result', 'evidence_refs'], 'semantic_delta');
+    return {
+      kind,
+      action,
+      review_result: validatePendingReviewResult(record.review_result, 'semantic_delta.review_result', false) as Omit<PendingReviewResult, 'recorded_at'>,
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+    };
+  }
   if (action === 'mark-replan-blocked' || action === 'clear-replan-block') {
     expectExactKeys(record, ['kind', 'action', 'evidence_refs'], 'semantic_delta');
     return {
@@ -2485,7 +2665,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     return result;
   }
   const keys = Object.keys(record);
-  if (keys.some(key => !['kind', 'action', 'step_id', 'status', 'evidence_refs', 'note', 'repair_fingerprint', 'diff_target', 'review_receipt', 'claim_evidence'].includes(key))) {
+  if (keys.some(key => !['kind', 'action', 'step_id', 'status', 'evidence_refs', 'note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'diff_target', 'review_receipt', 'claim_evidence'].includes(key))) {
     fail('RUNTIME_SCHEMA_INVALID', 'task-state semantic_delta contains unsupported fields.');
   }
   const result: Extract<TaskStateDelta, { action: 'step-progress' }> = {
@@ -2497,6 +2677,20 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
   };
   if (record.note !== undefined) result.note = expectText(record.note, 'semantic_delta.note');
   if (record.repair_fingerprint !== undefined) result.repair_fingerprint = expectString(record.repair_fingerprint, 'semantic_delta.repair_fingerprint', FINGERPRINT_PATTERN);
+  if (record.repair_fingerprints !== undefined) {
+    result.repair_fingerprints = expectStringArray(record.repair_fingerprints, 'semantic_delta.repair_fingerprints', false, MAX_FINDINGS)
+      .map((fingerprint, index) => expectString(fingerprint, `semantic_delta.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    if (new Set(result.repair_fingerprints).size !== result.repair_fingerprints.length) {
+      fail('RUNTIME_SCHEMA_INVALID', 'semantic_delta.repair_fingerprints must be unique.');
+    }
+  }
+  if (record.repair_wave_id !== undefined) result.repair_wave_id = expectString(record.repair_wave_id, 'semantic_delta.repair_wave_id', SAFE_KEY_PATTERN);
+  if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined) {
+    fail('RUNTIME_SCHEMA_INVALID', 'step-progress must not mix repair_fingerprint with repair_fingerprints.');
+  }
+  if ((result.repair_fingerprints !== undefined) !== (result.repair_wave_id !== undefined)) {
+    fail('RUNTIME_SCHEMA_INVALID', 'repair_fingerprints and repair_wave_id must be supplied together.');
+  }
   if (record.diff_target !== undefined) result.diff_target = expectText(record.diff_target, 'semantic_delta.diff_target', 512);
   if (record.review_receipt !== undefined) result.review_receipt = validateStepReviewReceipt(record.review_receipt, 'semantic_delta.review_receipt');
   if (record.claim_evidence !== undefined) result.claim_evidence = validateClaimEvidence(record.claim_evidence, 'semantic_delta.claim_evidence');
@@ -3241,7 +3435,7 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
   if (proposal.schema_version !== VNEXT_RUNTIME_SCHEMA_VERSION) fail('RUNTIME_SCHEMA_INVALID', 'proposal.schema_version must be 1.');
   if (proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_SCHEMA_INVALID', `proposal.kind must be ${VNEXT_RUNTIME_PROPOSAL_KIND}.`);
   const operationKind = expectEnum(proposal.operation_kind, RUNTIME_OPERATION_KINDS, 'proposal.operation_kind');
-  const caller = expectEnum(proposal.caller, ['execute-step', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'proposal.caller');
+  const caller = expectEnum(proposal.caller, ['execute-step', 'review-change', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'proposal.caller');
   const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES, ...CLOSE_TASK_MODES], 'proposal.mode');
   const sourceTuple = validateSourceTuple(proposal.source_tuple);
   const authorityEvidence = validateAuthorityEvidence(proposal.authority_evidence);
@@ -3290,6 +3484,11 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
         }
       } else {
         fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default, confirm, or replan mode.');
+      }
+    } else if (caller === 'review-change') {
+      if (mode !== 'default') fail('RUNTIME_MODE_INVALID', 'review-change task-state proposals must use default mode.');
+      if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'record-review-result') {
+        fail('RUNTIME_CALLER_NOT_BOUND', 'review-change is bound only to record-review-result.');
       }
     } else if (caller === 'execute-step') {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
@@ -3812,6 +4011,8 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     'evidence_refs',
     'note',
     'repair_fingerprint',
+    'repair_fingerprints',
+    'repair_wave_id',
     'diff_target',
     'checkpoint',
     'advancement',
@@ -3820,7 +4021,7 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     'claim_evidence',
     'recorded_at',
   ];
-  const optionalExecutionLogKeys = ['note', 'repair_fingerprint', 'diff_target', 'checkpoint', 'advancement', 'next_step_id', 'review_receipt', 'claim_evidence'];
+  const optionalExecutionLogKeys = ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'diff_target', 'checkpoint', 'advancement', 'next_step_id', 'review_receipt', 'claim_evidence'];
   const missingExecutionLogKeys = executionLogKeys.filter(key => !optionalExecutionLogKeys.includes(key) && !(key in record));
   const extraExecutionLogKeys = Object.keys(record).filter(key => !executionLogKeys.includes(key));
   if (missingExecutionLogKeys.length > 0 || extraExecutionLogKeys.length > 0) fail('RUNTIME_SCHEMA_INVALID', `${location} keys mismatch; missing=[${missingExecutionLogKeys.join(', ')}], unexpected=[${extraExecutionLogKeys.join(', ')}].`);
@@ -3837,6 +4038,15 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     result.repair_fingerprint = expectString(record.repair_fingerprint, `${location}.repair_fingerprint`, FINGERPRINT_PATTERN);
     if (result.mode !== 'repair') fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprint is only valid for repair execution records.`);
   }
+  if (record.repair_fingerprints !== undefined) {
+    result.repair_fingerprints = expectStringArray(record.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS)
+      .map((fingerprint, index) => expectString(fingerprint, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    if (new Set(result.repair_fingerprints).size !== result.repair_fingerprints.length) fail('RUNTIME_SCHEMA_INVALID', `${location}.repair_fingerprints must be unique.`);
+    if (result.mode !== 'repair') fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprints is only valid for repair execution records.`);
+  }
+  if (record.repair_wave_id !== undefined) result.repair_wave_id = expectString(record.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN);
+  if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined) fail('RUNTIME_STATE_CONFLICT', `${location} must not mix legacy and grouped repair fingerprints.`);
+  if ((result.repair_fingerprints !== undefined) !== (result.repair_wave_id !== undefined)) fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprints and repair_wave_id must appear together.`);
   if (record.diff_target !== undefined) result.diff_target = expectText(record.diff_target, `${location}.diff_target`, 512);
   if (record.checkpoint !== undefined) result.checkpoint = expectEnum(record.checkpoint, ['required', 'not-required'], `${location}.checkpoint`);
   if (record.advancement !== undefined) result.advancement = expectEnum(record.advancement, STEP_ADVANCEMENT_OUTCOMES, `${location}.advancement`);
@@ -3865,7 +4075,7 @@ export function validateVNextRuntimeState(value: unknown): RuntimeState {
     'resume_requires_review', 'resume_review_reasons', 'active_step_id', 'active_step_status',
     'finding_queue_revision', 'review_cycle', 'findings', 'execution_log', 'applied_proposals',
   ];
-  const optionalRuntimeStateFields = ['claim_evidence_required', 'claim_evidence'];
+  const optionalRuntimeStateFields = ['claim_evidence_required', 'claim_evidence', 'pending_review_result'];
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter(field => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter(field => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
   if (missingRuntimeStateFields.length > 0 || extraRuntimeStateFields.length > 0) {
@@ -3936,6 +4146,17 @@ export function validateVNextRuntimeState(value: unknown): RuntimeState {
   });
   if (new Set(appliedProposals.map(item => item.idempotency_key)).size !== appliedProposals.length) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.applied_proposals keys must be unique.');
   const reviewCycle = validateReviewCycle(runtime.review_cycle);
+  const pendingReviewResult = runtime.pending_review_result === undefined || runtime.pending_review_result === null
+    ? null
+    : validatePendingReviewResult(runtime.pending_review_result, 'runtime_state.pending_review_result', true) as PendingReviewResult;
+  if (pendingReviewResult !== null) {
+    if (pendingReviewResult.step_id !== activeStepId) {
+      fail('RUNTIME_STATE_CONFLICT', 'runtime_state.pending_review_result must belong to the active step.');
+    }
+    if (pendingReviewResult.cycle_id !== reviewCycle.id) {
+      fail('RUNTIME_STATE_CONFLICT', 'runtime_state.pending_review_result must belong to the current review cycle.');
+    }
+  }
   return {
     schema_version: 1,
     kind: VNEXT_RUNTIME_STATE_KIND,
@@ -3954,6 +4175,7 @@ export function validateVNextRuntimeState(value: unknown): RuntimeState {
     applied_proposals: appliedProposals,
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: claimEvidence,
+    pending_review_result: pendingReviewResult,
   };
 }
 
@@ -5293,7 +5515,10 @@ function closureEligibilityBlockers(current: CanonicalCurrentTask, delta: Archiv
       !('action' in item) && item.step_id === stepResolution.current.id && item.mode === 'repair',
     );
     if (repairRecords.length > 0) {
-      const repairFingerprints = [...new Set(repairRecords.map(item => item.repair_fingerprint).filter((value): value is string => Boolean(value)))];
+      const repairFingerprints = [...new Set(repairRecords.flatMap(item => [
+        ...(item.repair_fingerprints ?? []),
+        ...(item.repair_fingerprint ? [item.repair_fingerprint] : []),
+      ]))];
       const repairTargets = [...new Set(repairRecords.map(item => item.diff_target).filter((value): value is string => Boolean(value)))];
       const verified = current.runtimeState.execution_log.some((item): item is StepExecutionLogEntry => {
         if ('action' in item || item.step_id !== stepResolution.current.id || item.review_receipt?.cycle_phase !== 'verification') return false;
@@ -5304,7 +5529,7 @@ function closureEligibilityBlockers(current: CanonicalCurrentTask, delta: Archiv
           && (repairTargets.length === 0 || receipt.diff_target === repairTargets[0]);
       });
       if (!verified) blockers.push('every repair route must have a durable same-diff verification receipt before closure.');
-      if (repairRecords.some(item => !item.repair_fingerprint || !item.diff_target)) blockers.push('a repair execution record is missing its finding fingerprint or logical diff target.');
+      if (repairRecords.some(item => (!(item.repair_fingerprint || item.repair_fingerprints?.length)) || !item.diff_target)) blockers.push('a repair execution record is missing its finding fingerprints or logical diff target.');
     }
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
@@ -7557,14 +7782,16 @@ function assertStepProgressReplay(current: CanonicalCurrentTask, proposal: Runti
     || entry.evidence_refs.join('|') !== delta.evidence_refs.join('|')
     || !sameOptionalValue(entry.note, delta.note)
     || !sameOptionalValue(entry.repair_fingerprint, delta.repair_fingerprint)
+    || !sameOptionalValue(entry.repair_fingerprints, delta.repair_fingerprints)
+    || !sameOptionalValue(entry.repair_wave_id, delta.repair_wave_id)
     || !sameOptionalValue(entry.diff_target, delta.diff_target ?? delta.review_receipt?.diff_target)
     || !sameOptionalValue(entry.review_receipt, delta.review_receipt)
     || !sameOptionalValue(entry.claim_evidence, delta.claim_evidence)
   ) {
     fail('RUNTIME_REPLAY_INCOMPLETE', 'step-progress replay does not match the durable execution record.');
   }
-  if (entry.mode === 'repair' && entry.repair_fingerprint === undefined) {
-    fail('RUNTIME_REPLAY_INCOMPLETE', 'repair replay is missing its durable finding fingerprint.');
+  if (entry.mode === 'repair' && entry.repair_fingerprint === undefined && entry.repair_fingerprints === undefined) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'repair replay is missing its durable finding fingerprints.');
   }
   if (entry.status === 'completed' && entry.mode === 'default' && entry.advancement === undefined) {
     // Accept pre-freeze single-step records so existing canonical tasks remain
@@ -7573,6 +7800,18 @@ function assertStepProgressReplay(current: CanonicalCurrentTask, proposal: Runti
   }
   if (entry.advancement === undefined || entry.checkpoint === undefined || entry.next_step_id === undefined) {
     fail('RUNTIME_REPLAY_INCOMPLETE', 'step-progress replay is missing its durable advancement outcome.');
+  }
+}
+
+function assertReviewResultReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.semantic_delta.kind !== 'task-state' || proposal.semantic_delta.action !== 'record-review-result') return;
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || pending.review_id !== proposal.semantic_delta.review_result.review_id) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'review-result replay is no longer the pending result for the current execution generation.');
+  }
+  const { recorded_at: _recordedAt, ...stored } = pending;
+  if (digest(stored) !== digest(proposal.semantic_delta.review_result)) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'review-result replay does not match the durable pending result.');
   }
 }
 
@@ -7587,6 +7826,10 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
   }
   if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'migrate-claim-evidence') {
     assertClaimEvidenceMigrationReplay(current, proposal);
+    return;
+  }
+  if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'record-review-result') {
+    assertReviewResultReplay(current, proposal);
     return;
   }
   if (proposal.semantic_delta.kind !== 'task-state' || !REPLAN_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as ReplanTaskStateAction)) return;
@@ -7719,6 +7962,7 @@ function applyTaskStateDelta(
       applied_proposals: [],
       claim_evidence_required: true,
       claim_evidence: copyClaimEvidence(claimEvidence),
+      pending_review_result: null,
     };
     const draftStateWithProposal = {
       ...emptyDraftState,
@@ -7853,6 +8097,50 @@ function applyTaskStateDelta(
       },
     };
   }
+  if (delta.action === 'record-review-result') {
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
+    if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('TASK_STATE_NOT_ACTIVE', 'review results may be recorded only for an active + active task.');
+    }
+    if (current.runtimeState.resume_requires_review) {
+      fail('RESUME_REVIEW_REQUIRED', 'review-change cannot record a step review while the resume review gate is active.');
+    }
+    const review = delta.review_result;
+    if (review.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'review result does not belong to the active step.');
+    if (review.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CYCLE_CONFLICT', 'review result does not belong to the current review cycle.');
+    const stepExecutions = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+      !('action' in item) && item.step_id === review.step_id && item.idempotency_key.startsWith('execute-step-result-') && item.review_receipt === undefined,
+    );
+    const execution = stepExecutions[stepExecutions.length - 1];
+    if (!execution || execution.idempotency_key !== review.execution_id) {
+      fail('REVIEW_EXECUTION_STALE', 'review result does not bind the latest recorded execution for the active step.');
+    }
+    if (!execution.diff_target || execution.diff_target !== review.diff_target) {
+      fail('REVIEW_TARGET_CONFLICT', 'review result does not bind the exact recorded execution diff target.');
+    }
+    const expectedPhase: ReviewCyclePhase = execution.mode === 'repair' ? 'verification' : 'discovery';
+    if (review.cycle_phase !== expectedPhase) fail('REVIEW_PHASE_INVALID', `review result must use ${expectedPhase} for the latest execution.`);
+    if (review.cycle_phase === 'discovery' && review.unresolved_fingerprints.length > 0) {
+      fail('REVIEW_PHASE_INVALID', 'discovery review cannot reference unresolved admitted findings.');
+    }
+    const openFingerprints = new Set(current.runtimeState.findings
+      .filter(item => item.review_cycle_id === review.cycle_id && ['admitted', 'in-progress'].includes(item.status))
+      .map(item => item.fingerprint));
+    for (const fingerprint of review.unresolved_fingerprints) {
+      if (!openFingerprints.has(fingerprint)) fail('FINDING_NOT_FOUND', `review result references non-open finding ${fingerprint}.`);
+    }
+    const nestedEvidence = review.findings.flatMap(item => item.evidence_refs);
+    if (![...nestedEvidence, ...review.evidence_refs].every(ref => delta.evidence_refs.includes(ref))) {
+      fail('RUNTIME_EVIDENCE_INVALID', 'record-review-result evidence_refs must cover the review result and every finding.');
+    }
+    return {
+      next: {
+        ...current.runtimeState,
+        pending_review_result: { ...review, recorded_at: now },
+        applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+      },
+    };
+  }
   if (delta.action === 'mark-replan-blocked') {
     ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
     if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
@@ -7916,6 +8204,7 @@ function applyTaskStateDelta(
         : current.runtimeState.finding_queue_revision,
       review_cycle: createReviewCycleZero(),
       findings,
+      pending_review_result: null,
       claim_evidence_required: true,
       claim_evidence: copyClaimEvidence(claimEvidence),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
@@ -7958,15 +8247,20 @@ function applyTaskStateDelta(
     !('action' in item) && item.step_id === delta.step_id && item.mode === 'repair',
   );
   const openFindings = current.runtimeState.findings.filter(item => item.status === 'admitted' || item.status === 'in-progress');
+  const deltaRepairFingerprints = delta.repair_fingerprints ?? (delta.repair_fingerprint ? [delta.repair_fingerprint] : []);
   if (executionMode === 'repair') {
-    if (!delta.repair_fingerprint) fail('FINDING_ADMISSION_REQUIRED', 'repair mode requires repair_fingerprint.');
-    const finding = current.runtimeState.findings.find(item => item.fingerprint === delta.repair_fingerprint);
-    if (!finding || !['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_ADMISSION_REQUIRED', 'repair fingerprint is not an admitted current-task finding.');
+    if (deltaRepairFingerprints.length === 0) fail('FINDING_ADMISSION_REQUIRED', 'repair mode requires one or more admitted finding fingerprints.');
+    for (const fingerprint of deltaRepairFingerprints) {
+      const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
+      if (!finding || !['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_ADMISSION_REQUIRED', `repair fingerprint ${fingerprint} is not an admitted current-task finding.`);
+      if (delta.repair_wave_id && finding.last_repair_wave_id !== delta.repair_wave_id) {
+        fail('REPAIR_WAVE_CONFLICT', `repair fingerprint ${fingerprint} was not recorded in repair wave ${delta.repair_wave_id}.`);
+      }
+    }
     if (!delta.diff_target) fail('REPAIR_DIFF_TARGET_REQUIRED', 'repair mode requires one explicit logical diff_target.');
     if (delta.review_receipt !== undefined) fail('REVIEW_READ_ONLY_VIOLATION', 'repair execution cannot attach a review receipt; verification remains a separate review result.');
   } else {
-    if (delta.repair_fingerprint !== undefined) fail('RUNTIME_MODE_INVALID', 'default execution cannot carry a repair fingerprint.');
-    if (delta.diff_target !== undefined && delta.review_receipt === undefined) fail('REVIEW_RECEIPT_REQUIRED', 'diff_target on default execution must be carried by a review receipt.');
+    if (deltaRepairFingerprints.length > 0 || delta.repair_wave_id !== undefined) fail('RUNTIME_MODE_INVALID', 'default execution cannot carry repair bookkeeping.');
     if (delta.review_receipt !== undefined && delta.status !== 'completed') fail('REVIEW_RECEIPT_REQUIRED', 'review receipt is only valid when completing the current step.');
     if (delta.diff_target !== undefined && delta.review_receipt !== undefined && delta.diff_target !== delta.review_receipt.diff_target) {
       fail('REVIEW_TARGET_CONFLICT', 'step-progress diff_target must match the review receipt diff_target.');
@@ -8021,10 +8315,11 @@ function applyTaskStateDelta(
       }
     }
     if (currentStepRepairLogs.length > 0) {
-      const repairFingerprints = [...new Set(currentStepRepairLogs.map(item => {
-        if (!item.repair_fingerprint) fail('REPAIR_VERIFICATION_REQUIRED', 'a repair execution record is missing its finding fingerprint.');
+      const repairFingerprints = [...new Set(currentStepRepairLogs.flatMap(item => {
         if (!item.diff_target) fail('REPAIR_DIFF_TARGET_REQUIRED', 'a repair execution record is missing its logical diff target.');
-        return item.repair_fingerprint;
+        const fingerprints = item.repair_fingerprints ?? (item.repair_fingerprint ? [item.repair_fingerprint] : []);
+        if (fingerprints.length === 0) fail('REPAIR_VERIFICATION_REQUIRED', 'a repair execution record is missing its finding fingerprints.');
+        return fingerprints;
       }))];
       const repairTargets = [...new Set(currentStepRepairLogs.map(item => item.diff_target!))];
       if (repairTargets.length !== 1) fail('REPAIR_DIFF_TARGET_CONFLICT', 'all repair attempts for one step must use the same logical diff target.');
@@ -8082,13 +8377,15 @@ function applyTaskStateDelta(
       evidence_refs: [...delta.evidence_refs],
       ...(delta.note ? { note: delta.note } : {}),
       ...(delta.repair_fingerprint ? { repair_fingerprint: delta.repair_fingerprint } : {}),
-    ...(executionDiffTarget ? { diff_target: executionDiffTarget } : {}),
-    checkpoint,
-    advancement: advancement.outcome,
-    next_step_id: advancement.to_step_id,
-    ...(delta.review_receipt ? { review_receipt: delta.review_receipt } : {}),
-    ...(delta.claim_evidence === undefined ? {} : { claim_evidence: copyClaimEvidence(delta.claim_evidence) }),
-    recorded_at: now,
+      ...(delta.repair_fingerprints ? { repair_fingerprints: [...delta.repair_fingerprints] } : {}),
+      ...(delta.repair_wave_id ? { repair_wave_id: delta.repair_wave_id } : {}),
+      ...(executionDiffTarget ? { diff_target: executionDiffTarget } : {}),
+      checkpoint,
+      advancement: advancement.outcome,
+      next_step_id: advancement.to_step_id,
+      ...(delta.review_receipt ? { review_receipt: delta.review_receipt } : {}),
+      ...(delta.claim_evidence === undefined ? {} : { claim_evidence: copyClaimEvidence(delta.claim_evidence) }),
+      recorded_at: now,
     },
   ].slice(-MAX_EXECUTION_LOG);
   const next: RuntimeState = {
@@ -8097,12 +8394,13 @@ function applyTaskStateDelta(
     active_step_status: advancement.outcome === 'advanced' ? 'ready' : newStatus,
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
+    pending_review_result: null,
     execution_log: executionLog,
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };
   return {
     next,
-    findingStatus: delta.repair_fingerprint ? current.runtimeState.findings.find(item => item.fingerprint === delta.repair_fingerprint)?.status : undefined,
+    findingStatus: deltaRepairFingerprints.length > 0 ? current.runtimeState.findings.find(item => item.fingerprint === deltaRepairFingerprints[0])?.status : undefined,
     advancement,
   };
 }
@@ -9835,6 +10133,8 @@ export function createTaskStateProposal(
     authority_evidence: AuthorityEvidence[];
     note?: string;
     repair_fingerprint?: string;
+    repair_fingerprints?: string[];
+    repair_wave_id?: string;
     diff_target?: string;
     review_receipt?: StepReviewReceipt;
     claim_evidence?: ClaimEvidenceRecord[];
@@ -9860,12 +10160,49 @@ export function createTaskStateProposal(
       evidence_refs: input.evidence_refs,
       ...(input.note ? { note: input.note } : {}),
       ...(input.repair_fingerprint ? { repair_fingerprint: input.repair_fingerprint } : {}),
+      ...(input.repair_fingerprints ? { repair_fingerprints: input.repair_fingerprints } : {}),
+      ...(input.repair_wave_id ? { repair_wave_id: input.repair_wave_id } : {}),
       ...(input.diff_target ? { diff_target: input.diff_target } : {}),
       ...(input.review_receipt ? { review_receipt: input.review_receipt } : {}),
       ...(input.claim_evidence === undefined ? {} : { claim_evidence: input.claim_evidence }),
     },
     preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted'],
     evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createReviewResultProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    review_result: Omit<PendingReviewResult, 'recorded_at'>;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  const evidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...input.review_result.evidence_refs,
+    ...input.review_result.findings.flatMap(item => item.evidence_refs),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'review-change',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'record-review-result',
+      review_result: input.review_result,
+      evidence_refs: evidenceRefs,
+    },
+    preconditions: ['current-task-is-active', 'latest-execution-matches', 'review-context-current'],
+    evidence_refs: evidenceRefs,
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath],
   });

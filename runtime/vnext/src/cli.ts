@@ -3,8 +3,9 @@ import { runBootstrapCli } from './bootstrap';
 import { runBootstrapSupportCli } from './bootstrap-support';
 import { PREPARE_TASK_ADAPTER_COMMANDS, runPrepareTaskAdapterCli } from './prepare-task-adapter';
 import { EXECUTE_STEP_ADAPTER_COMMANDS, runExecuteStepAdapterCli } from './execute-step-adapter';
+import { REVIEW_CHANGE_ADAPTER_COMMANDS, runReviewChangeAdapterCli } from './review-change-adapter';
 
-export { runCli, runBootstrapCli, runBootstrapSupportCli, runPrepareTaskAdapterCli, runExecuteStepAdapterCli };
+export { runCli, runBootstrapCli, runBootstrapSupportCli, runPrepareTaskAdapterCli, runExecuteStepAdapterCli, runReviewChangeAdapterCli };
 
 const args = process.argv.slice(2);
 let runner: Promise<number>;
@@ -14,6 +15,8 @@ else if (PREPARE_TASK_ADAPTER_COMMANDS.includes(args[0] as (typeof PREPARE_TASK_
   runner = runPrepareTaskAdapterCli(args);
 } else if (EXECUTE_STEP_ADAPTER_COMMANDS.includes(args[0] as (typeof EXECUTE_STEP_ADAPTER_COMMANDS)[number])) {
   runner = runExecuteStepAdapterCli(args);
+} else if (REVIEW_CHANGE_ADAPTER_COMMANDS.includes(args[0] as (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number])) {
+  runner = runReviewChangeAdapterCli(args);
 } else runner = runCli(args);
 
 runner.then((exitCode) => {

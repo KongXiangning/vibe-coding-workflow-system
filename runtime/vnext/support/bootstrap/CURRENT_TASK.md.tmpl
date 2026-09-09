@@ -25,6 +25,7 @@ runtime_state:
   findings: []
   execution_log: []
   applied_proposals: []
+  pending_review_result: null
 ---
 # vNext CURRENT_TASK
 

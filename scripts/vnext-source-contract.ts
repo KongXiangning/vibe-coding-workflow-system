@@ -43,7 +43,7 @@ const PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN = new RegExp(PUBLIC_ENTRY_CONTINU
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan'],
   'review-draft': [],
-  'review-change': ['default', 'report-only'],
+  'review-change': ['default'],
   'execute-step': ['default', 'repair'],
 };
 
@@ -66,7 +66,7 @@ export const EXPERT_MODES: Record<ExpertEntry, readonly string[]> = {
 const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
   'prepare-task': 'prepared-task',
   'review-draft': 'draft-review-result',
-  'review-change': 'report',
+  'review-change': 'review-result',
   'execute-step': 'change-result',
   'debug-task': 'debug-result',
   'task-lifecycle': 'lifecycle-result',
@@ -88,7 +88,7 @@ const EXPECTED_AUTHORITY_OWNERS: Record<Phase1Entry, string> = {
 const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
   'review-draft': [],
-  'review-change': [],
+  'review-change': ['task-state-transaction'],
   'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
@@ -126,8 +126,8 @@ export const EXPECTED_EXPERT_RUNTIME_OPERATIONS: Record<ExpertEntry, readonly st
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
   'prepare-task': ['scope-guard', 'adaptive-depth-policy', 'evidence-admission-policy', 'resume-review-gate'],
   'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
-  'review-change': ['scope-guard', 'diff-target-resolver', 'read-only-review-guard', 'review-convergence-policy', 'evidence-admission-policy'],
-  'execute-step': ['scope-guard', 'task-identity-guard', 'finding-admission', 'review-convergence-policy', 'resume-review-gate'],
+  'review-change': ['project-context-resolver', 'scope-guard', 'diff-target-resolver', 'read-only-review-guard'],
+  'execute-step': ['scope-guard', 'task-identity-guard', 'resume-review-gate'],
   'debug-task': ['scope-guard', 'review-convergence-policy', 'evidence-admission-policy'],
   'task-lifecycle': ['scope-guard'],
   'capture-work-item': ['scope-guard'],
@@ -208,7 +208,7 @@ const REQUIRED_RUNTIME_OPERATIONS = [
 ] as const;
 
 const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
-  'task-state-transaction': ['execute-step', 'prepare-task'],
+  'task-state-transaction': ['execute-step', 'prepare-task', 'review-change'],
   'finding-queue-transaction': ['execute-step'],
   'lifecycle-transaction': ['task-lifecycle'],
   'inbox-record-transaction': ['capture-work-item'],
@@ -223,6 +223,7 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
 const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
   'task-state-transaction': [
     'execute-step:step-progress',
+    'review-change:default:record-review-result',
     'prepare-task:default:clear-resume-review-gate',
     'prepare-task:default:create-draft',
     'prepare-task:default:update-draft',
@@ -595,15 +596,11 @@ function readLegacySkillNames(root: string): string[] {
 function validateInputContract(input: UnknownRecord, entry: Phase1Entry): void {
   expectExactKeys(
     input,
-    entry === 'review-change' ? ['required', 'optional', 'cycle_phase'] : ['required', 'optional'],
+    ['required', 'optional'],
     `${entry}.entry_contract.input_contract`,
   );
   expectStringArray(input.required, `${entry}.entry_contract.input_contract.required`);
   expectStringArray(input.optional, `${entry}.entry_contract.input_contract.optional`, true);
-  if (entry === 'review-change') {
-    const phases = expectStringArray(input.cycle_phase, `${entry}.entry_contract.input_contract.cycle_phase`);
-    expectSetEqual(phases, ['discovery', 'verification'], `${entry}.cycle_phase`);
-  }
 }
 
 function validateExpertInputContract(input: UnknownRecord, entry: ExpertEntry): void {
@@ -737,6 +734,7 @@ function validateExecuteStepSemanticBoundary(content: string): void {
     'Do not redesign the task',
     'current step mutation scope',
     "confirmed task's `Persistent Tests`",
+    'Runtime `begin-repair`',
     'Runtime `record-step-result`',
     'Runtime `complete-reviewed-step`',
   ];
@@ -744,6 +742,21 @@ function validateExecuteStepSemanticBoundary(content: string): void {
     if (!content.includes(term)) {
       fail(`execute-step must preserve the semantic boundary term "${term}"`);
     }
+  }
+}
+
+function validateReviewChangeSemanticBoundary(content: string): void {
+  const requiredTerms = [
+    'Runtime `review-context`',
+    'exact recorded diff target',
+    'Do not modify code, tests, configuration, or governance sources',
+    'unauthorized persistent-test changes',
+    'Runtime `record-review-result`',
+    'Do not repair code or advance the step',
+    'recommendation must not invoke another public Skill',
+  ];
+  for (const term of requiredTerms) {
+    if (!content.includes(term)) fail(`review-change must preserve the semantic boundary term "${term}"`);
   }
 }
 
@@ -774,6 +787,7 @@ function validateTemplate(
   validatePublicEntryTerminalBoundary(content, entry);
   if (entry === 'prepare-task') validatePrepareTaskDraftBoundary(content);
   if (entry === 'review-draft') validateReviewDraftBoundary(content);
+  if (entry === 'review-change') validateReviewChangeSemanticBoundary(content);
   if (entry === 'execute-step') validateExecuteStepSemanticBoundary(content);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
@@ -830,7 +844,7 @@ function validateTemplate(
       fail(`${entry} references Runtime operation "${operation}" outside the Phase 2 operation boundary`);
     }
   }
-  if ((entry === 'review-change' || entry === 'review-draft') && runtimeRefs.length !== 0) {
+  if (entry === 'review-draft' && runtimeRefs.length !== 0) {
     fail(`${entry} must have no Runtime operations`);
   }
   expectStringArray(contract.stop_conditions, `${entry}.entry_contract.stop_conditions`);

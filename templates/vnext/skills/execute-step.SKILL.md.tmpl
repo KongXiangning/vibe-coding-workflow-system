@@ -11,8 +11,7 @@ entry_contract:
     required:
       - confirmed_current_task
     optional:
-      - admitted_finding
-      - clean_review_receipt
+      - canonical_review_result
   authority_owner: task
   mutation_boundary:
     product_files:
@@ -25,8 +24,6 @@ entry_contract:
   internal_capabilities:
     - task-identity-guard
     - scope-guard
-    - finding-admission
-    - review-convergence-policy
     - resume-review-gate
   runtime_operations:
     - task-state-transaction
@@ -50,9 +47,9 @@ Implement only the confirmed `CURRENT_TASK` step selected by Runtime. Do not red
 1. Send intended changed paths to Runtime `preflight-step` on stdin. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, or preflight blocks, report that result and stop.
 2. Modify only paths admitted for the current step. A persistent test may be created or changed only when it is already frozen in the confirmed task's `Persistent Tests`; do not admit another test during execution.
 3. Run the current step's planned commands and validation. Do not substitute an unplanned write-capable command. If a command or validation cannot run as planned, stop instead of improvising around Runtime.
-4. In `repair` mode, change only what is needed for the admitted finding and remain within the same step scope and repair budget.
-5. Send actual changed paths, command results, validation results, and acceptance evidence to Runtime `record-step-result` on stdin. Runtime owns scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
-6. If this invocation only receives a clean review receipt for an already recorded step, submit it through Runtime `complete-reviewed-step`; do not edit product code again.
+4. When the canonical review result contains findings, ask Runtime `begin-repair` for the complete admitted finding set. Repair only those findings in one bounded wave and do not use repair as an opportunity for unrelated improvements.
+5. Send the exact logical diff target, actual changed paths, command results, validation results, and acceptance evidence to Runtime `record-step-result` on stdin. Runtime owns scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
+6. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; do not copy a review receipt by hand or edit product code again.
 
 ## Required result
 

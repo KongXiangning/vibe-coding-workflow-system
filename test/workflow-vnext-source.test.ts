@@ -271,12 +271,13 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(root)).toThrow(/semantic boundary term "Runtime `preflight-step`"/i);
   });
 
-  test('keeps non-admitted review findings reportable instead of making them entry blockers', () => {
+  test('keeps review-change focused on clear findings or an explicit blocker', () => {
     const file = fixtureFile(ROOT, 'templates/vnext/skills/review-change.SKILL.md.tmpl');
     const content = fs.readFileSync(file, 'utf8');
 
-    expect(content).not.toContain('a finding lacks sufficient evidence or an authorized owner route');
-    expect(content).toContain('findings, evidence gaps, and finding-admission dispositions');
+    expect(content).toContain('report all clear repairable findings together');
+    expect(content).toContain('`blocked`: include the blocker and recommended route');
+    expect(content).toContain('canonical review result is the only durable effect');
   });
 
   test('preserves P-12 evidence-first and persistent-test admission boundaries', () => {
@@ -326,11 +327,8 @@ describe('vNext Phase 2 source contract', () => {
     expect(sourceContract).toContain('typed proposal to an existing canonical task record');
     expect(execute).toContain("A persistent test may be created or changed only when it is already frozen in the confirmed task's `Persistent Tests`");
     expect(execute).toContain('do not admit another test during execution');
-    expect(review).toContain('A regression or evidence scenario is a validation obligation; it does not automatically require a new persistent automated test.');
-    expect(review).toContain('Persistent-test disposition defaults to `persistent_test: false`');
-    expect(review).toContain('Missing admission means the persistent test is not admitted');
-    expect(review).toContain('Provisional or exploratory certainty permits temporary probes only');
-    expect(review).toContain('Review may add a claim only through the same strong-evidence admission rule');
+    expect(review).toContain('unauthorized persistent-test changes');
+    expect(review).toContain('Persistent Tests');
     expect(debug).toContain('A validation obligation or temporary probe does not automatically justify a persistent automated test');
     expect(debug).toContain('Persistent-test disposition defaults to `persistent_test: false`');
     expect(debug).toContain('permitted temporary artifact locations, and cleanup/audit rule');
@@ -486,7 +484,7 @@ describe('vNext Phase 2 source contract', () => {
     replaceIn(
       root,
       'templates/vnext/skills/review-change.SKILL.md.tmpl',
-      '    - report-only',
+      '    - default',
       '    - discovery',
     );
 

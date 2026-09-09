@@ -2127,7 +2127,7 @@ function validateBundleArtifactShape(value: unknown, location: string): VNextBun
 const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan'],
   'review-draft': [],
-  'review-change': ['default', 'report-only'],
+  'review-change': ['default'],
   'execute-step': ['default', 'repair'],
   'debug-task': ['investigate-only', 'resolve'],
   'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
@@ -2139,7 +2139,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
 const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'prepare-task': 'prepared-task',
   'review-draft': 'draft-review-result',
-  'review-change': 'report',
+  'review-change': 'review-result',
   'execute-step': 'change-result',
   'debug-task': 'debug-result',
   'task-lifecycle': 'lifecycle-result',
@@ -2163,7 +2163,7 @@ const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
 const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
   'review-draft': [],
-  'review-change': [],
+  'review-change': ['task-state-transaction'],
   'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
@@ -2174,7 +2174,8 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
   'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
-  'execute-step': ['scope-guard', 'task-identity-guard', 'finding-admission', 'review-convergence-policy', 'resume-review-gate'],
+  'review-change': ['project-context-resolver', 'scope-guard', 'diff-target-resolver', 'read-only-review-guard'],
+  'execute-step': ['scope-guard', 'task-identity-guard', 'resume-review-gate'],
   'validate-change': ['project-context-resolver', 'evidence-admission-policy', 'adaptive-depth-policy', 'diff-target-resolver', 'read-only-review-guard', 'owner-route-resolver'],
 };
 
@@ -2209,8 +2210,7 @@ function validateVNextSkillBundleContent(entry: string, content: string, locatio
   if (modes.includes('discovery') || modes.includes('verification')) throw new MigrationPackError('BUNDLE_INVALID', `${location} promotes review cycle phases into modes.`);
   expectString(contract.intent, `${location}.entry_contract.intent`);
   const input = expectRecord(contract.input_contract, `${location}.entry_contract.input_contract`);
-  const inputKeys = entry === 'review-change' ? ['required', 'optional', 'cycle_phase'] : ['required', 'optional'];
-  expectExactKeys(input, inputKeys, `${location}.entry_contract.input_contract`);
+  expectExactKeys(input, ['required', 'optional'], `${location}.entry_contract.input_contract`);
   const requiredInputs = expectStringArray(input.required, `${location}.entry_contract.input_contract.required`);
   const optionalInputs = expectStringArray(input.optional, `${location}.entry_contract.input_contract.optional`, true);
   if (entry === 'validate-change') {
@@ -2229,10 +2229,6 @@ function validateVNextSkillBundleContent(entry: string, content: string, locatio
     if (JSON.stringify([...optionalInputs].sort()) !== JSON.stringify([...expectedOptionalInputs].sort())) {
       throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.input_contract.optional is not the canonical validate-change set.`);
     }
-  }
-  if (entry === 'review-change') {
-    expectStringArray(input.cycle_phase, `${location}.entry_contract.input_contract.cycle_phase`);
-    if (JSON.stringify([...input.cycle_phase as string[]].sort()) !== JSON.stringify(['discovery', 'verification'])) throw new MigrationPackError('BUNDLE_INVALID', `${location} has an invalid review cycle phase set.`);
   }
   if (contract.authority_owner !== BUNDLE_ENTRY_AUTHORITY_OWNERS[entry]) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.authority_owner must be ${BUNDLE_ENTRY_AUTHORITY_OWNERS[entry]}.`);
@@ -2262,7 +2258,7 @@ function validateVNextSkillBundleContent(entry: string, content: string, locatio
   if (JSON.stringify([...runtimeOperations].sort()) !== JSON.stringify([...expectedRuntimeOperations].sort())) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location}.entry_contract.runtime_operations is not valid for ${entry}.`);
   }
-  if ((entry === 'review-draft' || entry === 'review-change') && runtimeOperations.length !== 0) {
+  if (entry === 'review-draft' && runtimeOperations.length !== 0) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location}.${entry} must not declare Runtime operations.`);
   }
   expectStringArray(contract.stop_conditions, `${location}.entry_contract.stop_conditions`);

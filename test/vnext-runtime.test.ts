@@ -22,8 +22,11 @@ import {
   clearResumeReview,
   confirmDraft,
   completeReviewedStep,
+  beginRepair,
   prepareDraft,
   preflightStep,
+  reviewContext,
+  recordReviewResult,
   recordStepResult,
   replan,
   resolveExternalProposalFile,
@@ -89,6 +92,7 @@ function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     findings: [],
     execution_log: [],
     applied_proposals: [],
+    pending_review_result: null,
     ...overrides,
   };
 }
@@ -4952,6 +4956,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         evidence_refs: ['test:evidence:validation'],
       }],
       acceptance_evidence: [],
+      diff_target: 'unplanned-path-review-target',
       outcome: 'implemented',
       note: null,
     })).toThrow('EXECUTE_PREFLIGHT_SCOPE_CONFLICT');
@@ -4983,6 +4988,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         acceptance: 'The semantic adapter persists and reads back a canonical draft',
         evidence_refs: ['test:evidence:acceptance'],
       }],
+      diff_target: 'prepared-step-d-check-logic',
       outcome: 'implemented',
       note: 'current step implemented',
     });
@@ -4992,26 +4998,147 @@ describe('vNext Phase 2 Runtime contract', () => {
       state: { active_step_id: 'step-1', active_step_status: 'in-progress' },
     });
 
-    const current = readCanonicalCurrentTask(root);
-    const completed = completeReviewedStep(root, {
+    const context = reviewContext(root, {});
+    expect(context.receipt).toMatchObject({ cycle_phase: 'discovery', diff_target: 'prepared-step-d-check-logic' });
+    expect(context.recorded_execution.evidence_refs).toEqual(expect.arrayContaining([
+      'test:evidence:command',
+      'test:evidence:validation',
+    ]));
+    const cleanReviewInput = {
+      context_receipt: context.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:evidence:review'],
+      blocker: null,
+    } as const;
+    expect(recordReviewResult(root, cleanReviewInput).status).toBe('success');
+    const reviewedBytes = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+    expect(recordReviewResult(root, cleanReviewInput).status).toBe('no-op');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(reviewedBytes);
+    expect(readCanonicalCurrentTask(root).runtimeState.pending_review_result).toMatchObject({ verdict: 'clean' });
+    const completionInput = {
       step_id: 'step-1',
-      review_receipt: {
-        cycle_id: current.runtimeState.review_cycle.id,
-        cycle_phase: 'discovery',
-        diff_target: 'prepared-step-d-check-logic',
-        diff_target_verification: 'verified',
-        verdict: 'clean',
-        admitted_fingerprints: [],
-        evidence_refs: ['test:evidence:review'],
-      },
       acceptance_evidence: [],
       note: 'clean review committed',
-    });
+    };
+    const completed = completeReviewedStep(root, completionInput);
     expect(completed).toMatchObject({
       status: 'success',
       advancement: { outcome: 'task-complete', from_step_id: 'step-1' },
       state: { active_step_id: 'step-1', active_step_status: 'completed' },
     });
+    expect(completeReviewedStep(root, completionInput).status).toBe('no-op');
+  });
+
+  test('hands multiple review findings across sessions through one bounded repair wave and verification', () => {
+    const root = confirmedSemanticRoot();
+    const preflight = preflightStep(root, {
+      mode: 'default',
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'test/vnext-runtime.test.ts'],
+      repair_fingerprint: null,
+      diff_target: null,
+    });
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      diff_target: 'step-1-logical-diff',
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'test/vnext-runtime.test.ts'],
+      command_results: [{
+        command: 'bun test test/vnext-runtime.test.ts',
+        status: 'passed',
+        observed_repo_writes: [],
+        evidence_refs: ['test:evidence:first-command'],
+      }],
+      validation_results: [{
+        validation: 'bun test test/vnext-runtime.test.ts passes',
+        status: 'passed',
+        evidence_refs: ['test:evidence:first-validation'],
+      }],
+      acceptance_evidence: [{
+        acceptance: 'The semantic adapter persists and reads back a canonical draft',
+        evidence_refs: ['test:evidence:first-acceptance'],
+      }],
+      outcome: 'implemented',
+      note: null,
+    }).status).toBe('success');
+
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [
+        {
+          category: 'correctness',
+          file: 'runtime/vnext/src/prepare-task-adapter.ts',
+          failure_condition: 'the semantic adapter loses the exact task identity',
+          required_behavior: 'preserve the exact task identity',
+          root_cause_status: 'confirmed',
+          evidence_refs: ['test:evidence:finding-one'],
+        },
+        {
+          category: 'validation',
+          file: 'test/vnext-runtime.test.ts',
+          failure_condition: 'the handoff has no durable witness',
+          required_behavior: 'retain the cross-session handoff witness',
+          root_cause_status: 'bounded',
+          evidence_refs: ['test:evidence:finding-two'],
+        },
+      ],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:evidence:review-findings'],
+      blocker: null,
+    }).status).toBe('success');
+
+    // A later execute invocation reads only canonical state; it does not need reviewer chat context.
+    const repair = beginRepair(root, {
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'test/vnext-runtime.test.ts'],
+    });
+    expect(repair.receipt.repair_fingerprints).toHaveLength(2);
+    expect(recordStepResult(root, {
+      preflight_receipt: repair.receipt,
+      diff_target: 'step-1-logical-diff',
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'test/vnext-runtime.test.ts'],
+      command_results: [{
+        command: 'bun test test/vnext-runtime.test.ts',
+        status: 'passed',
+        observed_repo_writes: [],
+        evidence_refs: ['test:evidence:repair-command'],
+      }],
+      validation_results: [{
+        validation: 'bun test test/vnext-runtime.test.ts passes',
+        status: 'passed',
+        evidence_refs: ['test:evidence:repair-validation'],
+      }],
+      acceptance_evidence: [],
+      outcome: 'implemented',
+      note: 'repair both admitted findings',
+    }).status).toBe('success');
+    const repaired = readCanonicalCurrentTask(root);
+    expect(repaired.runtimeState.review_cycle.repair_round).toBe(1);
+    expect(repaired.runtimeState.findings.every(item => item.last_repair_wave_id === repair.receipt.repair_wave_id)).toBe(true);
+
+    const verification = reviewContext(root, {});
+    expect(verification.receipt).toMatchObject({ cycle_phase: 'verification', diff_target: 'step-1-logical-diff' });
+    expect(verification.receipt.admitted_fingerprints).toEqual(expect.arrayContaining(repair.receipt.repair_fingerprints));
+    expect(recordReviewResult(root, {
+      context_receipt: verification.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:evidence:clean-verification'],
+      blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, {
+      step_id: 'step-1',
+      acceptance_evidence: [],
+      note: 'verified repair',
+    })).toMatchObject({
+      status: 'success',
+      advancement: { outcome: 'task-complete' },
+    });
+    const complete = readCanonicalCurrentTask(root);
+    expect(complete.runtimeState.findings.every(item => item.status === 'resolved')).toBe(true);
+    expect(complete.runtimeState.pending_review_result).toBeNull();
   });
 
   test('preflights repair only for an admitted finding with remaining budget', () => {
@@ -5257,6 +5384,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     };
     expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
       'preflight-step',
+      'begin-repair',
       'record-step-result',
       'complete-reviewed-step',
     ]);

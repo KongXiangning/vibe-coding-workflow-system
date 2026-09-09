@@ -17,6 +17,7 @@ proposal:
   kind: vnext-runtime-proposal
   caller:
     - execute-step
+    - review-change
     - prepare-task
     - task-lifecycle
     - capture-work-item
@@ -67,6 +68,7 @@ proposal:
       - update-draft
       - confirm-draft
       - migrate-claim-evidence
+      - record-review-result
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
@@ -78,6 +80,8 @@ proposal:
       optional:
         - note
         - repair_fingerprint
+        - repair_fingerprints
+        - repair_wave_id
         - diff_target
         - review_receipt
         - claim_evidence
@@ -144,6 +148,21 @@ proposal:
       target_verification:
         - verified
         - harness-supplied
+    review_result:
+      stored_in: canonical CURRENT_TASK.runtime_state.pending_review_result
+      verdicts:
+        - clean
+        - findings
+        - blocked
+      binds:
+        - active_step_id
+        - review_cycle_id
+        - latest_execution_id
+        - exact_diff_target
+      consumed_by:
+        clean: execute-step:complete-reviewed-step
+        findings: execute-step:begin-repair
+        blocked: caller-route
     draft:
       mode: default
       actions:
@@ -223,6 +242,7 @@ proposal:
       input: stdin-json
       commands:
         - preflight-step
+        - begin-repair
         - record-step-result
         - complete-reviewed-step
       step_source: confirmed-current-task
@@ -232,9 +252,23 @@ proposal:
       proposal_file_policy: project-external-only
       advancement_owner: runtime
     bound_actions:
+      - admit
       - step-progress
       - record-repair-attempt
       - resolve
+  review_change:
+    semantic_adapter:
+      input: stdin-json
+      commands:
+        - review-context
+        - record-review-result
+      context_source: latest-recorded-execution
+      diff_target: exact-recorded-target
+      result_storage: canonical-pending-review-result
+      direct_product_writes: deny
+      advancement_owner: execute-step
+    bound_actions:
+      - record-review-result
   prepare_task:
     semantic_adapter:
       input: stdin-json
@@ -550,6 +584,7 @@ canonical_current_task:
       - applied_proposals
       - claim_evidence_required
       - claim_evidence
+      - pending_review_result
     review_cycle:
       fields:
         - id
@@ -583,6 +618,7 @@ operations:
       - task-basis/TASK_BASIS-<TASK_ID>.md
     allowed_callers:
       - execute-step
+      - review-change
       - prepare-task
     result_states:
       - success

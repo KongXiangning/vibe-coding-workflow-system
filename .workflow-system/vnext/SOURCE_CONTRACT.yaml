@@ -494,13 +494,16 @@ runtime_operations:
     allowed_callers:
       - prepare-task
       - execute-step
+      - review-change
       - debug-task
       - task-lifecycle
     bound_callers:
       - execute-step
       - prepare-task
+      - review-change
     bound_actions:
       - execute-step:step-progress
+      - review-change:default:record-review-result
       - prepare-task:default:clear-resume-review-gate
       - prepare-task:default:create-draft
       - prepare-task:default:update-draft

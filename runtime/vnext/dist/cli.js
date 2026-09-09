@@ -1647,7 +1647,8 @@ var RUNTIME_STATE_FIELDS = [
   "execution_log",
   "applied_proposals",
   "claim_evidence_required",
-  "claim_evidence"
+  "claim_evidence",
+  "pending_review_result"
 ];
 var REVIEW_CYCLE_FIELDS = [
   "id",
@@ -1672,6 +1673,7 @@ var FINDING_STATUSES = ["admitted", "in-progress", "resolved", "deferred", "reje
 var REPLAN_TASK_STATE_ACTIONS = ["mark-replan-blocked", "clear-replan-block", "commit-replan"];
 var DRAFT_TASK_STATE_ACTIONS = ["create-draft", "update-draft", "confirm-draft"];
 var CLAIM_EVIDENCE_MIGRATION_ACTIONS = ["migrate-claim-evidence"];
+var REVIEW_TASK_STATE_ACTIONS = ["record-review-result"];
 var DRAFT_AUDIT_ACTIONS = ["create-draft", "update-draft", "confirm-draft"];
 var REPLAN_AUDIT_ACTIONS = [
   "supersede",
@@ -1732,6 +1734,8 @@ var CLAIM_EVIDENCE_DISPOSITIONS = [
   "deferred",
   "blocked"
 ];
+var REVIEW_RESULT_VERDICTS = ["clean", "findings", "blocked"];
+var REVIEW_BLOCKER_ROUTES = ["review-change", "debug-task", "prepare-task:replan", "user"];
 function createReviewCycleZero() {
   return {
     id: "review-cycle-0",
@@ -2057,10 +2061,10 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   const proposal = expectRecord2(contract.proposal, "Runtime contract.proposal");
-  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "task_state", "execute_step", "prepare_task", "inbox_record", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
+  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "task_state", "execute_step", "review_change", "prepare_task", "inbox_record", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime proposal contract has an invalid envelope marker.");
-  expectSetEqual(expectStringArray2(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "Runtime contract proposal callers");
+  expectSetEqual(expectStringArray2(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "review-change", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "Runtime contract proposal callers");
   expectSetEqual(expectStringArray2(proposal.operation_kinds, "Runtime contract.proposal.operation_kinds"), [...RUNTIME_OPERATION_KINDS], "Runtime contract operation kinds");
   expectSetEqual(expectStringArray2(proposal.source_tuple, "Runtime contract.proposal.source_tuple"), [...RUNTIME_SOURCE_TUPLE_FIELDS], "Runtime contract source tuple");
   expectSetEqual(expectStringArray2(proposal.required_envelope, "Runtime contract.proposal.required_envelope"), [...RUNTIME_REQUIRED_ENVELOPE_FIELDS], "Runtime contract proposal envelope");
@@ -2071,12 +2075,12 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(findingQueueAdmission, ["required"], "Runtime contract.proposal.finding_queue_admission");
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
-  expectExactKeys2(taskStateContract, ["actions", "step_progress", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "draft", "confirm"], "Runtime contract.proposal.task_state");
-  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
+  expectExactKeys2(taskStateContract, ["actions", "step_progress", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
+  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
   const stepProgressContract = expectRecord2(taskStateContract.step_progress, "Runtime contract.proposal.task_state.step_progress");
   expectExactKeys2(stepProgressContract, ["required", "optional"], "Runtime contract.proposal.task_state.step_progress");
   expectSetEqual(expectStringArray2(stepProgressContract.required, "Runtime contract.proposal.task_state.step_progress.required"), ["step_id", "status", "evidence_refs"], "Runtime contract task-state required fields");
-  expectSetEqual(expectStringArray2(stepProgressContract.optional, "Runtime contract.proposal.task_state.step_progress.optional", true), ["note", "repair_fingerprint", "diff_target", "review_receipt", "claim_evidence"], "Runtime contract task-state optional fields");
+  expectSetEqual(expectStringArray2(stepProgressContract.optional, "Runtime contract.proposal.task_state.step_progress.optional", true), ["note", "repair_fingerprint", "repair_fingerprints", "repair_wave_id", "diff_target", "review_receipt", "claim_evidence"], "Runtime contract task-state optional fields");
   const claimEvidenceContract = expectRecord2(taskStateContract.claim_evidence, "Runtime contract.proposal.task_state.claim_evidence");
   expectExactKeys2(claimEvidenceContract, ["stored_in", "record_fields", "slot_fields", "complete_dispositions", "incomplete_dispositions", "completion_rule"], "Runtime contract.proposal.task_state.claim_evidence");
   if (claimEvidenceContract.stored_in !== "canonical CURRENT_TASK.runtime_state") {
@@ -2110,6 +2114,16 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract review receipt verdict must remain clean.");
   expectSetEqual(expectStringArray2(reviewReceiptContract.cycle_phase, "Runtime contract.proposal.task_state.review_receipt.cycle_phase"), [...REVIEW_CYCLE_PHASES], "Runtime contract review receipt cycle phases");
   expectSetEqual(expectStringArray2(reviewReceiptContract.target_verification, "Runtime contract.proposal.task_state.review_receipt.target_verification"), [...REVIEW_TARGET_VERIFICATION_STATES], "Runtime contract review receipt target verification states");
+  const reviewResultContract = expectRecord2(taskStateContract.review_result, "Runtime contract.proposal.task_state.review_result");
+  expectExactKeys2(reviewResultContract, ["stored_in", "verdicts", "binds", "consumed_by"], "Runtime contract.proposal.task_state.review_result");
+  if (reviewResultContract.stored_in !== "canonical CURRENT_TASK.runtime_state.pending_review_result")
+    fail2("RUNTIME_CONTRACT_INVALID", "review result must use canonical pending review storage.");
+  expectSetEqual(expectStringArray2(reviewResultContract.verdicts, "Runtime contract review-result verdicts"), [...REVIEW_RESULT_VERDICTS], "Runtime contract review-result verdicts");
+  expectSetEqual(expectStringArray2(reviewResultContract.binds, "Runtime contract review-result bindings"), ["active_step_id", "review_cycle_id", "latest_execution_id", "exact_diff_target"], "Runtime contract review-result bindings");
+  const reviewResultConsumers = expectRecord2(reviewResultContract.consumed_by, "Runtime contract review-result consumers");
+  expectExactKeys2(reviewResultConsumers, ["clean", "findings", "blocked"], "Runtime contract review-result consumers");
+  if (reviewResultConsumers.clean !== "execute-step:complete-reviewed-step" || reviewResultConsumers.findings !== "execute-step:begin-repair" || reviewResultConsumers.blocked !== "caller-route")
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime review-result consumers are invalid.");
   const draftContract = expectRecord2(taskStateContract.draft, "Runtime contract.proposal.task_state.draft");
   expectExactKeys2(draftContract, ["mode", "actions", "identity_required", "definition_required", "claim_evidence", "task_basis", "create_from", "update_from", "target", "previous_close_reconciliation", "step_admission", "preserves"], "Runtime contract.proposal.task_state.draft");
   if (draftContract.mode !== "default")
@@ -2170,11 +2184,19 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   ], "Runtime contract.proposal.execute_step.semantic_adapter");
   if (executeStepAdapter.input !== "stdin-json")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter input must remain stdin-json.");
-  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
+  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
   if (executeStepAdapter.step_source !== "confirmed-current-task" || executeStepAdapter.scope_enforcement !== "task-and-current-step" || executeStepAdapter.command_plan_source !== "confirmed-current-step" || executeStepAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator" || executeStepAdapter.proposal_file_policy !== "project-external-only" || executeStepAdapter.advancement_owner !== "runtime") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter semantic boundary is invalid.");
   }
-  expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
+  expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["admit", "step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
+  const reviewChangeContract = expectRecord2(proposal.review_change, "Runtime contract.proposal.review_change");
+  expectExactKeys2(reviewChangeContract, ["semantic_adapter", "bound_actions"], "Runtime contract.proposal.review_change");
+  const reviewChangeAdapter = expectRecord2(reviewChangeContract.semantic_adapter, "Runtime contract.proposal.review_change.semantic_adapter");
+  expectExactKeys2(reviewChangeAdapter, ["input", "commands", "context_source", "diff_target", "result_storage", "direct_product_writes", "advancement_owner"], "Runtime contract.proposal.review_change.semantic_adapter");
+  if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.diff_target !== "exact-recorded-target" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime review-change adapter semantic boundary is invalid.");
+  expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "record-review-result"], "Runtime contract review-change commands");
+  expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result"], "Runtime contract review-change actions");
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
   expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
   const prepareTaskAdapter = expectRecord2(prepareTaskContract.semantic_adapter, "Runtime contract.proposal.prepare_task.semantic_adapter");
@@ -2400,7 +2422,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
       "task-state-transaction": {
         source: ["CURRENT_TASK.md", "task-basis/TASK_BASIS-<TASK_ID>.md"],
         writes: ["CURRENT_TASK.md", "task-basis/TASK_BASIS-<TASK_ID>.md"],
-        callers: ["execute-step", "prepare-task"]
+        callers: ["execute-step", "review-change", "prepare-task"]
       },
       "finding-queue-transaction": {
         source: ["CURRENT_TASK.md"],
@@ -2703,6 +2725,88 @@ function validateStepReviewReceipt(value, location) {
     evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
   };
 }
+function validateReviewFindingCandidate(value, location) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["fingerprint", "category", "file", "failure_condition", "required_behavior", "root_cause_status", "evidence_refs"], location);
+  return {
+    fingerprint: expectString2(record.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    category: expectText(record.category, `${location}.category`, 256),
+    file: normalizeRepoPath2(expectString2(record.file, `${location}.file`), `${location}.file`),
+    failure_condition: expectText(record.failure_condition, `${location}.failure_condition`),
+    required_behavior: expectText(record.required_behavior, `${location}.required_behavior`, 512),
+    root_cause_status: expectEnum(record.root_cause_status, ["confirmed", "bounded"], `${location}.root_cause_status`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
+  };
+}
+function validateReviewBlocker(value, location) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["code", "summary", "next_route"], location);
+  return {
+    code: expectString2(record.code, `${location}.code`, SAFE_KEY_PATTERN2),
+    summary: expectText(record.summary, `${location}.summary`),
+    next_route: expectEnum(record.next_route, REVIEW_BLOCKER_ROUTES, `${location}.next_route`)
+  };
+}
+function validatePendingReviewResult(value, location, includeRecordedAt) {
+  const record = expectRecord2(value, location);
+  const keys = [
+    "kind",
+    "review_id",
+    "execution_id",
+    "step_id",
+    "cycle_id",
+    "cycle_phase",
+    "diff_target",
+    "diff_target_verification",
+    "verdict",
+    "findings",
+    "unresolved_fingerprints",
+    "evidence_refs",
+    "blocker",
+    ...includeRecordedAt ? ["recorded_at"] : []
+  ];
+  expectExactKeys2(record, keys, location);
+  if (record.kind !== "review-result/v1")
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.kind must be review-result/v1.`);
+  if (!Array.isArray(record.findings) || record.findings.length > MAX_FINDINGS) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.findings must be a bounded array.`);
+  }
+  const findings = record.findings.map((item, index) => validateReviewFindingCandidate(item, `${location}.findings[${index}]`));
+  if (new Set(findings.map((item) => item.fingerprint)).size !== findings.length) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.findings fingerprints must be unique.`);
+  }
+  const unresolvedFingerprints = expectStringArray2(record.unresolved_fingerprints, `${location}.unresolved_fingerprints`, true, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location}.unresolved_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  if (new Set(unresolvedFingerprints).size !== unresolvedFingerprints.length) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.unresolved_fingerprints must be unique.`);
+  }
+  const verdict = expectEnum(record.verdict, REVIEW_RESULT_VERDICTS, `${location}.verdict`);
+  const blocker = record.blocker === null ? null : validateReviewBlocker(record.blocker, `${location}.blocker`);
+  if (verdict === "clean" && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker !== null)) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location} clean result must not contain findings or a blocker.`);
+  }
+  if (verdict === "findings" && (findings.length === 0 && unresolvedFingerprints.length === 0 || blocker !== null)) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location} findings result requires a finding and must not contain a blocker.`);
+  }
+  if (verdict === "blocked" && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker === null)) {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location} blocked result requires only a blocker.`);
+  }
+  const result = {
+    kind: "review-result/v1",
+    review_id: expectString2(record.review_id, `${location}.review_id`, SAFE_KEY_PATTERN2),
+    execution_id: expectString2(record.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN2),
+    step_id: expectString2(record.step_id, `${location}.step_id`, STEP_ID_PATTERN2),
+    cycle_id: expectString2(record.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN2),
+    cycle_phase: expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
+    diff_target: expectText(record.diff_target, `${location}.diff_target`, 512),
+    diff_target_verification: expectEnum(record.diff_target_verification, REVIEW_TARGET_VERIFICATION_STATES, `${location}.diff_target_verification`),
+    verdict,
+    findings,
+    unresolved_fingerprints: unresolvedFingerprints,
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+    blocker
+  };
+  return includeRecordedAt ? { ...result, recorded_at: expectString2(record.recorded_at, `${location}.recorded_at`) } : result;
+}
 var REPLAN_REPLACEMENT_FIELDS = [
   "background_context",
   "acceptance",
@@ -2887,7 +2991,7 @@ function effectiveCheckpointPolicy(resolution) {
 function validateTaskStateDelta(value) {
   const record = expectRecord2(value, "semantic_delta");
   const kind = expectEnum(record.kind, ["task-state"], "semantic_delta.kind");
-  const action = expectEnum(record.action, ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
+  const action = expectEnum(record.action, ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
   if (action === "create-draft" || action === "update-draft") {
     const allowedKeys = ["kind", "action", "task_id", "task_slug", "document_id", "task_title", "task_basis", "draft_definition", "active_step_id", "evidence_refs", "claim_evidence"];
     if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
@@ -2937,6 +3041,15 @@ function validateTaskStateDelta(value) {
       evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
+  if (action === "record-review-result") {
+    expectExactKeys2(record, ["kind", "action", "review_result", "evidence_refs"], "semantic_delta");
+    return {
+      kind,
+      action,
+      review_result: validatePendingReviewResult(record.review_result, "semantic_delta.review_result", false),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
+    };
+  }
   if (action === "mark-replan-blocked" || action === "clear-replan-block") {
     expectExactKeys2(record, ["kind", "action", "evidence_refs"], "semantic_delta");
     return {
@@ -2962,7 +3075,7 @@ function validateTaskStateDelta(value) {
     return result2;
   }
   const keys = Object.keys(record);
-  if (keys.some((key) => !["kind", "action", "step_id", "status", "evidence_refs", "note", "repair_fingerprint", "diff_target", "review_receipt", "claim_evidence"].includes(key))) {
+  if (keys.some((key) => !["kind", "action", "step_id", "status", "evidence_refs", "note", "repair_fingerprint", "repair_fingerprints", "repair_wave_id", "diff_target", "review_receipt", "claim_evidence"].includes(key))) {
     fail2("RUNTIME_SCHEMA_INVALID", "task-state semantic_delta contains unsupported fields.");
   }
   const result = {
@@ -2976,6 +3089,20 @@ function validateTaskStateDelta(value) {
     result.note = expectText(record.note, "semantic_delta.note");
   if (record.repair_fingerprint !== undefined)
     result.repair_fingerprint = expectString2(record.repair_fingerprint, "semantic_delta.repair_fingerprint", FINGERPRINT_PATTERN);
+  if (record.repair_fingerprints !== undefined) {
+    result.repair_fingerprints = expectStringArray2(record.repair_fingerprints, "semantic_delta.repair_fingerprints", false, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `semantic_delta.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    if (new Set(result.repair_fingerprints).size !== result.repair_fingerprints.length) {
+      fail2("RUNTIME_SCHEMA_INVALID", "semantic_delta.repair_fingerprints must be unique.");
+    }
+  }
+  if (record.repair_wave_id !== undefined)
+    result.repair_wave_id = expectString2(record.repair_wave_id, "semantic_delta.repair_wave_id", SAFE_KEY_PATTERN2);
+  if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined) {
+    fail2("RUNTIME_SCHEMA_INVALID", "step-progress must not mix repair_fingerprint with repair_fingerprints.");
+  }
+  if (result.repair_fingerprints !== undefined !== (result.repair_wave_id !== undefined)) {
+    fail2("RUNTIME_SCHEMA_INVALID", "repair_fingerprints and repair_wave_id must be supplied together.");
+  }
   if (record.diff_target !== undefined)
     result.diff_target = expectText(record.diff_target, "semantic_delta.diff_target", 512);
   if (record.review_receipt !== undefined)
@@ -3716,7 +3843,7 @@ function validateRuntimeProposal(value) {
   if (proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail2("RUNTIME_SCHEMA_INVALID", `proposal.kind must be ${VNEXT_RUNTIME_PROPOSAL_KIND}.`);
   const operationKind = expectEnum(proposal.operation_kind, RUNTIME_OPERATION_KINDS, "proposal.operation_kind");
-  const caller = expectEnum(proposal.caller, ["execute-step", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "proposal.caller");
+  const caller = expectEnum(proposal.caller, ["execute-step", "review-change", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "proposal.caller");
   const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES, ...CLOSE_TASK_MODES], "proposal.mode");
   const sourceTuple = validateSourceTuple(proposal.source_tuple);
   const authorityEvidence = validateAuthorityEvidence2(proposal.authority_evidence);
@@ -3758,6 +3885,12 @@ function validateRuntimeProposal(value) {
         }
       } else {
         fail2("RUNTIME_MODE_INVALID", "prepare-task task-state proposals must use default, confirm, or replan mode.");
+      }
+    } else if (caller === "review-change") {
+      if (mode !== "default")
+        fail2("RUNTIME_MODE_INVALID", "review-change task-state proposals must use default mode.");
+      if (semanticDelta.kind !== "task-state" || semanticDelta.action !== "record-review-result") {
+        fail2("RUNTIME_CALLER_NOT_BOUND", "review-change is bound only to record-review-result.");
       }
     } else if (caller === "execute-step") {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode))
@@ -4327,6 +4460,8 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     "evidence_refs",
     "note",
     "repair_fingerprint",
+    "repair_fingerprints",
+    "repair_wave_id",
     "diff_target",
     "checkpoint",
     "advancement",
@@ -4335,7 +4470,7 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     "claim_evidence",
     "recorded_at"
   ];
-  const optionalExecutionLogKeys = ["note", "repair_fingerprint", "diff_target", "checkpoint", "advancement", "next_step_id", "review_receipt", "claim_evidence"];
+  const optionalExecutionLogKeys = ["note", "repair_fingerprint", "repair_fingerprints", "repair_wave_id", "diff_target", "checkpoint", "advancement", "next_step_id", "review_receipt", "claim_evidence"];
   const missingExecutionLogKeys = executionLogKeys.filter((key) => !optionalExecutionLogKeys.includes(key) && !(key in record));
   const extraExecutionLogKeys = Object.keys(record).filter((key) => !executionLogKeys.includes(key));
   if (missingExecutionLogKeys.length > 0 || extraExecutionLogKeys.length > 0)
@@ -4355,6 +4490,19 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     if (result.mode !== "repair")
       fail2("RUNTIME_STATE_CONFLICT", `${location}.repair_fingerprint is only valid for repair execution records.`);
   }
+  if (record.repair_fingerprints !== undefined) {
+    result.repair_fingerprints = expectStringArray2(record.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    if (new Set(result.repair_fingerprints).size !== result.repair_fingerprints.length)
+      fail2("RUNTIME_SCHEMA_INVALID", `${location}.repair_fingerprints must be unique.`);
+    if (result.mode !== "repair")
+      fail2("RUNTIME_STATE_CONFLICT", `${location}.repair_fingerprints is only valid for repair execution records.`);
+  }
+  if (record.repair_wave_id !== undefined)
+    result.repair_wave_id = expectString2(record.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN2);
+  if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined)
+    fail2("RUNTIME_STATE_CONFLICT", `${location} must not mix legacy and grouped repair fingerprints.`);
+  if (result.repair_fingerprints !== undefined !== (result.repair_wave_id !== undefined))
+    fail2("RUNTIME_STATE_CONFLICT", `${location}.repair_fingerprints and repair_wave_id must appear together.`);
   if (record.diff_target !== undefined)
     result.diff_target = expectText(record.diff_target, `${location}.diff_target`, 512);
   if (record.checkpoint !== undefined)
@@ -4401,7 +4549,7 @@ function validateVNextRuntimeState(value) {
     "execution_log",
     "applied_proposals"
   ];
-  const optionalRuntimeStateFields = ["claim_evidence_required", "claim_evidence"];
+  const optionalRuntimeStateFields = ["claim_evidence_required", "claim_evidence", "pending_review_result"];
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter((field) => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter((field) => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
   if (missingRuntimeStateFields.length > 0 || extraRuntimeStateFields.length > 0) {
@@ -4479,6 +4627,15 @@ function validateVNextRuntimeState(value) {
   if (new Set(appliedProposals.map((item) => item.idempotency_key)).size !== appliedProposals.length)
     fail2("RUNTIME_SCHEMA_INVALID", "runtime_state.applied_proposals keys must be unique.");
   const reviewCycle = validateReviewCycle(runtime.review_cycle);
+  const pendingReviewResult = runtime.pending_review_result === undefined || runtime.pending_review_result === null ? null : validatePendingReviewResult(runtime.pending_review_result, "runtime_state.pending_review_result", true);
+  if (pendingReviewResult !== null) {
+    if (pendingReviewResult.step_id !== activeStepId) {
+      fail2("RUNTIME_STATE_CONFLICT", "runtime_state.pending_review_result must belong to the active step.");
+    }
+    if (pendingReviewResult.cycle_id !== reviewCycle.id) {
+      fail2("RUNTIME_STATE_CONFLICT", "runtime_state.pending_review_result must belong to the current review cycle.");
+    }
+  }
   return {
     schema_version: 1,
     kind: VNEXT_RUNTIME_STATE_KIND,
@@ -4496,7 +4653,8 @@ function validateVNextRuntimeState(value) {
     execution_log: executionLog,
     applied_proposals: appliedProposals,
     claim_evidence_required: claimEvidenceRequired,
-    claim_evidence: claimEvidence
+    claim_evidence: claimEvidence,
+    pending_review_result: pendingReviewResult
   };
 }
 function replaceTaskInfoField(body, label, value) {
@@ -5661,7 +5819,10 @@ function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
     }
     const repairRecords = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === stepResolution.current.id && item.mode === "repair");
     if (repairRecords.length > 0) {
-      const repairFingerprints = [...new Set(repairRecords.map((item) => item.repair_fingerprint).filter((value) => Boolean(value)))];
+      const repairFingerprints = [...new Set(repairRecords.flatMap((item) => [
+        ...item.repair_fingerprints ?? [],
+        ...item.repair_fingerprint ? [item.repair_fingerprint] : []
+      ]))];
       const repairTargets = [...new Set(repairRecords.map((item) => item.diff_target).filter((value) => Boolean(value)))];
       const verified = current.runtimeState.execution_log.some((item) => {
         if ("action" in item || item.step_id !== stepResolution.current.id || item.review_receipt?.cycle_phase !== "verification")
@@ -5671,8 +5832,8 @@ function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
       });
       if (!verified)
         blockers.push("every repair route must have a durable same-diff verification receipt before closure.");
-      if (repairRecords.some((item) => !item.repair_fingerprint || !item.diff_target))
-        blockers.push("a repair execution record is missing its finding fingerprint or logical diff target.");
+      if (repairRecords.some((item) => !(item.repair_fingerprint || item.repair_fingerprints?.length) || !item.diff_target))
+        blockers.push("a repair execution record is missing its finding fingerprints or logical diff target.");
     }
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
@@ -7634,17 +7795,29 @@ function assertStepProgressReplay(current, proposal) {
   const delta = proposal.semantic_delta;
   const entry = expectedStepExecutionLog(current, proposal);
   const sameOptionalValue = (left, right) => digest(left ?? null) === digest(right ?? null);
-  if (entry.mode !== proposal.mode || entry.step_id !== delta.step_id || entry.status !== delta.status || entry.evidence_refs.join("|") !== delta.evidence_refs.join("|") || !sameOptionalValue(entry.note, delta.note) || !sameOptionalValue(entry.repair_fingerprint, delta.repair_fingerprint) || !sameOptionalValue(entry.diff_target, delta.diff_target ?? delta.review_receipt?.diff_target) || !sameOptionalValue(entry.review_receipt, delta.review_receipt) || !sameOptionalValue(entry.claim_evidence, delta.claim_evidence)) {
+  if (entry.mode !== proposal.mode || entry.step_id !== delta.step_id || entry.status !== delta.status || entry.evidence_refs.join("|") !== delta.evidence_refs.join("|") || !sameOptionalValue(entry.note, delta.note) || !sameOptionalValue(entry.repair_fingerprint, delta.repair_fingerprint) || !sameOptionalValue(entry.repair_fingerprints, delta.repair_fingerprints) || !sameOptionalValue(entry.repair_wave_id, delta.repair_wave_id) || !sameOptionalValue(entry.diff_target, delta.diff_target ?? delta.review_receipt?.diff_target) || !sameOptionalValue(entry.review_receipt, delta.review_receipt) || !sameOptionalValue(entry.claim_evidence, delta.claim_evidence)) {
     fail2("RUNTIME_REPLAY_INCOMPLETE", "step-progress replay does not match the durable execution record.");
   }
-  if (entry.mode === "repair" && entry.repair_fingerprint === undefined) {
-    fail2("RUNTIME_REPLAY_INCOMPLETE", "repair replay is missing its durable finding fingerprint.");
+  if (entry.mode === "repair" && entry.repair_fingerprint === undefined && entry.repair_fingerprints === undefined) {
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "repair replay is missing its durable finding fingerprints.");
   }
   if (entry.status === "completed" && entry.mode === "default" && entry.advancement === undefined) {
     return;
   }
   if (entry.advancement === undefined || entry.checkpoint === undefined || entry.next_step_id === undefined) {
     fail2("RUNTIME_REPLAY_INCOMPLETE", "step-progress replay is missing its durable advancement outcome.");
+  }
+}
+function assertReviewResultReplay(current, proposal) {
+  if (proposal.semantic_delta.kind !== "task-state" || proposal.semantic_delta.action !== "record-review-result")
+    return;
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || pending.review_id !== proposal.semantic_delta.review_result.review_id) {
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "review-result replay is no longer the pending result for the current execution generation.");
+  }
+  const { recorded_at: _recordedAt, ...stored } = pending;
+  if (digest(stored) !== digest(proposal.semantic_delta.review_result)) {
+    fail2("RUNTIME_REPLAY_INCOMPLETE", "review-result replay does not match the durable pending result.");
   }
 }
 function assertTaskStateReplay(root, current, proposal) {
@@ -7658,6 +7831,10 @@ function assertTaskStateReplay(root, current, proposal) {
   }
   if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "migrate-claim-evidence") {
     assertClaimEvidenceMigrationReplay(current, proposal);
+    return;
+  }
+  if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "record-review-result") {
+    assertReviewResultReplay(current, proposal);
     return;
   }
   if (proposal.semantic_delta.kind !== "task-state" || !REPLAN_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action))
@@ -7771,7 +7948,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       execution_log: [],
       applied_proposals: [],
       claim_evidence_required: true,
-      claim_evidence: copyClaimEvidence(claimEvidence)
+      claim_evidence: copyClaimEvidence(claimEvidence),
+      pending_review_result: null
     };
     const draftStateWithProposal = {
       ...emptyDraftState,
@@ -7904,6 +8082,50 @@ function applyTaskStateDelta(root, current, proposal, now) {
       }
     };
   }
+  if (delta.action === "record-review-result") {
+    ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+      fail2("TASK_STATE_NOT_ACTIVE", "review results may be recorded only for an active + active task.");
+    }
+    if (current.runtimeState.resume_requires_review) {
+      fail2("RESUME_REVIEW_REQUIRED", "review-change cannot record a step review while the resume review gate is active.");
+    }
+    const review = delta.review_result;
+    if (review.step_id !== current.runtimeState.active_step_id)
+      fail2("ACTIVE_STEP_CONFLICT", "review result does not belong to the active step.");
+    if (review.cycle_id !== current.runtimeState.review_cycle.id)
+      fail2("REVIEW_CYCLE_CONFLICT", "review result does not belong to the current review cycle.");
+    const stepExecutions = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === review.step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
+    const execution = stepExecutions[stepExecutions.length - 1];
+    if (!execution || execution.idempotency_key !== review.execution_id) {
+      fail2("REVIEW_EXECUTION_STALE", "review result does not bind the latest recorded execution for the active step.");
+    }
+    if (!execution.diff_target || execution.diff_target !== review.diff_target) {
+      fail2("REVIEW_TARGET_CONFLICT", "review result does not bind the exact recorded execution diff target.");
+    }
+    const expectedPhase = execution.mode === "repair" ? "verification" : "discovery";
+    if (review.cycle_phase !== expectedPhase)
+      fail2("REVIEW_PHASE_INVALID", `review result must use ${expectedPhase} for the latest execution.`);
+    if (review.cycle_phase === "discovery" && review.unresolved_fingerprints.length > 0) {
+      fail2("REVIEW_PHASE_INVALID", "discovery review cannot reference unresolved admitted findings.");
+    }
+    const openFingerprints = new Set(current.runtimeState.findings.filter((item) => item.review_cycle_id === review.cycle_id && ["admitted", "in-progress"].includes(item.status)).map((item) => item.fingerprint));
+    for (const fingerprint of review.unresolved_fingerprints) {
+      if (!openFingerprints.has(fingerprint))
+        fail2("FINDING_NOT_FOUND", `review result references non-open finding ${fingerprint}.`);
+    }
+    const nestedEvidence = review.findings.flatMap((item) => item.evidence_refs);
+    if (![...nestedEvidence, ...review.evidence_refs].every((ref) => delta.evidence_refs.includes(ref))) {
+      fail2("RUNTIME_EVIDENCE_INVALID", "record-review-result evidence_refs must cover the review result and every finding.");
+    }
+    return {
+      next: {
+        ...current.runtimeState,
+        pending_review_result: { ...review, recorded_at: now },
+        applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
+      }
+    };
+  }
   if (delta.action === "mark-replan-blocked") {
     ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
     if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
@@ -7965,6 +8187,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       finding_queue_revision: hadOpenFindings ? current.runtimeState.finding_queue_revision + 1 : current.runtimeState.finding_queue_revision,
       review_cycle: createReviewCycleZero(),
       findings,
+      pending_review_result: null,
       claim_evidence_required: true,
       claim_evidence: copyClaimEvidence(claimEvidence),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
@@ -8007,21 +8230,25 @@ function applyTaskStateDelta(root, current, proposal, now) {
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
   const currentStepRepairLogs = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === delta.step_id && item.mode === "repair");
   const openFindings = current.runtimeState.findings.filter((item) => item.status === "admitted" || item.status === "in-progress");
+  const deltaRepairFingerprints = delta.repair_fingerprints ?? (delta.repair_fingerprint ? [delta.repair_fingerprint] : []);
   if (executionMode === "repair") {
-    if (!delta.repair_fingerprint)
-      fail2("FINDING_ADMISSION_REQUIRED", "repair mode requires repair_fingerprint.");
-    const finding = current.runtimeState.findings.find((item) => item.fingerprint === delta.repair_fingerprint);
-    if (!finding || !["admitted", "in-progress"].includes(finding.status))
-      fail2("FINDING_ADMISSION_REQUIRED", "repair fingerprint is not an admitted current-task finding.");
+    if (deltaRepairFingerprints.length === 0)
+      fail2("FINDING_ADMISSION_REQUIRED", "repair mode requires one or more admitted finding fingerprints.");
+    for (const fingerprint of deltaRepairFingerprints) {
+      const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+      if (!finding || !["admitted", "in-progress"].includes(finding.status))
+        fail2("FINDING_ADMISSION_REQUIRED", `repair fingerprint ${fingerprint} is not an admitted current-task finding.`);
+      if (delta.repair_wave_id && finding.last_repair_wave_id !== delta.repair_wave_id) {
+        fail2("REPAIR_WAVE_CONFLICT", `repair fingerprint ${fingerprint} was not recorded in repair wave ${delta.repair_wave_id}.`);
+      }
+    }
     if (!delta.diff_target)
       fail2("REPAIR_DIFF_TARGET_REQUIRED", "repair mode requires one explicit logical diff_target.");
     if (delta.review_receipt !== undefined)
       fail2("REVIEW_READ_ONLY_VIOLATION", "repair execution cannot attach a review receipt; verification remains a separate review result.");
   } else {
-    if (delta.repair_fingerprint !== undefined)
-      fail2("RUNTIME_MODE_INVALID", "default execution cannot carry a repair fingerprint.");
-    if (delta.diff_target !== undefined && delta.review_receipt === undefined)
-      fail2("REVIEW_RECEIPT_REQUIRED", "diff_target on default execution must be carried by a review receipt.");
+    if (deltaRepairFingerprints.length > 0 || delta.repair_wave_id !== undefined)
+      fail2("RUNTIME_MODE_INVALID", "default execution cannot carry repair bookkeeping.");
     if (delta.review_receipt !== undefined && delta.status !== "completed")
       fail2("REVIEW_RECEIPT_REQUIRED", "review receipt is only valid when completing the current step.");
     if (delta.diff_target !== undefined && delta.review_receipt !== undefined && delta.diff_target !== delta.review_receipt.diff_target) {
@@ -8071,12 +8298,13 @@ function applyTaskStateDelta(root, current, proposal, now) {
       }
     }
     if (currentStepRepairLogs.length > 0) {
-      const repairFingerprints = [...new Set(currentStepRepairLogs.map((item) => {
-        if (!item.repair_fingerprint)
-          fail2("REPAIR_VERIFICATION_REQUIRED", "a repair execution record is missing its finding fingerprint.");
+      const repairFingerprints = [...new Set(currentStepRepairLogs.flatMap((item) => {
         if (!item.diff_target)
           fail2("REPAIR_DIFF_TARGET_REQUIRED", "a repair execution record is missing its logical diff target.");
-        return item.repair_fingerprint;
+        const fingerprints = item.repair_fingerprints ?? (item.repair_fingerprint ? [item.repair_fingerprint] : []);
+        if (fingerprints.length === 0)
+          fail2("REPAIR_VERIFICATION_REQUIRED", "a repair execution record is missing its finding fingerprints.");
+        return fingerprints;
       }))];
       const repairTargets = [...new Set(currentStepRepairLogs.map((item) => item.diff_target))];
       if (repairTargets.length !== 1)
@@ -8136,6 +8364,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       evidence_refs: [...delta.evidence_refs],
       ...delta.note ? { note: delta.note } : {},
       ...delta.repair_fingerprint ? { repair_fingerprint: delta.repair_fingerprint } : {},
+      ...delta.repair_fingerprints ? { repair_fingerprints: [...delta.repair_fingerprints] } : {},
+      ...delta.repair_wave_id ? { repair_wave_id: delta.repair_wave_id } : {},
       ...executionDiffTarget ? { diff_target: executionDiffTarget } : {},
       checkpoint,
       advancement: advancement.outcome,
@@ -8151,12 +8381,13 @@ function applyTaskStateDelta(root, current, proposal, now) {
     active_step_status: advancement.outcome === "advanced" ? "ready" : newStatus,
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
+    pending_review_result: null,
     execution_log: executionLog,
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
   };
   return {
     next,
-    findingStatus: delta.repair_fingerprint ? current.runtimeState.findings.find((item) => item.fingerprint === delta.repair_fingerprint)?.status : undefined,
+    findingStatus: deltaRepairFingerprints.length > 0 ? current.runtimeState.findings.find((item) => item.fingerprint === deltaRepairFingerprints[0])?.status : undefined,
     advancement
   };
 }
@@ -9662,12 +9893,40 @@ function createTaskStateProposal(current, input) {
       evidence_refs: input.evidence_refs,
       ...input.note ? { note: input.note } : {},
       ...input.repair_fingerprint ? { repair_fingerprint: input.repair_fingerprint } : {},
+      ...input.repair_fingerprints ? { repair_fingerprints: input.repair_fingerprints } : {},
+      ...input.repair_wave_id ? { repair_wave_id: input.repair_wave_id } : {},
       ...input.diff_target ? { diff_target: input.diff_target } : {},
       ...input.review_receipt ? { review_receipt: input.review_receipt } : {},
       ...input.claim_evidence === undefined ? {} : { claim_evidence: input.claim_evidence }
     },
     preconditions: ["current-task-is-active", "active-step-matches", "scope-admitted"],
     evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createReviewResultProposal(current, input) {
+  const evidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...input.review_result.evidence_refs,
+    ...input.review_result.findings.flatMap((item) => item.evidence_refs)
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "review-change",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: "record-review-result",
+      review_result: input.review_result,
+      evidence_refs: evidenceRefs
+    },
+    preconditions: ["current-task-is-active", "latest-execution-matches", "review-context-current"],
+    evidence_refs: evidenceRefs,
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath]
   });
@@ -12516,6 +12775,7 @@ import * as fs8 from "fs";
 import * as path9 from "path";
 var EXECUTE_STEP_ADAPTER_COMMANDS = [
   "preflight-step",
+  "begin-repair",
   "record-step-result",
   "complete-reviewed-step"
 ];
@@ -12730,6 +12990,42 @@ function stepPlanRevision(stepPlan) {
 }
 function normalizePreflightReceipt(value) {
   const source = record2(value, "preflight_receipt");
+  if (source.kind === "execute-step-repair-preflight/v1") {
+    exactKeys2(source, [
+      "kind",
+      "task_id",
+      "document_id",
+      "source_revision",
+      "step_id",
+      "plan_revision",
+      "mode",
+      "candidate_paths",
+      "repair_fingerprints",
+      "repair_wave_id",
+      "diff_target",
+      "review_id"
+    ], "preflight_receipt");
+    if (source.mode !== "repair")
+      fail6("EXECUTE_ADAPTER_INPUT_INVALID", "repair preflight receipt mode must be repair.");
+    const sourceRevision2 = text2(source.source_revision, "preflight_receipt.source_revision", 64);
+    const planRevision2 = text2(source.plan_revision, "preflight_receipt.plan_revision", 64);
+    if (!SHA256_PATTERN4.test(sourceRevision2) || !SHA256_PATTERN4.test(planRevision2))
+      fail6("EXECUTE_ADAPTER_INPUT_INVALID", "preflight receipt revisions must be SHA-256 values.");
+    return {
+      kind: "execute-step-repair-preflight/v1",
+      task_id: text2(source.task_id, "preflight_receipt.task_id", 128),
+      document_id: text2(source.document_id, "preflight_receipt.document_id", 128),
+      source_revision: sourceRevision2,
+      step_id: text2(source.step_id, "preflight_receipt.step_id", 128),
+      plan_revision: planRevision2,
+      mode: "repair",
+      candidate_paths: pathList(source.candidate_paths, "preflight_receipt.candidate_paths", true),
+      repair_fingerprints: textList2(source.repair_fingerprints, "preflight_receipt.repair_fingerprints", false),
+      repair_wave_id: text2(source.repair_wave_id, "preflight_receipt.repair_wave_id", 128),
+      diff_target: text2(source.diff_target, "preflight_receipt.diff_target", 512),
+      review_id: text2(source.review_id, "preflight_receipt.review_id", 128)
+    };
+  }
   exactKeys2(source, [
     "kind",
     "task_id",
@@ -12772,11 +13068,122 @@ function assertCurrentReceipt(current, stepPlan, receipt) {
     fail6("EXECUTE_PREFLIGHT_IDENTITY_CONFLICT", "preflight receipt does not identify the current task document.");
   }
   if (receipt.source_revision !== current.sourceTuple.revision) {
-    fail6("EXECUTE_PREFLIGHT_STALE", "CURRENT_TASK changed after preflight; run preflight-step again before editing or committing.");
+    const expectedRepairBookkeeping = receipt.kind === "execute-step-repair-preflight/v1" && current.runtimeState.pending_review_result?.review_id === receipt.review_id && receipt.repair_fingerprints.every((fingerprint) => {
+      const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+      return finding?.last_repair_wave_id === receipt.repair_wave_id && finding.status === "in-progress";
+    });
+    if (!expectedRepairBookkeeping) {
+      fail6("EXECUTE_PREFLIGHT_STALE", "CURRENT_TASK changed after preflight; run preflight-step again before editing or committing.");
+    }
   }
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== stepPlanRevision(stepPlan)) {
     fail6("EXECUTE_PREFLIGHT_STALE", "the active step or its executable plan changed after preflight.");
   }
+}
+function findingAdmissionWaveId(reviewId) {
+  return `finding-wave-${digest3(reviewId).slice(0, 32)}`;
+}
+function repairWaveId(reviewId, fingerprints) {
+  return `repair-wave-${digest3({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
+}
+function beginRepair(root, input, options = {}) {
+  const source = record2(input, "begin-repair input");
+  exactKeys2(source, ["candidate_paths"], "begin-repair input");
+  const candidatePaths = pathList(source.candidate_paths, "candidate_paths", false);
+  let current = readCanonicalCurrentTask(root);
+  assertExecutableTask(current);
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || pending.verdict !== "findings") {
+    fail6("REVIEW_FINDINGS_REQUIRED", "begin-repair requires the current durable review result to contain findings.");
+  }
+  const stepPlan = currentStepPlan(current);
+  assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths");
+  assertCommandPlansAdmitted(current, stepPlan);
+  const admissionWaveId = findingAdmissionWaveId(pending.review_id);
+  for (const candidate of pending.findings) {
+    if (!candidatePaths.includes(candidate.file)) {
+      fail6("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `candidate_paths must include review finding path ${candidate.file}.`);
+    }
+    const admissionKey = idempotencyKey("execute-review-admit", { review_id: pending.review_id, fingerprint: candidate.fingerprint });
+    if (hasAppliedProposal2(current, admissionKey))
+      continue;
+    const proposal = createFindingQueueProposal(current, {
+      mode: "repair",
+      delta: {
+        kind: "finding-queue",
+        action: "admit",
+        cycle_phase: pending.cycle_phase,
+        finding_admission_wave_id: admissionWaveId,
+        finding: {
+          fingerprint: candidate.fingerprint,
+          category: candidate.category,
+          owner_task_id: current.runtimeState.task_id,
+          scope: "admitted",
+          decision: "mechanical",
+          file: candidate.file,
+          failure_condition: candidate.failure_condition,
+          violated_invariant: candidate.required_behavior,
+          root_cause_status: candidate.root_cause_status,
+          max_repair_attempts: MAX_REPAIR_ATTEMPTS,
+          evidence_refs: candidate.evidence_refs,
+          review_cycle_id: current.runtimeState.review_cycle.id
+        }
+      },
+      idempotency_key: admissionKey,
+      authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
+      evidence_refs: candidate.evidence_refs
+    });
+    const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+    if (result.status !== "success" && result.status !== "no-op") {
+      fail6("FINDING_ADMISSION_BLOCKED", result.message);
+    }
+    if (!options.dryRun)
+      current = readCanonicalCurrentTask(root);
+  }
+  const fingerprints = [...new Set([
+    ...pending.unresolved_fingerprints,
+    ...pending.findings.map((item) => item.fingerprint)
+  ])].sort();
+  for (const fingerprint of fingerprints) {
+    const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+    if (!options.dryRun && (!finding || !["admitted", "in-progress"].includes(finding.status))) {
+      fail6("FINDING_ADMISSION_REQUIRED", `review finding ${fingerprint} is not repairable.`);
+    }
+    if (!options.dryRun && finding.repair_attempts >= finding.max_repair_attempts) {
+      fail6("REPAIR_BUDGET_EXHAUSTED", `finding ${fingerprint} has exhausted its repair budget.`);
+    }
+  }
+  const waveId = repairWaveId(pending.review_id, fingerprints);
+  const receipt = {
+    kind: "execute-step-repair-preflight/v1",
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: stepPlan.step.id,
+    plan_revision: stepPlanRevision(stepPlan),
+    mode: "repair",
+    candidate_paths: candidatePaths,
+    repair_fingerprints: fingerprints,
+    repair_wave_id: waveId,
+    diff_target: pending.diff_target,
+    review_id: pending.review_id
+  };
+  return {
+    status: "pass",
+    operation_kind: "execute-step-repair-preflight",
+    committed: false,
+    read_back_verified: true,
+    current_step: {
+      id: stepPlan.step.id,
+      description: stepPlan.step.description,
+      purpose: stepPlan.step.purpose,
+      mutation_scope: stepPlan.mutation_scope,
+      commands: stepPlan.commands,
+      validation: stepPlan.validation,
+      review_checkpoint: stepPlan.step.review_checkpoint
+    },
+    receipt
+  };
 }
 function preflightStep(root, input) {
   const source = record2(input, "preflight-step input");
@@ -12957,7 +13364,8 @@ function assertObservedWithinExpected(command, observed) {
     }
     return;
   }
-  const outside = observed.filter((file) => !command.expected_repo_writes.some((pattern) => mutationScopePatternMatchesPath(file, pattern)));
+  const expectedWrites = command.expected_repo_writes;
+  const outside = observed.filter((file) => !expectedWrites.some((pattern) => mutationScopePatternMatchesPath(file, pattern)));
   if (outside.length > 0) {
     fail6("COMMAND_OBSERVED_WRITE_BLOCKED", `command "${command.command}" wrote outside its prepared footprint: ${outside.join(", ")}.`);
   }
@@ -13037,37 +13445,41 @@ function semanticNoOp2(current, key, message, options) {
 function hasAppliedProposal2(current, key) {
   return current.runtimeState.applied_proposals.some((item) => item.idempotency_key === key);
 }
-function applyRepairAttempt(root, current, receipt, evidenceRefs, keySeed, options) {
-  const fingerprint = receipt.repair_fingerprint;
-  const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
-  if (!finding || !["admitted", "in-progress"].includes(finding.status)) {
-    fail6("FINDING_ADMISSION_REQUIRED", "repair_fingerprint is no longer an admitted current-task finding.");
-  }
-  const repairWaveId = `repair-wave-${digest3(keySeed).slice(0, 24)}`;
-  const key = idempotencyKey("execute-repair-attempt", keySeed);
-  if (!hasAppliedProposal2(current, key)) {
-    const proposal = createFindingQueueProposal(current, {
+function applyRepairAttempts(root, current, receipt, evidenceRefs, keySeed, options) {
+  const fingerprints = receipt.kind === "execute-step-repair-preflight/v1" ? receipt.repair_fingerprints : [receipt.repair_fingerprint];
+  const waveId = receipt.kind === "execute-step-repair-preflight/v1" ? receipt.repair_wave_id : `repair-wave-${digest3(keySeed).slice(0, 24)}`;
+  let fresh = current;
+  for (const fingerprint of fingerprints) {
+    const finding = fresh.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+    if (!finding || !["admitted", "in-progress"].includes(finding.status)) {
+      fail6("FINDING_ADMISSION_REQUIRED", `repair finding ${fingerprint} is no longer admitted.`);
+    }
+    if (finding.last_repair_wave_id === waveId)
+      continue;
+    const key = idempotencyKey("execute-repair-attempt", { keySeed, fingerprint, wave_id: waveId });
+    const proposal = createFindingQueueProposal(fresh, {
       mode: "repair",
       delta: {
         kind: "finding-queue",
         action: "record-repair-attempt",
         fingerprint,
-        review_cycle_id: current.runtimeState.review_cycle.id,
-        repair_wave_id: repairWaveId,
+        review_cycle_id: fresh.runtimeState.review_cycle.id,
+        repair_wave_id: waveId,
         evidence_refs: evidenceRefs,
         note: `execute-step repair for ${receipt.step_id}`
       },
       idempotency_key: key,
-      authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
+      authority_evidence: authority2(fresh, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
       evidence_refs: evidenceRefs
     });
     const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== "success" && result.status !== "no-op")
       return result;
     if (options.dryRun)
-      return current;
+      continue;
+    fresh = readCanonicalCurrentTask(root);
   }
-  return readCanonicalCurrentTask(root);
+  return options.dryRun ? current : fresh;
 }
 function recordStepResult(root, input, options = {}) {
   const source = record2(input, "record-step-result input");
@@ -13077,6 +13489,7 @@ function recordStepResult(root, input, options = {}) {
     "command_results",
     "validation_results",
     "acceptance_evidence",
+    "diff_target",
     "outcome",
     "note"
   ], "record-step-result input");
@@ -13085,6 +13498,10 @@ function recordStepResult(root, input, options = {}) {
   const commandResults = normalizeCommandResults(source.command_results);
   const validationResults = normalizeValidationResults(source.validation_results);
   const acceptanceEvidence = normalizeAcceptanceEvidence(source.acceptance_evidence);
+  const diffTarget = text2(source.diff_target, "diff_target", 512);
+  if (receipt.kind === "execute-step-repair-preflight/v1" && diffTarget !== receipt.diff_target) {
+    fail6("REPAIR_DIFF_TARGET_CONFLICT", "repair result must preserve the exact review diff target.");
+  }
   if (source.outcome !== "implemented" && source.outcome !== "blocked") {
     fail6("EXECUTE_ADAPTER_INPUT_INVALID", "outcome must be implemented or blocked.");
   }
@@ -13096,6 +13513,7 @@ function recordStepResult(root, input, options = {}) {
     command_results: commandResults,
     validation_results: validationResults,
     acceptance_evidence: acceptanceEvidence,
+    diff_target: diffTarget,
     outcome,
     note
   };
@@ -13123,7 +13541,7 @@ function recordStepResult(root, input, options = {}) {
   const evidenceRefs = allEvidenceRefs(commandResults, validationResults, acceptanceEvidence);
   const claimEvidence2 = updateClaimEvidence(current, acceptanceEvidence);
   if (receipt.mode === "repair") {
-    const repairState = applyRepairAttempt(root, current, receipt, evidenceRefs, resultKeySeed, options);
+    const repairState = applyRepairAttempts(root, current, receipt, evidenceRefs, resultKeySeed, options);
     if ("status" in repairState)
       return repairState;
     current = repairState;
@@ -13146,8 +13564,8 @@ function recordStepResult(root, input, options = {}) {
     idempotency_key: resultKey,
     authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "evidence-admission"]),
     ...note ? { note } : {},
-    ...receipt.repair_fingerprint ? { repair_fingerprint: receipt.repair_fingerprint } : {},
-    ...receipt.diff_target ? { diff_target: receipt.diff_target } : {},
+    ...receipt.kind === "execute-step-repair-preflight/v1" ? { repair_fingerprints: receipt.repair_fingerprints, repair_wave_id: receipt.repair_wave_id } : receipt.repair_fingerprint ? { repair_fingerprint: receipt.repair_fingerprint } : {},
+    diff_target: diffTarget,
     ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 }
   });
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
@@ -13217,15 +13635,72 @@ function resolveVerifiedFindings(root, current, receipt, options) {
 }
 function completeReviewedStep(root, input, options = {}) {
   const source = record2(input, "complete-reviewed-step input");
-  exactKeys2(source, ["step_id", "review_receipt", "acceptance_evidence", "note"], "complete-reviewed-step input");
+  const allowedKeys = ["step_id", "acceptance_evidence", "note", "review_receipt"];
+  const missingKeys = ["step_id", "acceptance_evidence", "note"].filter((key) => !(key in source));
+  const unexpectedKeys = Object.keys(source).filter((key) => !allowedKeys.includes(key));
+  if (missingKeys.length > 0 || unexpectedKeys.length > 0) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `complete-reviewed-step input keys mismatch; missing=[${missingKeys.join(", ")}], unexpected=[${unexpectedKeys.join(", ")}].`);
+  }
   const stepId = text2(source.step_id, "step_id", 128);
   if (!SAFE_KEY_PATTERN3.test(stepId))
     fail6("EXECUTE_ADAPTER_INPUT_INVALID", "step_id is invalid.");
-  const reviewReceipt = normalizeReviewReceipt(source.review_receipt);
   const acceptanceEvidence = normalizeAcceptanceEvidence(source.acceptance_evidence);
   const note = nullableText(source.note, "note");
-  const resultKey = idempotencyKey("execute-reviewed-step", { step_id: stepId, review_receipt: reviewReceipt, acceptance_evidence: acceptanceEvidence, note });
   let current = readCanonicalCurrentTask(root);
+  const replay = current.runtimeState.execution_log.find((item) => {
+    if ("action" in item || item.step_id !== stepId || !item.review_receipt)
+      return false;
+    const key = idempotencyKey("execute-reviewed-step", {
+      step_id: stepId,
+      review_receipt: item.review_receipt,
+      acceptance_evidence: acceptanceEvidence,
+      note
+    });
+    return item.idempotency_key === key && hasAppliedProposal2(current, key);
+  });
+  if (replay && !("action" in replay)) {
+    return semanticNoOp2(current, replay.idempotency_key, "This exact reviewed-step completion was already committed.", options);
+  }
+  const pending = current.runtimeState.pending_review_result;
+  let reviewReceipt;
+  if (pending) {
+    if (pending.verdict !== "clean") {
+      fail6("CLEAN_REVIEW_REQUIRED", `complete-reviewed-step requires clean; current review verdict is ${pending.verdict}.`);
+    }
+    if (source.review_receipt !== undefined) {
+      const supplied = normalizeReviewReceipt(source.review_receipt);
+      if (digest3(supplied) !== digest3({
+        cycle_id: pending.cycle_id,
+        cycle_phase: pending.cycle_phase,
+        diff_target: pending.diff_target,
+        diff_target_verification: pending.diff_target_verification,
+        verdict: "clean",
+        admitted_fingerprints: supplied.admitted_fingerprints,
+        evidence_refs: pending.evidence_refs
+      })) {
+        fail6("REVIEW_RECEIPT_CONFLICT", "caller-provided review receipt does not match the canonical pending clean review.");
+      }
+    }
+    const repairLogs2 = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
+    const repaired = [...new Set(repairLogs2.flatMap((item) => [
+      ...item.repair_fingerprints ?? [],
+      ...item.repair_fingerprint ? [item.repair_fingerprint] : []
+    ]))];
+    reviewReceipt = {
+      cycle_id: pending.cycle_id,
+      cycle_phase: pending.cycle_phase,
+      diff_target: pending.diff_target,
+      diff_target_verification: pending.diff_target_verification,
+      verdict: "clean",
+      admitted_fingerprints: repaired,
+      evidence_refs: [...pending.evidence_refs]
+    };
+  } else if (source.review_receipt !== undefined) {
+    reviewReceipt = normalizeReviewReceipt(source.review_receipt);
+  } else {
+    fail6("CLEAN_REVIEW_REQUIRED", "complete-reviewed-step requires a canonical pending clean review result.");
+  }
+  const resultKey = idempotencyKey("execute-reviewed-step", { step_id: stepId, review_receipt: reviewReceipt, acceptance_evidence: acceptanceEvidence, note });
   if (hasAppliedProposal2(current, resultKey)) {
     return semanticNoOp2(current, resultKey, "This exact reviewed-step completion was already committed.", options);
   }
@@ -13241,7 +13716,10 @@ function completeReviewedStep(root, input, options = {}) {
     fail6("REVIEW_CYCLE_CONFLICT", "review receipt does not belong to the current Runtime review cycle.");
   }
   const repairLogs = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
-  const repairedFingerprints = [...new Set(repairLogs.flatMap((item) => item.repair_fingerprint ? [item.repair_fingerprint] : []))];
+  const repairedFingerprints = [...new Set(repairLogs.flatMap((item) => [
+    ...item.repair_fingerprints ?? [],
+    ...item.repair_fingerprint ? [item.repair_fingerprint] : []
+  ]))];
   assertExactResultSet(reviewReceipt.admitted_fingerprints, repairedFingerprints, "review_receipt.admitted_fingerprints");
   if (repairLogs.length > 0) {
     if (reviewReceipt.cycle_phase !== "verification") {
@@ -13330,6 +13808,9 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
       case "preflight-step":
         result = preflightStep(args.root, input);
         break;
+      case "begin-repair":
+        result = beginRepair(args.root, input, { dryRun: args.dryRun });
+        break;
       case "record-step-result":
         result = recordStepResult(args.root, input, { dryRun: args.dryRun });
         break;
@@ -13339,6 +13820,416 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
     }
     console.log(JSON.stringify(result, null, 2));
     return result.status === "blocked" || result.status === "conflict" ? 2 : 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+// runtime/vnext/src/review-change-adapter.ts
+import * as crypto9 from "crypto";
+import * as fs9 from "fs";
+import * as path10 from "path";
+var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "record-review-result"];
+var MAX_ITEMS3 = 256;
+var SHA256_PATTERN5 = /^[a-f0-9]{64}$/u;
+var WINDOWS_ABSOLUTE_PATH3 = /^[A-Za-z]:[\\/]/u;
+function fail7(code, message) {
+  throw new VNextRuntimeError(code, message);
+}
+function record3(value, location) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be an object.`);
+  return value;
+}
+function exactKeys3(value, expected, location) {
+  const allowed = new Set(expected);
+  const missing = expected.filter((key) => !(key in value));
+  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
+  if (missing.length > 0 || unexpected.length > 0) {
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${unexpected.join(", ")}].`);
+  }
+}
+function text3(value, location, maximumLength = 4096) {
+  if (typeof value !== "string")
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be a string.`);
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maximumLength || /[\r\n]/u.test(normalized)) {
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be one non-empty line of at most ${maximumLength} characters.`);
+  }
+  return normalized;
+}
+function textList3(value, location, allowEmpty) {
+  if (!Array.isArray(value) || !allowEmpty && value.length === 0 || value.length > MAX_ITEMS3) {
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be a bounded ${allowEmpty ? "" : "non-empty "}array.`);
+  }
+  const normalized = value.map((item, index) => text3(item, `${location}[${index}]`));
+  if (new Set(normalized).size !== normalized.length)
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must not contain duplicates.`);
+  return normalized;
+}
+function repoPath(value, location) {
+  const normalized = text3(value, location, 1024).replace(/\\/gu, "/").replace(/^\.\//u, "");
+  if (path10.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be a project-relative path.`);
+  }
+  return normalized;
+}
+function digest4(value) {
+  return crypto9.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+function authority3(current) {
+  return ["active-task-owner", "scope-admission", "evidence-admission"].map((kind) => ({
+    kind,
+    source: current.relativePath,
+    subject: current.runtimeState.task_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision
+  }));
+}
+function latestRecordedExecution(current) {
+  const records = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === current.runtimeState.active_step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
+  const latest = records[records.length - 1];
+  if (!latest)
+    fail7("REVIEW_EXECUTION_REQUIRED", "review-change requires a recorded execute-step result for the active step.");
+  if (!latest.diff_target)
+    fail7("REVIEW_TARGET_REQUIRED", "the latest execute-step result does not contain an exact diff target.");
+  return latest;
+}
+function stepScope(value, location) {
+  if (!value)
+    fail7("TASK_STEP_METADATA_INCOMPLETE", `${location} is missing.`);
+  const items = value.split(",").map((item) => item.replace(/`/gu, "").trim()).filter(Boolean);
+  if (items.length === 0 || new Set(items).size !== items.length)
+    fail7("TASK_STEP_METADATA_INCOMPLETE", `${location} is invalid.`);
+  return items;
+}
+function validationList(value, location) {
+  if (!value)
+    fail7("TASK_STEP_METADATA_INCOMPLETE", `${location} is missing.`);
+  return value.split(/;\s+/u).map((item) => item.trim()).filter(Boolean);
+}
+function assertReviewableTask(current) {
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+    fail7("TASK_STATE_NOT_ACTIVE", "review-change requires active + active.");
+  }
+  if (current.runtimeState.resume_requires_review)
+    fail7("RESUME_REVIEW_REQUIRED", "review-change is blocked by the current resume-review gate.");
+}
+function reviewContext(root, input) {
+  const source = record3(input, "review-context input");
+  exactKeys3(source, [], "review-context input");
+  const current = readCanonicalCurrentTask(root);
+  assertReviewableTask(current);
+  const execution = latestRecordedExecution(current);
+  if (current.runtimeState.pending_review_result?.execution_id === execution.idempotency_key && current.runtimeState.pending_review_result.verdict !== "blocked") {
+    fail7("REVIEW_ALREADY_RECORDED", "the latest execution already has a durable clean or findings review result.");
+  }
+  const phase = execution.mode === "repair" ? "verification" : "discovery";
+  const resolution = resolveTaskStep(current.body, current.runtimeState.active_step_id);
+  if (!resolution.current.metadata_complete || !resolution.current.purpose) {
+    fail7("TASK_STEP_METADATA_INCOMPLETE", `step ${resolution.current.id} is not reviewable because its metadata is incomplete.`);
+  }
+  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+  const admitted = phase === "verification" ? current.runtimeState.findings.filter((item) => item.review_cycle_id === current.runtimeState.review_cycle.id && ["admitted", "in-progress"].includes(item.status)) : [];
+  const definition = readDraftDefinitionFromBody(current.body);
+  const receipt = {
+    kind: "review-context/v1",
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: resolution.current.id,
+    execution_id: execution.idempotency_key,
+    cycle_id: current.runtimeState.review_cycle.id,
+    cycle_phase: phase,
+    diff_target: execution.diff_target,
+    admitted_fingerprints: admitted.map((item) => item.fingerprint)
+  };
+  return {
+    status: "pass",
+    operation_kind: "review-context",
+    committed: false,
+    read_back_verified: true,
+    recorded_execution: {
+      id: execution.idempotency_key,
+      mode: execution.mode,
+      status: execution.status,
+      diff_target: execution.diff_target,
+      evidence_refs: [...execution.evidence_refs]
+    },
+    current_step: {
+      id: resolution.current.id,
+      description: resolution.current.description,
+      purpose: resolution.current.purpose,
+      mutation_scope: stepScope(resolution.current.mutation_scope, `step ${resolution.current.id} mutation_scope`),
+      validation: validationList(resolution.current.required_evidence, `step ${resolution.current.id} required_evidence`)
+    },
+    acceptance: definition.acceptance,
+    regression_checks: definition.regression_checks,
+    mutation_scope: {
+      allowed: scope.allowed.map((item) => item.pattern),
+      conditional: scope.conditional.map((item) => item.pattern),
+      forbidden: scope.forbidden.map((item) => item.pattern)
+    },
+    persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
+    claim_evidence: (current.runtimeState.claim_evidence ?? []).map((item) => ({
+      ...item,
+      slots: item.slots.map((slot) => ({ ...slot, evidence_refs: [...slot.evidence_refs] }))
+    })),
+    admitted_findings: admitted.map((item) => ({
+      fingerprint: item.fingerprint,
+      file: item.file,
+      failure_condition: item.failure_condition,
+      required_behavior: item.violated_invariant,
+      repair_attempts: item.repair_attempts,
+      max_repair_attempts: item.max_repair_attempts
+    })),
+    receipt
+  };
+}
+function normalizeContextReceipt(value) {
+  const source = record3(value, "context_receipt");
+  exactKeys3(source, ["kind", "task_id", "document_id", "source_revision", "step_id", "execution_id", "cycle_id", "cycle_phase", "diff_target", "admitted_fingerprints"], "context_receipt");
+  if (source.kind !== "review-context/v1")
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "context_receipt.kind must be review-context/v1.");
+  if (source.cycle_phase !== "discovery" && source.cycle_phase !== "verification")
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "context_receipt.cycle_phase is invalid.");
+  const sourceRevision = text3(source.source_revision, "context_receipt.source_revision", 64);
+  if (!SHA256_PATTERN5.test(sourceRevision))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "context_receipt.source_revision must be SHA-256.");
+  return {
+    kind: "review-context/v1",
+    task_id: text3(source.task_id, "context_receipt.task_id", 128),
+    document_id: text3(source.document_id, "context_receipt.document_id", 128),
+    source_revision: sourceRevision,
+    step_id: text3(source.step_id, "context_receipt.step_id", 128),
+    execution_id: text3(source.execution_id, "context_receipt.execution_id", 128),
+    cycle_id: text3(source.cycle_id, "context_receipt.cycle_id", 128),
+    cycle_phase: source.cycle_phase,
+    diff_target: text3(source.diff_target, "context_receipt.diff_target", 512),
+    admitted_fingerprints: textList3(source.admitted_fingerprints, "context_receipt.admitted_fingerprints", true)
+  };
+}
+function assertCurrentContext(current, receipt) {
+  if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id)
+    fail7("REVIEW_CONTEXT_STALE", "review context belongs to a different task document.");
+  if (receipt.source_revision !== current.sourceTuple.revision)
+    fail7("REVIEW_CONTEXT_STALE", "CURRENT_TASK changed after review context was issued.");
+  if (receipt.step_id !== current.runtimeState.active_step_id || receipt.cycle_id !== current.runtimeState.review_cycle.id)
+    fail7("REVIEW_CONTEXT_STALE", "active step or review cycle changed after review context was issued.");
+  const latest = latestRecordedExecution(current);
+  if (latest.idempotency_key !== receipt.execution_id || latest.diff_target !== receipt.diff_target)
+    fail7("REVIEW_CONTEXT_STALE", "recorded execution or exact diff target changed after review context was issued.");
+  const expectedPhase = latest.mode === "repair" ? "verification" : "discovery";
+  if (receipt.cycle_phase !== expectedPhase)
+    fail7("REVIEW_CONTEXT_STALE", "review phase changed after review context was issued.");
+  const open = expectedPhase === "verification" ? current.runtimeState.findings.filter((item) => item.review_cycle_id === receipt.cycle_id && ["admitted", "in-progress"].includes(item.status)).map((item) => item.fingerprint) : [];
+  if (open.length !== receipt.admitted_fingerprints.length || open.some((item) => !receipt.admitted_fingerprints.includes(item))) {
+    fail7("REVIEW_CONTEXT_STALE", "admitted finding set changed after review context was issued.");
+  }
+  return latest;
+}
+function normalizeFinding(value, index, current) {
+  const source = record3(value, `findings[${index}]`);
+  exactKeys3(source, ["category", "file", "failure_condition", "required_behavior", "root_cause_status", "evidence_refs"], `findings[${index}]`);
+  if (source.root_cause_status !== "confirmed" && source.root_cause_status !== "bounded")
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", `findings[${index}].root_cause_status is invalid.`);
+  const candidate = {
+    category: text3(source.category, `findings[${index}].category`, 256),
+    file: repoPath(source.file, `findings[${index}].file`),
+    failure_condition: text3(source.failure_condition, `findings[${index}].failure_condition`),
+    required_behavior: text3(source.required_behavior, `findings[${index}].required_behavior`, 512),
+    root_cause_status: source.root_cause_status,
+    evidence_refs: textList3(source.evidence_refs, `findings[${index}].evidence_refs`, false)
+  };
+  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+  const decision = evaluateMutationScope(scope, { changed_paths: [candidate.file] });
+  const step = resolveTaskStep(current.body, current.runtimeState.active_step_id).current;
+  const admittedByStep = stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some((pattern) => mutationScopePatternMatchesPath(candidate.file, pattern));
+  if (decision.status !== "pass" || !admittedByStep) {
+    fail7("REVIEW_FINDING_SCOPE_BLOCKED", `finding path ${candidate.file} cannot be repaired within the confirmed current-step scope.`);
+  }
+  return {
+    fingerprint: `finding-${digest4({
+      task_id: current.runtimeState.task_id,
+      file: candidate.file,
+      failure_condition: candidate.failure_condition,
+      required_behavior: candidate.required_behavior
+    }).slice(0, 32)}`,
+    ...candidate
+  };
+}
+function convergenceBlocker(current, receipt, findings, unresolved) {
+  if (receipt.cycle_phase !== "verification")
+    return null;
+  if (findings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
+    return { code: "NEW_FINDING_WAVE_BUDGET_EXHAUSTED", summary: "Verification found another new-finding wave after the one allowed wave was already used.", next_route: "debug-task" };
+  }
+  if (current.runtimeState.review_cycle.repair_round >= MAX_REPAIR_ROUNDS && (findings.length > 0 || unresolved.length > 0)) {
+    return { code: "REPAIR_BUDGET_EXHAUSTED", summary: "The current review cycle has exhausted its repair-wave budget.", next_route: "debug-task" };
+  }
+  const exhausted = unresolved.filter((fingerprint) => {
+    const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+    return finding !== undefined && finding.repair_attempts >= finding.max_repair_attempts;
+  });
+  if (exhausted.length > 0) {
+    return { code: "REPAIR_BUDGET_EXHAUSTED", summary: `Findings exhausted their repair-attempt budget: ${exhausted.join(", ")}.`, next_route: "debug-task" };
+  }
+  return null;
+}
+function verifyReadBack2(root, result, reviewId, options) {
+  if (options.dryRun || result.status !== "success" && result.status !== "no-op")
+    return result;
+  const current = readCanonicalCurrentTask(root);
+  if (!result.read_back_verified || current.runtimeState.pending_review_result?.review_id !== reviewId || result.resulting_revision !== current.sourceTuple.revision) {
+    fail7("REVIEW_ADAPTER_READ_BACK_FAILED", "review-change adapter could not verify the durable pending review result.");
+  }
+  return result;
+}
+function semanticNoOp3(current, key, message, options) {
+  const state = current.runtimeState;
+  return {
+    status: "no-op",
+    operation_kind: "task-state-transaction",
+    idempotency_key: key,
+    target_path: current.relativePath,
+    dry_run: options.dryRun === true,
+    committed: false,
+    message,
+    previous_revision: current.sourceTuple.revision,
+    resulting_revision: current.sourceTuple.revision,
+    planned_writes: [],
+    governed_mutation_count: 0,
+    read_back_verified: true,
+    state: {
+      task_id: state.task_id,
+      workflow_status: state.workflow_status,
+      lifecycle_state: state.lifecycle_state,
+      resume_requires_review: state.resume_requires_review,
+      resume_review_reasons: [...state.resume_review_reasons],
+      active_step_id: state.active_step_id,
+      active_step_status: state.active_step_status,
+      finding_queue_revision: state.finding_queue_revision,
+      review_cycle_id: state.review_cycle.id,
+      repair_round: state.review_cycle.repair_round
+    }
+  };
+}
+function recordReviewResult(root, input, options = {}) {
+  const source = record3(input, "record-review-result input");
+  exactKeys3(source, ["context_receipt", "verdict", "findings", "unresolved_fingerprints", "evidence_refs", "blocker"], "record-review-result input");
+  const receipt = normalizeContextReceipt(source.context_receipt);
+  if (!["clean", "findings", "blocked"].includes(String(source.verdict)))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "verdict must be clean, findings, or blocked.");
+  const verdict = source.verdict;
+  const current = readCanonicalCurrentTask(root);
+  assertReviewableTask(current);
+  if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS3)
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "findings must be a bounded array.");
+  const findings = source.findings.map((item, index) => normalizeFinding(item, index, current));
+  if (new Set(findings.map((item) => item.fingerprint)).size !== findings.length)
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "findings must not contain duplicates.");
+  const unresolved = textList3(source.unresolved_fingerprints, "unresolved_fingerprints", true);
+  if (unresolved.some((item) => !receipt.admitted_fingerprints.includes(item)))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "unresolved_fingerprints must be drawn from the Runtime review context.");
+  const evidenceRefs = textList3(source.evidence_refs, "evidence_refs", false);
+  let blocker;
+  if (source.blocker === null)
+    blocker = null;
+  else {
+    const raw = record3(source.blocker, "blocker");
+    exactKeys3(raw, ["code", "summary", "next_route"], "blocker");
+    if (!["review-change", "debug-task", "prepare-task:replan", "user"].includes(String(raw.next_route)))
+      fail7("REVIEW_ADAPTER_INPUT_INVALID", "blocker.next_route is invalid.");
+    blocker = { code: text3(raw.code, "blocker.code", 128), summary: text3(raw.summary, "blocker.summary"), next_route: raw.next_route };
+  }
+  if (verdict === "clean" && (findings.length > 0 || unresolved.length > 0 || blocker !== null))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "clean must not contain findings or a blocker.");
+  if (verdict === "findings" && (findings.length === 0 && unresolved.length === 0 || blocker !== null))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "findings verdict requires a finding and no blocker.");
+  if (verdict === "blocked" && (findings.length > 0 || unresolved.length > 0 || blocker === null))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "blocked requires only a blocker.");
+  const runtimeBlocker = verdict === "findings" ? convergenceBlocker(current, receipt, findings, unresolved) : null;
+  const finalVerdict = runtimeBlocker ? "blocked" : verdict;
+  const finalFindings = runtimeBlocker ? [] : findings;
+  const finalUnresolved = runtimeBlocker ? [] : unresolved;
+  const finalBlocker = runtimeBlocker ?? blocker;
+  const reviewId = `review-${digest4({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
+  const reviewResult = {
+    kind: "review-result/v1",
+    review_id: reviewId,
+    execution_id: receipt.execution_id,
+    step_id: receipt.step_id,
+    cycle_id: receipt.cycle_id,
+    cycle_phase: receipt.cycle_phase,
+    diff_target: receipt.diff_target,
+    diff_target_verification: "verified",
+    verdict: finalVerdict,
+    findings: finalFindings,
+    unresolved_fingerprints: finalUnresolved,
+    evidence_refs: evidenceRefs,
+    blocker: finalBlocker
+  };
+  const resultKey = `review-result-${digest4(reviewResult).slice(0, 48)}`;
+  if (current.runtimeState.pending_review_result?.review_id === reviewId) {
+    const { recorded_at: _recordedAt, ...durable } = current.runtimeState.pending_review_result;
+    if (digest4(durable) !== digest4(reviewResult))
+      fail7("REVIEW_REPLAY_CONFLICT", "the durable review id is bound to different review semantics.");
+    return semanticNoOp3(current, resultKey, "This exact review result was already recorded.", options);
+  }
+  assertCurrentContext(current, receipt);
+  const proposal = createReviewResultProposal(current, {
+    review_result: reviewResult,
+    evidence_refs: evidenceRefs,
+    idempotency_key: resultKey,
+    authority_evidence: authority3(current)
+  });
+  return verifyReadBack2(root, applyVNextRuntimeProposal(root, proposal, options), reviewId, options);
+}
+function parseCli2(argv) {
+  const [command, ...rest] = argv;
+  if (!REVIEW_CHANGE_ADAPTER_COMMANDS.includes(command))
+    throw new Error(`Usage: vnext-runtime <${REVIEW_CHANGE_ADAPTER_COMMANDS.join("|")}> --root <path> [--dry-run] (semantic JSON on stdin)`);
+  let root = process.cwd();
+  let dryRun = false;
+  for (let index = 0;index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (arg === "--root")
+      root = rest[++index] ?? "";
+    else if (arg === "--dry-run")
+      dryRun = true;
+    else
+      throw new Error(`Unknown review-change adapter argument: ${arg}`);
+  }
+  if (!root)
+    throw new Error("--root requires a path.");
+  return { command, root, dryRun };
+}
+function readSemanticStdin3(command) {
+  const raw = !process.stdin.isTTY ? fs9.readFileSync(0, "utf8") : "";
+  if (!raw.trim())
+    throw new Error(`${command} requires semantic JSON on stdin.`);
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function validateInstalledRuntime3(root) {
+  const runtimeManifest = path10.join(path10.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs9.existsSync(runtimeManifest))
+    validateVNextRuntimeContract(root, true);
+}
+async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
+  try {
+    validateRuntimeEnvironment();
+    const args = parseCli2(argv);
+    validateInstalledRuntime3(args.root);
+    const input = readSemanticStdin3(args.command);
+    const result = args.command === "review-context" ? reviewContext(args.root, input) : recordReviewResult(args.root, input, { dryRun: args.dryRun });
+    console.log(JSON.stringify(result, null, 2));
+    return "status" in result && (result.status === "blocked" || result.status === "conflict") ? 2 : 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
@@ -13356,12 +14247,15 @@ else if (PREPARE_TASK_ADAPTER_COMMANDS.includes(args[0])) {
   runner = runPrepareTaskAdapterCli(args);
 } else if (EXECUTE_STEP_ADAPTER_COMMANDS.includes(args[0])) {
   runner = runExecuteStepAdapterCli(args);
+} else if (REVIEW_CHANGE_ADAPTER_COMMANDS.includes(args[0])) {
+  runner = runReviewChangeAdapterCli(args);
 } else
   runner = runCli(args);
 runner.then((exitCode) => {
   process.exitCode = exitCode;
 });
 export {
+  runReviewChangeAdapterCli,
   runPrepareTaskAdapterCli,
   runExecuteStepAdapterCli,
   runCli,
