@@ -322,13 +322,13 @@ second state source. Optional Implementation Anchors are observed navigation
 hints only: consumers validate them against current code and expand live impact
 analysis when risk or staleness requires it.
 
-Each later phase must preserve the seven-intent daily surface, adaptive internal capabilities, Review Convergence, Evidence Admission, canonical Markdown/YAML knowledge, and the Runtime kernel. It must not reintroduce a legacy compatibility runtime.
+Each later phase must preserve the eight-intent daily surface, adaptive internal capabilities, Review Convergence, Evidence Admission, canonical Markdown/YAML knowledge, and the Runtime kernel. It must not reintroduce a legacy compatibility runtime.
 
 ## 6. Acceptance gates
 
 ### 6.1 Phase 1 gate
 
-- the seven daily intents and exposure tiers are explicit;
+- the eight daily intents and exposure tiers are explicit;
 - internal capabilities are adaptive and are not executable public handoffs;
 - Review Convergence and Evidence Admission have bounded contracts;
 - `project-context-resolver` and `knowledge-admission-policy` have defined authority boundaries;
@@ -530,7 +530,7 @@ The low-level Migration Pack `install` command requires both a validated pack an
 `vnext-bundle.json`. The bundle is bound to the exact source root identity,
 revision, and tree hash and must declare `legacy_compatibility: absent` plus
 explicit vNext protocol/schema markers, canonical `CURRENT_TASK`, valid Skill
-entry contracts, and all seven daily-entry Skill artifacts. The target must still match the pack's
+entry contracts, and all eight daily-entry Skill artifacts. The target must still match the pack's
 project identity, archived/archived idle snapshot, source checksums, and legacy
 installation surface. A changed target or source is stale and stops before any
 write.

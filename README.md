@@ -117,11 +117,15 @@ bun run dogfood:fixflow:upgrade -- --version 0.14.8
 bun run dogfood:fixflow:upgrade -- --version 0.14.8 --apply
 ```
 
-The Vibe Governance release surface must already be committed, clean, and
-release-lockstep at the requested version. Local documentation, test, and
-FixFlow operational-script changes do not block a release. A tarball at an
-existing version path is reused only when its SHA-256 is identical; otherwise
-the command stops without overwriting the pinned artifact.
+The committed Vibe Governance release must be lockstep before starting. With
+`--apply`, ordinary unstaged changes and new release-surface files on the source
+release surface (contracts, runtime, templates, distribution scripts, and
+generated release outputs) are validated and included in the local source
+release commit. Local documentation,
+test, and FixFlow operational-script changes remain outside that commit. The
+command does not push. A tarball at an existing version path is reused only when
+its SHA-256 is identical; otherwise the command stops without overwriting the
+pinned artifact. The FixFlow specimen and upgrade commits also remain local.
 
 `dogfood:fixflow:cleanup` remains available when only specimen preservation
 and baseline restoration are required:

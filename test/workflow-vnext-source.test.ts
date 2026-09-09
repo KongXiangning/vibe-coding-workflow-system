@@ -122,12 +122,13 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(allowedRoot)).not.toThrow();
   });
 
-  test('accepts exactly the seven daily entries and closed catalogs', () => {
+  test('accepts exactly the eight daily entries and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 
     expect(result.phase).toBe('Phase 2');
     expect(result.entries).toEqual([
       'prepare-task',
+      'review-draft',
       'review-change',
       'execute-step',
       'debug-task',
@@ -137,7 +138,7 @@ describe('vNext Phase 2 source contract', () => {
     ]);
     expect(result.administrativeEntries).toEqual(['bootstrap-project']);
     expect(result.expertEntries).toEqual(['validate-change']);
-    expect(result.capabilities).toHaveLength(25);
+    expect(result.capabilities).toHaveLength(26);
     expect(result.runtimeOperations).toEqual([
       'archive-transaction',
       'contract-candidate-commit',
@@ -249,25 +250,25 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(executeRoot)).toThrow(/execute-step.*governance sources/i);
   });
 
-  test('requires execute-step to distinguish product edits, command footprints, observed writes, and logical diff evidence', () => {
+  test('keeps execute-step focused on one Runtime-admitted step', () => {
     const execute = fs.readFileSync(
       fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
       'utf8',
     );
-    expect(execute).toContain('expected_write_footprint');
-    expect(execute).toContain('observed_write_paths');
-    expect(execute).toContain('canonical P-13 mutation-scope evaluator');
-    expect(execute).toContain('`.gitignore` never grants an exemption');
-    expect(execute).toContain('final Git diff is only one evidence source');
+    expect(execute).toContain('Runtime `preflight-step`');
+    expect(execute).toContain('Runtime `record-step-result`');
+    expect(execute).toContain('Runtime `complete-reviewed-step`');
+    expect(execute).toContain('Do not redesign the task');
+    expect(execute).toContain("confirmed task's `Persistent Tests`");
 
     const root = copyFixture();
     const executeFixture = fixtureFile(root, 'templates/vnext/skills/execute-step.SKILL.md.tmpl');
     fs.writeFileSync(
       executeFixture,
-      fs.readFileSync(executeFixture, 'utf8').replaceAll('expected_write_footprint', 'command_footprint_without_admission'),
+      fs.readFileSync(executeFixture, 'utf8').replaceAll('Runtime `preflight-step`', 'unbound preflight'),
       'utf8',
     );
-    expect(() => validateVNextSource(root)).toThrow(/command-side-effect boundary term "expected_write_footprint"/i);
+    expect(() => validateVNextSource(root)).toThrow(/semantic boundary term "Runtime `preflight-step`"/i);
   });
 
   test('keeps non-admitted review findings reportable instead of making them entry blockers', () => {
@@ -323,8 +324,8 @@ describe('vNext Phase 2 source contract', () => {
     expect(sourceContract).toContain('provisional or exploratory certainty is used to silently admit a persistent test');
     expect(sourceContract).toContain('exploratory probe budget');
     expect(sourceContract).toContain('typed proposal to an existing canonical task record');
-    expect(execute).toContain('creating or changing a persistent automated test are separate decisions');
-    expect(execute).toContain('existing-check reuse');
+    expect(execute).toContain("A persistent test may be created or changed only when it is already frozen in the confirmed task's `Persistent Tests`");
+    expect(execute).toContain('do not admit another test during execution');
     expect(review).toContain('A regression or evidence scenario is a validation obligation; it does not automatically require a new persistent automated test.');
     expect(review).toContain('Persistent-test disposition defaults to `persistent_test: false`');
     expect(review).toContain('Missing admission means the persistent test is not admitted');
@@ -338,16 +339,16 @@ describe('vNext Phase 2 source contract', () => {
     expect(close).toContain('closure does not infer a new test from missing evidence');
   });
 
-  test('requires source authority, task identity, and adaptive depth for execute-step', () => {
+  test('requires the execute-step scope guard', () => {
     const root = copyFixture();
     replaceIn(
       root,
       'templates/vnext/skills/execute-step.SKILL.md.tmpl',
-      '    - source-authority-policy\n',
+      '    - scope-guard\n',
       '',
     );
 
-    expect(() => validateVNextSource(root)).toThrow(/execute-step.*mandatory capability "source-authority-policy"/i);
+    expect(() => validateVNextSource(root)).toThrow(/execute-step.*mandatory capability "scope-guard"/i);
   });
 
   test('requires evidence admission and resume-review capabilities for prepare-task', () => {
@@ -368,6 +369,73 @@ describe('vNext Phase 2 source contract', () => {
       '',
     );
     expect(() => validateVNextSource(resumeRoot)).toThrow(/prepare-task.*mandatory capability "resume-review-gate"/i);
+  });
+
+  test('requires prepare-task to map material draft gaps and preserve cross-step repairability', () => {
+    const prepare = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(prepare).toContain('revision-bound **Task Basis**');
+    expect(prepare).toContain('record the original request verbatim');
+    expect(prepare).toContain('same atomic draft transaction');
+    expect(prepare).toContain('semantic delta map');
+    expect(prepare).toContain('path-by-step interaction map');
+    expect(prepare).toContain('Step scopes are permissions');
+    expect(prepare).toContain('author self-check');
+    expect(prepare).toContain('`next_route: review-draft`');
+
+    const capabilityRoot = copyFixture();
+    replaceIn(
+      capabilityRoot,
+      'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
+      '    - adaptive-depth-policy\n',
+      '',
+    );
+    expect(() => validateVNextSource(capabilityRoot)).toThrow(/prepare-task.*mandatory capability "adaptive-depth-policy"/i);
+
+    const boundaryRoot = copyFixture();
+    replaceIn(
+      boundaryRoot,
+      'templates/vnext/skills/prepare-task.SKILL.md.tmpl',
+      'path-by-step interaction map',
+      'step list',
+    );
+    expect(() => validateVNextSource(boundaryRoot)).toThrow(/draft-consistency boundary term "path-by-step interaction map"/i);
+  });
+
+  test('keeps review-draft independent, read-only, and portable across agent contexts', () => {
+    const reviewDraft = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/review-draft.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(reviewDraft).toContain('Task Basis path and revision linked by `CURRENT_TASK`');
+    expect(reviewDraft).toContain('valid without hidden history');
+    expect(reviewDraft).toContain('or a previous review');
+    expect(reviewDraft).toContain('not request authority');
+    expect(reviewDraft).toContain('Never reconstruct the request');
+    expect(reviewDraft).toContain('from the candidate draft');
+    expect(reviewDraft).toContain('self-contained `draft_review_result`');
+    expect(reviewDraft).toContain('governed_mutation_count: 0');
+    expect(reviewDraft).toContain('verdict: clean | findings | needs-user');
+
+    const capabilityRoot = copyFixture();
+    replaceIn(
+      capabilityRoot,
+      'templates/vnext/skills/review-draft.SKILL.md.tmpl',
+      '    - decision-authority-gate\n',
+      '',
+    );
+    expect(() => validateVNextSource(capabilityRoot)).toThrow(/review-draft.*mandatory capability "decision-authority-gate"/i);
+
+    const boundaryRoot = copyFixture();
+    replaceIn(
+      boundaryRoot,
+      'templates/vnext/skills/review-draft.SKILL.md.tmpl',
+      'Never reconstruct the request',
+      'Infer the request from acceptance criteria',
+    );
+    expect(() => validateVNextSource(boundaryRoot)).toThrow(/review-draft.*boundary term "Never reconstruct the request"/i);
   });
 
   test('keeps debug ownership conditional and lesson admission non-blocking for closure', () => {
@@ -408,9 +476,9 @@ describe('vNext Phase 2 source contract', () => {
       fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
       'utf8',
     );
-    expect(execute).toContain('resume_requires_review');
-    expect(execute).toContain('readiness/resume review to be invoked later by the caller');
-    expect(execute).toContain('do not implement directly or invoke `prepare-task` from this invocation');
+    expect(execute).toContain('resume-review-gate');
+    expect(execute).toContain('a resume gate is active');
+    expect(execute).toContain('report that result and stop');
   });
 
   test('rejects cycle phases promoted into a mode', () => {

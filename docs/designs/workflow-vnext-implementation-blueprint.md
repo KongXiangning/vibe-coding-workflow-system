@@ -19,7 +19,7 @@
 
 实施时遵守以下边界：
 
-- vNext 的日常入口只有七个；内部 capability 不是用户可见的串行 Skill。
+- vNext 的日常入口有八个；内部 capability 不是用户可见的串行 Skill。
 - 旧 Skill 名称只作为责任迁移的输入，不作为 vNext 的 alias、fallback 或安装面。
 - `review-change` 与 `validate-change` 是只读/报告型入口；它们不直接写治理状态，也不直接修复代码。
 - Runtime 只提交 typed semantic proposal，不替模型或用户决定产品语义。
@@ -225,7 +225,7 @@ These tests should use small in-memory mutations or a few temporary contract fil
 
 ### 3.4 Phase 1 follow-up source checkpoint
 
-After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates and a closed capability union. Phase 2 now binds `task-state-transaction` and `finding-queue-transaction` for `execute-step`, the Slice A lifecycle transaction for `task-lifecycle` pause/interrupt/resume modes and the minimal `prepare-task` resume-review gate clear action, the Slice B supersede/replan actions, the Slice C ordinary draft/create/refinement/confirm actions, close-task archive/status/Lesson plus final Contract/Decision promotion and re-entry transactions, `capture-work-item:record` through `inbox-record-transaction`, and the `bootstrap-project` administrative transaction boundary. The `validate-change` expert source/install surface is now implemented as a read-only evidence-policy entry with no Runtime operation. The `sync-state` implementation gap review is resolved as an architecture assessment: its current responsibilities are fulfilled by caller-local orchestration and existing typed Runtime handlers, so no standalone service is required. This is an implementation-status note only; it does not change the target architecture, install surface, host sync, or Migration Pack boundary.
+After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four original daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates and a closed capability union. Phase 2 later added `review-draft` as an eighth daily entry because draft review has a distinct original-request input, prepared-draft target, zero-write boundary, and portable terminal result; it is not an automatic stage after `prepare-task`. Phase 2 binds `task-state-transaction` and `finding-queue-transaction` for `execute-step`, the Slice A lifecycle transaction for `task-lifecycle` pause/interrupt/resume modes and the minimal `prepare-task` resume-review gate clear action, the Slice B supersede/replan actions, the Slice C ordinary draft/create/refinement/confirm actions, close-task archive/status/Lesson plus final Contract/Decision promotion and re-entry transactions, `capture-work-item:record` through `inbox-record-transaction`, and the `bootstrap-project` administrative transaction boundary. The `validate-change` expert source/install surface is implemented as a read-only evidence-policy entry with no Runtime operation. The `sync-state` implementation gap review is resolved as an architecture assessment: its current responsibilities are fulfilled by caller-local orchestration and existing typed Runtime handlers, so no standalone service is required.
 
 ### 3.5 Phase 2 bound Runtime slice
 
@@ -509,11 +509,12 @@ vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期
 | Phase 2 existing execution/finding slice | vNext `execute-step` state-changing workflow；task-state/finding queue；evidence admission、finding admission、Review Convergence 和 read-back | 不保留 legacy fallback；不把 review/validation 变成修复入口；该 slice 已实现 |
 | Phase 2 Slice A | `task-lifecycle` 的 pause、interrupt、resume-paused、resume-interrupted lifecycle transaction；resume 后经 `prepare-task` readiness/resume review 清除 gate；双文件原子提交、read-back 与 rollback | 不实现通用 lifecycle framework、recovery registry 或 legacy 多阶段事务；该 slice 已实现 |
 | Phase 2 Slice B | same-task supersede / replan：保留 identity，分离 invalidation 与 replacement，closed ReplanDelta，deterministic normalization、rollback、idempotence、read-back | 不创建新 task identity、第二份 CURRENT_TASK 或 arbitrary Markdown editor；该 slice 已实现 |
-| Phase 2 Slice C | ordinary independent request 的 durable `draft + active`、same-identity refinement、explicit `prepare-task:confirm` / `confirm-draft`、fresh identity allocation、draft non-execution、audit/replay/rollback/read-back | 不创建 draft Skill、registry/catalog/queue、cancel/discard state 或第二份 CURRENT_TASK；该 slice 已实现 |
+| Phase 2 Slice C | ordinary independent request 的 durable `draft + active`、same-identity refinement、explicit `prepare-task:confirm` / `confirm-draft`、fresh identity allocation、draft non-execution、audit/replay/rollback/read-back | 不创建第二个 draft-authoring/state Skill、registry/catalog/queue、cancel/discard state 或第二份 CURRENT_TASK；该 slice 已实现 |
 | Phase 2 close-task | closure eligibility、archive 前 Contract/Decision/Lesson admission、`archive-transaction`、Contract/Decision/STATUS/Lesson reconciliation，以及可从 archive provenance 重建的 re-entry；`closed + archived` terminal contract | 不引入 pending-closure state、第二次 archive 或 `TASK_SUMMARY` vNext output；design + implementation 已完成 |
 | Core Daily Execution Semantics Stabilization（已实现） | 只实现本次冻结的三项：Evidence-first / Persistent Test Admission、Mutation-oriented Scope、multi-step advancement / risk-based Review Checkpoint / repair verification integration；已通过 daily-loop E2E gate | 不混入现有 Runtime robustness backlog；不新增 Test Skill/registry/state machine、ACL subsystem、review-step/advance-step public surface；不改变 Slice A/B/close-task 语义 |
+| Independent draft review（已实现） | `prepare-task` 在同一 draft 事务中写入 `CURRENT_TASK` 与 identity-derived `TASK_BASIS-<TASK_ID>.md`，后者只保留原始需求及后续显式用户决定的 verbatim 来源证据；`review-draft` 读取其 path/revision 后对一个 `draft + active` 候选返回 `clean | findings | needs-user` | review 本身不修改 Runtime/CURRENT_TASK，不写 review 结果、finding queue 或 receipt；历史 review 不是需求权威，也不自动调用 `prepare-task` 或确认草案 |
 | bootstrap-project（已实现） | 在上述 daily semantics 完成并通过 E2E gate 后实现正式 admin surface；已完成 source facade、target-local Bootstrap support、Runtime atomic boundary 与 component/disposable-project verification；只消费已安装 Distribution 并以只读方式验证，不重新生成/推广 Runtime、Protocol、Schema 或 Agent Skills | 不把未稳定的 prepare/execute/review 行为提前推广到新项目；不覆盖 `sync-state` internal surface；不把 Distribution software 写入 Bootstrap Receipt |
-| vNext implementation status | Target implementation boundaries resolved；`sync-state` 为已由 caller-local orchestration 与 typed Runtime operations 覆盖的逻辑 internal role，无 standalone implementation required | 不新增独立 `sync-state` Runtime、Skill、facade、transaction 或 durable artifact，除非未来证明存在 genuine shared reconciliation/routing requirement |
+| vNext implementation status | Target implementation boundaries resolved；八个 daily entry 已包含独立 `review-draft`；`sync-state` 为已由 caller-local orchestration 与 typed Runtime operations 覆盖的逻辑 internal role，无 standalone implementation required | 不新增独立 `sync-state` Runtime、Skill、facade、transaction 或 durable artifact，除非未来证明存在 genuine shared reconciliation/routing requirement |
 | next phase | system-level E2E validation and real-project dogfood | 不把验证阶段重新包装成 implementation boundary，不扩大 daily intent 或 Runtime surface |
 
 后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再补齐剩余 state-changing Runtime handlers”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。
@@ -531,7 +532,7 @@ legacy compatibility layer。
 
 本蓝图可作为 Skill 重写入口的前提是：
 
-- 七个 daily entry、`bootstrap-project`、`validate-change` 以及逻辑 internal `sync-state` role 的 exposure 和 owner 清楚；
+- 八个 daily entry、`bootstrap-project`、`validate-change` 以及逻辑 internal `sync-state` role 的 exposure 和 owner 清楚；
 - 37 个旧 Skill 的治理责任片段均已在第 2 节归属，且没有旧 public route 需要在 vNext 中保留；
 - 每个 entry 都能写出 input、authority、mutation boundary、capabilities、Runtime operations、stop conditions 和 output；
 - `project-context-resolver`、`knowledge-admission-policy`、Review Convergence、Evidence Admission 均作为内部 policy 使用，而不是新增 public stage；

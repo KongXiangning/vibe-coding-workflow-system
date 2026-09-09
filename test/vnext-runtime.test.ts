@@ -16,12 +16,15 @@ import {
   createPrepareTaskClaimEvidenceMigrationProposal,
   createPrepareTaskReplanProposal,
   createPrepareTaskConfirmProposal,
-  createPrepareTaskDraftProposal,
-  createPrepareTaskUpdateDraftProposal,
+  createPrepareTaskDraftProposal as createRawPrepareTaskDraftProposal,
+  createPrepareTaskUpdateDraftProposal as createRawPrepareTaskUpdateDraftProposal,
   createPrepareTaskResumeReviewProposal,
   clearResumeReview,
   confirmDraft,
+  completeReviewedStep,
   prepareDraft,
+  preflightStep,
+  recordStepResult,
   replan,
   resolveExternalProposalFile,
   evaluateMutationScope,
@@ -31,6 +34,7 @@ import {
   GovernanceTransactionKernel,
   previewCloseTask,
   readCanonicalCurrentTask,
+  readCanonicalTaskBasis,
   readDurableLessonRecords,
   readLessonMarkers,
   validateRuntimeEnvironment,
@@ -51,6 +55,7 @@ import {
   type ReplanTaskStateAction,
   type RuntimeProposal,
   type RuntimeState,
+  type TaskBasis,
   type ProjectStatusDelta,
   type PrepareTaskSemanticDraft,
 } from '../scripts/vnext-runtime';
@@ -500,8 +505,39 @@ function draftDefinition(overrides: Partial<DraftTaskDefinition> = {}): DraftTas
   };
 }
 
+function taskBasisFixture(label = 'the requested task behavior'): TaskBasis {
+  return {
+    original_request: {
+      source: 'test:original-request',
+      verbatim: label,
+    },
+    user_decisions: [],
+  };
+}
+
+function createPrepareTaskDraftProposal(
+  current: Parameters<typeof createRawPrepareTaskDraftProposal>[0],
+  input: Omit<Parameters<typeof createRawPrepareTaskDraftProposal>[1], 'task_basis'> & { task_basis?: TaskBasis },
+): RuntimeProposal {
+  return createRawPrepareTaskDraftProposal(current, {
+    task_basis: input.task_basis ?? taskBasisFixture(),
+    ...input,
+  });
+}
+
+function createPrepareTaskUpdateDraftProposal(
+  current: Parameters<typeof createRawPrepareTaskUpdateDraftProposal>[0],
+  input: Omit<Parameters<typeof createRawPrepareTaskUpdateDraftProposal>[1], 'task_basis'> & { task_basis?: TaskBasis },
+): RuntimeProposal {
+  return createRawPrepareTaskUpdateDraftProposal(current, {
+    task_basis: input.task_basis ?? taskBasisFixture(),
+    ...input,
+  });
+}
+
 function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
   return {
+    task_basis: taskBasisFixture('Add the prepare-task Runtime adapter'),
     goal: 'Add the prepare-task Runtime adapter',
     acceptance: ['The semantic adapter persists and reads back a canonical draft'],
     out_of_scope: ['Do not refactor unrelated Runtime handlers'],
@@ -547,6 +583,15 @@ function archivedBaselineRoot(): string {
     lifecycle_state: 'archived',
     active_step_status: 'completed',
   }));
+}
+
+function confirmedSemanticRoot(input: PrepareTaskSemanticDraft = semanticDraft()): string {
+  const root = archivedBaselineRoot();
+  const prepared = prepareDraft(root, input);
+  if (!prepared.confirmation_receipt) throw new Error('test setup did not receive a draft confirmation receipt');
+  const confirmed = confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt });
+  if (confirmed.status !== 'success') throw new Error(`test setup could not confirm draft: ${confirmed.message}`);
+  return root;
 }
 
 function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
@@ -599,6 +644,7 @@ function replanProposal(
     ? {
       kind: 'task-state' as const,
       action,
+      task_basis: taskBasisFixture('Replace the superseded task definition'),
       replacement_definition: overrides.definition ?? replacementDefinition(),
       active_step_id: overrides.active_step_id ?? 'step-2',
       evidence_refs: overrides.evidence_refs ?? ['test:evidence:replan'],
@@ -2305,7 +2351,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       claim_evidence: completeClaimEvidence(),
     }), { now: () => '2026-08-31T01:00:00.000Z' });
     expect(committed.status).toBe('success');
-    expect(committed.governed_mutation_count).toBe(1);
+    expect(committed.governed_mutation_count).toBe(2);
 
     const after = readCanonicalCurrentTask(root);
     expect(after.runtimeState.task_id).toBe(initial.runtimeState.task_id);
@@ -2583,6 +2629,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(result.message).toContain('rollback read-back verified');
     expect(readCount).toBe(3);
     expect(fs.readFileSync(superseded.filePath, 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-basis', 'TASK_BASIS-010.md'))).toBe(false);
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
   });
 
@@ -4719,6 +4766,11 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(prepared.status).toBe('success');
     expect(prepared.committed).toBe(true);
     expect(prepared.read_back_verified).toBe(true);
+    expect(prepared.governed_mutation_count).toBe(2);
+    expect(prepared.planned_writes).toEqual([
+      'docs/workflow/CURRENT_TASK.md',
+      'docs/workflow/task-basis/TASK_BASIS-001.md',
+    ]);
     expect(prepared.confirmation_receipt).toMatchObject({
       kind: 'prepare-draft-confirmation/v1',
       task_id: '001',
@@ -4749,6 +4801,11 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(draft.body).toContain('`test/vnext-runtime.test.ts`');
     expect(draft.body).toContain('- `test/vnext-runtime.test.ts`');
     expect(draft.body).toContain('planned_command: bun test test/vnext-runtime.test.ts');
+    const initialBasis = readCanonicalTaskBasis(root, draft);
+    expect(initialBasis.path).toBe('docs/workflow/task-basis/TASK_BASIS-001.md');
+    expect(initialBasis.basis).toEqual(taskBasisFixture('Add the prepare-task Runtime adapter'));
+    expect(draft.body).toContain(`- revision: \`${initialBasis.revision}\``);
+    expect(initialBasis.content).not.toContain('draft_review_result');
     expect(prepared.confirmation_receipt?.draft_revision).toBe(draft.sourceTuple.revision);
 
     const firstReceipt = prepared.confirmation_receipt!;
@@ -4767,14 +4824,23 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(scopeResult.blocked_paths).toEqual(['test/unlisted.test.ts']);
 
     const firstDocumentId = draft.sourceTuple.document_id;
-    const refined = prepareDraft(root, semanticDraft({
+    const refinedInput = semanticDraft({
+      task_basis: {
+        ...taskBasisFixture('Add the prepare-task Runtime adapter'),
+        user_decisions: [{
+          source: 'test:user-decision-1',
+          verbatim: 'Use the refined acceptance wording.',
+        }],
+      },
       acceptance: ['The refined semantic adapter persists and reads back a canonical draft'],
-    }));
+    });
+    const refined = prepareDraft(root, refinedInput);
     expect(refined.status).toBe('success');
     draft = readCanonicalCurrentTask(root);
     expect(draft.runtimeState.task_id).toBe('001');
     expect(draft.sourceTuple.document_id).toBe(firstDocumentId);
     expect(draft.body).toContain('The refined semantic adapter persists');
+    expect(readCanonicalTaskBasis(root, draft).basis).toEqual(refinedInput.task_basis);
 
     const refinedReceipt = refined.confirmation_receipt!;
     expect(refinedReceipt.draft_revision).toBe(draft.sourceTuple.revision);
@@ -4782,9 +4848,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => confirmDraft(root, { confirmation_receipt: firstReceipt })).toThrow('DRAFT_REVISION_CONFLICT');
     expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(refinedBytes);
 
-    const repeatedRefinement = prepareDraft(root, semanticDraft({
-      acceptance: ['The refined semantic adapter persists and reads back a canonical draft'],
-    }));
+    const repeatedRefinement = prepareDraft(root, refinedInput);
     expect(repeatedRefinement.status).toBe('no-op');
     expect(repeatedRefinement.confirmation_receipt).toEqual(refinedReceipt);
     expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(refinedBytes);
@@ -4812,6 +4876,166 @@ describe('vNext Phase 2 Runtime contract', () => {
     const repeatedConfirm = confirmDraft(root, { confirmation_receipt: refinedReceipt });
     expect(repeatedConfirm.status).toBe('no-op');
     expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(confirmedBytes);
+  });
+
+  test('requires exact task-basis input and blocks confirmation when the linked basis drifts', () => {
+    const missingRoot = archivedBaselineRoot();
+    const { task_basis: _omitted, ...withoutBasis } = semanticDraft();
+    const missingBefore = fs.readFileSync(readCanonicalCurrentTask(missingRoot).filePath, 'utf8');
+    expect(() => prepareDraft(missingRoot, withoutBasis)).toThrow('PREPARE_ADAPTER_INPUT_INVALID');
+    expect(fs.readFileSync(readCanonicalCurrentTask(missingRoot).filePath, 'utf8')).toBe(missingBefore);
+
+    const root = archivedBaselineRoot();
+    const exactBasis: TaskBasis = {
+      original_request: {
+        source: 'test:multiline-request',
+        verbatim: 'First requirement.\n\n  Second requirement keeps indentation.',
+      },
+      user_decisions: [{ source: 'test:decision', verbatim: 'Keep this wording exactly.' }],
+    };
+    const prepared = prepareDraft(root, semanticDraft({ task_basis: exactBasis }));
+    const draft = readCanonicalCurrentTask(root);
+    const basis = readCanonicalTaskBasis(root, draft);
+    expect(basis.basis).toEqual(exactBasis);
+    fs.appendFileSync(basis.filePath, '\nexternal drift\n', 'utf8');
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt })).toMatchObject({
+      status: 'blocked',
+      code: 'TASK_BASIS_REVISION_CONFLICT',
+      governed_mutation_count: 0,
+    });
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('draft');
+  });
+
+  test('preflights the confirmed current step and blocks unlisted persistent tests', () => {
+    const root = confirmedSemanticRoot();
+    const admitted = preflightStep(root, {
+      mode: 'default',
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'test/vnext-runtime.test.ts'],
+      repair_fingerprint: null,
+      diff_target: null,
+    });
+    expect(admitted.current_step).toMatchObject({
+      id: 'step-1',
+      commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+      validation: ['bun test test/vnext-runtime.test.ts passes'],
+    });
+
+    expect(() => preflightStep(root, {
+      mode: 'default',
+      candidate_paths: ['test/unlisted.test.ts'],
+      repair_fingerprint: null,
+      diff_target: null,
+    })).toThrow('EXECUTE_SCOPE_BLOCKED');
+  });
+
+  test('rejects actual paths that were not in the execute preflight receipt', () => {
+    const root = confirmedSemanticRoot();
+    const preflight = preflightStep(root, {
+      mode: 'default',
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
+      repair_fingerprint: null,
+      diff_target: null,
+    });
+
+    expect(() => recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: ['test/vnext-runtime.test.ts'],
+      command_results: [{
+        command: 'bun test test/vnext-runtime.test.ts',
+        status: 'passed',
+        observed_repo_writes: [],
+        evidence_refs: ['test:evidence:command'],
+      }],
+      validation_results: [{
+        validation: 'bun test test/vnext-runtime.test.ts passes',
+        status: 'passed',
+        evidence_refs: ['test:evidence:validation'],
+      }],
+      acceptance_evidence: [],
+      outcome: 'implemented',
+      note: null,
+    })).toThrow('EXECUTE_PREFLIGHT_SCOPE_CONFLICT');
+  });
+
+  test('records a semantic step result and lets Runtime advance only after clean review', () => {
+    const root = confirmedSemanticRoot();
+    const preflight = preflightStep(root, {
+      mode: 'default',
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'test/vnext-runtime.test.ts'],
+      repair_fingerprint: null,
+      diff_target: null,
+    });
+    const recorded = recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'test/vnext-runtime.test.ts'],
+      command_results: [{
+        command: 'bun test test/vnext-runtime.test.ts',
+        status: 'passed',
+        observed_repo_writes: [],
+        evidence_refs: ['test:evidence:command'],
+      }],
+      validation_results: [{
+        validation: 'bun test test/vnext-runtime.test.ts passes',
+        status: 'passed',
+        evidence_refs: ['test:evidence:validation'],
+      }],
+      acceptance_evidence: [{
+        acceptance: 'The semantic adapter persists and reads back a canonical draft',
+        evidence_refs: ['test:evidence:acceptance'],
+      }],
+      outcome: 'implemented',
+      note: 'current step implemented',
+    });
+    expect(recorded).toMatchObject({
+      status: 'success',
+      advancement: { outcome: 'not-applicable' },
+      state: { active_step_id: 'step-1', active_step_status: 'in-progress' },
+    });
+
+    const current = readCanonicalCurrentTask(root);
+    const completed = completeReviewedStep(root, {
+      step_id: 'step-1',
+      review_receipt: {
+        cycle_id: current.runtimeState.review_cycle.id,
+        cycle_phase: 'discovery',
+        diff_target: 'prepared-step-d-check-logic',
+        diff_target_verification: 'verified',
+        verdict: 'clean',
+        admitted_fingerprints: [],
+        evidence_refs: ['test:evidence:review'],
+      },
+      acceptance_evidence: [],
+      note: 'clean review committed',
+    });
+    expect(completed).toMatchObject({
+      status: 'success',
+      advancement: { outcome: 'task-complete', from_step_id: 'step-1' },
+      state: { active_step_id: 'step-1', active_step_status: 'completed' },
+    });
+  });
+
+  test('preflights repair only for an admitted finding with remaining budget', () => {
+    const root = confirmedSemanticRoot();
+    const current = readCanonicalCurrentTask(root);
+    const finding = admittedFinding('adapter-repair', current.runtimeState.review_cycle.id);
+    if (finding.action !== 'admit') throw new Error('test setup requires an admitted finding');
+    finding.finding.owner_task_id = current.runtimeState.task_id;
+    const admitted = applyVNextRuntimeProposal(root, createFindingQueueProposal(current, {
+      mode: 'repair',
+      delta: finding,
+      idempotency_key: 'adapter-repair-admit',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+      evidence_refs: finding.finding.evidence_refs,
+    }));
+    expect(admitted.status).toBe('success');
+
+    const preflight = preflightStep(root, {
+      mode: 'repair',
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
+      repair_fingerprint: 'adapter-repair',
+      diff_target: 'adapter-repair-diff',
+    });
+    expect(preflight.receipt).toMatchObject({ mode: 'repair', repair_fingerprint: 'adapter-repair' });
   });
 
   test('rejects a persistent test that is absent from exact Allowed mutation scope', () => {
@@ -5022,12 +5246,22 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('keeps migration and replan convergence actions internal to Runtime owners', () => {
     const contract = parse(fs.readFileSync(path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml'), 'utf8')) as {
-      proposal: { prepare_task: { semantic_adapter: {
-        decision_partition: { decided: string; unresolved: string };
-        command_footprint_preflight: { source: string; fields: string[]; evaluator: string; timing: string };
-        internal_action_owners: Record<string, string>;
-      } } };
+      proposal: {
+        execute_step: { semantic_adapter: { commands: string[]; scope_enforcement: string; advancement_owner: string } };
+        prepare_task: { semantic_adapter: {
+          decision_partition: { decided: string; unresolved: string };
+          command_footprint_preflight: { source: string; fields: string[]; evaluator: string; timing: string };
+          internal_action_owners: Record<string, string>;
+        } };
+      };
     };
+    expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
+      'preflight-step',
+      'record-step-result',
+      'complete-reviewed-step',
+    ]);
+    expect(contract.proposal.execute_step.semantic_adapter.scope_enforcement).toBe('task-and-current-step');
+    expect(contract.proposal.execute_step.semantic_adapter.advancement_owner).toBe('runtime');
     expect(contract.proposal.prepare_task.semantic_adapter.decision_partition).toEqual({
       decided: 'confirmed_decisions',
       unresolved: 'open_questions',

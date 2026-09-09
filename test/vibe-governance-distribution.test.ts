@@ -214,6 +214,7 @@ describe('Vibe Governance Distribution / Installer', () => {
       'execute-step',
       'prepare-task',
       'review-change',
+      'review-draft',
       'task-lifecycle',
       'validate-change',
     ]);

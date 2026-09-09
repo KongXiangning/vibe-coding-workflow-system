@@ -6,7 +6,7 @@ import { resolveRoot } from './workflow-core';
 export const VNEXT_SOURCE_CONTRACT_RELATIVE_PATH = '.workflow-system/vnext/SOURCE_CONTRACT.yaml';
 export const VNEXT_SKILL_TEMPLATE_RELATIVE_PATH = 'templates/vnext/skills';
 
-export const PHASE_1A_ENTRIES = ['prepare-task', 'review-change', 'execute-step'] as const;
+export const PHASE_1A_ENTRIES = ['prepare-task', 'review-draft', 'review-change', 'execute-step'] as const;
 export type Phase1AEntry = (typeof PHASE_1A_ENTRIES)[number];
 
 export const PHASE_1_ENTRIES = [
@@ -42,6 +42,7 @@ const PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN = new RegExp(PUBLIC_ENTRY_CONTINU
 
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan'],
+  'review-draft': [],
   'review-change': ['default', 'report-only'],
   'execute-step': ['default', 'repair'],
 };
@@ -64,6 +65,7 @@ export const EXPERT_MODES: Record<ExpertEntry, readonly string[]> = {
 
 const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
   'prepare-task': 'prepared-task',
+  'review-draft': 'draft-review-result',
   'review-change': 'report',
   'execute-step': 'change-result',
   'debug-task': 'debug-result',
@@ -74,6 +76,7 @@ const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
 
 const EXPECTED_AUTHORITY_OWNERS: Record<Phase1Entry, string> = {
   'prepare-task': 'user',
+  'review-draft': 'none',
   'review-change': 'none',
   'execute-step': 'task',
   'debug-task': 'task',
@@ -84,6 +87,7 @@ const EXPECTED_AUTHORITY_OWNERS: Record<Phase1Entry, string> = {
 
 const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
+  'review-draft': [],
   'review-change': [],
   'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
   'debug-task': ['task-state-transaction'],
@@ -120,9 +124,10 @@ export const EXPECTED_EXPERT_RUNTIME_OPERATIONS: Record<ExpertEntry, readonly st
 };
 
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
-  'prepare-task': ['scope-guard', 'evidence-admission-policy', 'resume-review-gate'],
+  'prepare-task': ['scope-guard', 'adaptive-depth-policy', 'evidence-admission-policy', 'resume-review-gate'],
+  'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
   'review-change': ['scope-guard', 'diff-target-resolver', 'read-only-review-guard', 'review-convergence-policy', 'evidence-admission-policy'],
-  'execute-step': ['scope-guard', 'source-authority-policy', 'task-identity-guard', 'adaptive-depth-policy', 'finding-admission', 'review-convergence-policy', 'evidence-admission-policy'],
+  'execute-step': ['scope-guard', 'task-identity-guard', 'finding-admission', 'review-convergence-policy', 'resume-review-gate'],
   'debug-task': ['scope-guard', 'review-convergence-policy', 'evidence-admission-policy'],
   'task-lifecycle': ['scope-guard'],
   'capture-work-item': ['scope-guard'],
@@ -167,6 +172,7 @@ const REQUIRED_CAPABILITIES = [
   'scope-guard',
   'decision-authority-gate',
   'adaptive-depth-policy',
+  'draft-consistency-challenge',
   'propagation-evidence-validator',
   'design-evidence-gate',
   'release-evidence-gate',
@@ -682,20 +688,61 @@ function validatePublicEntryTerminalBoundary(content: string, entry: string): vo
   }
 }
 
-function validateExecuteStepCommandMutationBoundary(content: string): void {
+function validatePrepareTaskDraftBoundary(content: string): void {
   const requiredTerms = [
-    'expected_write_footprint',
-    'observed_write_paths',
-    'canonical P-13 mutation-scope evaluator',
-    'scope-check --command-audit-stdin',
-    'footprint cannot be safely bounded',
-    '`.gitignore` never grants an exemption',
-    'final Git diff is only one evidence source',
-    'transient create/delete history cannot be proven complete',
+    'revision-bound **Task Basis**',
+    'record the original request verbatim',
+    'Reviewer findings',
+    'same atomic draft transaction',
+    'semantic delta map',
+    'path-by-step interaction map',
+    'Step scopes are permissions',
+    'author self-check',
+    '`next_route: review-draft`',
+    'later caller invocation',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) {
-      fail(`execute-step must declare the command-side-effect boundary term "${term}"`);
+      fail(`prepare-task must preserve the draft-consistency boundary term "${term}"`);
+    }
+  }
+}
+
+function validateReviewDraftBoundary(content: string): void {
+  const requiredTerms = [
+    'verbatim original request',
+    'Task Basis path and revision linked by `CURRENT_TASK`',
+    'content hash and task/document',
+    'valid without hidden history',
+    'or a previous review',
+    'not request authority',
+    'Never reconstruct the request',
+    'from the candidate draft',
+    'self-contained `draft_review_result`',
+    'does not become another authority source',
+    'one exact `draft + active`',
+    'governed_mutation_count: 0',
+    'verdict: clean | findings | needs-user',
+  ];
+  for (const term of requiredTerms) {
+    if (!content.includes(term)) {
+      fail(`review-draft must preserve the independent read-only boundary term "${term}"`);
+    }
+  }
+}
+
+function validateExecuteStepSemanticBoundary(content: string): void {
+  const requiredTerms = [
+    'Runtime `preflight-step`',
+    'Do not redesign the task',
+    'current step mutation scope',
+    "confirmed task's `Persistent Tests`",
+    'Runtime `record-step-result`',
+    'Runtime `complete-reviewed-step`',
+  ];
+  for (const term of requiredTerms) {
+    if (!content.includes(term)) {
+      fail(`execute-step must preserve the semantic boundary term "${term}"`);
     }
   }
 }
@@ -725,7 +772,9 @@ function validateTemplate(
 
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
   validatePublicEntryTerminalBoundary(content, entry);
-  if (entry === 'execute-step') validateExecuteStepCommandMutationBoundary(content);
+  if (entry === 'prepare-task') validatePrepareTaskDraftBoundary(content);
+  if (entry === 'review-draft') validateReviewDraftBoundary(content);
+  if (entry === 'execute-step') validateExecuteStepSemanticBoundary(content);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(
@@ -757,8 +806,8 @@ function validateTemplate(
   if (entry === 'execute-step') {
     expectSetEqual(productFiles, ['admitted_scope'], `${entry}.mutation_boundary.product_files`);
   }
-  if (entry === 'review-change' && productFiles.length !== 0) {
-    fail('review-change must have an empty direct product write boundary');
+  if ((entry === 'review-change' || entry === 'review-draft') && productFiles.length !== 0) {
+    fail(`${entry} must have an empty direct product write boundary`);
   }
 
   const capabilityRefs = expectStringArray(contract.internal_capabilities, `${entry}.entry_contract.internal_capabilities`);
@@ -781,8 +830,8 @@ function validateTemplate(
       fail(`${entry} references Runtime operation "${operation}" outside the Phase 2 operation boundary`);
     }
   }
-  if (entry === 'review-change' && runtimeRefs.length !== 0) {
-    fail('review-change must have no Runtime operations');
+  if ((entry === 'review-change' || entry === 'review-draft') && runtimeRefs.length !== 0) {
+    fail(`${entry} must have no Runtime operations`);
   }
   expectStringArray(contract.stop_conditions, `${entry}.entry_contract.stop_conditions`);
   if (contract.output_kind !== EXPECTED_OUTPUT_KINDS[entry]) {

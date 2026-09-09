@@ -890,6 +890,10 @@ describe('vNext bootstrap-project', () => {
       task_slug: 'realign-persistence',
       document_id: 'doc-111111111111111111111111',
       task_title: 'Realign persistence fixture',
+      task_basis: {
+        original_request: { source: 'test:realign-request', verbatim: 'Preserve Runtime durable records across realign.' },
+        user_decisions: [],
+      },
       draft_definition: runtimeDraftDefinition(),
       active_step_id: 'step-1',
       claim_evidence: [{

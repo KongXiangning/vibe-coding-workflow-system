@@ -2,8 +2,8 @@
 
 - Phase: `Target Architecture`
 - Status: `Accepted final design`
-- Date: `2026-09-02`
-- Behavior impact: `none`
+- Date: `2026-09-08`
+- Behavior impact: `adds an independent read-only draft review entry`
 - Design references:
   - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
   - [`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md)
@@ -21,7 +21,7 @@ The target architecture is:
 Execution:
 user / harness
         ↓
-seven daily intent entries
+eight daily intent entries
         ↓
 adaptive internal governance capabilities
         ↓
@@ -97,6 +97,14 @@ Internal capabilities may be evaluated together, lazily, or in parallel. They do
 
 Review may inspect the full risk surface. A discovered issue enters repair only after owner, scope, authority, evidence strength, deduplication, and convergence checks pass.
 
+Draft review and change review have different explicit targets. `prepare-task`
+atomically persists an identity-derived `TASK_BASIS-<TASK_ID>.md` containing the
+verbatim original request and later explicit user decisions, while
+`CURRENT_TASK` links its exact path and revision. `review-draft` compares one
+prepared draft with that linked request basis and authoritative context;
+`review-change` evaluates one logical implementation diff. Both are read-only,
+neither writes a finding queue, and neither invokes another public entry.
+
 ### P-06 — Model proposes; Runtime commits
 
 The model and user own semantic judgment and authority. Runtime owns deterministic validation, exact write boundaries, conflict detection, idempotence, atomic commit, and read-back. Runtime cannot promote an unconfirmed proposal into project truth.
@@ -162,6 +170,7 @@ The recommended surface distinguishes discoverability from callability. The exac
 | Entry | User intent | Explicit target modes | Important boundary |
 |---|---|---|---|
 | `prepare-task` | Turn a request or existing task into an executable, bounded intent | `confirm`, `replan`; ordinary preparation/refinement is the default entry intent | Review, scope, classification, planning, decomposition, and draft formation are adaptive internal dimensions; `confirm` is the explicit authority boundary |
+| `review-draft` | Independently compare one prepared draft with its original request and authoritative project context | none | Reads the identity/revision-bound Task Basis linked by `CURRENT_TASK` (exact caller-supplied source only for legacy fallback); returns a portable `clean`, `findings`, or `needs-user` result with zero Runtime or repository writes |
 | `execute-step` | Implement the admitted current step | `repair`; ordinary implementation is the default entry intent | `repair` requires an admitted finding or confirmed root cause; governance state writes use Runtime proposals |
 | `review-change` | Produce one unified read-only verdict for one diff target | `report-only`; ordinary review is the default entry intent | `discovery` and `verification` are review-cycle phases, not public modes |
 | `debug-task` | Establish root cause and select an authorized recovery route | `investigate-only`, `resolve` | Debug does not write product code; `resolve` may macro-route to `execute-step:repair` after proof and authority |
@@ -204,6 +213,7 @@ Pure vNext has no compatibility surface for the old Skills. The old names are un
 ### 5.1 Modes retained by the target proposal
 
 - `prepare-task:replan` changes the authority and history contract of an already prepared task.
+- `review-draft` has no modes; its separate public identity is justified by a different target, linked request-evidence input, zero-write authority, and terminal review result. Prior review output is never request authority.
 - `execute-step:repair` requires an admitted finding or confirmed root cause and consumes a repair budget.
 - `review-change:report-only` changes terminal semantics and forbids executable follow-up.
 - `debug-task:investigate-only` and `debug-task:resolve` express different user intent and follow-up authority; neither lets the debug entry edit product code directly.
@@ -1189,11 +1199,11 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 
 ### 16.1 Confirmed decisions
 
-1. Public entries express intent rather than historical stages, with seven daily intents.
-2. Internal preparation/review dimensions do not form an executable handoff chain; capabilities are selected adaptively.
+1. Public entries express intent rather than historical stages, with eight daily intents.
+2. Internal preparation/review dimensions do not form an executable handoff chain; `review-draft` is a separate caller-invoked intent and capabilities remain adaptive inside each entry.
 3. Exposure is split into daily, administrative, expert/automation, internal, and Runtime surfaces; old Skills are not a vNext compatibility tier.
 4. `review-convergence-policy` and `evidence-admission-policy` become first-class internal capabilities.
-5. Review is unified and read-only; finding admission remains separate.
+5. Draft review and change review are distinct read-only targets; finding admission remains separate.
 6. Runtime uses a common transaction kernel plus exact typed handlers and canonical sources only.
 7. The old protocol is read only by a one-time Migration Pack; vNext has an explicit schema boundary and does not interpret legacy documents.
 8. `project-context-resolver` performs relevance/precedence/conflict-aware retrieval; `knowledge-admission-policy` governs durable Contract/Decision/Lesson growth.
@@ -1223,4 +1233,4 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 
 ## 17. Decision outcome
 
-The accepted target is a vNext architecture with seven daily intents, adaptive internal capabilities, unified review and Review Convergence, Evidence Admission, `project-context-resolver`, `knowledge-admission-policy`, a shared Runtime transaction kernel, and Markdown/YAML canonical knowledge. Migration is idle-only and one-time: the Migration Pack performs offline conversion of old governance documents, after which the vNext Distribution is installed and old Skills are absent. vNext Skills do not understand the old protocol; an old or unsupported schema returns `migration-required` and stops.
+The accepted target is a vNext architecture with eight daily intents, adaptive internal capabilities, independent read-only draft and change review, Review Convergence, Evidence Admission, `project-context-resolver`, `knowledge-admission-policy`, a shared Runtime transaction kernel, and Markdown/YAML canonical knowledge. Migration is idle-only and one-time: the Migration Pack performs offline conversion of old governance documents, after which the vNext Distribution is installed and old Skills are absent. vNext Skills do not understand the old protocol; an old or unsupported schema returns `migration-required` and stops.
