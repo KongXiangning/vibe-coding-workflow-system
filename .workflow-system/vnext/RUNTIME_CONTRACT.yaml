@@ -9,7 +9,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.15.2
+  package_version: 0.15.3
   node_min_version: ">=20.0.0"
 
 proposal:
@@ -82,9 +82,10 @@ proposal:
         - repair_fingerprint
         - repair_fingerprints
         - repair_wave_id
-        - diff_target
+        - change_set_id
         - review_receipt
         - claim_evidence
+        - execution_result
     claim_evidence:
       stored_in: canonical CURRENT_TASK.runtime_state
       record_fields:
@@ -136,8 +137,8 @@ proposal:
       required:
         - cycle_id
         - cycle_phase
-        - diff_target
-        - diff_target_verification
+        - change_set_id
+        - review_target_revision
         - verdict
         - admitted_fingerprints
         - evidence_refs
@@ -145,9 +146,7 @@ proposal:
       cycle_phase:
         - discovery
         - verification
-      target_verification:
-        - verified
-        - harness-supplied
+      target_verification: runtime-file-manifest
     review_result:
       stored_in: canonical CURRENT_TASK.runtime_state.pending_review_result
       verdicts:
@@ -158,7 +157,8 @@ proposal:
         - active_step_id
         - review_cycle_id
         - latest_execution_id
-        - exact_diff_target
+        - change_set_id
+        - review_target_revision
       consumed_by:
         clean: execute-step:complete-reviewed-step
         findings: execute-step:begin-repair
@@ -249,8 +249,12 @@ proposal:
       scope_enforcement: task-and-current-step
       command_plan_source: confirmed-current-step
       persistent_tests_enforcement: frozen-section-plus-scope-evaluator
+      completion_evidence_source: recorded-step-result-only
+      change_detection: runtime-preflight-candidate-before-after-delta
       proposal_file_policy: project-external-only
       advancement_owner: runtime
+      post_completion_commit_owner: user-or-explicit-outer-orchestrator
+      post_completion_route: git-commit
     bound_actions:
       - admit
       - step-progress
@@ -263,7 +267,9 @@ proposal:
         - review-context
         - record-review-result
       context_source: latest-recorded-execution
-      diff_target: exact-recorded-target
+      reviewable_execution: implemented-awaiting-required-checkpoint-or-repair-verification
+      change_set: runtime-owned-stable-id
+      review_target: runtime-before-after-file-delta
       result_storage: canonical-pending-review-result
       direct_product_writes: deny
       advancement_owner: execute-step

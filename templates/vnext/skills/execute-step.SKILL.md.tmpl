@@ -44,15 +44,17 @@ Implement only the confirmed `CURRENT_TASK` step selected by Runtime. Do not red
 
 ## Operating rules
 
-1. Send intended changed paths to Runtime `preflight-step` on stdin. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, or preflight blocks, report that result and stop.
+1. Send intended changed paths, including every exact planned command write, to Runtime `preflight-step` on stdin. Runtime freezes their before-state in the returned receipt. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, or preflight blocks, report that result and stop.
 2. Modify only paths admitted for the current step. A persistent test may be created or changed only when it is already frozen in the confirmed task's `Persistent Tests`; do not admit another test during execution.
 3. Run the current step's planned commands and validation. Do not substitute an unplanned write-capable command. If a command or validation cannot run as planned, stop instead of improvising around Runtime.
 4. When the canonical review result contains findings, ask Runtime `begin-repair` for the complete admitted finding set. Repair only those findings in one bounded wave and do not use repair as an opportunity for unrelated improvements.
-5. Send the exact logical diff target, actual changed paths, command results, validation results, and acceptance evidence to Runtime `record-step-result` on stdin. Runtime owns scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
-6. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; do not copy a review receipt by hand or edit product code again.
+5. Send declared actual changed paths, command results, validation results, and all acceptance evidence to Runtime `record-step-result` on stdin. Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
+6. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again.
 
 ## Required result
 
-Return one structured `change-result` with the current step, actual changed files, commands and validation run, evidence, Runtime result, and any blocker. After a successful Runtime commit, stop. A `next_route` may recommend a later caller action, but this invocation must not invoke another public Skill or start the next step.
+Return one structured `change-result` with the current step, Runtime-detected changed files, commands and validation run, evidence, Runtime result, and any blocker. After a successful Runtime commit, stop.
+
+Only when Runtime reports successful step completion, return `next_route: git-commit` and a `commit_scope` containing the Runtime-detected changed files plus Runtime-written workflow paths. This is a recommendation for the user—or an explicitly configured outer orchestrator—to invoke later; neither execute-step nor Runtime invokes it. Otherwise recommend the appropriate review or blocker route. This invocation must not invoke another public Skill or start the next step.
 
 terminal_boundary: public-entry-terminal/v1

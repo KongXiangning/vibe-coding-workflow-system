@@ -123,6 +123,7 @@ vnext_bundle:
     - bootstrap-project
   required_expert_entries:
     - validate-change
+    - git-commit
   phase2_runtime:
     required_when_source_phase: Phase 2
     canonical_current_task_requires_runtime_state: true

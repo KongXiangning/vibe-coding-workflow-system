@@ -91,7 +91,7 @@ const VNEXT_REQUIRED_DAILY_ENTRIES = [
   'close-task',
 ] as const;
 const VNEXT_REQUIRED_ADMIN_ENTRIES = ['bootstrap-project'] as const;
-const VNEXT_REQUIRED_EXPERT_ENTRIES = ['validate-change'] as const;
+const VNEXT_REQUIRED_EXPERT_ENTRIES = ['validate-change', 'git-commit'] as const;
 // The old public surface is deliberately kept as a closed list at the
 // migration boundary.  Target projects normally provide the same names in
 // `templates/skills`, but bundle validation must still reject legacy routes
@@ -2135,6 +2135,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'close-task': ['preview'],
   'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign'],
   'validate-change': [],
+  'git-commit': [],
 };
 const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'prepare-task': 'prepared-task',
@@ -2147,6 +2148,7 @@ const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'close-task': 'closure-result',
   'bootstrap-project': 'bootstrap-result',
   'validate-change': 'validation-result',
+  'git-commit': 'git-commit-result',
 };
 const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'prepare-task': 'user',
@@ -2159,6 +2161,7 @@ const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'close-task': 'task',
   'bootstrap-project': 'user',
   'validate-change': 'none',
+  'git-commit': 'user',
 };
 const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'prepare-task': ['task-state-transaction'],
@@ -2171,12 +2174,14 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction', 'contract-candidate-commit', 'decision-record-transaction'],
   'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'paired-host-guidance-transaction'],
   'validate-change': [],
+  'git-commit': [],
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
   'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
   'review-change': ['project-context-resolver', 'scope-guard', 'diff-target-resolver', 'read-only-review-guard'],
   'execute-step': ['scope-guard', 'task-identity-guard', 'resume-review-gate'],
   'validate-change': ['project-context-resolver', 'evidence-admission-policy', 'adaptive-depth-policy', 'diff-target-resolver', 'read-only-review-guard', 'owner-route-resolver'],
+  'git-commit': ['dangerous-operation-gate'],
 };
 
 const BUNDLE_CURRENT_TASK_HEADINGS = ['## 任务信息', '## 验收标准', '## 允许修改范围', '## 实施步骤'];

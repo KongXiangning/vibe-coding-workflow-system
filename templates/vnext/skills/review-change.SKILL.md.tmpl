@@ -1,6 +1,6 @@
 ---
 name: review-change
-description: Read the recorded step diff, persist one review result, then stop.
+description: Read the recorded step change, persist one review result, then stop.
 entry_contract:
   entry: review-change
   mode:
@@ -28,7 +28,7 @@ entry_contract:
   runtime_operations:
     - task-state-transaction
   stop_conditions:
-    - Runtime cannot provide one current executed step and exact diff target
+    - Runtime cannot provide one current executed step and verified review target
     - the review cannot be completed read-only
     - Runtime rejects the review result
   output_kind: review-result
@@ -42,7 +42,7 @@ Review the current executed step. Do not modify code, tests, configuration, or g
 
 ## Operating rules
 
-1. Ask Runtime `review-context` for the current executed step, exact recorded diff target, acceptance, validation evidence, mutation scope, Persistent Tests, and any admitted findings. Review only that target and context.
+1. Ask Runtime `review-context` for the successful execution awaiting a required review checkpoint, Runtime-recorded change set and exact before/after file delta, acceptance, validation evidence, mutation scope, Persistent Tests, and any admitted findings. Review only that target and context. A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable.
 2. Check step compliance, scope, implementation correctness, acceptance coverage, validation evidence, unauthorized persistent-test changes, and regression risk.
 3. In discovery, report all clear repairable findings together. In verification, verify the admitted findings and affected regression surface; report any newly discovered issue without widening the repair yourself.
 4. Return exactly one verdict:
@@ -54,6 +54,6 @@ Review the current executed step. Do not modify code, tests, configuration, or g
 
 ## Required result
 
-Return the Runtime-recorded `review-result`, inspected diff target, findings or blocker, evidence, and at most one `next_route` recommendation for a later caller invocation. Then stop.
+Return the Runtime-recorded `review-result`, inspected review target, findings or blocker, evidence, and at most one `next_route` recommendation for a later caller invocation. Then stop.
 
 terminal_boundary: public-entry-terminal/v1

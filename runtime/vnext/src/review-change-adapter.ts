@@ -14,6 +14,8 @@ import {
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   VNextRuntimeError,
   applyVNextRuntimeProposal,
+  assertReviewExecutionEligible,
+  captureReviewTarget,
   createReviewResultProposal,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
@@ -28,6 +30,7 @@ import {
   type ReviewResultVerdict,
   type RuntimeApplyOptions,
   type RuntimeResult,
+  type StepExecutionResult,
   type StepExecutionLogEntry,
 } from './kernel';
 import {
@@ -51,7 +54,6 @@ export type ReviewContextReceipt = {
   execution_id: string;
   cycle_id: string;
   cycle_phase: 'discovery' | 'verification';
-  diff_target: string;
   admitted_fingerprints: string[];
 };
 
@@ -64,8 +66,10 @@ export type ReviewContextResult = {
     id: string;
     mode: 'default' | 'repair';
     status: string;
-    diff_target: string;
+    change_set_id: string;
+    review_target_revision: string;
     evidence_refs: string[];
+    execution_result: StepExecutionResult | null;
   };
   current_step: {
     id: string;
@@ -167,7 +171,13 @@ function latestRecordedExecution(current: CanonicalCurrentTask): StepExecutionLo
   );
   const latest = records[records.length - 1];
   if (!latest) fail('REVIEW_EXECUTION_REQUIRED', 'review-change requires a recorded execute-step result for the active step.');
-  if (!latest.diff_target) fail('REVIEW_TARGET_REQUIRED', 'the latest execute-step result does not contain an exact diff target.');
+  if (!latest.change_set_id || !latest.execution_result?.review_target) {
+    fail('REVIEW_TARGET_REQUIRED', 'the latest execute-step result does not contain a Runtime-owned review target.');
+  }
+  if (latest.execution_result.change_set_id !== latest.change_set_id) {
+    fail('REVIEW_TARGET_CONFLICT', 'the latest execution change-set identity is inconsistent.');
+  }
+  assertReviewExecutionEligible(current, latest);
   return latest;
 }
 
@@ -190,12 +200,49 @@ function assertReviewableTask(current: CanonicalCurrentTask): void {
   if (current.runtimeState.resume_requires_review) fail('RESUME_REVIEW_REQUIRED', 'review-change is blocked by the current resume-review gate.');
 }
 
+function copyExecutionResult(value: StepExecutionResult | undefined): StepExecutionResult | null {
+  if (!value) return null;
+  return {
+    outcome: value.outcome,
+    change_set_id: value.change_set_id,
+    review_base: {
+      kind: value.review_base.kind,
+      revision: value.review_base.revision,
+      entries: value.review_base.entries.map(item => ({ ...item })),
+    },
+    review_target: {
+      kind: value.review_target.kind,
+      revision: value.review_target.revision,
+      entries: value.review_target.entries.map(item => ({ ...item })),
+    },
+    change_delta: {
+      kind: value.change_delta.kind,
+      base_revision: value.change_delta.base_revision,
+      target_revision: value.change_delta.target_revision,
+      entries: value.change_delta.entries.map(item => ({ ...item })),
+    },
+    actual_changed_paths: [...value.actual_changed_paths],
+    command_results: value.command_results.map(item => ({
+      ...item,
+      observed_repo_writes: [...item.observed_repo_writes],
+      evidence_refs: [...item.evidence_refs],
+    })),
+    validation_results: value.validation_results.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
+    acceptance_evidence: value.acceptance_evidence.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
+    blocker: value.blocker,
+  };
+}
+
 export function reviewContext(root: string, input: unknown): ReviewContextResult {
   const source = record(input, 'review-context input');
   exactKeys(source, [], 'review-context input');
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
   const execution = latestRecordedExecution(current);
+  const currentTarget = captureReviewTarget(root, execution.execution_result!.review_target.entries.map(item => item.path));
+  if (currentTarget.revision !== execution.execution_result!.review_target.revision) {
+    fail('REVIEW_TARGET_STALE', 'product files changed after the latest execution result was recorded.');
+  }
   if (current.runtimeState.pending_review_result?.execution_id === execution.idempotency_key
     && current.runtimeState.pending_review_result.verdict !== 'blocked') {
     fail('REVIEW_ALREADY_RECORDED', 'the latest execution already has a durable clean or findings review result.');
@@ -219,7 +266,6 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     execution_id: execution.idempotency_key,
     cycle_id: current.runtimeState.review_cycle.id,
     cycle_phase: phase,
-    diff_target: execution.diff_target!,
     admitted_fingerprints: admitted.map(item => item.fingerprint),
   };
   return {
@@ -231,8 +277,10 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       id: execution.idempotency_key,
       mode: execution.mode,
       status: execution.status,
-      diff_target: execution.diff_target,
+      change_set_id: execution.change_set_id!,
+      review_target_revision: execution.execution_result!.review_target.revision,
       evidence_refs: [...execution.evidence_refs],
+      execution_result: copyExecutionResult(execution.execution_result),
     },
     current_step: {
       id: resolution.current.id,
@@ -267,7 +315,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
 
 function normalizeContextReceipt(value: unknown): ReviewContextReceipt {
   const source = record(value, 'context_receipt');
-  exactKeys(source, ['kind', 'task_id', 'document_id', 'source_revision', 'step_id', 'execution_id', 'cycle_id', 'cycle_phase', 'diff_target', 'admitted_fingerprints'], 'context_receipt');
+  exactKeys(source, ['kind', 'task_id', 'document_id', 'source_revision', 'step_id', 'execution_id', 'cycle_id', 'cycle_phase', 'admitted_fingerprints'], 'context_receipt');
   if (source.kind !== 'review-context/v1') fail('REVIEW_ADAPTER_INPUT_INVALID', 'context_receipt.kind must be review-context/v1.');
   if (source.cycle_phase !== 'discovery' && source.cycle_phase !== 'verification') fail('REVIEW_ADAPTER_INPUT_INVALID', 'context_receipt.cycle_phase is invalid.');
   const sourceRevision = text(source.source_revision, 'context_receipt.source_revision', 64);
@@ -281,17 +329,20 @@ function normalizeContextReceipt(value: unknown): ReviewContextReceipt {
     execution_id: text(source.execution_id, 'context_receipt.execution_id', 128),
     cycle_id: text(source.cycle_id, 'context_receipt.cycle_id', 128),
     cycle_phase: source.cycle_phase,
-    diff_target: text(source.diff_target, 'context_receipt.diff_target', 512),
     admitted_fingerprints: textList(source.admitted_fingerprints, 'context_receipt.admitted_fingerprints', true),
   };
 }
 
-function assertCurrentContext(current: CanonicalCurrentTask, receipt: ReviewContextReceipt): StepExecutionLogEntry {
+function assertCurrentContext(root: string, current: CanonicalCurrentTask, receipt: ReviewContextReceipt): StepExecutionLogEntry {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) fail('REVIEW_CONTEXT_STALE', 'review context belongs to a different task document.');
   if (receipt.source_revision !== current.sourceTuple.revision) fail('REVIEW_CONTEXT_STALE', 'CURRENT_TASK changed after review context was issued.');
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CONTEXT_STALE', 'active step or review cycle changed after review context was issued.');
   const latest = latestRecordedExecution(current);
-  if (latest.idempotency_key !== receipt.execution_id || latest.diff_target !== receipt.diff_target) fail('REVIEW_CONTEXT_STALE', 'recorded execution or exact diff target changed after review context was issued.');
+  if (latest.idempotency_key !== receipt.execution_id) fail('REVIEW_CONTEXT_STALE', 'recorded execution changed after review context was issued.');
+  const currentTarget = captureReviewTarget(root, latest.execution_result.review_target.entries.map(item => item.path));
+  if (currentTarget.revision !== latest.execution_result.review_target.revision) {
+    fail('REVIEW_TARGET_STALE', 'product files changed after review context was issued.');
+  }
   const expectedPhase = latest.mode === 'repair' ? 'verification' : 'discovery';
   if (receipt.cycle_phase !== expectedPhase) fail('REVIEW_CONTEXT_STALE', 'review phase changed after review context was issued.');
   const open = expectedPhase === 'verification'
@@ -301,6 +352,21 @@ function assertCurrentContext(current: CanonicalCurrentTask, receipt: ReviewCont
     fail('REVIEW_CONTEXT_STALE', 'admitted finding set changed after review context was issued.');
   }
   return latest;
+}
+
+function assertRecordedTargetCurrent(root: string, current: CanonicalCurrentTask, receipt: ReviewContextReceipt): StepExecutionLogEntry {
+  const execution = current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+    !('action' in item) && item.idempotency_key === receipt.execution_id,
+  );
+  if (!execution?.execution_result || !execution.change_set_id
+    || execution.execution_result.change_set_id !== execution.change_set_id) {
+    fail('REVIEW_TARGET_CONFLICT', 'review result no longer binds its Runtime-recorded execution target.');
+  }
+  const currentTarget = captureReviewTarget(root, execution.execution_result.review_target.entries.map(item => item.path));
+  if (currentTarget.revision !== execution.execution_result.review_target.revision) {
+    fail('REVIEW_TARGET_STALE', 'product files changed after the recorded execution target.');
+  }
+  return execution;
 }
 
 function normalizeFinding(value: unknown, index: number, current: CanonicalCurrentTask): ReviewFindingCandidate {
@@ -398,6 +464,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   const verdict = source.verdict as ReviewResultVerdict;
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
+  const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must be a bounded array.');
   const findings = source.findings.map((item, index) => normalizeFinding(item, index, current));
   if (new Set(findings.map(item => item.fingerprint)).size !== findings.length) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must not contain duplicates.');
@@ -428,8 +495,8 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
     step_id: receipt.step_id,
     cycle_id: receipt.cycle_id,
     cycle_phase: receipt.cycle_phase,
-    diff_target: receipt.diff_target,
-    diff_target_verification: 'verified',
+    change_set_id: recordedExecution.change_set_id!,
+    review_target_revision: recordedExecution.execution_result!.review_target.revision,
     verdict: finalVerdict,
     findings: finalFindings,
     unresolved_fingerprints: finalUnresolved,
@@ -442,7 +509,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
     if (digest(durable) !== digest(reviewResult)) fail('REVIEW_REPLAY_CONFLICT', 'the durable review id is bound to different review semantics.');
     return semanticNoOp(current, resultKey, 'This exact review result was already recorded.', options);
   }
-  assertCurrentContext(current, receipt);
+  assertCurrentContext(root, current, receipt);
   const proposal = createReviewResultProposal(current, {
     review_result: reviewResult,
     evidence_refs: evidenceRefs,

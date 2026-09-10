@@ -133,7 +133,7 @@ function copyDirectory(sourceRoot: string, targetRoot: string, relativePath: str
 }
 
 function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> {
-  const skillEntries = ['bootstrap-project', 'prepare-task', 'review-draft', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change'];
+  const skillEntries = ['bootstrap-project', 'prepare-task', 'review-draft', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change', 'git-commit'];
   const runtimeSources = ['cli.ts', 'current-task.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'migration-provenance.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
   return [
     { source_path: 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md', target_path: '.workflow-system/WORKFLOW_PROTOCOL.md', category: 'protocol' },
