@@ -796,6 +796,7 @@ function buildProfileScaffoldTemplate(): JsonObject {
       ],
     },
     boundaries: {
+      non_executable_change_paths: [],
       forbidden_paths: ['.git/**', 'node_modules/**'],
       generated_only_paths: [
         'docs/workflow/generated/workflow-docs/**',

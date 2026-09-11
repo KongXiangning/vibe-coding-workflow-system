@@ -20,7 +20,7 @@ The canonical project surface contains the following governed documents:
 
 `CURRENT_TASK.md` carries its vNext YAML envelope and runtime state. Its body
 contains the task identity, acceptance, Allowed / Conditional / Forbidden
-scope buckets, implementation steps, and execution evidence.
+scope buckets, implementation steps, test strategy, and execution evidence.
 
 Every ordinary draft links one identity-derived Task Basis by exact path and
 SHA-256 revision. The Task Basis preserves only the verbatim original request
@@ -54,6 +54,71 @@ buckets, `affected_contracts`, decision fields, plan/steps, regression checks,
 rollback points, and conditional design/release/propagation sections). A
 repeated `update-draft` keeps the same `TASK_ID`, `TASK_SLUG`, and `document_id`
 and preserves execution/audit history. A draft has no execution authority.
+
+Every new or refined draft has one canonical `Test Strategy` record under its
+regression-checks section:
+
+```yaml
+test_strategy:
+  mode: test-first | implementation-first | not-applicable
+  source: explicit-user | project-policy | inferred-default
+  source_ref: <exact Task Basis coordinate, project policy file, or prepare-task-default>
+  task_classification: contract-clear-behavior | exploratory-or-infrastructure | non-executable-change
+  rationale: <bounded one-line reason>
+```
+
+`source` records why the mode was selected; it is not another authority source.
+`explicit-user` binds `source_ref` to an exact Task Basis source coordinate;
+`project-policy` binds it to an existing repository-relative policy file; and
+`inferred-default` uses the fixed `prepare-task-default` reference.
+Selection precedence is exact: an explicit user requirement overrides an
+applicable project policy, and an applicable project policy overrides the
+prepare-task default. If no mode can be selected reliably, prepare-task must
+resolve it as a user-owned open question before committing the draft. A
+behavior-changing task cannot use `not-applicable` merely to avoid tests.
+`test-first` requires at least one exact Persistent Tests asset; its first step
+must contain every such asset and no non-test target. `implementation-first`
+must place any declared persistent tests only in later steps; Persistent Tests
+may remain `none` when evidence-first admission or an explicit user denial does
+not authorize a new persistent test. `not-applicable` is valid only for
+`non-executable-change`, requires Persistent Tests to be `none`, and requires
+every Allowed, Conditional, and implementation-step mutation pattern to be an
+exact path or provable subset of
+`.workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths`.
+Entries in that project-owned boundary are limited to exact paths or literal
+directory prefixes ending in `/**`; wildcard-bearing prefixes and all other
+wildcard layouts are unusable for this classification.
+That project-owned field is distinct from documentation inventory: Markdown
+such as a Skill template or host guidance can change executable Agent behavior.
+Missing, empty, repository-wide, or ambiguous classification blocks only a new
+`not-applicable` draft, not either executable test-strategy mode; existing
+active tasks are not revalidated. Runtime
+revalidates these rules for raw create, update, confirmation, and replan
+proposals. The whole task definition, including this
+record, is frozen by `confirm-draft`; changing it afterward requires replan.
+Legacy tasks without this record remain readable, but every new, updated, or
+replanned semantic draft must add it.
+
+For a confirmed `test-first` task, Runtime derives the first implementation
+step as the Red phase and every later step as Green. The Red execution result
+uses `outcome: test-red`; one or more planned command or validation results use
+`status: expected-failure` and add this closed evidence object:
+
+```yaml
+expected_failure:
+  kind: behavior-not-implemented
+  expected_behavior: <behavior asserted by the test>
+  observed_failure_signature: <bounded runner output identifying that failure>
+```
+
+All companion results must pass. `failed`, `blocked`, and `not-run` results,
+or failures caused by syntax, type, import, fixture, tool, unrelated-test, or
+environment problems, make the Red attempt blocked rather than successful.
+`test-red` carries no acceptance evidence and cannot update claim-evidence
+slots. A clean review of that recorded Red change set is required before
+Runtime advances to later steps. Outside that first Red phase,
+`expected-failure` and `test-red` are invalid; ordinary implemented results
+still require every planned command and validation to pass.
 
 The typed `confirm-draft` action is the only draft-to-active transition. It
 must repeat the draft identity, carry the exact current `source_tuple.revision`

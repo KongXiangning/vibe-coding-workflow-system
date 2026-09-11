@@ -4,6 +4,7 @@ export type RepoPatternField =
   | 'paths.documentation_files'
   | 'paths.existing_skill_template_patterns'
   | 'paths.generated_artifacts'
+  | 'boundaries.non_executable_change_paths'
   | 'boundaries.generated_only_paths'
   | 'boundaries.workflow_owned_paths'
   | 'governance.current_documents';

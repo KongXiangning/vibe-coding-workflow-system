@@ -75,6 +75,7 @@ function writeBundle(sourceRoot: string, targetRoot: string, bundleDir: string, 
     ['bundle/capture-work-item.SKILL.md', '.agents/skills/capture-work-item/SKILL.md', 'skill'],
     ['bundle/close-task.SKILL.md', '.agents/skills/close-task/SKILL.md', 'skill'],
     ['bundle/validate-change.SKILL.md', '.agents/skills/validate-change/SKILL.md', 'skill'],
+    ['bundle/git-commit.SKILL.md', '.agents/skills/git-commit/SKILL.md', 'skill'],
     ...(phase2 ? [
       ['bundle/bootstrap-project.SKILL.md', '.agents/skills/bootstrap-project/SKILL.md', 'skill'],
       ['bundle/runtime-cli.js', '.workflow-system/runtime/dist/cli.js', 'runtime'],
@@ -275,6 +276,7 @@ describe('one-time vNext Migration Pack', () => {
     const expertArtifact = bundle.artifacts.find(artifact => artifact.target_path === '.agents/skills/validate-change/SKILL.md');
     expect(expertArtifact).toBeDefined();
     expect(fs.readFileSync(path.join(bundleDir, ...expertArtifact!.source_path.split('/')), 'utf8')).not.toContain('validate-change:regression');
+    expect(bundle.artifacts.some(artifact => artifact.target_path === '.agents/skills/git-commit/SKILL.md')).toBe(true);
     fs.mkdirSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff'), { recursive: true });
     fs.writeFileSync(path.join(target, '.codex', 'skills', 'workflow-system-review-diff', 'SKILL.md'), '# legacy nested skill\n', 'utf8');
     const manifest = createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });

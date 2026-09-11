@@ -31,7 +31,8 @@ entry_contract:
   stop_conditions:
     - Runtime does not expose one executable confirmed current step
     - Runtime blocks a candidate path, planned command, persistent test, or repair
-    - implementation or planned validation is incomplete or fails
+    - implementation or planned validation is incomplete or fails unexpectedly
+    - a Red result comes from syntax, import, fixture, tool, or environment failure rather than unimplemented behavior
     - Runtime rejects the submitted result or review receipt
   output_kind: change-result
 ---
@@ -44,12 +45,13 @@ Implement only the confirmed `CURRENT_TASK` step selected by Runtime. Do not red
 
 ## Operating rules
 
-1. Send intended changed paths, including every exact planned command write, to Runtime `preflight-step` on stdin. Runtime freezes their before-state in the returned receipt. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, or preflight blocks, report that result and stop.
+1. Send intended changed paths, including every exact planned command write, to Runtime `preflight-step` on stdin. Runtime freezes their before-state and returns the frozen test-strategy mode, execution phase, required outcome, and Persistent Tests in the receipt. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, the required prior Red checkpoint is missing, or preflight blocks, report that result and stop.
 2. Modify only paths admitted for the current step. A persistent test may be created or changed only when it is already frozen in the confirmed task's `Persistent Tests`; do not admit another test during execution.
-3. Run the current step's planned commands and validation. Do not substitute an unplanned write-capable command. If a command or validation cannot run as planned, stop instead of improvising around Runtime.
-4. When the canonical review result contains findings, ask Runtime `begin-repair` for the complete admitted finding set. Repair only those findings in one bounded wave and do not use repair as an opportunity for unrelated improvements.
-5. Send declared actual changed paths, command results, validation results, and all acceptance evidence to Runtime `record-step-result` on stdin. Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
-6. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again.
+3. Obey the Runtime phase. For `red`, modify no product implementation, run the planned test/validation, and verify that the new or frozen test fails specifically because the required behavior is not implemented. Record that result as `status: expected-failure` with `expected_failure.kind: behavior-not-implemented`, the expected behavior, and a bounded observed failure signature. Syntax, type, import, fixture, tool, unrelated-test, and environment failures are not Red evidence: record a truthful `blocked` result instead. A Red step must not submit acceptance evidence. For every non-Red phase, use `outcome: implemented` only when all planned command and validation results pass.
+4. Run only the current step's planned commands and validation. Do not substitute an unplanned write-capable command. If a command or validation cannot run as planned, stop instead of improvising around Runtime.
+5. When the canonical review result contains findings, ask Runtime `begin-repair` for the complete admitted finding set. Repair only those findings in one bounded wave and do not use repair as an opportunity for unrelated improvements. A repair of a Red step must still re-establish truthful `test-red` evidence.
+6. Send declared actual changed paths, command results, validation results, and permitted acceptance evidence to Runtime `record-step-result` on stdin. Use `outcome: test-red` only for Runtime phase `red`. Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns phase/order enforcement, scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
+7. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again. Runtime will not advance a test-first task to implementation until the Red result has passed this checkpoint.
 
 ## Required result
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { stringify } from 'yaml';
 import {
   getWorkflowGeneratedRelativeDir,
   getWorkflowProfilePath,
@@ -939,6 +940,35 @@ describe('workflow-runtime install', () => {
         });
         expect(second.success).toBe(true);
         expect(second.failures).toEqual([]);
+      });
+    });
+  });
+
+  test('scaffolds an empty non-executable classification and preserves target-owned choices on reinstall', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const first = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(first.success).toBe(true);
+
+        const profilePath = getWorkflowProfilePath(targetRoot);
+        const profile = loadProfile(profilePath);
+        const boundaries = profile.boundaries as Record<string, unknown>;
+        expect(boundaries.non_executable_change_paths).toEqual([]);
+        boundaries.non_executable_change_paths = ['README.md'];
+        fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+        const targetOwnedBytes = fs.readFileSync(profilePath, 'utf8');
+
+        const second = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+        expect(second.success).toBe(true);
+        expect(second.failures).toEqual([]);
+        expect(fs.readFileSync(profilePath, 'utf8')).toBe(targetOwnedBytes);
       });
     });
   });

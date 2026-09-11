@@ -308,6 +308,7 @@ describe('workflow-core', () => {
         },
         boundaries: {
           forbidden_paths: ['.git/**', 'node_modules/**'],
+          non_executable_change_paths: ['README.md', 'docs/product/**'],
           generated_only_paths: ['**/SKILL.md'],
           workflow_owned_paths: ['templates/docs/**', 'templates/skills/**'],
         },
@@ -316,6 +317,32 @@ describe('workflow-core', () => {
         },
       };
       expect(() => validateProfilePathSemantics(profile)).not.toThrow();
+    });
+
+    test('rejects malformed non-executable fields without globally enforcing classification usability', () => {
+      const scalar: JsonObject = {
+        boundaries: {
+          forbidden_paths: ['.git/**'],
+          non_executable_change_paths: 'README.md',
+        },
+      };
+      expect(() => validateProfilePathSemantics(scalar)).toThrow(/value must be an array/);
+
+      const repositoryWide: JsonObject = {
+        boundaries: {
+          forbidden_paths: ['.git/**'],
+          non_executable_change_paths: ['**'],
+        },
+      };
+      expect(() => validateProfilePathSemantics(repositoryWide)).not.toThrow();
+
+      const duplicate: JsonObject = {
+        boundaries: {
+          forbidden_paths: ['.git/**'],
+          non_executable_change_paths: ['docs/product/**', 'docs\\product\\**'],
+        },
+      };
+      expect(() => validateProfilePathSemantics(duplicate)).not.toThrow();
     });
 
     test('does not require optional repo-level path fields to exist', () => {

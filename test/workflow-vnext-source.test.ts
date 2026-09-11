@@ -137,7 +137,7 @@ describe('vNext Phase 2 source contract', () => {
       'close-task',
     ]);
     expect(result.administrativeEntries).toEqual(['bootstrap-project']);
-    expect(result.expertEntries).toEqual(['validate-change']);
+    expect(result.expertEntries).toEqual(['validate-change', 'git-commit']);
     expect(result.capabilities).toHaveLength(26);
     expect(result.runtimeOperations).toEqual([
       'archive-transaction',
@@ -154,7 +154,7 @@ describe('vNext Phase 2 source contract', () => {
     expect(result.legacySkillNames).toHaveLength(37);
   });
 
-  test('classifies validate-change only as the single expert entry', () => {
+  test('keeps validate-change and git-commit in the closed expert entry set', () => {
     const dailyRoot = copyFixture();
     replaceIn(
       dailyRoot,
@@ -189,7 +189,29 @@ describe('vNext Phase 2 source contract', () => {
       '  - id: validate-change\n    exposure: expert\n    template: templates/vnext/skills/validate-change.SKILL.md.tmpl\n',
       '  - id: validate-change\n    exposure: expert\n    template: templates/vnext/skills/validate-change.SKILL.md.tmpl\n  - id: validate-change\n    exposure: expert\n    template: templates/vnext/skills/validate-change.SKILL.md.tmpl\n',
     );
-    expect(() => validateVNextSource(duplicateRoot)).toThrow(/contract\.expert_entries must contain exactly 1 expert entry/i);
+    expect(() => validateVNextSource(duplicateRoot)).toThrow(/contract\.expert_entries must contain exactly 2 expert entr/i);
+  });
+
+  test('keeps git-commit local, caller-authorized, and independent from Runtime', () => {
+    const template = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/git-commit.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(template).toContain('authority_owner: user');
+    expect(template).toContain('runtime_operations: []');
+    expect(template).toContain('Stage only the intended paths');
+    expect(template).toContain('Never amend, reset, clean, switch or create branches, or push');
+    expect(template).toContain('terminal_boundary: public-entry-terminal/v1');
+  });
+
+  test('keeps execute-step limited to recommending an explicit commit handoff', () => {
+    const template = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(template).toContain('`next_route: git-commit`');
+    expect(template).toContain('`commit_scope`');
+    expect(template).toContain('neither execute-step nor Runtime invokes it');
   });
 
   test('keeps validate-change read-only with an empty mode and Runtime surface', () => {
@@ -260,6 +282,10 @@ describe('vNext Phase 2 source contract', () => {
     expect(execute).toContain('Runtime `complete-reviewed-step`');
     expect(execute).toContain('Do not redesign the task');
     expect(execute).toContain("confirmed task's `Persistent Tests`");
+    expect(execute).toContain('frozen test-strategy mode, execution phase, required outcome');
+    expect(execute).toContain('`outcome: test-red`');
+    expect(execute).toContain('`status: expected-failure`');
+    expect(execute).toContain('A Red step must not submit acceptance evidence');
 
     const root = copyFixture();
     const executeFixture = fixtureFile(root, 'templates/vnext/skills/execute-step.SKILL.md.tmpl');
@@ -278,6 +304,7 @@ describe('vNext Phase 2 source contract', () => {
     expect(content).toContain('report all clear repairable findings together');
     expect(content).toContain('`blocked`: include the blocker and recommended route');
     expect(content).toContain('canonical review result is the only durable effect');
+    expect(content).toContain('For `test-red`, verify that only frozen test assets were admitted');
   });
 
   test('preserves P-12 evidence-first and persistent-test admission boundaries', () => {
@@ -381,6 +408,21 @@ describe('vNext Phase 2 source contract', () => {
     expect(prepare).toContain('path-by-step interaction map');
     expect(prepare).toContain('Step scopes are permissions');
     expect(prepare).toContain('author self-check');
+    expect(prepare).toContain('Classify `test_strategy.mode`');
+    expect(prepare).toContain('`explicit-user`, `project-policy`, or `inferred-default`');
+    expect(prepare).toContain('Set `source_ref` to the exact');
+    expect(prepare).toContain('`contract-clear-behavior`, `exploratory-or-infrastructure`, or');
+    expect(prepare).toContain('user-owned open question and resolve it before submitting `prepare-draft`');
+    expect(prepare).toContain('contain every listed test asset and no non-test target');
+    expect(prepare).toContain('keep every declared test asset out of the first implementation/discovery step');
+    expect(prepare).toContain('Persistent Tests may remain `none`');
+    expect(prepare).toContain('PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths');
+    expect(prepare).toContain('Each policy entry must itself be an exact path or a literal directory prefix');
+    expect(prepare).toContain('reject wildcard-bearing prefixes such as `*/**`');
+    expect(prepare).toContain('Every Allowed, Conditional, and implementation-step mutation pattern');
+    expect(prepare).toContain('documentation inventory as proof');
+    expect(prepare).toContain('does not block `test-first` or `implementation-first`');
+    expect(prepare).toContain('Explicit confirmation freezes the strategy');
     expect(prepare).toContain('`next_route: review-draft`');
 
     const capabilityRoot = copyFixture();

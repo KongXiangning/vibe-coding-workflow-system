@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { validateDistributionVersionLockstep } from './build-vibe-governance-distribution';
 import { FIXFLOW_ROOT, cleanupFixflowDogfood, recoverInterruptedSpecimenCapture, splitPorcelainStatusOutput } from './fixflow-dogfood-cleanup';
 import { isFrozenPath } from './vnext-migration-pack';
@@ -63,6 +64,7 @@ type CommandResult = {
 export type FixflowDogfoodUpgradeOptions = {
   version: string;
   apply: boolean;
+  baselineRef?: string;
 };
 
 export type FixflowDogfoodPathClassification = {
@@ -81,6 +83,7 @@ export type FixflowDogfoodUpgradeReport = {
   source_release_commit: string | null;
   target_from_version: string;
   baseline_branch: string;
+  baseline_ref: string | null;
   baseline_head: string;
   upgrade_branch: string;
   tarball: string | null;
@@ -90,6 +93,25 @@ export type FixflowDogfoodUpgradeReport = {
   upgrade_commit: string | null;
   manifest_digest: string | null;
   ownership: FixflowDogfoodPathClassification | null;
+  preserved_target_status: string[] | null;
+};
+
+type FixflowRuntimeState = {
+  task_id: string;
+  task_slug: string;
+  workflow_status: string;
+  lifecycle_state: string;
+  active_step_id: string;
+  active_step_status: string;
+};
+
+type TargetBaseline = {
+  ref: string;
+  head: string;
+  branch: string;
+  version: string;
+  managedPaths: string[];
+  runtimeState: FixflowRuntimeState | null;
 };
 
 type SourceReleaseIdentity = {
@@ -137,6 +159,7 @@ export function nextFixflowDogfoodBranch(currentBranch: string, fromVersion: str
 
 export function parseFixflowDogfoodUpgradeArgs(args: string[]): FixflowDogfoodUpgradeOptions | 'help' {
   let version: string | undefined;
+  let baselineRef: string | undefined;
   let apply = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
@@ -154,11 +177,19 @@ export function parseFixflowDogfoodUpgradeArgs(args: string[]): FixflowDogfoodUp
       index += 1;
       continue;
     }
+    if (arg === '--baseline-ref') {
+      if (baselineRef !== undefined) fail('--baseline-ref was supplied more than once.');
+      const value = args[index + 1];
+      if (!value || value.startsWith('--')) fail('--baseline-ref requires a commit, tag, or local branch ref.');
+      baselineRef = value;
+      index += 1;
+      continue;
+    }
     fail(`Unknown argument: ${arg}`);
   }
   if (!version) fail('--version is required.');
   requireSemver(version);
-  return { version, apply };
+  return { version, apply, ...(baselineRef ? { baselineRef } : {}) };
 }
 
 function commandDisplay(command: string, args: string[]): string {
@@ -471,6 +502,239 @@ function readTargetDistributionVersion(): string {
   return state.distribution_version;
 }
 
+function readTargetDistributionVersionAtRef(ref: string): string {
+  const statePath = '.workflow-system/vnext/DISTRIBUTION_STATE.json';
+  const state = parseJsonText(git(FIXFLOW_ROOT, ['show', `${ref}:${statePath}`]).stdout, `FixFlow Distribution state at ${ref}`);
+  if (state.distribution_state !== 'vnext' || typeof state.distribution_version !== 'string') fail(`FixFlow Distribution state at ${ref} is invalid.`);
+  requireSemver(state.distribution_version);
+  return state.distribution_version;
+}
+
+function targetStatus(): string[] {
+  return splitPorcelainStatusOutput(git(FIXFLOW_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout);
+}
+
+function targetIgnoredStatus(): string[] {
+  return splitPorcelainStatusOutput(git(FIXFLOW_ROOT, ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching']).stdout)
+    .filter(line => line.startsWith('!! '));
+}
+
+function statusPath(line: string): string {
+  const rawPath = line.slice(3);
+  if (rawPath.startsWith('"') && rawPath.endsWith('"')) {
+    try {
+      return JSON.parse(rawPath).replace(/\\/gu, '/');
+    } catch {
+      // Fall through to the literal value; Git's path quoting should not make
+      // a potentially unknown path look like a known Distribution path.
+    }
+  }
+  return rawPath.replace(/\\/gu, '/');
+}
+
+function summarizeStatusLines(lines: string[]): string {
+  if (lines.length <= 24) return lines.join('\n');
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const targetPath = statusPath(line);
+    const slash = targetPath.indexOf('/');
+    const root = slash === -1 ? targetPath : `${targetPath.slice(0, slash)}/`;
+    counts.set(root, (counts.get(root) ?? 0) + 1);
+  }
+  const summary = [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([root, count]) => `${root} (${count} paths)`)
+    .join(', ');
+  return `${summary}\n... ${lines.length} paths total; details omitted to keep the failure recoverable.`;
+}
+
+function isStagedStatusLine(line: string): boolean {
+  // `??` is an untracked worktree path, not an index entry. Any other
+  // non-space first status column means the path is already staged.
+  return !line.startsWith('??') && line[0] !== ' ';
+}
+
+function readTargetDistributionManagedPaths(): string[] {
+  const state = readJson(path.join(FIXFLOW_ROOT, '.workflow-system', 'vnext', 'DISTRIBUTION_STATE.json'), 'FixFlow Distribution state');
+  const managedFiles = state.managed_files;
+  if (!Array.isArray(managedFiles)) fail('FixFlow Distribution state managed_files must be an array.');
+  const paths = managedFiles.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || typeof (entry as Record<string, unknown>).path !== 'string') {
+      fail(`FixFlow Distribution state managed_files[${index}] must contain a path.`);
+    }
+    return ((entry as Record<string, unknown>).path as string).replace(/\\/gu, '/');
+  });
+  return [...new Set(paths)];
+}
+
+function readTargetDistributionManagedPathsAtRef(ref: string): string[] {
+  const statePath = '.workflow-system/vnext/DISTRIBUTION_STATE.json';
+  const state = parseJsonText(git(FIXFLOW_ROOT, ['show', `${ref}:${statePath}`]).stdout, `FixFlow Distribution state at ${ref}`);
+  const managedFiles = state.managed_files;
+  if (!Array.isArray(managedFiles)) fail(`FixFlow Distribution state at ${ref} managed_files must be an array.`);
+  const paths = managedFiles.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || typeof (entry as Record<string, unknown>).path !== 'string') {
+      fail(`FixFlow Distribution state at ${ref} managed_files[${index}] must contain a path.`);
+    }
+    return ((entry as Record<string, unknown>).path as string).replace(/\\/gu, '/');
+  });
+  return [...new Set(paths)];
+}
+
+function normalizeTargetDistributionLineEndings(managedPaths: Iterable<string>): void {
+  for (const relativePath of new Set([...managedPaths, '.workflow-system/vnext/DISTRIBUTION_STATE.json'])) {
+    const filePath = path.join(FIXFLOW_ROOT, relativePath);
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) continue;
+    const bytes = fs.readFileSync(filePath);
+    if (bytes.includes(0)) continue;
+    const text = bytes.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(bytes)) continue;
+    const normalized = text.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
+    if (normalized !== text) fs.writeFileSync(filePath, normalized, 'utf8');
+  }
+}
+
+function parseRuntimeStateRecord(value: unknown, label: string): FixflowRuntimeState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail(`${label} did not contain runtime_state.`);
+  }
+  const state = value as Record<string, unknown>;
+  const fields = ['task_id', 'task_slug', 'workflow_status', 'lifecycle_state', 'active_step_id', 'active_step_status'] as const;
+  for (const field of fields) {
+    if (typeof state[field] !== 'string' || !state[field]) fail(`${label} runtime state field ${field} is missing or invalid.`);
+  }
+  return {
+    task_id: state.task_id as string,
+    task_slug: state.task_slug as string,
+    workflow_status: state.workflow_status as string,
+    lifecycle_state: state.lifecycle_state as string,
+    active_step_id: state.active_step_id as string,
+    active_step_status: state.active_step_status as string,
+  };
+}
+
+function parseCurrentTaskRuntimeStateText(content: string, label: string): FixflowRuntimeState {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(content);
+  if (!match) fail(`${label} is not a vNext CURRENT_TASK document.`);
+  let frontmatter: unknown;
+  try {
+    frontmatter = parseYaml(match[1]!);
+  } catch (error) {
+    fail(`${label} has invalid YAML frontmatter: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!frontmatter || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
+    fail(`${label} frontmatter must be a mapping.`);
+  }
+  return parseRuntimeStateRecord((frontmatter as Record<string, unknown>).runtime_state, label);
+}
+
+function resolveBaselineBranch(head: string, version: string): string {
+  const candidates = git(FIXFLOW_ROOT, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']).stdout
+    .trim()
+    .split(/\r?\n/u)
+    .filter(branch => {
+      const match = CURRENT_BRANCH.exec(branch);
+      return Boolean(match && match[2] === versionToken(version));
+    });
+  const matches = candidates.filter(branch => gitOutput(FIXFLOW_ROOT, ['rev-parse', branch]) === head);
+  if (matches.length !== 1) {
+    fail(`Baseline ref ${head} must be the tip of exactly one local dogfood branch for ${version}; found ${matches.join(', ') || '(none)'}.`);
+  }
+  return matches[0]!;
+}
+
+function resolveTargetBaseline(baselineRef: string): TargetBaseline {
+  const headResult = git(FIXFLOW_ROOT, ['rev-parse', '--verify', `${baselineRef}^{commit}`], true);
+  if (headResult.status !== 0) fail(`Baseline ref ${baselineRef} does not resolve to a commit.`);
+  const head = headResult.stdout.trim();
+  if (!/^[a-f0-9]{40}$/u.test(head)) fail(`Baseline ref ${baselineRef} resolved to an invalid commit.`);
+  const version = readTargetDistributionVersionAtRef(head);
+  const branch = resolveBaselineBranch(head, version);
+  const taskPath = 'docs/workflow/CURRENT_TASK.md';
+  const taskResult = git(FIXFLOW_ROOT, ['show', `${head}:${taskPath}`], true);
+  const runtimeState = taskResult.status === 0
+    ? parseCurrentTaskRuntimeStateText(taskResult.stdout, `FixFlow CURRENT_TASK.md at ${baselineRef}`)
+    : null;
+  return {
+    ref: baselineRef,
+    head,
+    branch,
+    version,
+    managedPaths: readTargetDistributionManagedPathsAtRef(head),
+    runtimeState,
+  };
+}
+
+function readTargetRuntimeState(): FixflowRuntimeState | null {
+  const profilePath = path.join(FIXFLOW_ROOT, '.workflow-system', 'PROJECT_PROFILE.yaml');
+  const currentTaskPath = path.join(FIXFLOW_ROOT, 'docs', 'workflow', 'CURRENT_TASK.md');
+  if (!fs.existsSync(profilePath) && !fs.existsSync(currentTaskPath)) return null;
+  if (!fs.existsSync(profilePath)) fail('FixFlow has a CURRENT_TASK without PROJECT_PROFILE.yaml; cannot validate the task-state boundary before upgrade.');
+  if (!fs.existsSync(currentTaskPath)) fail('FixFlow has a project profile without CURRENT_TASK.md; cannot validate the task-state boundary before upgrade.');
+  const entrypoint = path.join(FIXFLOW_ROOT, '.workflow-system', 'runtime', 'dist', 'cli.js');
+  if (!fs.existsSync(entrypoint)) fail('FixFlow Runtime is missing; cannot validate the task-state boundary before upgrade.');
+  const result = run(NODE_COMMAND, [entrypoint, 'validate', '--root', FIXFLOW_ROOT], FIXFLOW_ROOT, true);
+  if (result.status !== 0) {
+    const detail = commandFailureDetail(result);
+    fail(`FixFlow Runtime validation failed before upgrade.${detail ? `\n${detail}` : ''}`);
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+  } catch (error) {
+    fail(`FixFlow Runtime validation did not emit JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return parseRuntimeStateRecord(parsed.runtime_state, 'FixFlow Runtime validation');
+}
+
+function assertRuntimeStateMatch(expected: FixflowRuntimeState, actual: FixflowRuntimeState, label: string): void {
+  const fields: Array<keyof FixflowRuntimeState> = [
+    'task_id',
+    'task_slug',
+    'workflow_status',
+    'lifecycle_state',
+    'active_step_id',
+    'active_step_status',
+  ];
+  for (const field of fields) {
+    if (expected[field] !== actual[field]) {
+      fail(`${label} changed ${field}: expected ${expected[field]}, got ${actual[field]}.`);
+    }
+  }
+}
+
+export function isConfirmedActiveTargetState(state: Pick<FixflowRuntimeState, 'workflow_status' | 'lifecycle_state'>): boolean {
+  return state.workflow_status === 'active' && state.lifecycle_state === 'active';
+}
+
+export function isClosedArchivedTargetState(state: Pick<FixflowRuntimeState, 'workflow_status' | 'lifecycle_state'>): boolean {
+  return state.workflow_status === 'closed' && state.lifecycle_state === 'archived';
+}
+
+/**
+ * States that are already at a valid workflow boundary must survive a
+ * Distribution-only upgrade byte-for-byte.  The legacy cleanup flow is only
+ * safe for the bootstrap/idle specimen; it must not erase a task that has
+ * already been confirmed or completed by dogfood.
+ */
+export function isPreservedTargetState(state: Pick<FixflowRuntimeState, 'workflow_status' | 'lifecycle_state'>): boolean {
+  return isConfirmedActiveTargetState(state) || isClosedArchivedTargetState(state);
+}
+
+function sortedStatusLines(lines: Iterable<string>): string[] {
+  return [...lines].sort((left, right) => left.localeCompare(right));
+}
+
+function assertPreservedTargetStatus(currentStatus: string[], expectedStatus: string[], managedPaths: Iterable<string>): void {
+  const managed = new Set(managedPaths);
+  const expected = sortedStatusLines(expectedStatus);
+  const current = sortedStatusLines(currentStatus);
+  const currentPreserved = current.filter(line => !managed.has(statusPath(line)));
+  if (currentPreserved.join('\n') !== expected.join('\n')) {
+    fail(`FixFlow non-Distribution worktree changed during upgrade; expected ${JSON.stringify(expected)}, got ${JSON.stringify(currentPreserved)}.`);
+  }
+}
+
 function assertBranchAbsent(root: string, branch: string, checkRemote: boolean): void {
   for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
     const result = git(root, ['show-ref', '--verify', '--quiet', ref], true);
@@ -514,7 +778,7 @@ function buildPinnedTarball(version: string): { tarball: string; sha256: string;
   }
 }
 
-function runPublishedBinUpgrade(tarball: string): void {
+function runPublishedBinUpgrade(tarball: string, allowNoop = false): void {
   const npmRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'fixflow-vibe-governance-npm-'));
   try {
     run(NPM_COMMAND, ['init', '-y', '--silent'], npmRoot);
@@ -529,8 +793,9 @@ function runPublishedBinUpgrade(tarball: string): void {
     } catch (error) {
       fail(`Published-bin upgrade did not emit JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (body.status !== 'upgraded' || body.read_back_verified !== true) {
-      fail(`Published-bin upgrade must return status=upgraded and read_back_verified=true; got ${JSON.stringify(body)}.`);
+    const acceptedStatus = body.status === 'upgraded' || (allowNoop && body.status === 'no-op');
+    if (!acceptedStatus || body.read_back_verified !== true) {
+      fail(`Published-bin upgrade must return status=upgraded${allowNoop ? ' or no-op' : ''} and read_back_verified=true; got ${JSON.stringify(body)}.`);
     }
   } finally {
     fs.rmSync(npmRoot, { recursive: true, force: true });
@@ -568,6 +833,15 @@ function isProductPath(targetPath: string): boolean {
     || targetPath === 'package-lock.json';
 }
 
+function isPotentialDistributionPath(targetPath: string): boolean {
+  return targetPath === '.workflow-system/WORKFLOW_PROTOCOL.md'
+    || targetPath === '.workflow-system/FILE_SCHEMAS.md'
+    || targetPath === '.workflow-system/vnext/DISTRIBUTION_STATE.json'
+    || targetPath.startsWith('.workflow-system/runtime/')
+    || targetPath.startsWith('.workflow-system/vnext/')
+    || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(targetPath);
+}
+
 export function classifyFixflowChanges(statusLines: string[], managedPaths: Iterable<string>): FixflowDogfoodPathClassification {
   const managed = new Set(managedPaths);
   managed.add('.workflow-system/vnext/DISTRIBUTION_STATE.json');
@@ -579,7 +853,7 @@ export function classifyFixflowChanges(statusLines: string[], managedPaths: Iter
     E_unknown: [],
   };
   for (const line of statusLines) {
-    const targetPath = line.slice(3).replace(/\\/gu, '/');
+    const targetPath = statusPath(line);
     if (managed.has(targetPath)) result.A_distribution_managed.push(targetPath);
     else if (targetPath.startsWith('.workflow-system/runtime/node_modules/')) result.B_runtime_dependency.push(targetPath);
     else if (isGovernancePath(targetPath)) result.C_governance.push(targetPath);
@@ -589,28 +863,62 @@ export function classifyFixflowChanges(statusLines: string[], managedPaths: Iter
   return result;
 }
 
-function commitUpgrade(branch: string, version: string, manifest: Record<string, unknown>): { commit: string; ownership: FixflowDogfoodPathClassification } {
-  const statusLines = splitPorcelainStatusOutput(git(FIXFLOW_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout);
+function commitUpgrade(
+  branch: string,
+  version: string,
+  manifest: Record<string, unknown>,
+  preservedStatus: string[],
+  previousManagedPaths: Iterable<string>,
+): { commit: string; ownership: FixflowDogfoodPathClassification } {
+  const statusLines = targetStatus();
   const artifacts = manifest.artifacts;
   if (!Array.isArray(artifacts)) fail('Built Distribution manifest.artifacts must be an array.');
-  const managedPaths = artifacts.map(item => {
+  const nextManagedPaths = artifacts.map(item => {
     if (!item || typeof item !== 'object' || Array.isArray(item) || typeof (item as Record<string, unknown>).target_path !== 'string') fail('Built Distribution manifest contains an invalid target_path.');
     return (item as Record<string, unknown>).target_path as string;
   });
+  const managedPaths = [...new Set([...previousManagedPaths, ...nextManagedPaths])];
   const ownership = classifyFixflowChanges(statusLines, managedPaths);
-  if (ownership.C_governance.length || ownership.D_product.length || ownership.E_unknown.length) {
-    fail(`Upgrade changed non-Distribution paths: ${JSON.stringify(ownership)}.`);
+  if (ownership.E_unknown.length) {
+    fail(`Upgrade changed unknown paths: ${JSON.stringify(ownership)}.`);
   }
+  assertPreservedTargetStatus(statusLines, preservedStatus, [...managedPaths, ...ownership.B_runtime_dependency, '.workflow-system/vnext/DISTRIBUTION_STATE.json']);
   const allowedPaths = [...ownership.A_distribution_managed, ...ownership.B_runtime_dependency];
   if (allowedPaths.length === 0) fail('Published-bin upgrade reported success but changed no Distribution-owned paths.');
   git(FIXFLOW_ROOT, ['add', '--', ...allowedPaths]);
   git(FIXFLOW_ROOT, ['diff', '--cached', '--check']);
-  const remaining = git(FIXFLOW_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout.trim();
-  if (remaining.split(/\r?\n/u).some(line => line.startsWith('??') || line.startsWith(' M') || line.startsWith(' D'))) fail(`Unexpected unstaged or untracked paths remain after staging: ${remaining}`);
+  const stagedStatus = targetStatus();
+  const managed = new Set([...managedPaths, ...ownership.B_runtime_dependency, '.workflow-system/vnext/DISTRIBUTION_STATE.json']);
+  const unexpected = stagedStatus.filter(line => !preservedStatus.includes(line) && !managed.has(statusPath(line)));
+  if (unexpected.length > 0) fail(`Unexpected non-Distribution paths remain after staging: ${unexpected.join(', ')}`);
   git(FIXFLOW_ROOT, ['commit', '-m', `chore: upgrade Vibe Governance to ${version}`]);
   const commit = gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']);
   if (gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']) !== branch) fail(`FixFlow left the expected upgrade branch ${branch}.`);
   return { commit, ownership };
+}
+
+function resolveInterruptedTargetUpgrade(
+  currentBranch: string,
+  baselineVersion: string,
+  workingVersion: string,
+  requestedVersion: string,
+  baselineHead: string,
+): { baselineBranch: string; upgradeBranch: string } | null {
+  if (compareVersions(baselineVersion, requestedVersion) >= 0
+    || compareVersions(workingVersion, requestedVersion) !== 0
+    || compareVersions(baselineVersion, workingVersion) >= 0) return null;
+  const match = CURRENT_BRANCH.exec(currentBranch);
+  if (!match || match[2] !== versionToken(requestedVersion)) return null;
+  const round = Number(match[1]);
+  if (round <= 1) return null;
+  const baselineBranch = `dogfood/round${round - 1}-v${versionToken(baselineVersion)}`;
+  const baselineRef = git(FIXFLOW_ROOT, ['show-ref', '--verify', '--quiet', `refs/heads/${baselineBranch}`], true);
+  if (baselineRef.status !== 0) {
+    if (baselineRef.status !== 1) fail(`Could not inspect interrupted-upgrade baseline branch ${baselineBranch}.`);
+    return null;
+  }
+  if (gitOutput(FIXFLOW_ROOT, ['rev-parse', baselineBranch]) !== baselineHead) return null;
+  return { baselineBranch, upgradeBranch: currentBranch };
 }
 
 export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): FixflowDogfoodUpgradeReport {
@@ -618,13 +926,90 @@ export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): Fi
   const sourceBefore = sourceStart.source;
   const initialNonReleaseStatus = sourceStart.initialNonReleaseStatus;
   if (compareVersions(sourceBefore.version, options.version) > 0) fail(`Source is already at newer version ${sourceBefore.version}; requested version is ${options.version}.`);
-  const fromVersion = readTargetDistributionVersion();
-  recoverInterruptedSpecimenCapture(fromVersion);
-  const baselineBranch = gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']);
-  const baselineHead = gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']);
-  if (compareVersions(fromVersion, options.version) >= 0) fail(`FixFlow is already at ${fromVersion}; requested upgrade version must be newer.`);
-  const upgradeBranch = nextFixflowDogfoodBranch(baselineBranch, fromVersion, options.version);
-  assertBranchAbsent(FIXFLOW_ROOT, upgradeBranch, false);
+  const currentBranch = gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']);
+  const currentHead = gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']);
+  const selectedBaseline = options.baselineRef ? resolveTargetBaseline(options.baselineRef) : null;
+  let workingTargetVersion: string;
+  let fromVersion: string;
+  let interruptedUpgrade: { baselineBranch: string; upgradeBranch: string } | null = null;
+  let baselineBranch: string;
+  let baselineHead: string;
+  let initialStatus: string[];
+  let targetRuntimeState: FixflowRuntimeState | null;
+  let targetManagedPaths: string[];
+  let selectedBaselineResume = false;
+
+  if (selectedBaseline) {
+    initialStatus = targetStatus();
+    const ignoredStatus = targetIgnoredStatus();
+    const expectedUpgradeBranch = nextFixflowDogfoodBranch(selectedBaseline.branch, selectedBaseline.version, options.version);
+    selectedBaselineResume = currentBranch === expectedUpgradeBranch && currentHead === selectedBaseline.head;
+    if (!selectedBaselineResume && (initialStatus.length > 0 || ignoredStatus.length > 0)) {
+      const details = [...initialStatus, ...ignoredStatus];
+      fail(`FixFlow must have a clean worktree before using --baseline-ref ${options.baselineRef}; resolve the existing upgrade or worktree changes first.\n${summarizeStatusLines(details)}`);
+    }
+    if (selectedBaselineResume) {
+      const outsideUpgrade = [
+        ...initialStatus.filter(line => !isPotentialDistributionPath(statusPath(line))),
+        ...ignoredStatus,
+      ];
+      if (outsideUpgrade.length > 0) {
+        fail(`Interrupted explicit-baseline upgrade contains non-Distribution worktree changes; resolve these before retrying.\n${summarizeStatusLines(outsideUpgrade)}`);
+      }
+    }
+    workingTargetVersion = selectedBaseline.version;
+    fromVersion = selectedBaseline.version;
+    baselineBranch = selectedBaseline.branch;
+    baselineHead = selectedBaseline.head;
+    targetRuntimeState = selectedBaseline.runtimeState;
+    if (!targetRuntimeState) fail(`Baseline ref ${options.baselineRef} has no vNext CURRENT_TASK.md; an explicit dogfood baseline must contain a confirmed task.`);
+    if (!isPreservedTargetState(targetRuntimeState)) {
+      fail(`Baseline ref ${options.baselineRef} must contain a confirmed active or closed archived task; got ${targetRuntimeState.workflow_status} + ${targetRuntimeState.lifecycle_state}.`);
+    }
+    targetManagedPaths = selectedBaseline.managedPaths;
+  } else {
+    const targetHeadVersionBeforeRecovery = readTargetDistributionVersionAtRef('HEAD');
+    recoverInterruptedSpecimenCapture(targetHeadVersionBeforeRecovery);
+    workingTargetVersion = readTargetDistributionVersion();
+    fromVersion = readTargetDistributionVersionAtRef('HEAD');
+    interruptedUpgrade = resolveInterruptedTargetUpgrade(currentBranch, fromVersion, workingTargetVersion, options.version, currentHead);
+    if (compareVersions(workingTargetVersion, fromVersion) !== 0 && !interruptedUpgrade) {
+      fail(`FixFlow has an interrupted or uncommitted Distribution version change: HEAD=${fromVersion}, worktree=${workingTargetVersion}. Resolve it before requesting ${options.version}.`);
+    }
+    baselineBranch = interruptedUpgrade?.baselineBranch ?? currentBranch;
+    baselineHead = currentHead;
+    initialStatus = targetStatus();
+    targetRuntimeState = readTargetRuntimeState();
+    targetManagedPaths = [...new Set([
+      ...readTargetDistributionManagedPathsAtRef('HEAD'),
+      ...(interruptedUpgrade ? readTargetDistributionManagedPaths() : []),
+    ])];
+  }
+  const initialClassification = classifyFixflowChanges(initialStatus, targetManagedPaths);
+  const unexpectedInitialUnknown = selectedBaselineResume
+    ? initialClassification.E_unknown.filter(targetPath => !isPotentialDistributionPath(targetPath))
+    : initialClassification.E_unknown;
+  const unexpectedInitialPreserved = selectedBaselineResume
+    ? [...initialClassification.C_governance, ...initialClassification.D_product]
+    : [];
+  if ((!interruptedUpgrade && !selectedBaselineResume && (initialClassification.A_distribution_managed.length || initialClassification.B_runtime_dependency.length))
+    || unexpectedInitialUnknown.length
+    || unexpectedInitialPreserved.length) {
+    fail(`FixFlow must have no pre-existing Distribution drift, runtime dependency changes, or unknown paths before upgrade: ${JSON.stringify(initialClassification)}.`);
+  }
+  const stagedPreserved = initialStatus.filter(line => (initialClassification.C_governance.includes(statusPath(line)) || initialClassification.D_product.includes(statusPath(line))) && isStagedStatusLine(line));
+  if (stagedPreserved.length > 0) {
+    fail(`FixFlow preserved governance/product paths must be unstaged before upgrade; commit or unstage them first: ${stagedPreserved.join(', ')}`);
+  }
+  const preservedStatus = sortedStatusLines([...initialClassification.C_governance, ...initialClassification.D_product].map(targetPath => initialStatus.find(line => statusPath(line) === targetPath)).filter((line): line is string => Boolean(line)));
+  const preserveTargetTask = targetRuntimeState !== null && isPreservedTargetState(targetRuntimeState);
+  if (targetRuntimeState && !preserveTargetTask
+    && targetRuntimeState.workflow_status !== 'draft') {
+    fail(`FixFlow task state ${targetRuntimeState.workflow_status} + ${targetRuntimeState.lifecycle_state} is not an upgrade boundary; close the task or resolve the interrupted/suspended state first.`);
+  }
+  if (!interruptedUpgrade && compareVersions(fromVersion, options.version) >= 0) fail(`FixFlow is already at ${fromVersion}; requested upgrade version must be newer.`);
+  const upgradeBranch = interruptedUpgrade?.upgradeBranch ?? nextFixflowDogfoodBranch(baselineBranch, fromVersion, options.version);
+  if (!interruptedUpgrade && !selectedBaselineResume) assertBranchAbsent(FIXFLOW_ROOT, upgradeBranch, false);
   if (!options.apply) {
     return {
       target_root: FIXFLOW_ROOT,
@@ -634,6 +1019,7 @@ export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): Fi
       source_release_commit: sourceBefore.version === options.version ? null : 'would-create',
       target_from_version: fromVersion,
       baseline_branch: baselineBranch,
+      baseline_ref: selectedBaseline?.ref ?? null,
       baseline_head: baselineHead,
       upgrade_branch: upgradeBranch,
       tarball: null,
@@ -643,6 +1029,7 @@ export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): Fi
       upgrade_commit: null,
       manifest_digest: null,
       ownership: null,
+      preserved_target_status: preserveTargetTask ? preservedStatus : null,
     };
   }
 
@@ -652,16 +1039,33 @@ export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): Fi
   const sourceAfter = readSourceReleaseIdentity();
   if (sourceAfter.version !== options.version) fail(`Source release commit did not produce version ${options.version}.`);
   const artifact = buildPinnedTarball(options.version);
-  const cleanup = cleanupFixflowDogfood({ version: fromVersion, apply: true, push: false });
-  if (gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']) !== baselineBranch || gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']) !== baselineHead) {
+  const cleanup = interruptedUpgrade || preserveTargetTask
+    ? null
+    : cleanupFixflowDogfood({ version: fromVersion, apply: true, push: false });
+  if (selectedBaseline && !selectedBaselineResume && (targetStatus().length > 0 || gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']) !== currentHead)) {
+    fail(`FixFlow changed while preparing explicit baseline ${selectedBaseline.ref}; retry after restoring the target worktree to its original clean state.`);
+  }
+  if (!interruptedUpgrade && !selectedBaseline && !preserveTargetTask && (gitOutput(FIXFLOW_ROOT, ['branch', '--show-current']) !== baselineBranch || gitOutput(FIXFLOW_ROOT, ['rev-parse', 'HEAD']) !== baselineHead)) {
     fail('FixFlow baseline changed while preserving the prepare-task specimen.');
   }
-  git(FIXFLOW_ROOT, ['switch', '-c', upgradeBranch]);
-  runPublishedBinUpgrade(artifact.tarball);
+  if (!interruptedUpgrade && !selectedBaselineResume) {
+    if (selectedBaseline) {
+      git(FIXFLOW_ROOT, ['switch', '-c', upgradeBranch, baselineHead]);
+      const switchedRuntimeState = readTargetRuntimeState();
+      if (!switchedRuntimeState) fail(`Explicit baseline ${selectedBaseline.ref} lost CURRENT_TASK.md after branch creation.`);
+      assertRuntimeStateMatch(targetRuntimeState!, switchedRuntimeState, `Explicit baseline ${selectedBaseline.ref}`);
+    } else {
+      git(FIXFLOW_ROOT, ['switch', '-c', upgradeBranch]);
+    }
+  }
+  normalizeTargetDistributionLineEndings(targetManagedPaths);
+  runPublishedBinUpgrade(artifact.tarball, Boolean(interruptedUpgrade || selectedBaselineResume));
   assertUpgradedIdentity(options.version, artifact.manifest);
-  const committed = commitUpgrade(upgradeBranch, options.version, artifact.manifest);
-  const finalStatus = git(FIXFLOW_ROOT, ['status', '--porcelain=v1', '--untracked-files=all']).stdout.trim();
-  if (finalStatus) fail(`FixFlow is not clean after the upgrade commit: ${finalStatus}`);
+  const committed = commitUpgrade(upgradeBranch, options.version, artifact.manifest, preservedStatus, targetManagedPaths);
+  const finalStatus = targetStatus();
+  assertPreservedTargetStatus(finalStatus, preservedStatus, [...targetManagedPaths, ...(artifact.manifest.artifacts && Array.isArray(artifact.manifest.artifacts)
+    ? artifact.manifest.artifacts.map(item => item && typeof item === 'object' && typeof (item as Record<string, unknown>).target_path === 'string' ? (item as Record<string, unknown>).target_path as string : '')
+    : [])]);
 
   return {
     target_root: FIXFLOW_ROOT,
@@ -671,15 +1075,17 @@ export function upgradeFixflowDogfood(options: FixflowDogfoodUpgradeOptions): Fi
     source_release_commit: sourceReleaseCommit,
     target_from_version: fromVersion,
     baseline_branch: baselineBranch,
+    baseline_ref: selectedBaseline?.ref ?? null,
     baseline_head: baselineHead,
     upgrade_branch: upgradeBranch,
     tarball: artifact.tarball,
     tarball_sha256: artifact.sha256,
     action: 'upgraded',
-    specimen_branch: cleanup.specimen_branch,
+    specimen_branch: cleanup?.specimen_branch ?? null,
     upgrade_commit: committed.commit,
     manifest_digest: String(artifact.manifest.manifest_digest),
     ownership: committed.ownership,
+    preserved_target_status: preserveTargetTask ? preservedStatus : null,
   };
 }
 
@@ -688,10 +1094,13 @@ export function fixflowDogfoodUpgradeUsage(): string {
     'Usage:',
     '  bun run dogfood:fixflow:upgrade -- --version <x.y.z>',
     '  bun run dogfood:fixflow:upgrade -- --version <x.y.z> --apply',
+    '  bun run dogfood:fixflow:upgrade -- --version <x.y.z> --baseline-ref <commit-or-branch>',
+    '  bun run dogfood:fixflow:upgrade -- --version <x.y.z> --baseline-ref <commit-or-branch> --apply',
     '',
     `Target: ${FIXFLOW_ROOT}`,
     'The committed source release must be lockstep; ordinary unstaged changes and new release-surface files are included in the local release commit after validation.',
-    'With --apply, bump the source release to --version when needed, generate and validate it, create a local source commit, preserve the sole CURRENT_TASK specimen if present, build a fixed local tarball, install it through the published bin, validate, and create a local target commit. It never pushes.',
+    'With --apply, bump the source release to --version when needed, generate and validate it, create a local source commit, preserve a confirmed active or closed archived CURRENT_TASK in place (or capture the legacy prepare-task specimen), build a fixed local tarball, install it through the published bin, validate, and create a local target commit containing only Distribution-managed files. An interrupted target commit on its expected upgrade branch is resumed after the published bin read-back verifies the requested version. It never pushes.',
+    '--baseline-ref selects the exact committed tip of a local dogfood branch as the target baseline. The target worktree must be clean; --apply creates the next dogfood branch from that ref, so later task/product commits on the currently checked-out branch are not included. The ref must contain a confirmed active task or a closed archived task.',
   ].join('\n');
 }
 

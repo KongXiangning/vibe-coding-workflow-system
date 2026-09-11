@@ -15,12 +15,14 @@ import {
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   VNextRuntimeError,
   applyVNextRuntimeProposal,
+  assertTestStrategySequenceReady,
   captureReviewTarget,
-  createReviewChangeDelta,
   createFindingQueueProposal,
+  createReviewChangeDelta,
   createTaskStateProposal,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
+  resolveTestStrategyExecutionContext,
   validateRuntimeEnvironment,
   validateRuntimeReviewTarget,
   validateVNextRuntimeContract,
@@ -32,8 +34,10 @@ import {
   type ReviewTarget,
   type StepExecutionResult,
   type StepExecutionResultStatus,
+  type StepExpectedFailureEvidence,
   type StepExecutionLogEntry,
   type StepReviewReceipt,
+  type TestStrategyExecutionContext,
 } from './kernel';
 import {
   auditCommandMutation,
@@ -76,6 +80,8 @@ export type ExecuteStepPreflightReceipt = {
   step_id: string;
   plan_revision: string;
   mode: ExecuteStepMode;
+  test_strategy_mode: TestStrategyExecutionContext['mode'];
+  execution_phase: TestStrategyExecutionContext['phase'];
   candidate_paths: string[];
   repair_fingerprint: string | null;
   change_set_id: string;
@@ -90,6 +96,8 @@ export type ExecuteStepRepairPreflightReceipt = {
   step_id: string;
   plan_revision: string;
   mode: 'repair';
+  test_strategy_mode: TestStrategyExecutionContext['mode'];
+  execution_phase: TestStrategyExecutionContext['phase'];
   candidate_paths: string[];
   repair_fingerprints: string[];
   repair_wave_id: string;
@@ -114,6 +122,10 @@ export type ExecuteStepPreflightResult = {
     commands: PlannedCommand[];
     validation: string[];
     review_checkpoint: 'required' | 'not-required';
+    test_strategy_mode: TestStrategyExecutionContext['mode'];
+    execution_phase: TestStrategyExecutionContext['phase'];
+    required_outcome: TestStrategyExecutionContext['required_outcome'];
+    persistent_tests: string[];
   };
   receipt: ExecuteStepPreflightReceipt;
 };
@@ -376,6 +388,20 @@ function changeSetId(current: CanonicalCurrentTask, stepId: string): string {
   }).slice(0, 40)}`;
 }
 
+function testStrategyMode(value: unknown, location: string): TestStrategyExecutionContext['mode'] {
+  if (!['test-first', 'implementation-first', 'not-applicable', 'legacy'].includes(String(value))) {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} is not a supported test-strategy mode.`);
+  }
+  return value as TestStrategyExecutionContext['mode'];
+}
+
+function executionPhase(value: unknown, location: string): TestStrategyExecutionContext['phase'] {
+  if (!['red', 'green', 'implementation-first', 'not-applicable', 'legacy'].includes(String(value))) {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} is not a supported execution phase.`);
+  }
+  return value as TestStrategyExecutionContext['phase'];
+}
+
 function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightReceipt {
   const source = record(value, 'preflight_receipt');
   if (source.kind === 'execute-step-repair-preflight/v1') {
@@ -387,6 +413,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       'step_id',
       'plan_revision',
       'mode',
+      'test_strategy_mode',
+      'execution_phase',
       'candidate_paths',
       'repair_fingerprints',
       'repair_wave_id',
@@ -407,6 +435,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       step_id: text(source.step_id, 'preflight_receipt.step_id', 128),
       plan_revision: planRevision,
       mode: 'repair',
+      test_strategy_mode: testStrategyMode(source.test_strategy_mode, 'preflight_receipt.test_strategy_mode'),
+      execution_phase: executionPhase(source.execution_phase, 'preflight_receipt.execution_phase'),
       candidate_paths: pathList(source.candidate_paths, 'preflight_receipt.candidate_paths', true),
       repair_fingerprints: textList(source.repair_fingerprints, 'preflight_receipt.repair_fingerprints', false),
       repair_wave_id: text(source.repair_wave_id, 'preflight_receipt.repair_wave_id', 128),
@@ -424,6 +454,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     'step_id',
     'plan_revision',
     'mode',
+    'test_strategy_mode',
+    'execution_phase',
     'candidate_paths',
     'repair_fingerprint',
     'change_set_id',
@@ -449,6 +481,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     step_id: text(source.step_id, 'preflight_receipt.step_id', 128),
     plan_revision: planRevision,
     mode,
+    test_strategy_mode: testStrategyMode(source.test_strategy_mode, 'preflight_receipt.test_strategy_mode'),
+    execution_phase: executionPhase(source.execution_phase, 'preflight_receipt.execution_phase'),
     candidate_paths: pathList(source.candidate_paths, 'preflight_receipt.candidate_paths', true),
     repair_fingerprint: nullableText(source.repair_fingerprint, 'preflight_receipt.repair_fingerprint', 128),
     change_set_id: text(source.change_set_id, 'preflight_receipt.change_set_id', 128),
@@ -474,6 +508,10 @@ function assertCurrentReceipt(current: CanonicalCurrentTask, stepPlan: StepPlan,
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== stepPlanRevision(stepPlan)) {
     fail('EXECUTE_PREFLIGHT_STALE', 'the active step or its executable plan changed after preflight.');
   }
+  const strategy = resolveTestStrategyExecutionContext(current);
+  if (receipt.test_strategy_mode !== strategy.mode || receipt.execution_phase !== strategy.phase) {
+    fail('EXECUTE_PREFLIGHT_STALE', 'the frozen test strategy or current execution phase changed after preflight.');
+  }
   if (receipt.kind === 'execute-step-repair-preflight/v1') {
     if (current.runtimeState.pending_review_result?.review_id !== receipt.review_id
       || current.runtimeState.pending_review_result.change_set_id !== receipt.change_set_id) {
@@ -490,6 +528,37 @@ function findingAdmissionWaveId(reviewId: string): string {
 
 function repairWaveId(reviewId: string, fingerprints: readonly string[]): string {
   return `repair-wave-${digest({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
+}
+
+function assertTestStrategyCandidatePaths(
+  strategy: TestStrategyExecutionContext,
+  candidatePaths: readonly string[],
+): void {
+  if (strategy.phase !== 'red') return;
+  const missingTests = strategy.persistent_tests.filter(testPath => !candidatePaths.includes(testPath));
+  const nonTestPaths = candidatePaths.filter(candidate => !strategy.persistent_tests.includes(candidate));
+  if (missingTests.length > 0 || nonTestPaths.length > 0) {
+    fail(
+      'TEST_STRATEGY_SEQUENCE_INVALID',
+      `test-first Red preflight must cover every frozen persistent test and no product path; missing=[${missingTests.join(', ')}], non_test=[${nonTestPaths.join(', ')}].`,
+    );
+  }
+}
+
+function currentStepResult(stepPlan: StepPlan, strategy: TestStrategyExecutionContext): ExecuteStepPreflightResult['current_step'] {
+  return {
+    id: stepPlan.step.id,
+    description: stepPlan.step.description,
+    purpose: stepPlan.step.purpose!,
+    mutation_scope: stepPlan.mutation_scope,
+    commands: stepPlan.commands,
+    validation: stepPlan.validation,
+    review_checkpoint: stepPlan.step.review_checkpoint!,
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
+    required_outcome: strategy.required_outcome,
+    persistent_tests: [...strategy.persistent_tests],
+  };
 }
 
 export function beginRepair(
@@ -515,6 +584,9 @@ export function beginRepair(
     fail('REVIEW_TARGET_CONFLICT', 'begin-repair requires the Runtime-recorded reviewed execution target.');
   }
   const stepPlan = currentStepPlan(current);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  assertTestStrategyCandidatePaths(strategy, candidatePaths);
   assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths');
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
@@ -585,6 +657,8 @@ export function beginRepair(
     step_id: stepPlan.step.id,
     plan_revision: stepPlanRevision(stepPlan),
     mode: 'repair',
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
     candidate_paths: candidatePaths,
     repair_fingerprints: fingerprints,
     repair_wave_id: waveId,
@@ -598,15 +672,7 @@ export function beginRepair(
     operation_kind: 'execute-step-repair-preflight',
     committed: false,
     read_back_verified: true,
-    current_step: {
-      id: stepPlan.step.id,
-      description: stepPlan.step.description,
-      purpose: stepPlan.step.purpose!,
-      mutation_scope: stepPlan.mutation_scope,
-      commands: stepPlan.commands,
-      validation: stepPlan.validation,
-      review_checkpoint: stepPlan.step.review_checkpoint!,
-    },
+    current_step: currentStepResult(stepPlan, strategy),
     receipt,
   };
 }
@@ -619,6 +685,9 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  assertTestStrategyCandidatePaths(strategy, candidatePaths);
   assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths');
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
@@ -631,6 +700,8 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     step_id: stepPlan.step.id,
     plan_revision: stepPlanRevision(stepPlan),
     mode: 'default',
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
     candidate_paths: candidatePaths,
     repair_fingerprint: null,
     change_set_id: changeSetId(current, stepPlan.step.id),
@@ -641,15 +712,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     operation_kind: 'execute-step-preflight',
     committed: false,
     read_back_verified: true,
-    current_step: {
-      id: stepPlan.step.id,
-      description: stepPlan.step.description,
-      purpose: stepPlan.step.purpose!,
-      mutation_scope: stepPlan.mutation_scope,
-      commands: stepPlan.commands,
-      validation: stepPlan.validation,
-      review_checkpoint: stepPlan.step.review_checkpoint!,
-    },
+    current_step: currentStepResult(stepPlan, strategy),
     receipt,
   };
 }
@@ -659,11 +722,13 @@ type CommandResult = {
   status: StepExecutionResultStatus;
   observed_repo_writes: string[];
   evidence_refs: string[];
+  expected_failure?: StepExpectedFailureEvidence;
 };
 type ValidationResult = {
   validation: string;
   status: StepExecutionResultStatus;
   evidence_refs: string[];
+  expected_failure?: StepExpectedFailureEvidence;
 };
 type AcceptanceEvidence = {
   acceptance: string;
@@ -671,10 +736,23 @@ type AcceptanceEvidence = {
 };
 
 function resultStatus(value: unknown, location: string): StepExecutionResultStatus {
-  if (value !== 'passed' && value !== 'failed' && value !== 'blocked' && value !== 'not-run') {
-    fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} must be passed, failed, blocked, or not-run.`);
+  if (value !== 'passed' && value !== 'expected-failure' && value !== 'failed' && value !== 'blocked' && value !== 'not-run') {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} must be passed, expected-failure, failed, blocked, or not-run.`);
   }
   return value;
+}
+
+function normalizeExpectedFailure(value: unknown, location: string): StepExpectedFailureEvidence {
+  const source = record(value, location);
+  exactKeys(source, ['kind', 'expected_behavior', 'observed_failure_signature'], location);
+  if (source.kind !== 'behavior-not-implemented') {
+    fail('EXECUTE_EXPECTED_FAILURE_INVALID', `${location}.kind must be behavior-not-implemented; syntax, import, fixture, tool, and environment failures are blocked outcomes.`);
+  }
+  return {
+    kind: 'behavior-not-implemented',
+    expected_behavior: text(source.expected_behavior, `${location}.expected_behavior`),
+    observed_failure_signature: text(source.observed_failure_signature, `${location}.observed_failure_signature`),
+  };
 }
 
 function normalizeCommandResults(value: unknown): CommandResult[] {
@@ -684,8 +762,14 @@ function normalizeCommandResults(value: unknown): CommandResult[] {
   const results = value.map((item, index) => {
     const location = `command_results[${index}]`;
     const source = record(item, location);
-    exactKeys(source, ['command', 'status', 'observed_repo_writes', 'evidence_refs'], location);
     const status = resultStatus(source.status, `${location}.status`);
+    exactKeys(
+      source,
+      status === 'expected-failure'
+        ? ['command', 'status', 'observed_repo_writes', 'evidence_refs', 'expected_failure']
+        : ['command', 'status', 'observed_repo_writes', 'evidence_refs'],
+      location,
+    );
     const observedRepoWrites = pathList(source.observed_repo_writes, `${location}.observed_repo_writes`, true);
     if (status === 'not-run' && observedRepoWrites.length > 0) {
       fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location}.not-run command must not report repository writes.`);
@@ -695,6 +779,9 @@ function normalizeCommandResults(value: unknown): CommandResult[] {
       status,
       observed_repo_writes: observedRepoWrites,
       evidence_refs: textList(source.evidence_refs, `${location}.evidence_refs`, status === 'not-run'),
+      ...(status === 'expected-failure'
+        ? { expected_failure: normalizeExpectedFailure(source.expected_failure, `${location}.expected_failure`) }
+        : {}),
     };
   });
   if (new Set(results.map(item => item.command)).size !== results.length) {
@@ -710,12 +797,21 @@ function normalizeValidationResults(value: unknown): ValidationResult[] {
   const results = value.map((item, index) => {
     const location = `validation_results[${index}]`;
     const source = record(item, location);
-    exactKeys(source, ['validation', 'status', 'evidence_refs'], location);
     const status = resultStatus(source.status, `${location}.status`);
+    exactKeys(
+      source,
+      status === 'expected-failure'
+        ? ['validation', 'status', 'evidence_refs', 'expected_failure']
+        : ['validation', 'status', 'evidence_refs'],
+      location,
+    );
     return {
       validation: text(source.validation, `${location}.validation`),
       status,
       evidence_refs: textList(source.evidence_refs, `${location}.evidence_refs`, status === 'not-run'),
+      ...(status === 'expected-failure'
+        ? { expected_failure: normalizeExpectedFailure(source.expected_failure, `${location}.expected_failure`) }
+        : {}),
     };
   });
   if (new Set(results.map(item => item.validation)).size !== results.length) {
@@ -953,8 +1049,8 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   const commandResults = normalizeCommandResults(source.command_results);
   const validationResults = normalizeValidationResults(source.validation_results);
   const acceptanceEvidence = normalizeAcceptanceEvidence(source.acceptance_evidence);
-  if (source.outcome !== 'implemented' && source.outcome !== 'blocked') {
-    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'outcome must be implemented or blocked.');
+  if (source.outcome !== 'implemented' && source.outcome !== 'test-red' && source.outcome !== 'blocked') {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'outcome must be implemented, test-red, or blocked.');
   }
   const outcome = source.outcome;
   const note = nullableText(source.note, 'note');
@@ -996,6 +1092,9 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   assertExecutableTask(current);
   let stepPlan = currentStepPlan(current);
   assertCurrentReceipt(current, stepPlan, receipt);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  assertTestStrategyCandidatePaths(strategy, receipt.candidate_paths);
   assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths');
   assertPathsAdmitted(current, stepPlan, actualChangedPaths, 'actual_changed_paths');
   assertCommandResults(current, stepPlan, commandResults);
@@ -1005,6 +1104,24 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   }
   if (outcome === 'implemented' && validationResults.some(item => item.status !== 'passed')) {
     fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned validation to pass.');
+  }
+  if (outcome === 'test-red') {
+    const resultStatuses = [...commandResults, ...validationResults].map(item => item.status);
+    if (strategy.phase !== 'red') {
+      fail('TEST_STRATEGY_SEQUENCE_INVALID', `outcome=test-red is not valid during phase=${strategy.phase}.`);
+    }
+    if (!resultStatuses.some(status => status === 'expected-failure')
+      || resultStatuses.some(status => status !== 'passed' && status !== 'expected-failure')) {
+      fail('EXECUTE_EXPECTED_FAILURE_INVALID', 'test-red requires at least one expected-failure result and permits only passed companion results.');
+    }
+    if (acceptanceEvidence.length > 0) {
+      fail('TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', 'test-red evidence cannot satisfy final acceptance claims before implementation reaches Green.');
+    }
+  } else if ([...commandResults, ...validationResults].some(item => item.status === 'expected-failure')) {
+    fail('EXECUTE_EXPECTED_FAILURE_INVALID', 'expected-failure result status is valid only with outcome=test-red.');
+  }
+  if (strategy.phase === 'red' && outcome === 'implemented') {
+    fail('TEST_STRATEGY_SEQUENCE_INVALID', 'the first test-first step cannot report implemented; it must establish test-red or report a truthful blocker.');
   }
   if (outcome === 'blocked' && note === null) {
     fail('EXECUTE_RESULT_BLOCKED', 'blocked requires a concise blocker in note.');
@@ -1040,8 +1157,13 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
       ...item,
       observed_repo_writes: [...item.observed_repo_writes],
       evidence_refs: [...item.evidence_refs],
+      ...(item.expected_failure ? { expected_failure: { ...item.expected_failure } } : {}),
     })),
-    validation_results: validationResults.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
+    validation_results: validationResults.map(item => ({
+      ...item,
+      evidence_refs: [...item.evidence_refs],
+      ...(item.expected_failure ? { expected_failure: { ...item.expected_failure } } : {}),
+    })),
     acceptance_evidence: acceptanceEvidence.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
     blocker: outcome === 'blocked' ? note : null,
   };

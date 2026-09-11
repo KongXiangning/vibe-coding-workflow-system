@@ -249,6 +249,28 @@ proposal:
       scope_enforcement: task-and-current-step
       command_plan_source: confirmed-current-step
       persistent_tests_enforcement: frozen-section-plus-scope-evaluator
+      test_strategy_execution:
+        phase_source: frozen-test-strategy-plus-active-step-order
+        legacy_behavior: preserve-existing-active-task-semantics
+        test_first:
+          first_step_phase: red
+          later_step_phase: green
+          first_step_outcome: test-red
+          later_step_outcome: implemented
+          advancement_gate: completed-clean-reviewed-test-red
+        red_evidence:
+          result_status: expected-failure
+          kind: behavior-not-implemented
+          companion_statuses:
+            - passed
+          forbidden_statuses:
+            - failed
+            - blocked
+            - not-run
+          acceptance_evidence: forbidden
+          unexpected_failure_outcome: blocked
+          review_checkpoint: required
+        non_red_outcome: implemented-with-all-planned-results-passed
       completion_evidence_source: recorded-step-result-only
       change_detection: runtime-preflight-candidate-before-after-delta
       proposal_file_policy: project-external-only
@@ -267,7 +289,7 @@ proposal:
         - review-context
         - record-review-result
       context_source: latest-recorded-execution
-      reviewable_execution: implemented-awaiting-required-checkpoint-or-repair-verification
+      reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification
       change_set: runtime-owned-stable-id
       review_target: runtime-before-after-file-delta
       result_storage: canonical-pending-review-result
@@ -290,6 +312,7 @@ proposal:
         - out_of_scope
         - design_decisions
         - mutation_scope
+        - test_strategy
         - implementation_steps
         - validation_plan
         - persistent_tests
@@ -307,6 +330,53 @@ proposal:
       confirmation_binding: runtime-issued-draft-receipt-plus-authorized-caller
       resume_review_binding: caller-provided-exact-readiness-receipt
       replan_entry: superseded + active
+      test_strategy:
+        storage: current-task-regression-checks/test-strategy
+        fields:
+          - mode
+          - source
+          - source_ref
+          - task_classification
+          - rationale
+        modes:
+          - test-first
+          - implementation-first
+          - not-applicable
+        sources:
+          - explicit-user
+          - project-policy
+          - inferred-default
+        classifications:
+          - contract-clear-behavior
+          - exploratory-or-infrastructure
+          - non-executable-change
+        source_binding:
+          explicit-user: exact-task-basis-source-coordinate
+          project-policy: existing-project-policy-file
+          inferred-default: prepare-task-default
+        precedence:
+          - explicit-user
+          - project-policy
+          - inferred-default
+        ambiguity: resolve-as-open-question-before-draft-commit
+        frozen_by: confirm-draft
+        change_after_confirm: replan-only
+        enforcement: create-update-confirm-and-replan
+        ordering_enforcement: mode-bound-step-scope-partition
+        non_executable_scope:
+          policy_source: .workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths
+          required_for: not-applicable
+          evaluated_surfaces:
+            - task-allowed-scope
+            - task-conditional-scope
+            - implementation-step-mutation-scope
+          policy_pattern_grammar: exact-path-or-literal-directory-prefix-globstar
+          relation: exact-or-proven-subset
+          missing_or_ambiguous: block-not-applicable-only
+          historical_active_tasks: not-revalidated
+          error_codes:
+            - TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN
+            - TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION
       persistent_tests_storage: existing-scope-and-regression-sections
       persistent_tests_enforcement: frozen-section-plus-scope-evaluator
       proposal_file_policy: project-external-only

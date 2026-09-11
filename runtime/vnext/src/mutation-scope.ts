@@ -456,6 +456,39 @@ export function mutationScopePatternMatchesPath(file: string, pattern: string): 
   return new RegExp(`^${regex}$`, 'u').test(normalizedFile);
 }
 
+/**
+ * Non-executable classifications must have a literal anchor. Exact paths and
+ * literal directory trees are auditable; every other wildcard layout is too
+ * ambiguous to prove that it excludes executable behavior.
+ */
+export function nonExecutableChangePatternIsBounded(pattern: string): boolean {
+  const normalized = normalizeScopePattern(pattern, 'non-executable change pattern');
+  if (!normalized.includes('*')) return true;
+  if (!normalized.endsWith('/**')) return false;
+  const prefix = normalized.slice(0, -3);
+  return Boolean(prefix) && !prefix.includes('*');
+}
+
+/**
+ * Conservatively proves that every path admitted by candidate is also
+ * admitted by boundary. Unsupported or ambiguous glob relationships return
+ * false instead of guessing.
+ */
+export function mutationScopePatternIsSubset(candidate: string, boundary: string): boolean {
+  const normalizedCandidate = normalizeScopePattern(candidate, 'candidate scope pattern');
+  const normalizedBoundary = normalizeScopePattern(boundary, 'boundary scope pattern');
+  if (normalizedCandidate === normalizedBoundary) return true;
+  if (!normalizedCandidate.includes('*')) {
+    return mutationScopePatternMatchesPath(normalizedCandidate, normalizedBoundary);
+  }
+  if (!normalizedBoundary.includes('*')) return false;
+  if (normalizedBoundary.endsWith('/**')) {
+    const boundaryPrefix = normalizedBoundary.slice(0, -3);
+    return Boolean(boundaryPrefix) && normalizedCandidate.startsWith(`${boundaryPrefix}/`);
+  }
+  return false;
+}
+
 function normalizeChangedPath(value: unknown, index: number): string | null {
   if (typeof value !== 'string' || value.trim().length === 0) return null;
   try {

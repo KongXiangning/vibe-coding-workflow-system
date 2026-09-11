@@ -62,6 +62,12 @@ paths:
     - dist/workflow-system/**
 
 boundaries:
+  # Only paths whose mutation cannot change product, Runtime, Agent, generator, or automation behavior.
+  non_executable_change_paths:
+    - README.md
+    - docs/product/**
+    - docs/guides/**
+    - docs/ops/**
   # Workflow restricted grammar: these values feed `{{FORBIDDEN_PATHS}}` in workflow templates.
   forbidden_paths:
     - .git/**

@@ -55,6 +55,8 @@ executable `CURRENT_TASK` draft containing:
 - necessary resolved **Design decisions**, unresolved user-owned choices, and
   any conflict with existing design
 - **Mutation scope**: Allowed / Conditional / Forbidden
+- one explicit **Test Strategy** with mode, selection source, task
+  classification, and rationale
 - ordered **Implementation steps** that say what to change, where, and how to
   validate the result
 - **Validation plan**
@@ -83,6 +85,54 @@ No broader Allowed or Conditional pattern may authorize other persistent-test
 paths. Do not add tests merely for coverage, robustness, or reviewer preference.
 Later execution may create or modify only the listed tests; existing tests may
 still be run for validation.
+
+Classify `test_strategy.mode` as exactly `test-first`,
+`implementation-first`, or `not-applicable`, and record `source` as exactly
+`explicit-user`, `project-policy`, or `inferred-default`. Apply this precedence
+without inversion: an explicit user requirement overrides applicable project
+policy, which overrides the inferred default. Set `source_ref` to the exact
+Task Basis source coordinate for `explicit-user`, the existing
+repository-relative policy file for `project-policy`, or
+`prepare-task-default` for `inferred-default`. Classify the task as exactly
+`contract-clear-behavior`, `exploratory-or-infrastructure`, or
+`non-executable-change`; the classification and `rationale` must make the
+selected rule auditable. Inferred defaults are:
+
+- use `test-first` for contract-clear features, APIs, business rules,
+  regressions, and bug fixes;
+- use `implementation-first` only for exploratory work, infrastructure
+  validation, or a technical proof where stable assertions depend on what is
+  learned first, and state that dependency in the rationale;
+- use `not-applicable` only when the task has no executable behavior, such as a
+  documentation-only or governance-metadata-only change. Never use it merely
+  to avoid testing a behavior change.
+
+If those rules do not identify one reliable mode, treat the choice as a
+user-owned open question and resolve it before submitting `prepare-draft`.
+For `test-first`, list at least one exact Persistent Tests asset, make the first
+implementation step contain every listed test asset and no non-test target,
+then place product implementation in a later step. For `implementation-first`,
+keep every declared test asset out of the first implementation/discovery step
+and place it in a later test-authoring step; Persistent Tests may remain `none`
+when evidence-first admission or an explicit user denial does not authorize a
+new persistent test. For `not-applicable`, use only the
+`non-executable-change` classification, set Persistent Tests to `none`, and
+first read
+`.workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths`.
+Each policy entry must itself be an exact path or a literal directory prefix
+ending in `/**`; reject wildcard-bearing prefixes such as `*/**` and every
+other wildcard layout.
+Every Allowed, Conditional, and implementation-step mutation pattern must be
+an exact path or a provable subset of that project-owned boundary. Do not reuse
+documentation inventory as proof: a Markdown Skill template, host guidance, or
+generator input can change executable behavior. If the field is missing or
+empty, or a pattern is unknown, repository-wide, mixed with executable scope,
+or only partially overlaps the boundary, preserve the choice as an open
+question instead of submitting `not-applicable`; an unusable classification
+does not block `test-first` or `implementation-first`.
+Runtime stores the strategy in the canonical
+`Test Strategy` subsection. Explicit confirmation freezes the strategy with
+the rest of the task definition; a later change requires replan.
 
 Keep every requirement at the strength, scope, and lifetime the user actually
 requested. A local behavior, default, or current-task exclusion is not a
@@ -133,7 +183,7 @@ replacement through `replan`, report the result, and stop.
 Do not implement business code. Once the user confirms the draft,
 `CURRENT_TASK` is the execution authority: later execution must not redesign the
 task, expand its scope, implement later steps early, or change its Persistent
-Tests. Changing those decisions requires an explicit replan.
+Tests or Test Strategy. Changing those decisions requires an explicit replan.
 
 ## Required result
 

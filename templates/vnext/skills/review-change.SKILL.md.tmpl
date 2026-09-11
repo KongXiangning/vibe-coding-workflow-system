@@ -42,8 +42,8 @@ Review the current executed step. Do not modify code, tests, configuration, or g
 
 ## Operating rules
 
-1. Ask Runtime `review-context` for the successful execution awaiting a required review checkpoint, Runtime-recorded change set and exact before/after file delta, acceptance, validation evidence, mutation scope, Persistent Tests, and any admitted findings. Review only that target and context. A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable.
-2. Check step compliance, scope, implementation correctness, acceptance coverage, validation evidence, unauthorized persistent-test changes, and regression risk.
+1. Ask Runtime `review-context` for the successful `implemented` or `test-red` execution awaiting a required review checkpoint, Runtime-recorded change set and exact before/after file delta, acceptance, validation evidence, mutation scope, Persistent Tests, and any admitted findings. Review only that target and context. A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable.
+2. Check step compliance, scope, implementation or test correctness, acceptance coverage, validation evidence, unauthorized persistent-test changes, and regression risk. For `test-red`, verify that only frozen test assets were admitted, the assertions encode the required behavior, and the recorded failure is caused by missing behavior rather than syntax, type, import, fixture, tool, unrelated-test, or environment failure; Red carries no final acceptance evidence.
 3. In discovery, report all clear repairable findings together. In verification, verify the admitted findings and affected regression surface; report any newly discovered issue without widening the repair yourself.
 4. Return exactly one verdict:
    - `clean`: the recorded change is acceptable.

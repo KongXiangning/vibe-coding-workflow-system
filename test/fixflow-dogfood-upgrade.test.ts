@@ -1,15 +1,19 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyFixflowChanges, isReleaseSurfacePath, nextFixflowDogfoodBranch, parseFixflowDogfoodUpgradeArgs, versionRegexLiteral } from '../scripts/fixflow-dogfood-upgrade';
+import { classifyFixflowChanges, isClosedArchivedTargetState, isConfirmedActiveTargetState, isPreservedTargetState, isReleaseSurfacePath, nextFixflowDogfoodBranch, parseFixflowDogfoodUpgradeArgs, versionRegexLiteral } from '../scripts/fixflow-dogfood-upgrade';
 
 describe('fixflow-dogfood-upgrade', () => {
   test('derives the next dogfood branch from the installed target version', () => {
     expect(nextFixflowDogfoodBranch('dogfood/round3-v0147', '0.14.7', '0.14.8')).toBe('dogfood/round4-v0148');
+    expect(nextFixflowDogfoodBranch('dogfood/round7-v0151', '0.15.1', '0.15.3')).toBe('dogfood/round8-v0153');
     expect(() => nextFixflowDogfoodBranch('dogfood/round3-v0147', '0.14.6', '0.14.8')).toThrow('does not identify');
   });
 
   test('requires one exact version and explicit apply', () => {
     expect(parseFixflowDogfoodUpgradeArgs(['--version', '0.14.8'])).toEqual({ version: '0.14.8', apply: false });
     expect(parseFixflowDogfoodUpgradeArgs(['--version', '0.14.8', '--apply'])).toEqual({ version: '0.14.8', apply: true });
+    expect(parseFixflowDogfoodUpgradeArgs(['--version', '0.15.3', '--baseline-ref', '2d91a83'])).toEqual({ version: '0.15.3', apply: false, baselineRef: '2d91a83' });
+    expect(parseFixflowDogfoodUpgradeArgs(['--version', '0.15.3', '--baseline-ref', 'dogfood/round7-v0151', '--apply'])).toEqual({ version: '0.15.3', apply: true, baselineRef: 'dogfood/round7-v0151' });
+    expect(() => parseFixflowDogfoodUpgradeArgs(['--version', '0.15.3', '--baseline-ref', '2d91a83', '--baseline-ref', 'dogfood/round7-v0151'])).toThrow('more than once');
     expect(() => parseFixflowDogfoodUpgradeArgs(['--version', '0.14.8-dev'])).toThrow('exact x.y.z');
   });
 
@@ -32,6 +36,21 @@ describe('fixflow-dogfood-upgrade', () => {
     expect(classification.C_governance).toEqual(['docs/workflow/CURRENT_TASK.md']);
     expect(classification.D_product).toEqual(['src/server.ts']);
     expect(classification.E_unknown).toEqual(['unexpected.txt']);
+  });
+
+  test('recognizes only the confirmed active plus active task boundary', () => {
+    expect(isConfirmedActiveTargetState({ workflow_status: 'active', lifecycle_state: 'active' })).toBe(true);
+    expect(isConfirmedActiveTargetState({ workflow_status: 'draft', lifecycle_state: 'active' })).toBe(false);
+    expect(isConfirmedActiveTargetState({ workflow_status: 'suspended', lifecycle_state: 'paused_pending_closure' })).toBe(false);
+    expect(isConfirmedActiveTargetState({ workflow_status: 'closed', lifecycle_state: 'archived' })).toBe(false);
+  });
+
+  test('preserves confirmed active and closed archived task boundaries during upgrade', () => {
+    expect(isClosedArchivedTargetState({ workflow_status: 'closed', lifecycle_state: 'archived' })).toBe(true);
+    expect(isPreservedTargetState({ workflow_status: 'active', lifecycle_state: 'active' })).toBe(true);
+    expect(isPreservedTargetState({ workflow_status: 'closed', lifecycle_state: 'archived' })).toBe(true);
+    expect(isPreservedTargetState({ workflow_status: 'draft', lifecycle_state: 'active' })).toBe(false);
+    expect(isPreservedTargetState({ workflow_status: 'suspended', lifecycle_state: 'paused_pending_closure' })).toBe(false);
   });
 
   test('recognizes release-surface paths while excluding local dogfood tooling', () => {

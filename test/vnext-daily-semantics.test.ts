@@ -5,7 +5,10 @@ import * as path from 'path';
 import { stringify } from 'yaml';
 import {
   applyVNextRuntimeProposal,
+  captureReviewTarget,
+  createReviewChangeDelta,
   createFindingQueueProposal,
+  createReviewResultProposal,
   createTaskStateProposal,
   previewCloseTask,
   readCanonicalCurrentTask,
@@ -179,6 +182,73 @@ function stepProposal(root: string, input: Partial<Parameters<typeof createTaskS
   });
 }
 
+function recordedExecutionInput(root: string, changeSetId: string, relativePath: string, evidenceRefs: string[]) {
+  const reviewBase = captureReviewTarget(root, [relativePath]);
+  const filePath = path.join(root, ...relativePath.split('/'));
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${changeSetId}\n`, 'utf8');
+  const reviewTarget = captureReviewTarget(root, [relativePath]);
+  const changeDelta = createReviewChangeDelta(reviewBase, reviewTarget);
+  return {
+    change_set_id: changeSetId,
+    execution_result: {
+      outcome: 'implemented' as const,
+      change_set_id: changeSetId,
+      review_base: reviewBase,
+      review_target: reviewTarget,
+      change_delta: changeDelta,
+      actual_changed_paths: changeDelta.entries.map(item => item.path),
+      command_results: [],
+      validation_results: [{ validation: `validate ${relativePath}`, status: 'passed' as const, evidence_refs: evidenceRefs }],
+      acceptance_evidence: [],
+      blocker: null,
+    },
+  };
+}
+
+function recordCleanReview(root: string, admittedFingerprints: string[] = []): StepReviewReceipt {
+  const current = readCanonicalCurrentTask(root);
+  const execution = [...current.runtimeState.execution_log].reverse().find(item =>
+    !('action' in item) && item.idempotency_key.startsWith('execute-step-result-') && item.review_receipt === undefined,
+  );
+  if (!execution || 'action' in execution || !execution.execution_result || !execution.change_set_id) {
+    throw new Error('test fixture requires a Runtime-recorded execution target');
+  }
+  const cyclePhase = execution.mode === 'repair' ? 'verification' : 'discovery';
+  const evidenceRefs = ['evidence:review'];
+  const reviewResult = {
+    kind: 'review-result/v1' as const,
+    review_id: `review-${execution.idempotency_key}`,
+    execution_id: execution.idempotency_key,
+    step_id: execution.step_id,
+    cycle_id: current.runtimeState.review_cycle.id,
+    cycle_phase: cyclePhase,
+    change_set_id: execution.change_set_id,
+    review_target_revision: execution.execution_result.review_target.revision,
+    verdict: 'clean' as const,
+    findings: [],
+    unresolved_fingerprints: [],
+    evidence_refs: evidenceRefs,
+    blocker: null,
+  };
+  const proposal = createReviewResultProposal(current, {
+    review_result: reviewResult,
+    evidence_refs: evidenceRefs,
+    idempotency_key: `record-${reviewResult.review_id}`,
+    authority_evidence: authority('active-task-owner', 'scope-admission', 'evidence-admission'),
+  });
+  expect(applyVNextRuntimeProposal(root, proposal).status).toBe('success');
+  return {
+    cycle_id: reviewResult.cycle_id,
+    cycle_phase: cyclePhase,
+    change_set_id: reviewResult.change_set_id,
+    review_target_revision: reviewResult.review_target_revision,
+    verdict: 'clean',
+    admitted_fingerprints: admittedFingerprints,
+    evidence_refs: evidenceRefs,
+  };
+}
+
 function finding(fingerprint = 'finding-contract', reviewCycleId = 'review-cycle-1'): FindingQueueDelta {
   return {
     kind: 'finding-queue',
@@ -218,8 +288,8 @@ function reviewReceipt(overrides: Partial<StepReviewReceipt> = {}): StepReviewRe
   return {
     cycle_id: 'review-cycle-0',
     cycle_phase: 'discovery',
-    diff_target: 'HEAD~1..HEAD',
-    diff_target_verification: 'verified',
+    change_set_id: 'change-set-caller-supplied',
+    review_target_revision: '0'.repeat(64),
     verdict: 'clean',
     admitted_fingerprints: [],
     evidence_refs: ['evidence:review'],
@@ -291,19 +361,28 @@ describe('vNext Core Daily Execution Semantics', () => {
 
     const started = applyVNextRuntimeProposal(root, stepProposal(root, {
       status: 'in-progress',
-      idempotency_key: 'daily-step-2-start',
+      idempotency_key: 'execute-step-result-daily-step-2-start',
       evidence_refs: ['evidence:step-2-start'],
+      ...recordedExecutionInput(root, 'change-set-daily-step-2', 'scripts/step-2.ts', ['evidence:step-2-start']),
     }));
     expect(started.status).toBe('success');
     expect(started.advancement?.outcome).toBe('not-applicable');
 
-    const checkpoint = reviewReceipt({
-      evidence_refs: ['evidence:step-2-review'],
-    });
+    const fabricated = reviewReceipt({ evidence_refs: ['evidence:step-2-review'] });
+    const fabricatedCompletion = applyVNextRuntimeProposal(root, stepProposal(root, {
+      idempotency_key: 'daily-step-2-fabricated-review',
+      evidence_refs: ['evidence:step-2', 'evidence:step-2-review'],
+      change_set_id: fabricated.change_set_id,
+      review_receipt: fabricated,
+    }));
+    expect(fabricatedCompletion.status).toBe('blocked');
+    expect(fabricatedCompletion.code).toBe('CLEAN_REVIEW_REQUIRED');
+
+    const checkpoint = recordCleanReview(root);
     const second = applyVNextRuntimeProposal(root, stepProposal(root, {
       idempotency_key: 'daily-step-2-complete',
-      evidence_refs: ['evidence:step-2', 'evidence:step-2-review'],
-      diff_target: checkpoint.diff_target,
+      evidence_refs: ['evidence:step-2', 'evidence:review'],
+      change_set_id: checkpoint.change_set_id,
       review_receipt: checkpoint,
     }));
     expect(second.status).toBe('success');
@@ -320,7 +399,7 @@ describe('vNext Core Daily Execution Semantics', () => {
     expect(previewCloseTask(root, archiveDelta()).closure_eligibility.eligible).toBe(true);
   });
 
-  test('routes repair through the same step, requires verification, and re-enters advancement only on the same diff', () => {
+  test('routes repair through the same step, requires verification, and re-enters advancement only on the same change set', () => {
     const root = makeRoot();
     expect(applyVNextRuntimeProposal(root, stepProposal(root, {
       status: 'in-progress',
@@ -341,10 +420,10 @@ describe('vNext Core Daily Execution Semantics', () => {
     const repair = applyVNextRuntimeProposal(root, stepProposal(root, {
       mode: 'repair',
       status: 'completed',
-      idempotency_key: 'repair-step-2-complete',
+      idempotency_key: 'execute-step-result-repair-step-2-complete',
       evidence_refs: ['evidence:repair-complete'],
       repair_fingerprint: 'finding-contract',
-      diff_target: 'HEAD~1..HEAD',
+      ...recordedExecutionInput(root, 'change-set-repair-step-2', 'scripts/step-2.ts', ['evidence:repair-complete']),
     }));
     expect(repair.status).toBe('success');
     expect(repair.advancement?.outcome).toBe('repair-awaiting-verification');
@@ -363,31 +442,21 @@ describe('vNext Core Daily Execution Semantics', () => {
       evidence_refs: ['evidence:finding-resolved'],
     }, 'repair-finding-resolve')).status).toBe('success');
 
-    const wrongPhase = reviewReceipt({
-      cycle_id: 'review-cycle-1',
-      cycle_phase: 'discovery',
-      admitted_fingerprints: [],
-      evidence_refs: ['evidence:wrong-phase'],
-    });
+    const verification = recordCleanReview(root, ['finding-contract']);
+    const wrongPhase = { ...verification, cycle_phase: 'discovery' as const, admitted_fingerprints: [] };
     const wrongPhaseResult = applyVNextRuntimeProposal(root, stepProposal(root, {
       idempotency_key: 'repair-step-2-wrong-phase',
-      evidence_refs: ['evidence:wrong-phase'],
-      diff_target: wrongPhase.diff_target,
+      evidence_refs: verification.evidence_refs,
+      change_set_id: wrongPhase.change_set_id,
       review_receipt: wrongPhase,
     }));
     expect(wrongPhaseResult.status).toBe('blocked');
-    expect(wrongPhaseResult.code).toBe('REVIEW_VERIFICATION_REQUIRED');
+    expect(wrongPhaseResult.code).toBe('REVIEW_RECEIPT_CONFLICT');
 
-    const verification = reviewReceipt({
-      cycle_id: 'review-cycle-1',
-      cycle_phase: 'verification',
-      admitted_fingerprints: ['finding-contract'],
-      evidence_refs: ['evidence:verification'],
-    });
     const verified = applyVNextRuntimeProposal(root, stepProposal(root, {
       idempotency_key: 'repair-step-2-verified',
-      evidence_refs: ['evidence:repair-final', 'evidence:verification'],
-      diff_target: verification.diff_target,
+      evidence_refs: ['evidence:repair-final', ...verification.evidence_refs],
+      change_set_id: verification.change_set_id,
       review_receipt: verification,
     }));
     expect(verified.status).toBe('success');
@@ -396,7 +465,7 @@ describe('vNext Core Daily Execution Semantics', () => {
     expect(after.active_step_id).toBe('step-2');
     expect(after.findings.find(item => item.fingerprint === 'finding-contract')?.status).toBe('resolved');
     expect(after.execution_log).toEqual(expect.arrayContaining([
-      expect.objectContaining({ idempotency_key: 'repair-step-2-complete', advancement: 'repair-awaiting-verification' }),
+      expect.objectContaining({ idempotency_key: 'execute-step-result-repair-step-2-complete', advancement: 'repair-awaiting-verification' }),
       expect.objectContaining({ idempotency_key: 'repair-step-2-verified', advancement: 'advanced', review_receipt: verification }),
     ]));
   });

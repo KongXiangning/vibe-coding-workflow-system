@@ -63,6 +63,44 @@ function freshTarget(): string {
   return target;
 }
 
+function makeActiveVNextTarget(): string {
+  const target = freshTarget();
+  expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('installed');
+  const profilePath = targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml');
+  fs.writeFileSync(profilePath, [
+    'schema_version: 1',
+    '',
+    'project:',
+    '  name: fixture-project',
+    '  type: test',
+    '',
+    'paths:',
+    '  workflow_home: docs/workflow',
+    '',
+  ].join('\n'), 'utf8');
+  const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+  fs.mkdirSync(path.dirname(currentTaskPath), { recursive: true });
+  const bootstrap = fs.readFileSync(path.join(ROOT, 'templates/vnext/bootstrap/CURRENT_TASK.md'), 'utf8');
+  const activeTask = bootstrap
+    .replaceAll("task_id: '000'", "task_id: '001'")
+    .replaceAll('task_slug: bootstrap-baseline', 'task_slug: active-fixture')
+    .replaceAll('workflow_status: closed', 'workflow_status: active')
+    .replaceAll('lifecycle_state: archived', 'lifecycle_state: active')
+    .replaceAll('active_step_id: bootstrap-baseline', 'active_step_id: project-setup')
+    .replaceAll('active_step_status: completed', 'active_step_status: ready')
+    .replaceAll('任务 ID：000', '任务 ID：001')
+    .replaceAll('任务 slug：bootstrap-baseline', '任务 slug：active-fixture')
+    .replaceAll('当前状态：closed', '当前状态：active')
+    .replaceAll('生命周期状态：archived', '生命周期状态：active')
+    .replaceAll('bootstrap-baseline: record the non-executable bootstrap baseline', 'project-setup: prepare active fixture');
+  fs.writeFileSync(currentTaskPath, activeTask, 'utf8');
+  const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
+  state.distribution_version = '0.14.4';
+  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8');
+  return target;
+}
+
 function makeReleaseVersionFixture(): string {
   const fixture = tempRoot('vibe-governance-release-version-fixture-');
   for (const relativePath of [
@@ -212,6 +250,7 @@ describe('Vibe Governance Distribution / Installer', () => {
       'close-task',
       'debug-task',
       'execute-step',
+      'git-commit',
       'prepare-task',
       'review-change',
       'review-draft',
@@ -336,6 +375,33 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(upgrade.status).toBe('upgraded');
     expect(upgrade.read_back_verified).toBe(true);
     expect(upgrade.next).toBeUndefined();
+  });
+
+  test('vNext upgrade preserves a confirmed active task byte-for-byte', { timeout: 60000 }, () => {
+    const target = makeActiveVNextTarget();
+    const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+    const profilePath = targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml');
+    const before = fs.readFileSync(currentTaskPath, 'utf8');
+    const profileBefore = fs.readFileSync(profilePath, 'utf8');
+    const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgrade.status).toBe('upgraded');
+    expect(upgrade.read_back_verified).toBe(true);
+    expect(fs.readFileSync(currentTaskPath, 'utf8')).toBe(before);
+    expect(fs.readFileSync(profilePath, 'utf8')).toBe(profileBefore);
+    expect(JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8')).distribution_version).toBe(validateDistributionVersionLockstep(ROOT));
+  });
+
+  test('vNext upgrade still rejects an unconfirmed draft task', { timeout: 60000 }, () => {
+    const target = makeActiveVNextTarget();
+    const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+    const draftTask = fs.readFileSync(currentTaskPath, 'utf8')
+      .replaceAll('workflow_status: active', 'workflow_status: draft')
+      .replaceAll('当前状态：active', '当前状态：draft');
+    fs.writeFileSync(currentTaskPath, draftTask, 'utf8');
+    const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgrade.status).toBe('rejected');
+    expect(upgrade.blockers.some(issue => issue.code === 'UPGRADE_NON_IDLE')).toBe(true);
+    expect(fs.readFileSync(currentTaskPath, 'utf8')).toBe(draftTask);
   });
 
   test('new Distribution State upgrade deletes stale managed files and rejects stale-file drift', { timeout: 90000 }, () => {

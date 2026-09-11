@@ -5,6 +5,8 @@ import {
   evaluateCommandWriteFootprint,
   evaluateMutationScope,
   MutationScopeError,
+  mutationScopePatternIsSubset,
+  nonExecutableChangePatternIsBounded,
   parseMutationScope,
   type CommandWriteFootprint,
 } from '../runtime/vnext/src/mutation-scope';
@@ -85,6 +87,27 @@ function commandFootprint(targets: string[], overrides: Partial<CommandWriteFoot
 }
 
 describe('vNext Mutation-oriented Scope', () => {
+  test('accepts only exact or literal-directory non-executable classifications', () => {
+    expect(nonExecutableChangePatternIsBounded('README.md')).toBe(true);
+    expect(nonExecutableChangePatternIsBounded('docs/product/**')).toBe(true);
+    expect(nonExecutableChangePatternIsBounded('**')).toBe(false);
+    expect(nonExecutableChangePatternIsBounded('*/**')).toBe(false);
+    expect(nonExecutableChangePatternIsBounded('*/*/**')).toBe(false);
+    expect(nonExecutableChangePatternIsBounded('docs*/**')).toBe(false);
+    expect(nonExecutableChangePatternIsBounded('docs/*.md')).toBe(false);
+    expect(nonExecutableChangePatternIsBounded('docs/**/guide.md')).toBe(false);
+  });
+
+  test('proves only exact or conservatively contained non-executable scope patterns', () => {
+    expect(mutationScopePatternIsSubset('README.md', 'README.md')).toBe(true);
+    expect(mutationScopePatternIsSubset('docs/product/guide.md', 'docs/product/**')).toBe(true);
+    expect(mutationScopePatternIsSubset('docs/product/*.md', 'docs/product/**')).toBe(true);
+    expect(mutationScopePatternIsSubset('docs/product/**', 'docs/**')).toBe(true);
+    expect(mutationScopePatternIsSubset('docs/**', 'docs/product/**')).toBe(false);
+    expect(mutationScopePatternIsSubset('docs/product/*.md', 'docs/product/*')).toBe(false);
+    expect(mutationScopePatternIsSubset('src/app.ts', 'docs/**')).toBe(false);
+  });
+
   test('records an explicit P-12 admission for the authoritative boundary', () => {
     expect(P12_MUTATION_SCOPE_TEST_ADMISSION).toMatchObject({
       decision: 'admitted',

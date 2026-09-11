@@ -93,6 +93,55 @@ current draft revision and explicit user or authorized-caller authority.
 Execution and finding admission reject drafts until that Runtime transition
 succeeds; the prior archive remains immutable.
 
+Before writing a new, updated, or replanned draft, prepare-task must classify
+its test strategy as `test-first`, `implementation-first`, or
+`not-applicable`, and record the selection source, task classification, and
+rationale in the canonical `Test Strategy` subsection. The closed task
+classifications are `contract-clear-behavior`,
+`exploratory-or-infrastructure`, and `non-executable-change`. Each source also
+has an exact `source_ref`: a Task Basis coordinate for `explicit-user`, an
+existing repository-relative policy file for `project-policy`, or
+`prepare-task-default` for `inferred-default`. Authority precedence is
+`explicit-user` > `project-policy` > `inferred-default`. The default is
+`test-first` for contract-clear feature, API, business-rule, regression, and
+bug-fix work; `implementation-first` is permitted for exploratory work,
+infrastructure validation, or technical proof where stable assertions depend
+on what is learned; `not-applicable` is reserved for work with no executable
+behavior, such as documentation-only or governance-metadata-only changes.
+Ambiguity is a user-owned open question and must be resolved before draft
+commit. For `test-first`, the first step contains all declared test assets and
+no product target; product implementation follows in a later step. For
+`implementation-first`, declared test assets appear only after the first
+implementation/discovery step; it may have no new persistent test when
+evidence-first admission or an explicit user denial leaves Persistent Tests at
+`none`. `not-applicable` additionally requires every task and step mutation
+pattern to be an exact path or provable subset of the project-owned
+`PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths` boundary.
+That boundary accepts only exact paths or literal directory prefixes ending in
+`/**`; wildcard-bearing prefixes and other wildcard layouts cannot prove a
+non-executable classification.
+Documentation inventory is not classification evidence because Markdown Skill
+templates, host guidance, and similar files can change executable behavior.
+Missing, empty, repository-wide, or ambiguous policy blocks only a new
+`not-applicable` definition and leaves the executable strategy modes available.
+Runtime enforces the strategy at create, update,
+confirmation, and replan without retroactively invalidating an existing active
+task. `confirm-draft` freezes the strategy with the rest of the task definition;
+only replan may change it.
+
+Execution re-resolves that frozen strategy and the active step order on every
+preflight and result transaction. The first `test-first` step is a mandatory
+Red phase: Runtime admits only the frozen Persistent Tests, requires a
+`test-red` result containing at least one structured `expected-failure` whose
+kind is `behavior-not-implemented`, rejects final acceptance evidence, and
+requires a clean review checkpoint before any later Green/implementation step
+can run. Syntax, type, import, fixture, tool, unrelated-test, and environment
+failures are unexpected failures and must be recorded as blocked, not Red.
+Later `test-first` steps and all non-Red strategies retain the normal
+`implemented` rule that every planned command and validation result passes.
+Active legacy tasks without a frozen Test Strategy retain their existing
+execution semantics and are not retroactively invalidated.
+
 For tasks with `claim_evidence_required: true`, prepare-task must persist a
 non-empty frozen per-claim/per-slot evidence plan in the same canonical
 `CURRENT_TASK.runtime_state`, including at least one `acceptance` claim.

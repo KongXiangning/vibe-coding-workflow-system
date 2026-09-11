@@ -41,6 +41,8 @@ import {
   auditCommandMutation,
   evaluateMutationScope,
   MutationScopeError,
+  mutationScopePatternIsSubset,
+  nonExecutableChangePatternIsBounded,
   parseMutationScope,
   type CommandMutationAuditInput,
   type ConditionalScopeAuthorization,
@@ -176,7 +178,7 @@ export type ReviewCyclePhase = (typeof REVIEW_CYCLE_PHASES)[number];
 export const STEP_STATUSES = ['ready', 'in-progress', 'completed', 'blocked'] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
 
-export const STEP_EXECUTION_RESULT_STATUSES = ['passed', 'failed', 'blocked', 'not-run'] as const;
+export const STEP_EXECUTION_RESULT_STATUSES = ['passed', 'expected-failure', 'failed', 'blocked', 'not-run'] as const;
 export type StepExecutionResultStatus = (typeof STEP_EXECUTION_RESULT_STATUSES)[number];
 
 export const FINDING_STATUSES = ['admitted', 'in-progress', 'resolved', 'deferred', 'rejected'] as const;
@@ -299,6 +301,46 @@ export type ReplanReplacementDefinition = {
 };
 
 export type DraftTaskDefinition = ReplanReplacementDefinition;
+
+export const TEST_STRATEGY_MODES = [
+  'test-first',
+  'implementation-first',
+  'not-applicable',
+] as const;
+export type TestStrategyMode = (typeof TEST_STRATEGY_MODES)[number];
+
+export const TEST_STRATEGY_SOURCES = [
+  'explicit-user',
+  'project-policy',
+  'inferred-default',
+] as const;
+export type TestStrategySource = (typeof TEST_STRATEGY_SOURCES)[number];
+
+export const TEST_STRATEGY_CLASSIFICATIONS = [
+  'contract-clear-behavior',
+  'exploratory-or-infrastructure',
+  'non-executable-change',
+] as const;
+export type TestStrategyClassification = (typeof TEST_STRATEGY_CLASSIFICATIONS)[number];
+
+export type TestStrategyDefinition = {
+  mode: TestStrategyMode;
+  source: TestStrategySource;
+  source_ref: string;
+  task_classification: TestStrategyClassification;
+  rationale: string;
+};
+
+export type TestStrategyExecutionPhase = 'red' | 'green' | 'implementation-first' | 'not-applicable' | 'legacy';
+
+export type TestStrategyExecutionContext = {
+  mode: TestStrategyMode | 'legacy';
+  phase: TestStrategyExecutionPhase;
+  required_outcome: 'test-red' | 'implemented';
+  persistent_tests: string[];
+  step_index: number;
+  first_step_id: string;
+};
 
 export type TaskBasisSource = {
   source: string;
@@ -437,12 +479,20 @@ export type StepCommandResult = {
   status: StepExecutionResultStatus;
   observed_repo_writes: string[];
   evidence_refs: string[];
+  expected_failure?: StepExpectedFailureEvidence;
 };
 
 export type StepValidationResult = {
   validation: string;
   status: StepExecutionResultStatus;
   evidence_refs: string[];
+  expected_failure?: StepExpectedFailureEvidence;
+};
+
+export type StepExpectedFailureEvidence = {
+  kind: 'behavior-not-implemented';
+  expected_behavior: string;
+  observed_failure_signature: string;
 };
 
 export type StepAcceptanceEvidence = {
@@ -451,7 +501,7 @@ export type StepAcceptanceEvidence = {
 };
 
 export type StepExecutionResult = {
-  outcome: 'implemented' | 'blocked';
+  outcome: 'implemented' | 'test-red' | 'blocked';
   change_set_id: string;
   review_base: ReviewTarget;
   review_target: ReviewTarget;
@@ -1668,6 +1718,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
       'scope_enforcement',
       'command_plan_source',
       'persistent_tests_enforcement',
+      'test_strategy_execution',
       'completion_evidence_source',
       'change_detection',
       'proposal_file_policy',
@@ -1683,6 +1734,29 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['preflight-step', 'begin-repair', 'record-step-result', 'complete-reviewed-step'],
     'Runtime contract execute-step adapter commands',
   );
+  const testStrategyExecution = expectRecord(
+    executeStepAdapter.test_strategy_execution,
+    'Runtime contract.proposal.execute_step.semantic_adapter.test_strategy_execution',
+  );
+  expectExactKeys(
+    testStrategyExecution,
+    ['phase_source', 'legacy_behavior', 'test_first', 'red_evidence', 'non_red_outcome'],
+    'Runtime contract execute-step test-strategy execution',
+  );
+  const testFirstExecution = expectRecord(testStrategyExecution.test_first, 'Runtime contract execute-step test-first execution');
+  expectExactKeys(
+    testFirstExecution,
+    ['first_step_phase', 'later_step_phase', 'first_step_outcome', 'later_step_outcome', 'advancement_gate'],
+    'Runtime contract execute-step test-first execution',
+  );
+  const redEvidence = expectRecord(testStrategyExecution.red_evidence, 'Runtime contract execute-step red evidence');
+  expectExactKeys(
+    redEvidence,
+    ['result_status', 'kind', 'companion_statuses', 'forbidden_statuses', 'acceptance_evidence', 'unexpected_failure_outcome', 'review_checkpoint'],
+    'Runtime contract execute-step red evidence',
+  );
+  expectSetEqual(expectStringArray(redEvidence.companion_statuses, 'Runtime contract execute-step red companion statuses'), ['passed'], 'Runtime contract execute-step red companion statuses');
+  expectSetEqual(expectStringArray(redEvidence.forbidden_statuses, 'Runtime contract execute-step red forbidden statuses'), ['failed', 'blocked', 'not-run'], 'Runtime contract execute-step red forbidden statuses');
   if (
     executeStepAdapter.step_source !== 'confirmed-current-task'
     || executeStepAdapter.scope_enforcement !== 'task-and-current-step'
@@ -1694,6 +1768,19 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || executeStepAdapter.advancement_owner !== 'runtime'
     || executeStepAdapter.post_completion_commit_owner !== 'user-or-explicit-outer-orchestrator'
     || executeStepAdapter.post_completion_route !== 'git-commit'
+    || testStrategyExecution.phase_source !== 'frozen-test-strategy-plus-active-step-order'
+    || testStrategyExecution.legacy_behavior !== 'preserve-existing-active-task-semantics'
+    || testStrategyExecution.non_red_outcome !== 'implemented-with-all-planned-results-passed'
+    || testFirstExecution.first_step_phase !== 'red'
+    || testFirstExecution.later_step_phase !== 'green'
+    || testFirstExecution.first_step_outcome !== 'test-red'
+    || testFirstExecution.later_step_outcome !== 'implemented'
+    || testFirstExecution.advancement_gate !== 'completed-clean-reviewed-test-red'
+    || redEvidence.result_status !== 'expected-failure'
+    || redEvidence.kind !== 'behavior-not-implemented'
+    || redEvidence.acceptance_evidence !== 'forbidden'
+    || redEvidence.unexpected_failure_outcome !== 'blocked'
+    || redEvidence.review_checkpoint !== 'required'
   ) {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter semantic boundary is invalid.');
   }
@@ -1709,7 +1796,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (
     reviewChangeAdapter.input !== 'stdin-json'
     || reviewChangeAdapter.context_source !== 'latest-recorded-execution'
-    || reviewChangeAdapter.reviewable_execution !== 'implemented-awaiting-required-checkpoint-or-repair-verification'
+    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification'
     || reviewChangeAdapter.change_set !== 'runtime-owned-stable-id'
     || reviewChangeAdapter.review_target !== 'runtime-before-after-file-delta'
     || reviewChangeAdapter.result_storage !== 'canonical-pending-review-result'
@@ -1733,6 +1820,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
       'confirmation_binding',
       'resume_review_binding',
       'replan_entry',
+      'test_strategy',
       'persistent_tests_storage',
       'persistent_tests_enforcement',
       'proposal_file_policy',
@@ -1748,7 +1836,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   expectSetEqual(
     expectStringArray(prepareTaskAdapter.draft_fields, 'Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields'),
-    ['task_basis', 'goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_scope', 'implementation_steps', 'validation_plan', 'persistent_tests'],
+    ['task_basis', 'goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_scope', 'test_strategy', 'implementation_steps', 'validation_plan', 'persistent_tests'],
     'Runtime contract prepare-task adapter semantic fields',
   );
   if (prepareTaskAdapter.task_basis_storage !== 'linked-TASK_BASIS-with-path-and-revision') {
@@ -1784,6 +1872,71 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   if (prepareTaskAdapter.replan_entry !== 'superseded + active') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task replan must enter from superseded + active.');
+  }
+  const testStrategy = expectRecord(prepareTaskAdapter.test_strategy, 'Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy');
+  expectExactKeys(
+    testStrategy,
+    ['storage', 'fields', 'modes', 'sources', 'classifications', 'source_binding', 'precedence', 'ambiguity', 'frozen_by', 'change_after_confirm', 'enforcement', 'ordering_enforcement', 'non_executable_scope'],
+    'Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.fields, 'Runtime contract prepare-task test-strategy fields'),
+    ['mode', 'source', 'source_ref', 'task_classification', 'rationale'],
+    'Runtime contract prepare-task test-strategy fields',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.modes, 'Runtime contract prepare-task test-strategy modes'),
+    ['test-first', 'implementation-first', 'not-applicable'],
+    'Runtime contract prepare-task test-strategy modes',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.sources, 'Runtime contract prepare-task test-strategy sources'),
+    ['explicit-user', 'project-policy', 'inferred-default'],
+    'Runtime contract prepare-task test-strategy sources',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.classifications, 'Runtime contract prepare-task test-strategy classifications'),
+    ['contract-clear-behavior', 'exploratory-or-infrastructure', 'non-executable-change'],
+    'Runtime contract prepare-task test-strategy classifications',
+  );
+  const strategySourceBinding = expectRecord(testStrategy.source_binding, 'Runtime contract prepare-task test-strategy source_binding');
+  expectExactKeys(strategySourceBinding, ['explicit-user', 'project-policy', 'inferred-default'], 'Runtime contract prepare-task test-strategy source_binding');
+  const strategyPrecedence = expectStringArray(testStrategy.precedence, 'Runtime contract prepare-task test-strategy precedence');
+  const nonExecutableScope = expectRecord(testStrategy.non_executable_scope, 'Runtime contract prepare-task test-strategy non_executable_scope');
+  expectExactKeys(
+    nonExecutableScope,
+    ['policy_source', 'required_for', 'evaluated_surfaces', 'policy_pattern_grammar', 'relation', 'missing_or_ambiguous', 'historical_active_tasks', 'error_codes'],
+    'Runtime contract prepare-task test-strategy non_executable_scope',
+  );
+  expectSetEqual(
+    expectStringArray(nonExecutableScope.evaluated_surfaces, 'Runtime contract prepare-task test-strategy non-executable evaluated surfaces'),
+    ['task-allowed-scope', 'task-conditional-scope', 'implementation-step-mutation-scope'],
+    'Runtime contract prepare-task test-strategy non-executable evaluated surfaces',
+  );
+  expectSetEqual(
+    expectStringArray(nonExecutableScope.error_codes, 'Runtime contract prepare-task test-strategy non-executable error codes'),
+    ['TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN', 'TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION'],
+    'Runtime contract prepare-task test-strategy non-executable error codes',
+  );
+  if (
+    testStrategy.storage !== 'current-task-regression-checks/test-strategy'
+    || strategySourceBinding['explicit-user'] !== 'exact-task-basis-source-coordinate'
+    || strategySourceBinding['project-policy'] !== 'existing-project-policy-file'
+    || strategySourceBinding['inferred-default'] !== 'prepare-task-default'
+    || strategyPrecedence.join('\0') !== ['explicit-user', 'project-policy', 'inferred-default'].join('\0')
+    || testStrategy.ambiguity !== 'resolve-as-open-question-before-draft-commit'
+    || testStrategy.frozen_by !== 'confirm-draft'
+    || testStrategy.change_after_confirm !== 'replan-only'
+    || testStrategy.enforcement !== 'create-update-confirm-and-replan'
+    || testStrategy.ordering_enforcement !== 'mode-bound-step-scope-partition'
+    || nonExecutableScope.policy_source !== '.workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths'
+    || nonExecutableScope.required_for !== 'not-applicable'
+    || nonExecutableScope.policy_pattern_grammar !== 'exact-path-or-literal-directory-prefix-globstar'
+    || nonExecutableScope.relation !== 'exact-or-proven-subset'
+    || nonExecutableScope.missing_or_ambiguous !== 'block-not-applicable-only'
+    || nonExecutableScope.historical_active_tasks !== 'not-revalidated'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task test-strategy classification, precedence, or freeze boundary is invalid.');
   }
   if (prepareTaskAdapter.persistent_tests_enforcement !== 'frozen-section-plus-scope-evaluator') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task persistent tests must be enforced by the frozen section and scope evaluator.');
@@ -2348,6 +2501,19 @@ function validateReviewChangeDelta(
   return normalized;
 }
 
+function validateStepExpectedFailureEvidence(value: unknown, location: string): StepExpectedFailureEvidence {
+  const evidence = expectRecord(value, location);
+  expectExactKeys(evidence, ['kind', 'expected_behavior', 'observed_failure_signature'], location);
+  if (evidence.kind !== 'behavior-not-implemented') {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be behavior-not-implemented.`);
+  }
+  return {
+    kind: 'behavior-not-implemented',
+    expected_behavior: expectText(evidence.expected_behavior, `${location}.expected_behavior`),
+    observed_failure_signature: expectText(evidence.observed_failure_signature, `${location}.observed_failure_signature`),
+  };
+}
+
 function validateStepExecutionResult(value: unknown, location: string): StepExecutionResult {
   const result = expectRecord(value, location);
   expectExactKeys(result, [
@@ -2362,7 +2528,7 @@ function validateStepExecutionResult(value: unknown, location: string): StepExec
     'acceptance_evidence',
     'blocker',
   ], location);
-  const outcome = expectEnum(result.outcome, ['implemented', 'blocked'], `${location}.outcome`);
+  const outcome = expectEnum(result.outcome, ['implemented', 'test-red', 'blocked'], `${location}.outcome`);
   const changeSetId = expectString(result.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN);
   const reviewBase = validateReviewTarget(result.review_base, `${location}.review_base`);
   const reviewTarget = validateReviewTarget(result.review_target, `${location}.review_target`);
@@ -2378,18 +2544,28 @@ function validateStepExecutionResult(value: unknown, location: string): StepExec
   const commandResults = commandValues.map((item, index): StepCommandResult => {
     const itemLocation = `${location}.command_results[${index}]`;
     const command = expectRecord(item, itemLocation);
-    expectExactKeys(command, ['command', 'status', 'observed_repo_writes', 'evidence_refs'], itemLocation);
     const status = expectEnum(command.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
+    expectExactKeys(
+      command,
+      status === 'expected-failure'
+        ? ['command', 'status', 'observed_repo_writes', 'evidence_refs', 'expected_failure']
+        : ['command', 'status', 'observed_repo_writes', 'evidence_refs'],
+      itemLocation,
+    );
     const evidenceRefs = expectStringArray(command.evidence_refs, `${itemLocation}.evidence_refs`, status === 'not-run', MAX_EVIDENCE_REFS);
     const observedRepoWrites = validateExecutionResultPaths(command.observed_repo_writes, `${itemLocation}.observed_repo_writes`);
     if (status === 'not-run' && observedRepoWrites.length > 0) {
       fail('RUNTIME_STATE_CONFLICT', `${itemLocation}.not-run command must not report repository writes.`);
     }
+    const expectedFailure = status === 'expected-failure'
+      ? validateStepExpectedFailureEvidence(command.expected_failure, `${itemLocation}.expected_failure`)
+      : undefined;
     return {
       command: expectText(command.command, `${itemLocation}.command`),
       status,
       observed_repo_writes: observedRepoWrites,
       evidence_refs: evidenceRefs,
+      ...(expectedFailure ? { expected_failure: expectedFailure } : {}),
     };
   });
   if (new Set(commandResults.map(item => item.command)).size !== commandResults.length) {
@@ -2402,12 +2578,22 @@ function validateStepExecutionResult(value: unknown, location: string): StepExec
   const validationResults = validationValues.map((item, index): StepValidationResult => {
     const itemLocation = `${location}.validation_results[${index}]`;
     const validation = expectRecord(item, itemLocation);
-    expectExactKeys(validation, ['validation', 'status', 'evidence_refs'], itemLocation);
     const status = expectEnum(validation.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
+    expectExactKeys(
+      validation,
+      status === 'expected-failure'
+        ? ['validation', 'status', 'evidence_refs', 'expected_failure']
+        : ['validation', 'status', 'evidence_refs'],
+      itemLocation,
+    );
+    const expectedFailure = status === 'expected-failure'
+      ? validateStepExpectedFailureEvidence(validation.expected_failure, `${itemLocation}.expected_failure`)
+      : undefined;
     return {
       validation: expectText(validation.validation, `${itemLocation}.validation`),
       status,
       evidence_refs: expectStringArray(validation.evidence_refs, `${itemLocation}.evidence_refs`, status === 'not-run', MAX_EVIDENCE_REFS),
+      ...(expectedFailure ? { expected_failure: expectedFailure } : {}),
     };
   });
   if (new Set(validationResults.map(item => item.validation)).size !== validationResults.length) {
@@ -2436,6 +2622,16 @@ function validateStepExecutionResult(value: unknown, location: string): StepExec
   }
   if (outcome === 'blocked' && (blocker === null || !statuses.some(status => status === 'failed' || status === 'blocked'))) {
     fail('RUNTIME_STATE_CONFLICT', `${location}.blocked requires a blocker and at least one failed or blocked result.`);
+  }
+  if (outcome === 'test-red') {
+    if (blocker !== null
+      || acceptanceEvidence.length > 0
+      || !statuses.some(status => status === 'expected-failure')
+      || statuses.some(status => status !== 'passed' && status !== 'expected-failure')) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.test-red requires expected-failure evidence, permits only passed companion results, forbids acceptance evidence, and has no blocker.`);
+    }
+  } else if (statuses.some(status => status === 'expected-failure')) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.expected-failure results are valid only for outcome=test-red.`);
   }
   return {
     outcome,
@@ -2800,6 +2996,381 @@ function validateReplanReplacementDefinition(value: unknown, location: string): 
   return result;
 }
 
+function testStrategySection(markdown: string, aliases: readonly string[], location: string): string {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(markdown), aliases, 3);
+  if (!section) fail('TEST_STRATEGY_INVALID', `${location} is missing the required ### ${aliases[0]} section.`);
+  return markdown.slice(section.contentStart, section.contentEnd).replace(/\r\n?/gu, '\n').trim();
+}
+
+export function readTestStrategyDefinition(definition: DraftTaskDefinition): TestStrategyDefinition {
+  const location = 'draft_definition.regression_checks.Test Strategy';
+  const content = testStrategySection(definition.regression_checks, ['Test Strategy', '测试策略'], 'draft_definition.regression_checks');
+  const fields = new Map<string, string>();
+  for (const [index, rawLine] of content.split('\n').entries()) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = /^-\s+(mode|source|source_ref|task_classification|rationale):\s+(.+)$/u.exec(line);
+    if (!match) fail('TEST_STRATEGY_INVALID', `${location}:${index + 1} is not a canonical test-strategy field.`);
+    if (fields.has(match[1]!)) fail('TEST_STRATEGY_INVALID', `${location} contains duplicate field ${match[1]}.`);
+    fields.set(match[1]!, match[2]!.trim());
+  }
+  const expected = ['mode', 'source', 'source_ref', 'task_classification', 'rationale'] as const;
+  const missing = expected.filter(field => !fields.has(field));
+  const extra = [...fields.keys()].filter(field => !(expected as readonly string[]).includes(field));
+  if (missing.length > 0 || extra.length > 0 || fields.size !== expected.length) {
+    fail('TEST_STRATEGY_INVALID', `${location} fields mismatch; missing=[${missing.join(', ')}], extra=[${extra.join(', ')}].`);
+  }
+  const mode = fields.get('mode')!;
+  const source = fields.get('source')!;
+  const taskClassification = fields.get('task_classification')!;
+  if (!(TEST_STRATEGY_MODES as readonly string[]).includes(mode)) {
+    fail('TEST_STRATEGY_INVALID', `${location}.mode must be one of ${TEST_STRATEGY_MODES.join(', ')}.`);
+  }
+  if (!(TEST_STRATEGY_SOURCES as readonly string[]).includes(source)) {
+    fail('TEST_STRATEGY_INVALID', `${location}.source must be one of ${TEST_STRATEGY_SOURCES.join(', ')}.`);
+  }
+  if (!(TEST_STRATEGY_CLASSIFICATIONS as readonly string[]).includes(taskClassification)) {
+    fail('TEST_STRATEGY_INVALID', `${location}.task_classification must be one of ${TEST_STRATEGY_CLASSIFICATIONS.join(', ')}.`);
+  }
+  const strategy: TestStrategyDefinition = {
+    mode: mode as TestStrategyMode,
+    source: source as TestStrategySource,
+    source_ref: expectText(fields.get('source_ref'), `${location}.source_ref`, 1024),
+    task_classification: taskClassification as TestStrategyClassification,
+    rationale: expectText(fields.get('rationale'), `${location}.rationale`, 4096),
+  };
+  const nonExecutable = strategy.task_classification === 'non-executable-change';
+  if ((strategy.mode === 'not-applicable') !== nonExecutable) {
+    fail('TEST_STRATEGY_INVALID', 'not-applicable is valid only for task_classification=non-executable-change, and that classification requires not-applicable.');
+  }
+  if (strategy.source === 'inferred-default') {
+    const inferredMode: TestStrategyMode = strategy.task_classification === 'contract-clear-behavior'
+      ? 'test-first'
+      : strategy.task_classification === 'exploratory-or-infrastructure'
+        ? 'implementation-first'
+        : 'not-applicable';
+    if (strategy.mode !== inferredMode) {
+      fail('TEST_STRATEGY_INVALID', `inferred-default requires mode=${inferredMode} for task_classification=${strategy.task_classification}.`);
+    }
+  }
+  return strategy;
+}
+
+export function readPersistentTestPaths(definition: DraftTaskDefinition): string[] {
+  const location = 'draft_definition.regression_checks.Persistent Tests';
+  const content = testStrategySection(definition.regression_checks, ['Persistent Tests', '持久测试'], 'draft_definition.regression_checks');
+  const paths: string[] = [];
+  let none = false;
+  for (const [index, rawLine] of content.split('\n').entries()) {
+    if (!rawLine.trim() || /^\s{2,}/u.test(rawLine)) continue;
+    const line = rawLine.trim();
+    if (line === '- none') {
+      none = true;
+      continue;
+    }
+    const match = /^-\s+`([^`]+)`$/u.exec(line);
+    if (!match) fail('TEST_STRATEGY_INVALID', `${location}:${index + 1} is not an exact canonical persistent-test path.`);
+    const normalized = normalizeRepoPath(match[1]!, `${location}:${index + 1}`);
+    if (normalized !== match[1] || normalized.includes('*') || /^[A-Za-z]:[\\/]/u.test(normalized)) {
+      fail('TEST_STRATEGY_INVALID', `${location}:${index + 1} must be one canonical repository-relative exact path.`);
+    }
+    paths.push(normalized);
+  }
+  if (none && paths.length > 0) fail('TEST_STRATEGY_INVALID', `${location} cannot combine none with exact paths.`);
+  if (!none && paths.length === 0) fail('TEST_STRATEGY_INVALID', `${location} must contain none or at least one exact path.`);
+  if (new Set(paths).size !== paths.length) fail('TEST_STRATEGY_INVALID', `${location} contains duplicate paths.`);
+  return paths;
+}
+
+function strategyStepScopes(definition: DraftTaskDefinition): string[][] {
+  let steps: TaskStepDefinition[];
+  try {
+    steps = parseImplementationSteps(definition.implementation_steps);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError) fail(error.code, error.message);
+    throw error;
+  }
+  return steps.map((step, index) => {
+    if (!step.mutation_scope) fail('TEST_STRATEGY_INVALID', `implementation_steps[${index}] is missing mutation_scope.`);
+    const values = step.mutation_scope.split(',').map(value => value.trim().replace(/^`|`$/gu, '')).filter(Boolean);
+    if (values.length === 0 || new Set(values).size !== values.length) {
+      fail('TEST_STRATEGY_INVALID', `implementation_steps[${index}].mutation_scope must contain unique paths.`);
+    }
+    return values;
+  });
+}
+
+function definitionMutationScope(definition: DraftTaskDefinition): ReturnType<typeof parseMutationScope> {
+  const body = [
+    '## 允许修改范围',
+    '',
+    '### Allowed Files',
+    '',
+    definition.allowed_scope,
+    '',
+    '### Conditional Files',
+    '',
+    definition.conditional_scope,
+    '',
+    '## 禁止修改范围',
+    '',
+    '### Forbidden Files',
+    '',
+    definition.forbidden_scope,
+    '',
+    '## 回归检查项',
+    '',
+    definition.regression_checks,
+    '',
+  ].join('\n');
+  try {
+    return parseMutationScope(body);
+  } catch (error) {
+    if (error instanceof MutationScopeError) fail('TEST_STRATEGY_INVALID', error.message);
+    throw error;
+  }
+}
+
+function nonExecutableChangePatterns(root: string): string[] {
+  let profile: ReturnType<typeof loadProfile>;
+  try {
+    profile = loadProfile(getWorkflowProfilePath(root));
+  } catch (error) {
+    fail(
+      'TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN',
+      `not-applicable requires a readable PROJECT_PROFILE.yaml non-executable boundary: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const boundaries = profile.boundaries;
+  if (!isRecord(boundaries) || !Array.isArray(boundaries.non_executable_change_paths)) {
+    fail(
+      'TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN',
+      'not-applicable requires PROJECT_PROFILE.yaml boundaries.non_executable_change_paths.',
+    );
+  }
+  if (boundaries.non_executable_change_paths.length === 0) {
+    fail(
+      'TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN',
+      'not-applicable requires at least one project-owned non-executable path classification.',
+    );
+  }
+  const patterns = boundaries.non_executable_change_paths.map((value, index) => {
+    if (typeof value !== 'string' || !value.trim()) {
+      fail('TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN', `boundaries.non_executable_change_paths[${index}] must be a non-empty string.`);
+    }
+    const normalized = value.trim().replace(/\\/gu, '/').replace(/^\.\//u, '').replace(/\/+/gu, '/');
+    let bounded: boolean;
+    try {
+      bounded = nonExecutableChangePatternIsBounded(normalized);
+    } catch (error) {
+      fail('TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN', `invalid non-executable path classification ${normalized}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!bounded) {
+      fail(
+        'TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN',
+        `non-executable path classification must be an exact path or a literal directory prefix ending in /**: ${normalized}.`,
+      );
+    }
+    return normalized;
+  });
+  if (new Set(patterns).size !== patterns.length) {
+    fail('TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN', 'boundaries.non_executable_change_paths contains duplicate patterns.');
+  }
+  return patterns;
+}
+
+function assertNonExecutableChangeScope(root: string, definition: DraftTaskDefinition, stepScopes: readonly string[][]): void {
+  const policyPatterns = nonExecutableChangePatterns(root);
+  const taskScope = definitionMutationScope(definition);
+  const declaredTargets = [...new Set([
+    ...taskScope.allowed.map(entry => entry.pattern),
+    ...taskScope.conditional.map(entry => entry.pattern),
+    ...stepScopes.flat(),
+  ])];
+  const uncovered = declaredTargets.filter(target =>
+    !policyPatterns.some(boundary => {
+      try {
+        return mutationScopePatternIsSubset(target, boundary);
+      } catch {
+        return false;
+      }
+    }));
+  if (uncovered.length > 0) {
+    fail(
+      'TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION',
+      `not-applicable contains mutation targets outside PROJECT_PROFILE.yaml boundaries.non_executable_change_paths: ${uncovered.join(', ')}.`,
+    );
+  }
+}
+
+function assertTestStrategySource(root: string, strategy: TestStrategyDefinition, taskBasis: TaskBasis): void {
+  if (strategy.source === 'inferred-default') {
+    if (strategy.source_ref !== 'prepare-task-default') {
+      fail('TEST_STRATEGY_INVALID', 'inferred-default requires source_ref=prepare-task-default.');
+    }
+    return;
+  }
+  if (strategy.source === 'explicit-user') {
+    const userSources = new Set([
+      taskBasis.original_request.source,
+      ...taskBasis.user_decisions.map(item => item.source),
+    ]);
+    if (!userSources.has(strategy.source_ref)) {
+      fail('TEST_STRATEGY_INVALID', 'explicit-user source_ref must equal an exact Task Basis source coordinate.');
+    }
+    return;
+  }
+  const normalized = normalizeRepoPath(strategy.source_ref, 'test_strategy.source_ref');
+  if (normalized !== strategy.source_ref || normalized.includes('*') || /^[A-Za-z]:[\\/]/u.test(normalized)) {
+    fail('TEST_STRATEGY_INVALID', 'project-policy source_ref must be one canonical repository-relative exact file path.');
+  }
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(resolvedRoot, ...normalized.split('/'));
+  const relative = path.relative(resolvedRoot, resolved);
+  if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    fail('TEST_STRATEGY_INVALID', `project-policy source_ref does not identify an existing project file: ${strategy.source_ref}.`);
+  }
+}
+
+export function assertPreparedTestStrategy(root: string, definition: DraftTaskDefinition, taskBasis: TaskBasis): TestStrategyDefinition {
+  const strategy = readTestStrategyDefinition(definition);
+  const persistentTests = readPersistentTestPaths(definition);
+  const scopes = strategyStepScopes(definition);
+  const persistentSet = new Set(persistentTests);
+  const firstScope = scopes[0] ?? [];
+  if (strategy.mode === 'test-first') {
+    if (persistentTests.length === 0) fail('TEST_STRATEGY_INVALID', 'test-first requires at least one Persistent Tests asset.');
+    const missing = persistentTests.filter(testPath => !firstScope.includes(testPath));
+    const nonTestTargets = firstScope.filter(target => !persistentSet.has(target));
+    if (missing.length > 0 || nonTestTargets.length > 0) {
+      fail('TEST_STRATEGY_INVALID', `test-first requires a tests-only first step containing every Persistent Tests asset; missing=[${missing.join(', ')}], non_test_targets=[${nonTestTargets.join(', ')}].`);
+    }
+  } else if (strategy.mode === 'implementation-first') {
+    const testsInFirstStep = firstScope.filter(target => persistentSet.has(target));
+    const testsMissingLater = persistentTests.filter(testPath => !scopes.slice(1).some(scope => scope.includes(testPath)));
+    if (testsInFirstStep.length > 0 || testsMissingLater.length > 0) {
+      fail('TEST_STRATEGY_INVALID', `implementation-first requires implementation/discovery before every persistent-test step; first_step_tests=[${testsInFirstStep.join(', ')}], missing_later=[${testsMissingLater.join(', ')}].`);
+    }
+  } else if (persistentTests.length > 0) {
+    fail('TEST_STRATEGY_INVALID', 'not-applicable requires Persistent Tests to be none.');
+  } else {
+    assertNonExecutableChangeScope(root, definition, scopes);
+  }
+  assertTestStrategySource(root, strategy, taskBasis);
+  return strategy;
+}
+
+function executionPhaseForStrategy(strategy: TestStrategyDefinition, stepIndex: number): TestStrategyExecutionPhase {
+  if (strategy.mode !== 'test-first') return strategy.mode;
+  return stepIndex === 0 ? 'red' : 'green';
+}
+
+export function resolveTestStrategyExecutionContext(current: CanonicalCurrentTask): TestStrategyExecutionContext {
+  const resolution = resolveCanonicalTaskStep(current);
+  const strategySection = findUniqueMarkdownSection(
+    scanMarkdownSections(current.body),
+    ['Test Strategy', '测试策略'],
+    3,
+  );
+  if (!strategySection) {
+    return {
+      mode: 'legacy',
+      phase: 'legacy',
+      required_outcome: 'implemented',
+      persistent_tests: [],
+      step_index: resolution.index,
+      first_step_id: resolution.steps[0]!.id,
+    };
+  }
+
+  const definition = readDraftDefinitionFromBody(current.body);
+  const strategy = readTestStrategyDefinition(definition);
+  const phase = executionPhaseForStrategy(strategy, resolution.index);
+  return {
+    mode: strategy.mode,
+    phase,
+    required_outcome: phase === 'red' ? 'test-red' : 'implemented',
+    persistent_tests: readPersistentTestPaths(definition),
+    step_index: resolution.index,
+    first_step_id: resolution.steps[0]!.id,
+  };
+}
+
+function hasCompletedReviewedTestRed(current: CanonicalCurrentTask, firstStepId: string): boolean {
+  return current.runtimeState.execution_log.some((entry, index) => {
+    if ('action' in entry
+      || entry.step_id !== firstStepId
+      || entry.execution_result?.outcome !== 'test-red') return false;
+    return current.runtimeState.execution_log.slice(index + 1).some(completion =>
+      !('action' in completion)
+      && completion.step_id === firstStepId
+      && completion.status === 'completed'
+      && completion.review_receipt?.verdict === 'clean'
+      && completion.change_set_id === entry.execution_result?.change_set_id,
+    );
+  });
+}
+
+export function assertTestStrategySequenceReady(
+  current: CanonicalCurrentTask,
+  context = resolveTestStrategyExecutionContext(current),
+): void {
+  if (context.mode === 'test-first'
+    && context.phase === 'green'
+    && !hasCompletedReviewedTestRed(current, context.first_step_id)) {
+    fail(
+      'TEST_STRATEGY_SEQUENCE_INVALID',
+      `test-first step ${current.runtimeState.active_step_id} requires a completed, clean-reviewed test-red result for ${context.first_step_id}.`,
+    );
+  }
+}
+
+function assertTestStrategyExecutionTransition(
+  current: CanonicalCurrentTask,
+  delta: TaskStepProgressDelta,
+  checkpoint: TaskStepCheckpointPolicy,
+): void {
+  const context = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, context);
+  const execution = delta.execution_result;
+  if (!execution) {
+    if (context.phase === 'red' && delta.status === 'completed') {
+      const hasRecordedRed = current.runtimeState.execution_log.some(entry =>
+        !('action' in entry)
+        && entry.step_id === context.first_step_id
+        && entry.execution_result?.outcome === 'test-red',
+      );
+      if (!hasRecordedRed) {
+        fail('TEST_STRATEGY_SEQUENCE_INVALID', 'test-first cannot complete its first step without a Runtime-recorded test-red result.');
+      }
+    }
+    return;
+  }
+
+  if (context.phase !== 'red') {
+    if (execution.outcome === 'test-red') {
+      fail('TEST_STRATEGY_SEQUENCE_INVALID', `outcome=test-red is valid only for the first step of test-first, not phase=${context.phase}.`);
+    }
+    return;
+  }
+
+  if (execution.outcome === 'blocked') return;
+  if (execution.outcome !== 'test-red') {
+    fail('TEST_STRATEGY_SEQUENCE_INVALID', 'the first test-first step must record outcome=test-red or a truthful blocked result; implemented cannot bypass Red.');
+  }
+  if (checkpoint !== 'required') {
+    fail('TEST_STRATEGY_SEQUENCE_INVALID', 'the test-first Red step requires a review checkpoint before implementation may begin.');
+  }
+  const outsidePersistentTests = execution.actual_changed_paths.filter(path => !context.persistent_tests.includes(path));
+  if (outsidePersistentTests.length > 0) {
+    fail('TEST_STRATEGY_SEQUENCE_INVALID', `the test-first Red step changed non-test paths: ${outsidePersistentTests.join(', ')}.`);
+  }
+  if (delta.claim_evidence !== undefined
+    && digest(delta.claim_evidence) !== digest(current.runtimeState.claim_evidence ?? [])) {
+    fail('TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', 'test-red cannot update final claim evidence before implementation reaches Green.');
+  }
+}
+
 function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle: true): DraftTaskIdentity;
 function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle: false): Omit<DraftTaskIdentity, 'task_title'>;
 function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle = true): DraftTaskIdentity | Omit<DraftTaskIdentity, 'task_title'> {
@@ -2821,17 +3392,12 @@ function validateDraftTaskIdentityFields(record: AnyRecord, location: string, re
 }
 
 function replacementStepIds(implementationSteps: string): string[] {
-  const ids: string[] = [];
-  for (const line of implementationSteps.split('\n')) {
-    const labelledStep = /^\s*[-*]\s+(?:\[[ xX]\]\s*)?([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\s*[:：]/.exec(line);
-    if (labelledStep) {
-      ids.push(labelledStep[1]);
-      continue;
-    }
-    const numberedStep = /^\s*[-*]\s+(?:\[[ xX]\]\s*)?步骤\s+([0-9]+)\s*[:：]/.exec(line);
-    if (numberedStep) ids.push(`step-${numberedStep[1]}`);
+  try {
+    return parseImplementationSteps(implementationSteps).map(step => step.id);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError) fail('RUNTIME_SECTION_INVALID', error.message);
+    throw error;
   }
-  return ids;
 }
 
 function assertReplacementActiveStep(activeStepId: string, implementationSteps: string): void {
@@ -2914,8 +3480,14 @@ export function assertReviewExecutionEligible(
   if (!execution.execution_result) {
     fail('REVIEW_TARGET_REQUIRED', 'review-change requires a structured Runtime-recorded execution result.');
   }
-  if (execution.execution_result.outcome !== 'implemented') {
-    fail('REVIEW_EXECUTION_NOT_IMPLEMENTED', 'a blocked execution is not a reviewable implementation result.');
+  if (execution.execution_result.outcome === 'blocked') {
+    fail('REVIEW_EXECUTION_NOT_IMPLEMENTED', 'a blocked execution is not reviewable.');
+  }
+  if (execution.execution_result.outcome === 'test-red') {
+    const context = resolveTestStrategyExecutionContext(current);
+    if (context.phase !== 'red') {
+      fail('TEST_STRATEGY_SEQUENCE_INVALID', 'a test-red execution is reviewable only on the first test-first step.');
+    }
   }
 
   const executionIndex = current.runtimeState.execution_log.findIndex(item =>
@@ -8007,9 +8579,12 @@ function assertNoUnresolvedDraftQuestions(body: string): void {
   fail('DRAFT_DECISION_UNRESOLVED', 'draft confirmation is blocked by unresolved user-owned questions.');
 }
 
-function assertDraftDefinitionReady(body: string, activeStepId: string): DraftTaskDefinition {
+function assertDraftDefinitionReady(root: string, current: CanonicalCurrentTask): DraftTaskDefinition {
+  const activeStepId = current.runtimeState.active_step_id;
+  const body = current.body;
   const definition = readDraftDefinitionFromBody(body);
   assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
+  assertPreparedTestStrategy(root, definition, readCanonicalTaskBasis(root, current).basis);
   assertNoUnresolvedDraftQuestions(body);
   return definition;
 }
@@ -8305,6 +8880,7 @@ function applyTaskStateDelta(
       assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, 'create-draft claim_evidence');
     requireAcceptanceClaim(claimEvidence, 'create-draft claim_evidence');
     const draftIdentity: DraftTaskIdentity = {
@@ -8360,6 +8936,7 @@ function applyTaskStateDelta(
     const currentIdentity = extractTaskIdentityFromCurrentTask(current.body);
     if (currentIdentity.title !== delta.task_title) fail('DRAFT_IDENTITY_IMMUTABLE', 'update-draft must preserve the task title identity.');
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, 'update-draft claim_evidence');
     requireAcceptanceClaim(claimEvidence, 'update-draft claim_evidence');
     const nextWithoutAudit: RuntimeState = {
@@ -8419,7 +8996,7 @@ function applyTaskStateDelta(
       fail('DRAFT_CONFIRMATION_BLOCKED', 'confirm-draft requires the admitted draft step to remain ready.');
     }
     readCanonicalTaskBasis(root, current);
-    assertDraftDefinitionReady(current.body, current.runtimeState.active_step_id);
+    assertDraftDefinitionReady(root, current);
     if (current.runtimeState.claim_evidence_required !== true) {
       fail('CLAIM_EVIDENCE_MIGRATION_REQUIRED', 'prepare-task refinement must persist a strict claim_evidence plan before confirm-draft; legacy tasks are readable but not terminal-completion compatible.');
     }
@@ -8559,6 +9136,7 @@ function applyTaskStateDelta(
       fail('REPLAN_TRANSITION_INVALID', 'commit-replan requires superseded + active.');
     }
     assertReplacementActiveStep(delta.active_step_id, delta.replacement_definition.implementation_steps);
+    assertPreparedTestStrategy(root, delta.replacement_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, 'commit-replan claim_evidence');
     requireAcceptanceClaim(claimEvidence, 'commit-replan claim_evidence');
     const findings = current.runtimeState.findings.map(item => {
@@ -8621,6 +9199,7 @@ function applyTaskStateDelta(
   const executionMode = proposal.mode as VNextExecuteStepMode;
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
+  assertTestStrategyExecutionTransition(current, delta, checkpoint);
   const currentStepRepairLogs = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
     !('action' in item) && item.step_id === delta.step_id && item.mode === 'repair',
   );

@@ -582,6 +582,31 @@ function mutationScopePatternMatchesPath(file, pattern) {
   const regex = escapeRegex(normalizedPattern).replace(/\*\*\//gu, doubleStarSlashToken).replace(/\*\*/gu, doubleStarToken).replace(/\*/gu, "[^/]*").replace(/\u0000MUTATION_SCOPE_DOUBLE_STAR_SLASH\u0000/gu, "(?:.*/)?").replace(/\u0000MUTATION_SCOPE_DOUBLE_STAR\u0000/gu, ".*");
   return new RegExp(`^${regex}$`, "u").test(normalizedFile);
 }
+function nonExecutableChangePatternIsBounded(pattern) {
+  const normalized = normalizeScopePattern(pattern, "non-executable change pattern");
+  if (!normalized.includes("*"))
+    return true;
+  if (!normalized.endsWith("/**"))
+    return false;
+  const prefix = normalized.slice(0, -3);
+  return Boolean(prefix) && !prefix.includes("*");
+}
+function mutationScopePatternIsSubset(candidate, boundary) {
+  const normalizedCandidate = normalizeScopePattern(candidate, "candidate scope pattern");
+  const normalizedBoundary = normalizeScopePattern(boundary, "boundary scope pattern");
+  if (normalizedCandidate === normalizedBoundary)
+    return true;
+  if (!normalizedCandidate.includes("*")) {
+    return mutationScopePatternMatchesPath(normalizedCandidate, normalizedBoundary);
+  }
+  if (!normalizedBoundary.includes("*"))
+    return false;
+  if (normalizedBoundary.endsWith("/**")) {
+    const boundaryPrefix = normalizedBoundary.slice(0, -3);
+    return Boolean(boundaryPrefix) && normalizedCandidate.startsWith(`${boundaryPrefix}/`);
+  }
+  return false;
+}
 function normalizeChangedPath(value, index) {
   if (typeof value !== "string" || value.trim().length === 0)
     return null;
@@ -1669,7 +1694,7 @@ var INBOX_ITEM_SOURCES = ["user", "implementation", "review", "regression", "roo
 var INBOX_SUGGESTED_NEXT_ACTIONS = ["triage_later", "ask_user"];
 var REVIEW_CYCLE_PHASES = ["discovery", "verification"];
 var STEP_STATUSES = ["ready", "in-progress", "completed", "blocked"];
-var STEP_EXECUTION_RESULT_STATUSES = ["passed", "failed", "blocked", "not-run"];
+var STEP_EXECUTION_RESULT_STATUSES = ["passed", "expected-failure", "failed", "blocked", "not-run"];
 var FINDING_STATUSES = ["admitted", "in-progress", "resolved", "deferred", "rejected"];
 var REPLAN_TASK_STATE_ACTIONS = ["mark-replan-blocked", "clear-replan-block", "commit-replan"];
 var DRAFT_TASK_STATE_ACTIONS = ["create-draft", "update-draft", "confirm-draft"];
@@ -1717,6 +1742,21 @@ var INBOX_CAPTURE_PRECONDITIONS = [
   "relation-proven-unrelated",
   "duplicate-check-clear",
   "owner-route-resolved"
+];
+var TEST_STRATEGY_MODES = [
+  "test-first",
+  "implementation-first",
+  "not-applicable"
+];
+var TEST_STRATEGY_SOURCES = [
+  "explicit-user",
+  "project-policy",
+  "inferred-default"
+];
+var TEST_STRATEGY_CLASSIFICATIONS = [
+  "contract-clear-behavior",
+  "exploratory-or-infrastructure",
+  "non-executable-change"
 ];
 var CLAIM_KINDS = [
   "acceptance",
@@ -2231,6 +2271,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     "scope_enforcement",
     "command_plan_source",
     "persistent_tests_enforcement",
+    "test_strategy_execution",
     "completion_evidence_source",
     "change_detection",
     "proposal_file_policy",
@@ -2241,7 +2282,15 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (executeStepAdapter.input !== "stdin-json")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter input must remain stdin-json.");
   expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
-  if (executeStepAdapter.step_source !== "confirmed-current-task" || executeStepAdapter.scope_enforcement !== "task-and-current-step" || executeStepAdapter.command_plan_source !== "confirmed-current-step" || executeStepAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator" || executeStepAdapter.completion_evidence_source !== "recorded-step-result-only" || executeStepAdapter.change_detection !== "runtime-preflight-candidate-before-after-delta" || executeStepAdapter.proposal_file_policy !== "project-external-only" || executeStepAdapter.advancement_owner !== "runtime" || executeStepAdapter.post_completion_commit_owner !== "user-or-explicit-outer-orchestrator" || executeStepAdapter.post_completion_route !== "git-commit") {
+  const testStrategyExecution = expectRecord2(executeStepAdapter.test_strategy_execution, "Runtime contract.proposal.execute_step.semantic_adapter.test_strategy_execution");
+  expectExactKeys2(testStrategyExecution, ["phase_source", "legacy_behavior", "test_first", "red_evidence", "non_red_outcome"], "Runtime contract execute-step test-strategy execution");
+  const testFirstExecution = expectRecord2(testStrategyExecution.test_first, "Runtime contract execute-step test-first execution");
+  expectExactKeys2(testFirstExecution, ["first_step_phase", "later_step_phase", "first_step_outcome", "later_step_outcome", "advancement_gate"], "Runtime contract execute-step test-first execution");
+  const redEvidence = expectRecord2(testStrategyExecution.red_evidence, "Runtime contract execute-step red evidence");
+  expectExactKeys2(redEvidence, ["result_status", "kind", "companion_statuses", "forbidden_statuses", "acceptance_evidence", "unexpected_failure_outcome", "review_checkpoint"], "Runtime contract execute-step red evidence");
+  expectSetEqual(expectStringArray2(redEvidence.companion_statuses, "Runtime contract execute-step red companion statuses"), ["passed"], "Runtime contract execute-step red companion statuses");
+  expectSetEqual(expectStringArray2(redEvidence.forbidden_statuses, "Runtime contract execute-step red forbidden statuses"), ["failed", "blocked", "not-run"], "Runtime contract execute-step red forbidden statuses");
+  if (executeStepAdapter.step_source !== "confirmed-current-task" || executeStepAdapter.scope_enforcement !== "task-and-current-step" || executeStepAdapter.command_plan_source !== "confirmed-current-step" || executeStepAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator" || executeStepAdapter.completion_evidence_source !== "recorded-step-result-only" || executeStepAdapter.change_detection !== "runtime-preflight-candidate-before-after-delta" || executeStepAdapter.proposal_file_policy !== "project-external-only" || executeStepAdapter.advancement_owner !== "runtime" || executeStepAdapter.post_completion_commit_owner !== "user-or-explicit-outer-orchestrator" || executeStepAdapter.post_completion_route !== "git-commit" || testStrategyExecution.phase_source !== "frozen-test-strategy-plus-active-step-order" || testStrategyExecution.legacy_behavior !== "preserve-existing-active-task-semantics" || testStrategyExecution.non_red_outcome !== "implemented-with-all-planned-results-passed" || testFirstExecution.first_step_phase !== "red" || testFirstExecution.later_step_phase !== "green" || testFirstExecution.first_step_outcome !== "test-red" || testFirstExecution.later_step_outcome !== "implemented" || testFirstExecution.advancement_gate !== "completed-clean-reviewed-test-red" || redEvidence.result_status !== "expected-failure" || redEvidence.kind !== "behavior-not-implemented" || redEvidence.acceptance_evidence !== "forbidden" || redEvidence.unexpected_failure_outcome !== "blocked" || redEvidence.review_checkpoint !== "required") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter semantic boundary is invalid.");
   }
   expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["admit", "step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
@@ -2249,7 +2298,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(reviewChangeContract, ["semantic_adapter", "bound_actions"], "Runtime contract.proposal.review_change");
   const reviewChangeAdapter = expectRecord2(reviewChangeContract.semantic_adapter, "Runtime contract.proposal.review_change.semantic_adapter");
   expectExactKeys2(reviewChangeAdapter, ["input", "commands", "context_source", "reviewable_execution", "change_set", "review_target", "result_storage", "direct_product_writes", "advancement_owner"], "Runtime contract.proposal.review_change.semantic_adapter");
-  if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-awaiting-required-checkpoint-or-repair-verification" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
+  if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime review-change adapter semantic boundary is invalid.");
   expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "record-review-result"], "Runtime contract review-change commands");
   expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result"], "Runtime contract review-change actions");
@@ -2266,6 +2315,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     "confirmation_binding",
     "resume_review_binding",
     "replan_entry",
+    "test_strategy",
     "persistent_tests_storage",
     "persistent_tests_enforcement",
     "proposal_file_policy",
@@ -2274,7 +2324,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (prepareTaskAdapter.input !== "stdin-json")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter input must remain stdin-json.");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "confirm-draft", "clear-resume-review", "replan"], "Runtime contract prepare-task adapter commands");
-  expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["task_basis", "goal", "acceptance", "out_of_scope", "design_decisions", "mutation_scope", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
+  expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["task_basis", "goal", "acceptance", "out_of_scope", "design_decisions", "mutation_scope", "test_strategy", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
   if (prepareTaskAdapter.task_basis_storage !== "linked-TASK_BASIS-with-path-and-revision") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter must persist the linked task basis reference.");
   }
@@ -2300,6 +2350,22 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   }
   if (prepareTaskAdapter.replan_entry !== "superseded + active") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task replan must enter from superseded + active.");
+  }
+  const testStrategy = expectRecord2(prepareTaskAdapter.test_strategy, "Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy");
+  expectExactKeys2(testStrategy, ["storage", "fields", "modes", "sources", "classifications", "source_binding", "precedence", "ambiguity", "frozen_by", "change_after_confirm", "enforcement", "ordering_enforcement", "non_executable_scope"], "Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy");
+  expectSetEqual(expectStringArray2(testStrategy.fields, "Runtime contract prepare-task test-strategy fields"), ["mode", "source", "source_ref", "task_classification", "rationale"], "Runtime contract prepare-task test-strategy fields");
+  expectSetEqual(expectStringArray2(testStrategy.modes, "Runtime contract prepare-task test-strategy modes"), ["test-first", "implementation-first", "not-applicable"], "Runtime contract prepare-task test-strategy modes");
+  expectSetEqual(expectStringArray2(testStrategy.sources, "Runtime contract prepare-task test-strategy sources"), ["explicit-user", "project-policy", "inferred-default"], "Runtime contract prepare-task test-strategy sources");
+  expectSetEqual(expectStringArray2(testStrategy.classifications, "Runtime contract prepare-task test-strategy classifications"), ["contract-clear-behavior", "exploratory-or-infrastructure", "non-executable-change"], "Runtime contract prepare-task test-strategy classifications");
+  const strategySourceBinding = expectRecord2(testStrategy.source_binding, "Runtime contract prepare-task test-strategy source_binding");
+  expectExactKeys2(strategySourceBinding, ["explicit-user", "project-policy", "inferred-default"], "Runtime contract prepare-task test-strategy source_binding");
+  const strategyPrecedence = expectStringArray2(testStrategy.precedence, "Runtime contract prepare-task test-strategy precedence");
+  const nonExecutableScope = expectRecord2(testStrategy.non_executable_scope, "Runtime contract prepare-task test-strategy non_executable_scope");
+  expectExactKeys2(nonExecutableScope, ["policy_source", "required_for", "evaluated_surfaces", "policy_pattern_grammar", "relation", "missing_or_ambiguous", "historical_active_tasks", "error_codes"], "Runtime contract prepare-task test-strategy non_executable_scope");
+  expectSetEqual(expectStringArray2(nonExecutableScope.evaluated_surfaces, "Runtime contract prepare-task test-strategy non-executable evaluated surfaces"), ["task-allowed-scope", "task-conditional-scope", "implementation-step-mutation-scope"], "Runtime contract prepare-task test-strategy non-executable evaluated surfaces");
+  expectSetEqual(expectStringArray2(nonExecutableScope.error_codes, "Runtime contract prepare-task test-strategy non-executable error codes"), ["TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", "TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION"], "Runtime contract prepare-task test-strategy non-executable error codes");
+  if (testStrategy.storage !== "current-task-regression-checks/test-strategy" || strategySourceBinding["explicit-user"] !== "exact-task-basis-source-coordinate" || strategySourceBinding["project-policy"] !== "existing-project-policy-file" || strategySourceBinding["inferred-default"] !== "prepare-task-default" || strategyPrecedence.join("\x00") !== ["explicit-user", "project-policy", "inferred-default"].join("\x00") || testStrategy.ambiguity !== "resolve-as-open-question-before-draft-commit" || testStrategy.frozen_by !== "confirm-draft" || testStrategy.change_after_confirm !== "replan-only" || testStrategy.enforcement !== "create-update-confirm-and-replan" || testStrategy.ordering_enforcement !== "mode-bound-step-scope-partition" || nonExecutableScope.policy_source !== ".workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths" || nonExecutableScope.required_for !== "not-applicable" || nonExecutableScope.policy_pattern_grammar !== "exact-path-or-literal-directory-prefix-globstar" || nonExecutableScope.relation !== "exact-or-proven-subset" || nonExecutableScope.missing_or_ambiguous !== "block-not-applicable-only" || nonExecutableScope.historical_active_tasks !== "not-revalidated") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task test-strategy classification, precedence, or freeze boundary is invalid.");
   }
   if (prepareTaskAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task persistent tests must be enforced by the frozen section and scope evaluator.");
@@ -2738,6 +2804,18 @@ function validateReviewChangeDelta(value, location, base, target) {
   }
   return normalized;
 }
+function validateStepExpectedFailureEvidence(value, location) {
+  const evidence = expectRecord2(value, location);
+  expectExactKeys2(evidence, ["kind", "expected_behavior", "observed_failure_signature"], location);
+  if (evidence.kind !== "behavior-not-implemented") {
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.kind must be behavior-not-implemented.`);
+  }
+  return {
+    kind: "behavior-not-implemented",
+    expected_behavior: expectText(evidence.expected_behavior, `${location}.expected_behavior`),
+    observed_failure_signature: expectText(evidence.observed_failure_signature, `${location}.observed_failure_signature`)
+  };
+}
 function validateStepExecutionResult(value, location) {
   const result = expectRecord2(value, location);
   expectExactKeys2(result, [
@@ -2752,7 +2830,7 @@ function validateStepExecutionResult(value, location) {
     "acceptance_evidence",
     "blocker"
   ], location);
-  const outcome = expectEnum(result.outcome, ["implemented", "blocked"], `${location}.outcome`);
+  const outcome = expectEnum(result.outcome, ["implemented", "test-red", "blocked"], `${location}.outcome`);
   const changeSetId = expectString2(result.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2);
   const reviewBase = validateReviewTarget(result.review_base, `${location}.review_base`);
   const reviewTarget = validateReviewTarget(result.review_target, `${location}.review_target`);
@@ -2768,18 +2846,20 @@ function validateStepExecutionResult(value, location) {
   const commandResults = commandValues.map((item, index) => {
     const itemLocation = `${location}.command_results[${index}]`;
     const command = expectRecord2(item, itemLocation);
-    expectExactKeys2(command, ["command", "status", "observed_repo_writes", "evidence_refs"], itemLocation);
     const status = expectEnum(command.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
+    expectExactKeys2(command, status === "expected-failure" ? ["command", "status", "observed_repo_writes", "evidence_refs", "expected_failure"] : ["command", "status", "observed_repo_writes", "evidence_refs"], itemLocation);
     const evidenceRefs = expectStringArray2(command.evidence_refs, `${itemLocation}.evidence_refs`, status === "not-run", MAX_EVIDENCE_REFS);
     const observedRepoWrites = validateExecutionResultPaths(command.observed_repo_writes, `${itemLocation}.observed_repo_writes`);
     if (status === "not-run" && observedRepoWrites.length > 0) {
       fail2("RUNTIME_STATE_CONFLICT", `${itemLocation}.not-run command must not report repository writes.`);
     }
+    const expectedFailure = status === "expected-failure" ? validateStepExpectedFailureEvidence(command.expected_failure, `${itemLocation}.expected_failure`) : undefined;
     return {
       command: expectText(command.command, `${itemLocation}.command`),
       status,
       observed_repo_writes: observedRepoWrites,
-      evidence_refs: evidenceRefs
+      evidence_refs: evidenceRefs,
+      ...expectedFailure ? { expected_failure: expectedFailure } : {}
     };
   });
   if (new Set(commandResults.map((item) => item.command)).size !== commandResults.length) {
@@ -2792,12 +2872,14 @@ function validateStepExecutionResult(value, location) {
   const validationResults = validationValues.map((item, index) => {
     const itemLocation = `${location}.validation_results[${index}]`;
     const validation = expectRecord2(item, itemLocation);
-    expectExactKeys2(validation, ["validation", "status", "evidence_refs"], itemLocation);
     const status = expectEnum(validation.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
+    expectExactKeys2(validation, status === "expected-failure" ? ["validation", "status", "evidence_refs", "expected_failure"] : ["validation", "status", "evidence_refs"], itemLocation);
+    const expectedFailure = status === "expected-failure" ? validateStepExpectedFailureEvidence(validation.expected_failure, `${itemLocation}.expected_failure`) : undefined;
     return {
       validation: expectText(validation.validation, `${itemLocation}.validation`),
       status,
-      evidence_refs: expectStringArray2(validation.evidence_refs, `${itemLocation}.evidence_refs`, status === "not-run", MAX_EVIDENCE_REFS)
+      evidence_refs: expectStringArray2(validation.evidence_refs, `${itemLocation}.evidence_refs`, status === "not-run", MAX_EVIDENCE_REFS),
+      ...expectedFailure ? { expected_failure: expectedFailure } : {}
     };
   });
   if (new Set(validationResults.map((item) => item.validation)).size !== validationResults.length) {
@@ -2826,6 +2908,13 @@ function validateStepExecutionResult(value, location) {
   }
   if (outcome === "blocked" && (blocker === null || !statuses.some((status) => status === "failed" || status === "blocked"))) {
     fail2("RUNTIME_STATE_CONFLICT", `${location}.blocked requires a blocker and at least one failed or blocked result.`);
+  }
+  if (outcome === "test-red") {
+    if (blocker !== null || acceptanceEvidence.length > 0 || !statuses.some((status) => status === "expected-failure") || statuses.some((status) => status !== "passed" && status !== "expected-failure")) {
+      fail2("RUNTIME_STATE_CONFLICT", `${location}.test-red requires expected-failure evidence, permits only passed companion results, forbids acceptance evidence, and has no blocker.`);
+    }
+  } else if (statuses.some((status) => status === "expected-failure")) {
+    fail2("RUNTIME_STATE_CONFLICT", `${location}.expected-failure results are valid only for outcome=test-red.`);
   }
   return {
     outcome,
@@ -3142,6 +3231,335 @@ function validateReplanReplacementDefinition(value, location) {
   }
   return result;
 }
+function testStrategySection(markdown, aliases, location) {
+  const section = findUniqueMarkdownSection(scanMarkdownSections2(markdown), aliases, 3);
+  if (!section)
+    fail2("TEST_STRATEGY_INVALID", `${location} is missing the required ### ${aliases[0]} section.`);
+  return markdown.slice(section.contentStart, section.contentEnd).replace(/\r\n?/gu, `
+`).trim();
+}
+function readTestStrategyDefinition(definition) {
+  const location = "draft_definition.regression_checks.Test Strategy";
+  const content = testStrategySection(definition.regression_checks, ["Test Strategy", "测试策略"], "draft_definition.regression_checks");
+  const fields = new Map;
+  for (const [index, rawLine] of content.split(`
+`).entries()) {
+    const line = rawLine.trim();
+    if (!line)
+      continue;
+    const match = /^-\s+(mode|source|source_ref|task_classification|rationale):\s+(.+)$/u.exec(line);
+    if (!match)
+      fail2("TEST_STRATEGY_INVALID", `${location}:${index + 1} is not a canonical test-strategy field.`);
+    if (fields.has(match[1]))
+      fail2("TEST_STRATEGY_INVALID", `${location} contains duplicate field ${match[1]}.`);
+    fields.set(match[1], match[2].trim());
+  }
+  const expected = ["mode", "source", "source_ref", "task_classification", "rationale"];
+  const missing = expected.filter((field) => !fields.has(field));
+  const extra = [...fields.keys()].filter((field) => !expected.includes(field));
+  if (missing.length > 0 || extra.length > 0 || fields.size !== expected.length) {
+    fail2("TEST_STRATEGY_INVALID", `${location} fields mismatch; missing=[${missing.join(", ")}], extra=[${extra.join(", ")}].`);
+  }
+  const mode = fields.get("mode");
+  const source = fields.get("source");
+  const taskClassification = fields.get("task_classification");
+  if (!TEST_STRATEGY_MODES.includes(mode)) {
+    fail2("TEST_STRATEGY_INVALID", `${location}.mode must be one of ${TEST_STRATEGY_MODES.join(", ")}.`);
+  }
+  if (!TEST_STRATEGY_SOURCES.includes(source)) {
+    fail2("TEST_STRATEGY_INVALID", `${location}.source must be one of ${TEST_STRATEGY_SOURCES.join(", ")}.`);
+  }
+  if (!TEST_STRATEGY_CLASSIFICATIONS.includes(taskClassification)) {
+    fail2("TEST_STRATEGY_INVALID", `${location}.task_classification must be one of ${TEST_STRATEGY_CLASSIFICATIONS.join(", ")}.`);
+  }
+  const strategy = {
+    mode,
+    source,
+    source_ref: expectText(fields.get("source_ref"), `${location}.source_ref`, 1024),
+    task_classification: taskClassification,
+    rationale: expectText(fields.get("rationale"), `${location}.rationale`, 4096)
+  };
+  const nonExecutable = strategy.task_classification === "non-executable-change";
+  if (strategy.mode === "not-applicable" !== nonExecutable) {
+    fail2("TEST_STRATEGY_INVALID", "not-applicable is valid only for task_classification=non-executable-change, and that classification requires not-applicable.");
+  }
+  if (strategy.source === "inferred-default") {
+    const inferredMode = strategy.task_classification === "contract-clear-behavior" ? "test-first" : strategy.task_classification === "exploratory-or-infrastructure" ? "implementation-first" : "not-applicable";
+    if (strategy.mode !== inferredMode) {
+      fail2("TEST_STRATEGY_INVALID", `inferred-default requires mode=${inferredMode} for task_classification=${strategy.task_classification}.`);
+    }
+  }
+  return strategy;
+}
+function readPersistentTestPaths(definition) {
+  const location = "draft_definition.regression_checks.Persistent Tests";
+  const content = testStrategySection(definition.regression_checks, ["Persistent Tests", "持久测试"], "draft_definition.regression_checks");
+  const paths = [];
+  let none = false;
+  for (const [index, rawLine] of content.split(`
+`).entries()) {
+    if (!rawLine.trim() || /^\s{2,}/u.test(rawLine))
+      continue;
+    const line = rawLine.trim();
+    if (line === "- none") {
+      none = true;
+      continue;
+    }
+    const match = /^-\s+`([^`]+)`$/u.exec(line);
+    if (!match)
+      fail2("TEST_STRATEGY_INVALID", `${location}:${index + 1} is not an exact canonical persistent-test path.`);
+    const normalized = normalizeRepoPath2(match[1], `${location}:${index + 1}`);
+    if (normalized !== match[1] || normalized.includes("*") || /^[A-Za-z]:[\\/]/u.test(normalized)) {
+      fail2("TEST_STRATEGY_INVALID", `${location}:${index + 1} must be one canonical repository-relative exact path.`);
+    }
+    paths.push(normalized);
+  }
+  if (none && paths.length > 0)
+    fail2("TEST_STRATEGY_INVALID", `${location} cannot combine none with exact paths.`);
+  if (!none && paths.length === 0)
+    fail2("TEST_STRATEGY_INVALID", `${location} must contain none or at least one exact path.`);
+  if (new Set(paths).size !== paths.length)
+    fail2("TEST_STRATEGY_INVALID", `${location} contains duplicate paths.`);
+  return paths;
+}
+function strategyStepScopes(definition) {
+  let steps;
+  try {
+    steps = parseImplementationSteps(definition.implementation_steps);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError)
+      fail2(error.code, error.message);
+    throw error;
+  }
+  return steps.map((step, index) => {
+    if (!step.mutation_scope)
+      fail2("TEST_STRATEGY_INVALID", `implementation_steps[${index}] is missing mutation_scope.`);
+    const values = step.mutation_scope.split(",").map((value) => value.trim().replace(/^`|`$/gu, "")).filter(Boolean);
+    if (values.length === 0 || new Set(values).size !== values.length) {
+      fail2("TEST_STRATEGY_INVALID", `implementation_steps[${index}].mutation_scope must contain unique paths.`);
+    }
+    return values;
+  });
+}
+function definitionMutationScope(definition) {
+  const body = [
+    "## 允许修改范围",
+    "",
+    "### Allowed Files",
+    "",
+    definition.allowed_scope,
+    "",
+    "### Conditional Files",
+    "",
+    definition.conditional_scope,
+    "",
+    "## 禁止修改范围",
+    "",
+    "### Forbidden Files",
+    "",
+    definition.forbidden_scope,
+    "",
+    "## 回归检查项",
+    "",
+    definition.regression_checks,
+    ""
+  ].join(`
+`);
+  try {
+    return parseMutationScope(body);
+  } catch (error) {
+    if (error instanceof MutationScopeError)
+      fail2("TEST_STRATEGY_INVALID", error.message);
+    throw error;
+  }
+}
+function nonExecutableChangePatterns(root) {
+  let profile;
+  try {
+    profile = loadProfile(getWorkflowProfilePath(root));
+  } catch (error) {
+    fail2("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", `not-applicable requires a readable PROJECT_PROFILE.yaml non-executable boundary: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const boundaries = profile.boundaries;
+  if (!isRecord2(boundaries) || !Array.isArray(boundaries.non_executable_change_paths)) {
+    fail2("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", "not-applicable requires PROJECT_PROFILE.yaml boundaries.non_executable_change_paths.");
+  }
+  if (boundaries.non_executable_change_paths.length === 0) {
+    fail2("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", "not-applicable requires at least one project-owned non-executable path classification.");
+  }
+  const patterns = boundaries.non_executable_change_paths.map((value, index) => {
+    if (typeof value !== "string" || !value.trim()) {
+      fail2("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", `boundaries.non_executable_change_paths[${index}] must be a non-empty string.`);
+    }
+    const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").replace(/\/+/gu, "/");
+    let bounded;
+    try {
+      bounded = nonExecutableChangePatternIsBounded(normalized);
+    } catch (error) {
+      fail2("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", `invalid non-executable path classification ${normalized}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!bounded) {
+      fail2("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", `non-executable path classification must be an exact path or a literal directory prefix ending in /**: ${normalized}.`);
+    }
+    return normalized;
+  });
+  if (new Set(patterns).size !== patterns.length) {
+    fail2("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", "boundaries.non_executable_change_paths contains duplicate patterns.");
+  }
+  return patterns;
+}
+function assertNonExecutableChangeScope(root, definition, stepScopes) {
+  const policyPatterns = nonExecutableChangePatterns(root);
+  const taskScope = definitionMutationScope(definition);
+  const declaredTargets = [...new Set([
+    ...taskScope.allowed.map((entry) => entry.pattern),
+    ...taskScope.conditional.map((entry) => entry.pattern),
+    ...stepScopes.flat()
+  ])];
+  const uncovered = declaredTargets.filter((target) => !policyPatterns.some((boundary) => {
+    try {
+      return mutationScopePatternIsSubset(target, boundary);
+    } catch {
+      return false;
+    }
+  }));
+  if (uncovered.length > 0) {
+    fail2("TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION", `not-applicable contains mutation targets outside PROJECT_PROFILE.yaml boundaries.non_executable_change_paths: ${uncovered.join(", ")}.`);
+  }
+}
+function assertTestStrategySource(root, strategy, taskBasis) {
+  if (strategy.source === "inferred-default") {
+    if (strategy.source_ref !== "prepare-task-default") {
+      fail2("TEST_STRATEGY_INVALID", "inferred-default requires source_ref=prepare-task-default.");
+    }
+    return;
+  }
+  if (strategy.source === "explicit-user") {
+    const userSources = new Set([
+      taskBasis.original_request.source,
+      ...taskBasis.user_decisions.map((item) => item.source)
+    ]);
+    if (!userSources.has(strategy.source_ref)) {
+      fail2("TEST_STRATEGY_INVALID", "explicit-user source_ref must equal an exact Task Basis source coordinate.");
+    }
+    return;
+  }
+  const normalized = normalizeRepoPath2(strategy.source_ref, "test_strategy.source_ref");
+  if (normalized !== strategy.source_ref || normalized.includes("*") || /^[A-Za-z]:[\\/]/u.test(normalized)) {
+    fail2("TEST_STRATEGY_INVALID", "project-policy source_ref must be one canonical repository-relative exact file path.");
+  }
+  const resolvedRoot = path4.resolve(root);
+  const resolved = path4.resolve(resolvedRoot, ...normalized.split("/"));
+  const relative2 = path4.relative(resolvedRoot, resolved);
+  if (!relative2 || relative2.startsWith(`..${path4.sep}`) || path4.isAbsolute(relative2) || !fs3.existsSync(resolved) || !fs3.statSync(resolved).isFile()) {
+    fail2("TEST_STRATEGY_INVALID", `project-policy source_ref does not identify an existing project file: ${strategy.source_ref}.`);
+  }
+}
+function assertPreparedTestStrategy(root, definition, taskBasis) {
+  const strategy = readTestStrategyDefinition(definition);
+  const persistentTests = readPersistentTestPaths(definition);
+  const scopes = strategyStepScopes(definition);
+  const persistentSet = new Set(persistentTests);
+  const firstScope = scopes[0] ?? [];
+  if (strategy.mode === "test-first") {
+    if (persistentTests.length === 0)
+      fail2("TEST_STRATEGY_INVALID", "test-first requires at least one Persistent Tests asset.");
+    const missing = persistentTests.filter((testPath) => !firstScope.includes(testPath));
+    const nonTestTargets = firstScope.filter((target) => !persistentSet.has(target));
+    if (missing.length > 0 || nonTestTargets.length > 0) {
+      fail2("TEST_STRATEGY_INVALID", `test-first requires a tests-only first step containing every Persistent Tests asset; missing=[${missing.join(", ")}], non_test_targets=[${nonTestTargets.join(", ")}].`);
+    }
+  } else if (strategy.mode === "implementation-first") {
+    const testsInFirstStep = firstScope.filter((target) => persistentSet.has(target));
+    const testsMissingLater = persistentTests.filter((testPath) => !scopes.slice(1).some((scope) => scope.includes(testPath)));
+    if (testsInFirstStep.length > 0 || testsMissingLater.length > 0) {
+      fail2("TEST_STRATEGY_INVALID", `implementation-first requires implementation/discovery before every persistent-test step; first_step_tests=[${testsInFirstStep.join(", ")}], missing_later=[${testsMissingLater.join(", ")}].`);
+    }
+  } else if (persistentTests.length > 0) {
+    fail2("TEST_STRATEGY_INVALID", "not-applicable requires Persistent Tests to be none.");
+  } else {
+    assertNonExecutableChangeScope(root, definition, scopes);
+  }
+  assertTestStrategySource(root, strategy, taskBasis);
+  return strategy;
+}
+function executionPhaseForStrategy(strategy, stepIndex) {
+  if (strategy.mode !== "test-first")
+    return strategy.mode;
+  return stepIndex === 0 ? "red" : "green";
+}
+function resolveTestStrategyExecutionContext(current) {
+  const resolution = resolveCanonicalTaskStep(current);
+  const strategySection = findUniqueMarkdownSection(scanMarkdownSections2(current.body), ["Test Strategy", "测试策略"], 3);
+  if (!strategySection) {
+    return {
+      mode: "legacy",
+      phase: "legacy",
+      required_outcome: "implemented",
+      persistent_tests: [],
+      step_index: resolution.index,
+      first_step_id: resolution.steps[0].id
+    };
+  }
+  const definition = readDraftDefinitionFromBody(current.body);
+  const strategy = readTestStrategyDefinition(definition);
+  const phase = executionPhaseForStrategy(strategy, resolution.index);
+  return {
+    mode: strategy.mode,
+    phase,
+    required_outcome: phase === "red" ? "test-red" : "implemented",
+    persistent_tests: readPersistentTestPaths(definition),
+    step_index: resolution.index,
+    first_step_id: resolution.steps[0].id
+  };
+}
+function hasCompletedReviewedTestRed(current, firstStepId) {
+  return current.runtimeState.execution_log.some((entry, index) => {
+    if ("action" in entry || entry.step_id !== firstStepId || entry.execution_result?.outcome !== "test-red")
+      return false;
+    return current.runtimeState.execution_log.slice(index + 1).some((completion) => !("action" in completion) && completion.step_id === firstStepId && completion.status === "completed" && completion.review_receipt?.verdict === "clean" && completion.change_set_id === entry.execution_result?.change_set_id);
+  });
+}
+function assertTestStrategySequenceReady(current, context = resolveTestStrategyExecutionContext(current)) {
+  if (context.mode === "test-first" && context.phase === "green" && !hasCompletedReviewedTestRed(current, context.first_step_id)) {
+    fail2("TEST_STRATEGY_SEQUENCE_INVALID", `test-first step ${current.runtimeState.active_step_id} requires a completed, clean-reviewed test-red result for ${context.first_step_id}.`);
+  }
+}
+function assertTestStrategyExecutionTransition(current, delta, checkpoint) {
+  const context = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, context);
+  const execution = delta.execution_result;
+  if (!execution) {
+    if (context.phase === "red" && delta.status === "completed") {
+      const hasRecordedRed = current.runtimeState.execution_log.some((entry) => !("action" in entry) && entry.step_id === context.first_step_id && entry.execution_result?.outcome === "test-red");
+      if (!hasRecordedRed) {
+        fail2("TEST_STRATEGY_SEQUENCE_INVALID", "test-first cannot complete its first step without a Runtime-recorded test-red result.");
+      }
+    }
+    return;
+  }
+  if (context.phase !== "red") {
+    if (execution.outcome === "test-red") {
+      fail2("TEST_STRATEGY_SEQUENCE_INVALID", `outcome=test-red is valid only for the first step of test-first, not phase=${context.phase}.`);
+    }
+    return;
+  }
+  if (execution.outcome === "blocked")
+    return;
+  if (execution.outcome !== "test-red") {
+    fail2("TEST_STRATEGY_SEQUENCE_INVALID", "the first test-first step must record outcome=test-red or a truthful blocked result; implemented cannot bypass Red.");
+  }
+  if (checkpoint !== "required") {
+    fail2("TEST_STRATEGY_SEQUENCE_INVALID", "the test-first Red step requires a review checkpoint before implementation may begin.");
+  }
+  const outsidePersistentTests = execution.actual_changed_paths.filter((path5) => !context.persistent_tests.includes(path5));
+  if (outsidePersistentTests.length > 0) {
+    fail2("TEST_STRATEGY_SEQUENCE_INVALID", `the test-first Red step changed non-test paths: ${outsidePersistentTests.join(", ")}.`);
+  }
+  if (delta.claim_evidence !== undefined && digest(delta.claim_evidence) !== digest(current.runtimeState.claim_evidence ?? [])) {
+    fail2("TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN", "test-red cannot update final claim evidence before implementation reaches Green.");
+  }
+}
 function validateDraftTaskIdentityFields(record, location, requireTitle = true) {
   const taskId = expectString2(record.task_id, `${location}.task_id`);
   const taskSlug = expectString2(record.task_slug, `${location}.task_slug`);
@@ -3164,19 +3582,13 @@ function validateDraftTaskIdentityFields(record, location, requireTitle = true) 
   return { task_id: taskId, task_slug: taskSlug, document_id: documentId, task_title: taskTitle };
 }
 function replacementStepIds(implementationSteps) {
-  const ids = [];
-  for (const line of implementationSteps.split(`
-`)) {
-    const labelledStep = /^\s*[-*]\s+(?:\[[ xX]\]\s*)?([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\s*[:：]/.exec(line);
-    if (labelledStep) {
-      ids.push(labelledStep[1]);
-      continue;
-    }
-    const numberedStep = /^\s*[-*]\s+(?:\[[ xX]\]\s*)?步骤\s+([0-9]+)\s*[:：]/.exec(line);
-    if (numberedStep)
-      ids.push(`step-${numberedStep[1]}`);
+  try {
+    return parseImplementationSteps(implementationSteps).map((step) => step.id);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError)
+      fail2("RUNTIME_SECTION_INVALID", error.message);
+    throw error;
   }
-  return ids;
 }
 function assertReplacementActiveStep(activeStepId, implementationSteps) {
   const stepIds = replacementStepIds(implementationSteps);
@@ -3244,8 +3656,14 @@ function assertReviewExecutionEligible(current, execution) {
   if (!execution.execution_result) {
     fail2("REVIEW_TARGET_REQUIRED", "review-change requires a structured Runtime-recorded execution result.");
   }
-  if (execution.execution_result.outcome !== "implemented") {
-    fail2("REVIEW_EXECUTION_NOT_IMPLEMENTED", "a blocked execution is not a reviewable implementation result.");
+  if (execution.execution_result.outcome === "blocked") {
+    fail2("REVIEW_EXECUTION_NOT_IMPLEMENTED", "a blocked execution is not reviewable.");
+  }
+  if (execution.execution_result.outcome === "test-red") {
+    const context = resolveTestStrategyExecutionContext(current);
+    if (context.phase !== "red") {
+      fail2("TEST_STRATEGY_SEQUENCE_INVALID", "a test-red execution is reviewable only on the first test-first step.");
+    }
   }
   const executionIndex = current.runtimeState.execution_log.findIndex((item) => !("action" in item) && item.idempotency_key === execution.idempotency_key);
   const laterCompletion = executionIndex >= 0 && current.runtimeState.execution_log.slice(executionIndex + 1).some((item) => !("action" in item) && item.step_id === execution.step_id && item.review_receipt !== undefined);
@@ -7962,9 +8380,12 @@ function assertNoUnresolvedDraftQuestions(body) {
     return;
   fail2("DRAFT_DECISION_UNRESOLVED", "draft confirmation is blocked by unresolved user-owned questions.");
 }
-function assertDraftDefinitionReady(body, activeStepId) {
+function assertDraftDefinitionReady(root, current) {
+  const activeStepId = current.runtimeState.active_step_id;
+  const body = current.body;
   const definition = readDraftDefinitionFromBody(body);
   assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
+  assertPreparedTestStrategy(root, definition, readCanonicalTaskBasis(root, current).basis);
   assertNoUnresolvedDraftQuestions(body);
   return definition;
 }
@@ -8206,6 +8627,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "create-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "create-draft claim_evidence");
     const draftIdentity = {
@@ -8262,6 +8684,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (currentIdentity.title !== delta.task_title)
       fail2("DRAFT_IDENTITY_IMMUTABLE", "update-draft must preserve the task title identity.");
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "update-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "update-draft claim_evidence");
     const nextWithoutAudit = {
@@ -8321,7 +8744,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the admitted draft step to remain ready.");
     }
     readCanonicalTaskBasis(root, current);
-    assertDraftDefinitionReady(current.body, current.runtimeState.active_step_id);
+    assertDraftDefinitionReady(root, current);
     if (current.runtimeState.claim_evidence_required !== true) {
       fail2("CLAIM_EVIDENCE_MIGRATION_REQUIRED", "prepare-task refinement must persist a strict claim_evidence plan before confirm-draft; legacy tasks are readable but not terminal-completion compatible.");
     }
@@ -8455,6 +8878,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("REPLAN_TRANSITION_INVALID", "commit-replan requires superseded + active.");
     }
     assertReplacementActiveStep(delta.active_step_id, delta.replacement_definition.implementation_steps);
+    assertPreparedTestStrategy(root, delta.replacement_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "commit-replan claim_evidence");
     requireAcceptanceClaim(claimEvidence, "commit-replan claim_evidence");
     const findings = current.runtimeState.findings.map((item) => {
@@ -8517,6 +8941,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
   const executionMode = proposal.mode;
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
+  assertTestStrategyExecutionTransition(current, delta, checkpoint);
   const currentStepRepairLogs = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === delta.step_id && item.mode === "repair");
   const openFindings = current.runtimeState.findings.filter((item) => item.status === "admitted" || item.status === "in-progress");
   const deltaRepairFingerprints = delta.repair_fingerprints ?? (delta.repair_fingerprint ? [delta.repair_fingerprint] : []);
@@ -12376,6 +12801,7 @@ var SEMANTIC_DRAFT_FIELDS = [
   "out_of_scope",
   "design_decisions",
   "mutation_scope",
+  "test_strategy",
   "implementation_steps",
   "validation_plan",
   "persistent_tests"
@@ -12562,6 +12988,24 @@ function normalizeSemanticDraft(input) {
   if (new Set(conditional.map((item) => item.path)).size !== conditional.length) {
     fail5("PREPARE_ADAPTER_INPUT_INVALID", "mutation_scope.conditional must not contain duplicate paths.");
   }
+  const testStrategySource = record(source.test_strategy, "test_strategy");
+  exactKeys(testStrategySource, ["mode", "source", "source_ref", "task_classification", "rationale"], "test_strategy");
+  if (!TEST_STRATEGY_MODES.includes(testStrategySource.mode)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `test_strategy.mode must be one of ${TEST_STRATEGY_MODES.join(", ")}.`);
+  }
+  if (!TEST_STRATEGY_SOURCES.includes(testStrategySource.source)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `test_strategy.source must be one of ${TEST_STRATEGY_SOURCES.join(", ")}.`);
+  }
+  if (!TEST_STRATEGY_CLASSIFICATIONS.includes(testStrategySource.task_classification)) {
+    fail5("PREPARE_ADAPTER_INPUT_INVALID", `test_strategy.task_classification must be one of ${TEST_STRATEGY_CLASSIFICATIONS.join(", ")}.`);
+  }
+  const testStrategy = {
+    mode: testStrategySource.mode,
+    source: testStrategySource.source,
+    source_ref: text(testStrategySource.source_ref, "test_strategy.source_ref", 1024),
+    task_classification: testStrategySource.task_classification,
+    rationale: text(testStrategySource.rationale, "test_strategy.rationale")
+  };
   if (!Array.isArray(source.implementation_steps) || source.implementation_steps.length === 0 || source.implementation_steps.length > MAX_ITEMS) {
     fail5("PREPARE_ADAPTER_INPUT_INVALID", "implementation_steps must be a bounded non-empty array.");
   }
@@ -12611,6 +13055,7 @@ function normalizeSemanticDraft(input) {
     out_of_scope: textList(source.out_of_scope, "out_of_scope", true),
     design_decisions: { decided, unresolved },
     mutation_scope: { allowed, conditional, forbidden },
+    test_strategy: testStrategy,
     implementation_steps: implementationSteps,
     validation_plan: textList(source.validation_plan, "validation_plan", false),
     persistent_tests: persistentTests
@@ -12780,6 +13225,14 @@ function semanticDraftDefinition(input) {
     ]).join(`
 `),
     regression_checks: [
+      "### Test Strategy",
+      "",
+      `- mode: ${input.test_strategy.mode}`,
+      `- source: ${input.test_strategy.source}`,
+      `- source_ref: ${input.test_strategy.source_ref}`,
+      `- task_classification: ${input.test_strategy.task_classification}`,
+      `- rationale: ${input.test_strategy.rationale}`,
+      "",
       "### Validation Plan",
       "",
       markdownBullets(input.validation_plan, true),
@@ -12872,6 +13325,7 @@ function isCurrentConfirmationReplay(current, idempotencyKey, receipt) {
 }
 function prepareDraft(root, input, options = {}) {
   const semantic = normalizeSemanticDraft(input);
+  assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   const creating = current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived";
   const updating = current.runtimeState.workflow_status === "draft" && current.runtimeState.lifecycle_state === "active";
@@ -13000,6 +13454,7 @@ function clearResumeReview(root, input, options = {}) {
 }
 function replan(root, input, options = {}) {
   const semantic = normalizeSemanticDraft(input);
+  assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   const digest3 = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey("replan", { task_id: current.runtimeState.task_id, semantic });
@@ -13335,6 +13790,18 @@ function changeSetId(current, stepId) {
     review_cycle_id: current.runtimeState.review_cycle.id
   }).slice(0, 40)}`;
 }
+function testStrategyMode(value, location) {
+  if (!["test-first", "implementation-first", "not-applicable", "legacy"].includes(String(value))) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} is not a supported test-strategy mode.`);
+  }
+  return value;
+}
+function executionPhase(value, location) {
+  if (!["red", "green", "implementation-first", "not-applicable", "legacy"].includes(String(value))) {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} is not a supported execution phase.`);
+  }
+  return value;
+}
 function normalizePreflightReceipt(value) {
   const source = record2(value, "preflight_receipt");
   if (source.kind === "execute-step-repair-preflight/v1") {
@@ -13346,6 +13813,8 @@ function normalizePreflightReceipt(value) {
       "step_id",
       "plan_revision",
       "mode",
+      "test_strategy_mode",
+      "execution_phase",
       "candidate_paths",
       "repair_fingerprints",
       "repair_wave_id",
@@ -13368,6 +13837,8 @@ function normalizePreflightReceipt(value) {
       step_id: text2(source.step_id, "preflight_receipt.step_id", 128),
       plan_revision: planRevision2,
       mode: "repair",
+      test_strategy_mode: testStrategyMode(source.test_strategy_mode, "preflight_receipt.test_strategy_mode"),
+      execution_phase: executionPhase(source.execution_phase, "preflight_receipt.execution_phase"),
       candidate_paths: pathList(source.candidate_paths, "preflight_receipt.candidate_paths", true),
       repair_fingerprints: textList2(source.repair_fingerprints, "preflight_receipt.repair_fingerprints", false),
       repair_wave_id: text2(source.repair_wave_id, "preflight_receipt.repair_wave_id", 128),
@@ -13385,6 +13856,8 @@ function normalizePreflightReceipt(value) {
     "step_id",
     "plan_revision",
     "mode",
+    "test_strategy_mode",
+    "execution_phase",
     "candidate_paths",
     "repair_fingerprint",
     "change_set_id",
@@ -13410,6 +13883,8 @@ function normalizePreflightReceipt(value) {
     step_id: text2(source.step_id, "preflight_receipt.step_id", 128),
     plan_revision: planRevision,
     mode,
+    test_strategy_mode: testStrategyMode(source.test_strategy_mode, "preflight_receipt.test_strategy_mode"),
+    execution_phase: executionPhase(source.execution_phase, "preflight_receipt.execution_phase"),
     candidate_paths: pathList(source.candidate_paths, "preflight_receipt.candidate_paths", true),
     repair_fingerprint: nullableText(source.repair_fingerprint, "preflight_receipt.repair_fingerprint", 128),
     change_set_id: text2(source.change_set_id, "preflight_receipt.change_set_id", 128),
@@ -13432,6 +13907,10 @@ function assertCurrentReceipt(current, stepPlan, receipt) {
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== stepPlanRevision(stepPlan)) {
     fail6("EXECUTE_PREFLIGHT_STALE", "the active step or its executable plan changed after preflight.");
   }
+  const strategy = resolveTestStrategyExecutionContext(current);
+  if (receipt.test_strategy_mode !== strategy.mode || receipt.execution_phase !== strategy.phase) {
+    fail6("EXECUTE_PREFLIGHT_STALE", "the frozen test strategy or current execution phase changed after preflight.");
+  }
   if (receipt.kind === "execute-step-repair-preflight/v1") {
     if (current.runtimeState.pending_review_result?.review_id !== receipt.review_id || current.runtimeState.pending_review_result.change_set_id !== receipt.change_set_id) {
       fail6("EXECUTE_PREFLIGHT_STALE", "the repair review or Runtime-owned change set changed after preflight.");
@@ -13445,6 +13924,30 @@ function findingAdmissionWaveId(reviewId) {
 }
 function repairWaveId(reviewId, fingerprints) {
   return `repair-wave-${digest3({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
+}
+function assertTestStrategyCandidatePaths(strategy, candidatePaths) {
+  if (strategy.phase !== "red")
+    return;
+  const missingTests = strategy.persistent_tests.filter((testPath) => !candidatePaths.includes(testPath));
+  const nonTestPaths = candidatePaths.filter((candidate) => !strategy.persistent_tests.includes(candidate));
+  if (missingTests.length > 0 || nonTestPaths.length > 0) {
+    fail6("TEST_STRATEGY_SEQUENCE_INVALID", `test-first Red preflight must cover every frozen persistent test and no product path; missing=[${missingTests.join(", ")}], non_test=[${nonTestPaths.join(", ")}].`);
+  }
+}
+function currentStepResult(stepPlan, strategy) {
+  return {
+    id: stepPlan.step.id,
+    description: stepPlan.step.description,
+    purpose: stepPlan.step.purpose,
+    mutation_scope: stepPlan.mutation_scope,
+    commands: stepPlan.commands,
+    validation: stepPlan.validation,
+    review_checkpoint: stepPlan.step.review_checkpoint,
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
+    required_outcome: strategy.required_outcome,
+    persistent_tests: [...strategy.persistent_tests]
+  };
 }
 function beginRepair(root, input, options = {}) {
   const source = record2(input, "begin-repair input");
@@ -13461,6 +13964,9 @@ function beginRepair(root, input, options = {}) {
     fail6("REVIEW_TARGET_CONFLICT", "begin-repair requires the Runtime-recorded reviewed execution target.");
   }
   const stepPlan = currentStepPlan(current);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  assertTestStrategyCandidatePaths(strategy, candidatePaths);
   assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths");
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
@@ -13531,6 +14037,8 @@ function beginRepair(root, input, options = {}) {
     step_id: stepPlan.step.id,
     plan_revision: stepPlanRevision(stepPlan),
     mode: "repair",
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
     candidate_paths: candidatePaths,
     repair_fingerprints: fingerprints,
     repair_wave_id: waveId,
@@ -13544,15 +14052,7 @@ function beginRepair(root, input, options = {}) {
     operation_kind: "execute-step-repair-preflight",
     committed: false,
     read_back_verified: true,
-    current_step: {
-      id: stepPlan.step.id,
-      description: stepPlan.step.description,
-      purpose: stepPlan.step.purpose,
-      mutation_scope: stepPlan.mutation_scope,
-      commands: stepPlan.commands,
-      validation: stepPlan.validation,
-      review_checkpoint: stepPlan.step.review_checkpoint
-    },
+    current_step: currentStepResult(stepPlan, strategy),
     receipt
   };
 }
@@ -13563,6 +14063,9 @@ function preflightStep(root, input) {
   const current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  assertTestStrategyCandidatePaths(strategy, candidatePaths);
   assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths");
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
@@ -13574,6 +14077,8 @@ function preflightStep(root, input) {
     step_id: stepPlan.step.id,
     plan_revision: stepPlanRevision(stepPlan),
     mode: "default",
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
     candidate_paths: candidatePaths,
     repair_fingerprint: null,
     change_set_id: changeSetId(current, stepPlan.step.id),
@@ -13584,23 +14089,27 @@ function preflightStep(root, input) {
     operation_kind: "execute-step-preflight",
     committed: false,
     read_back_verified: true,
-    current_step: {
-      id: stepPlan.step.id,
-      description: stepPlan.step.description,
-      purpose: stepPlan.step.purpose,
-      mutation_scope: stepPlan.mutation_scope,
-      commands: stepPlan.commands,
-      validation: stepPlan.validation,
-      review_checkpoint: stepPlan.step.review_checkpoint
-    },
+    current_step: currentStepResult(stepPlan, strategy),
     receipt
   };
 }
 function resultStatus(value, location) {
-  if (value !== "passed" && value !== "failed" && value !== "blocked" && value !== "not-run") {
-    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be passed, failed, blocked, or not-run.`);
+  if (value !== "passed" && value !== "expected-failure" && value !== "failed" && value !== "blocked" && value !== "not-run") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} must be passed, expected-failure, failed, blocked, or not-run.`);
   }
   return value;
+}
+function normalizeExpectedFailure(value, location) {
+  const source = record2(value, location);
+  exactKeys2(source, ["kind", "expected_behavior", "observed_failure_signature"], location);
+  if (source.kind !== "behavior-not-implemented") {
+    fail6("EXECUTE_EXPECTED_FAILURE_INVALID", `${location}.kind must be behavior-not-implemented; syntax, import, fixture, tool, and environment failures are blocked outcomes.`);
+  }
+  return {
+    kind: "behavior-not-implemented",
+    expected_behavior: text2(source.expected_behavior, `${location}.expected_behavior`),
+    observed_failure_signature: text2(source.observed_failure_signature, `${location}.observed_failure_signature`)
+  };
 }
 function normalizeCommandResults(value) {
   if (!Array.isArray(value) || value.length > MAX_ITEMS2) {
@@ -13609,8 +14118,8 @@ function normalizeCommandResults(value) {
   const results = value.map((item, index) => {
     const location = `command_results[${index}]`;
     const source = record2(item, location);
-    exactKeys2(source, ["command", "status", "observed_repo_writes", "evidence_refs"], location);
     const status = resultStatus(source.status, `${location}.status`);
+    exactKeys2(source, status === "expected-failure" ? ["command", "status", "observed_repo_writes", "evidence_refs", "expected_failure"] : ["command", "status", "observed_repo_writes", "evidence_refs"], location);
     const observedRepoWrites = pathList(source.observed_repo_writes, `${location}.observed_repo_writes`, true);
     if (status === "not-run" && observedRepoWrites.length > 0) {
       fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location}.not-run command must not report repository writes.`);
@@ -13619,7 +14128,8 @@ function normalizeCommandResults(value) {
       command: text2(source.command, `${location}.command`),
       status,
       observed_repo_writes: observedRepoWrites,
-      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, status === "not-run")
+      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, status === "not-run"),
+      ...status === "expected-failure" ? { expected_failure: normalizeExpectedFailure(source.expected_failure, `${location}.expected_failure`) } : {}
     };
   });
   if (new Set(results.map((item) => item.command)).size !== results.length) {
@@ -13634,12 +14144,13 @@ function normalizeValidationResults(value) {
   const results = value.map((item, index) => {
     const location = `validation_results[${index}]`;
     const source = record2(item, location);
-    exactKeys2(source, ["validation", "status", "evidence_refs"], location);
     const status = resultStatus(source.status, `${location}.status`);
+    exactKeys2(source, status === "expected-failure" ? ["validation", "status", "evidence_refs", "expected_failure"] : ["validation", "status", "evidence_refs"], location);
     return {
       validation: text2(source.validation, `${location}.validation`),
       status,
-      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, status === "not-run")
+      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, status === "not-run"),
+      ...status === "expected-failure" ? { expected_failure: normalizeExpectedFailure(source.expected_failure, `${location}.expected_failure`) } : {}
     };
   });
   if (new Set(results.map((item) => item.validation)).size !== results.length) {
@@ -13857,8 +14368,8 @@ function recordStepResult(root, input, options = {}) {
   const commandResults = normalizeCommandResults(source.command_results);
   const validationResults = normalizeValidationResults(source.validation_results);
   const acceptanceEvidence = normalizeAcceptanceEvidence(source.acceptance_evidence);
-  if (source.outcome !== "implemented" && source.outcome !== "blocked") {
-    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "outcome must be implemented or blocked.");
+  if (source.outcome !== "implemented" && source.outcome !== "test-red" && source.outcome !== "blocked") {
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "outcome must be implemented, test-red, or blocked.");
   }
   const outcome = source.outcome;
   const note = nullableText(source.note, "note");
@@ -13898,6 +14409,9 @@ function recordStepResult(root, input, options = {}) {
   assertExecutableTask(current);
   let stepPlan = currentStepPlan(current);
   assertCurrentReceipt(current, stepPlan, receipt);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  assertTestStrategyCandidatePaths(strategy, receipt.candidate_paths);
   assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, "preflight_receipt.candidate_paths");
   assertPathsAdmitted(current, stepPlan, actualChangedPaths, "actual_changed_paths");
   assertCommandResults(current, stepPlan, commandResults);
@@ -13907,6 +14421,23 @@ function recordStepResult(root, input, options = {}) {
   }
   if (outcome === "implemented" && validationResults.some((item) => item.status !== "passed")) {
     fail6("EXECUTE_RESULT_BLOCKED", "implemented requires every planned validation to pass.");
+  }
+  if (outcome === "test-red") {
+    const resultStatuses = [...commandResults, ...validationResults].map((item) => item.status);
+    if (strategy.phase !== "red") {
+      fail6("TEST_STRATEGY_SEQUENCE_INVALID", `outcome=test-red is not valid during phase=${strategy.phase}.`);
+    }
+    if (!resultStatuses.some((status2) => status2 === "expected-failure") || resultStatuses.some((status2) => status2 !== "passed" && status2 !== "expected-failure")) {
+      fail6("EXECUTE_EXPECTED_FAILURE_INVALID", "test-red requires at least one expected-failure result and permits only passed companion results.");
+    }
+    if (acceptanceEvidence.length > 0) {
+      fail6("TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN", "test-red evidence cannot satisfy final acceptance claims before implementation reaches Green.");
+    }
+  } else if ([...commandResults, ...validationResults].some((item) => item.status === "expected-failure")) {
+    fail6("EXECUTE_EXPECTED_FAILURE_INVALID", "expected-failure result status is valid only with outcome=test-red.");
+  }
+  if (strategy.phase === "red" && outcome === "implemented") {
+    fail6("TEST_STRATEGY_SEQUENCE_INVALID", "the first test-first step cannot report implemented; it must establish test-red or report a truthful blocker.");
   }
   if (outcome === "blocked" && note === null) {
     fail6("EXECUTE_RESULT_BLOCKED", "blocked requires a concise blocker in note.");
@@ -13933,9 +14464,14 @@ function recordStepResult(root, input, options = {}) {
     command_results: commandResults.map((item) => ({
       ...item,
       observed_repo_writes: [...item.observed_repo_writes],
-      evidence_refs: [...item.evidence_refs]
+      evidence_refs: [...item.evidence_refs],
+      ...item.expected_failure ? { expected_failure: { ...item.expected_failure } } : {}
     })),
-    validation_results: validationResults.map((item) => ({ ...item, evidence_refs: [...item.evidence_refs] })),
+    validation_results: validationResults.map((item) => ({
+      ...item,
+      evidence_refs: [...item.evidence_refs],
+      ...item.expected_failure ? { expected_failure: { ...item.expected_failure } } : {}
+    })),
     acceptance_evidence: acceptanceEvidence.map((item) => ({ ...item, evidence_refs: [...item.evidence_refs] })),
     blocker: outcome === "blocked" ? note : null
   };

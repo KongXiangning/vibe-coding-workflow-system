@@ -21,7 +21,7 @@ export type Phase1Entry = (typeof PHASE_1_ENTRIES)[number];
 export const ADMIN_ENTRIES = ['bootstrap-project'] as const;
 export type AdminEntry = (typeof ADMIN_ENTRIES)[number];
 
-export const EXPERT_ENTRIES = ['validate-change'] as const;
+export const EXPERT_ENTRIES = ['validate-change', 'git-commit'] as const;
 export type ExpertEntry = (typeof EXPERT_ENTRIES)[number];
 
 const PUBLIC_ENTRY_IDS = [
@@ -61,6 +61,7 @@ export const ADMIN_MODES: Record<AdminEntry, readonly string[]> = {
 
 export const EXPERT_MODES: Record<ExpertEntry, readonly string[]> = {
   'validate-change': [],
+  'git-commit': [],
 };
 
 const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
@@ -113,14 +114,17 @@ const EXPECTED_ADMIN_RUNTIME_OPERATIONS: Record<AdminEntry, readonly string[]> =
 
 export const EXPECTED_EXPERT_OUTPUT_KINDS: Record<ExpertEntry, string> = {
   'validate-change': 'validation-result',
+  'git-commit': 'git-commit-result',
 };
 
 export const EXPECTED_EXPERT_AUTHORITY_OWNERS: Record<ExpertEntry, string> = {
   'validate-change': 'none',
+  'git-commit': 'user',
 };
 
 export const EXPECTED_EXPERT_RUNTIME_OPERATIONS: Record<ExpertEntry, readonly string[]> = {
   'validate-change': [],
+  'git-commit': [],
 };
 
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
@@ -156,6 +160,7 @@ export const REQUIRED_EXPERT_ENTRY_CAPABILITIES: Partial<Record<ExpertEntry, rea
     'read-only-review-guard',
     'owner-route-resolver',
   ],
+  'git-commit': ['dangerous-operation-gate'],
 };
 
 const FORBIDDEN_TOP_LEVEL_FIELDS = new Set([
@@ -610,8 +615,13 @@ function validateExpertInputContract(input: UnknownRecord, entry: ExpertEntry): 
     `${entry}.entry_contract.input_contract`,
   );
   const required = expectStringArray(input.required, `${entry}.entry_contract.input_contract.required`);
-  expectSetEqual(required, ['validation_target'], `${entry}.validation_target`);
   const optional = expectStringArray(input.optional, `${entry}.entry_contract.input_contract.optional`, true);
+  if (entry === 'git-commit') {
+    expectSetEqual(required, ['repository', 'intended_changes'], `${entry}.entry_contract.input_contract.required`);
+    expectSetEqual(optional, ['preferred_message', 'workflow_result'], `${entry}.entry_contract.input_contract.optional`);
+    return;
+  }
+  expectSetEqual(required, ['validation_target'], `${entry}.validation_target`);
   expectSetEqual(
     optional,
     [
@@ -695,6 +705,21 @@ function validatePrepareTaskDraftBoundary(content: string): void {
     'path-by-step interaction map',
     'Step scopes are permissions',
     'author self-check',
+    'Classify `test_strategy.mode`',
+    '`explicit-user`, `project-policy`, or `inferred-default`',
+    'Set `source_ref` to the exact',
+    '`contract-clear-behavior`, `exploratory-or-infrastructure`, or',
+    'user-owned open question and resolve it before submitting `prepare-draft`',
+    'contain every listed test asset and no non-test target',
+    'keep every declared test asset out of the first implementation/discovery step',
+    'Persistent Tests may remain `none`',
+    'PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths',
+    'Each policy entry must itself be an exact path or a literal directory prefix',
+    'reject wildcard-bearing prefixes such as `*/**`',
+    'Every Allowed, Conditional, and implementation-step mutation pattern',
+    'documentation inventory as proof',
+    'does not block `test-first` or `implementation-first`',
+    'Explicit confirmation freezes the strategy',
     '`next_route: review-draft`',
     'later caller invocation',
   ];
@@ -736,7 +761,18 @@ function validateExecuteStepSemanticBoundary(content: string): void {
     "confirmed task's `Persistent Tests`",
     'Runtime `begin-repair`',
     'Runtime `record-step-result`',
+    'Runtime captures the after-state, derives the exact before/after delta',
+    'frozen test-strategy mode, execution phase, required outcome',
+    '`outcome: test-red`',
+    '`status: expected-failure`',
+    'Syntax, type, import, fixture, tool, unrelated-test, and environment failures are not Red evidence',
+    'A Red step must not submit acceptance evidence',
+    '`next_route: git-commit`',
+    '`commit_scope`',
+    'neither execute-step nor Runtime invokes it',
     'Runtime `complete-reviewed-step`',
+    'completion cannot add evidence',
+    'never supply or copy a review receipt',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) {
@@ -748,10 +784,12 @@ function validateExecuteStepSemanticBoundary(content: string): void {
 function validateReviewChangeSemanticBoundary(content: string): void {
   const requiredTerms = [
     'Runtime `review-context`',
-    'exact recorded diff target',
+    'Runtime-recorded change set and exact before/after file delta',
+    'A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable',
     'Do not modify code, tests, configuration, or governance sources',
     'unauthorized persistent-test changes',
     'Runtime `record-review-result`',
+    'For `test-red`, verify that only frozen test assets were admitted',
     'Do not repair code or advance the step',
     'recommendation must not invoke another public Skill',
   ];

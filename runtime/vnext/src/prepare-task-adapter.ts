@@ -12,7 +12,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
+  TEST_STRATEGY_CLASSIFICATIONS,
+  TEST_STRATEGY_MODES,
+  TEST_STRATEGY_SOURCES,
   VNextRuntimeError,
+  assertPreparedTestStrategy,
   allocateNextTaskId,
   applyVNextRuntimeProposal,
   createPrepareTaskConfirmProposal,
@@ -31,6 +35,7 @@ import {
   type RuntimeApplyOptions,
   type RuntimeResult,
   type TaskBasis,
+  type TestStrategyDefinition,
 } from './kernel';
 import {
   evaluateCommandWriteFootprint,
@@ -56,6 +61,8 @@ export type PrepareTaskStepCommand = {
   expected_repo_writes: 'none' | string[];
 };
 
+export type PrepareTaskTestStrategy = TestStrategyDefinition;
+
 export type PrepareTaskSemanticDraft = {
   task_basis: TaskBasis;
   goal: string;
@@ -70,6 +77,7 @@ export type PrepareTaskSemanticDraft = {
     conditional: Array<{ path: string; condition: string }>;
     forbidden: string[];
   };
+  test_strategy: PrepareTaskTestStrategy;
   implementation_steps: Array<{
     id: string;
     description: string;
@@ -121,6 +129,7 @@ const SEMANTIC_DRAFT_FIELDS = [
   'out_of_scope',
   'design_decisions',
   'mutation_scope',
+  'test_strategy',
   'implementation_steps',
   'validation_plan',
   'persistent_tests',
@@ -342,6 +351,25 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     fail('PREPARE_ADAPTER_INPUT_INVALID', 'mutation_scope.conditional must not contain duplicate paths.');
   }
 
+  const testStrategySource = record(source.test_strategy, 'test_strategy');
+  exactKeys(testStrategySource, ['mode', 'source', 'source_ref', 'task_classification', 'rationale'], 'test_strategy');
+  if (!(TEST_STRATEGY_MODES as readonly unknown[]).includes(testStrategySource.mode)) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', `test_strategy.mode must be one of ${TEST_STRATEGY_MODES.join(', ')}.`);
+  }
+  if (!(TEST_STRATEGY_SOURCES as readonly unknown[]).includes(testStrategySource.source)) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', `test_strategy.source must be one of ${TEST_STRATEGY_SOURCES.join(', ')}.`);
+  }
+  if (!(TEST_STRATEGY_CLASSIFICATIONS as readonly unknown[]).includes(testStrategySource.task_classification)) {
+    fail('PREPARE_ADAPTER_INPUT_INVALID', `test_strategy.task_classification must be one of ${TEST_STRATEGY_CLASSIFICATIONS.join(', ')}.`);
+  }
+  const testStrategy: PrepareTaskTestStrategy = {
+    mode: testStrategySource.mode as PrepareTaskTestStrategy['mode'],
+    source: testStrategySource.source as PrepareTaskTestStrategy['source'],
+    source_ref: text(testStrategySource.source_ref, 'test_strategy.source_ref', 1024),
+    task_classification: testStrategySource.task_classification as PrepareTaskTestStrategy['task_classification'],
+    rationale: text(testStrategySource.rationale, 'test_strategy.rationale'),
+  };
+
   if (!Array.isArray(source.implementation_steps) || source.implementation_steps.length === 0 || source.implementation_steps.length > MAX_ITEMS) {
     fail('PREPARE_ADAPTER_INPUT_INVALID', 'implementation_steps must be a bounded non-empty array.');
   }
@@ -392,6 +420,7 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     out_of_scope: textList(source.out_of_scope, 'out_of_scope', true),
     design_decisions: { decided, unresolved },
     mutation_scope: { allowed, conditional, forbidden },
+    test_strategy: testStrategy,
     implementation_steps: implementationSteps,
     validation_plan: textList(source.validation_plan, 'validation_plan', false),
     persistent_tests: persistentTests,
@@ -577,6 +606,14 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
       ]),
     ]).join('\n'),
     regression_checks: [
+      '### Test Strategy',
+      '',
+      `- mode: ${input.test_strategy.mode}`,
+      `- source: ${input.test_strategy.source}`,
+      `- source_ref: ${input.test_strategy.source_ref}`,
+      `- task_classification: ${input.test_strategy.task_classification}`,
+      `- rationale: ${input.test_strategy.rationale}`,
+      '',
       '### Validation Plan',
       '',
       markdownBullets(input.validation_plan, true),
@@ -698,6 +735,7 @@ function isCurrentConfirmationReplay(
 
 export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
   const semantic = normalizeSemanticDraft(input);
+  assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   const creating = current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived';
   const updating = current.runtimeState.workflow_status === 'draft' && current.runtimeState.lifecycle_state === 'active';
@@ -837,6 +875,7 @@ export function clearResumeReview(root: string, input: unknown, options: Runtime
 
 export function replan(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const semantic = normalizeSemanticDraft(input);
+  assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   const digest = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey('replan', { task_id: current.runtimeState.task_id, semantic });

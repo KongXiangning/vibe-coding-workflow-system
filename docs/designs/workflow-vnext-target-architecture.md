@@ -435,13 +435,17 @@ policy fact, not a public mode or a new BPM stage.
 
 ## 7. Unified review architecture
 
-`review-change` consumes one explicit diff target and produces one verdict. It does not expose its dimensions as a handoff chain.
+`review-change` consumes one Runtime-recorded change set plus a verifiable file-manifest target and produces one verdict. It does not expose its dimensions as a handoff chain.
 
 ### 7.1 Review input
 
 ```yaml
 review_request:
-  diff_target: <task-base-or-reviewed-checkpoint-to-current-head>
+  change_set_id: <runtime-owned-stable-id>
+  review_target:
+    kind: runtime-file-manifest/v1
+    revision: <sha256>
+    entries: [<path-state-and-content-digest>]
   cycle_phase: discovery | verification
   acceptance_claims: [<claim-id>]
   admitted_fingerprints: [<finding-fingerprint>]
@@ -453,7 +457,7 @@ review_request:
 
 Always evaluated:
 
-- diff-target validity;
+- change-set identity and review-target validity;
 - scope and mutation boundary;
 - goal/acceptance fit;
 - correctness and regression risk;
@@ -474,8 +478,8 @@ Conditionally evaluated:
 review_result:
   cycle_id: <stable-id>
   cycle_phase: discovery | verification
-  diff_target: <same-logical-target>
-  diff_target_verification: verified | harness-supplied | mismatch | unavailable
+  change_set_id: <same-runtime-owned-id>
+  review_target_revision: <same-verified-manifest-revision>
   dimensions:
     evaluated: []
     not_triggered: []

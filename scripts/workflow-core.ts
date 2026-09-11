@@ -491,12 +491,22 @@ export function validateProfilePathSemantics(profile: JsonObject, context = WORK
       'paths.documentation_files',
       'paths.existing_skill_template_patterns',
       'paths.generated_artifacts',
+      'boundaries.non_executable_change_paths',
       'boundaries.generated_only_paths',
       'boundaries.workflow_owned_paths',
       'governance.current_documents',
     ],
     context,
   );
+
+  if (hasDottedPath(profile, 'boundaries.non_executable_change_paths')) {
+    const configured = getRequiredPath(profile, 'boundaries.non_executable_change_paths');
+    if (!Array.isArray(configured)) {
+      throw new Error(
+        `Invalid repo pattern in ${context}.boundaries.non_executable_change_paths: value must be an array`,
+      );
+    }
+  }
 }
 
 export function extractHandoff(frontmatter: JsonObject, filePath: string): HandoffRef {

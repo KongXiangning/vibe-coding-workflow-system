@@ -105,9 +105,10 @@ bun run build:vibe-governance-distribution
 
 To roll a newly committed Vibe Governance version into FixFlow, use the
 upgrade command. It derives the next dogfood branch from the currently
-installed target version, preserves a sole dirty `CURRENT_TASK.md` specimen if
-needed, builds and pins a local tarball, runs the tarball's real published bin,
-validates, commits, and pushes the target upgrade.
+installed target version, preserves a confirmed active or closed archived task
+in place (or captures the legacy prepare-task specimen when the target is still
+at the bootstrap boundary), builds and pins a local tarball, runs the tarball's real
+published bin, validates, and commits the Distribution upgrade locally.
 
 ```powershell
 # Read-only source/target/branch preflight.
@@ -116,6 +117,24 @@ bun run dogfood:fixflow:upgrade -- --version 0.14.8
 # Execute the fixed-version target upgrade.
 bun run dogfood:fixflow:upgrade -- --version 0.14.8 --apply
 ```
+
+When a new dogfood lane must start from an earlier confirmed task boundary rather
+than the currently checked-out FixFlow branch, pass that baseline explicitly. For
+example, `2d91a83` is the committed `prepare-task confirm` baseline before the
+execute-step/review-change implementation work:
+
+```powershell
+# Read-only preflight from the confirmed pre-implementation baseline.
+bun run dogfood:fixflow:upgrade -- --version 0.15.3 --baseline-ref 2d91a83
+
+# Create the next local dogfood branch from that commit and install the pinned release.
+bun run dogfood:fixflow:upgrade -- --version 0.15.3 --baseline-ref 2d91a83 --apply
+```
+
+The baseline ref must resolve to the tip of exactly one local `dogfood/round*-v*`
+branch and the target worktree must be clean before `--apply`. The upgrade branch
+is derived from the baseline branch (for `2d91a83`, `dogfood/round8-v0153`); later
+product commits and later `CURRENT_TASK` history are intentionally not copied.
 
 The committed Vibe Governance release must be lockstep before starting. With
 `--apply`, ordinary unstaged changes and new release-surface files on the source
@@ -126,6 +145,15 @@ test, and FixFlow operational-script changes remain outside that commit. The
 command does not push. A tarball at an existing version path is reused only when
 its SHA-256 is identical; otherwise the command stops without overwriting the
 pinned artifact. The FixFlow specimen and upgrade commits also remain local.
+When FixFlow has a confirmed `active + active` task or a completed
+`closed + archived` task, the command does not clean or restore
+`docs/workflow/CURRENT_TASK.md`; that file, its Task Basis, and product changes
+remain uncommitted while only Distribution-managed files enter the upgrade
+commit. Suspended, interrupted, ambiguous, and other
+non-confirmed task states remain fail-closed. If the command is interrupted
+after the published Distribution has been read back, rerunning the same
+`--apply` command on its expected upgrade branch resumes the local target
+commit instead of repeating the upgrade.
 
 `dogfood:fixflow:cleanup` remains available when only specimen preservation
 and baseline restoration are required:

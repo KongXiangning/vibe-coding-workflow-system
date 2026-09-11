@@ -97,7 +97,17 @@ The commands are strict dispatches:
 |---|---|---|---|
 | `install` | `uninstalled` | install, or same-version no-op | legacy conversion or vNext upgrade |
 | `migrate` | `legacy` | independent Migration Pack conversion and install | fresh install or vNext upgrade |
-| `upgrade` | `vnext(old)` | safe/idle vNext replacement | legacy parsing or conversion |
+| `upgrade` | `vnext(old)` | state-preserving vNext replacement after a validated idle or confirmed active boundary | legacy parsing or conversion |
+
+For an older vNext target, `upgrade` asks the project-local Runtime to validate
+the current task before promotion. A `closed + archived` task or a confirmed
+`active + active` task is admitted; the transaction replaces only
+Distribution-managed files and leaves `CURRENT_TASK.md`, Task Basis, profile,
+and product files untouched.
+If the dogfood orchestration is interrupted after promotion, the expected
+versioned upgrade branch may safely resume the local commit after the
+published-bin read-back confirms that the requested Distribution is already
+present.
 
 `install` reports `migration-required` for a legacy target and
 `upgrade-required` for an older vNext target. `migrate` never interprets a
@@ -455,7 +465,8 @@ The Phase 1 implementation must prove:
 5. unsupported/non-idle migration fails closed;
 6. valid idle migration invokes the independent Pack and promotes one
    validated result;
-7. older vNext upgrade is safe/idle-only and never parses legacy documents;
+7. older vNext upgrade validates and preserves either a closed + archived task
+   or a confirmed active + active task, and never parses legacy documents;
 8. malformed/tampered payloads never promote;
 9. managed-target drift/conflicts never get silently overwritten;
 10. promotion failure restores the preimage or retains an explicit recovery
