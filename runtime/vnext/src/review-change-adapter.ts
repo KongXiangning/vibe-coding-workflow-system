@@ -17,6 +17,8 @@ import {
   assertReviewExecutionEligible,
   captureReviewTarget,
   createReviewResultProposal,
+  cumulativeReviewExecution,
+  validateTestAssessment,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
   validateRuntimeEnvironment,
@@ -87,6 +89,7 @@ export type ReviewContextResult = {
   };
   persistent_tests: string[] | null;
   claim_evidence: ClaimEvidenceRecord[];
+  review_preimages: NonNullable<CanonicalCurrentTask['runtimeState']['review_coverage']>['preimages'];
   admitted_findings: Array<{
     fingerprint: string;
     file: string;
@@ -178,7 +181,7 @@ function latestRecordedExecution(current: CanonicalCurrentTask): StepExecutionLo
     fail('REVIEW_TARGET_CONFLICT', 'the latest execution change-set identity is inconsistent.');
   }
   assertReviewExecutionEligible(current, latest);
-  return latest;
+  return cumulativeReviewExecution(current, latest);
 }
 
 function stepScope(value: string | null, location: string): string[] {
@@ -296,6 +299,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       conditional: scope.conditional.map(item => item.pattern),
       forbidden: scope.forbidden.map(item => item.pattern),
     },
+    review_preimages: current.runtimeState.review_coverage?.preimages ?? [],
     persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
     claim_evidence: (current.runtimeState.claim_evidence ?? []).map(item => ({
       ...item,
@@ -351,11 +355,11 @@ function assertCurrentContext(root: string, current: CanonicalCurrentTask, recei
   if (open.length !== receipt.admitted_fingerprints.length || open.some(item => !receipt.admitted_fingerprints.includes(item))) {
     fail('REVIEW_CONTEXT_STALE', 'admitted finding set changed after review context was issued.');
   }
-  return latest;
+  return cumulativeReviewExecution(current, latest);
 }
 
 function assertRecordedTargetCurrent(root: string, current: CanonicalCurrentTask, receipt: ReviewContextReceipt): StepExecutionLogEntry {
-  const execution = current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+  const execution = current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
     !('action' in item) && item.idempotency_key === receipt.execution_id,
   );
   if (!execution?.execution_result || !execution.change_set_id
@@ -458,7 +462,7 @@ function semanticNoOp(current: CanonicalCurrentTask, key: string, message: strin
 
 export function recordReviewResult(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input, 'record-review-result input');
-  exactKeys(source, ['context_receipt', 'verdict', 'findings', 'unresolved_fingerprints', 'evidence_refs', 'blocker'], 'record-review-result input');
+  exactKeys(source, ['context_receipt', 'verdict', 'findings', 'unresolved_fingerprints', 'evidence_refs', 'blocker', ...(source.test_assessment === undefined ? [] : ['test_assessment'])], 'record-review-result input');
   const receipt = normalizeContextReceipt(source.context_receipt);
   if (!['clean', 'findings', 'blocked'].includes(String(source.verdict))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'verdict must be clean, findings, or blocked.');
   const verdict = source.verdict as ReviewResultVerdict;
@@ -489,6 +493,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   const finalBlocker = runtimeBlocker ?? blocker;
   const reviewId = `review-${digest({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult: Omit<PendingReviewResult, 'recorded_at'> = {
+    ...(source.test_assessment === undefined ? {} : {test_assessment:validateTestAssessment(source.test_assessment)}),
     kind: 'review-result/v1',
     review_id: reviewId,
     execution_id: receipt.execution_id,

@@ -5,6 +5,8 @@ import * as path from 'path';
 import { stringify } from 'yaml';
 import {
   applyVNextRuntimeProposal,
+  assertEvidencePlan,
+  readDraftDefinitionFromBody,
   captureReviewTarget,
   createReviewChangeDelta,
   createFindingQueueProposal,
@@ -37,6 +39,7 @@ const temporaryRoots: string[] = [];
 
 function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
+    business_evidence_version: 1,
     schema_version: 1,
     kind: 'vnext-current-task-runtime-state',
     task_id: '010',
@@ -62,26 +65,23 @@ function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
     applied_proposals: [],
     claim_evidence_required: true,
     claim_evidence: dailyClaimEvidence(),
+    evidence_plan_revision: dailyClaimEvidence()[0]!.slots[0]!.report!.evidence_plan_revision,
     ...overrides,
   };
 }
 
 function dailyClaimEvidence(): NonNullable<RuntimeState['claim_evidence']> {
-  return [{
-    claim_id: 'A1',
-    claim_kind: 'acceptance',
-    slots: [{
-      slot_id: 'daily-semantics',
-      minimum_type: 'focused-test',
-      disposition: 'existing',
-      evidence_refs: ['evidence:daily-semantics'],
-    }],
-  }];
+  const records: NonNullable<RuntimeState['claim_evidence']> = [{ claim_id: 'A1', claim_kind: 'acceptance', requirement: 'Daily advancement preserves review and repair gates', source_ref: 'fixture:admitted-contract', slots: [{ slot_id: 'evidence', minimum_type: 'static-proof', applicability: 'current', due_step_id: 'step-3', disposition: 'existing', evidence_refs: ['evidence-report.txt'], check: { check_id: 'K1', method: 'static', entry: 'fixture-subject.txt', expected_observation: 'Daily advancement preserves review and repair gates', required_boundaries: ['Runtime transaction'], allowed_substitutes: ['isolated fixture'], subject_paths: ['fixture-subject.txt'], expected_result: 'accepted' } }] }];
+  const revision = assertEvidencePlan(readDraftDefinitionFromBody(body()), records);
+  records[0]!.slots[0]!.report = { result_id: 'fixture-result', status: 'accepted', evidence_plan_revision: revision, subject_revision: captureReviewTarget(path.resolve(import.meta.dir, '..'), ['fixture-subject.txt']).revision, actual_method: 'static', environment: 'isolated Runtime fixture', assurance: 'caller-reported' };
+  return records;
 }
 
 function body(): string {
   return [
     '# vNext CURRENT_TASK',
+    '## 验收标准',
+    '- [ ] Daily advancement preserves review and repair gates',
     '',
     '## 任务信息',
     '',
@@ -129,6 +129,24 @@ function body(): string {
     '  - Required evidence: existing regression validation',
     '  - Review checkpoint: not-required',
     '',
+    '## 回归检查项',
+    '',
+    '### Test Strategy',
+    '- mode: flexible',
+    '- source: inferred-default',
+    '- source_ref: prepare-task-default',
+    '- task_classification: contract-clear-behavior',
+    '- rationale: No explicit ordering requirement in this fixture.',
+    '',
+    '### Persistent Tests',
+    '- none',
+    '',
+    '## 背景与上下文', '- fixture',
+    '## 受影响的契约', '- daily semantics',
+    '## 已确认决策', '- preserve review gates',
+    '## 待确认问题', '- none',
+    '## 实现方案', '- steps below',
+    '## 回滚点', '- isolated fixture',
     '## 执行记录',
     '',
     '- historical execution record',
@@ -151,6 +169,7 @@ function makeRoot(initial: RuntimeState = state()): string {
     '  workflow_home: docs/workflow',
     '',
   ].join('\n'), 'utf8');
+  fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Admitted static fixture evidence');
   const currentTaskPath = path.join(root, 'docs', 'workflow', 'CURRENT_TASK.md');
   fs.mkdirSync(path.dirname(currentTaskPath), { recursive: true });
   fs.writeFileSync(currentTaskPath, `---\n${stringify({

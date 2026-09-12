@@ -1106,9 +1106,9 @@ function cleanMetadataValue(value) {
 }
 function parseCheckpoint(value) {
   const normalized = cleanMetadataValue(value);
-  if (/^(?:not[-\s]?required|optional|none|无需|不需要|非必需)(?=\s|[:：,，()（）[\]{}\-–—]|$)/iu.test(normalized)) {
-    return { policy: "not-required", boundary: null };
-  }
+  const optional = /^(?:not[-\s]?required|optional|none|无需|不需要|非必需)(?=\s|[:：,，()（）[\]{}\-–—]|$)/iu.exec(normalized);
+  if (optional)
+    return { policy: "not-required", boundary: normalized.slice(optional[0].length).replace(/^[\s:：]+/u, "").trim() || null };
   const required = /^(?:required|mandatory|必需|必须|需要)(?=\s|[:：,，()（）[\]{}\-–—]|$)/iu.exec(normalized);
   if (!required)
     return { policy: null, boundary: null };
@@ -1623,7 +1623,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.15.3";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.16.0";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -1658,6 +1658,8 @@ var RUNTIME_REQUIRED_ENVELOPE_FIELDS = [
   "requested_write_targets"
 ];
 var RUNTIME_STATE_FIELDS = [
+  "business_evidence_version",
+  "evidence_plan_revision",
   "task_id",
   "task_slug",
   "workflow_status",
@@ -1673,7 +1675,9 @@ var RUNTIME_STATE_FIELDS = [
   "applied_proposals",
   "claim_evidence_required",
   "claim_evidence",
-  "pending_review_result"
+  "pending_review_result",
+  "review_coverage",
+  "step_attempts"
 ];
 var REVIEW_CYCLE_FIELDS = [
   "id",
@@ -1728,7 +1732,7 @@ var MAX_CLAIM_EVIDENCE_RECORDS = 256;
 var MAX_CLAIM_EVIDENCE_SLOTS = 32;
 var MAX_REPLAN_SECTION_CONTENT_LENGTH = 32768;
 var MAX_REPAIR_ROUNDS = 3;
-var CLAIM_EVIDENCE_COMPLETION_RULE = "non-empty frozen plan with at least one acceptance claim; every planned slot is complete and has evidence_refs";
+var CLAIM_EVIDENCE_COMPLETION_RULE = "non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites";
 var DRAFT_CLAIM_EVIDENCE_REQUIREMENT = "required-and-non-empty-for-new-or-refined-drafts; must-include-an-acceptance-claim; legacy-documents-remain-readable-but-require-migration-before-terminal-completion";
 var CLOSE_TASK_CLAIM_EVIDENCE_RULE = "derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient";
 var MAX_REPAIR_ATTEMPTS = 2;
@@ -1744,6 +1748,7 @@ var INBOX_CAPTURE_PRECONDITIONS = [
   "owner-route-resolved"
 ];
 var TEST_STRATEGY_MODES = [
+  "flexible",
   "test-first",
   "implementation-first",
   "not-applicable"
@@ -1920,6 +1925,147 @@ function captureReviewTarget(root, paths) {
     revision: digest({ kind: "runtime-file-manifest/v1", entries }),
     entries
   };
+}
+function manifest(entries) {
+  const sorted = [...entries].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return { kind: "runtime-file-manifest/v1", entries: sorted, revision: digest({ kind: "runtime-file-manifest/v1", entries: sorted }) };
+}
+function nextStepAttemptId(current) {
+  const attempts = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts;
+  return attempts?.at(-1)?.attempt_id ?? `attempt-${digest({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: current.runtimeState.active_step_id, n: 1 }).slice(0, 40)}`;
+}
+function validateStepAttempts(value) {
+  const source = expectRecord2(value, "step_attempts");
+  const result = {};
+  for (const [step, raw] of Object.entries(source)) {
+    expectString2(step, "attempt step", STEP_ID_PATTERN2);
+    const ledger = expectRecord2(raw, "step attempt ledger");
+    expectExactKeys2(ledger, ["evidence_plan_revision", "max_attempts", "attempts"], "step attempt ledger");
+    if (ledger.max_attempts !== 3 || !Array.isArray(ledger.attempts) || !ledger.attempts.length || ledger.attempts.length > 3)
+      fail2("RETRY_LEDGER_INVALID", "Attempt budget must be three including the initial execution.");
+    const attempts = ledger.attempts.map((raw2) => {
+      const item = expectRecord2(raw2, "attempt");
+      expectExactKeys2(item, ["attempt_id", "idempotency_key", "request_digest", "status", "blocker", "evidence_refs"], "attempt");
+      let blocker = null;
+      if (item.blocker !== null) {
+        const rawBlocker = expectRecord2(item.blocker, "attempt blocker");
+        expectExactKeys2(rawBlocker, ["kind", "execution_result", "subject_snapshot"], "attempt blocker");
+        blocker = { kind: expectEnum(rawBlocker.kind, ["environment", "unknown"], "blocker.kind"), execution_result: validateStepExecutionResult(rawBlocker.execution_result, "blocker.execution_result"), subject_snapshot: validateReviewTarget(rawBlocker.subject_snapshot, "blocker.subject_snapshot") };
+        if (blocker.execution_result.outcome !== "blocked")
+          fail2("RETRY_LEDGER_INVALID", "Retained failure must be blocked.");
+      }
+      const status = expectEnum(item.status, ["ready", "preflighted", "blocked", "implemented"], "attempt.status");
+      if (status === "blocked" !== (blocker !== null))
+        fail2("RETRY_LEDGER_INVALID", "Blocked attempts retain their original failure.");
+      return { attempt_id: expectString2(item.attempt_id, "attempt_id", SAFE_KEY_PATTERN2), idempotency_key: expectString2(item.idempotency_key, "attempt.idempotency_key", SAFE_KEY_PATTERN2), request_digest: item.request_digest === null ? null : expectString2(item.request_digest, "request_digest", /^[a-f0-9]{64}$/u), status, blocker, evidence_refs: validateEvidenceRefs(item.evidence_refs, "attempt.evidence_refs") };
+    });
+    if (new Set(attempts.map((a) => a.attempt_id)).size !== attempts.length || new Set(attempts.map((a) => a.idempotency_key)).size !== attempts.length)
+      fail2("RETRY_LEDGER_INVALID", "Attempt identities must be unique.");
+    result[step] = { evidence_plan_revision: expectString2(ledger.evidence_plan_revision, "attempt plan", /^[a-f0-9]{64}$/u), max_attempts: 3, attempts };
+  }
+  return result;
+}
+function retryRequestDigest(current, delta) {
+  return digest({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: delta.step_id, blocked_attempt_id: delta.blocked_attempt_id, refs: delta.blocker_resolution_refs });
+}
+function validateRetryResolution(root, current, delta, failure) {
+  if (captureReviewTarget(root, failure.subject_snapshot.entries.map((e) => e.path)).revision !== failure.subject_snapshot.revision)
+    fail2("RETRY_SUBJECT_STALE", "Declared code, fixture or check objects changed after failure; use authorized repair or replan.");
+  for (const ref of delta.blocker_resolution_refs) {
+    const relative2 = normalizeRepoPath2(ref, "blocker_resolution_ref");
+    const absolute = path4.resolve(root, relative2);
+    if (!fs3.existsSync(absolute) || !fs3.statSync(absolute).isFile() || fs3.statSync(absolute).size > 65536)
+      fail2("RETRY_RESOLUTION_REQUIRED", "Resolution must be a retained bounded JSON report.");
+    let parsed;
+    try {
+      parsed = JSON.parse(fs3.readFileSync(absolute, "utf8"));
+    } catch {
+      fail2("RETRY_RESOLUTION_REQUIRED", "Resolution must be structured JSON, not a free-form unlock note.");
+    }
+    const report = expectRecord2(parsed, "retry resolution");
+    expectExactKeys2(report, ["kind", "task_id", "document_id", "step_id", "blocked_attempt_id", "evidence_plan_revision", "subject_revision", "status", "diagnosis", "resolution"], "retry resolution");
+    if (report.kind !== "environment-restored/v1" || report.status !== "passed" || report.task_id !== current.runtimeState.task_id || report.document_id !== current.sourceTuple.document_id || report.step_id !== delta.step_id || report.blocked_attempt_id !== delta.blocked_attempt_id || report.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || report.subject_revision !== failure.subject_snapshot.revision)
+      fail2("RETRY_RESOLUTION_REQUIRED", "Resolution report must bind this exact environment failure, plan and subjects.");
+    expectText(report.diagnosis, "retry diagnosis");
+    expectText(report.resolution, "retry resolution");
+  }
+}
+function emptyReviewCoverage(planRevision) {
+  return {
+    change_set_id: `change-set-${planRevision.slice(0, 32)}`,
+    base: manifest([]),
+    target: manifest([]),
+    preimages: [],
+    pending_paths: [],
+    last_clean_revision: null
+  };
+}
+function validateReviewCoverage(value) {
+  const source = expectRecord2(value, "review_coverage");
+  expectExactKeys2(source, ["change_set_id", "base", "target", "preimages", "pending_paths", "last_clean_revision"], "review_coverage");
+  const base = validateReviewTarget(source.base, "review_coverage.base");
+  const target = validateReviewTarget(source.target, "review_coverage.target");
+  createReviewChangeDelta(base, target);
+  if (!Array.isArray(source.preimages) || source.preimages.length !== base.entries.length)
+    fail2("REVIEW_COVERAGE_INVALID", "preimages must cover the initial manifest.");
+  const preimages = source.preimages.map((value2, index) => {
+    const item = expectRecord2(value2, "preimage");
+    expectExactKeys2(item, ["path", "state", "sha256", "content_base64"], "preimage");
+    const entry = base.entries[index];
+    if (digest({ path: item.path, state: item.state, sha256: item.sha256 }) !== digest(entry))
+      fail2("REVIEW_COVERAGE_INVALID", "preimage identity differs from base.");
+    const content = item.content_base64;
+    if (entry.state === "absent") {
+      if (content !== null)
+        fail2("REVIEW_COVERAGE_INVALID", "absent preimage has content.");
+    } else {
+      if (typeof content !== "string")
+        fail2("REVIEW_COVERAGE_INVALID", "preimage content is required.");
+      const buffer = Buffer.from(content, "base64");
+      if (buffer.toString("base64") !== content || sha2562(buffer) !== entry.sha256)
+        fail2("REVIEW_COVERAGE_INVALID", "preimage content hash is invalid.");
+    }
+    return { ...entry, content_base64: content };
+  });
+  const pending = expectStringArray2(source.pending_paths, "review_coverage.pending_paths", true);
+  if (new Set(pending).size !== pending.length || pending.some((p) => !base.entries.some((e) => e.path === p)))
+    fail2("REVIEW_COVERAGE_INVALID", "pending paths must be covered.");
+  return { change_set_id: expectString2(source.change_set_id, "review_coverage.change_set_id", SAFE_KEY_PATTERN2), base, target, preimages, pending_paths: pending, last_clean_revision: source.last_clean_revision === null ? null : expectString2(source.last_clean_revision, "last_clean_revision", /^[a-f0-9]{64}$/u) };
+}
+function registerReviewCoverage(root, current, paths) {
+  const old = current.runtimeState.review_coverage;
+  if (old && captureReviewTarget(root, old.target.entries.map((e) => e.path)).revision !== old.target.revision)
+    fail2("REVIEW_TARGET_STALE", "Unrecorded changes cannot refresh the cumulative review target.");
+  const added = captureReviewTarget(root, paths.filter((p) => !old?.base.entries.some((e) => e.path === p)));
+  const preimages = [...old?.preimages ?? [], ...added.entries.map((entry) => {
+    const absolute = path4.resolve(root, entry.path);
+    const content = entry.state === "absent" ? null : entry.state === "symlink" ? Buffer.from(fs3.readlinkSync(absolute)) : fs3.readFileSync(absolute);
+    return { ...entry, content_base64: content?.toString("base64") ?? null };
+  })].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return validateReviewCoverage({ change_set_id: old?.change_set_id ?? `change-set-${digest({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision }).slice(0, 32)}`, base: manifest(preimages.map(({ content_base64, ...entry }) => entry)), target: manifest([...old?.target.entries ?? [], ...added.entries]), preimages, pending_paths: old?.pending_paths ?? [], last_clean_revision: old?.last_clean_revision ?? null });
+}
+function cumulativeReviewExecution(current, execution) {
+  const coverage = current.runtimeState.review_coverage;
+  if (!coverage || !execution.execution_result)
+    return execution;
+  return {
+    ...execution,
+    change_set_id: coverage.change_set_id,
+    execution_result: {
+      ...execution.execution_result,
+      change_set_id: coverage.change_set_id,
+      review_base: coverage.base,
+      review_target: coverage.target,
+      change_delta: createReviewChangeDelta(coverage.base, coverage.target)
+    }
+  };
+}
+function validateTestAssessment(value) {
+  const source = expectRecord2(value, "test_assessment");
+  expectExactKeys2(source, ["applicable", "reason", "evidence_refs", "necessity", "oracle", "boundary", "reuse", "applicability"], "test_assessment");
+  if (typeof source.applicable !== "boolean")
+    fail2("REVIEW_ASSESSMENT_REQUIRED", "applicable must be boolean.");
+  return { applicable: source.applicable, reason: expectText(source.reason, "test_assessment.reason"), evidence_refs: validateEvidenceRefs(source.evidence_refs, "test_assessment.evidence_refs"), necessity: expectText(source.necessity, "test_assessment.necessity"), oracle: expectText(source.oracle, "test_assessment.oracle"), boundary: expectText(source.boundary, "test_assessment.boundary"), reuse: expectText(source.reuse, "test_assessment.reuse"), applicability: expectText(source.applicability, "test_assessment.applicability") };
 }
 function createReviewChangeDelta(base, target) {
   const basePaths = base.entries.map((item) => item.path);
@@ -2167,7 +2313,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
   expectExactKeys2(taskStateContract, ["actions", "step_progress", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
-  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
+  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
   const stepProgressContract = expectRecord2(taskStateContract.step_progress, "Runtime contract.proposal.task_state.step_progress");
   expectExactKeys2(stepProgressContract, ["required", "optional"], "Runtime contract.proposal.task_state.step_progress");
   expectSetEqual(expectStringArray2(stepProgressContract.required, "Runtime contract.proposal.task_state.step_progress.required"), ["step_id", "status", "evidence_refs"], "Runtime contract task-state required fields");
@@ -2177,8 +2323,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (claimEvidenceContract.stored_in !== "canonical CURRENT_TASK.runtime_state") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence must be stored in the canonical CURRENT_TASK runtime state.");
   }
-  expectSetEqual(expectStringArray2(claimEvidenceContract.record_fields, "Runtime contract claim evidence record_fields"), ["claim_id", "claim_kind", "slots"], "Runtime claim evidence record fields");
-  expectSetEqual(expectStringArray2(claimEvidenceContract.slot_fields, "Runtime contract claim evidence slot_fields"), ["slot_id", "minimum_type", "disposition", "evidence_refs"], "Runtime claim evidence slot fields");
+  expectSetEqual(expectStringArray2(claimEvidenceContract.record_fields, "Runtime contract claim evidence record_fields"), ["claim_id", "claim_kind", "requirement", "source_ref", "slots"], "Runtime claim evidence record fields");
+  expectSetEqual(expectStringArray2(claimEvidenceContract.slot_fields, "Runtime contract claim evidence slot_fields"), ["slot_id", "minimum_type", "disposition", "evidence_refs", "due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt"], "Runtime claim evidence slot fields");
   expectSetEqual(expectStringArray2(claimEvidenceContract.complete_dispositions, "Runtime contract claim evidence complete_dispositions"), ["existing", "reused", "newly-executed"], "Runtime claim evidence complete dispositions");
   expectSetEqual(expectStringArray2(claimEvidenceContract.incomplete_dispositions, "Runtime contract claim evidence incomplete_dispositions"), ["missing", "deferred", "blocked"], "Runtime claim evidence incomplete dispositions");
   if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
@@ -2207,7 +2353,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (reviewReceiptContract.target_verification !== "runtime-file-manifest")
     fail2("RUNTIME_CONTRACT_INVALID", "review receipt target verification must be runtime-file-manifest.");
   const reviewResultContract = expectRecord2(taskStateContract.review_result, "Runtime contract.proposal.task_state.review_result");
-  expectExactKeys2(reviewResultContract, ["stored_in", "verdicts", "binds", "consumed_by"], "Runtime contract.proposal.task_state.review_result");
+  expectExactKeys2(reviewResultContract, ["stored_in", "verdicts", "binds", "consumed_by", "test_assessment"], "Runtime contract.proposal.task_state.review_result");
+  expectSetEqual(expectStringArray2(reviewResultContract.test_assessment, "review_result.test_assessment"), ["applicable", "reason", "evidence_refs", "necessity", "oracle", "boundary", "reuse", "applicability"], "test assessment fields");
   if (reviewResultContract.stored_in !== "canonical CURRENT_TASK.runtime_state.pending_review_result")
     fail2("RUNTIME_CONTRACT_INVALID", "review result must use canonical pending review storage.");
   expectSetEqual(expectStringArray2(reviewResultContract.verdicts, "Runtime contract review-result verdicts"), [...REVIEW_RESULT_VERDICTS], "Runtime contract review-result verdicts");
@@ -2281,7 +2428,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   ], "Runtime contract.proposal.execute_step.semantic_adapter");
   if (executeStepAdapter.input !== "stdin-json")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter input must remain stdin-json.");
-  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
+  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "evidence-context", "retry-step", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
   const testStrategyExecution = expectRecord2(executeStepAdapter.test_strategy_execution, "Runtime contract.proposal.execute_step.semantic_adapter.test_strategy_execution");
   expectExactKeys2(testStrategyExecution, ["phase_source", "legacy_behavior", "test_first", "red_evidence", "non_red_outcome"], "Runtime contract execute-step test-strategy execution");
   const testFirstExecution = expectRecord2(testStrategyExecution.test_first, "Runtime contract execute-step test-first execution");
@@ -2290,15 +2437,15 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(redEvidence, ["result_status", "kind", "companion_statuses", "forbidden_statuses", "acceptance_evidence", "unexpected_failure_outcome", "review_checkpoint"], "Runtime contract execute-step red evidence");
   expectSetEqual(expectStringArray2(redEvidence.companion_statuses, "Runtime contract execute-step red companion statuses"), ["passed"], "Runtime contract execute-step red companion statuses");
   expectSetEqual(expectStringArray2(redEvidence.forbidden_statuses, "Runtime contract execute-step red forbidden statuses"), ["failed", "blocked", "not-run"], "Runtime contract execute-step red forbidden statuses");
-  if (executeStepAdapter.step_source !== "confirmed-current-task" || executeStepAdapter.scope_enforcement !== "task-and-current-step" || executeStepAdapter.command_plan_source !== "confirmed-current-step" || executeStepAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator" || executeStepAdapter.completion_evidence_source !== "recorded-step-result-only" || executeStepAdapter.change_detection !== "runtime-preflight-candidate-before-after-delta" || executeStepAdapter.proposal_file_policy !== "project-external-only" || executeStepAdapter.advancement_owner !== "runtime" || executeStepAdapter.post_completion_commit_owner !== "user-or-explicit-outer-orchestrator" || executeStepAdapter.post_completion_route !== "git-commit" || testStrategyExecution.phase_source !== "frozen-test-strategy-plus-active-step-order" || testStrategyExecution.legacy_behavior !== "preserve-existing-active-task-semantics" || testStrategyExecution.non_red_outcome !== "implemented-with-all-planned-results-passed" || testFirstExecution.first_step_phase !== "red" || testFirstExecution.later_step_phase !== "green" || testFirstExecution.first_step_outcome !== "test-red" || testFirstExecution.later_step_outcome !== "implemented" || testFirstExecution.advancement_gate !== "completed-clean-reviewed-test-red" || redEvidence.result_status !== "expected-failure" || redEvidence.kind !== "behavior-not-implemented" || redEvidence.acceptance_evidence !== "forbidden" || redEvidence.unexpected_failure_outcome !== "blocked" || redEvidence.review_checkpoint !== "required") {
+  if (executeStepAdapter.step_source !== "confirmed-current-task" || executeStepAdapter.scope_enforcement !== "task-and-current-step" || executeStepAdapter.command_plan_source !== "confirmed-current-step" || executeStepAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator" || executeStepAdapter.completion_evidence_source !== "recorded-step-result-only" || executeStepAdapter.change_detection !== "runtime-preflight-candidate-before-after-delta" || executeStepAdapter.proposal_file_policy !== "project-external-only" || executeStepAdapter.advancement_owner !== "runtime" || executeStepAdapter.post_completion_commit_owner !== "user-or-explicit-outer-orchestrator" || executeStepAdapter.post_completion_route !== "git-commit" || testStrategyExecution.phase_source !== "versioned-frozen-test-strategy" || testStrategyExecution.legacy_behavior !== "read-history-block-unversioned-execution" || testStrategyExecution.non_red_outcome !== "implemented-with-passed-results-or-bound-reproduction" || testFirstExecution.first_step_phase !== "test-first" || testFirstExecution.later_step_phase !== "test-first" || testFirstExecution.first_step_outcome !== "implemented" || testFirstExecution.later_step_outcome !== "implemented" || testFirstExecution.advancement_gate !== "runtime-consumed-bound-prerequisite-evidence" || redEvidence.result_status !== "expected-failure" || redEvidence.kind !== "behavior-not-implemented" || redEvidence.acceptance_evidence !== "forbidden" || redEvidence.unexpected_failure_outcome !== "blocked" || redEvidence.review_checkpoint !== "required") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter semantic boundary is invalid.");
   }
-  expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["admit", "step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
+  expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["admit", "retry-step", "record-step-preflight", "step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
   const reviewChangeContract = expectRecord2(proposal.review_change, "Runtime contract.proposal.review_change");
   expectExactKeys2(reviewChangeContract, ["semantic_adapter", "bound_actions"], "Runtime contract.proposal.review_change");
   const reviewChangeAdapter = expectRecord2(reviewChangeContract.semantic_adapter, "Runtime contract.proposal.review_change.semantic_adapter");
   expectExactKeys2(reviewChangeAdapter, ["input", "commands", "context_source", "reviewable_execution", "change_set", "review_target", "result_storage", "direct_product_writes", "advancement_owner"], "Runtime contract.proposal.review_change.semantic_adapter");
-  if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
+  if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-cumulative-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime review-change adapter semantic boundary is invalid.");
   expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "record-review-result"], "Runtime contract review-change commands");
   expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result"], "Runtime contract review-change actions");
@@ -2354,7 +2501,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const testStrategy = expectRecord2(prepareTaskAdapter.test_strategy, "Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy");
   expectExactKeys2(testStrategy, ["storage", "fields", "modes", "sources", "classifications", "source_binding", "precedence", "ambiguity", "frozen_by", "change_after_confirm", "enforcement", "ordering_enforcement", "non_executable_scope"], "Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy");
   expectSetEqual(expectStringArray2(testStrategy.fields, "Runtime contract prepare-task test-strategy fields"), ["mode", "source", "source_ref", "task_classification", "rationale"], "Runtime contract prepare-task test-strategy fields");
-  expectSetEqual(expectStringArray2(testStrategy.modes, "Runtime contract prepare-task test-strategy modes"), ["test-first", "implementation-first", "not-applicable"], "Runtime contract prepare-task test-strategy modes");
+  expectSetEqual(expectStringArray2(testStrategy.modes, "Runtime contract prepare-task test-strategy modes"), ["flexible", "test-first", "implementation-first", "not-applicable"], "Runtime contract prepare-task test-strategy modes");
   expectSetEqual(expectStringArray2(testStrategy.sources, "Runtime contract prepare-task test-strategy sources"), ["explicit-user", "project-policy", "inferred-default"], "Runtime contract prepare-task test-strategy sources");
   expectSetEqual(expectStringArray2(testStrategy.classifications, "Runtime contract prepare-task test-strategy classifications"), ["contract-clear-behavior", "exploratory-or-infrastructure", "non-executable-change"], "Runtime contract prepare-task test-strategy classifications");
   const strategySourceBinding = expectRecord2(testStrategy.source_binding, "Runtime contract prepare-task test-strategy source_binding");
@@ -2364,7 +2511,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(nonExecutableScope, ["policy_source", "required_for", "evaluated_surfaces", "policy_pattern_grammar", "relation", "missing_or_ambiguous", "historical_active_tasks", "error_codes"], "Runtime contract prepare-task test-strategy non_executable_scope");
   expectSetEqual(expectStringArray2(nonExecutableScope.evaluated_surfaces, "Runtime contract prepare-task test-strategy non-executable evaluated surfaces"), ["task-allowed-scope", "task-conditional-scope", "implementation-step-mutation-scope"], "Runtime contract prepare-task test-strategy non-executable evaluated surfaces");
   expectSetEqual(expectStringArray2(nonExecutableScope.error_codes, "Runtime contract prepare-task test-strategy non-executable error codes"), ["TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", "TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION"], "Runtime contract prepare-task test-strategy non-executable error codes");
-  if (testStrategy.storage !== "current-task-regression-checks/test-strategy" || strategySourceBinding["explicit-user"] !== "exact-task-basis-source-coordinate" || strategySourceBinding["project-policy"] !== "existing-project-policy-file" || strategySourceBinding["inferred-default"] !== "prepare-task-default" || strategyPrecedence.join("\x00") !== ["explicit-user", "project-policy", "inferred-default"].join("\x00") || testStrategy.ambiguity !== "resolve-as-open-question-before-draft-commit" || testStrategy.frozen_by !== "confirm-draft" || testStrategy.change_after_confirm !== "replan-only" || testStrategy.enforcement !== "create-update-confirm-and-replan" || testStrategy.ordering_enforcement !== "mode-bound-step-scope-partition" || nonExecutableScope.policy_source !== ".workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths" || nonExecutableScope.required_for !== "not-applicable" || nonExecutableScope.policy_pattern_grammar !== "exact-path-or-literal-directory-prefix-globstar" || nonExecutableScope.relation !== "exact-or-proven-subset" || nonExecutableScope.missing_or_ambiguous !== "block-not-applicable-only" || nonExecutableScope.historical_active_tasks !== "not-revalidated") {
+  if (testStrategy.storage !== "current-task-regression-checks/test-strategy" || strategySourceBinding["explicit-user"] !== "exact-task-basis-source-coordinate" || strategySourceBinding["project-policy"] !== "existing-project-policy-file" || strategySourceBinding["inferred-default"] !== "prepare-task-default" || strategyPrecedence.join("\x00") !== ["explicit-user", "project-policy", "inferred-default"].join("\x00") || testStrategy.ambiguity !== "resolve-as-open-question-before-draft-commit" || testStrategy.frozen_by !== "confirm-draft" || testStrategy.change_after_confirm !== "replan-only" || testStrategy.enforcement !== "create-update-confirm-and-replan" || testStrategy.ordering_enforcement !== "runtime-consumed-before-step-slots" || nonExecutableScope.policy_source !== ".workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths" || nonExecutableScope.required_for !== "not-applicable" || nonExecutableScope.policy_pattern_grammar !== "exact-path-or-literal-directory-prefix-globstar" || nonExecutableScope.relation !== "exact-or-proven-subset" || nonExecutableScope.missing_or_ambiguous !== "block-not-applicable-only" || nonExecutableScope.historical_active_tasks !== "not-revalidated") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task test-strategy classification, precedence, or freeze boundary is invalid.");
   }
   if (prepareTaskAdapter.persistent_tests_enforcement !== "frozen-section-plus-scope-evaluator") {
@@ -2828,7 +2975,9 @@ function validateStepExecutionResult(value, location) {
     "command_results",
     "validation_results",
     "acceptance_evidence",
-    "blocker"
+    "blocker",
+    ...result.attempt_id === undefined ? [] : ["attempt_id"],
+    ...result.blocker_kind === undefined ? [] : ["blocker_kind"]
   ], location);
   const outcome = expectEnum(result.outcome, ["implemented", "test-red", "blocked"], `${location}.outcome`);
   const changeSetId = expectString2(result.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2);
@@ -2885,25 +3034,13 @@ function validateStepExecutionResult(value, location) {
   if (new Set(validationResults.map((item) => item.validation)).size !== validationResults.length) {
     fail2("RUNTIME_SCHEMA_INVALID", `${location}.validation_results must not contain duplicate validations.`);
   }
-  const acceptanceValues = result.acceptance_evidence;
-  if (!Array.isArray(acceptanceValues) || acceptanceValues.length > MAX_EXECUTION_RESULT_ITEMS) {
-    fail2("RUNTIME_SCHEMA_INVALID", `${location}.acceptance_evidence must be a bounded array.`);
-  }
-  const acceptanceEvidence = acceptanceValues.map((item, index) => {
-    const itemLocation = `${location}.acceptance_evidence[${index}]`;
-    const acceptance = expectRecord2(item, itemLocation);
-    expectExactKeys2(acceptance, ["acceptance", "evidence_refs"], itemLocation);
-    return {
-      acceptance: expectText(acceptance.acceptance, `${itemLocation}.acceptance`),
-      evidence_refs: validateEvidenceRefs(acceptance.evidence_refs, `${itemLocation}.evidence_refs`)
-    };
-  });
-  if (new Set(acceptanceEvidence.map((item) => item.acceptance)).size !== acceptanceEvidence.length) {
-    fail2("RUNTIME_SCHEMA_INVALID", `${location}.acceptance_evidence must not contain duplicate acceptance claims.`);
-  }
+  const acceptanceEvidence = Array.isArray(result.acceptance_evidence) && result.acceptance_evidence.every((item) => isRecord2(item) && ("acceptance" in item)) ? result.acceptance_evidence.map((item) => {
+    expectExactKeys2(item, ["acceptance", "evidence_refs"], "historical acceptance evidence");
+    return { acceptance: expectText(item.acceptance, "acceptance"), evidence_refs: validateEvidenceRefs(item.evidence_refs, "evidence_refs") };
+  }) : validateStepAcceptanceEvidence(result.acceptance_evidence, `${location}.acceptance_evidence`);
   const blocker = result.blocker === null ? null : expectText(result.blocker, `${location}.blocker`);
   const statuses = [...commandResults, ...validationResults].map((item) => item.status);
-  if (outcome === "implemented" && (blocker !== null || statuses.some((status) => status !== "passed"))) {
+  if (outcome === "implemented" && (blocker !== null || statuses.some((status) => status !== "passed" && status !== "expected-failure"))) {
     fail2("RUNTIME_STATE_CONFLICT", `${location}.implemented requires every planned result to pass and no blocker.`);
   }
   if (outcome === "blocked" && (blocker === null || !statuses.some((status) => status === "failed" || status === "blocked"))) {
@@ -2913,10 +3050,10 @@ function validateStepExecutionResult(value, location) {
     if (blocker !== null || acceptanceEvidence.length > 0 || !statuses.some((status) => status === "expected-failure") || statuses.some((status) => status !== "passed" && status !== "expected-failure")) {
       fail2("RUNTIME_STATE_CONFLICT", `${location}.test-red requires expected-failure evidence, permits only passed companion results, forbids acceptance evidence, and has no blocker.`);
     }
-  } else if (statuses.some((status) => status === "expected-failure")) {
-    fail2("RUNTIME_STATE_CONFLICT", `${location}.expected-failure results are valid only for outcome=test-red.`);
   }
   return {
+    ...result.attempt_id === undefined ? {} : { attempt_id: expectString2(result.attempt_id, "execution_result.attempt_id", SAFE_KEY_PATTERN2) },
+    ...result.blocker_kind === undefined ? {} : { blocker_kind: expectEnum(result.blocker_kind, ["environment", "unknown"], "execution_result.blocker_kind") },
     outcome,
     change_set_id: changeSetId,
     review_base: reviewBase,
@@ -2933,13 +3070,151 @@ var CLAIM_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 var CLAIM_EVIDENCE_SLOT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 var CLAIM_EVIDENCE_TYPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/;
 var COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS = ["existing", "reused", "newly-executed"];
+function validateStepAcceptanceEvidence(value, location) {
+  if (!Array.isArray(value) || value.length > MAX_EXECUTION_RESULT_ITEMS)
+    fail2("RUNTIME_SCHEMA_INVALID", `${location} must be a bounded array.`);
+  const results = value.map((raw) => {
+    const item = expectRecord2(raw, location);
+    expectExactKeys2(item, ["claim_id", "slot_id", "check_id", "minimum_type", "disposition", "evidence_refs", "report"], location);
+    return {
+      claim_id: expectString2(item.claim_id, "claim_id", CLAIM_ID_PATTERN),
+      slot_id: expectString2(item.slot_id, "slot_id", CLAIM_ID_PATTERN),
+      check_id: expectString2(item.check_id, "check_id", CLAIM_ID_PATTERN),
+      minimum_type: expectString2(item.minimum_type, "minimum_type", CLAIM_EVIDENCE_TYPE_PATTERN),
+      disposition: expectEnum(item.disposition, CLAIM_EVIDENCE_DISPOSITIONS, "disposition"),
+      evidence_refs: validateEvidenceRefs(item.evidence_refs, "evidence_refs"),
+      report: validateEvidenceReport(item.report)
+    };
+  });
+  if (new Set(results.map((item) => `${item.claim_id}/${item.slot_id}`)).size !== results.length)
+    fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "duplicate slot results.");
+  return results;
+}
+function validateEvidenceReport(value) {
+  const report = expectRecord2(value, "report");
+  expectExactKeys2(report, ["result_id", "status", "evidence_plan_revision", "subject_revision", "actual_method", "environment", "assurance"], "report");
+  return {
+    result_id: expectString2(report.result_id, "report.result_id", CLAIM_ID_PATTERN),
+    status: expectEnum(report.status, ["passed", "failed", "blocked", "not-run", "skipped", "accepted", "expected-failure"], "report.status"),
+    evidence_plan_revision: expectString2(report.evidence_plan_revision, "report.evidence_plan_revision", /^[a-f0-9]{64}$/),
+    subject_revision: expectString2(report.subject_revision, "report.subject_revision", /^[a-f0-9]{64}$/),
+    actual_method: expectEnum(report.actual_method, ["execution", "static", "human"], "report.actual_method"),
+    environment: expectText(report.environment, "report.environment"),
+    assurance: "caller-reported"
+  };
+}
+function evidenceSlotDefinition(slot) {
+  const { disposition, evidence_refs, report, prerequisite_receipt, ...definition } = slot;
+  return definition;
+}
+function evidencePlanRevision(definition, records) {
+  return digest({ definition, claims: records.map((record) => ({ ...record, slots: record.slots.map(evidenceSlotDefinition).sort((a, b) => a.slot_id.localeCompare(b.slot_id)) })).sort((a, b) => a.claim_id.localeCompare(b.claim_id)) });
+}
+function assertEvidencePlan(definition, records, fresh = false) {
+  requireClaimEvidencePlan(records, "evidence plan");
+  requireAcceptanceClaim(records, "evidence plan");
+  const steps = parseImplementationSteps(definition.implementation_steps).map((step) => step.id);
+  const ids = new Set;
+  const acceptance = records.filter((record) => record.claim_kind === "acceptance").map((record) => record.requirement);
+  const projected = definition.acceptance.split(/\r?\n/).map((line) => line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/, "").trim()).filter(Boolean);
+  if (digest(acceptance) !== digest(projected))
+    fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "acceptance must be the exact projection of acceptance claim requirements.");
+  for (const record of records) {
+    if (!record.requirement || !record.source_ref)
+      fail2("CLAIM_EVIDENCE_PLAN_INVALID", "claims require requirement and source_ref.");
+    for (const slot of record.slots) {
+      const check = slot.check;
+      if (!check || !slot.applicability || !steps.includes(slot.due_step_id) || slot.minimum_type === "planned-validation")
+        fail2("CLAIM_EVIDENCE_PLAN_INVALID", "slots require a concrete check, applicability and valid due step.");
+      if (ids.has(check.check_id))
+        fail2("CLAIM_EVIDENCE_PLAN_INVALID", "check_id must be unique across the task.");
+      ids.add(check.check_id);
+      if (check.subject_paths.some((p) => p.includes("*") || /(?:^|\/)CURRENT_TASK\.md$/.test(p) || p.startsWith(".git/")) || new Set(check.subject_paths).size !== check.subject_paths.length)
+        fail2("CLAIM_EVIDENCE_PLAN_INVALID", "subject_paths must be exact unique product paths, excluding Runtime audit state.");
+      if (record.claim_kind === "acceptance" && (slot.applicability !== "current" || check.expected_result === "expected-failure"))
+        fail2("CLAIM_EVIDENCE_PLAN_INVALID", "positive acceptance requires current successful evidence.");
+      if (check.method === "execution" !== (check.expected_result !== "accepted"))
+        fail2("CLAIM_EVIDENCE_PLAN_INVALID", "execution requires passed/expected-failure; static/human requires accepted.");
+      if (slot.applicability === "before-step") {
+        if (!steps.includes(slot.before_step_id) || steps.indexOf(slot.due_step_id) > steps.indexOf(slot.before_step_id))
+          fail2("CLAIM_EVIDENCE_PLAN_INVALID", "prerequisite must be due no later than its constrained step.");
+        if (slot.before_step_id === steps[0])
+          fail2("TEST_STRATEGY_PREREQUISITE_UNSUPPORTED", "A first-step prerequisite has no earlier authorized result submission step.");
+      } else if (slot.before_step_id !== undefined || slot.prerequisite_receipt !== undefined)
+        fail2("CLAIM_EVIDENCE_PLAN_INVALID", "current slots cannot carry prerequisite fields.");
+      if (fresh && (slot.report || slot.prerequisite_receipt || slot.disposition !== "missing" || slot.evidence_refs.length))
+        fail2("CLAIM_EVIDENCE_PLAN_INVALID", "new plans cannot import results or prerequisite receipts.");
+    }
+  }
+  const parsedSteps = parseImplementationSteps(definition.implementation_steps);
+  if (fresh && parsedSteps.some((step) => step.review_checkpoint === "not-required")) {
+    if (parsedSteps.some((step) => !step.checkpoint_boundary))
+      fail2("REVIEW_CHECKPOINT_REQUIRED", "Sparse checkpoints require explicit reasons on every step.");
+    const final = parsedSteps.at(-1);
+    if (final.review_checkpoint !== "required" && !(final.checkpoint_boundary?.startsWith("final-exemption:") && final.checkpoint_boundary.slice("final-exemption:".length).trim()))
+      fail2("REVIEW_CHECKPOINT_REQUIRED", "A final waiver must explicitly cover cumulative changes with final-exemption: and a reason.");
+    const earlier = new Set;
+    for (const step of parsedSteps) {
+      const scope = (step.mutation_scope ?? "").split(",").map((p) => p.trim().replace(/^`|`$/g, ""));
+      if (step.review_checkpoint === "required" && [...earlier].some((p) => !scope.includes(p)))
+        fail2("REVIEW_REPAIR_SCOPE_REQUIRED", "Required checkpoints must reserve exact earlier paths for repair.");
+      scope.forEach((p) => earlier.add(p));
+    }
+  }
+  const strategy = readTestStrategyDefinition(definition);
+  if (["test-first", "implementation-first"].includes(strategy.mode) && !records.some((record) => record.slots.some((slot) => slot.applicability === "before-step")))
+    fail2("TEST_STRATEGY_PREREQUISITE_UNSUPPORTED", "explicit ordering requires an approved before-step check.");
+  assertPersistentTestAdmission(definition, records);
+  return evidencePlanRevision(definition, records);
+}
+function assertPersistentTestAdmission(definition, records) {
+  const content = testStrategySection(definition.regression_checks, ["Persistent Tests", "持久测试"], "persistent_tests");
+  const fields = ["owner", "owner_source", "source_ref", "basis", "existing_evidence_insufficiency", "assertion_boundary", "failure_disposition"];
+  for (const testPath of readPersistentTestPaths(definition)) {
+    const block = content.split(/(?=^-\s+`)/m).find((item) => item.startsWith(`- \`${testPath}\``)) ?? "";
+    const values = new Map([...block.matchAll(/^\s+- ([a-z_]+): (.+)$/gm)].map((match) => [match[1], match[2].trim()]));
+    if (fields.some((field) => !values.get(field)) || !["acceptance", "regression", "critical-invariant", "critical-risk"].includes(values.get("basis")))
+      fail2("PERSISTENT_TEST_ADMISSION_INVALID", `${testPath} requires P-12 source, necessity and assertion boundaries.`);
+    const proves = [...block.matchAll(/^\s+- proves: (.+)$/gm)].map((match) => match[1].trim());
+    if (!proves.length || proves.some((id) => !records.some((record) => record.claim_id === id)))
+      fail2("PERSISTENT_TEST_ADMISSION_INVALID", `${testPath}.proves must bind stable claim IDs.`);
+  }
+}
+function assertEvidenceReportApplicable(root, current, slot) {
+  const report = slot.report;
+  if (!report || !slot.check || report.actual_method !== slot.check.method || report.evidence_plan_revision !== current.runtimeState.evidence_plan_revision)
+    fail2("CLAIM_EVIDENCE_INCOMPLETE", "report must bind its frozen check and plan revision.");
+  if (report.actual_method === "human")
+    fail2("EVIDENCE_AUTHORITY_UNSUPPORTED", "No authenticated human acceptance channel is bound; caller-reported human approval is insufficient.");
+  if (!slot.evidence_refs.length || slot.evidence_refs.some((ref) => {
+    try {
+      const p = normalizeRepoPath2(ref.split("#")[0], "evidence_ref");
+      return !fs3.statSync(path4.resolve(root, p)).isFile();
+    } catch {
+      return true;
+    }
+  }))
+    fail2("EVIDENCE_ARTIFACT_UNAVAILABLE", "Each report needs retained repository-relative artifact files.");
+  const snapshot = slot.prerequisite_receipt?.subject_snapshot ?? captureReviewTarget(root, slot.check.subject_paths);
+  if (snapshot.revision !== report.subject_revision || digest(snapshot.entries.map((entry) => entry.path).sort()) !== digest([...slot.check.subject_paths].sort()))
+    fail2("CLAIM_EVIDENCE_STALE", "evidence subject changed or does not match the frozen object set.");
+  if (slot.prerequisite_receipt && (slot.prerequisite_receipt.result_id !== report.result_id || slot.prerequisite_receipt.step_id !== slot.before_step_id))
+    fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "prerequisite receipt does not bind its original report.");
+}
+function assertEvidenceSlotSatisfied(root, current, record, slot, closing) {
+  assertEvidenceReportApplicable(root, current, slot);
+  if (!isClaimEvidenceSlotComplete(slot) || slot.report.status !== slot.check.expected_result)
+    fail2("CLAIM_EVIDENCE_INCOMPLETE", `unsatisfied slot ${record.claim_id}/${slot.slot_id}`);
+  if (closing && slot.applicability === "before-step" && !slot.prerequisite_receipt)
+    fail2("PREREQUISITE_REQUIRED", "prerequisite has not been consumed before execution.");
+}
 function validateClaimEvidence(value, location) {
   if (!Array.isArray(value) || value.length > MAX_CLAIM_EVIDENCE_RECORDS) {
     fail2("CLAIM_EVIDENCE_INVALID", `${location} must be a bounded array of claim evidence records.`);
   }
   const records = value.map((raw, index) => {
     const record = expectRecord2(raw, `${location}[${index}]`);
-    expectExactKeys2(record, ["claim_id", "claim_kind", "slots"], `${location}[${index}]`);
+    expectExactKeys2(record, ["claim_id", "claim_kind", "slots", ...["requirement", "source_ref"].filter((key) => (key in record))], `${location}[${index}]`);
     const claimId = expectString2(record.claim_id, `${location}[${index}].claim_id`, CLAIM_ID_PATTERN);
     const claimKind = expectEnum(record.claim_kind, CLAIM_KINDS, `${location}[${index}].claim_kind`);
     if (!Array.isArray(record.slots) || record.slots.length === 0 || record.slots.length > MAX_CLAIM_EVIDENCE_SLOTS) {
@@ -2947,7 +3222,7 @@ function validateClaimEvidence(value, location) {
     }
     const slots = record.slots.map((rawSlot, slotIndex) => {
       const slot = expectRecord2(rawSlot, `${location}[${index}].slots[${slotIndex}]`);
-      expectExactKeys2(slot, ["slot_id", "minimum_type", "disposition", "evidence_refs"], `${location}[${index}].slots[${slotIndex}]`);
+      expectExactKeys2(slot, ["slot_id", "minimum_type", "disposition", "evidence_refs", ...["due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt"].filter((key) => (key in slot))], `${location}[${index}].slots[${slotIndex}]`);
       const slotId = expectString2(slot.slot_id, `${location}[${index}].slots[${slotIndex}].slot_id`, CLAIM_EVIDENCE_SLOT_ID_PATTERN);
       const minimumType = expectString2(slot.minimum_type, `${location}[${index}].slots[${slotIndex}].minimum_type`, CLAIM_EVIDENCE_TYPE_PATTERN);
       const disposition = expectEnum(slot.disposition, CLAIM_EVIDENCE_DISPOSITIONS, `${location}[${index}].slots[${slotIndex}].disposition`);
@@ -2955,12 +3230,55 @@ function validateClaimEvidence(value, location) {
       if (COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(disposition) && evidenceRefs.length === 0) {
         fail2("CLAIM_EVIDENCE_INVALID", `${location}[${index}].slots[${slotIndex}] requires evidence_refs for disposition=${disposition}.`);
       }
-      return { slot_id: slotId, minimum_type: minimumType, disposition, evidence_refs: evidenceRefs };
+      const result = { slot_id: slotId, minimum_type: minimumType, disposition, evidence_refs: evidenceRefs };
+      if (slot.check !== undefined) {
+        const check = expectRecord2(slot.check, "slot.check");
+        expectExactKeys2(check, ["check_id", "method", "entry", "expected_observation", "required_boundaries", "allowed_substitutes", "subject_paths", "expected_result"], "slot.check");
+        result.check = {
+          check_id: expectString2(check.check_id, "check.check_id", CLAIM_ID_PATTERN),
+          method: expectEnum(check.method, ["execution", "static", "human"], "check.method"),
+          entry: expectText(check.entry, "check.entry"),
+          expected_observation: expectText(check.expected_observation, "check.expected_observation"),
+          required_boundaries: expectStringArray2(check.required_boundaries, "check.required_boundaries", false, 256),
+          allowed_substitutes: expectStringArray2(check.allowed_substitutes, "check.allowed_substitutes", true, 256),
+          subject_paths: expectStringArray2(check.subject_paths, "check.subject_paths", false, 256).map((p) => normalizeRepoPath2(p, "check.subject_paths")),
+          expected_result: expectEnum(check.expected_result, ["passed", "accepted", "expected-failure"], "check.expected_result")
+        };
+      }
+      if (slot.due_step_id !== undefined)
+        result.due_step_id = expectString2(slot.due_step_id, "slot.due_step_id", STEP_ID_PATTERN2);
+      if (slot.applicability !== undefined)
+        result.applicability = expectEnum(slot.applicability, ["current", "before-step"], "slot.applicability");
+      if (slot.before_step_id !== undefined)
+        result.before_step_id = expectString2(slot.before_step_id, "slot.before_step_id", STEP_ID_PATTERN2);
+      if (slot.report !== undefined)
+        result.report = slot.report === null ? null : validateEvidenceReport(slot.report);
+      if (slot.prerequisite_receipt !== undefined) {
+        if (slot.prerequisite_receipt === null)
+          result.prerequisite_receipt = null;
+        else {
+          const receipt = expectRecord2(slot.prerequisite_receipt, "prerequisite_receipt");
+          expectExactKeys2(receipt, ["step_id", "preflight_id", "result_id", "subject_snapshot"], "prerequisite_receipt");
+          result.prerequisite_receipt = {
+            step_id: expectString2(receipt.step_id, "receipt.step_id", STEP_ID_PATTERN2),
+            preflight_id: expectText(receipt.preflight_id, "receipt.preflight_id"),
+            result_id: expectText(receipt.result_id, "receipt.result_id"),
+            subject_snapshot: validateReviewTarget(receipt.subject_snapshot, "receipt.subject_snapshot")
+          };
+        }
+      }
+      return result;
     });
     if (new Set(slots.map((slot) => slot.slot_id)).size !== slots.length) {
       fail2("CLAIM_EVIDENCE_INVALID", `${location}[${index}].slots must have unique slot_id values.`);
     }
-    return { claim_id: claimId, claim_kind: claimKind, slots };
+    return {
+      claim_id: claimId,
+      claim_kind: claimKind,
+      slots,
+      ...record.requirement === undefined ? {} : { requirement: expectText(record.requirement, "claim.requirement") },
+      ...record.source_ref === undefined ? {} : { source_ref: expectText(record.source_ref, "claim.source_ref") }
+    };
   });
   if (new Set(records.map((record) => record.claim_id)).size !== records.length) {
     fail2("CLAIM_EVIDENCE_INVALID", `${location} must have unique claim_id values.`);
@@ -2973,26 +3291,38 @@ function claimEvidenceRefs(records) {
 function isClaimEvidenceSlotComplete(slot) {
   return COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition) && slot.evidence_refs.length > 0;
 }
-function evaluateClaimEvidence(records) {
-  const validationComplete = records.length > 0 && records.every((record) => record.slots.length > 0 && record.slots.every(isClaimEvidenceSlotComplete));
-  const acceptanceRecords = records.filter((record) => record.claim_kind === "acceptance");
-  const acceptanceSatisfied = acceptanceRecords.length > 0 && acceptanceRecords.every((record) => record.slots.length > 0 && record.slots.every(isClaimEvidenceSlotComplete));
-  return {
-    acceptance_satisfied: acceptanceSatisfied,
-    validation_complete: validationComplete
-  };
+function evaluateClaimEvidence(records, context) {
+  const { root, current, due_step_id } = context;
+  const incomplete = { validation_complete: false, acceptance_satisfied: false };
+  try {
+    assertBusinessEvidenceVersion(current);
+    const revision = assertEvidencePlan(readDraftDefinitionFromBody(current.body), records);
+    if (revision !== current.runtimeState.evidence_plan_revision)
+      return incomplete;
+  } catch {
+    return incomplete;
+  }
+  const steps = resolveCanonicalTaskStep(current).steps.map((step) => step.id);
+  const dueIndex = due_step_id === undefined ? steps.length : steps.indexOf(due_step_id);
+  if (dueIndex < 0)
+    return incomplete;
+  const completion = { validation_complete: true, acceptance_satisfied: true };
+  for (const record of records) {
+    const dueSlots = record.slots.filter((slot) => steps.indexOf(slot.due_step_id) <= dueIndex);
+    for (const slot of dueSlots) {
+      try {
+        assertEvidenceSlotSatisfied(root, current, record, slot, due_step_id === undefined);
+      } catch {
+        completion.validation_complete = false;
+        if (record.claim_kind === "acceptance")
+          completion.acceptance_satisfied = false;
+      }
+    }
+  }
+  return completion;
 }
 function copyClaimEvidence(records) {
-  return records.map((record) => ({
-    claim_id: record.claim_id,
-    claim_kind: record.claim_kind,
-    slots: record.slots.map((slot) => ({
-      slot_id: slot.slot_id,
-      minimum_type: slot.minimum_type,
-      disposition: slot.disposition,
-      evidence_refs: [...slot.evidence_refs]
-    }))
-  }));
+  return structuredClone([...records]);
 }
 function claimEvidenceStateEnabled(runtimeState) {
   return runtimeState.claim_evidence_required === true || (runtimeState.claim_evidence?.length ?? 0) > 0;
@@ -3018,7 +3348,7 @@ function assertClaimEvidencePlanPreserved(planned, proposed, location) {
   const proposedByClaim = new Map(proposed.map((record) => [record.claim_id, record]));
   for (const plannedRecord of planned) {
     const proposedRecord = proposedByClaim.get(plannedRecord.claim_id);
-    if (!proposedRecord || proposedRecord.claim_kind !== plannedRecord.claim_kind) {
+    if (!proposedRecord || proposedRecord.claim_kind !== plannedRecord.claim_kind || proposedRecord.requirement !== plannedRecord.requirement || proposedRecord.source_ref !== plannedRecord.source_ref) {
       fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", `${location} must preserve every planned claim identity and kind.`);
     }
     if (proposedRecord.slots.length !== plannedRecord.slots.length) {
@@ -3027,8 +3357,11 @@ function assertClaimEvidencePlanPreserved(planned, proposed, location) {
     const proposedBySlot = new Map(proposedRecord.slots.map((slot) => [slot.slot_id, slot]));
     for (const plannedSlot of plannedRecord.slots) {
       const proposedSlot = proposedBySlot.get(plannedSlot.slot_id);
-      if (!proposedSlot || proposedSlot.minimum_type !== plannedSlot.minimum_type) {
+      if (!proposedSlot || digest(evidenceSlotDefinition(proposedSlot)) !== digest(evidenceSlotDefinition(plannedSlot))) {
         fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", `${location} must preserve evidence slot ${plannedRecord.claim_id}/${plannedSlot.slot_id} and its minimum type.`);
+      }
+      if (digest(proposedSlot.prerequisite_receipt ?? null) !== digest(plannedSlot.prerequisite_receipt ?? null) || "prerequisite_receipt" in proposedSlot !== "prerequisite_receipt" in plannedSlot || plannedSlot.prerequisite_receipt && digest(proposedSlot) !== digest(plannedSlot)) {
+        fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "Runtime prerequisite receipts and consumed evidence are immutable.");
       }
     }
   }
@@ -3101,6 +3434,7 @@ function validatePendingReviewResult(value, location, includeRecordedAt) {
     "unresolved_fingerprints",
     "evidence_refs",
     "blocker",
+    ...record.test_assessment === undefined ? [] : ["test_assessment"],
     ...includeRecordedAt ? ["recorded_at"] : []
   ];
   expectExactKeys2(record, keys, location);
@@ -3129,6 +3463,7 @@ function validatePendingReviewResult(value, location, includeRecordedAt) {
     fail2("RUNTIME_SCHEMA_INVALID", `${location} blocked result requires only a blocker.`);
   }
   const result = {
+    ...record.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(record.test_assessment) },
     kind: "review-result/v1",
     review_id: expectString2(record.review_id, `${location}.review_id`, SAFE_KEY_PATTERN2),
     execution_id: expectString2(record.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN2),
@@ -3284,7 +3619,7 @@ function readTestStrategyDefinition(definition) {
     fail2("TEST_STRATEGY_INVALID", "not-applicable is valid only for task_classification=non-executable-change, and that classification requires not-applicable.");
   }
   if (strategy.source === "inferred-default") {
-    const inferredMode = strategy.task_classification === "contract-clear-behavior" ? "test-first" : strategy.task_classification === "exploratory-or-infrastructure" ? "implementation-first" : "not-applicable";
+    const inferredMode = nonExecutable ? "not-applicable" : "flexible";
     if (strategy.mode !== inferredMode) {
       fail2("TEST_STRATEGY_INVALID", `inferred-default requires mode=${inferredMode} for task_classification=${strategy.task_classification}.`);
     }
@@ -3459,51 +3794,31 @@ function assertPreparedTestStrategy(root, definition, taskBasis) {
   const strategy = readTestStrategyDefinition(definition);
   const persistentTests = readPersistentTestPaths(definition);
   const scopes = strategyStepScopes(definition);
-  const persistentSet = new Set(persistentTests);
-  const firstScope = scopes[0] ?? [];
-  if (strategy.mode === "test-first") {
-    if (persistentTests.length === 0)
-      fail2("TEST_STRATEGY_INVALID", "test-first requires at least one Persistent Tests asset.");
-    const missing = persistentTests.filter((testPath) => !firstScope.includes(testPath));
-    const nonTestTargets = firstScope.filter((target) => !persistentSet.has(target));
-    if (missing.length > 0 || nonTestTargets.length > 0) {
-      fail2("TEST_STRATEGY_INVALID", `test-first requires a tests-only first step containing every Persistent Tests asset; missing=[${missing.join(", ")}], non_test_targets=[${nonTestTargets.join(", ")}].`);
-    }
-  } else if (strategy.mode === "implementation-first") {
-    const testsInFirstStep = firstScope.filter((target) => persistentSet.has(target));
-    const testsMissingLater = persistentTests.filter((testPath) => !scopes.slice(1).some((scope) => scope.includes(testPath)));
-    if (testsInFirstStep.length > 0 || testsMissingLater.length > 0) {
-      fail2("TEST_STRATEGY_INVALID", `implementation-first requires implementation/discovery before every persistent-test step; first_step_tests=[${testsInFirstStep.join(", ")}], missing_later=[${testsMissingLater.join(", ")}].`);
-    }
-  } else if (persistentTests.length > 0) {
-    fail2("TEST_STRATEGY_INVALID", "not-applicable requires Persistent Tests to be none.");
-  } else {
+  assertTestStrategySource(root, strategy, taskBasis);
+  if (strategy.mode === "not-applicable") {
+    if (persistentTests.length > 0)
+      fail2("TEST_STRATEGY_INVALID", "not-applicable requires Persistent Tests to be none.");
     assertNonExecutableChangeScope(root, definition, scopes);
   }
-  assertTestStrategySource(root, strategy, taskBasis);
   return strategy;
 }
-function executionPhaseForStrategy(strategy, stepIndex) {
-  if (strategy.mode !== "test-first")
-    return strategy.mode;
-  return stepIndex === 0 ? "red" : "green";
+function assertBusinessEvidenceVersion(current) {
+  if (current.runtimeState.business_evidence_version !== 1) {
+    fail2("TASK_SEMANTICS_UPGRADE_REQUIRED", "This task predates business_evidence_version=1; use its previous installation or an explicitly authorized replan.");
+  }
+}
+function executionPhaseForStrategy(strategy) {
+  return strategy.mode;
 }
 function resolveTestStrategyExecutionContext(current) {
+  assertBusinessEvidenceVersion(current);
   const resolution = resolveCanonicalTaskStep(current);
   const strategySection = findUniqueMarkdownSection(scanMarkdownSections2(current.body), ["Test Strategy", "测试策略"], 3);
-  if (!strategySection) {
-    return {
-      mode: "legacy",
-      phase: "legacy",
-      required_outcome: "implemented",
-      persistent_tests: [],
-      step_index: resolution.index,
-      first_step_id: resolution.steps[0].id
-    };
-  }
-  const definition = readDraftDefinitionFromBody(current.body);
+  if (!strategySection)
+    fail2("TEST_STRATEGY_INVALID", "Version 1 tasks require a frozen Test Strategy.");
+  const definition = { regression_checks: current.body };
   const strategy = readTestStrategyDefinition(definition);
-  const phase = executionPhaseForStrategy(strategy, resolution.index);
+  const phase = executionPhaseForStrategy(strategy);
   return {
     mode: strategy.mode,
     phase,
@@ -3513,51 +3828,16 @@ function resolveTestStrategyExecutionContext(current) {
     first_step_id: resolution.steps[0].id
   };
 }
-function hasCompletedReviewedTestRed(current, firstStepId) {
-  return current.runtimeState.execution_log.some((entry, index) => {
-    if ("action" in entry || entry.step_id !== firstStepId || entry.execution_result?.outcome !== "test-red")
-      return false;
-    return current.runtimeState.execution_log.slice(index + 1).some((completion) => !("action" in completion) && completion.step_id === firstStepId && completion.status === "completed" && completion.review_receipt?.verdict === "clean" && completion.change_set_id === entry.execution_result?.change_set_id);
-  });
-}
 function assertTestStrategySequenceReady(current, context = resolveTestStrategyExecutionContext(current)) {
-  if (context.mode === "test-first" && context.phase === "green" && !hasCompletedReviewedTestRed(current, context.first_step_id)) {
-    fail2("TEST_STRATEGY_SEQUENCE_INVALID", `test-first step ${current.runtimeState.active_step_id} requires a completed, clean-reviewed test-red result for ${context.first_step_id}.`);
-  }
+  assertBusinessEvidenceVersion(current);
+  assertEvidencePlan(readDraftDefinitionFromBody(current.body), current.runtimeState.claim_evidence ?? []);
+  if (current.runtimeState.evidence_plan_revision !== evidencePlanRevision(readDraftDefinitionFromBody(current.body), current.runtimeState.claim_evidence ?? []))
+    fail2("CLAIM_EVIDENCE_STALE", "canonical evidence plan revision does not match its definitions.");
 }
-function assertTestStrategyExecutionTransition(current, delta, checkpoint) {
-  const context = resolveTestStrategyExecutionContext(current);
-  assertTestStrategySequenceReady(current, context);
-  const execution = delta.execution_result;
-  if (!execution) {
-    if (context.phase === "red" && delta.status === "completed") {
-      const hasRecordedRed = current.runtimeState.execution_log.some((entry) => !("action" in entry) && entry.step_id === context.first_step_id && entry.execution_result?.outcome === "test-red");
-      if (!hasRecordedRed) {
-        fail2("TEST_STRATEGY_SEQUENCE_INVALID", "test-first cannot complete its first step without a Runtime-recorded test-red result.");
-      }
-    }
-    return;
-  }
-  if (context.phase !== "red") {
-    if (execution.outcome === "test-red") {
-      fail2("TEST_STRATEGY_SEQUENCE_INVALID", `outcome=test-red is valid only for the first step of test-first, not phase=${context.phase}.`);
-    }
-    return;
-  }
-  if (execution.outcome === "blocked")
-    return;
-  if (execution.outcome !== "test-red") {
-    fail2("TEST_STRATEGY_SEQUENCE_INVALID", "the first test-first step must record outcome=test-red or a truthful blocked result; implemented cannot bypass Red.");
-  }
-  if (checkpoint !== "required") {
-    fail2("TEST_STRATEGY_SEQUENCE_INVALID", "the test-first Red step requires a review checkpoint before implementation may begin.");
-  }
-  const outsidePersistentTests = execution.actual_changed_paths.filter((path5) => !context.persistent_tests.includes(path5));
-  if (outsidePersistentTests.length > 0) {
-    fail2("TEST_STRATEGY_SEQUENCE_INVALID", `the test-first Red step changed non-test paths: ${outsidePersistentTests.join(", ")}.`);
-  }
-  if (delta.claim_evidence !== undefined && digest(delta.claim_evidence) !== digest(current.runtimeState.claim_evidence ?? [])) {
-    fail2("TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN", "test-red cannot update final claim evidence before implementation reaches Green.");
+function assertTestStrategyExecutionTransition(current, delta) {
+  assertTestStrategySequenceReady(current);
+  if (delta.execution_result?.outcome === "test-red") {
+    fail2("TEST_STRATEGY_SEQUENCE_INVALID", "test-red requires admitted reproduction evidence (S2) and cannot complete positive acceptance.");
   }
 }
 function validateDraftTaskIdentityFields(record, location, requireTitle = true) {
@@ -3687,7 +3967,15 @@ function assertReviewExecutionEligible(current, execution) {
 function validateTaskStateDelta(value) {
   const record = expectRecord2(value, "semantic_delta");
   const kind = expectEnum(record.kind, ["task-state"], "semantic_delta.kind");
-  const action = expectEnum(record.action, ["step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
+  const action = expectEnum(record.action, ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
+  if (action === "retry-step") {
+    expectExactKeys2(record, ["kind", "action", "step_id", "blocked_attempt_id", "blocker_resolution_refs", "evidence_refs"], "retry-step");
+    return { kind, action, step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2), blocked_attempt_id: expectString2(record.blocked_attempt_id, "blocked_attempt_id", SAFE_KEY_PATTERN2), blocker_resolution_refs: validateEvidenceRefs(record.blocker_resolution_refs, "blocker_resolution_refs"), evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs") };
+  }
+  if (action === "record-step-preflight") {
+    expectExactKeys2(record, ["kind", "action", "step_id", "candidate_paths", "evidence_refs"], "semantic_delta");
+    return { kind, action, step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2), candidate_paths: expectStringArray2(record.candidate_paths, "candidate_paths", true, 256).map((p) => normalizeRepoPath2(p, "candidate_paths")), evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs") };
+  }
   if (action === "create-draft" || action === "update-draft") {
     const allowedKeys = ["kind", "action", "task_id", "task_slug", "document_id", "task_title", "task_basis", "draft_definition", "active_step_id", "evidence_refs", "claim_evidence"];
     if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
@@ -4593,8 +4881,8 @@ function validateRuntimeProposal(value) {
     } else if (caller === "execute-step") {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode))
         fail2("RUNTIME_MODE_INVALID", "execute-step task-state proposals must use default or repair mode.");
-      if (semanticDelta.kind !== "task-state" || semanticDelta.action !== "step-progress")
-        fail2("RUNTIME_MODE_INVALID", "execute-step is bound only to step-progress task-state deltas.");
+      if (semanticDelta.kind !== "task-state" || !["step-progress", "record-step-preflight", "retry-step"].includes(semanticDelta.action))
+        fail2("RUNTIME_MODE_INVALID", "execute-step requires an execution task-state delta.");
     } else {
       fail2("RUNTIME_CALLER_NOT_BOUND", "task-state-transaction is not bound to task-lifecycle.");
     }
@@ -5250,11 +5538,14 @@ function validateVNextRuntimeState(value) {
     "execution_log",
     "applied_proposals"
   ];
-  const optionalRuntimeStateFields = ["claim_evidence_required", "claim_evidence", "pending_review_result"];
+  const optionalRuntimeStateFields = ["business_evidence_version", "evidence_plan_revision", "claim_evidence_required", "claim_evidence", "pending_review_result", "review_coverage", "step_attempts"];
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter((field) => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter((field) => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
   if (missingRuntimeStateFields.length > 0 || extraRuntimeStateFields.length > 0) {
     fail2("RUNTIME_SCHEMA_INVALID", `runtime_state keys mismatch; missing=[${missingRuntimeStateFields.join(", ")}], unexpected=[${extraRuntimeStateFields.join(", ")}].`);
+  }
+  if (runtime.business_evidence_version !== undefined && runtime.business_evidence_version !== 1) {
+    fail2("TASK_SEMANTICS_VERSION_UNSUPPORTED", "runtime_state.business_evidence_version must be 1 when present.");
   }
   if (runtime.schema_version !== VNEXT_RUNTIME_SCHEMA_VERSION)
     fail2("RUNTIME_SCHEMA_INVALID", "runtime_state.schema_version must be 1.");
@@ -5340,6 +5631,8 @@ function validateVNextRuntimeState(value) {
   return {
     schema_version: 1,
     kind: VNEXT_RUNTIME_STATE_KIND,
+    ...runtime.evidence_plan_revision === undefined ? {} : { evidence_plan_revision: expectString2(runtime.evidence_plan_revision, "evidence_plan_revision", /^[a-f0-9]{64}$/) },
+    ...runtime.business_evidence_version === 1 ? { business_evidence_version: 1 } : {},
     task_id: taskId,
     task_slug: taskSlug,
     workflow_status: workflowStatus,
@@ -5355,7 +5648,9 @@ function validateVNextRuntimeState(value) {
     applied_proposals: appliedProposals,
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: claimEvidence,
-    pending_review_result: pendingReviewResult
+    pending_review_result: pendingReviewResult,
+    ...runtime.step_attempts === undefined ? {} : { step_attempts: validateStepAttempts(runtime.step_attempts) },
+    ...runtime.review_coverage === undefined ? {} : { review_coverage: validateReviewCoverage(runtime.review_coverage) }
   };
 }
 function replaceTaskInfoField(body, label, value) {
@@ -6493,8 +6788,16 @@ function matchingArchiveReceipt(root, current) {
   assertArchiveReceiptMatches(current, receipt, audit);
   return { audit, receipt };
 }
-function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
+function closureEligibilityBlockers(root, current, delta, archiveAlreadyExists) {
   const blockers = [];
+  try {
+    assertTestStrategySequenceReady(current);
+  } catch (error) {
+    blockers.push(error instanceof Error ? error.message : String(error));
+  }
+  const coverage = current.runtimeState.review_coverage;
+  if (coverage && (coverage.pending_paths.length || coverage.last_clean_revision !== coverage.target.revision || captureReviewTarget(root, coverage.target.entries.map((e) => e.path)).revision !== coverage.target.revision))
+    blockers.push("cumulative review coverage is pending or stale.");
   const identity = extractTaskIdentityFromCurrentTask(current.body);
   if (identity.id === null || identity.slug === null || identity.title === null)
     blockers.push("task identity is not fully materialized in CURRENT_TASK.");
@@ -6544,7 +6847,7 @@ function closureEligibilityBlockers(current, delta, archiveAlreadyExists) {
   if (!claimEvidenceStateEnabled(current.runtimeState)) {
     blockers.push("structured claim-bound evidence migration is required before terminal closure; legacy CURRENT_TASK completion evidence is not sufficient.");
   } else {
-    const durableClaimEvidence = evaluateClaimEvidence(current.runtimeState.claim_evidence ?? []);
+    const durableClaimEvidence = evaluateClaimEvidence(current.runtimeState.claim_evidence ?? [], { root, current });
     if (delta.closure_evidence.acceptance_satisfied !== durableClaimEvidence.acceptance_satisfied) {
       blockers.push("closure acceptance_satisfied does not match durable claim-bound evidence state.");
     }
@@ -6755,7 +7058,7 @@ function prepareArchiveTransaction(root, current, proposal, now) {
     fail2("CLOSURE_TUPLE_INVALID", "first successful close requires active + active.");
   }
   const archiveTarget = archivePathForTask(root, current);
-  const blockers = closureEligibilityBlockers(current, delta, fs3.existsSync(archiveTarget.filePath));
+  const blockers = closureEligibilityBlockers(root, current, delta, fs3.existsSync(archiveTarget.filePath));
   if (blockers.length > 0)
     fail2("CLOSURE_NOT_ELIGIBLE", blockers.join(" "));
   const closureDeltaDigest = digest(delta);
@@ -8381,11 +8684,13 @@ function assertNoUnresolvedDraftQuestions(body) {
   fail2("DRAFT_DECISION_UNRESOLVED", "draft confirmation is blocked by unresolved user-owned questions.");
 }
 function assertDraftDefinitionReady(root, current) {
+  assertBusinessEvidenceVersion(current);
   const activeStepId = current.runtimeState.active_step_id;
   const body = current.body;
   const definition = readDraftDefinitionFromBody(body);
   assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
   assertPreparedTestStrategy(root, definition, readCanonicalTaskBasis(root, current).basis);
+  assertEvidencePlan(definition, current.runtimeState.claim_evidence ?? [], true);
   assertNoUnresolvedDraftQuestions(body);
   return definition;
 }
@@ -8630,6 +8935,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "create-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "create-draft claim_evidence");
+    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true);
     const draftIdentity = {
       task_id: delta.task_id,
       task_slug: delta.task_slug,
@@ -8637,6 +8943,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       task_title: delta.task_title
     };
     const emptyDraftState = {
+      business_evidence_version: 1,
       schema_version: 1,
       kind: VNEXT_RUNTIME_STATE_KIND,
       task_id: delta.task_id,
@@ -8654,6 +8961,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       applied_proposals: [],
       claim_evidence_required: true,
       claim_evidence: copyClaimEvidence(claimEvidence),
+      evidence_plan_revision: planRevision,
+      review_coverage: emptyReviewCoverage(planRevision),
       pending_review_result: null
     };
     const draftStateWithProposal = {
@@ -8672,6 +8981,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     };
   }
   if (delta.action === "update-draft") {
+    assertBusinessEvidenceVersion(current);
     ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
     ensureAnyAuthorityKind(proposal, ["active-task-owner", "user-confirmation", "authorized-caller"]);
     if (current.runtimeState.workflow_status !== "draft" || current.runtimeState.lifecycle_state !== "active") {
@@ -8687,6 +8997,20 @@ function applyTaskStateDelta(root, current, proposal, now) {
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "update-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "update-draft claim_evidence");
+    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true);
+    for (const claim of claimEvidence) {
+      const previous = current.runtimeState.claim_evidence?.find((item) => item.claim_id === claim.claim_id);
+      if (previous && (previous.requirement !== claim.requirement || previous.source_ref !== claim.source_ref || previous.claim_kind !== claim.claim_kind))
+        fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "Changing a draft obligation requires a new claim identity.");
+      for (const slot of claim.slots) {
+        const old = previous?.slots.find((item) => item.slot_id === slot.slot_id);
+        if (old && digest(evidenceSlotDefinition(old)) !== digest(evidenceSlotDefinition(slot)))
+          fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "Changing a draft check requires a new slot/check identity.");
+        const previousCheck = current.runtimeState.claim_evidence?.flatMap((item) => item.slots).find((item) => item.check?.check_id === slot.check?.check_id)?.check;
+        if (previousCheck && digest(previousCheck) !== digest(slot.check))
+          fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "A check_id cannot be reassigned to a different check during draft refinement.");
+      }
+    }
     const nextWithoutAudit = {
       ...current.runtimeState,
       workflow_status: "draft",
@@ -8695,6 +9019,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       active_step_status: "ready",
       claim_evidence_required: true,
       claim_evidence: copyClaimEvidence(claimEvidence),
+      evidence_plan_revision: planRevision,
+      review_coverage: emptyReviewCoverage(planRevision),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);
@@ -8807,7 +9133,11 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("REVIEW_EXECUTION_STALE", "review result does not bind the latest recorded execution for the active step.");
     }
     assertReviewExecutionEligible(current, execution);
-    const executionResult = execution.execution_result;
+    if (current.runtimeState.review_coverage && !review.test_assessment)
+      fail2("REVIEW_ASSESSMENT_REQUIRED", "Cumulative reviews require test necessity, oracle, boundary, reuse and applicability assessment.");
+    if (current.runtimeState.review_coverage && review.test_assessment && !review.test_assessment.applicable && (parseMutationScope(current.body).persistent_tests?.length || current.runtimeState.claim_evidence?.some((claim) => claim.slots.some((slot) => slot.check?.method === "execution"))))
+      fail2("REVIEW_ASSESSMENT_REQUIRED", "Declared execution checks or persistent tests require an applicable assessment even when test files are unchanged.");
+    const executionResult = cumulativeReviewExecution(current, execution).execution_result;
     if (!executionResult || execution.change_set_id !== review.change_set_id || executionResult.change_set_id !== review.change_set_id || executionResult.review_target.revision !== review.review_target_revision) {
       fail2("REVIEW_TARGET_CONFLICT", "review result does not bind the Runtime-recorded execution change set and review target.");
     }
@@ -8826,7 +9156,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       if (!openFingerprints.has(fingerprint))
         fail2("FINDING_NOT_FOUND", `review result references non-open finding ${fingerprint}.`);
     }
-    const nestedEvidence = review.findings.flatMap((item) => item.evidence_refs);
+    const nestedEvidence = [...review.findings.flatMap((item) => item.evidence_refs), ...review.test_assessment?.evidence_refs ?? []];
     if (![...nestedEvidence, ...review.evidence_refs].every((ref) => delta.evidence_refs.includes(ref))) {
       fail2("RUNTIME_EVIDENCE_INVALID", "record-review-result evidence_refs must cover the review result and every finding.");
     }
@@ -8881,6 +9211,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     assertPreparedTestStrategy(root, delta.replacement_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "commit-replan claim_evidence");
     requireAcceptanceClaim(claimEvidence, "commit-replan claim_evidence");
+    const planRevision = assertEvidencePlan(delta.replacement_definition, claimEvidence, true);
     const findings = current.runtimeState.findings.map((item) => {
       const preserved = { ...item, evidence_refs: [...item.evidence_refs] };
       if (preserved.status === "admitted" || preserved.status === "in-progress") {
@@ -8889,8 +9220,12 @@ function applyTaskStateDelta(root, current, proposal, now) {
       return preserved;
     });
     const hadOpenFindings = current.runtimeState.findings.some((item) => item.status === "admitted" || item.status === "in-progress");
+    if (current.runtimeState.evidence_plan_revision === planRevision && current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts.at(-1)?.status === "blocked")
+      fail2("RETRY_ATTEMPT_CONFLICT", "Same-plan replan cannot reset a blocked attempt; use bounded retry or diagnose the failure.");
     const nextWithoutAudit = {
       ...current.runtimeState,
+      business_evidence_version: 1,
+      step_attempts: current.runtimeState.evidence_plan_revision === planRevision ? current.runtimeState.step_attempts ?? {} : {},
       workflow_status: "active",
       lifecycle_state: "active",
       resume_requires_review: false,
@@ -8903,6 +9238,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       pending_review_result: null,
       claim_evidence_required: true,
       claim_evidence: copyClaimEvidence(claimEvidence),
+      evidence_plan_revision: planRevision,
+      review_coverage: current.runtimeState.review_coverage ? { ...current.runtimeState.review_coverage, last_clean_revision: null, pending_paths: current.runtimeState.review_coverage.base.entries.map((entry) => entry.path) } : emptyReviewCoverage(planRevision),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeReplanAudit(current, proposal, nextWithoutAudit, now);
@@ -8912,6 +9249,51 @@ function applyTaskStateDelta(root, current, proposal, now) {
       taskBasis: delta.task_basis,
       audit
     };
+  }
+  if (delta.action === "retry-step") {
+    ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
+    assertTestStrategySequenceReady(current);
+    if (proposal.mode !== "default" || current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active" || current.runtimeState.resume_requires_review || delta.step_id !== current.runtimeState.active_step_id || current.runtimeState.active_step_status !== "blocked")
+      fail2("RETRY_STATE_INVALID", "Retry requires the active blocked ordinary step.");
+    if (current.runtimeState.pending_review_result || current.runtimeState.findings.some((f) => ["admitted", "in-progress"].includes(f.status)))
+      fail2("RETRY_FINDINGS_BLOCKED", "Retry cannot consume pending review or findings.");
+    const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+    const failed = ledger?.attempts.at(-1);
+    if (!ledger || ledger.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || !failed || failed.attempt_id !== delta.blocked_attempt_id || failed.status !== "blocked" || !failed.blocker)
+      fail2("RETRY_ATTEMPT_CONFLICT", "Retry must bind the durable latest failure in the same plan.");
+    if (failed.blocker.kind !== "environment" || [...failed.blocker.execution_result.command_results, ...failed.blocker.execution_result.validation_results].some((r) => r.status === "failed")) {
+      fail2("RETRY_DIAGNOSIS_REQUIRED", "Only a recorded environment blocker can retry; business or unknown failures require debug/authorized repair.");
+    }
+    if (ledger.attempts.length >= ledger.max_attempts)
+      fail2("RETRY_BUDGET_EXHAUSTED", "Three attempts exhausted; route to debug-task or the user.");
+    if (!delta.blocker_resolution_refs.every((ref) => delta.evidence_refs.includes(ref) && proposal.evidence_refs.includes(ref)))
+      fail2("RETRY_RESOLUTION_REQUIRED", "Retry evidence must cover resolution artifacts.");
+    validateRetryResolution(root, current, delta, failed.blocker);
+    const attempt = { attempt_id: `attempt-${digest({ document: current.sourceTuple.document_id, plan: ledger.evidence_plan_revision, step: delta.step_id, n: ledger.attempts.length + 1 }).slice(0, 40)}`, idempotency_key: proposal.idempotency_key, request_digest: retryRequestDigest(current, delta), status: "ready", blocker: null, evidence_refs: [...delta.blocker_resolution_refs] };
+    return { next: { ...current.runtimeState, active_step_status: "ready", step_attempts: { ...current.runtimeState.step_attempts, [delta.step_id]: { ...ledger, attempts: [...ledger.attempts, attempt] } }, ...current.runtimeState.review_coverage ? { review_coverage: { ...current.runtimeState.review_coverage, last_clean_revision: null } } : {}, applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
+  }
+  if (delta.action === "record-step-preflight") {
+    assertOrdinaryPreflight(current, root);
+    assertTestStrategySequenceReady(current);
+    ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
+    if (proposal.mode !== "default" || delta.step_id !== current.runtimeState.active_step_id)
+      fail2("ACTIVE_STEP_CONFLICT", "preflight must bind the current ordinary step.");
+    const step = resolveCanonicalTaskStep(current).steps.find((step2) => step2.id === delta.step_id);
+    const patterns = (step.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/g, ""));
+    if (delta.candidate_paths.length && (evaluateMutationScope(parseMutationScope(current.body), { changed_paths: delta.candidate_paths }).status !== "pass" || delta.candidate_paths.some((p) => !patterns.some((pattern) => mutationScopePatternMatchesPath(p, pattern)))))
+      fail2("PREFLIGHT_SCOPE_BLOCKED", "preflight candidates must be admitted by the task and current step.");
+    const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
+    for (const record of claims)
+      for (const slot of record.slots) {
+        if (slot.before_step_id !== delta.step_id || slot.prerequisite_receipt)
+          continue;
+        assertEvidenceSlotSatisfied(root, current, record, slot, false);
+        slot.prerequisite_receipt = { step_id: delta.step_id, preflight_id: proposal.idempotency_key, result_id: slot.report.result_id, subject_snapshot: captureReviewTarget(root, slot.check.subject_paths) };
+      }
+    const coverage2 = registerReviewCoverage(root, current, delta.candidate_paths);
+    const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+    const stepAttempts2 = ledger && ledger.attempts.at(-1)?.status === "ready" ? { ...current.runtimeState.step_attempts, [delta.step_id]: { ...ledger, attempts: ledger.attempts.map((a, i) => i === ledger.attempts.length - 1 ? { ...a, status: "preflighted" } : a) } } : current.runtimeState.step_attempts;
+    return { next: { ...current.runtimeState, review_coverage: coverage2, ...stepAttempts2 ? { step_attempts: stepAttempts2 } : {}, claim_evidence: claims, applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
   }
   if (delta.action !== "step-progress")
     fail2("RUNTIME_SCHEMA_INVALID", "Only step-progress reaches the execute-step state handler.");
@@ -8938,10 +9320,12 @@ function applyTaskStateDelta(root, current, proposal, now) {
     }
     requireAcceptanceClaim(plannedClaimEvidence, "current task claim_evidence");
   }
+  if (proposal.mode !== "repair" && !delta.review_receipt)
+    assertOrdinaryPreflight(current, root);
   const executionMode = proposal.mode;
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
-  assertTestStrategyExecutionTransition(current, delta, checkpoint);
+  assertTestStrategyExecutionTransition(current, delta);
   const currentStepRepairLogs = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === delta.step_id && item.mode === "repair");
   const openFindings = current.runtimeState.findings.filter((item) => item.status === "admitted" || item.status === "in-progress");
   const deltaRepairFingerprints = delta.repair_fingerprints ?? (delta.repair_fingerprint ? [delta.repair_fingerprint] : []);
@@ -9007,6 +9391,43 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("CLAIM_EVIDENCE_AFTER_REVIEW", "reviewed step completion must preserve the claim evidence recorded before review.");
     }
   }
+  for (const record of transitionClaimEvidence)
+    for (const slot of record.slots) {
+      const old = current.runtimeState.claim_evidence?.find((item) => item.claim_id === record.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
+      if (slot.report && digest(old) !== digest(slot))
+        assertEvidenceReportApplicable(root, current, slot);
+      if (old?.report && slot.report?.result_id === old.report.result_id && (digest(old.report) !== digest(slot.report) || digest(old.evidence_refs) !== digest(slot.evidence_refs)))
+        fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "A changed report or artifact mapping requires a new result_id.");
+      if (slot.before_step_id === delta.step_id && !slot.prerequisite_receipt)
+        fail2("PREREQUISITE_REQUIRED", "record-step-preflight must consume prerequisites before any execution result or progress.");
+    }
+  for (const result of [...delta.execution_result?.command_results ?? [], ...delta.execution_result?.validation_results ?? []]) {
+    if (result.status !== "expected-failure")
+      continue;
+    const entry = "command" in result ? result.command : result.validation;
+    const hasCurrentReproduction = transitionClaimEvidence.some((record) => record.claim_kind !== "acceptance" && record.slots.some((slot) => {
+      if (slot.applicability !== "before-step" || slot.prerequisite_receipt || slot.check?.entry !== entry || slot.check.expected_result !== "expected-failure" || slot.report?.status !== "expected-failure")
+        return false;
+      const steps = resolveCanonicalTaskStep(current).steps.map((step) => step.id);
+      if (steps.indexOf(delta.step_id) >= steps.indexOf(slot.before_step_id))
+        return false;
+      const previous = current.runtimeState.claim_evidence?.find((claim) => claim.claim_id === record.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
+      if (previous?.report?.result_id === slot.report.result_id)
+        return false;
+      return (delta.execution_result?.acceptance_evidence ?? []).some((evidence) => !("acceptance" in evidence) && evidence.claim_id === record.claim_id && evidence.slot_id === slot.slot_id && evidence.check_id === slot.check.check_id && evidence.report?.result_id === slot.report.result_id);
+    }));
+    if (!hasCurrentReproduction)
+      fail2("EXECUTE_EXPECTED_FAILURE_INVALID", "expected failure requires a new report for an unconsumed prerequisite check submitted by this execution before its constrained step.");
+  }
+  for (const result of delta.execution_result?.acceptance_evidence ?? []) {
+    if ("acceptance" in result)
+      fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "Legacy text-based evidence is readable history only; new results require claim/slot/check IDs.");
+    const slot = transitionClaimEvidence.find((claim) => claim.claim_id === result.claim_id)?.slots.find((slot2) => slot2.slot_id === result.slot_id);
+    if (!slot || slot.check?.check_id !== result.check_id || slot.minimum_type !== result.minimum_type || slot.disposition !== result.disposition || digest(slot.report) !== digest(result.report) || digest(slot.evidence_refs) !== digest(result.evidence_refs))
+      fail2("CLAIM_EVIDENCE_PLAN_CONFLICT", "Execution reports must exactly match the persisted slot results.");
+  }
+  if (newStatus === "completed" && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete)
+    fail2("CLAIM_EVIDENCE_INCOMPLETE", "Every due slot must have applicable successful evidence before step completion.");
   let advancement = {
     outcome: "not-applicable",
     from_step_id: delta.step_id,
@@ -9024,6 +9445,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (openFindings.length > 0) {
       fail2("REVIEW_CONVERGENCE_REQUIRED", "step advancement is blocked while an admitted or in-progress finding remains open.");
     }
+    if (current.runtimeState.review_coverage && checkpoint === "not-required" && stepResolution.next && !delta.execution_result)
+      fail2("REVIEW_EXECUTION_REQUIRED", "An exempt intermediate step must record its actual execution before advancement.");
     if (checkpoint === "required" && delta.review_receipt === undefined) {
       fail2("REVIEW_CHECKPOINT_REQUIRED", `step ${delta.step_id} requires a clean review checkpoint before advancement.`);
     }
@@ -9035,7 +9458,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       if (pendingReview.step_id !== delta.step_id || pendingReview.cycle_id !== delta.review_receipt.cycle_id || pendingReview.cycle_phase !== delta.review_receipt.cycle_phase || pendingReview.change_set_id !== delta.review_receipt.change_set_id || pendingReview.review_target_revision !== delta.review_receipt.review_target_revision || digest(pendingReview.evidence_refs) !== digest(delta.review_receipt.evidence_refs)) {
         fail2("REVIEW_RECEIPT_CONFLICT", "step completion review receipt must match the canonical pending clean review.");
       }
-      const reviewedExecution = current.runtimeState.execution_log.find((item) => !("action" in item) && item.idempotency_key === pendingReview.execution_id);
+      const reviewedExecution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pendingReview.execution_id);
       if (!reviewedExecution?.execution_result || reviewedExecution.change_set_id !== pendingReview.change_set_id || reviewedExecution.execution_result.review_target.revision !== pendingReview.review_target_revision) {
         fail2("REVIEW_TARGET_CONFLICT", "canonical clean review no longer binds its recorded execution target.");
       }
@@ -9096,7 +9519,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       if (delta.claim_evidence === undefined) {
         fail2("CLAIM_EVIDENCE_REQUIRED", "the final task-complete step-progress must carry the durable claim_evidence snapshot.");
       }
-      const completion = evaluateClaimEvidence(transitionClaimEvidence);
+      const completion = evaluateClaimEvidence(transitionClaimEvidence, { root, current });
       if (!completion.validation_complete) {
         fail2("CLAIM_EVIDENCE_INCOMPLETE", "task-complete requires every planned claim evidence slot to be existing, reused, or newly-executed with evidence_refs.");
       }
@@ -9110,6 +9533,49 @@ function applyTaskStateDelta(root, current, proposal, now) {
       };
     }
   }
+  let stepAttempts = current.runtimeState.step_attempts;
+  if (executionMode === "default" && delta.execution_result) {
+    const result = delta.execution_result;
+    const ledger = stepAttempts?.[delta.step_id];
+    const activeAttempt = ledger?.attempts.at(-1);
+    if (!ledger && result.attempt_id && result.attempt_id !== nextStepAttemptId(current))
+      fail2("RETRY_ATTEMPT_CONFLICT", "Initial attempt identity is Runtime-derived.");
+    if (ledger && (ledger.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || result.attempt_id !== activeAttempt?.attempt_id || activeAttempt.status === "ready" || activeAttempt.status === "blocked"))
+      fail2("RETRY_PREFLIGHT_REQUIRED", "Results must bind the current preflighted attempt; old receipts cannot run or complete a retry.");
+    const observations = [...result.command_results, ...result.validation_results];
+    if (result.blocker_kind === "environment" && (result.outcome !== "blocked" || observations.some((r) => r.status === "failed") || !observations.some((r) => r.status === "blocked"))) {
+      fail2("RETRY_DIAGNOSIS_REQUIRED", "Environment classification requires a blocked execution without business failures.");
+    }
+    if (current.runtimeState.evidence_plan_revision && result.attempt_id) {
+      const paths = [...new Set([...current.runtimeState.review_coverage?.target.entries.map((e) => e.path) ?? [], ...result.review_target.entries.map((e) => e.path), ...(current.runtimeState.claim_evidence ?? []).flatMap((c) => c.slots.flatMap((s) => s.check?.subject_paths ?? []))])];
+      const attempt = { attempt_id: result.attempt_id, idempotency_key: activeAttempt?.idempotency_key ?? proposal.idempotency_key, request_digest: activeAttempt?.request_digest ?? null, status: result.outcome === "blocked" ? "blocked" : "implemented", blocker: result.outcome === "blocked" ? { kind: result.blocker_kind ?? "unknown", execution_result: result, subject_snapshot: captureReviewTarget(root, paths) } : null, evidence_refs: [...new Set([...activeAttempt?.evidence_refs ?? [], ...delta.evidence_refs])] };
+      stepAttempts = { ...stepAttempts, [delta.step_id]: { evidence_plan_revision: current.runtimeState.evidence_plan_revision, max_attempts: 3, attempts: ledger ? [...ledger.attempts.slice(0, -1), attempt] : [attempt] } };
+    }
+  }
+  if (executionMode === "default" && newStatus === "completed" && !delta.execution_result && stepAttempts?.[delta.step_id]?.attempts.at(-1)?.status !== undefined && stepAttempts[delta.step_id].attempts.at(-1).status !== "implemented")
+    fail2("RETRY_EXECUTION_REQUIRED", "A recovered attempt must run and report before completion.");
+  let coverage = current.runtimeState.review_coverage;
+  if (delta.execution_result && coverage) {
+    const result = delta.execution_result;
+    if (result.change_set_id !== coverage.change_set_id)
+      fail2("REVIEW_TARGET_CONFLICT", "Execution must retain the cumulative change set.");
+    for (const entry of result.review_base.entries) {
+      if (digest(entry) !== digest(coverage.target.entries.find((e) => e.path === entry.path)))
+        fail2("REVIEW_PREFLIGHT_REQUIRED", "Execution base must match the registered before-state.");
+    }
+    const target = captureReviewTarget(root, coverage.base.entries.map((e) => e.path));
+    const changed = createReviewChangeDelta(coverage.target, target).entries.map((e) => e.path);
+    if (digest([...changed].sort()) !== digest([...result.actual_changed_paths].sort()))
+      fail2("REVIEW_TARGET_CONFLICT", "Execution must account for all changes in the cumulative target.");
+    coverage = { ...coverage, target, pending_paths: [...new Set([...coverage.pending_paths, ...changed])].sort() };
+  }
+  if (coverage && advancement.outcome === "task-complete" && checkpoint === "not-required") {
+    if (!(stepResolution.current.checkpoint_boundary?.startsWith("final-exemption:") && stepResolution.current.checkpoint_boundary.slice("final-exemption:".length).trim()))
+      fail2("REVIEW_CHECKPOINT_REQUIRED", "Final exemption must explicitly cover the cumulative task.");
+    coverage = { ...coverage, pending_paths: [], last_clean_revision: coverage.target.revision };
+  }
+  if (delta.review_receipt && coverage)
+    coverage = { ...coverage, pending_paths: [], last_clean_revision: coverage.target.revision };
   const executionLog = [
     ...current.runtimeState.execution_log,
     {
@@ -9139,6 +9605,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
     pending_review_result: null,
+    ...coverage ? { review_coverage: coverage } : {},
+    ...stepAttempts ? { step_attempts: stepAttempts } : {},
     execution_log: executionLog,
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
   };
@@ -9767,7 +10235,8 @@ function buildResult(status, proposal, current, options, message, extras = {}) {
     planned_writes: [...proposal.requested_write_targets],
     governed_mutation_count: 0,
     read_back_verified: false,
-    ...extras
+    ...extras,
+    evidence_assurance: "caller-reported"
   };
 }
 function resultState(state, findingStatus, recoveryPackagePath) {
@@ -10433,6 +10902,24 @@ class GovernanceTransactionKernel {
         });
       }
     }
+    if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "record-step-preflight") {
+      try {
+        assertOrdinaryPreflight(current, this.root);
+      } catch (error) {
+        const code = error instanceof VNextRuntimeError ? error.code : "PREFLIGHT_BLOCKED";
+        return buildResult(code === "REVIEW_TARGET_STALE" ? "conflict" : "blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code });
+      }
+    }
+    if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "retry-step") {
+      const delta = proposal.semantic_delta;
+      const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+      const priorRetry = ledger?.attempts.find((a) => a.idempotency_key === proposal.idempotency_key);
+      if (priorRetry) {
+        if (proposal.source_tuple.document_id !== current.sourceTuple.document_id || ledger.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || priorRetry.request_digest !== retryRequestDigest(current, delta))
+          return buildResult("conflict", proposal, current, options, "Retry key is already bound to different task/plan/request semantics.", { code: "RETRY_IDEMPOTENCY_CONFLICT" });
+        return buildResult("no-op", proposal, current, options, "This retry was already admitted; no budget or state changed.", { read_back_verified: true, resulting_revision: current.sourceTuple.revision });
+      }
+    }
     const proposalDigest = digest(proposal);
     const prior = current.runtimeState.applied_proposals.find((item) => item.idempotency_key === proposal.idempotency_key);
     if (prior) {
@@ -10660,6 +11147,58 @@ function createTaskStateProposal(current, input) {
     preconditions: ["current-task-is-active", "active-step-matches", "scope-admitted"],
     evidence_refs: proposalEvidenceRefs,
     idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function assertOrdinaryPreflight(current, root) {
+  const pending = current.runtimeState.pending_review_result;
+  if (pending) {
+    const execution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
+    if (!execution || "action" in execution || !execution.execution_result || captureReviewTarget(root, execution.execution_result.review_target.entries.map((entry) => entry.path)).revision !== pending.review_target_revision)
+      fail2("REVIEW_TARGET_STALE", "Pending review target changed; preserve the review and resolve its conflict.");
+    let route = pending.blocker?.next_route ?? "its recorded blocker route";
+    if (pending.verdict === "clean")
+      route = "complete-reviewed-step";
+    if (pending.verdict === "findings")
+      route = "begin-repair";
+    fail2("PENDING_REVIEW_REQUIRED", `Pending review must be consumed by ${route ?? "its recorded blocker route"}; no ordinary execution is admitted.`);
+  }
+  if (current.runtimeState.findings.some((item) => ["admitted", "in-progress"].includes(item.status))) {
+    fail2("REVIEW_CONVERGENCE_REQUIRED", "Open findings require admitted repair; ordinary execution cannot consume them.");
+  }
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active" || current.runtimeState.resume_requires_review || current.runtimeState.active_step_status === "blocked") {
+    fail2("PREFLIGHT_BLOCKED", "ordinary execution requires an active unblocked task without a resume gate.");
+  }
+}
+function createStepRetryProposal(current, input) {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "execute-step",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: ["active-task-owner", "scope-admission", "evidence-admission"].map((kind) => ({ kind, source: current.relativePath, subject: current.runtimeState.active_step_id })),
+    semantic_delta: { kind: "task-state", action: "retry-step", step_id: input.step_id, blocked_attempt_id: input.blocked_attempt_id, blocker_resolution_refs: input.blocker_resolution_refs, evidence_refs: input.blocker_resolution_refs },
+    preconditions: ["current-task-is-active", "active-step-matches", "scope-admitted"],
+    evidence_refs: input.blocker_resolution_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createStepPreflightProposal(current, candidatePaths) {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "execute-step",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: ["active-task-owner", "scope-admission", "evidence-admission"].map((kind) => ({ kind, source: current.relativePath, subject: current.runtimeState.active_step_id })),
+    semantic_delta: { kind: "task-state", action: "record-step-preflight", step_id: current.runtimeState.active_step_id, candidate_paths: candidatePaths, evidence_refs: [current.relativePath] },
+    preconditions: ["current-task-is-active", "active-step-matches", "scope-admitted"],
+    evidence_refs: [current.relativePath],
+    idempotency_key: `preflight-${digest({ task: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: current.runtimeState.active_step_id, attempt: nextStepAttemptId(current), paths: candidatePaths })}`,
     requested_write_targets: [current.relativePath]
   });
 }
@@ -12797,7 +13336,7 @@ var PREPARE_TASK_ADAPTER_COMMANDS = [
 var SEMANTIC_DRAFT_FIELDS = [
   "task_basis",
   "goal",
-  "acceptance",
+  "claim_evidence",
   "out_of_scope",
   "design_decisions",
   "mutation_scope",
@@ -13011,12 +13550,17 @@ function normalizeSemanticDraft(input) {
   }
   const implementationSteps = source.implementation_steps.map((item, index) => {
     const step = record(item, `implementation_steps[${index}]`);
-    exactKeys(step, ["id", "description", "mutation_scope", "commands", "validation"], `implementation_steps[${index}]`);
+    exactKeys(step, ["id", "description", "mutation_scope", "commands", "validation", ...step.review_checkpoint === undefined ? [] : ["review_checkpoint"]], `implementation_steps[${index}]`);
+    const checkpoint = step.review_checkpoint === undefined ? { policy: "required", reason: "Review this logical boundary against the confirmed task" } : record(step.review_checkpoint, "review_checkpoint");
+    exactKeys(checkpoint, ["policy", "reason"], "review_checkpoint");
+    if (!["required", "not-required"].includes(String(checkpoint.policy)))
+      fail5("PREPARE_ADAPTER_INPUT_INVALID", "review_checkpoint.policy is invalid.");
     const id = text(step.id, `implementation_steps[${index}].id`, 128);
     if (!STEP_ID_PATTERN3.test(id))
       fail5("PREPARE_ADAPTER_INPUT_INVALID", `implementation_steps[${index}].id is invalid.`);
     return {
       id,
+      review_checkpoint: { policy: checkpoint.policy, reason: text(checkpoint.reason, "review_checkpoint.reason") },
       description: text(step.description, `implementation_steps[${index}].description`),
       mutation_scope: normalizeScopePathList(step.mutation_scope, `implementation_steps[${index}].mutation_scope`),
       commands: normalizeStepCommands(step.commands, `implementation_steps[${index}].commands`),
@@ -13038,8 +13582,15 @@ function normalizeSemanticDraft(input) {
     }
     persistentTests = source.persistent_tests.map((item, index) => {
       const test = record(item, `persistent_tests[${index}]`);
-      exactKeys(test, ["path", "proves"], `persistent_tests[${index}]`);
+      exactKeys(test, ["path", "proves", "owner", "owner_source", "source_ref", "basis", "existing_evidence_insufficiency", "assertion_boundary", "failure_disposition"], `persistent_tests[${index}]`);
       return {
+        owner: text(test.owner, "persistent_tests.owner"),
+        owner_source: text(test.owner_source, "persistent_tests.owner_source"),
+        source_ref: text(test.source_ref, "persistent_tests.source_ref"),
+        basis: text(test.basis, "persistent_tests.basis"),
+        existing_evidence_insufficiency: text(test.existing_evidence_insufficiency, "persistent_tests.existing_evidence_insufficiency"),
+        assertion_boundary: text(test.assertion_boundary, "persistent_tests.assertion_boundary"),
+        failure_disposition: text(test.failure_disposition, "persistent_tests.failure_disposition"),
         path: normalizeScopePath(test.path, `persistent_tests[${index}].path`, false),
         proves: textList(test.proves, `persistent_tests[${index}].proves`, false)
       };
@@ -13051,7 +13602,7 @@ function normalizeSemanticDraft(input) {
   const normalized = {
     task_basis: normalizeTaskBasis(source.task_basis),
     goal: text(source.goal, "goal", 512),
-    acceptance: textList(source.acceptance, "acceptance", false),
+    claim_evidence: validateClaimEvidence(source.claim_evidence, "claim_evidence"),
     out_of_scope: textList(source.out_of_scope, "out_of_scope", true),
     design_decisions: { decided, unresolved },
     mutation_scope: { allowed, conditional, forbidden },
@@ -13061,6 +13612,7 @@ function normalizeSemanticDraft(input) {
     persistent_tests: persistentTests
   };
   assertSemanticScopeIsExecutable(normalized);
+  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true);
   return normalized;
 }
 function markdownBullets(items, checklist = false) {
@@ -13175,21 +13727,19 @@ function authority(current, subject, kinds) {
   return kinds.map((kind) => ({ kind, source: current.relativePath, subject }));
 }
 function claimEvidence(input) {
-  return input.acceptance.map((_, index) => ({
-    claim_id: `acceptance-${index + 1}`,
-    claim_kind: "acceptance",
-    slots: [{
-      slot_id: "validation",
-      minimum_type: "planned-validation",
-      disposition: "missing",
-      evidence_refs: []
-    }]
-  }));
+  return structuredClone(input.claim_evidence);
 }
 function semanticDraftDefinition(input) {
   const persistentTests = input.persistent_tests === "none" ? ["- none"] : input.persistent_tests.flatMap((test) => [
     `- \`${test.path}\``,
-    ...test.proves.map((proof) => `  - proves: ${proof}`)
+    ...test.proves.map((proof) => `  - proves: ${proof}`),
+    `  - owner: ${test.owner}`,
+    `  - owner_source: ${test.owner_source}`,
+    `  - source_ref: ${test.source_ref}`,
+    `  - basis: ${test.basis}`,
+    `  - existing_evidence_insufficiency: ${test.existing_evidence_insufficiency}`,
+    `  - assertion_boundary: ${test.assertion_boundary}`,
+    `  - failure_disposition: ${test.failure_disposition}`
   ]);
   return {
     background_context: [
@@ -13202,7 +13752,7 @@ function semanticDraftDefinition(input) {
       markdownBullets(input.out_of_scope)
     ].join(`
 `),
-    acceptance: markdownBullets(input.acceptance, true),
+    acceptance: markdownBullets(input.claim_evidence.filter((claim) => claim.claim_kind === "acceptance").map((claim) => claim.requirement), true),
     allowed_scope: markdownBullets(input.mutation_scope.allowed.map((item) => `\`${item}\``)),
     conditional_scope: markdownBullets(input.mutation_scope.conditional.map((item) => `\`${item.path}\` when ${item.condition}`)),
     forbidden_scope: markdownBullets(input.mutation_scope.forbidden.map((item) => `\`${item}\``)),
@@ -13216,7 +13766,7 @@ function semanticDraftDefinition(input) {
       `  - purpose: ${step.description}`,
       `  - mutation_scope: ${step.mutation_scope.join(", ")}`,
       `  - required_evidence: ${step.validation.join("; ")}`,
-      `  - review_checkpoint: required: review ${step.id} diff against the confirmed CURRENT_TASK`,
+      `  - review_checkpoint: ${step.review_checkpoint?.policy ?? "required"}: ${step.review_checkpoint?.reason ?? "Review this logical boundary against the confirmed task"}`,
       ...step.commands.flatMap((item) => [
         `  - planned_command: ${item.command}`,
         `    - expected_repo_writes: ${item.expected_repo_writes === "none" ? "none" : item.expected_repo_writes.join(", ")}`,
@@ -13267,7 +13817,7 @@ function currentMatchesSemanticDraft(root, current, semantic) {
   } catch {
     basisMatches = false;
   }
-  return current.runtimeState.active_step_id === semantic.implementation_steps[0].id && basisMatches && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic)) && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
+  return current.runtimeState.active_step_id === semantic.implementation_steps[0].id && basisMatches && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic)) && current.runtimeState.business_evidence_version === 1 && !!current.runtimeState.evidence_plan_revision && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
 }
 function semanticNoOp(current, idempotencyKey, message, options = {}) {
   const state = current.runtimeState;
@@ -13563,6 +14113,8 @@ import * as fs8 from "fs";
 import * as path9 from "path";
 var EXECUTE_STEP_ADAPTER_COMMANDS = [
   "preflight-step",
+  "evidence-context",
+  "retry-step",
   "begin-repair",
   "record-step-result",
   "complete-reviewed-step"
@@ -13783,6 +14335,8 @@ function stepPlanRevision(stepPlan) {
   });
 }
 function changeSetId(current, stepId) {
+  if (current.runtimeState.review_coverage)
+    return current.runtimeState.review_coverage.change_set_id;
   return `change-set-${digest3({
     task_id: current.runtimeState.task_id,
     document_id: current.sourceTuple.document_id,
@@ -13791,13 +14345,13 @@ function changeSetId(current, stepId) {
   }).slice(0, 40)}`;
 }
 function testStrategyMode(value, location) {
-  if (!["test-first", "implementation-first", "not-applicable", "legacy"].includes(String(value))) {
+  if (!["flexible", "test-first", "implementation-first", "not-applicable", "legacy"].includes(String(value))) {
     fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} is not a supported test-strategy mode.`);
   }
   return value;
 }
 function executionPhase(value, location) {
-  if (!["red", "green", "implementation-first", "not-applicable", "legacy"].includes(String(value))) {
+  if (!["flexible", "test-first", "red", "green", "implementation-first", "not-applicable", "legacy"].includes(String(value))) {
     fail6("EXECUTE_ADAPTER_INPUT_INVALID", `${location} is not a supported execution phase.`);
   }
   return value;
@@ -13861,7 +14415,8 @@ function normalizePreflightReceipt(value) {
     "candidate_paths",
     "repair_fingerprint",
     "change_set_id",
-    "review_base"
+    "review_base",
+    ...source.attempt_id === undefined ? [] : ["attempt_id"]
   ], "preflight_receipt");
   if (source.kind !== "execute-step-preflight/v1") {
     fail6("EXECUTE_ADAPTER_INPUT_INVALID", "preflight_receipt.kind must be execute-step-preflight/v1.");
@@ -13877,6 +14432,7 @@ function normalizePreflightReceipt(value) {
   }
   return {
     kind: source.kind,
+    ...source.attempt_id === undefined ? {} : { attempt_id: text2(source.attempt_id, "preflight_receipt.attempt_id", 128) },
     task_id: text2(source.task_id, "preflight_receipt.task_id", 128),
     document_id: text2(source.document_id, "preflight_receipt.document_id", 128),
     source_revision: sourceRevision,
@@ -13959,7 +14515,7 @@ function beginRepair(root, input, options = {}) {
   if (!pending || pending.verdict !== "findings") {
     fail6("REVIEW_FINDINGS_REQUIRED", "begin-repair requires the current durable review result to contain findings.");
   }
-  const reviewedExecution = current.runtimeState.execution_log.find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
+  const reviewedExecution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
   if (!reviewedExecution?.execution_result || reviewedExecution.execution_result.change_set_id !== pending.change_set_id || reviewedExecution.execution_result.review_target.revision !== pending.review_target_revision) {
     fail6("REVIEW_TARGET_CONFLICT", "begin-repair requires the Runtime-recorded reviewed execution target.");
   }
@@ -14056,11 +14612,54 @@ function beginRepair(root, input, options = {}) {
     receipt
   };
 }
+function retryStep(root, input, options = {}) {
+  const source = record2(input, "retry-step input");
+  exactKeys2(source, ["step_id", "blocked_attempt_id", "blocker_resolution_refs", "idempotency_key"], "retry-step input");
+  const current = readCanonicalCurrentTask(root);
+  const proposal = createStepRetryProposal(current, {
+    step_id: text2(source.step_id, "step_id", 128),
+    blocked_attempt_id: text2(source.blocked_attempt_id, "blocked_attempt_id", 128),
+    blocker_resolution_refs: textList2(source.blocker_resolution_refs, "blocker_resolution_refs", false),
+    idempotency_key: text2(source.idempotency_key, "idempotency_key", 128)
+  });
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+function evidenceContext(root, input) {
+  exactKeys2(record2(input, "evidence-context input"), [], "evidence-context input");
+  const current = readCanonicalCurrentTask(root);
+  assertExecutableTask(current);
+  assertBusinessEvidenceVersion(current);
+  const checks = (current.runtimeState.claim_evidence ?? []).flatMap((claim) => claim.slots.map((slot) => {
+    if (!slot.check)
+      fail6("CLAIM_EVIDENCE_PLAN_REQUIRED", "A frozen check is required.");
+    const snapshot = captureReviewTarget(root, slot.check.subject_paths);
+    return {
+      claim_id: claim.claim_id,
+      slot_id: slot.slot_id,
+      check_id: slot.check.check_id,
+      subject_revision: snapshot.revision,
+      subject_snapshot: snapshot
+    };
+  }));
+  if (!current.runtimeState.evidence_plan_revision || !checks.length)
+    fail6("CLAIM_EVIDENCE_PLAN_REQUIRED", "A frozen evidence plan is required.");
+  return {
+    status: "pass",
+    operation_kind: "execute-step-evidence-context",
+    committed: false,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+    evidence_assurance: "caller-reported",
+    checks
+  };
+}
 function preflightStep(root, input) {
   const source = record2(input, "preflight-step input");
   exactKeys2(source, ["candidate_paths"], "preflight-step input");
   const candidatePaths = pathList(source.candidate_paths, "candidate_paths", true);
-  const current = readCanonicalCurrentTask(root);
+  let current = readCanonicalCurrentTask(root);
+  assertOrdinaryPreflight(current, root);
   assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
@@ -14069,8 +14668,21 @@ function preflightStep(root, input) {
   assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths");
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
+  let committed = false;
+  const coverage = current.runtimeState.review_coverage;
+  const hasPrerequisites = current.runtimeState.claim_evidence?.some((claim) => claim.slots.some((slot) => slot.before_step_id === stepPlan.step.id && !slot.prerequisite_receipt));
+  if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map((entry) => entry.path)).revision !== coverage.target.revision)
+    fail6("REVIEW_TARGET_STALE", "Unrecorded changes cannot refresh the cumulative baseline.");
+  if (!coverage || candidatePaths.some((p) => !coverage.base.entries.some((entry) => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === "ready") {
+    const registration = applyVNextRuntimeProposal(root, createStepPreflightProposal(current, candidatePaths));
+    if (!["success", "no-op"].includes(registration.status))
+      fail6("PREFLIGHT_BLOCKED", registration.message);
+    committed = registration.committed;
+    current = readCanonicalCurrentTask(root);
+  }
   const receipt = {
     kind: "execute-step-preflight/v1",
+    attempt_id: nextStepAttemptId(current),
     task_id: current.runtimeState.task_id,
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
@@ -14087,7 +14699,7 @@ function preflightStep(root, input) {
   return {
     status: "pass",
     operation_kind: "execute-step-preflight",
-    committed: false,
+    committed,
     read_back_verified: true,
     current_step: currentStepResult(stepPlan, strategy),
     receipt
@@ -14159,65 +14771,21 @@ function normalizeValidationResults(value) {
   return results;
 }
 function normalizeAcceptanceEvidence(value) {
-  if (!Array.isArray(value) || value.length > MAX_ITEMS2) {
-    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "acceptance_evidence must be a bounded array.");
-  }
-  const results = value.map((item, index) => {
-    const location = `acceptance_evidence[${index}]`;
-    const source = record2(item, location);
-    exactKeys2(source, ["acceptance", "evidence_refs"], location);
-    return {
-      acceptance: text2(source.acceptance, `${location}.acceptance`),
-      evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, false)
-    };
-  });
-  if (new Set(results.map((item) => item.acceptance)).size !== results.length) {
-    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "acceptance_evidence must not contain duplicate acceptance text.");
-  }
-  return results;
-}
-function plannedAcceptance(current) {
-  const value = readDraftDefinitionFromBody(current.body).acceptance;
-  const items = value.replace(/\r\n?/gu, `
-`).split(`
-`).map((line) => line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/u, "").trim()).filter(Boolean);
-  if (items.length === 0 || new Set(items).size !== items.length) {
-    fail6("CLAIM_EVIDENCE_PLAN_INVALID", "canonical acceptance must be a non-empty list without duplicates.");
-  }
-  return items;
+  return validateStepAcceptanceEvidence(value, "acceptance_evidence");
 }
 function updateClaimEvidence(current, evidence) {
-  if (!current.runtimeState.claim_evidence_required && current.runtimeState.claim_evidence === undefined)
-    return;
-  const plan = current.runtimeState.claim_evidence ?? [];
-  const acceptance = plannedAcceptance(current);
-  const acceptanceClaims = plan.filter((item) => item.claim_kind === "acceptance");
-  if (acceptanceClaims.length !== acceptance.length || acceptanceClaims.some((item) => item.slots.length !== 1)) {
-    fail6("CLAIM_EVIDENCE_PLAN_INVALID", "execute-step semantic evidence requires one frozen acceptance claim slot per canonical acceptance item.");
-  }
-  const evidenceByAcceptance = new Map(evidence.map((item) => [item.acceptance, item.evidence_refs]));
+  const plan = structuredClone(current.runtimeState.claim_evidence ?? []);
   for (const item of evidence) {
-    if (!acceptance.includes(item.acceptance)) {
-      fail6("CLAIM_EVIDENCE_PLAN_CONFLICT", `acceptance_evidence is not in the confirmed task: ${item.acceptance}`);
-    }
+    const slot = plan.find((claim) => claim.claim_id === item.claim_id)?.slots.find((slot2) => slot2.slot_id === item.slot_id);
+    if (!slot || slot.check?.check_id !== item.check_id || slot.minimum_type !== item.minimum_type)
+      fail6("CLAIM_EVIDENCE_PLAN_CONFLICT", "result must identify the exact frozen claim/slot/check and type.");
+    if (slot.prerequisite_receipt)
+      fail6("CLAIM_EVIDENCE_PLAN_CONFLICT", "consumed prerequisite evidence is immutable.");
+    slot.disposition = item.disposition;
+    slot.evidence_refs = [...item.evidence_refs];
+    slot.report = item.report;
   }
-  let acceptanceIndex = 0;
-  return plan.map((item) => {
-    if (item.claim_kind !== "acceptance") {
-      return { ...item, slots: item.slots.map((slot) => ({ ...slot, evidence_refs: [...slot.evidence_refs] })) };
-    }
-    const refs = evidenceByAcceptance.get(acceptance[acceptanceIndex++]);
-    if (!refs)
-      return { ...item, slots: item.slots.map((slot) => ({ ...slot, evidence_refs: [...slot.evidence_refs] })) };
-    return {
-      ...item,
-      slots: item.slots.map((slot) => ({
-        ...slot,
-        disposition: "newly-executed",
-        evidence_refs: [...new Set([...slot.evidence_refs, ...refs])]
-      }))
-    };
-  });
+  return plan;
 }
 function assertExactResultSet(actual, expected, location) {
   const missing = expected.filter((item) => !actual.includes(item));
@@ -14356,6 +14924,7 @@ function recordStepResult(root, input, options = {}) {
   const source = record2(input, "record-step-result input");
   exactKeys2(source, [
     "preflight_receipt",
+    ...source.blocker_kind === undefined ? [] : ["blocker_kind"],
     "actual_changed_paths",
     "command_results",
     "validation_results",
@@ -14363,6 +14932,8 @@ function recordStepResult(root, input, options = {}) {
     "outcome",
     "note"
   ], "record-step-result input");
+  if (source.blocker_kind !== undefined && !["environment", "unknown"].includes(String(source.blocker_kind)))
+    fail6("EXECUTE_ADAPTER_INPUT_INVALID", "blocker_kind must be environment or unknown.");
   const receipt = normalizePreflightReceipt(source.preflight_receipt);
   const actualChangedPaths = pathList(source.actual_changed_paths, "actual_changed_paths", true);
   const commandResults = normalizeCommandResults(source.command_results);
@@ -14389,6 +14960,7 @@ function recordStepResult(root, input, options = {}) {
     fail6("EXECUTE_RESULT_CHANGE_DELTA_CONFLICT", `actual_changed_paths must match Runtime-detected changes: ${detectedChangedPaths.join(", ") || "none"}.`);
   }
   const resultKeySeed = {
+    ...source.blocker_kind === undefined ? {} : { blocker_kind: source.blocker_kind },
     receipt,
     actual_changed_paths: detectedChangedPaths,
     command_results: commandResults,
@@ -14416,10 +14988,10 @@ function recordStepResult(root, input, options = {}) {
   assertPathsAdmitted(current, stepPlan, actualChangedPaths, "actual_changed_paths");
   assertCommandResults(current, stepPlan, commandResults);
   assertValidationResults(stepPlan, validationResults);
-  if (outcome === "implemented" && commandResults.some((item) => item.status !== "passed")) {
+  if (outcome === "implemented" && commandResults.some((item) => item.status !== "passed" && item.status !== "expected-failure")) {
     fail6("EXECUTE_RESULT_BLOCKED", "implemented requires every planned command to pass.");
   }
-  if (outcome === "implemented" && validationResults.some((item) => item.status !== "passed")) {
+  if (outcome === "implemented" && validationResults.some((item) => item.status !== "passed" && item.status !== "expected-failure")) {
     fail6("EXECUTE_RESULT_BLOCKED", "implemented requires every planned validation to pass.");
   }
   if (outcome === "test-red") {
@@ -14433,8 +15005,6 @@ function recordStepResult(root, input, options = {}) {
     if (acceptanceEvidence.length > 0) {
       fail6("TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN", "test-red evidence cannot satisfy final acceptance claims before implementation reaches Green.");
     }
-  } else if ([...commandResults, ...validationResults].some((item) => item.status === "expected-failure")) {
-    fail6("EXECUTE_EXPECTED_FAILURE_INVALID", "expected-failure result status is valid only with outcome=test-red.");
   }
   if (strategy.phase === "red" && outcome === "implemented") {
     fail6("TEST_STRATEGY_SEQUENCE_INVALID", "the first test-first step cannot report implemented; it must establish test-red or report a truthful blocker.");
@@ -14447,7 +15017,7 @@ function recordStepResult(root, input, options = {}) {
   }
   if (receipt.kind === "execute-step-repair-preflight/v1") {
     const pending = current.runtimeState.pending_review_result;
-    const priorExecution = pending && current.runtimeState.execution_log.find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
+    const priorExecution = pending && current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
     if (!pending || !priorExecution?.execution_result || pending.review_id !== receipt.review_id || pending.change_set_id !== receipt.change_set_id || priorExecution.execution_result.change_set_id !== receipt.change_set_id || digest3(priorExecution.execution_result.review_target.entries.map((item) => item.path)) !== digest3(receipt.review_target_paths)) {
       fail6("REVIEW_TARGET_CONFLICT", "repair result no longer binds the Runtime-recorded reviewed change set.");
     }
@@ -14455,6 +15025,8 @@ function recordStepResult(root, input, options = {}) {
   const evidenceRefs = allEvidenceRefs(commandResults, validationResults, acceptanceEvidence);
   const claimEvidence2 = updateClaimEvidence(current, acceptanceEvidence);
   const executionResult = {
+    ...receipt.kind === "execute-step-preflight/v1" && receipt.attempt_id ? { attempt_id: receipt.attempt_id } : {},
+    ...source.blocker_kind === undefined ? {} : { blocker_kind: source.blocker_kind },
     outcome,
     change_set_id: receipt.change_set_id,
     review_base: receipt.review_base,
@@ -14505,9 +15077,6 @@ function recordStepResult(root, input, options = {}) {
     execution_result: executionResult
   });
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
-}
-function claimEvidenceComplete(records) {
-  return records.length > 0 && records.every((item) => item.slots.length > 0 && item.slots.every((slot) => ["existing", "reused", "newly-executed"].includes(slot.disposition) && slot.evidence_refs.length > 0));
 }
 function resolveVerifiedFindings(root, current, receipt, options) {
   for (const fingerprint of receipt.admitted_fingerprints) {
@@ -14566,7 +15135,7 @@ function completeReviewedStep(root, input, options = {}) {
     if (pending.verdict !== "clean") {
       fail6("CLEAN_REVIEW_REQUIRED", `complete-reviewed-step requires clean; current review verdict is ${pending.verdict}.`);
     }
-    const reviewedExecution = current.runtimeState.execution_log.find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
+    const reviewedExecution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
     if (!reviewedExecution?.execution_result || reviewedExecution.change_set_id !== pending.change_set_id || reviewedExecution.execution_result.review_target.revision !== pending.review_target_revision) {
       fail6("REVIEW_TARGET_CONFLICT", "canonical clean review no longer binds its Runtime-recorded execution target.");
     }
@@ -14630,7 +15199,7 @@ function completeReviewedStep(root, input, options = {}) {
   }
   const claimEvidence2 = current.runtimeState.claim_evidence;
   const resolution = resolveTaskStep(current.body, stepId);
-  if (resolution.next === null && (!claimEvidence2 || !claimEvidenceComplete(claimEvidence2))) {
+  if (resolution.next === null && (!claimEvidence2 || !evaluateClaimEvidence(claimEvidence2, { root, current }).validation_complete)) {
     fail6("CLAIM_EVIDENCE_INCOMPLETE", "the final step cannot complete until every frozen acceptance-evidence slot has evidence.");
   }
   if (reviewReceipt.admitted_fingerprints.length > 0) {
@@ -14698,6 +15267,12 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
     switch (args.command) {
       case "preflight-step":
         result = preflightStep(args.root, input);
+        break;
+      case "evidence-context":
+        result = evidenceContext(args.root, input);
+        break;
+      case "retry-step":
+        result = retryStep(args.root, input, { dryRun: args.dryRun });
         break;
       case "begin-repair":
         result = beginRepair(args.root, input, { dryRun: args.dryRun });
@@ -14791,7 +15366,7 @@ function latestRecordedExecution(current) {
     fail7("REVIEW_TARGET_CONFLICT", "the latest execution change-set identity is inconsistent.");
   }
   assertReviewExecutionEligible(current, latest);
-  return latest;
+  return cumulativeReviewExecution(current, latest);
 }
 function stepScope(value, location) {
   if (!value)
@@ -14906,6 +15481,7 @@ function reviewContext(root, input) {
       conditional: scope.conditional.map((item) => item.pattern),
       forbidden: scope.forbidden.map((item) => item.pattern)
     },
+    review_preimages: current.runtimeState.review_coverage?.preimages ?? [],
     persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
     claim_evidence: (current.runtimeState.claim_evidence ?? []).map((item) => ({
       ...item,
@@ -14965,10 +15541,10 @@ function assertCurrentContext(root, current, receipt) {
   if (open.length !== receipt.admitted_fingerprints.length || open.some((item) => !receipt.admitted_fingerprints.includes(item))) {
     fail7("REVIEW_CONTEXT_STALE", "admitted finding set changed after review context was issued.");
   }
-  return latest;
+  return cumulativeReviewExecution(current, latest);
 }
 function assertRecordedTargetCurrent(root, current, receipt) {
-  const execution = current.runtimeState.execution_log.find((item) => !("action" in item) && item.idempotency_key === receipt.execution_id);
+  const execution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === receipt.execution_id);
   if (!execution?.execution_result || !execution.change_set_id || execution.execution_result.change_set_id !== execution.change_set_id) {
     fail7("REVIEW_TARGET_CONFLICT", "review result no longer binds its Runtime-recorded execution target.");
   }
@@ -15066,7 +15642,7 @@ function semanticNoOp3(current, key, message, options) {
 }
 function recordReviewResult(root, input, options = {}) {
   const source = record3(input, "record-review-result input");
-  exactKeys3(source, ["context_receipt", "verdict", "findings", "unresolved_fingerprints", "evidence_refs", "blocker"], "record-review-result input");
+  exactKeys3(source, ["context_receipt", "verdict", "findings", "unresolved_fingerprints", "evidence_refs", "blocker", ...source.test_assessment === undefined ? [] : ["test_assessment"]], "record-review-result input");
   const receipt = normalizeContextReceipt(source.context_receipt);
   if (!["clean", "findings", "blocked"].includes(String(source.verdict)))
     fail7("REVIEW_ADAPTER_INPUT_INVALID", "verdict must be clean, findings, or blocked.");
@@ -15106,6 +15682,7 @@ function recordReviewResult(root, input, options = {}) {
   const finalBlocker = runtimeBlocker ?? blocker;
   const reviewId = `review-${digest4({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult = {
+    ...source.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(source.test_assessment) },
     kind: "review-result/v1",
     review_id: reviewId,
     execution_id: receipt.execution_id,

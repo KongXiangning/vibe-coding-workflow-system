@@ -20,6 +20,7 @@ import {
   STATUS_SECTION_KEYS,
   STATUS_SECTIONS,
   applyVNextRuntimeProposal,
+  captureReviewTarget,
   createArchiveProposal,
   createContractCandidateProposal,
   createDecisionRecordProposal,
@@ -162,12 +163,12 @@ function runtimeDraftDefinition(): DraftTaskDefinition {
       '  - purpose: create a persisted record set before realign',
       '  - mutation_scope: src/**',
       '  - required_evidence: realign:evidence:step',
-      '  - review_checkpoint: not-required',
+      '  - review_checkpoint: not-required: final-exemption: isolated state-only fixture has no product diff',
     ].join('\n'),
     regression_checks: [
       '### Test Strategy',
       '',
-      '- mode: implementation-first',
+      '- mode: flexible',
       '- source: inferred-default',
       '- source_ref: prepare-task-default',
       '- task_classification: exploratory-or-infrastructure',
@@ -913,13 +914,14 @@ describe('vNext bootstrap-project', () => {
       draft_definition: runtimeDraftDefinition(),
       active_step_id: 'step-1',
       claim_evidence: [{
-        claim_id: 'A1',
-        claim_kind: 'acceptance',
-        slots: [{
-          slot_id: 'a1',
-          minimum_type: 'focused-test',
-          disposition: 'newly-executed',
-          evidence_refs: ['realign:evidence:planned-claim'],
+        claim_id: 'A1', claim_kind: 'acceptance',
+        requirement: 'durable Runtime records survive Bootstrap realign', source_ref: 'test:realign-request',
+        slots: [{ slot_id: 'a1', minimum_type: 'static-proof', disposition: 'missing', evidence_refs: [],
+          applicability: 'current', due_step_id: 'step-1', report: null,
+          check: { check_id: 'realign-check', method: 'static', entry: 'src/realign-persistence.ts',
+            expected_observation: 'The isolated record fixture exists before realign',
+            required_boundaries: ['Runtime persistence'], allowed_substitutes: ['isolated fixture'],
+            subject_paths: ['src/realign-persistence.ts'], expected_result: 'accepted' },
         }],
       }],
       evidence_refs: ['realign:evidence:draft'],
@@ -938,22 +940,24 @@ describe('vNext bootstrap-project', () => {
       authority_evidence: runtimeConfirmationAuthority(draftCurrent),
     });
     expect(applyVNextRuntimeProposal(target, confirm).status).toBe('success');
-    const executed = createTaskStateProposal(readCanonicalCurrentTask(target), {
+    // S5: admit an empty plan first, then bind the observed static fixture;
+    // successful reports must not be imported with draft creation.
+    const confirmed = readCanonicalCurrentTask(target);
+    const claims = structuredClone(confirmed.runtimeState.claim_evidence!);
+    const slot = claims[0]!.slots[0]!;
+    slot.disposition = 'existing';
+    slot.evidence_refs = ['src/realign-persistence.ts'];
+    slot.report = { result_id: 'realign-static', status: 'accepted',
+      evidence_plan_revision: confirmed.runtimeState.evidence_plan_revision!,
+      subject_revision: captureReviewTarget(target, slot.check!.subject_paths).revision,
+      actual_method: 'static', environment: 'isolated realign fixture', assurance: 'caller-reported' };
+    const executed = createTaskStateProposal(confirmed, {
       mode: 'default',
       status: 'completed',
-      evidence_refs: ['realign:evidence:step'],
+      evidence_refs: ['realign:evidence:step', 'src/realign-persistence.ts'],
       idempotency_key: 'realign-persistence-execute',
       authority_evidence: runtimeAuthority('active-task-owner', 'scope-admission', 'evidence-admission'),
-      claim_evidence: [{
-        claim_id: 'A1',
-        claim_kind: 'acceptance',
-        slots: [{
-          slot_id: 'a1',
-          minimum_type: 'focused-test',
-          disposition: 'newly-executed',
-          evidence_refs: ['realign:evidence:claim'],
-        }],
-      }],
+      claim_evidence: claims,
     });
     expect(applyVNextRuntimeProposal(target, executed).status).toBe('success');
 

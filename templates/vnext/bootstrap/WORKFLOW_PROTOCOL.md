@@ -93,59 +93,35 @@ current draft revision and explicit user or authorized-caller authority.
 Execution and finding admission reject drafts until that Runtime transition
 succeeds; the prior archive remains immutable.
 
-Before writing a new, updated, or replanned draft, prepare-task must classify
-its test strategy as `test-first`, `implementation-first`, or
-`not-applicable`, and record the selection source, task classification, and
-rationale in the canonical `Test Strategy` subsection. The closed task
-classifications are `contract-clear-behavior`,
-`exploratory-or-infrastructure`, and `non-executable-change`. Each source also
-has an exact `source_ref`: a Task Basis coordinate for `explicit-user`, an
-existing repository-relative policy file for `project-policy`, or
-`prepare-task-default` for `inferred-default`. Authority precedence is
-`explicit-user` > `project-policy` > `inferred-default`. The default is
-`test-first` for contract-clear feature, API, business-rule, regression, and
-bug-fix work; `implementation-first` is permitted for exploratory work,
-infrastructure validation, or technical proof where stable assertions depend
-on what is learned; `not-applicable` is reserved for work with no executable
-behavior, such as documentation-only or governance-metadata-only changes.
-Ambiguity is a user-owned open question and must be resolved before draft
-commit. For `test-first`, the first step contains all declared test assets and
-no product target; product implementation follows in a later step. For
-`implementation-first`, declared test assets appear only after the first
-implementation/discovery step; it may have no new persistent test when
-evidence-first admission or an explicit user denial leaves Persistent Tests at
-`none`. `not-applicable` additionally requires every task and step mutation
-pattern to be an exact path or provable subset of the project-owned
-`PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths` boundary.
-That boundary accepts only exact paths or literal directory prefixes ending in
-`/**`; wildcard-bearing prefixes and other wildcard layouts cannot prove a
-non-executable classification.
-Documentation inventory is not classification evidence because Markdown Skill
-templates, host guidance, and similar files can change executable behavior.
-Missing, empty, repository-wide, or ambiguous policy blocks only a new
-`not-applicable` definition and leaves the executable strategy modes available.
-Runtime enforces the strategy at create, update,
-confirmation, and replan without retroactively invalidating an existing active
-task. `confirm-draft` freezes the strategy with the rest of the task definition;
-only replan may change it.
+New semantic and raw drafts use Runtime-owned `business_evidence_version: 1`.
+The frozen Test Strategy retains mode/source/source_ref/task_classification/rationale.
+Modes are `flexible`, `test-first`, `implementation-first`, `not-applicable`.
+Authority precedence remains `explicit-user` > `project-policy` > `inferred-default`;
+source_ref binds an exact Task Basis coordinate, existing policy file, or
+`prepare-task-default`, respectively. Executable inferred defaults use `flexible`.
+Explicit ordering retains its reason and relevant target through approved before-step
+slots; absent prerequisite definitions remain TEST_STRATEGY_PREREQUISITE_UNSUPPORTED.
+It must never be silently downgraded. No first-step Red, global tests-only split,
+new-test obligation, or failed-first-run obligation is inferred.
+`not-applicable` still requires non-executable-change, Persistent Tests=none,
+and exact/subset admission under the project-owned
+`PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths` policy. Missing,
+ambiguous or executable paths cannot prove this classification; Markdown alone
+is not non-executable evidence. Persistent-test admission and review remain required.
+Confirmation freezes the strategy; changes require authorized replan.
+Implemented results require passed companions; an expected-failure result must
+bind the exact admitted before-step reproduction check and successful report. Expected-failure/test-red remain historical data types, never positive
+acceptance. New reproduction results must bind the admitted before-step check; they never satisfy positive acceptance.
+Unversioned tasks remain readable, including archives, but execution/closure
+returns `TASK_SEMANTICS_UPGRADE_REQUIRED`. Unknown versions fail closed. New
+Runtime never silently upgrades an active task: use its previous installation
+or an explicitly authorized replan. S1–S4 are local-only and not independently distributable.
 
-Execution re-resolves that frozen strategy and the active step order on every
-preflight and result transaction. The first `test-first` step is a mandatory
-Red phase: Runtime admits only the frozen Persistent Tests, requires a
-`test-red` result containing at least one structured `expected-failure` whose
-kind is `behavior-not-implemented`, rejects final acceptance evidence, and
-requires a clean review checkpoint before any later Green/implementation step
-can run. Syntax, type, import, fixture, tool, unrelated-test, and environment
-failures are unexpected failures and must be recorded as blocked, not Red.
-Later `test-first` steps and all non-Red strategies retain the normal
-`implemented` rule that every planned command and validation result passes.
-Active legacy tasks without a frozen Test Strategy retain their existing
-execution semantics and are not retroactively invalidated.
 
 For tasks with `claim_evidence_required: true`, prepare-task must persist a
 non-empty frozen per-claim/per-slot evidence plan in the same canonical
 `CURRENT_TASK.runtime_state`, including at least one `acceptance` claim.
-Execution can update only planned slot disposition and `evidence_refs`; it
+Execution can update only planned slot disposition, `evidence_refs` and bound report; it
 cannot create or redefine the plan at completion time. Every planned slot must
 be `existing`, `reused`, or `newly-executed` and carry `evidence_refs`;
 `missing`, `deferred`, or `blocked` evidence cannot become `task-complete`.
@@ -158,7 +134,8 @@ active legacy task, the canonical migration is the typed
 installs only a non-empty acceptance-bearing plan and preserves the existing
 task identity, definition, scope, implementation state, execution history,
 findings, review state, and lifecycle tuple. It is schema migration, not
-business replan or lifecycle supersede.
+business replan or lifecycle supersede. It does not add business_evidence_version
+or remove the execution/closure version and evidence-plan gates.
 
 ## Durable Lesson marker boundary
 
@@ -225,3 +202,35 @@ Anchors are navigation seeds, not completeness or mutation authority. Consumers
 validate them against current code and expand live impact analysis according to
 risk; stale anchors trigger broader search rather than trusted historical
 locations.
+
+### Business evidence completion (S2)
+
+Prepare accepts stable claim/slot/check definitions, with acceptance rendered from
+claims. Record-step-result merges exact slot reports; command success never fills
+unreported flow slots. Step completion checks due obligations and close checks all
+obligations using one Runtime evaluator, including current subject hashes and
+retained artifacts. Caller-reported is the only supported assurance. No string
+label supplies a trusted Provider or authenticated human signature.
+
+The internal record-step-preflight transaction consumes approved prerequisites
+and records first-touch review preimages before editing. It preserves pending review and budgets; findings route to
+begin-repair, clean to complete-reviewed-step, blocked to its recorded route.
+Consumed reproduction snapshots remain historical while current repair evidence
+must match the repaired subjects. New definitions never import prior receipts.
+
+P-12 admission binds persistent test paths to stable claims, source/owner,
+necessity, existing evidence insufficiency and assertion boundary. Review checks
+oracle independence and whether mocks actually cross the claimed boundaries.
+Each step declares required/not-required and a reason; omitted semantic input
+retains conservative required review for compatibility, never an implicit waiver.
+A required checkpoint reviews the cumulative task delta from first-touch content,
+including earlier exempt steps. The final checkpoint is required unless its
+confirmed reason explicitly starts with `final-exemption:` and explains why the
+entire cumulative task may be exempt. Project-required reviews cannot be waived.
+Clean completion consumes pending coverage; findings, blocked and stale results
+preserve it. Repair still requires verification. The internal retry-step action
+only restores an explicitly recorded environment blocker to ready in the
+same plan. It retains failure evidence and permits at most three attempts in
+canonical step_attempts. Retry never completes the step: a fresh preflight and
+execution are required. Unknown/business failures and open findings do not use
+retry; no server restart or database reset is an implicit recovery action.

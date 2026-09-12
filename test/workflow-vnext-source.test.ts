@@ -285,7 +285,7 @@ describe('vNext Phase 2 source contract', () => {
     expect(execute).toContain('frozen test-strategy mode, execution phase, required outcome');
     expect(execute).toContain('`outcome: test-red`');
     expect(execute).toContain('`status: expected-failure`');
-    expect(execute).toContain('A Red step must not submit acceptance evidence');
+    expect(execute).toContain('Expected failure cannot satisfy positive acceptance');
 
     const root = copyFixture();
     const executeFixture = fixtureFile(root, 'templates/vnext/skills/execute-step.SKILL.md.tmpl');
@@ -304,7 +304,7 @@ describe('vNext Phase 2 source contract', () => {
     expect(content).toContain('report all clear repairable findings together');
     expect(content).toContain('`blocked`: include the blocker and recommended route');
     expect(content).toContain('canonical review result is the only durable effect');
-    expect(content).toContain('For `test-red`, verify that only frozen test assets were admitted');
+    expect(content).toContain('For historical `test-red`, verify that only frozen test assets were admitted');
   });
 
   test('preserves P-12 evidence-first and persistent-test admission boundaries', () => {
@@ -413,15 +413,15 @@ describe('vNext Phase 2 source contract', () => {
     expect(prepare).toContain('Set `source_ref` to the exact');
     expect(prepare).toContain('`contract-clear-behavior`, `exploratory-or-infrastructure`, or');
     expect(prepare).toContain('user-owned open question and resolve it before submitting `prepare-draft`');
-    expect(prepare).toContain('contain every listed test asset and no non-test target');
-    expect(prepare).toContain('keep every declared test asset out of the first implementation/discovery step');
+    expect(prepare).toContain('Do not infer Red from step order');
+    expect(prepare).toContain('TEST_STRATEGY_PREREQUISITE_UNSUPPORTED');
     expect(prepare).toContain('Persistent Tests may remain `none`');
     expect(prepare).toContain('PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths');
     expect(prepare).toContain('Each policy entry must itself be an exact path or a literal directory prefix');
     expect(prepare).toContain('reject wildcard-bearing prefixes such as `*/**`');
     expect(prepare).toContain('Every Allowed, Conditional, and implementation-step mutation pattern');
     expect(prepare).toContain('documentation inventory as proof');
-    expect(prepare).toContain('does not block `test-first` or `implementation-first`');
+    expect(prepare).toContain('does not block `flexible`');
     expect(prepare).toContain('Explicit confirmation freezes the strategy');
     expect(prepare).toContain('`next_route: review-draft`');
 

@@ -45,13 +45,13 @@ Implement only the confirmed `CURRENT_TASK` step selected by Runtime. Do not red
 
 ## Operating rules
 
-1. Send intended changed paths, including every exact planned command write, to Runtime `preflight-step` on stdin. Runtime freezes their before-state and returns the frozen test-strategy mode, execution phase, required outcome, and Persistent Tests in the receipt. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, the required prior Red checkpoint is missing, or preflight blocks, report that result and stop.
+1. Send intended changed paths, including every exact planned command write, to Runtime `preflight-step` on stdin. Runtime freezes their before-state and returns the frozen test-strategy mode, execution phase, required outcome, and Persistent Tests in the receipt. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, explicit prerequisite evidence is unsupported, or preflight blocks, report that result and stop.
 2. Modify only paths admitted for the current step. A persistent test may be created or changed only when it is already frozen in the confirmed task's `Persistent Tests`; do not admit another test during execution.
-3. Obey the Runtime phase. For `red`, modify no product implementation, run the planned test/validation, and verify that the new or frozen test fails specifically because the required behavior is not implemented. Record that result as `status: expected-failure` with `expected_failure.kind: behavior-not-implemented`, the expected behavior, and a bounded observed failure signature. Syntax, type, import, fixture, tool, unrelated-test, and environment failures are not Red evidence: record a truthful `blocked` result instead. A Red step must not submit acceptance evidence. For every non-Red phase, use `outcome: implemented` only when all planned command and validation results pass.
+3. Obey the Runtime phase. `flexible` has no mandatory Red or tests-only first step; an admitted test may pass immediately. Use `outcome: implemented` only when planned results pass or explicitly match the admitted reproduction check. Explicit ordering requires Runtime-consumed before-step evidence; do not substitute flexible. Historical `outcome: test-red` and `status: expected-failure` remain readable. A new expected-failure result requires a new report submitted in this execution for its exact unconsumed before-step check constraining a later step. Historical reproduction reports cannot authorize later repair or delivery failures. Expected failure cannot satisfy positive acceptance. Syntax, type, import, fixture, tool, unrelated-test, and environment failures are not Red evidence; report actual failures as blocked.
 4. Run only the current step's planned commands and validation. Do not substitute an unplanned write-capable command. If a command or validation cannot run as planned, stop instead of improvising around Runtime.
-5. When the canonical review result contains findings, ask Runtime `begin-repair` for the complete admitted finding set. Repair only those findings in one bounded wave and do not use repair as an opportunity for unrelated improvements. A repair of a Red step must still re-establish truthful `test-red` evidence.
-6. Send declared actual changed paths, command results, validation results, and permitted acceptance evidence to Runtime `record-step-result` on stdin. Use `outcome: test-red` only for Runtime phase `red`. Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns phase/order enforcement, scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
-7. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again. Runtime will not advance a test-first task to implementation until the Red result has passed this checkpoint.
+5. When the canonical review result contains findings, ask Runtime `begin-repair` for the complete admitted finding set. Repair only those findings in one bounded wave and do not use repair as an opportunity for unrelated improvements.
+6. Send declared actual changed paths, command results, validation results, and permitted acceptance evidence to Runtime `record-step-result` on stdin. Do not submit `outcome: test-red` without an admitted reproduction obligation (new executions use implemented and a bound expected-failure report). Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns phase/order enforcement, scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
+7. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again. Runtime retains the existing required review and repair verification gates.
 
 ## Required result
 
@@ -60,3 +60,62 @@ Return one structured `change-result` with the current step, Runtime-detected ch
 Only when Runtime reports successful step completion, return `next_route: git-commit` and a `commit_scope` containing the Runtime-detected changed files plus Runtime-written workflow paths. This is a recommendation for the user—or an explicitly configured outer orchestrator—to invoke later; neither execute-step nor Runtime invokes it. Otherwise recommend the appropriate review or blocker route. This invocation must not invoke another public Skill or start the next step.
 
 terminal_boundary: public-entry-terminal/v1
+
+## Slot reports and prerequisite consumption
+
+Submit acceptance_evidence by claim_id + slot_id + check_id + minimum_type, with
+disposition, retained evidence_refs and a structured report: result_id, status,
+evidence_plan_revision, subject_revision, actual_method, environment, assurance.
+After executing the check, send `{}` to Runtime `evidence-context` on stdin.
+Use its evidence_plan_revision and the matching claim/slot/check's subject_revision.
+This read-only snapshot grants no execution authority and proves no check ran.
+Do not copy another slot's identity or report, or refresh a stale report without rerunning its check.
+A rule pass cannot satisfy a flow slot. Failed, blocked, not-run, skipped and missing
+slots cannot complete their due step or close the task. Static evidence uses
+accepted, without invented exit codes. Human evidence remains blocked without an
+authenticated channel. Assurance remains caller-reported even when input says trusted.
+Preserve the shared transaction output `evidence_assurance: caller-reported` in
+user-facing summaries; a successful state write is not independent execution proof.
+
+Preflight may atomically register an approved prerequisite before editing; use the
+returned source revision. It must not clear pending review, findings or budgets.
+When review is pending, report its consumer route and stop. Never forge or replace
+a prerequisite_receipt; after consumption its historical snapshot and report are
+immutable, while positive current evidence must reflect the repaired objects.
+
+
+## Cumulative review boundary
+
+Preflight records bounded first-touch content and approved prerequisites; preserve
+its returned revision. A not-required step still submits actual execution and
+all due evidence. Its changes remain pending for the next checkpoint. Do not
+refresh a stale baseline or use Git HEAD as the task's dirty before-state. Review
+uses the cumulative target, while actual_changed_paths describes this invocation.
+Repair paths require existing scope and a registered before-state; missing scope
+or baseline must be routed explicitly, never expanded by the reviewer. Clean
+completion or a confirmed final cumulative exemption consumes pending coverage;
+repair requires a separate verification review even on an exempt step.
+
+
+## Same-plan environment retry
+
+For an ordinary execution stopped by a known temporary environment prerequisite,
+record outcome=blocked and blocker_kind=environment when the affected result is
+blocked and no business check reported failed. Declare all prior admitted writes;
+Runtime retains them and requires subjects to remain unchanged since the failure.
+Keep failed/unknown causes truthful; investigate them through debug-task or an
+existing authorized repair route. Do not invent a finding to unlock retry.
+
+After obtaining concrete evidence of resolution, a later caller invocation may
+send Runtime `retry-step` the exact step_id, durable blocked_attempt_id,
+blocker_resolution_refs, and a stable idempotency_key. Use the FILE_SCHEMAS
+bound environment-restored/v1 JSON report format. Report provenance stays
+caller-reported. A generic note or a changed fixture cannot discharge the blocker.
+
+Runtime permits initial execution plus at most two retries, preserving failures
+and resolution references beyond rolling logs. A successful retry only sets
+ready. Stop and hand off to a fresh preflight/execution invocation; do not reuse
+old receipts, change checks or scope, claim completed, or invoke another public
+Skill automatically. No server restart, DB reset, or cleanup is implied. When
+blocked by diagnosis, findings, object drift, or budget, report that exact reason
+and the permitted debug/repair/replan/user route.

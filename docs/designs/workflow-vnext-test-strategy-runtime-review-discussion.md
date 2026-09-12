@@ -1,14 +1,32 @@
 # Workflow vNext 测试策略、执行与评审机制讨论结论
 
-- **Status:** `Discussion consensus / architecture change pending`
+- **Status:** `Historical discussion / selected conclusions superseded by vnext-business-evidence / implementation pending`
 - **Date:** `2026-09-11`
 - **Scope:** `prepare-task、execute-step、review-testcase、review-change、Runtime 测试证据与测试复用`
 - **Behavior impact:** `proposal only; current Runtime 尚未完整实现本文方案`
 - **Origin:** `FixFlow current_task 完成阶段独立审核及后续设计讨论`
 - **Related documents:**
+  - [`vnext-business-evidence/PLAN.md`](vnext-business-evidence/PLAN.md)
+  - [`vnext-business-evidence/HANDOFF.md`](vnext-business-evidence/HANDOFF.md)
   - [`workflow-vnext-target-architecture.md`](workflow-vnext-target-architecture.md)
   - [`workflow-vnext-implementation-blueprint.md`](workflow-vnext-implementation-blueprint.md)
   - [`workflow-vnext-phase1-prototype-assessment.md`](../product/workflow-vnext-phase1-prototype-assessment.md)
+
+## 2026-09-11 S0：本轮方向替代范围
+
+本次用户已固定业务证据治理纠偏方向，实施规格为上链 PLAN，实际源码/安装身份及接口见 HANDOFF。以下仅标记讨论结论的效力；S0 没有修改 Runtime、正式 contract/schema、Target Architecture 或 Blueprint，也未完成 S1。
+
+| 本文相关结论 | 本轮效力及替代方向 |
+|---|---|
+| §2.1、§3.1、§13 的“永远只有三种策略” | 被 PLAN D1 取代；普通可执行任务采用无固定先后的 flexible，保留有依据的显式顺序；不是默认严格 TDD。 |
+| §3.2、§5、§7.1 的全局 testcase/Red/Green 阶段及必须后续产品步骤 | 被 D1/D2 取代；使用 claim/slot/check 局部义务，纯测试资产首次通过合法，expected-failure 不能证明正向交付。 |
+| §2.7、§6、§10、§12/13 的新增 public review-testcase 与架构变更方案 | 本轮不采用；测试必要性、oracle、复用及边界审查放在既有 review-draft/review-change；保留 Target 核心，不新建公共入口。 |
+| §2.8/10/11、§7.2、§8 的可信执行凭证、全局 Test ID/catalog 前置 | 被 D2/D3 的最小边界取代；任务内稳定 ID、多槽实际调用、结构化 caller-reported 报告及对象适用性本期接通；完整 Provider/AST/全局 ID 后置，不声称来源标签能证明可信执行。 |
+| §5/7/14 的逐步仪式化执行/评审建议 | 以 D4 为准：按风险/逻辑检查点；required review 必须覆盖累计相关变更，修复仍需同一逻辑目标 verification。 |
+| §2.12、§7.4 的环境 blocked 重试 | 保留问题判断，按 D5 在 dogfood 前完成最小同计划、有界、幂等重试；不构建通用恢复平台。 |
+| §2.13、§7.5 的滚动日志证据丢失暂缓 | 不再适用于新语义完成判断；必需证据摘要、累计评审边界和 retry 预算存 canonical task records，不依赖 256 条滚动日志。 |
+
+下文保留讨论历史；“最终”“已决定”“尚未实现”均属于原讨论时间点。未被上表覆盖的历史问题也不能据此扩大本轮范围。代码与两份同版本分发包的真实差异以 S0 HANDOFF 为准，不把这些替代方向标作已经生效的 Runtime 能力。
 
 ## 1. 文档目的
 

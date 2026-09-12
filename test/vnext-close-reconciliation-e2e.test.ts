@@ -6,6 +6,9 @@ import * as path from 'path';
 import { stringify } from 'yaml';
 import {
   applyVNextRuntimeProposal,
+  assertEvidencePlan,
+  captureReviewTarget,
+  readDraftDefinitionFromBody,
   createArchiveProposal,
   createLessonRecordProposal,
   createProjectStatusProposal,
@@ -56,20 +59,15 @@ const STATUS_RECONCILIATION_BEGIN = '<!-- BEGIN vNext close-task STATUS reconcil
 const temporaryRoots: string[] = [];
 
 function fixtureClaimEvidence(): NonNullable<RuntimeState['claim_evidence']> {
-  return [{
-    claim_id: 'A1',
-    claim_kind: 'acceptance',
-    slots: [{
-      slot_id: 'close-reconciliation',
-      minimum_type: 'focused-test',
-      disposition: 'existing',
-      evidence_refs: ['e2e:evidence:close-reconciliation'],
-    }],
-  }];
+  const records: NonNullable<RuntimeState['claim_evidence']> = [{ claim_id: 'A1', claim_kind: 'acceptance', requirement: 'terminal archive and reconciliation remain durable after restart', source_ref: 'fixture:admitted-contract', slots: [{ slot_id: 'evidence', minimum_type: 'static-proof', applicability: 'current', due_step_id: 'step-close-reconciliation', disposition: 'existing', evidence_refs: ['evidence-report.txt'], check: { check_id: 'K1', method: 'static', entry: 'fixture-subject.txt', expected_observation: 'terminal archive and reconciliation remain durable after restart', required_boundaries: ['Runtime transaction'], allowed_substitutes: ['isolated fixture'], subject_paths: ['fixture-subject.txt'], expected_result: 'accepted' } }] }];
+  const revision = assertEvidencePlan(readDraftDefinitionFromBody(currentTaskBody({ active_step_id: 'step-close-reconciliation', resume_review_reasons: [] } as RuntimeState)), records);
+  records[0]!.slots[0]!.report = { result_id: 'fixture-result', status: 'accepted', evidence_plan_revision: revision, subject_revision: captureReviewTarget(path.resolve(import.meta.dir, '..'), ['fixture-subject.txt']).revision, actual_method: 'static', environment: 'isolated Runtime fixture', assurance: 'caller-reported' };
+  return records;
 }
 
 function fixtureState(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
+    business_evidence_version: 1,
     schema_version: 1,
     kind: 'vnext-current-task-runtime-state',
     task_id: FIXTURE_TASK_ID,
@@ -95,6 +93,7 @@ function fixtureState(overrides: Partial<RuntimeState> = {}): RuntimeState {
     applied_proposals: [],
     claim_evidence_required: true,
     claim_evidence: fixtureClaimEvidence(),
+    evidence_plan_revision: fixtureClaimEvidence()[0]!.slots[0]!.report!.evidence_plan_revision,
     ...overrides,
   };
 }
@@ -168,6 +167,14 @@ function currentTaskBody(state: RuntimeState): string {
     '## 回归检查项',
     '',
     '- [ ] run the isolated close reconciliation E2E',
+    '### Test Strategy',
+    '- mode: flexible',
+    '- source: inferred-default',
+    '- source_ref: prepare-task-default',
+    '- task_classification: contract-clear-behavior',
+    '- rationale: No explicit ordering requirement.',
+    '### Persistent Tests',
+    '- none',
     '',
     '## 回滚点',
     '',
@@ -208,6 +215,7 @@ function createVirtualProject(state: RuntimeState = fixtureState()): string {
     'utf8',
   );
 
+  fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Admitted static fixture evidence');
   const currentTaskPath = path.join(root, CURRENT_TASK_RELATIVE_PATH);
   fs.mkdirSync(path.dirname(currentTaskPath), { recursive: true });
   const frontmatter = {
@@ -454,7 +462,7 @@ function applyArchive(root: string, delta: ArchiveDelta): { proposalJson: string
   const proposal = archiveProposal(root, delta);
   const proposalJson = JSON.stringify(proposal);
   const archiveResult = applyVNextRuntimeProposal(root, proposal, { now: () => '2026-09-03T00:00:00.000Z' });
-  expect(archiveResult.status).toBe('success');
+  expect(archiveResult, archiveResult.message).toMatchObject({ status: 'success' });
   expect(archiveResult.committed).toBe(true);
   expect(archiveResult.read_back_verified).toBe(true);
   expect(archiveResult.archive_path).toBe(ARCHIVE_RELATIVE_PATH);

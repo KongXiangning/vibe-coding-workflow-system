@@ -28,24 +28,73 @@ and later explicit user decisions, each with an exact source locator. It is
 written and read back atomically with `CURRENT_TASK.md`; author summaries and
 draft review findings are forbidden because they are not request authority.
 
-New and refined drafts use the same canonical `runtime_state` to store
-`claim_evidence_required: true` and a bounded, non-empty `claim_evidence` plan
-with at least one `acceptance` claim. Legacy documents may omit these fields
-and remain readable, but require prepare-task refinement/migration before
-`task-complete` or terminal close-task. Each record has `claim_id`,
-`claim_kind`, and planned `slots`; each slot has `slot_id`, `minimum_type`,
-`disposition`, and `evidence_refs`. Only `existing`, `reused`, and
-`newly-executed` dispositions with refs are complete. `missing`, `deferred`,
-and `blocked` slots prevent Runtime `task-complete` and close-task validation.
-An active + active legacy task is migrated through the typed
-`prepare-task:default:migrate-claim-evidence` transaction, which installs only
-the non-empty acceptance-bearing plan and preserves the task's existing
-identity, definition, scope, execution state, history, findings, review state,
-and lifecycle tuple; it is not a replan or lifecycle supersede.
-The plan shape is frozen at prepare/confirm time: execute-step may update only
-slot disposition and refs, and cannot add, remove, or redefine claims or
-slots. Aggregate command success, notes, and model summaries are not a second
-evidence state source.
+New semantic drafts accept `claim_evidence: ClaimEvidenceRecord[]`, replacing the
+free `acceptance` array. Runtime renders acceptance requirements into the body;
+raw drafts must match that exact projection. The plan is non-empty, contains at
+least one acceptance claim, and every claim has at least one slot. Stable IDs
+are task-local, never inferred from wording or array positions.
+
+- Claim: `claim_id`, `claim_kind`, `requirement`, `source_ref`, `slots`.
+- Slot: `slot_id`, concrete `minimum_type`, `due_step_id`,
+  `applicability: current | before-step`, `check`, `report`, `disposition`,
+  `evidence_refs`. New plans start missing, empty refs and null/absent reports;
+  `planned-validation` is historical only.
+- Check: `check_id` (unique within the task), `method: execution | static | human`,
+  `entry`, `expected_observation`, `required_boundaries`, `allowed_substitutes`,
+  exact `subject_paths`, `expected_result: passed | accepted | expected-failure`.
+- Report: `result_id`, `status: passed | failed | blocked | not-run | skipped |
+  accepted | expected-failure`, `evidence_plan_revision`, `subject_revision`,
+  `actual_method`, `environment`, `assurance: caller-reported`. Shared transaction
+  responses also expose `evidence_assurance: caller-reported`; success verifies
+  the transaction, not independent execution authenticity. Assurance is
+  fixed by Runtime; a supplied trusted/ci/runtime-local label never upgrades it.
+
+`acceptance_evidence` submits `{claim_id, slot_id, check_id, minimum_type,
+disposition, evidence_refs, report}` through record-step-result. Only the exact
+frozen slot changes; other slots retain their facts. Reusing a ref does not
+satisfy another slot. A changed report uses a new result_id. Draft changes to an
+obligation require replacement IDs; confirmed definitions change only by replan.
+
+Runtime owns `evidence_plan_revision`, a SHA-256 of the frozen task definition
+and claim/slot/check plan, excluding result fields and execution audit. Reports
+bind `subject_revision` to the Runtime file manifest for declared subject paths
+(including relevant implementation, tests, helpers, fixtures and configuration).
+CURRENT_TASK and .git are not subject paths. Audit changes do not stale evidence;
+changed declared subjects do. Undeclared dependencies and transient writes are
+not comprehensively observed. Retain repository-relative artifact files in
+`evidence_refs` (optional #locator) through completion/close. Missing artifacts
+block new completion; historical archive reads do not rewrite recorded facts.
+
+All completion paths share Runtime evidence evaluation: due and overdue slots
+must succeed before step completion; future slots may remain missing; final
+completion/close checks every slot. Disposition or command pass alone cannot
+substitute for a bound applicable report. Static checks use accepted without a
+process exit code. No authenticated human acceptance provider is bound, so human
+reports are explicitly blocked; higher assurance requires a future real provider.
+
+Only before-step slots carry `before_step_id` and nullable Runtime-owned
+`prerequisite_receipt: {step_id, preflight_id, result_id, subject_snapshot}`.
+A prerequisite cannot constrain the first step: reports
+must be submitted through an earlier authorized execution step. Only a new report
+submitted in the current execution for an unconsumed prerequisite constraining a
+later step can authorize expected-failure; historical reports cannot authorize
+failure in a later repair or delivery execution.
+Their due step is no later than the constrained step. Before editing that step,
+internal `record-step-preflight` validates current objects and atomically consumes
+the prerequisite. Raw ordinary progress cannot bypass consumption. Consumed
+report, refs and receipt are immutable: close validates that historical snapshot
+instead of demanding the repaired code still reproduce the old failure. Positive
+acceptance always uses current successful evidence. Pending review routes to its
+existing consumer before any preflight write or replay; stale review targets
+block without clearing findings, receipts or budgets.
+
+Persistent Tests retain exact path + stable claim IDs in `proves`, plus `owner`,
+`owner_source`, `source_ref`, `basis` (acceptance/regression/critical-invariant/
+critical-risk), `existing_evidence_insufficiency`, `assertion_boundary`, and
+`failure_disposition`. Both semantic and raw admission validate these fields.
+File allowlisting remains the machine boundary; review judges necessity, oracle
+independence and mock boundaries inside an allowed test file. No AST control or
+global Test ID registry is claimed.
 
 For an ordinary independent request, `CURRENT_TASK.md` is first written by the
 typed `create-draft` action as `draft + active`. The definition is closed to
@@ -60,7 +109,7 @@ regression-checks section:
 
 ```yaml
 test_strategy:
-  mode: test-first | implementation-first | not-applicable
+  mode: flexible | test-first | implementation-first | not-applicable
   source: explicit-user | project-policy | inferred-default
   source_ref: <exact Task Basis coordinate, project policy file, or prepare-task-default>
   task_classification: contract-clear-behavior | exploratory-or-infrastructure | non-executable-change
@@ -76,33 +125,30 @@ applicable project policy, and an applicable project policy overrides the
 prepare-task default. If no mode can be selected reliably, prepare-task must
 resolve it as a user-owned open question before committing the draft. A
 behavior-changing task cannot use `not-applicable` merely to avoid tests.
-`test-first` requires at least one exact Persistent Tests asset; its first step
-must contain every such asset and no non-test target. `implementation-first`
-must place any declared persistent tests only in later steps; Persistent Tests
-may remain `none` when evidence-first admission or an explicit user denial does
-not authorize a new persistent test. `not-applicable` is valid only for
-`non-executable-change`, requires Persistent Tests to be `none`, and requires
-every Allowed, Conditional, and implementation-step mutation pattern to be an
-exact path or provable subset of
-`.workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths`.
-Entries in that project-owned boundary are limited to exact paths or literal
-directory prefixes ending in `/**`; wildcard-bearing prefixes and all other
-wildcard layouts are unusable for this classification.
-That project-owned field is distinct from documentation inventory: Markdown
-such as a Skill template or host guidance can change executable Agent behavior.
-Missing, empty, repository-wide, or ambiguous classification blocks only a new
-`not-applicable` draft, not either executable test-strategy mode; existing
-active tasks are not revalidated. Runtime
-revalidates these rules for raw create, update, confirmation, and replan
-proposals. The whole task definition, including this
-record, is frozen by `confirm-draft`; changing it afterward requires replan.
-Legacy tasks without this record remain readable, but every new, updated, or
-replanned semantic draft must add it.
+Executable inferred-default uses `flexible`; no tests-only first step or
+mandatory Red follows from step index. Explicit test-first/implementation-first
+must retain its source and rationale and bind approved before-step slots; absent
+prerequisites remain `TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`.
+`not-applicable` requires Persistent Tests=none and proven non-executable scope
+under PROJECT_PROFILE boundaries.non_executable_change_paths (exact paths or
+literal directory-prefix /** only); documentation inventory is not proof.
 
-For a confirmed `test-first` task, Runtime derives the first implementation
-step as the Red phase and every later step as Green. The Red execution result
-uses `outcome: test-red`; one or more planned command or validation results use
-`status: expected-failure` and add this closed evidence object:
+Runtime-owned `runtime_state.business_evidence_version` is optional for historical
+reading, but must equal 1 when present. New semantic/raw create-draft and explicitly
+authorized commit-replan persist 1; update/confirm cannot silently upgrade an old
+record. Execution and first closure reject missing versions with
+`TASK_SEMANTICS_UPGRADE_REQUIRED`; unknown versions fail closed. Reading an archive
+never synthesizes the marker. S2 additionally requires the frozen evidence plan revision; reading never invents
+reports or prerequisite receipts for old records.
+
+Preflight exposes `execution_phase: flexible` and `required_outcome: implemented`
+for ordinary tasks. Newly admitted tests may pass immediately. All planned command
+and validation results must pass or match an admitted reproduction for implemented; expected-failure cannot satisfy
+positive acceptance. Historical test-red/expected-failure structures remain readable;
+new expected-failure results require the exact admitted before-step reproduction
+check and report, with passed companion results.
+
+Historical `status: expected-failure` retains the closed structure:
 
 ```yaml
 expected_failure:
@@ -111,14 +157,10 @@ expected_failure:
   observed_failure_signature: <bounded runner output identifying that failure>
 ```
 
-All companion results must pass. `failed`, `blocked`, and `not-run` results,
-or failures caused by syntax, type, import, fixture, tool, unrelated-test, or
-environment problems, make the Red attempt blocked rather than successful.
-`test-red` carries no acceptance evidence and cannot update claim-evidence
-slots. A clean review of that recorded Red change set is required before
-Runtime advances to later steps. Outside that first Red phase,
-`expected-failure` and `test-red` are invalid; ordinary implemented results
-still require every planned command and validation to pass.
+Companion results must pass; syntax, type, import, fixture, tool, unrelated-test
+and environment failures do not count as successful reproduction. Historical
+`test-red` carries no final acceptance evidence. New executions use implemented for completing the admitted reproduction work;
+that outcome does not satisfy any separate positive acceptance claim.
 
 The typed `confirm-draft` action is the only draft-to-active transition. It
 must repeat the draft identity, carry the exact current `source_tuple.revision`
@@ -226,3 +268,85 @@ selected evidence, observations, references, gaps, zero product/governance/
 Runtime side effects, and a non-binding recommended route. The entry never
 creates a persistent test or admits a finding. A persistent-test evidence gap
 must be routed to an authorized entry for explicit P-12 admission.
+
+
+## Cumulative review coverage and assessment (S3)
+
+Semantic steps accept `review_checkpoint: {policy: required | not-required,
+reason: string}`. Both policies retain a non-empty reason in step metadata.
+Omitted semantic checkpoint input conservatively retains required review for
+existing callers. Sparse plans reserve exact earlier repair paths at later
+required checkpoints. A final waiver must explicitly state `final-exemption:`
+with a reason for exempting the entire cumulative target; it does not override
+project policy or repair verification.
+
+Runtime owns `review_coverage: {change_set_id, base, target, preimages,
+pending_paths, last_clean_revision}`. Base and target use the file manifest;
+preimages contain `{path,state,sha256,content_base64}` (null for absent), captured
+at first admitted touch, not reconstructed from Git HEAD. The manifest remains
+bounded by the existing 256 exact-path limit. Content has no fixed byte cutoff:
+canonical size scales with the admitted first-touch files, including large files.
+Every preimage still validates canonical base64 and its content hash.
+Unrecorded changes cannot refresh the baseline. Repeated paths retain their
+original content; add/delete paths retain absent states. Ordinary execution logs
+retain each invocation's actual writes; the review context projects one cumulative
+delta and supplies review_preimages. Pure audit changes do not change its target.
+
+`test_assessment: {applicable,reason,evidence_refs,necessity,oracle,boundary,reuse,
+applicability}` accompanies cumulative review results, bound by the enclosing
+execution/change-set/target identity. Every field must be explicit and referenced.
+Declared persistent tests or execution checks require applicable=true even if
+no test file changed. Assess reused mappings, critical fixtures, original request
+strength, independent expected values, weak assertions, and real business-flow
+boundaries. Runtime validates records and binding, not semantic judgment or
+reviewer identity. No trusted Provider is introduced.
+
+
+## Same-plan retry (S4)
+
+`retry-step` is an internal execute-step adapter command using the existing
+`task-state-transaction`, not a public Skill or recovery platform. Input is
+`{step_id,blocked_attempt_id,blocker_resolution_refs,idempotency_key}`; no scope,
+strategy, claim, finding, or completion overrides are accepted.
+
+Ordinary preflight receipts and execution results bind `attempt_id`. A blocked
+result may declare `blocker_kind: environment | unknown` (omission means unknown).
+Environment eligibility requires at least one blocked command or validation and
+no failed result. Prior admitted writes are retained in the cumulative review
+target and failure snapshot; subjects must not change after that failure. It does not relabel business assertion
+failures or unknown causes as transient environment failures.
+
+`step_attempts[step_id]` stores `{evidence_plan_revision,max_attempts:3,attempts}`.
+Each attempt retains `{attempt_id,idempotency_key,request_digest,status,blocker,
+evidence_refs}`; status is ready/preflighted/blocked/implemented. A failure stores
+its original execution result plus the manifest of declared review/check subjects.
+Retry creates ready; preflight alone changes it to preflighted. Results cannot
+use an old attempt or skip preflight. The previous blocked entry is immutable;
+resolution references and failures survive the 256-entry audit log windows.
+Same-key/same-request replay is no-op even after those windows are trimmed; a
+changed request conflicts. Same-plan replan cannot reset a blocked retry budget.
+
+Every blocker_resolution_ref names a retained repo-relative JSON file, at most
+64 KiB, with exactly `{kind,task_id,document_id,step_id,blocked_attempt_id,
+evidence_plan_revision,subject_revision,status,diagnosis,resolution}`. Require
+kind=environment-restored/v1, status=passed, the exact failed task/attempt/plan/
+subject snapshot, and concrete diagnosis/resolution observations. Current declared
+subjects must still match. These reports are caller-reported evidence, not a
+trusted environment probe or Provider. Plain unlock notes are insufficient.
+
+Budget exhaustion routes to debug-task/user. Changed code or fixtures require
+legitimate execution/repair permissions; changed scope or acceptance requires
+explicit replan. Pending review/findings stay with their existing consumer.
+Retry changes neither business evidence nor permissions, performs no service or
+DB operations, and requires fresh execution before normal completion/review.
+
+### Read-only evidence context
+
+The execute adapter `evidence-context` accepts `{}` on stdin for an active,
+confirmed versioned task. It returns task_id, document_id, evidence_plan_revision,
+checks[{claim_id,slot_id,check_id,subject_revision,subject_snapshot}],
+committed=false and evidence_assurance=caller-reported. Each snapshot covers the
+frozen check.subject_paths at read time, after running the check. This operation
+does not write state, refresh reports/preimages/prerequisites or authorize edits.
+Submission still rechecks current subjects; a later change requires a new check
+and report, not merely a newly copied hash.

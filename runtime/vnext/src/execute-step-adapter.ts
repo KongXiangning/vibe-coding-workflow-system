@@ -16,9 +16,18 @@ import {
   VNextRuntimeError,
   applyVNextRuntimeProposal,
   assertTestStrategySequenceReady,
+  assertOrdinaryPreflight,
+  assertBusinessEvidenceVersion,
+  createStepPreflightProposal,
+  createStepRetryProposal,
+  nextStepAttemptId,
+  evaluateClaimEvidence,
+  validateStepAcceptanceEvidence,
+  type StepAcceptanceEvidence,
   captureReviewTarget,
   createFindingQueueProposal,
   createReviewChangeDelta,
+  cumulativeReviewExecution,
   createTaskStateProposal,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
@@ -51,6 +60,8 @@ import { resolveTaskStep, type TaskStepDefinition } from './task-steps';
 
 export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'preflight-step',
+  'evidence-context',
+  'retry-step',
   'begin-repair',
   'record-step-result',
   'complete-reviewed-step',
@@ -74,6 +85,7 @@ type StepPlan = {
 
 export type ExecuteStepPreflightReceipt = {
   kind: 'execute-step-preflight/v1';
+  attempt_id?: string;
   task_id: string;
   document_id: string;
   source_revision: string;
@@ -112,7 +124,7 @@ type AnyExecuteStepPreflightReceipt = ExecuteStepPreflightReceipt | ExecuteStepR
 export type ExecuteStepPreflightResult = {
   status: 'pass';
   operation_kind: 'execute-step-preflight';
-  committed: false;
+  committed: boolean;
   read_back_verified: true;
   current_step: {
     id: string;
@@ -135,7 +147,24 @@ export type ExecuteStepRepairPreflightResult = Omit<ExecuteStepPreflightResult, 
   receipt: ExecuteStepRepairPreflightReceipt;
 };
 
-export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult;
+export type ExecuteStepEvidenceContext = {
+  status: 'pass';
+  operation_kind: 'execute-step-evidence-context';
+  committed: false;
+  task_id: string;
+  document_id: string;
+  evidence_plan_revision: string;
+  evidence_assurance: 'caller-reported';
+  checks: Array<{
+    claim_id: string;
+    slot_id: string;
+    check_id: string;
+    subject_revision: string;
+    subject_snapshot: ReturnType<typeof captureReviewTarget>;
+  }>;
+};
+
+export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult | ExecuteStepEvidenceContext;
 
 const MAX_ITEMS = 256;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
@@ -380,6 +409,7 @@ function stepPlanRevision(stepPlan: StepPlan): string {
 }
 
 function changeSetId(current: CanonicalCurrentTask, stepId: string): string {
+  if (current.runtimeState.review_coverage) return current.runtimeState.review_coverage.change_set_id;
   return `change-set-${digest({
     task_id: current.runtimeState.task_id,
     document_id: current.sourceTuple.document_id,
@@ -389,14 +419,14 @@ function changeSetId(current: CanonicalCurrentTask, stepId: string): string {
 }
 
 function testStrategyMode(value: unknown, location: string): TestStrategyExecutionContext['mode'] {
-  if (!['test-first', 'implementation-first', 'not-applicable', 'legacy'].includes(String(value))) {
+  if (!['flexible', 'test-first', 'implementation-first', 'not-applicable', 'legacy'].includes(String(value))) {
     fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} is not a supported test-strategy mode.`);
   }
   return value as TestStrategyExecutionContext['mode'];
 }
 
 function executionPhase(value: unknown, location: string): TestStrategyExecutionContext['phase'] {
-  if (!['red', 'green', 'implementation-first', 'not-applicable', 'legacy'].includes(String(value))) {
+  if (!['flexible', 'test-first', 'red', 'green', 'implementation-first', 'not-applicable', 'legacy'].includes(String(value))) {
     fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} is not a supported execution phase.`);
   }
   return value as TestStrategyExecutionContext['phase'];
@@ -460,6 +490,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     'repair_fingerprint',
     'change_set_id',
     'review_base',
+    ...(source.attempt_id === undefined ? [] : ['attempt_id']),
   ], 'preflight_receipt');
   if (source.kind !== 'execute-step-preflight/v1') {
     fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.kind must be execute-step-preflight/v1.');
@@ -475,6 +506,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
   }
   return {
     kind: source.kind,
+    ...(source.attempt_id === undefined ? {} : { attempt_id: text(source.attempt_id, 'preflight_receipt.attempt_id', 128) }),
     task_id: text(source.task_id, 'preflight_receipt.task_id', 128),
     document_id: text(source.document_id, 'preflight_receipt.document_id', 128),
     source_revision: sourceRevision,
@@ -575,7 +607,7 @@ export function beginRepair(
   if (!pending || pending.verdict !== 'findings') {
     fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires the current durable review result to contain findings.');
   }
-  const reviewedExecution = current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+  const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
     !('action' in item) && item.idempotency_key === pending.execution_id,
   );
   if (!reviewedExecution?.execution_result
@@ -677,12 +709,57 @@ export function beginRepair(
   };
 }
 
+export function retryStep(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const source = record(input,'retry-step input');
+  exactKeys(source,['step_id','blocked_attempt_id','blocker_resolution_refs','idempotency_key'],'retry-step input');
+  const current = readCanonicalCurrentTask(root);
+  const proposal = createStepRetryProposal(current,{
+    step_id:text(source.step_id,'step_id',128),
+    blocked_attempt_id:text(source.blocked_attempt_id,'blocked_attempt_id',128),
+    blocker_resolution_refs:textList(source.blocker_resolution_refs,'blocker_resolution_refs',false),
+    idempotency_key:text(source.idempotency_key,'idempotency_key',128),
+  });
+  return verifyReadBack(root,applyVNextRuntimeProposal(root,proposal,options),options);
+}
+
+// Read current declared subjects after running a check, without refreshing any
+// stored report, prerequisite, review baseline or execution permission.
+export function evidenceContext(root: string, input: unknown): ExecuteStepEvidenceContext {
+  exactKeys(record(input, 'evidence-context input'), [], 'evidence-context input');
+  const current = readCanonicalCurrentTask(root);
+  assertExecutableTask(current);
+  assertBusinessEvidenceVersion(current);
+  const checks = (current.runtimeState.claim_evidence ?? []).flatMap(claim => claim.slots.map(slot => {
+    if (!slot.check) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen check is required.');
+    const snapshot = captureReviewTarget(root, slot.check.subject_paths);
+    return {
+      claim_id: claim.claim_id,
+      slot_id: slot.slot_id,
+      check_id: slot.check.check_id,
+      subject_revision: snapshot.revision,
+      subject_snapshot: snapshot,
+    };
+  }));
+  if (!current.runtimeState.evidence_plan_revision || !checks.length) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen evidence plan is required.');
+  return {
+    status: 'pass',
+    operation_kind: 'execute-step-evidence-context',
+    committed: false,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+    evidence_assurance: 'caller-reported',
+    checks,
+  };
+}
+
 export function preflightStep(root: string, input: unknown): ExecuteStepPreflightResult {
   const source = record(input, 'preflight-step input');
   exactKeys(source, ['candidate_paths'], 'preflight-step input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', true);
 
-  const current = readCanonicalCurrentTask(root);
+  let current = readCanonicalCurrentTask(root);
+  assertOrdinaryPreflight(current, root);
   assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
@@ -692,8 +769,19 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
+  let committed = false;
+  const coverage = current.runtimeState.review_coverage;
+  const hasPrerequisites = current.runtimeState.claim_evidence?.some(claim => claim.slots.some(slot => slot.before_step_id === stepPlan.step.id && !slot.prerequisite_receipt));
+  if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map(entry => entry.path)).revision !== coverage.target.revision) fail('REVIEW_TARGET_STALE', 'Unrecorded changes cannot refresh the cumulative baseline.');
+  if (!coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready') {
+    const registration = applyVNextRuntimeProposal(root, createStepPreflightProposal(current, candidatePaths));
+    if (!['success', 'no-op'].includes(registration.status)) fail('PREFLIGHT_BLOCKED', registration.message);
+    committed = registration.committed;
+    current = readCanonicalCurrentTask(root);
+  }
   const receipt: ExecuteStepPreflightReceipt = {
     kind: 'execute-step-preflight/v1',
+    attempt_id:nextStepAttemptId(current),
     task_id: current.runtimeState.task_id,
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
@@ -710,7 +798,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   return {
     status: 'pass',
     operation_kind: 'execute-step-preflight',
-    committed: false,
+    committed,
     read_back_verified: true,
     current_step: currentStepResult(stepPlan, strategy),
     receipt,
@@ -730,10 +818,7 @@ type ValidationResult = {
   evidence_refs: string[];
   expected_failure?: StepExpectedFailureEvidence;
 };
-type AcceptanceEvidence = {
-  acceptance: string;
-  evidence_refs: string[];
-};
+type AcceptanceEvidence = StepAcceptanceEvidence;
 
 function resultStatus(value: unknown, location: string): StepExecutionResultStatus {
   if (value !== 'passed' && value !== 'expected-failure' && value !== 'failed' && value !== 'blocked' && value !== 'not-run') {
@@ -821,65 +906,20 @@ function normalizeValidationResults(value: unknown): ValidationResult[] {
 }
 
 function normalizeAcceptanceEvidence(value: unknown): AcceptanceEvidence[] {
-  if (!Array.isArray(value) || value.length > MAX_ITEMS) {
-    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'acceptance_evidence must be a bounded array.');
-  }
-  const results = value.map((item, index) => {
-    const location = `acceptance_evidence[${index}]`;
-    const source = record(item, location);
-    exactKeys(source, ['acceptance', 'evidence_refs'], location);
-    return {
-      acceptance: text(source.acceptance, `${location}.acceptance`),
-      evidence_refs: textList(source.evidence_refs, `${location}.evidence_refs`, false),
-    };
-  });
-  if (new Set(results.map(item => item.acceptance)).size !== results.length) {
-    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'acceptance_evidence must not contain duplicate acceptance text.');
-  }
-  return results;
+  return validateStepAcceptanceEvidence(value, 'acceptance_evidence');
 }
 
-function plannedAcceptance(current: CanonicalCurrentTask): string[] {
-  const value = readDraftDefinitionFromBody(current.body).acceptance;
-  const items = value.replace(/\r\n?/gu, '\n').split('\n').map(line =>
-    line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/u, '').trim(),
-  ).filter(Boolean);
-  if (items.length === 0 || new Set(items).size !== items.length) {
-    fail('CLAIM_EVIDENCE_PLAN_INVALID', 'canonical acceptance must be a non-empty list without duplicates.');
-  }
-  return items;
-}
-
-function updateClaimEvidence(current: CanonicalCurrentTask, evidence: AcceptanceEvidence[]): ClaimEvidenceRecord[] | undefined {
-  if (!current.runtimeState.claim_evidence_required && current.runtimeState.claim_evidence === undefined) return undefined;
-  const plan = current.runtimeState.claim_evidence ?? [];
-  const acceptance = plannedAcceptance(current);
-  const acceptanceClaims = plan.filter(item => item.claim_kind === 'acceptance');
-  if (acceptanceClaims.length !== acceptance.length || acceptanceClaims.some(item => item.slots.length !== 1)) {
-    fail('CLAIM_EVIDENCE_PLAN_INVALID', 'execute-step semantic evidence requires one frozen acceptance claim slot per canonical acceptance item.');
-  }
-  const evidenceByAcceptance = new Map(evidence.map(item => [item.acceptance, item.evidence_refs]));
+function updateClaimEvidence(current: CanonicalCurrentTask, evidence: AcceptanceEvidence[]): ClaimEvidenceRecord[] {
+  const plan = structuredClone(current.runtimeState.claim_evidence ?? []);
   for (const item of evidence) {
-    if (!acceptance.includes(item.acceptance)) {
-      fail('CLAIM_EVIDENCE_PLAN_CONFLICT', `acceptance_evidence is not in the confirmed task: ${item.acceptance}`);
-    }
+    const slot = plan.find(claim => claim.claim_id === item.claim_id)?.slots.find(slot => slot.slot_id === item.slot_id);
+    if (!slot || slot.check?.check_id !== item.check_id || slot.minimum_type !== item.minimum_type) fail('CLAIM_EVIDENCE_PLAN_CONFLICT', 'result must identify the exact frozen claim/slot/check and type.');
+    if (slot.prerequisite_receipt) fail('CLAIM_EVIDENCE_PLAN_CONFLICT', 'consumed prerequisite evidence is immutable.');
+    slot.disposition = item.disposition;
+    slot.evidence_refs = [...item.evidence_refs];
+    slot.report = item.report;
   }
-  let acceptanceIndex = 0;
-  return plan.map(item => {
-    if (item.claim_kind !== 'acceptance') {
-      return { ...item, slots: item.slots.map(slot => ({ ...slot, evidence_refs: [...slot.evidence_refs] })) };
-    }
-    const refs = evidenceByAcceptance.get(acceptance[acceptanceIndex++]);
-    if (!refs) return { ...item, slots: item.slots.map(slot => ({ ...slot, evidence_refs: [...slot.evidence_refs] })) };
-    return {
-      ...item,
-      slots: item.slots.map(slot => ({
-        ...slot,
-        disposition: 'newly-executed' as const,
-        evidence_refs: [...new Set([...slot.evidence_refs, ...refs])],
-      })),
-    };
-  });
+  return plan;
 }
 
 function assertExactResultSet(actual: readonly string[], expected: readonly string[], location: string): void {
@@ -1037,6 +1077,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   const source = record(input, 'record-step-result input');
   exactKeys(source, [
     'preflight_receipt',
+    ...(source.blocker_kind === undefined ? [] : ['blocker_kind']),
     'actual_changed_paths',
     'command_results',
     'validation_results',
@@ -1044,6 +1085,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     'outcome',
     'note',
   ], 'record-step-result input');
+  if (source.blocker_kind !== undefined && !['environment','unknown'].includes(String(source.blocker_kind))) fail('EXECUTE_ADAPTER_INPUT_INVALID','blocker_kind must be environment or unknown.');
   const receipt = normalizePreflightReceipt(source.preflight_receipt);
   const actualChangedPaths = pathList(source.actual_changed_paths, 'actual_changed_paths', true);
   const commandResults = normalizeCommandResults(source.command_results);
@@ -1072,6 +1114,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     fail('EXECUTE_RESULT_CHANGE_DELTA_CONFLICT', `actual_changed_paths must match Runtime-detected changes: ${detectedChangedPaths.join(', ') || 'none'}.`);
   }
   const resultKeySeed = {
+    ...(source.blocker_kind === undefined ? {} : {blocker_kind:source.blocker_kind}),
     receipt,
     actual_changed_paths: detectedChangedPaths,
     command_results: commandResults,
@@ -1099,10 +1142,10 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   assertPathsAdmitted(current, stepPlan, actualChangedPaths, 'actual_changed_paths');
   assertCommandResults(current, stepPlan, commandResults);
   assertValidationResults(stepPlan, validationResults);
-  if (outcome === 'implemented' && commandResults.some(item => item.status !== 'passed')) {
+  if (outcome === 'implemented' && commandResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure')) {
     fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned command to pass.');
   }
-  if (outcome === 'implemented' && validationResults.some(item => item.status !== 'passed')) {
+  if (outcome === 'implemented' && validationResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure')) {
     fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned validation to pass.');
   }
   if (outcome === 'test-red') {
@@ -1117,8 +1160,6 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     if (acceptanceEvidence.length > 0) {
       fail('TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', 'test-red evidence cannot satisfy final acceptance claims before implementation reaches Green.');
     }
-  } else if ([...commandResults, ...validationResults].some(item => item.status === 'expected-failure')) {
-    fail('EXECUTE_EXPECTED_FAILURE_INVALID', 'expected-failure result status is valid only with outcome=test-red.');
   }
   if (strategy.phase === 'red' && outcome === 'implemented') {
     fail('TEST_STRATEGY_SEQUENCE_INVALID', 'the first test-first step cannot report implemented; it must establish test-red or report a truthful blocker.');
@@ -1132,7 +1173,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
 
   if (receipt.kind === 'execute-step-repair-preflight/v1') {
     const pending = current.runtimeState.pending_review_result;
-    const priorExecution = pending && current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+    const priorExecution = pending && current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
     );
     if (!pending || !priorExecution?.execution_result
@@ -1147,6 +1188,8 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   const evidenceRefs = allEvidenceRefs(commandResults, validationResults, acceptanceEvidence);
   const claimEvidence = updateClaimEvidence(current, acceptanceEvidence);
   const executionResult: StepExecutionResult = {
+    ...(receipt.kind === 'execute-step-preflight/v1' && receipt.attempt_id ? {attempt_id:receipt.attempt_id} : {}),
+    ...(source.blocker_kind === undefined ? {} : {blocker_kind:source.blocker_kind as 'environment' | 'unknown'}),
     outcome,
     change_set_id: receipt.change_set_id,
     review_base: receipt.review_base,
@@ -1196,12 +1239,6 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     execution_result: executionResult,
   });
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
-}
-
-function claimEvidenceComplete(records: readonly ClaimEvidenceRecord[]): boolean {
-  return records.length > 0 && records.every(item => item.slots.length > 0 && item.slots.every(slot =>
-    ['existing', 'reused', 'newly-executed'].includes(slot.disposition) && slot.evidence_refs.length > 0,
-  ));
 }
 
 function resolveVerifiedFindings(
@@ -1262,7 +1299,7 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     if (pending.verdict !== 'clean') {
       fail('CLEAN_REVIEW_REQUIRED', `complete-reviewed-step requires clean; current review verdict is ${pending.verdict}.`);
     }
-    const reviewedExecution = current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+    const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
     );
     if (!reviewedExecution?.execution_result
@@ -1339,7 +1376,7 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
   }
   const claimEvidence = current.runtimeState.claim_evidence;
   const resolution = resolveTaskStep(current.body, stepId);
-  if (resolution.next === null && (!claimEvidence || !claimEvidenceComplete(claimEvidence))) {
+  if (resolution.next === null && (!claimEvidence || !evaluateClaimEvidence(claimEvidence, { root, current }).validation_complete)) {
     fail('CLAIM_EVIDENCE_INCOMPLETE', 'the final step cannot complete until every frozen acceptance-evidence slot has evidence.');
   }
 
@@ -1411,6 +1448,12 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
     switch (args.command) {
       case 'preflight-step':
         result = preflightStep(args.root, input);
+        break;
+      case 'evidence-context':
+        result = evidenceContext(args.root, input);
+        break;
+      case 'retry-step':
+        result = retryStep(args.root,input,{dryRun:args.dryRun});
         break;
       case 'begin-repair':
         result = beginRepair(args.root, input, { dryRun: args.dryRun });

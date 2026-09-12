@@ -91,3 +91,15 @@ Return one structured `closure_result` containing:
 - `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. Internal closure capabilities and declared Runtime operations are not public Skill chaining.
 
 The fixed ordinary order is `archive-transaction` → admitted `contract-candidate-commit` / `decision-record-transaction` → optional `lesson-record-transaction` → `project-status-transaction`. Closure is not complete until Runtime validates and commits the authorized proposals; downstream failure never rolls back a successful archive, and re-entry repairs only missing durable knowledge/status/Lesson records.
+
+## Business evidence boundary
+
+Read the frozen claim/slot/check obligations and their declared real boundaries.
+Require each due slot's bound applicable report; a local rule pass cannot replace
+missing or failed flow evidence. Reports and this assessment are caller-reported,
+not trusted execution attestations. Runtime completion checks current subjects,
+retained artifacts and consumed prerequisite snapshots. Do not invent a human
+signature or provider. Check P-12 owner/source, stable claim binding, necessity,
+existing-evidence insufficiency, oracle independence, weak assertions, and whether
+mock/fixture substitution contradicts the claimed boundary. No same-file AST
+or per-test semantic enforcement is implied.

@@ -1,0 +1,50 @@
+{
+  "CONTEXT.md": {
+    "bytes": 3495,
+    "sha256": "51e28f002f495d417e753e8b42e257ccb6088724d594cb865758d9b40c3faf56"
+  },
+  "HANDOFF.md": {
+    "bytes": 76009,
+    "sha256": "bb52cb678f2e96ff1ae3a98ee333bd5527d7b26a1fdccd5ee6f0c4175f87f0c3"
+  },
+  "PLAN.md": {
+    "bytes": 31694,
+    "sha256": "2cf3a266ead310b6a48491329c4f21eac3a3651186bcfdb7d19b0301c058aa8d"
+  },
+  "PROMPTS.md": {
+    "bytes": 5120,
+    "sha256": "abbd2605eaf9b302293e753bf61e07eb602963b9dc90fbf9140982bd57b1c68e"
+  },
+  "README.md": {
+    "bytes": 2803,
+    "sha256": "755c821516b609fe82385460a5aca52d9bfc2143967b6592531c8c1df2b8ab0c"
+  },
+  "REVIEW.md": {
+    "bytes": 2626,
+    "sha256": "633fa4fdb53c00b4def2e4c58a55983aae44f7e45665efcf51849ac31b687a68"
+  },
+  "steps/S0-baseline-and-contracts.md": {
+    "bytes": 4490,
+    "sha256": "b8ff5c70405fb598fc108fa025e49f911f5583a8c5dd67fcaad68dcc403ec078"
+  },
+  "steps/S1-ordering.md": {
+    "bytes": 3573,
+    "sha256": "10ae81ad1ddce1919803795bb7ace05da4c0f6ec7e46f8a511fe602faa2b3e5a"
+  },
+  "steps/S2-evidence.md": {
+    "bytes": 4338,
+    "sha256": "f16039c3bf90add14d1de9ab607fc9d912a06b7428a626288a1bf1fff2c8cdca"
+  },
+  "steps/S3-review-checkpoints.md": {
+    "bytes": 3724,
+    "sha256": "c6bdbe1047911200ece1b539439cdff3acd91f5daa64ab81c7bfd48cbd1cdddf"
+  },
+  "steps/S4-retry.md": {
+    "bytes": 2814,
+    "sha256": "823539d1b099d0c7564be603f97943da444c13858c8f9e82491865fe6471b406"
+  },
+  "steps/S5-verification.md": {
+    "bytes": 3553,
+    "sha256": "ce993fb2ea0467c10cfed06baf1f0a90bdd6076ab8f2f4d1cbaadd4f9a3dd0db"
+  }
+}

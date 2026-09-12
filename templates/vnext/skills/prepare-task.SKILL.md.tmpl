@@ -86,7 +86,7 @@ paths. Do not add tests merely for coverage, robustness, or reviewer preference.
 Later execution may create or modify only the listed tests; existing tests may
 still be run for validation.
 
-Classify `test_strategy.mode` as exactly `test-first`,
+Classify `test_strategy.mode` as exactly `flexible`, `test-first`,
 `implementation-first`, or `not-applicable`, and record `source` as exactly
 `explicit-user`, `project-policy`, or `inferred-default`. Apply this precedence
 without inversion: an explicit user requirement overrides applicable project
@@ -98,24 +98,24 @@ repository-relative policy file for `project-policy`, or
 `non-executable-change`; the classification and `rationale` must make the
 selected rule auditable. Inferred defaults are:
 
-- use `test-first` for contract-clear features, APIs, business rules,
-  regressions, and bug fixes;
-- use `implementation-first` only for exploratory work, infrastructure
-  validation, or a technical proof where stable assertions depend on what is
-  learned first, and state that dependency in the rationale;
+- use `flexible` for executable work without an explicit ordering requirement,
+  including contract-clear features, APIs, rules, regressions and infrastructure;
+- use `test-first` or `implementation-first` only for an explicit user/project
+  requirement with its source and rationale. Do not substitute flexible for it;
 - use `not-applicable` only when the task has no executable behavior, such as a
   documentation-only or governance-metadata-only change. Never use it merely
   to avoid testing a behavior change.
 
 If those rules do not identify one reliable mode, treat the choice as a
 user-owned open question and resolve it before submitting `prepare-draft`.
-For `test-first`, list at least one exact Persistent Tests asset, make the first
-implementation step contain every listed test asset and no non-test target,
-then place product implementation in a later step. For `implementation-first`,
-keep every declared test asset out of the first implementation/discovery step
-and place it in a later test-authoring step; Persistent Tests may remain `none`
-when evidence-first admission or an explicit user denial does not authorize a
-new persistent test. For `not-applicable`, use only the
+Do not infer Red from step order or require a tests-only first step.
+Explicit ordering is blocked with `TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`
+unless approved before-step slots bind the relevant prerequisite; preserve the request.
+Do not bind a prerequisite to the first step: the current Runtime requires an
+earlier authorized execution step to submit its report. Unsupported first-step
+prerequisites are rejected at admission, not waived after confirmation.
+Persistent Tests may remain `none`; new tests can pass on their first run.
+For `not-applicable`, use only the
 `non-executable-change` classification, set Persistent Tests to `none`, and
 first read
 `.workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths`.
@@ -129,7 +129,10 @@ generator input can change executable behavior. If the field is missing or
 empty, or a pattern is unknown, repository-wide, mixed with executable scope,
 or only partially overlaps the boundary, preserve the choice as an open
 question instead of submitting `not-applicable`; an unusable classification
-does not block `test-first` or `implementation-first`.
+does not block `flexible`; explicit ordering remains subject to its prerequisite gate.
+Runtime creates `business_evidence_version: 1` for new semantic/raw drafts.
+Unversioned active tasks remain readable but cannot execute under these semantics;
+only an explicitly authorized replan can adopt them. Unknown versions are rejected.
 Runtime stores the strategy in the canonical
 `Test Strategy` subsection. Explicit confirmation freezes the strategy with
 the rest of the task definition; a later change requires replan.
@@ -204,3 +207,32 @@ auto-confirm. Return one `prepared-task` result with any
 conflict or blocker and at most one informational `next_route`. Set
 `terminal_boundary: public-entry-terminal/v1`. A `next_route` recommendation
 must not invoke another public Skill.
+
+## Structured business evidence
+
+Submit claim_evidence instead of an acceptance text array. Each stable claim ID
+binds requirement/source_ref and concrete slots with globally task-unique check IDs.
+Each slot has due_step_id, applicability, method/entry/expected observation,
+required real boundaries, permitted substitutes, exact subject_paths and expected
+result. Use distinct rule and flow slots when the confirmed requirement crosses
+those boundaries. Do not use planned-validation. New slots start missing with no
+report or imported receipt; Runtime renders Acceptance from acceptance claims.
+
+Persistent Tests default to none. Each admitted path's proves lists stable claim
+IDs; also supply owner, owner_source, source_ref, basis, existing_evidence_insufficiency,
+assertion_boundary and failure_disposition. Coverage preferences alone are not a
+basis. Review the source of the oracle, weak assertions, redundant tests, reuse,
+and mock/fixture boundaries; file permission is not AST or per-test enforcement.
+
+
+## Review checkpoints
+
+Provide `implementation_steps[].review_checkpoint: {policy,reason}` from the
+confirmed risk and logical boundaries. Use required or not-required with a
+specific reason; retain project-mandated review. Existing omitted input remains
+conservatively required, not silently exempt. Later required checkpoints review
+all cumulative changes, so reserve exact earlier repair paths in their scope.
+Do not invent a final exemption: only an approved exemption of the entire target
+may use a reason starting with `final-exemption:`. Repair verification is never
+exempt. Read preimage size limits when planning large or binary changes; do not
+substitute Git HEAD for existing user changes.

@@ -146,3 +146,22 @@ later caller invocation; this invocation must not invoke another public Skill.
 Do not write findings, receipts, review state, or any other content to Runtime or
 the repository. Set `terminal_boundary: public-entry-terminal/v1`, return to the
 caller, and stop.
+
+## Business evidence boundary
+
+Assess whether the draft's claim/slot/check plan can prove each declared real
+boundary at the intended step. Review planned methods, prerequisites and evidence
+availability; missing execution reports are expected in a draft and do not block
+draft approval. For proposed persistent tests, check P-12 owner/source, claim
+binding, necessity and why existing evidence is insufficient. Review oracle
+independence and whether planned mocks/fixtures prove the promised boundary. Do not demand execution
+or completion evidence during draft review. Reports remain caller-reported;
+no Provider, authenticated human signature or AST enforcement is implied.
+
+
+Check each checkpoint's explicit reason and policy against project requirements.
+A later required checkpoint must cover earlier exempt changes and retain exact
+repair scope. Check any final exemption against the original authorization and
+whole cumulative target. Review oracle independence and reused mappings even if
+no persistent test is added; input constants are allowed, circular expected
+values and mock-only substitutes for promised real flows are not evidence.

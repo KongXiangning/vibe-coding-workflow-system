@@ -62,6 +62,7 @@ export type ValidateChangeRequest = {
 };
 
 export type ValidationResultPayload = {
+  assurance: 'caller-reported';
   target: ValidationTarget;
   verdict: VNextValidationVerdict;
   selected_evidence: Array<{
@@ -112,6 +113,7 @@ function blockedResult(
 ): ValidationResult {
   return {
     validation_result: {
+      assurance: 'caller-reported',
       target,
       verdict: 'blocked',
       selected_evidence: [],
@@ -197,6 +199,7 @@ function evaluateSelectedEvidence(
   if (selected.status === 'failed') {
     return {
       validation_result: {
+      assurance: 'caller-reported',
         ...base,
         verdict: 'failed',
         observations: [`${selected.kind} reported failed`],
@@ -210,6 +213,7 @@ function evaluateSelectedEvidence(
   }
   return {
     validation_result: {
+      assurance: 'caller-reported',
       ...base,
       verdict: 'passed',
       observations: [`${selected.kind} reported passed`],
@@ -281,6 +285,7 @@ export function evaluateValidationEvidence(request: ValidateChangeRequest): Vali
 
   return {
     validation_result: {
+      assurance: 'caller-reported',
       target,
       verdict: requested.length > 0 && gaps.some(gap => /unavailable/i.test(gap)) ? 'blocked' : 'inconclusive',
       selected_evidence: [],

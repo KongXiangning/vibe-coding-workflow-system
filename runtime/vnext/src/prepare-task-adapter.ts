@@ -17,6 +17,8 @@ import {
   TEST_STRATEGY_SOURCES,
   VNextRuntimeError,
   assertPreparedTestStrategy,
+  validateClaimEvidence,
+  assertEvidencePlan,
   allocateNextTaskId,
   applyVNextRuntimeProposal,
   createPrepareTaskConfirmProposal,
@@ -66,7 +68,7 @@ export type PrepareTaskTestStrategy = TestStrategyDefinition;
 export type PrepareTaskSemanticDraft = {
   task_basis: TaskBasis;
   goal: string;
-  acceptance: string[];
+  claim_evidence: ClaimEvidenceRecord[];
   out_of_scope: string[];
   design_decisions: {
     decided: string[];
@@ -84,11 +86,20 @@ export type PrepareTaskSemanticDraft = {
     mutation_scope: string[];
     commands: PrepareTaskStepCommand[];
     validation: string[];
+    review_checkpoint?: { policy: 'required' | 'not-required'; reason: string };
   }>;
   validation_plan: string[];
   persistent_tests: 'none' | Array<{
     path: string;
     proves: string[];
+    owner: string;
+    owner_source: string;
+    source_ref: string;
+    basis: string;
+    existing_evidence_insufficiency: string;
+    assertion_boundary: string;
+    failure_disposition: string;
+
   }>;
 };
 
@@ -125,7 +136,7 @@ type JsonRecord = Record<string, unknown>;
 const SEMANTIC_DRAFT_FIELDS = [
   'task_basis',
   'goal',
-  'acceptance',
+  'claim_evidence',
   'out_of_scope',
   'design_decisions',
   'mutation_scope',
@@ -375,11 +386,15 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   }
   const implementationSteps = source.implementation_steps.map((item, index) => {
     const step = record(item, `implementation_steps[${index}]`);
-    exactKeys(step, ['id', 'description', 'mutation_scope', 'commands', 'validation'], `implementation_steps[${index}]`);
+    exactKeys(step, ['id', 'description', 'mutation_scope', 'commands', 'validation', ...(step.review_checkpoint === undefined ? [] : ['review_checkpoint'])], `implementation_steps[${index}]`);
+    const checkpoint = step.review_checkpoint === undefined ? { policy: 'required', reason: 'Review this logical boundary against the confirmed task' } : record(step.review_checkpoint, 'review_checkpoint');
+    exactKeys(checkpoint, ['policy', 'reason'], 'review_checkpoint');
+    if (!['required', 'not-required'].includes(String(checkpoint.policy))) fail('PREPARE_ADAPTER_INPUT_INVALID', 'review_checkpoint.policy is invalid.');
     const id = text(step.id, `implementation_steps[${index}].id`, 128);
     if (!STEP_ID_PATTERN.test(id)) fail('PREPARE_ADAPTER_INPUT_INVALID', `implementation_steps[${index}].id is invalid.`);
     return {
       id,
+      review_checkpoint: { policy: checkpoint.policy as 'required' | 'not-required', reason: text(checkpoint.reason, 'review_checkpoint.reason') },
       description: text(step.description, `implementation_steps[${index}].description`),
       mutation_scope: normalizeScopePathList(step.mutation_scope, `implementation_steps[${index}].mutation_scope`),
       commands: normalizeStepCommands(step.commands, `implementation_steps[${index}].commands`),
@@ -402,8 +417,15 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     }
     persistentTests = source.persistent_tests.map((item, index) => {
       const test = record(item, `persistent_tests[${index}]`);
-      exactKeys(test, ['path', 'proves'], `persistent_tests[${index}]`);
+      exactKeys(test, ['path', 'proves', 'owner', 'owner_source', 'source_ref', 'basis', 'existing_evidence_insufficiency', 'assertion_boundary', 'failure_disposition'], `persistent_tests[${index}]`);
       return {
+        owner: text(test.owner, 'persistent_tests.owner'),
+        owner_source: text(test.owner_source, 'persistent_tests.owner_source'),
+        source_ref: text(test.source_ref, 'persistent_tests.source_ref'),
+        basis: text(test.basis, 'persistent_tests.basis'),
+        existing_evidence_insufficiency: text(test.existing_evidence_insufficiency, 'persistent_tests.existing_evidence_insufficiency'),
+        assertion_boundary: text(test.assertion_boundary, 'persistent_tests.assertion_boundary'),
+        failure_disposition: text(test.failure_disposition, 'persistent_tests.failure_disposition'),
         path: normalizeScopePath(test.path, `persistent_tests[${index}].path`, false),
         proves: textList(test.proves, `persistent_tests[${index}].proves`, false),
       };
@@ -416,7 +438,7 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   const normalized: PrepareTaskSemanticDraft = {
     task_basis: normalizeTaskBasis(source.task_basis),
     goal: text(source.goal, 'goal', 512),
-    acceptance: textList(source.acceptance, 'acceptance', false),
+    claim_evidence: validateClaimEvidence(source.claim_evidence, 'claim_evidence'),
     out_of_scope: textList(source.out_of_scope, 'out_of_scope', true),
     design_decisions: { decided, unresolved },
     mutation_scope: { allowed, conditional, forbidden },
@@ -426,6 +448,7 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     persistent_tests: persistentTests,
   };
   assertSemanticScopeIsExecutable(normalized);
+  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true);
   return normalized;
 }
 
@@ -556,16 +579,7 @@ function authority(current: CanonicalCurrentTask, subject: string, kinds: Author
 }
 
 function claimEvidence(input: PrepareTaskSemanticDraft): ClaimEvidenceRecord[] {
-  return input.acceptance.map((_, index) => ({
-    claim_id: `acceptance-${index + 1}`,
-    claim_kind: 'acceptance',
-    slots: [{
-      slot_id: 'validation',
-      minimum_type: 'planned-validation',
-      disposition: 'missing',
-      evidence_refs: [],
-    }],
-  }));
+  return structuredClone(input.claim_evidence);
 }
 
 export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftTaskDefinition {
@@ -574,6 +588,14 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
     : input.persistent_tests.flatMap(test => [
       `- \`${test.path}\``,
       ...test.proves.map(proof => `  - proves: ${proof}`),
+      `  - owner: ${test.owner}`,
+      `  - owner_source: ${test.owner_source}`,
+      `  - source_ref: ${test.source_ref}`,
+      `  - basis: ${test.basis}`,
+      `  - existing_evidence_insufficiency: ${test.existing_evidence_insufficiency}`,
+      `  - assertion_boundary: ${test.assertion_boundary}`,
+      `  - failure_disposition: ${test.failure_disposition}`,
+
     ]);
   return {
     background_context: [
@@ -585,7 +607,7 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
       '',
       markdownBullets(input.out_of_scope),
     ].join('\n'),
-    acceptance: markdownBullets(input.acceptance, true),
+    acceptance: markdownBullets(input.claim_evidence.filter(claim => claim.claim_kind === 'acceptance').map(claim => claim.requirement!), true),
     allowed_scope: markdownBullets(input.mutation_scope.allowed.map(item => `\`${item}\``)),
     conditional_scope: markdownBullets(input.mutation_scope.conditional.map(item => `\`${item.path}\` when ${item.condition}`)),
     forbidden_scope: markdownBullets(input.mutation_scope.forbidden.map(item => `\`${item}\``)),
@@ -598,7 +620,7 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
       `  - purpose: ${step.description}`,
       `  - mutation_scope: ${step.mutation_scope.join(', ')}`,
       `  - required_evidence: ${step.validation.join('; ')}`,
-      `  - review_checkpoint: required: review ${step.id} diff against the confirmed CURRENT_TASK`,
+      `  - review_checkpoint: ${step.review_checkpoint?.policy ?? 'required'}: ${step.review_checkpoint?.reason ?? 'Review this logical boundary against the confirmed task'}`,
       ...step.commands.flatMap(item => [
         `  - planned_command: ${item.command}`,
         `    - expected_repo_writes: ${item.expected_repo_writes === 'none' ? 'none' : item.expected_repo_writes.join(', ')}`,
@@ -652,6 +674,8 @@ function currentMatchesSemanticDraft(root: string, current: CanonicalCurrentTask
   return current.runtimeState.active_step_id === semantic.implementation_steps[0]!.id
     && basisMatches
     && sameValue(readDraftDefinitionFromBody(current.body), semanticDraftDefinition(semantic))
+    && current.runtimeState.business_evidence_version === 1
+    && !!current.runtimeState.evidence_plan_revision
     && sameValue(current.runtimeState.claim_evidence, claimEvidence(semantic));
 }
 

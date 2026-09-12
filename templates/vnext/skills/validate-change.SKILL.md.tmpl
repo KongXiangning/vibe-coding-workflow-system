@@ -147,3 +147,15 @@ zero governance mutations, and zero Runtime transactions for this entry.
 it must not invoke another public Skill. `terminal_boundary: public-entry-terminal/v1`
 applies after this result: return to the caller and stop. Runtime cannot
 observe the conversation-level invocation boundary.
+
+## Business evidence boundary
+
+Judge the supplied validation target using its actual evidence and declared
+boundary. When the caller supplies a task evidence plan, bind the result to the
+relevant claim/slot/check only; do not require unrelated task slots or completion.
+Without a task plan, use the independent validation target directly. Check
+necessity, oracle independence and whether mocks/fixtures cross the claimed real
+boundary. Missing or failed flow evidence cannot be replaced by a rule pass.
+When assessing persistent-test admission, check its P-12 owner/source, claim
+binding and existing-evidence insufficiency; this entry grants no write authority.
+Keep assurance caller-reported; do not invent Provider or human authentication.

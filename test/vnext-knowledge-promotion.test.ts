@@ -6,6 +6,9 @@ import * as path from 'path';
 import { stringify } from 'yaml';
 import {
   applyVNextRuntimeProposal,
+  assertEvidencePlan,
+  captureReviewTarget,
+  readDraftDefinitionFromBody,
   createArchiveProposal,
   createContractCandidateProposal,
   createDecisionRecordProposal,
@@ -52,11 +55,16 @@ function fixtureClaimEvidence(): NonNullable<RuntimeState['claim_evidence']> {
   return [{
     claim_id: 'A1',
     claim_kind: 'acceptance',
+    requirement: 'terminal task and admitted knowledge remain durable after restart',
+    source_ref: 'test:knowledge-promotion',
     slots: [{
       slot_id: 'knowledge-promotion',
-      minimum_type: 'focused-test',
+      minimum_type: 'static-proof',
+      applicability: 'current',
+      due_step_id: 'step-knowledge-promotion',
+      check: { check_id: 'knowledge-check', method: 'static', entry: 'evidence-report.txt', expected_observation: 'The isolated knowledge fixture is ready for typed archive promotion', required_boundaries: ['Runtime archive and reconciliation'], allowed_substitutes: ['isolated static fixture'], subject_paths: ['evidence-report.txt'], expected_result: 'accepted' },
       disposition: 'existing',
-      evidence_refs: ['e2e:evidence:knowledge-promotion'],
+      evidence_refs: ['evidence-report.txt'],
     }],
   }];
 }
@@ -161,6 +169,14 @@ function currentTaskBody(state: RuntimeState): string {
     '## 回归检查项',
     '',
     '- [ ] verify canonical Contract/Decision records and replay',
+    '### Test Strategy',
+    '- mode: flexible',
+    '- source: inferred-default',
+    '- source_ref: prepare-task-default',
+    '- task_classification: contract-clear-behavior',
+    '- rationale: No explicit ordering requirement.',
+    '### Persistent Tests',
+    '- none',
     '',
     '## 回滚点',
     '',
@@ -328,6 +344,18 @@ function createVirtualProject(state = runtimeState()): string {
     '  workflow_home: docs/workflow',
     '',
   ].join('\n'), 'utf8');
+
+  // S5: this closure fixture must satisfy the shared evidence gate before
+  // exercising knowledge promotion; do not bypass it with a legacy boolean.
+  fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Isolated knowledge fixture; no external execution asserted.');
+  state.business_evidence_version = 1;
+  state.evidence_plan_revision = assertEvidencePlan(readDraftDefinitionFromBody(currentTaskBody(state)), state.claim_evidence!);
+  state.claim_evidence![0]!.slots[0]!.report = {
+    result_id: 'knowledge-fixture-static', status: 'accepted',
+    evidence_plan_revision: state.evidence_plan_revision,
+    subject_revision: captureReviewTarget(root, ['evidence-report.txt']).revision,
+    actual_method: 'static', environment: 'isolated knowledge regression', assurance: 'caller-reported',
+  };
 
   const workflowRoot = path.join(root, 'docs', 'workflow');
   fs.mkdirSync(workflowRoot, { recursive: true });

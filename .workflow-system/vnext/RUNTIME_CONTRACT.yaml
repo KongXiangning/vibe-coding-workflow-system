@@ -1,4 +1,6 @@
 schema_version: 1
+# Shared transaction responses expose the evidence ceiling, not proof of execution.
+# Transaction result field: evidence_assurance: caller-reported.
 kind: vnext-runtime-contract
 phase: Phase 2
 
@@ -9,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.15.3
+  package_version: 0.16.0
   node_min_version: ">=20.0.0"
 
 proposal:
@@ -62,6 +64,8 @@ proposal:
       - repair_wave_id
   task_state:
     actions:
+      - retry-step
+      - record-step-preflight
       - step-progress
       - clear-resume-review-gate
       - create-draft
@@ -91,12 +95,20 @@ proposal:
       record_fields:
         - claim_id
         - claim_kind
+        - requirement
+        - source_ref
         - slots
       slot_fields:
         - slot_id
         - minimum_type
         - disposition
         - evidence_refs
+        - due_step_id
+        - applicability
+        - before_step_id
+        - check
+        - report
+        - prerequisite_receipt
       complete_dispositions:
         - existing
         - reused
@@ -105,7 +117,7 @@ proposal:
         - missing
         - deferred
         - blocked
-      completion_rule: non-empty frozen plan with at least one acceptance claim; every planned slot is complete and has evidence_refs
+      completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites
     claim_evidence_migration:
       mode: default
       action: migrate-claim-evidence
@@ -148,6 +160,7 @@ proposal:
         - verification
       target_verification: runtime-file-manifest
     review_result:
+      test_assessment: [applicable, reason, evidence_refs, necessity, oracle, boundary, reuse, applicability]
       stored_in: canonical CURRENT_TASK.runtime_state.pending_review_result
       verdicts:
         - clean
@@ -242,6 +255,8 @@ proposal:
       input: stdin-json
       commands:
         - preflight-step
+        - evidence-context
+        - retry-step
         - begin-repair
         - record-step-result
         - complete-reviewed-step
@@ -250,14 +265,14 @@ proposal:
       command_plan_source: confirmed-current-step
       persistent_tests_enforcement: frozen-section-plus-scope-evaluator
       test_strategy_execution:
-        phase_source: frozen-test-strategy-plus-active-step-order
-        legacy_behavior: preserve-existing-active-task-semantics
+        phase_source: versioned-frozen-test-strategy
+        legacy_behavior: read-history-block-unversioned-execution
         test_first:
-          first_step_phase: red
-          later_step_phase: green
-          first_step_outcome: test-red
+          first_step_phase: test-first
+          later_step_phase: test-first
+          first_step_outcome: implemented
           later_step_outcome: implemented
-          advancement_gate: completed-clean-reviewed-test-red
+          advancement_gate: runtime-consumed-bound-prerequisite-evidence
         red_evidence:
           result_status: expected-failure
           kind: behavior-not-implemented
@@ -270,7 +285,7 @@ proposal:
           acceptance_evidence: forbidden
           unexpected_failure_outcome: blocked
           review_checkpoint: required
-        non_red_outcome: implemented-with-all-planned-results-passed
+        non_red_outcome: implemented-with-passed-results-or-bound-reproduction
       completion_evidence_source: recorded-step-result-only
       change_detection: runtime-preflight-candidate-before-after-delta
       proposal_file_policy: project-external-only
@@ -279,6 +294,8 @@ proposal:
       post_completion_route: git-commit
     bound_actions:
       - admit
+      - retry-step
+      - record-step-preflight
       - step-progress
       - record-repair-attempt
       - resolve
@@ -291,7 +308,7 @@ proposal:
       context_source: latest-recorded-execution
       reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification
       change_set: runtime-owned-stable-id
-      review_target: runtime-before-after-file-delta
+      review_target: runtime-cumulative-before-after-file-delta
       result_storage: canonical-pending-review-result
       direct_product_writes: deny
       advancement_owner: execute-step
@@ -339,6 +356,7 @@ proposal:
           - task_classification
           - rationale
         modes:
+          - flexible
           - test-first
           - implementation-first
           - not-applicable
@@ -362,7 +380,7 @@ proposal:
         frozen_by: confirm-draft
         change_after_confirm: replan-only
         enforcement: create-update-confirm-and-replan
-        ordering_enforcement: mode-bound-step-scope-partition
+        ordering_enforcement: runtime-consumed-before-step-slots
         non_executable_scope:
           policy_source: .workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths
           required_for: not-applicable
@@ -645,6 +663,8 @@ canonical_current_task:
     schema_version: 1
     kind: vnext-current-task-runtime-state
     fields:
+      - business_evidence_version
+      - evidence_plan_revision
       - task_id
       - task_slug
       - workflow_status
@@ -661,6 +681,8 @@ canonical_current_task:
       - claim_evidence_required
       - claim_evidence
       - pending_review_result
+      - review_coverage
+      - step_attempts
     review_cycle:
       fields:
         - id

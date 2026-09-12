@@ -119,9 +119,8 @@ function cleanMetadataValue(value: string): string {
 
 function parseCheckpoint(value: string): { policy: TaskStepCheckpointPolicy | null; boundary: string | null } {
   const normalized = cleanMetadataValue(value);
-  if (/^(?:not[-\s]?required|optional|none|无需|不需要|非必需)(?=\s|[:：,，()（）[\]{}\-–—]|$)/iu.test(normalized)) {
-    return { policy: 'not-required', boundary: null };
-  }
+  const optional = /^(?:not[-\s]?required|optional|none|无需|不需要|非必需)(?=\s|[:：,，()（）[\]{}\-–—]|$)/iu.exec(normalized);
+  if (optional) return { policy: 'not-required', boundary: normalized.slice(optional[0].length).replace(/^[\s:：]+/u, '').trim() || null };
   const required = /^(?:required|mandatory|必需|必须|需要)(?=\s|[:：,，()（）[\]{}\-–—]|$)/iu.exec(normalized);
   if (!required) return { policy: null, boundary: null };
   const boundary = normalized
