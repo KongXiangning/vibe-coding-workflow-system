@@ -41,6 +41,7 @@ import {
 } from './vnext-runtime';
 import { checkTargetRoot } from './guard-target-root';
 import { parseDocument } from 'yaml';
+import { RG_INSTALL_ENTRY, RG_TOOLS_PATH, resolveRg, assertRgDirectory } from '../runtime/vnext/src/rg-tool';
 
 export const VIBE_GOVERNANCE_PRODUCT = 'Vibe Governance' as const;
 export const VIBE_GOVERNANCE_PACKAGE_NAME = 'vibe-governance' as const;
@@ -700,6 +701,13 @@ function validateDestinations(targetRoot: string, manifest: DistributionManifest
     if (operation !== 'upgrade' || !oldState) issues.push(distributionIssue('MANAGED_TARGET_CONFLICT', 'Distribution State already exists and is not an exact admitted upgrade preimage.', manifest.state.path));
   }
   const runtimeDirectory = path.join(targetRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split('/'));
+  const toolsDirectory = resolveRepoPath(targetRoot, RG_TOOLS_PATH, 'Runtime rg dependency path');
+  try { assertRgDirectory(targetRoot); } catch (error) {
+    issues.push(distributionIssue('MANAGED_TARGET_CONFLICT', String(error), RG_TOOLS_PATH));
+  }
+  if (fileExists(toolsDirectory) && (!fs.lstatSync(toolsDirectory).isDirectory() || !oldManaged.has(RG_INSTALL_ENTRY))) {
+    issues.push(distributionIssue('MANAGED_TARGET_CONFLICT', 'Runtime rg directory has no admitted owner or is not a regular directory.', RG_TOOLS_PATH));
+  }
   const runtimeDependencyDirectory = resolveRepoPath(targetRoot, manifest.runtime_dependency_path, 'Distribution Runtime dependency path');
   if (fileExists(runtimeDependencyDirectory) && !fs.statSync(runtimeDependencyDirectory).isDirectory()) {
     issues.push(distributionIssue('MANAGED_TARGET_CONFLICT', 'Distribution Runtime dependency target is not a directory.', manifest.runtime_dependency_path));
@@ -755,6 +763,10 @@ function verifyDistributionInstallation(targetRoot: string, payload: LoadedPaylo
   const skillTargets = payload.manifest.artifacts.filter(artifact => artifact.category === 'skill');
   if (skillTargets.some(artifact => !REQUIRED_SKILL_TARGET.test(artifact.target_path))) throw new Error('Distribution read-back contains a non-canonical Skill path.');
   validateRuntimeReadBack(targetRoot);
+  if (payload.manifest.artifacts.some(artifact => artifact.target_path === RG_INSTALL_ENTRY)) {
+    if (!fileExists(path.join(targetRoot, RG_TOOLS_PATH, 'identity.json'))) throw new Error('RG_DEPENDENCY_MISSING: Runtime rg dependency receipt is missing.');
+    resolveRg(targetRoot);
+  }
 }
 
 export type InstalledDistributionValidation = {
@@ -815,12 +827,12 @@ function pruneCreatedEmptyDirectories(targetRoot: string, relativePaths: readonl
 
 function planFreshOrUpgrade(targetRoot: string, payload: LoadedPayload, operation: 'install' | 'upgrade', oldState: DistributionState | null): { writes: Array<{ path: string; content: string }>; deletes: string[]; directories: Array<{ path: string; sourcePath: string }>; stagingRoot?: string; state: DistributionState } {
   const writes = payload.manifest.artifacts.map(artifact => ({ path: artifact.target_path, content: fs.readFileSync(resolveRepoPath(payload.payloadRoot, artifact.source_path, 'Distribution payload artifact'), 'utf8') }));
-  const prepared: ReturnType<typeof prepareRuntimeDistribution> = prepareRuntimeDistribution(payload.bundleDir, payload.bundle.artifacts);
+  const prepared: ReturnType<typeof prepareRuntimeDistribution> = prepareRuntimeDistribution(payload.bundleDir, payload.bundle.artifacts, targetRoot);
   const state = parseDistributionState(JSON.parse(stateContent(payload.manifest)), 'planned Distribution State');
   writes.push({ path: payload.manifest.state.path, content: stateContent(payload.manifest) });
   const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   const deletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
-  return { writes, deletes, directories: prepared ? [{ path: payload.manifest.runtime_dependency_path, sourcePath: prepared.sourceNodeModulesPath }] : [], stagingRoot: prepared?.stagingRoot, state };
+  return { writes, deletes, directories: prepared ? [{ path: payload.manifest.runtime_dependency_path, sourcePath: prepared.sourceNodeModulesPath }, { path: RG_TOOLS_PATH, sourcePath: prepared.sourceToolsPath }] : [], stagingRoot: prepared?.stagingRoot, state };
 }
 
 function runTransactionalPromotion(
@@ -847,10 +859,11 @@ function runTransactionalPromotion(
   const plannedWrites = payload.manifest.artifacts.map(artifact => artifact.target_path).concat(payload.manifest.state.path).sort();
   const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   const plannedDeletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
-  result.planned_writes = [...plannedWrites, payload.manifest.runtime_dependency_path];
+  result.planned_writes = [...plannedWrites, payload.manifest.runtime_dependency_path, RG_TOOLS_PATH];
   result.planned_deletes = plannedDeletes;
   if (isFrozenPath(targetRoot, payload.manifest.state.path)
     || isFrozenPath(targetRoot, payload.manifest.state.in_progress_path)
+    || isFrozenPath(targetRoot, RG_TOOLS_PATH)
     || isFrozenPath(targetRoot, payload.manifest.runtime_dependency_path)
     || payload.manifest.artifacts.some(artifact => isFrozenPath(targetRoot, artifact.target_path))) {
     result.blockers.push(distributionIssue('FROZEN_PATH', 'Distribution cannot replace or journal a frozen path.'));
@@ -887,6 +900,8 @@ function runTransactionalPromotion(
     return result;
   }
   const rollbackDirectories = [
+    RG_TOOLS_PATH,
+    '.workflow-system/runtime/tools',
     ...payload.manifest.artifacts
       .filter(artifact => artifact.category === 'skill')
       .map(artifact => path.posix.dirname(artifact.target_path)),
@@ -975,11 +990,12 @@ function runDryRunPromotion(
   }
   const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   result.planned_writes = payload.manifest.artifacts.map(artifact => artifact.target_path)
-    .concat(payload.manifest.state.path, payload.manifest.runtime_dependency_path)
+    .concat(payload.manifest.state.path, payload.manifest.runtime_dependency_path, RG_TOOLS_PATH)
     .sort();
   result.planned_deletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
   if (isFrozenPath(targetRoot, payload.manifest.state.path)
     || isFrozenPath(targetRoot, payload.manifest.state.in_progress_path)
+    || isFrozenPath(targetRoot, RG_TOOLS_PATH)
     || isFrozenPath(targetRoot, payload.manifest.runtime_dependency_path)
     || payload.manifest.artifacts.some(artifact => isFrozenPath(targetRoot, artifact.target_path))) {
     result.blockers.push(distributionIssue('FROZEN_PATH', 'Distribution cannot replace or journal a frozen path.'));
@@ -989,7 +1005,7 @@ function runDryRunPromotion(
   return result;
 }
 
-function governanceUpgradeBoundary(targetRoot: string): DistributionIssue[] {
+function governanceUpgradeBoundary(targetRoot: string, installedVersion: string): DistributionIssue[] {
   const profilePath = path.join(targetRoot, '.workflow-system', 'PROJECT_PROFILE.yaml');
   const defaultCurrentTask = path.join(targetRoot, 'docs', 'workflow', 'CURRENT_TASK.md');
   if (!fileExists(profilePath) && !fileExists(defaultCurrentTask)) return [];
@@ -997,9 +1013,14 @@ function governanceUpgradeBoundary(targetRoot: string): DistributionIssue[] {
   const runtimeEntrypoint = path.join(targetRoot, ...VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH.split('/'));
   if (!fileExists(runtimeEntrypoint)) return [distributionIssue('UPGRADE_GOVERNANCE_UNKNOWN', 'Project-local Runtime is missing; upgrade cannot validate the task-state boundary.')];
   try {
-    const output = execFileSync(NODE_COMMAND, [runtimeEntrypoint, 'validate', '--root', targetRoot], { cwd: targetRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NODE_PATH: undefined, BUN_INSTALL: undefined } });
+    // Older installed Runtimes do not understand --summary. Current versions
+    // must not serialize full review baselines just to prove the status tuple.
+    const summaryVersion = compareVersions(installedVersion, '0.17.0');
+    const useSummary = summaryVersion !== null && summaryVersion >= 0;
+    const validationArgs = [runtimeEntrypoint, 'validate', ...(useSummary ? ['--summary'] : []), '--root', targetRoot];
+    const output = execFileSync(NODE_COMMAND, validationArgs, { cwd: targetRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NODE_PATH: undefined, BUN_INSTALL: undefined } });
     const parsed = JSON.parse(output) as Record<string, unknown>;
-    const runtimeState = parsed.runtime_state as Record<string, unknown> | undefined;
+    const runtimeState = (useSummary ? parsed.summary : parsed.runtime_state) as Record<string, unknown> | undefined;
     const workflowStatus = runtimeState?.workflow_status;
     const lifecycleState = runtimeState?.lifecycle_state;
     if ((workflowStatus === 'closed' && lifecycleState === 'archived')
@@ -1087,14 +1108,19 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
       result.read_back_verified = true;
       return result;
     } catch (error) {
-      result.blockers.push(distributionIssue('MANAGED_TARGET_DRIFT', error instanceof Error ? error.message : String(error)));
-      return result;
+      // The same-version administrative upgrade may prepare a lost rg dependency.
+      // Artifact drift and invalid ownership remain blocking; all normal upgrade
+      // admission, staging, freeze and rollback checks still run below.
+      if (!(error instanceof Error) || !error.message.startsWith('RG_DEPENDENCY_MISSING:')) {
+        result.blockers.push(distributionIssue('MANAGED_TARGET_DRIFT', error instanceof Error ? error.message : String(error)));
+        return result;
+      }
     }
   }
   const oldState = (() => {
     try { return readDistributionState(targetRoot, payload.manifest); } catch { return null; }
   })();
-  const governanceIssues = governanceUpgradeBoundary(targetRoot);
+  const governanceIssues = governanceUpgradeBoundary(targetRoot, classification.version!);
   if (governanceIssues.length > 0) {
     result.blockers.push(...governanceIssues);
     return result;

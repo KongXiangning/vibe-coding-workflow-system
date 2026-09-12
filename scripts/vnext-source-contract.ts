@@ -784,7 +784,7 @@ function validateExecuteStepSemanticBoundary(content: string): void {
 function validateReviewChangeSemanticBoundary(content: string): void {
   const requiredTerms = [
     'Runtime `review-context`',
-    'Runtime-recorded cumulative change set, first-touch review_preimages and exact before/after file delta',
+    'Runtime-recorded cumulative change set, complete file index and bounded text diff',
     'A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable',
     'Do not modify code, tests, configuration, or governance sources',
     'unauthorized persistent-test changes',

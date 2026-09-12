@@ -2,6 +2,8 @@
 
 S0 核实日期：2026-09-11；审查修订：2026-09-12。S1–S5 已实施；本会话累计审查发现 1 个 P1 和 3 个 P2，用户已授权修复，结果见末尾；具体落地范围见末尾实施记录，本文件不替代产品 canonical 状态或用户执行授权。
 
+**最新增量（2026-09-12）：Runtime 按需上下文与 rg 检索已实施为本地 0.17.0；最终完整回归 534 pass / 0 fail。具体接口、真实下载安装验证及限制见末尾同名记录。未发布、未提交，未重新运行业务 dogfood。**
+
 **2026-09-12 用户最新执行约束：本次纠偏明确不使用旧治理渠道。** 此指令覆盖 PLAN §7、CONTEXT 和各 step 中会导向旧治理链的执行要求；不得调用旧 close/archive/create/lock-scope，不为本轮恢复旧 host skills，也不迁移、归档或手改任务 010。后续源码切片按用户直接指定的步骤及精确文件范围执行，不以旧任务所有权或旧/新治理回执作为源码开发的前置条件；产品 Runtime 的契约、验证与真实 dogfood 要求保持不变。用户先后单独授权 S1–S5，并于累计 diff 审查后明确授权修复四项 finding；本轮限这四项及必要回归、生成同步，不自动发布或推进其它任务。
 
 ## 实际基线与写入边界（S0 快照；S1 增量见末尾）
@@ -222,3 +224,50 @@ S1 后续审查：两个 P2 均非进入 S2 的阻塞；没有执行绕过或产
 - 修复 SHA-256：`runtime/vnext/dist/cli.js`=`d8a272b934554c25071de9d9fe3c93aea2f3221554a47b4393d447e4b18f8fe9`。
 - 修复 SHA-256：`test/vnext-runtime.test.ts`=`fe6c6fa6f29897e6c24db7dc47022e10ecb87494a9905894d3a8bfbe0eac3f6f`。
 - 保留限制：caller-reported 不认证执行真实性；基线存储仍随已准入首触文件内容增长；unknown/业务失败、历史无 ledger 或预算耗尽需真实诊断与合法修复，不能伪造 finding/报告。真实旧任务及数据保留原状。下一步为用户按需收窄复审或授权修复版隔离业务 dogfood，停止，不自动发布/commit/push。
+
+## 2026-09-12 Runtime 按需上下文与 rg 检索实施
+
+- 授权与基线：用户确认本会话计划后要求实施；规格增量见 `RUNTIME_CONTEXT_PLAN.md`。起点 HEAD `5d5cafef18fff8306371966f50855c400187f9be`、0.16.0、工作树干净。根 AGENTS/CLAUDE 适用，无冻结登记或目标冻结标记。本轮不走旧治理渠道，不改真实 CURRENT_TASK/PROJECT_PROFILE，不操作真实业务数据，不 commit/push/发布。
+- 版本：源码、Runtime、Distribution、锁文件、Runtime Contract 与生成版本同步到 **0.17.0**；canonical schema / business_evidence_version 保持原值。新增构建依赖固定 `diff@9.0.0`、`fflate@0.8.2`、`tar-stream@3.1.7`；前者打入日常 CLI，后两者只进入独立安装辅助 CLI，目标 Runtime npm 依赖仍为既有 yaml。依赖许可证随包保存。
+
+### 正常读取接口与最小读写地图
+
+- `review-context {}`：沿用既有累计 target、receipt、审查义务；完整路径/状态/hash 索引仍在 `recorded_execution.execution_result`，首个变更文件给出 `text_diff`，其它路径在 `unexpanded_paths`。**不再默认返回 review_preimages/content_base64**；完整首触正文仍在 canonical，不更换 dirty 起点或使用 Git HEAD 补造。
+- `review-read`：stdin `{context_receipt,path,view?,start_line?,end_line?,offset?,max_bytes?}`；view=`diff/before/after`。复用已有 source/step/cycle/execution/cumulative-target 校验，范围从 Runtime 首触内容和已记录目标读取；陈旧 receipt/对象拒绝。二进制、链接、缺历史基线、diff 计算超限均明确返回 content_status，不视作 clean。
+- `file-context`：stdin `operation=search` 接受 roots、globs、字面量 query、include_hidden、limit、max_bytes；`operation=read` 接受 path、sha256、行范围、offset、max_bytes。无需已确认任务。真实 rg 返回有限候选；默认 ignore，显式 glob 遵循 rg 原生覆盖优先级。无匹配、部分结果、超时和错误有区别；不把候选当作完整测试目录或通过报告。
+- 文本默认 16 KiB、最大 64 KiB，完整文件索引另列；UTF-8 字节续读不拆字符，非首个文件页绑定 sha256。行范围 1-based inclusive；offset/total_bytes 相对所选范围。搜索默认 50 条、最多 200 条、10 秒超时；raw stdout/超长单行也受限。完整输入定义随包放在 `.workflow-system/runtime/support/CONTEXT_API.md`。
+- `validate --summary`：返回身份、版本、状态及待审路径等摘要，不含 Runtime 正文；原 `validate` 完整诊断格式保留。prepare/review 两个现有 Skill 只增加调用路由与按需文档引用，frontmatter/entry_contract 未变，没有新公共 Skill。
+- 读取链：CLI → file-context/review adapter → 原有 canonical/manifest 校验或 rg/当前文件；不写 canonical、基线、报告、权限、测试身份或 review 结论。未改动的旧测试不进入首触存储。复用测试及 helper/fixture/config 沿用 S2 的 check.subject_paths、版本失效与 report；新增/修改测试仍需 P-12。
+
+### rg 安装、升级与失败边界
+
+- Installer 的 `prepareRuntimeDistribution` 在现有暂存流程中运行独立 `install-tools.js`：优先验证本地 rg，再复用兼容 PATH rg（14.1+ 的 14 系列或 15 系列，并执行功能探针）；否则下载官方固定 **15.2.0** 平台包，校验内置 SHA-256 后提取指定可执行文件。Windows/Linux/macOS x64/arm64 有固定映射，Linux 为 musl。
+- 管理目录为 `.workflow-system/runtime/tools/rg/`，与 node_modules 一同声明计划写入并进入目录提交/回滚；安装前校验路径、所有权和冻结边界。PATH 复用不把机器绝对路径写进 canonical。下载/解包/校验/探针失败仅影响暂存，不宣称安装成功。只读命令不下载；缺依赖返回 RG_DEPENDENCY_MISSING。
+- 同版本正常 upgrade 可在受管软件完整时补足丢失的 rg 依赖，继续经过原升级准入、冻结、自检和回滚；不扩展为一般漂移修复平台，不绕过源码漂移。旧安装升到 0.17.0 也通过同一链路。未使用系统包管理器、管理员权限、全局 PATH 修改或数据库。
+
+### 实际验证
+
+- 最终完整 `bun run test:workflow-all` **退出码 0，15 批次合计 534 pass / 0 fail / 8423 expectations**；日志 `C:/Users/kongx/AppData/Local/Temp/vnext-context-all-complete.log`。包括 Runtime/多槽完成门、S3 累计及 repair、retry、迁移、bootstrap、实际 npm 打包安装、分发升级/回滚和现有检查。新增 5 组上下文/依赖场景复用真实 rg；已有 S3 增补 Node CLI `review-context → review-read`、raw validate 兼容和 summary 零正文验证，读取前后 canonical 字节一致。
+- P-12 测试依据：本次用户计划、PLAN V8/V9/V10/V12 的版本/累计目标/真实接口义务；owner=Runtime 源仓库。新独立文件仅覆盖此前缺少的真实检索、长行续读、依赖安装错误；已有生命周期与安装用例承接 CLI 读取和回滚，不新增业务测试平台或可信 Provider。
+- 大基线场景实测：首触正文 **782,022 bytes**（前文“约 748 KB”为旧估算），base64 为 **1,042,696 bytes**；追加一条断言的文本 diff 为 **280 bytes**，累计上下文整体断言小于 64 KiB。该 280 bytes 仅是 diff，不包含索引/报告元数据，也不是精确 tokenizer token 数。完整首触内容仍逐字保存。
+- 最终 Windows 真实下载安装：`C:/Users/kongx/AppData/Local/Temp/vnext-context-final-jQs389/report.json`。对子进程移除 PATH 中的 rg，使用最终分发 Node CLI install，实际从官方源下载校验 15.2.0；再用安装版 CLI 搜索已有测试并按第 2 行读取 CRLF 文本，三次退出码均 0。安装后 CLI SHA-256 与当前源码生成物相同；没有创建 CURRENT_TASK、基线或报告。此为真实工具安装/读取 smoke，不是业务 dogfood。
+- Runtime build、Distribution build、gen:all、source/runtime contract、protocol、freshness、health 已通过。通用 skill-creator quick_validate 不认识仓库原有 `entry_contract` 顶层字段，两份 Skill 前后 frontmatter 完全相同；本轮保留仓库专用 Skill 契约，不将通用校验结果写成通过。
+- 中间失败不计为通过：新增安装测试局部变量重名已修正；并发重建分发目录期间的 bootstrap 失败在固定产物串行运行中消失；原“空所有权”夹具补充清理新增 rg 依赖目录，保留原有所有权断言。最终以以上退出码 0 的完整日志为准。
+
+### 产物与剩余限制
+
+- 日常 `dist/cli.js` 为 951,411 bytes（原 917,166，增加 34,245）；独立安装辅助产物 97,661 bytes；本次 Windows rg.exe 为 4,218,880 bytes。Skill 正文仅作必要路由，详细 API 与第三方声明按需读取。
+- SHA-256：`runtime/vnext/src/file-context.ts`=`6aebcbf295b56ab8db36604d0435075a5c4aa6708ca1f2333e901ac2072c531e`；`review-change-adapter.ts`=`c9e9320985aad643a94fcc3c50af3a7bfe1cf4381ab37b463e83b8b5612b147e`。
+- SHA-256：`runtime/vnext/src/rg-tool.ts`=`1fedc058c184777e2832d817db1efda4d21ca0ce911c61d8ea4b758999119b37`；`install-tools.ts`=`194a486fa41b5fc70f293faa645c703f2febd04e4b02a16179de204dd85a4fa9`。
+- SHA-256：`runtime/vnext/dist/cli.js`=`1b6ca2a5ec9781da666df59f9687d74186053dca58cc2e183d1e40b871a2b9ae`；`dist/install-tools.js`=`52dda1d9ccff732ba5363449c0b77c74969012259ad44d9bc9bb1fc90cc0386c`。
+- 本轮工程实现与 Windows 验证完成，无已知未修复阻塞。**未实际运行 Linux/macOS 可执行程序，也未重新运行业务 dogfood、未做独立复审**；ZIP/tar.gz 有隔离解析回归，不替代平台运行。完整 canonical 的存储、解析与 Runtime 内存成本仍随基线内容增长；搜索是当前树候选发现，不覆盖 Git 已删除历史。报告与语义 review 仍为 caller-reported，不提升真实性保证。
+- 下一步：用户可独立审查本轮未提交 diff，再另行授权修复版隔离业务 dogfood。到此停止，不自动开始其它步骤或发布。
+
+## 2026-09-12 聚焦审查 P2 修复：大基线下 rg 恢复
+
+- 用户直接授权修复；保留此前未提交改动。根 AGENTS/CLAUDE 适用，无冻结登记；未修改真实 CURRENT_TASK、PROJECT_PROFILE 或业务数据，未使用旧治理渠道，未 commit/push/发布。版本保持 0.17.0。
+- 问题复现：正常 Runtime preflight 保存大基线后，安装版完整 validate 成功但输出 1,234,839 bytes；丢失 rg identity 后，同版本 upgrade 因子进程默认缓冲上限产生 ENOBUFS，误报 UPGRADE_NON_IDLE。
+- 修复：Distribution 升级准入对已安装 0.17.0 及以后版本调用 validate --summary，读取 summary 中的原有状态元组；仍只接受 active + active 或 closed + archived。旧 Runtime 不支持摘要，保留原始 validate 路径，不假定旧接口存在。未修改 Runtime 实现、Skill 或完成证据门。
+- 回归：复用正常 prepare/confirm/preflight fixture，构建独立临时分发包并安装真实 Runtime；确认原始输出超过 1 MiB，删除隔离 rg identity 后 dry-run ready、实际 upgrade upgraded、依赖恢复，canonical 字节不变。已有 draft 拒绝用例扩展覆盖旧版读取与新版摘要两条路径。P-12 owner=Runtime 源仓库，basis=regression/critical-invariant，依据本次用户修复授权及按需上下文计划的恢复/权限保持义务；不把 fixture 当作业务 dogfood。
+- 验证：最终大基线定向回归 1 pass / 0 fail / 9 expectations（隔离构建夹具版本）；完整 test:workflow-all 退出码 0，15 批次合计 536 pass / 0 fail / 8436 expectations，日志 C:/Users/kongx/AppData/Local/Temp/vnext-rg-recovery-fix-all.log。完整运行期间只对已执行的大基线夹具补充了独立临时构建，随后定向重跑通过；完整分发批次包含最终的两条 draft 拒绝回归。protocol、freshness、health、改动文件 diff --check 均通过；按 simplify 检查保持小范围实现。
+- 限制：旧于 0.17.0 的 Runtime 仍使用原始 validate，其已有大输出限制未在本轮扩展处理。未运行 Linux/macOS 可执行程序、未重新运行业务 dogfood或独立复审。此次确认的 P2 已修复并自检；不标 independent clean。到此停止。

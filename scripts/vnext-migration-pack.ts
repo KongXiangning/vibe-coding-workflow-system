@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseDocument, stringify as stringifyYaml } from 'yaml';
+import { RG_INSTALL_ENTRY, RG_TOOLS_PATH, resolveRg, assertRgDirectory } from '../runtime/vnext/src/rg-tool';
 import { checkTargetRoot, normalizeAbsoluteRootPath } from './guard-target-root';
 import {
   getWorkflowHome,
@@ -2340,6 +2341,9 @@ function validateVNextCurrentTaskBundleContent(content: string, location: string
 
 
 const REQUIRED_RUNTIME_BUNDLE_TARGETS = [
+  RG_INSTALL_ENTRY,
+  '.workflow-system/runtime/support/CONTEXT_API.md',
+  '.workflow-system/runtime/support/CONTEXT_THIRD_PARTY_NOTICES.md',
   VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH,
   VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH,
   VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH,
@@ -2680,14 +2684,16 @@ export type PreparedRuntimeDistribution = {
   targetNodeModulesPath: string;
   identity: RuntimeDistributionIdentity;
   stagingRoot: string;
+  sourceToolsPath: string;
 };
 
-export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonly VNextBundleArtifact[]): PreparedRuntimeDistribution {
+export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonly VNextBundleArtifact[], reuseRoot = process.cwd()): PreparedRuntimeDistribution {
   const stagingRoot = fs.mkdtempSync(path.join(os.tmpdir(), '.workflow-vnext-runtime-stage-'));
   try {
     const stageRoot = path.join(stagingRoot, 'project');
     const runtimeDirectory = path.join(stageRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split('/'));
     const requiredTargets = [
+      RG_INSTALL_ENTRY,
       VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH,
       VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH,
       VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH,
@@ -2738,6 +2744,10 @@ export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonl
       const detail = error && typeof error === 'object' && 'stderr' in error ? String((error as { stderr?: unknown }).stderr ?? '') : '';
       throw new MigrationPackError('INSTALL_CONFLICT', 'Runtime dependency installation failed in staging: ' + (detail.trim() || (error instanceof Error ? error.message : String(error))));
     }
+    execFileSync(nodeCommand, [path.join(stageRoot, RG_INSTALL_ENTRY), stageRoot, path.resolve(reuseRoot)], {
+      encoding: 'utf8', windowsHide: true, timeout: 45_000, maxBuffer: 8192,
+    });
+    resolveRg(stageRoot);
     const identity = validateVNextRuntimeContract(stageRoot, true).runtime_distribution;
     const entrypointPath = path.join(runtimeDirectory, 'dist', 'cli.js');
     try {
@@ -2756,6 +2766,7 @@ export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonl
       targetNodeModulesPath: VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH + '/node_modules',
       identity,
       stagingRoot,
+      sourceToolsPath: path.join(stageRoot, RG_TOOLS_PATH),
     };
   } catch (error) {
     fs.rmSync(stagingRoot, { recursive: true, force: true });
@@ -3197,7 +3208,8 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   let preparedRuntime: PreparedRuntimeDistribution | undefined;
   if (!options.dryRun && phase2Runtime) {
     try {
-      preparedRuntime = prepareRuntimeDistribution(options.bundleDir, bundle.artifacts);
+      assertRgDirectory(targetRoot);
+      preparedRuntime = prepareRuntimeDistribution(options.bundleDir, bundle.artifacts, targetRoot);
     } catch (error) {
       const issue = error instanceof MigrationPackError
         ? { severity: 'error' as const, code: error.code, message: error.message }
@@ -3232,20 +3244,20 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     }
   }
   const runtimeTargetNodeModulesPath = preparedRuntime?.targetNodeModulesPath ?? (phase2Runtime ? VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH + '/node_modules' : undefined);
-  if (runtimeTargetNodeModulesPath) {
-    const runtimeDependencyPath = resolveRepoPath(targetRoot, runtimeTargetNodeModulesPath, 'Runtime dependency target');
+  for (const dependencyRelativePath of phase2Runtime ? [VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH + '/node_modules', RG_TOOLS_PATH] : []) {
+    const runtimeDependencyPath = resolveRepoPath(targetRoot, dependencyRelativePath, 'Runtime dependency target');
     if (fs.existsSync(runtimeDependencyPath)) {
       if (!fs.statSync(runtimeDependencyPath).isDirectory()) {
         if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
-        return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'INSTALL_CONFLICT', message: 'Runtime dependency target is not a directory.', path: runtimeTargetNodeModulesPath }], warnings, planned_writes: [], planned_deletes: [] };
+        return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'INSTALL_CONFLICT', message: 'Runtime dependency target is not a directory.', path: dependencyRelativePath }], warnings, planned_writes: [], planned_deletes: [] };
       }
       if (!fs.existsSync(existingStatePath)) {
         if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
-        return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'INSTALL_CONFLICT', message: 'Runtime dependency directory exists without an admitted prior vNext owner.', path: runtimeTargetNodeModulesPath }], warnings, planned_writes: [], planned_deletes: [] };
+        return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'INSTALL_CONFLICT', message: 'Runtime dependency directory exists without an admitted prior vNext owner.', path: dependencyRelativePath }], warnings, planned_writes: [], planned_deletes: [] };
       }
     }
   }
-  if (runtimeTargetNodeModulesPath && isFrozenPath(targetRoot, runtimeTargetNodeModulesPath)) {
+  if (runtimeTargetNodeModulesPath && [runtimeTargetNodeModulesPath, RG_TOOLS_PATH].some(item => isFrozenPath(targetRoot, item))) {
     if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
     return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Migration cannot replace a frozen Runtime dependency directory.', path: runtimeTargetNodeModulesPath }], warnings, planned_writes: [], planned_deletes: [] };
   }
@@ -3298,7 +3310,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     existingWritePaths.add(normalizedPath);
     writes.push({ path: normalizedPath, content: extra.content });
   }
-  const plannedWrites = [...writes.map(write => write.path), ...(runtimeTargetNodeModulesPath ? [runtimeTargetNodeModulesPath] : [])];
+  const plannedWrites = [...writes.map(write => write.path), ...(runtimeTargetNodeModulesPath ? [runtimeTargetNodeModulesPath, RG_TOOLS_PATH] : [])];
   const plannedDeletes = removedLegacyPaths.filter(relative => !bundleTargetPaths.has(relative) && !writes.some(write => write.path === relative));
   if (options.dryRun) return { status: 'ready', pack_id: pack.pack_id, bundle_id: bundle.bundle_id, target_root: targetRoot, blockers, warnings, planned_writes: plannedWrites, planned_deletes: plannedDeletes };
 
@@ -3336,12 +3348,13 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
           throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt read-back identity mismatch.');
         }
         if (phase2Runtime) {
+          resolveRg(targetRoot);
           const installedRuntime = validateVNextRuntimeContract(targetRoot, true).runtime_distribution;
           if (JSON.stringify(installedRuntime) !== JSON.stringify(runtimeDistribution)) throw new MigrationPackError('INSTALL_CONFLICT', 'Project-local Runtime distribution read-back identity mismatch.');
         }
         options.postPromotionVerify?.();
       },
-      preparedRuntime ? [{ path: preparedRuntime.targetNodeModulesPath, sourcePath: preparedRuntime.sourceNodeModulesPath }] : [],
+      preparedRuntime ? [{ path: preparedRuntime.targetNodeModulesPath, sourcePath: preparedRuntime.sourceNodeModulesPath }, { path: RG_TOOLS_PATH, sourcePath: preparedRuntime.sourceToolsPath }] : [],
     );
     if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
     try {

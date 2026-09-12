@@ -7,7 +7,7 @@
 - 技术栈：TypeScript, Markdown
 - 核心目录：scripts, test
 - 测试命令：bun run test:workflow-all, bun run validate:protocol, bun run validate:freshness
-- 当前版本：0.16.0
+- 当前版本：0.17.0
 
 ## ✅ 已完成且稳定
 

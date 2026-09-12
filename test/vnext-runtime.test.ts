@@ -1,3 +1,6 @@
+import { reviewRead } from '../runtime/vnext/src/review-change-adapter';
+import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
+import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
@@ -5379,7 +5382,49 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('S3 sparse checkpoint reviews dirty A plus B and verifies repair of the early oracle', () => {
+  test('same-version rg recovery preserves an active task with a large Runtime baseline', { timeout: 30000 }, () => {
+    const root = confirmedSemanticRoot();
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    fs.writeFileSync(path.join(root, file), '// large existing file\n'.repeat(40000));
+    preflightStep(root, { candidate_paths: [file] });
+
+    const software = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-recovery-software-'));
+    temporaryRoots.push(software);
+    const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-recovery-package-'));
+    temporaryRoots.push(packageRoot);
+    buildVibeGovernanceDistribution({ outputRoot: packageRoot });
+    expect(installDistribution({ targetRoot: software, packageRoot }).status).toBe('installed');
+    // Attach installed software to the existing normal Runtime lifecycle fixture;
+    // preserve its project facts, confirmed task and captured first-touch bytes.
+    const statePath = '.workflow-system/vnext/DISTRIBUTION_STATE.json';
+    const state = JSON.parse(fs.readFileSync(path.join(software, statePath), 'utf8'));
+    for (const item of state.managed_files) {
+      const destination = path.join(root, item.path);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(path.join(software, item.path), destination);
+    }
+    fs.copyFileSync(path.join(software, statePath), path.join(root, statePath));
+    for (const directory of ['node_modules', 'tools']) {
+      fs.cpSync(path.join(software, '.workflow-system/runtime', directory), path.join(root, '.workflow-system/runtime', directory), { recursive: true });
+    }
+    const canonicalPath = readCanonicalCurrentTask(root).filePath;
+    const before = fs.readFileSync(canonicalPath);
+    const raw = spawnSync('node', [path.join(root, '.workflow-system/runtime/dist/cli.js'), 'validate', '--root', root], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(raw.status).toBe(0);
+    expect(Buffer.byteLength(raw.stdout)).toBeGreaterThan(1024 * 1024);
+    const identityPath = path.join(root, '.workflow-system/runtime/tools/rg/identity.json');
+    fs.unlinkSync(identityPath);
+    expect(upgradeDistribution({ targetRoot: root, packageRoot, dryRun: true }).status).toBe('ready');
+    expect(fs.existsSync(identityPath)).toBe(false);
+    const recovered = upgradeDistribution({ targetRoot: root, packageRoot });
+    expect(recovered.status).toBe('upgraded');
+    expect(recovered.read_back_verified).toBe(true);
+    expect(fs.existsSync(identityPath)).toBe(true);
+    expect(fs.readFileSync(canonicalPath)).toEqual(before);
+  });
+
+  test('S3 sparse checkpoint reviews dirty A plus B and verifies repair of the early oracle', { timeout: 30000 }, () => {
     const semantic = semanticDraft();
     const a = 'test/vnext-runtime.test.ts';
     const b = 'runtime/vnext/src/prepare-task-adapter.ts';
@@ -5409,10 +5454,36 @@ describe('vNext Phase 2 Runtime contract', () => {
     const context = reviewContext(root,{});
     expect(context.recorded_execution.execution_result!.change_delta.entries.map(e=>e.path).sort()).toEqual([a,b].sort());
     expect(context.recorded_execution.execution_result!.actual_changed_paths).toEqual([b]);
+    expect(JSON.stringify(context)).not.toContain('content_base64');
+    expect(Buffer.byteLength(JSON.stringify(context))).toBeLessThan(64 * 1024);
+    const diff = reviewRead(root, { context_receipt: context.receipt, path: a });
+    expect(diff.text).toContain('+expect(limit()).toBe(PRODUCTION_LIMIT);');
+    expect(Buffer.byteLength(diff.text!)).toBeLessThan(1024);
+    const originalPage = reviewRead(root, { context_receipt: context.receipt, path: a, view: 'before', max_bytes: 64 });
+    expect(originalPage.text).toBe(dirtyBase.slice(0, 64));
+    expect(originalPage.next_offset).toBe(64);
+    expect(reviewRead(root, { context_receipt: context.receipt, path: a, view: 'before', offset: 64, max_bytes: 64 }).text).toBe(dirtyBase.slice(64, 128));
+    const summaryCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+    expect(summaryCli.status).toBe(0);
+    expect(summaryCli.stdout).not.toContain('content_base64');
+    const rawCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--root', root], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(rawCli.status).toBe(0);
+    expect(JSON.parse(rawCli.stdout).runtime_state.review_coverage.preimages.find((item: any) => item.path === a).content_base64).toBe(Buffer.from(dirtyBase).toString('base64'));
     const beforeReview = fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8');
+    const contextCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'review-context', '--root', root], { encoding: 'utf8', input: '{}' });
+    expect(contextCli.status).toBe(0);
+    const fromCli = JSON.parse(contextCli.stdout);
+    expect(contextCli.stdout).not.toContain('content_base64');
+    const readCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'review-read', '--root', root], {
+      encoding: 'utf8', input: JSON.stringify({ context_receipt: fromCli.receipt, path: a, view: 'before', start_line: 1, end_line: 1 }),
+    });
+    expect(readCli.status).toBe(0);
+    expect(JSON.parse(readCli.stdout).text).toBe('// existing user work\n');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8')).toBe(beforeReview);
     expect(submitReviewResult(root,{context_receipt:context.receipt,verdict:'clean',findings:[],unresolved_fingerprints:[],evidence_refs:['evidence-report.txt'],blocker:null})).toMatchObject({status:'blocked',code:'REVIEW_ASSESSMENT_REQUIRED'});
     expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8')).toBe(beforeReview);
     fs.appendFileSync(path.join(root,a),'// late edit');
+    expect(() => reviewRead(root, { context_receipt: context.receipt, path: a, view: 'before', offset: 64 })).toThrow('REVIEW_TARGET_STALE');
     expect(() => recordReviewResult(root,{context_receipt:context.receipt,verdict:'clean',findings:[],unresolved_fingerprints:[],evidence_refs:['evidence-report.txt'],blocker:null})).toThrow('REVIEW_TARGET_STALE');
     fs.writeFileSync(path.join(root,a),dirtyBase+'expect(limit()).toBe(PRODUCTION_LIMIT);\n');
     const assessment = {applicable:true,reason:'Mixed implementation and reused test review',evidence_refs:['evidence-report.txt'],necessity:'The original request fixes limit at 10; preserve that regression',oracle:'The actual early diff derives expected value from PRODUCTION_LIMIT, so the 99 defect passes',boundary:'Direct Runtime fixture; no external process persistence is claimed',reuse:'Reuse the existing test with an independent expected value',applicability:'Current a+b manifest and current claim report inspected'};
@@ -5472,7 +5543,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(context.recorded_execution.execution_result!.change_delta.entries.map(e=>e.path).sort()).toEqual([a,b,c].sort());
     expect(context.recorded_execution.execution_result!.review_base.entries.find(e=>e.path===a)!.state).toBe('absent');
     expect(context.recorded_execution.execution_result!.review_target.entries.find(e=>e.path===c)!.state).toBe('absent');
-    expect(Buffer.from(context.review_preimages.find(e=>e.path===c)!.content_base64!,'base64').toString()).toBe(cOriginal);
+    expect(reviewRead(root,{context_receipt:context.receipt,path:c,view:'before'}).text).toBe(cOriginal);
+    expect(JSON.stringify(context)).not.toContain('content_base64');
     const review={context_receipt:context.receipt,verdict:'blocked',findings:[],unresolved_fingerprints:[],evidence_refs:['evidence-report.txt'],blocker:{code:'ORACLE_REVIEW_PENDING',summary:'Need original-request oracle comparison',next_route:'review-change'}};
     expect(recordReviewResult(root,review).status).toBe('success');
     const pending=fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8');

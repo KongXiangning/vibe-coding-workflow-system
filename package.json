@@ -1,6 +1,6 @@
 {
   "name": "vibe-coding-workflow-system",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "type": "module",
   "private": true,
   "description": "Portable workflow-system for Vibe Coding project governance.",
@@ -26,7 +26,7 @@
     "dogfood:fixflow:cleanup": "bun run scripts/fixflow-dogfood-cleanup.ts",
     "dogfood:fixflow:upgrade": "bun run scripts/fixflow-dogfood-upgrade.ts",
     "validate:vnext-source": "bun run scripts/vnext-source-contract.ts",
-    "build:vnext-runtime": "bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml",
+    "build:vnext-runtime": "bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js",
     "build:vibe-governance-distribution": "bun run scripts/build-vibe-governance-distribution.ts",
     "validate:vnext-runtime": "bun run build:vnext-runtime && bun run scripts/vnext-runtime.ts validate-contract --root .",
     "vnext:runtime": "bun run scripts/vnext-runtime.ts",
@@ -34,7 +34,7 @@
     "test:workflow-vnext-shadow": "bun test test/project-context-resolver.test.ts test/workflow-review-shadow.test.ts test/workflow-validate-shadow.test.ts test/workflow-shadow-samples.test.ts",
     "test:workflow-vnext-source": "bun test test/workflow-vnext-source.test.ts",
     "test:workflow-vnext-expert": "bun test test/vnext-validate-change.test.ts",
-    "test:workflow-vnext-runtime": "bun run build:vnext-runtime && bun test test/vnext-runtime.test.ts test/vnext-mutation-scope.test.ts test/vnext-daily-semantics.test.ts",
+    "test:workflow-vnext-runtime": "bun run build:vnext-runtime && bun test test/vnext-runtime.test.ts test/vnext-mutation-scope.test.ts test/vnext-daily-semantics.test.ts test/vnext-context.test.ts",
     "test:workflow-vnext-system-e2e": "bun test test/vnext-lifecycle-e2e.test.ts test/vnext-close-reconciliation-e2e.test.ts",
     "test:workflow-vnext-knowledge": "bun test test/vnext-knowledge-promotion.test.ts",
     "test:workflow-vnext-migration": "bun test test/vnext-migration-pack.test.ts",
@@ -54,6 +54,9 @@
     "test": "bun run test:workflow-all"
   },
   "dependencies": {
+    "diff": "9.0.0",
+    "fflate": "0.8.2",
+    "tar-stream": "3.1.7",
     "yaml": "^2.8.3"
   }
 }

@@ -88,7 +88,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.16.0';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.17.0';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -1999,7 +1999,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || reviewChangeAdapter.direct_product_writes !== 'deny'
     || reviewChangeAdapter.advancement_owner !== 'execute-step'
   ) fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-change adapter semantic boundary is invalid.');
-  expectSetEqual(expectStringArray(reviewChangeAdapter.commands, 'Runtime contract review-change commands'), ['review-context', 'record-review-result'], 'Runtime contract review-change commands');
+  expectSetEqual(expectStringArray(reviewChangeAdapter.commands, 'Runtime contract review-change commands'), ['review-context', 'review-read', 'record-review-result'], 'Runtime contract review-change commands');
   expectSetEqual(expectStringArray(reviewChangeContract.bound_actions, 'Runtime contract review-change actions'), ['record-review-result'], 'Runtime contract review-change actions');
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
   expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions'], 'Runtime contract.proposal.prepare_task');
@@ -12262,6 +12262,7 @@ export type VNextRuntimeCliArguments = {
   transformationKind: MutationTransformationKind;
   commandAuditFile?: string;
   commandAuditStdin: boolean;
+  summary: boolean;
 };
 
 export function parseCli(argv: string[]): VNextRuntimeCliArguments {
@@ -12279,6 +12280,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   let transformationKind: MutationTransformationKind = 'localized';
   let commandAuditFile: string | undefined;
   let commandAuditStdin = false;
+  let summary = false;
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === '--root') root = rest[++index] ?? '';
@@ -12290,6 +12292,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--persistent-test-paths-file') persistentTestPathsFile = rest[++index];
     else if (arg === '--command-audit-file') commandAuditFile = rest[++index];
     else if (arg === '--command-audit-stdin') commandAuditStdin = true;
+    else if (arg === '--summary' && command === 'validate') summary = true;
     else if (arg === '--conditional-authorizations-file') conditionalAuthorizationsFile = rest[++index];
     else if (arg === '--transformation-kind') {
       const value = rest[++index];
@@ -12299,7 +12302,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--dry-run') dryRun = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary };
 }
 
 export function resolveExternalProposalFile(root: string, proposalFile: string): string {
@@ -12418,7 +12421,16 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
-      console.log(JSON.stringify({ status: 'success', source_tuple: current.sourceTuple, runtime_state: current.runtimeState }, null, 2));
+      const state = current.runtimeState;
+      console.log(JSON.stringify(args.summary ? {
+        status: 'success', source_tuple: current.sourceTuple, package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
+        summary: { task_id: state.task_id, workflow_status: state.workflow_status, lifecycle_state: state.lifecycle_state,
+          active_step_id: state.active_step_id, active_step_status: state.active_step_status,
+          pending_review_verdict: state.pending_review_result?.verdict ?? null,
+          review_target_revision: state.review_coverage?.target.revision ?? null,
+          pending_review_paths: state.review_coverage?.pending_paths ?? [],
+          evidence_plan_revision: state.evidence_plan_revision ?? null },
+      } : { status: 'success', source_tuple: current.sourceTuple, runtime_state: state }, null, 2));
     } else if (args.command === 'scope-check') {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);

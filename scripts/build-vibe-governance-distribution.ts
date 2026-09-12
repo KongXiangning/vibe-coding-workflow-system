@@ -28,6 +28,7 @@ import {
   type DistributionManifest,
 } from './vibe-governance-distribution';
 import { VNEXT_RUNTIME_NODE_MIN_VERSION } from './vnext-runtime';
+import { RG_INSTALL_ENTRY } from '../runtime/vnext/src/rg-tool';
 
 type BuildDistributionOptions = {
   sourceRoot?: string;
@@ -134,8 +135,11 @@ function copyDirectory(sourceRoot: string, targetRoot: string, relativePath: str
 
 function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> {
   const skillEntries = ['bootstrap-project', 'prepare-task', 'review-draft', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change', 'git-commit'];
-  const runtimeSources = ['cli.ts', 'current-task.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'migration-provenance.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
+  const runtimeSources = ['file-context.ts', 'file-context-cli.ts', 'rg-tool.ts', 'install-tools.ts', 'install-tools-cli.ts', 'cli.ts', 'current-task.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'migration-provenance.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
   return [
+    { source_path: 'runtime/vnext/dist/install-tools.js', target_path: RG_INSTALL_ENTRY, category: 'runtime' },
+    { source_path: 'runtime/vnext/support/CONTEXT_API.md', target_path: '.workflow-system/runtime/support/CONTEXT_API.md', category: 'runtime' },
+    { source_path: 'runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md', target_path: '.workflow-system/runtime/support/CONTEXT_THIRD_PARTY_NOTICES.md', category: 'runtime' },
     { source_path: 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md', target_path: '.workflow-system/WORKFLOW_PROTOCOL.md', category: 'protocol' },
     { source_path: 'templates/vnext/bootstrap/FILE_SCHEMAS.md', target_path: '.workflow-system/FILE_SCHEMAS.md', category: 'schema' },
     { source_path: 'templates/vnext/bootstrap/CURRENT_TASK.md', target_path: 'docs/workflow/CURRENT_TASK.md', category: 'generated' },
@@ -164,6 +168,9 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
   // target Distribution artifacts and never installed under the project.
   copyDirectory(sourceRoot, targetRoot, 'templates/skills');
   for (const relativePath of [
+    'runtime/vnext/dist/install-tools.js',
+    'runtime/vnext/support/CONTEXT_API.md',
+    'runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md',
     'runtime/vnext/dist/cli.js',
     'runtime/vnext/package.json',
     'runtime/vnext/package-lock.json',

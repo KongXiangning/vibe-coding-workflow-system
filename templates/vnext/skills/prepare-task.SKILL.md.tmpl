@@ -62,6 +62,8 @@ executable `CURRENT_TASK` draft containing:
 - **Validation plan**
 - **Persistent Tests** explicitly allowed to be created or modified
 
+Use Runtime `file-context` to find/read relevant existing tests, helpers, fixtures and configuration before deciding reuse or new tests. Search results are candidates, not evidence of passing checks; unchanged reused tests need no creation/modification admission. For normal Runtime state inspection use `validate --summary`. Read `.workflow-system/runtime/support/CONTEXT_API.md` for inputs and limits.
+
 Read only the context needed to make those decisions. Resolve known scope and
 command blockers before submitting the draft; if a blocker cannot be resolved
 within the user's authority, report it instead of leaving it to `execute-step`.

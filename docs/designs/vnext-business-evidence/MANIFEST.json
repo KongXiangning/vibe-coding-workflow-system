@@ -4,8 +4,8 @@
     "sha256": "51e28f002f495d417e753e8b42e257ccb6088724d594cb865758d9b40c3faf56"
   },
   "HANDOFF.md": {
-    "bytes": 76009,
-    "sha256": "bb52cb678f2e96ff1ae3a98ee333bd5527d7b26a1fdccd5ee6f0c4175f87f0c3"
+    "sha256": "cdb30e61d5791de0ad709e65685a7a4a04a83d4e8b35bba863236aadbe435959",
+    "bytes": 86667
   },
   "PLAN.md": {
     "bytes": 31694,
@@ -46,5 +46,9 @@
   "steps/S5-verification.md": {
     "bytes": 3553,
     "sha256": "ce993fb2ea0467c10cfed06baf1f0a90bdd6076ab8f2f4d1cbaadd4f9a3dd0db"
+  },
+  "RUNTIME_CONTEXT_PLAN.md": {
+    "bytes": 2174,
+    "sha256": "2d9e18a5ef8aec53bfd587e7e8ed89126f83cc81362aac0e88d1d83589524256"
   }
 }

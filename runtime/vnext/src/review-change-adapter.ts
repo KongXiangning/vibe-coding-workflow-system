@@ -41,8 +41,9 @@ import {
   parseMutationScope,
 } from './mutation-scope';
 import { resolveTaskStep } from './task-steps';
+import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
 
-export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'record-review-result'] as const;
+export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result'] as const;
 export type ReviewChangeAdapterCommand = (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number];
 
 type JsonRecord = Record<string, unknown>;
@@ -89,7 +90,8 @@ export type ReviewContextResult = {
   };
   persistent_tests: string[] | null;
   claim_evidence: ClaimEvidenceRecord[];
-  review_preimages: NonNullable<CanonicalCurrentTask['runtimeState']['review_coverage']>['preimages'];
+  text_diff: ReturnType<typeof reviewFilePage> | null;
+  unexpanded_paths: string[];
   admitted_findings: Array<{
     fingerprint: string;
     file: string;
@@ -299,7 +301,9 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       conditional: scope.conditional.map(item => item.pattern),
       forbidden: scope.forbidden.map(item => item.pattern),
     },
-    review_preimages: current.runtimeState.review_coverage?.preimages ?? [],
+    text_diff: execution.execution_result!.change_delta.entries.length
+      ? reviewFilePage(root, current, execution, execution.execution_result!.change_delta.entries[0]!.path, 'diff', {}) : null,
+    unexpanded_paths: execution.execution_result!.change_delta.entries.slice(1).map(item => item.path),
     persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
     claim_evidence: (current.runtimeState.claim_evidence ?? []).map(item => ({
       ...item,
@@ -315,6 +319,40 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     })),
     receipt,
   };
+}
+
+function reviewFilePage(root: string, current: CanonicalCurrentTask, execution: StepExecutionLogEntry, file: string, view: string, input: Record<string, unknown>) {
+  if (!['before', 'after', 'diff'].includes(view)) fail('CONTEXT_INPUT_INVALID', 'view must be before, after or diff.');
+  const target = execution.execution_result!.review_target.entries.find(item => item.path === file);
+  if (!target) fail('REVIEW_PATH_OUTSIDE_TARGET', 'path is not part of this cumulative review target.');
+  const preimage = current.runtimeState.review_coverage?.preimages.find(item => item.path === file);
+  const base = { path: file, view, target_revision: execution.execution_result!.review_target.revision };
+  if (!preimage && view !== 'after') return { ...base, content_status: 'baseline-unavailable' as const };
+  if (target.state === 'symlink' || preimage?.state === 'symlink') return { ...base, content_status: 'symlink-not-followed' as const };
+  const before = preimage?.state === 'file' ? Buffer.from(preimage.content_base64!, 'base64') : Buffer.alloc(0);
+  const after = target.state === 'file' ? fs.readFileSync(contextPath(root, file).absolute) : Buffer.alloc(0);
+  if (target.state === 'file' && sha256(after) !== target.sha256) fail('REVIEW_TARGET_STALE', 'file changed while reading review context.');
+  if (preimage?.state === 'file' && sha256(before) !== preimage.sha256) fail('REVIEW_BASE_INVALID', 'first-touch baseline hash mismatch.');
+  const left = decodeText(before);
+  const right = decodeText(after);
+  if ((view !== 'after' && left === null) || (view !== 'before' && right === null)) return { ...base, content_status: 'binary-or-non-utf8' as const };
+  let text: string | undefined;
+  if (view === 'before') text = left!;
+  else if (view === 'after') text = right!;
+  else text = textDiff(file, left!, right!);
+  if (text === undefined) return { ...base, content_status: 'diff-budget-exceeded' as const, next_read: ['before', 'after'] };
+  return { ...base, content_status: 'text' as const, before_state: preimage?.state ?? null, after_state: target.state, ...textPage(text, input) };
+}
+
+export function reviewRead(root: string, input: unknown) {
+  const value = contextInput(input, ['context_receipt', 'path', 'view', 'offset', 'max_bytes', 'start_line', 'end_line']);
+  const current = readCanonicalCurrentTask(root);
+  assertReviewableTask(current);
+  const receipt = normalizeContextReceipt(value.context_receipt);
+  const execution = assertCurrentContext(root, current, receipt);
+  const file = repoPath(value.path, 'path');
+  return { status: 'pass', operation_kind: 'review-read', committed: false,
+    ...reviewFilePage(root, current, execution, file, String(value.view ?? 'diff'), value) };
 }
 
 function normalizeContextReceipt(value: unknown): ReviewContextReceipt {
@@ -562,9 +600,10 @@ export async function runReviewChangeAdapterCli(argv: string[] = process.argv.sl
     const args = parseCli(argv);
     validateInstalledRuntime(args.root);
     const input = readSemanticStdin(args.command);
-    const result = args.command === 'review-context'
-      ? reviewContext(args.root, input)
-      : recordReviewResult(args.root, input, { dryRun: args.dryRun });
+    let result;
+    if (args.command === 'review-context') result = reviewContext(args.root, input);
+    else if (args.command === 'review-read') result = reviewRead(args.root, input);
+    else result = recordReviewResult(args.root, input, { dryRun: args.dryRun });
     console.log(JSON.stringify(result, null, 2));
     return 'status' in result && (result.status === 'blocked' || result.status === 'conflict') ? 2 : 0;
   } catch (error) {

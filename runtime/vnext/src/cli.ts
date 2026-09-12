@@ -4,12 +4,14 @@ import { runBootstrapSupportCli } from './bootstrap-support';
 import { PREPARE_TASK_ADAPTER_COMMANDS, runPrepareTaskAdapterCli } from './prepare-task-adapter';
 import { EXECUTE_STEP_ADAPTER_COMMANDS, runExecuteStepAdapterCli } from './execute-step-adapter';
 import { REVIEW_CHANGE_ADAPTER_COMMANDS, runReviewChangeAdapterCli } from './review-change-adapter';
+import { runFileContextCli } from './file-context-cli';
 
 export { runCli, runBootstrapCli, runBootstrapSupportCli, runPrepareTaskAdapterCli, runExecuteStepAdapterCli, runReviewChangeAdapterCli };
 
 const args = process.argv.slice(2);
 let runner: Promise<number>;
-if (args[0] === 'bootstrap-project') runner = runBootstrapCli(args.slice(1));
+if (args[0] === 'file-context') runner = runFileContextCli(args.slice(1));
+else if (args[0] === 'bootstrap-project') runner = runBootstrapCli(args.slice(1));
 else if (args[0] === 'bootstrap-support') runner = runBootstrapSupportCli(args.slice(1));
 else if (PREPARE_TASK_ADAPTER_COMMANDS.includes(args[0] as (typeof PREPARE_TASK_ADAPTER_COMMANDS)[number])) {
   runner = runPrepareTaskAdapterCli(args);

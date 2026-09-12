@@ -350,3 +350,14 @@ frozen check.subject_paths at read time, after running the check. This operation
 does not write state, refresh reports/preimages/prerequisites or authorize edits.
 Submission still rechecks current subjects; a later change requires a new check
 and report, not merely a newly copied hash.
+
+### Read-only source context
+
+`review-context` returns the complete cumulative file index and bounded text
+diff, not raw first-touch base64. `review-read` binds before/after/diff ranges to
+its existing context receipt. `file-context` searches existing project tests
+and reads current files without requiring a confirmed task; it never creates
+baselines, admissions or reports. `validate --summary` omits baseline bodies;
+plain `validate` retains the diagnostic format. Inputs, byte/line ranges,
+continuation and incomplete-result handling are defined in the installed
+`.workflow-system/runtime/support/CONTEXT_API.md`.

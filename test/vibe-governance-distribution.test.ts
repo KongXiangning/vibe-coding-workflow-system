@@ -233,6 +233,18 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
+    expect(fs.existsSync(targetPath(target, '.workflow-system/runtime/tools/rg/identity.json'))).toBe(true);
+    fs.mkdirSync(targetPath(target, 'test'));
+    fs.writeFileSync(targetPath(target, 'test/existing.test.ts'), 'const oracle = 10;\nassert(login()).equals(oracle);\n');
+    const contextCli = targetPath(target, '.workflow-system/runtime/dist/cli.js');
+    const search = spawnSync('node', [contextCli, 'file-context', '--root', target], { encoding: 'utf8', input: JSON.stringify({ operation: 'search', roots: ['test'], query: 'login' }) });
+    expect(search.status).toBe(0);
+    const hit = JSON.parse(search.stdout).hits[0];
+    expect(hit).toMatchObject({ path: 'test/existing.test.ts', line: 2 });
+    const read = spawnSync('node', [contextCli, 'file-context', '--root', target], { encoding: 'utf8', input: JSON.stringify({ operation: 'read', path: hit.path, start_line: 2, end_line: 2 }) });
+    expect(read.status).toBe(0);
+    expect(JSON.parse(read.stdout)).toMatchObject({ text: 'assert(login()).equals(oracle);\n', committed: false });
+    expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
     expect(fs.existsSync(targetPath(target, '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl'))).toBe(true);
     const installedProtocol = fs.readFileSync(targetPath(target, '.workflow-system/WORKFLOW_PROTOCOL.md'), 'utf8');
     expect(installedProtocol).toContain(PUBLIC_ENTRY_TERMINAL_MARKER);
@@ -301,6 +313,12 @@ describe('Vibe Governance Distribution / Installer', () => {
     const replay = installDistribution({ targetRoot: target, packageRoot });
     expect(replay.status).toBe('no-op');
     expect(replay.next).toBeUndefined();
+    fs.writeFileSync(targetPath(target, 'business.txt'), 'preserve during dependency repair');
+    fs.unlinkSync(targetPath(target, '.workflow-system/runtime/tools/rg/identity.json'));
+    expect(upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true }).status).toBe('ready');
+    expect(upgradeDistribution({ targetRoot: target, packageRoot }).status).toBe('upgraded');
+    expect(fs.readFileSync(targetPath(target, 'business.txt'), 'utf8')).toBe('preserve during dependency repair');
+    expect(fs.existsSync(targetPath(target, '.workflow-system/runtime/tools/rg/identity.json'))).toBe(true);
     fs.appendFileSync(targetPath(target, '.agents/skills/prepare-task/SKILL.md'), '\nmanaged drift\n', 'utf8');
     const drift = installDistribution({ targetRoot: target, packageRoot });
     expect(drift.status).toBe('rejected');
@@ -391,18 +409,27 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8')).distribution_version).toBe(validateDistributionVersionLockstep(ROOT));
   });
 
-  test('vNext upgrade still rejects an unconfirmed draft task', { timeout: 60000 }, () => {
-    const target = makeActiveVNextTarget();
-    const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
-    const draftTask = fs.readFileSync(currentTaskPath, 'utf8')
-      .replaceAll('workflow_status: active', 'workflow_status: draft')
-      .replaceAll('当前状态：active', '当前状态：draft');
-    fs.writeFileSync(currentTaskPath, draftTask, 'utf8');
-    const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
-    expect(upgrade.status).toBe('rejected');
-    expect(upgrade.blockers.some(issue => issue.code === 'UPGRADE_NON_IDLE')).toBe(true);
-    expect(fs.readFileSync(currentTaskPath, 'utf8')).toBe(draftTask);
-  });
+  for (const mode of ['legacy', 'summary']) {
+    test(`vNext upgrade still rejects an unconfirmed draft task (${mode})`, { timeout: 60000 }, () => {
+      const target = makeActiveVNextTarget();
+      if (mode === 'summary') {
+        const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+        const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+        state.distribution_version = validateDistributionVersionLockstep(ROOT);
+        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
+        fs.unlinkSync(targetPath(target, '.workflow-system/runtime/tools/rg/identity.json'));
+      }
+      const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+      const draftTask = fs.readFileSync(currentTaskPath, 'utf8')
+        .replaceAll('workflow_status: active', 'workflow_status: draft')
+        .replaceAll('当前状态：active', '当前状态：draft');
+      fs.writeFileSync(currentTaskPath, draftTask, 'utf8');
+      const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
+      expect(upgrade.status).toBe('rejected');
+      expect(upgrade.blockers.some(issue => issue.code === 'UPGRADE_NON_IDLE')).toBe(true);
+      expect(fs.readFileSync(currentTaskPath, 'utf8')).toBe(draftTask);
+    });
+  }
 
   test('new Distribution State upgrade deletes stale managed files and rejects stale-file drift', { timeout: 90000 }, () => {
     const target = freshTarget();
@@ -458,6 +485,7 @@ describe('Vibe Governance Distribution / Installer', () => {
     // the separately guarded dependency directory so its presence cannot
     // turn the scenario into an unrelated destination conflict.
     fs.rmSync(targetPath(target, '.workflow-system/runtime/node_modules'), { recursive: true, force: true });
+    fs.rmSync(targetPath(target, '.workflow-system/runtime/tools/rg'), { recursive: true, force: true });
     const oldStatePath = targetPath(target, '.workflow-system/vnext/INSTALL_STATE.json');
     fs.mkdirSync(path.dirname(oldStatePath), { recursive: true });
     fs.writeFileSync(oldStatePath, JSON.stringify(oldState, null, 2) + '\n', 'utf8');
@@ -512,5 +540,6 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(rollbackTarget, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(false);
     expect(fs.existsSync(targetPath(rollbackTarget, '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json'))).toBe(false);
     expect(fs.existsSync(targetPath(rollbackTarget, '.agents/skills'))).toBe(false);
+    expect(fs.existsSync(targetPath(rollbackTarget, '.workflow-system/runtime/tools'))).toBe(false);
   });
 });

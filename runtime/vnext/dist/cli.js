@@ -1623,7 +1623,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.16.0";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.17.0";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -2447,7 +2447,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(reviewChangeAdapter, ["input", "commands", "context_source", "reviewable_execution", "change_set", "review_target", "result_storage", "direct_product_writes", "advancement_owner"], "Runtime contract.proposal.review_change.semantic_adapter");
   if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-cumulative-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime review-change adapter semantic boundary is invalid.");
-  expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "record-review-result"], "Runtime contract review-change commands");
+  expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "review-read", "record-review-result"], "Runtime contract review-change commands");
   expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result"], "Runtime contract review-change actions");
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
   expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
@@ -11357,6 +11357,7 @@ function parseCli(argv) {
   let transformationKind = "localized";
   let commandAuditFile;
   let commandAuditStdin = false;
+  let summary = false;
   for (let index = 0;index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--root")
@@ -11377,6 +11378,8 @@ function parseCli(argv) {
       commandAuditFile = rest[++index];
     else if (arg === "--command-audit-stdin")
       commandAuditStdin = true;
+    else if (arg === "--summary" && command === "validate")
+      summary = true;
     else if (arg === "--conditional-authorizations-file")
       conditionalAuthorizationsFile = rest[++index];
     else if (arg === "--transformation-kind") {
@@ -11389,7 +11392,7 @@ function parseCli(argv) {
     else
       throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary };
 }
 function resolveExternalProposalFile(root, proposalFile) {
   const resolvedRoot = path4.resolve(root);
@@ -11502,7 +11505,23 @@ async function runCli(argv = process.argv.slice(2)) {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
-      console.log(JSON.stringify({ status: "success", source_tuple: current.sourceTuple, runtime_state: current.runtimeState }, null, 2));
+      const state = current.runtimeState;
+      console.log(JSON.stringify(args.summary ? {
+        status: "success",
+        source_tuple: current.sourceTuple,
+        package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
+        summary: {
+          task_id: state.task_id,
+          workflow_status: state.workflow_status,
+          lifecycle_state: state.lifecycle_state,
+          active_step_id: state.active_step_id,
+          active_step_status: state.active_step_status,
+          pending_review_verdict: state.pending_review_result?.verdict ?? null,
+          review_target_revision: state.review_coverage?.target.revision ?? null,
+          pending_review_paths: state.review_coverage?.pending_paths ?? [],
+          evidence_plan_revision: state.evidence_plan_revision ?? null
+        }
+      } : { status: "success", source_tuple: current.sourceTuple, runtime_state: state }, null, 2));
     } else if (args.command === "scope-check") {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);
@@ -15294,9 +15313,804 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
 
 // runtime/vnext/src/review-change-adapter.ts
 import * as crypto9 from "crypto";
-import * as fs9 from "fs";
-import * as path10 from "path";
-var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "record-review-result"];
+import * as fs11 from "fs";
+import * as path12 from "path";
+
+// runtime/vnext/src/file-context.ts
+import * as fs10 from "node:fs";
+import * as path11 from "node:path";
+import { createHash as createHash10 } from "node:crypto";
+import { spawn } from "node:child_process";
+// node_modules/diff/libesm/diff/base.js
+class Diff {
+  diff(oldStr, newStr, options = {}) {
+    let callback;
+    if (typeof options === "function") {
+      callback = options;
+      options = {};
+    } else if ("callback" in options) {
+      callback = options.callback;
+    }
+    const oldString = this.castInput(oldStr, options);
+    const newString = this.castInput(newStr, options);
+    const oldTokens = this.removeEmpty(this.tokenize(oldString, options));
+    const newTokens = this.removeEmpty(this.tokenize(newString, options));
+    return this.diffWithOptionsObj(oldTokens, newTokens, options, callback);
+  }
+  diffWithOptionsObj(oldTokens, newTokens, options, callback) {
+    var _a;
+    const done = (value) => {
+      value = this.postProcess(value, options);
+      if (callback) {
+        setTimeout(function() {
+          callback(value);
+        }, 0);
+        return;
+      } else {
+        return value;
+      }
+    };
+    const newLen = newTokens.length, oldLen = oldTokens.length;
+    let editLength = 1;
+    let maxEditLength = newLen + oldLen;
+    if (options.maxEditLength != null) {
+      maxEditLength = Math.min(maxEditLength, options.maxEditLength);
+    }
+    const maxExecutionTime = (_a = options.timeout) !== null && _a !== undefined ? _a : Infinity;
+    const abortAfterTimestamp = Date.now() + maxExecutionTime;
+    const bestPath = [{ oldPos: -1, lastComponent: undefined }];
+    let newPos = this.extractCommon(bestPath[0], newTokens, oldTokens, 0, options);
+    if (bestPath[0].oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+      return done(this.buildValues(bestPath[0].lastComponent, newTokens, oldTokens));
+    }
+    let minDiagonalToConsider = -Infinity, maxDiagonalToConsider = Infinity;
+    const execEditLength = () => {
+      for (let diagonalPath = Math.max(minDiagonalToConsider, -editLength);diagonalPath <= Math.min(maxDiagonalToConsider, editLength); diagonalPath += 2) {
+        let basePath;
+        const removePath = bestPath[diagonalPath - 1], addPath = bestPath[diagonalPath + 1];
+        if (removePath) {
+          bestPath[diagonalPath - 1] = undefined;
+        }
+        let canAdd = false;
+        if (addPath) {
+          const addPathNewPos = addPath.oldPos - diagonalPath;
+          canAdd = addPath && 0 <= addPathNewPos && addPathNewPos < newLen;
+        }
+        const canRemove = removePath && removePath.oldPos + 1 < oldLen;
+        if (!canAdd && !canRemove) {
+          bestPath[diagonalPath] = undefined;
+          continue;
+        }
+        if (!canRemove || canAdd && removePath.oldPos < addPath.oldPos) {
+          basePath = this.addToPath(addPath, true, false, 0, options);
+        } else {
+          basePath = this.addToPath(removePath, false, true, 1, options);
+        }
+        newPos = this.extractCommon(basePath, newTokens, oldTokens, diagonalPath, options);
+        if (basePath.oldPos + 1 >= oldLen && newPos + 1 >= newLen) {
+          return done(this.buildValues(basePath.lastComponent, newTokens, oldTokens)) || true;
+        } else {
+          bestPath[diagonalPath] = basePath;
+          if (basePath.oldPos + 1 >= oldLen) {
+            maxDiagonalToConsider = Math.min(maxDiagonalToConsider, diagonalPath - 1);
+          }
+          if (newPos + 1 >= newLen) {
+            minDiagonalToConsider = Math.max(minDiagonalToConsider, diagonalPath + 1);
+          }
+        }
+      }
+      editLength++;
+    };
+    if (callback) {
+      (function exec() {
+        setTimeout(function() {
+          if (editLength > maxEditLength || Date.now() > abortAfterTimestamp) {
+            return callback(undefined);
+          }
+          if (!execEditLength()) {
+            exec();
+          }
+        }, 0);
+      })();
+    } else {
+      while (editLength <= maxEditLength && Date.now() <= abortAfterTimestamp) {
+        const ret = execEditLength();
+        if (ret) {
+          return ret;
+        }
+      }
+    }
+  }
+  addToPath(path10, added, removed, oldPosInc, options) {
+    const last = path10.lastComponent;
+    if (last && !options.oneChangePerToken && last.added === added && last.removed === removed) {
+      return {
+        oldPos: path10.oldPos + oldPosInc,
+        lastComponent: { count: last.count + 1, added, removed, previousComponent: last.previousComponent }
+      };
+    } else {
+      return {
+        oldPos: path10.oldPos + oldPosInc,
+        lastComponent: { count: 1, added, removed, previousComponent: last }
+      };
+    }
+  }
+  extractCommon(basePath, newTokens, oldTokens, diagonalPath, options) {
+    const newLen = newTokens.length, oldLen = oldTokens.length;
+    let oldPos = basePath.oldPos, newPos = oldPos - diagonalPath, commonCount = 0;
+    while (newPos + 1 < newLen && oldPos + 1 < oldLen && this.equals(oldTokens[oldPos + 1], newTokens[newPos + 1], options)) {
+      newPos++;
+      oldPos++;
+      commonCount++;
+      if (options.oneChangePerToken) {
+        basePath.lastComponent = { count: 1, previousComponent: basePath.lastComponent, added: false, removed: false };
+      }
+    }
+    if (commonCount && !options.oneChangePerToken) {
+      basePath.lastComponent = { count: commonCount, previousComponent: basePath.lastComponent, added: false, removed: false };
+    }
+    basePath.oldPos = oldPos;
+    return newPos;
+  }
+  equals(left, right, options) {
+    if (options.comparator) {
+      return options.comparator(left, right);
+    } else {
+      return left === right || !!options.ignoreCase && left.toLowerCase() === right.toLowerCase();
+    }
+  }
+  removeEmpty(array) {
+    const ret = [];
+    for (let i = 0;i < array.length; i++) {
+      if (array[i]) {
+        ret.push(array[i]);
+      }
+    }
+    return ret;
+  }
+  castInput(value, options) {
+    return value;
+  }
+  tokenize(value, options) {
+    return Array.from(value);
+  }
+  join(chars) {
+    return chars.join("");
+  }
+  postProcess(changeObjects, options) {
+    return changeObjects;
+  }
+  get useLongestToken() {
+    return false;
+  }
+  buildValues(lastComponent, newTokens, oldTokens) {
+    const components = [];
+    let nextComponent;
+    while (lastComponent) {
+      components.push(lastComponent);
+      nextComponent = lastComponent.previousComponent;
+      delete lastComponent.previousComponent;
+      lastComponent = nextComponent;
+    }
+    components.reverse();
+    const componentLen = components.length;
+    let componentPos = 0, newPos = 0, oldPos = 0;
+    for (;componentPos < componentLen; componentPos++) {
+      const component = components[componentPos];
+      if (!component.removed) {
+        if (!component.added && this.useLongestToken) {
+          let value = newTokens.slice(newPos, newPos + component.count);
+          value = value.map(function(value2, i) {
+            const oldValue = oldTokens[oldPos + i];
+            return oldValue.length > value2.length ? oldValue : value2;
+          });
+          component.value = this.join(value);
+        } else {
+          component.value = this.join(newTokens.slice(newPos, newPos + component.count));
+        }
+        newPos += component.count;
+        if (!component.added) {
+          oldPos += component.count;
+        }
+      } else {
+        component.value = this.join(oldTokens.slice(oldPos, oldPos + component.count));
+        oldPos += component.count;
+      }
+    }
+    return components;
+  }
+}
+
+// node_modules/diff/libesm/diff/line.js
+class LineDiff extends Diff {
+  constructor() {
+    super(...arguments);
+    this.tokenize = tokenize;
+  }
+  equals(left, right, options) {
+    if (options.ignoreWhitespace) {
+      if (!options.newlineIsToken || !left.includes(`
+`)) {
+        left = left.trim();
+      }
+      if (!options.newlineIsToken || !right.includes(`
+`)) {
+        right = right.trim();
+      }
+    } else if (options.ignoreNewlineAtEof && !options.newlineIsToken) {
+      if (left.endsWith(`
+`)) {
+        left = left.slice(0, -1);
+      }
+      if (right.endsWith(`
+`)) {
+        right = right.slice(0, -1);
+      }
+    }
+    return super.equals(left, right, options);
+  }
+}
+var lineDiff = new LineDiff;
+function diffLines(oldStr, newStr, options) {
+  return lineDiff.diff(oldStr, newStr, options);
+}
+function tokenize(value, options) {
+  if (options.stripTrailingCr) {
+    value = value.replace(/\r\n/g, `
+`);
+  }
+  const retLines = [], linesAndNewlines = value.split(/(\n|\r\n)/);
+  if (!linesAndNewlines[linesAndNewlines.length - 1]) {
+    linesAndNewlines.pop();
+  }
+  for (let i = 0;i < linesAndNewlines.length; i++) {
+    const line = linesAndNewlines[i];
+    if (i % 2 && !options.newlineIsToken) {
+      retLines[retLines.length - 1] += line;
+    } else {
+      retLines.push(line);
+    }
+  }
+  return retLines;
+}
+
+// node_modules/diff/libesm/patch/create.js
+function needsQuoting(s) {
+  for (let i = 0;i < s.length; i++) {
+    if (s[i] < " " || s[i] > "~" || s[i] === '"' || s[i] === "\\") {
+      return true;
+    }
+  }
+  return false;
+}
+function quoteFileNameIfNeeded(s) {
+  if (!needsQuoting(s)) {
+    return s;
+  }
+  let result = '"';
+  const bytes = new TextEncoder().encode(s);
+  let i = 0;
+  while (i < bytes.length) {
+    const b = bytes[i];
+    if (b === 7) {
+      result += "\\a";
+    } else if (b === 8) {
+      result += "\\b";
+    } else if (b === 9) {
+      result += "\\t";
+    } else if (b === 10) {
+      result += "\\n";
+    } else if (b === 11) {
+      result += "\\v";
+    } else if (b === 12) {
+      result += "\\f";
+    } else if (b === 13) {
+      result += "\\r";
+    } else if (b === 34) {
+      result += "\\\"";
+    } else if (b === 92) {
+      result += "\\\\";
+    } else if (b >= 32 && b <= 126) {
+      result += String.fromCharCode(b);
+    } else {
+      result += "\\" + b.toString(8).padStart(3, "0");
+    }
+    i++;
+  }
+  result += '"';
+  return result;
+}
+var INCLUDE_HEADERS = {
+  includeIndex: true,
+  includeUnderline: true,
+  includeFileHeaders: true
+};
+function structuredPatch(oldFileName, newFileName, oldStr, newStr, oldHeader, newHeader, options) {
+  let optionsObj;
+  if (!options) {
+    optionsObj = {};
+  } else if (typeof options === "function") {
+    optionsObj = { callback: options };
+  } else {
+    optionsObj = options;
+  }
+  if (typeof optionsObj.context === "undefined") {
+    optionsObj.context = 4;
+  }
+  const context = optionsObj.context;
+  if (optionsObj.newlineIsToken) {
+    throw new Error("newlineIsToken may not be used with patch-generation functions, only with diffing functions");
+  }
+  if (!optionsObj.callback) {
+    return diffLinesResultToPatch(diffLines(oldStr, newStr, optionsObj));
+  } else {
+    const { callback } = optionsObj;
+    diffLines(oldStr, newStr, Object.assign(Object.assign({}, optionsObj), { callback: (diff) => {
+      const patch = diffLinesResultToPatch(diff);
+      callback(patch);
+    } }));
+  }
+  function diffLinesResultToPatch(diff) {
+    if (!diff) {
+      return;
+    }
+    diff.push({ value: "", lines: [] });
+    function contextLines(lines) {
+      return lines.map(function(entry) {
+        return " " + entry;
+      });
+    }
+    const hunks = [];
+    let oldRangeStart = 0, newRangeStart = 0, curRange = [], oldLine = 1, newLine = 1;
+    for (let i = 0;i < diff.length; i++) {
+      const current = diff[i], lines = current.lines || splitLines(current.value);
+      current.lines = lines;
+      if (current.added || current.removed) {
+        if (!oldRangeStart) {
+          const prev = diff[i - 1];
+          oldRangeStart = oldLine;
+          newRangeStart = newLine;
+          if (prev) {
+            curRange = context > 0 ? contextLines(prev.lines.slice(-context)) : [];
+            oldRangeStart -= curRange.length;
+            newRangeStart -= curRange.length;
+          }
+        }
+        for (const line of lines) {
+          curRange.push((current.added ? "+" : "-") + line);
+        }
+        if (current.added) {
+          newLine += lines.length;
+        } else {
+          oldLine += lines.length;
+        }
+      } else {
+        if (oldRangeStart) {
+          if (lines.length <= context * 2 && i < diff.length - 2) {
+            for (const line of contextLines(lines)) {
+              curRange.push(line);
+            }
+          } else {
+            const contextSize = Math.min(lines.length, context);
+            for (const line of contextLines(lines.slice(0, contextSize))) {
+              curRange.push(line);
+            }
+            const hunk = {
+              oldStart: oldRangeStart,
+              oldLines: oldLine - oldRangeStart + contextSize,
+              newStart: newRangeStart,
+              newLines: newLine - newRangeStart + contextSize,
+              lines: curRange
+            };
+            hunks.push(hunk);
+            oldRangeStart = 0;
+            newRangeStart = 0;
+            curRange = [];
+          }
+        }
+        oldLine += lines.length;
+        newLine += lines.length;
+      }
+    }
+    for (const hunk of hunks) {
+      for (let i = 0;i < hunk.lines.length; i++) {
+        if (hunk.lines[i].endsWith(`
+`)) {
+          hunk.lines[i] = hunk.lines[i].slice(0, -1);
+        } else {
+          hunk.lines.splice(i + 1, 0, "\\ No newline at end of file");
+          i++;
+        }
+      }
+    }
+    return {
+      oldFileName,
+      newFileName,
+      oldHeader,
+      newHeader,
+      hunks
+    };
+  }
+}
+function formatPatch(patch, headerOptions) {
+  var _a, _b, _c, _d, _e, _f;
+  if (!headerOptions) {
+    headerOptions = INCLUDE_HEADERS;
+  }
+  if (Array.isArray(patch)) {
+    if (patch.length > 1 && !headerOptions.includeFileHeaders && !patch.every((p) => p.isGit)) {
+      throw new Error("Cannot omit file headers on a multi-file patch. " + "(The result would be unparseable; how would a tool trying to apply " + "the patch know which changes are to which file?)");
+    }
+    return patch.map((p) => formatPatch(p, headerOptions)).join(`
+`);
+  }
+  const ret = [];
+  if (patch.isGit) {
+    headerOptions = INCLUDE_HEADERS;
+    if (!patch.oldFileName) {
+      throw new Error("oldFileName must be specified for Git patches");
+    }
+    if (!patch.newFileName) {
+      throw new Error("newFileName must be specified for Git patches");
+    }
+    let gitOldName = patch.oldFileName;
+    let gitNewName = patch.newFileName;
+    if (patch.isCreate && gitOldName === "/dev/null") {
+      gitOldName = gitNewName.replace(/^b\//, "a/");
+    } else if (patch.isDelete && gitNewName === "/dev/null") {
+      gitNewName = gitOldName.replace(/^a\//, "b/");
+    }
+    ret.push("diff --git " + quoteFileNameIfNeeded(gitOldName) + " " + quoteFileNameIfNeeded(gitNewName));
+    if (patch.isDelete) {
+      ret.push("deleted file mode " + ((_a = patch.oldMode) !== null && _a !== undefined ? _a : "100644"));
+    }
+    if (patch.isCreate) {
+      ret.push("new file mode " + ((_b = patch.newMode) !== null && _b !== undefined ? _b : "100644"));
+    }
+    if (patch.oldMode && patch.newMode && !patch.isDelete && !patch.isCreate) {
+      ret.push("old mode " + patch.oldMode);
+      ret.push("new mode " + patch.newMode);
+    }
+    if (patch.isRename) {
+      ret.push("rename from " + quoteFileNameIfNeeded(((_c = patch.oldFileName) !== null && _c !== undefined ? _c : "").replace(/^a\//, "")));
+      ret.push("rename to " + quoteFileNameIfNeeded(((_d = patch.newFileName) !== null && _d !== undefined ? _d : "").replace(/^b\//, "")));
+    }
+    if (patch.isCopy) {
+      ret.push("copy from " + quoteFileNameIfNeeded(((_e = patch.oldFileName) !== null && _e !== undefined ? _e : "").replace(/^a\//, "")));
+      ret.push("copy to " + quoteFileNameIfNeeded(((_f = patch.newFileName) !== null && _f !== undefined ? _f : "").replace(/^b\//, "")));
+    }
+  } else {
+    if (headerOptions.includeIndex && patch.oldFileName == patch.newFileName && patch.oldFileName !== undefined) {
+      ret.push("Index: " + patch.oldFileName);
+    }
+    if (headerOptions.includeUnderline) {
+      ret.push("===================================================================");
+    }
+  }
+  const hasHunks = patch.hunks.length > 0;
+  if (headerOptions.includeFileHeaders && patch.oldFileName !== undefined && patch.newFileName !== undefined && (!patch.isGit || hasHunks)) {
+    ret.push("--- " + quoteFileNameIfNeeded(patch.oldFileName) + (patch.oldHeader ? "\t" + patch.oldHeader : ""));
+    ret.push("+++ " + quoteFileNameIfNeeded(patch.newFileName) + (patch.newHeader ? "\t" + patch.newHeader : ""));
+  }
+  for (let i = 0;i < patch.hunks.length; i++) {
+    const hunk = patch.hunks[i];
+    const oldStart = hunk.oldLines === 0 ? hunk.oldStart - 1 : hunk.oldStart;
+    const newStart = hunk.newLines === 0 ? hunk.newStart - 1 : hunk.newStart;
+    ret.push("@@ -" + oldStart + "," + hunk.oldLines + " +" + newStart + "," + hunk.newLines + " @@");
+    for (const line of hunk.lines) {
+      ret.push(line);
+    }
+  }
+  return ret.join(`
+`) + `
+`;
+}
+function createTwoFilesPatch(oldFileName, newFileName, oldStr, newStr, oldHeader, newHeader, options) {
+  if (typeof options === "function") {
+    options = { callback: options };
+  }
+  if (!(options === null || options === undefined ? undefined : options.callback)) {
+    const patchObj = structuredPatch(oldFileName, newFileName, oldStr, newStr, oldHeader, newHeader, options);
+    if (!patchObj) {
+      return;
+    }
+    return formatPatch(patchObj, options === null || options === undefined ? undefined : options.headerOptions);
+  } else {
+    const { callback } = options;
+    structuredPatch(oldFileName, newFileName, oldStr, newStr, oldHeader, newHeader, Object.assign(Object.assign({}, options), { callback: (patchObj) => {
+      if (!patchObj) {
+        callback(undefined);
+      } else {
+        callback(formatPatch(patchObj, options.headerOptions));
+      }
+    } }));
+  }
+}
+function splitLines(text3) {
+  const hasTrailingNl = text3.endsWith(`
+`);
+  const result = text3.split(`
+`).map((line) => line + `
+`);
+  if (hasTrailingNl) {
+    result.pop();
+  } else {
+    result.push(result.pop().slice(0, -1));
+  }
+  return result;
+}
+// runtime/vnext/src/rg-tool.ts
+import * as fs9 from "node:fs";
+import * as path10 from "node:path";
+import { execFileSync } from "node:child_process";
+import { createHash as createHash9 } from "node:crypto";
+var RG_TOOLS_PATH = ".workflow-system/runtime/tools/rg";
+var RG_BINARY = process.platform === "win32" ? "rg.exe" : "rg";
+function assertRgDirectory(root) {
+  let directory = path10.resolve(root);
+  for (const part of RG_TOOLS_PATH.split("/")) {
+    directory = path10.join(directory, part);
+    try {
+      if (!fs9.lstatSync(directory).isDirectory())
+        throw new Error("RG_DEPENDENCY_PATH_INVALID: tool directory must not be a symlink or file.");
+    } catch (error) {
+      if (error.code !== "ENOENT")
+        throw error;
+    }
+  }
+  return directory;
+}
+function probeRg(command) {
+  try {
+    const version = execFileSync(command, ["--no-config", "--version"], { encoding: "utf8", windowsHide: true, timeout: 3000, maxBuffer: 4096 });
+    const match = /^ripgrep (\d+\.\d+\.\d+)/u.exec(version);
+    if (!match)
+      return null;
+    const [major, minor] = match[1].split(".").map(Number);
+    return major === 14 && minor >= 1 || major === 15 ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+function resolveRg(root) {
+  const directory = assertRgDirectory(root);
+  const command = path10.join(directory, RG_BINARY);
+  try {
+    const identity = JSON.parse(fs9.readFileSync(path10.join(directory, "identity.json"), "utf8"));
+    if (!fs9.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash9("sha256").update(fs9.readFileSync(command)).digest("hex")) {
+      const version = probeRg(command);
+      if (version && identity.version === version)
+        return { command, version, source: "project" };
+    }
+  } catch {}
+  for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path10.delimiter).filter(Boolean)) {
+    const command2 = path10.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
+    if (!fs9.existsSync(command2))
+      continue;
+    const version = probeRg(command2);
+    if (version)
+      return { command: command2, version, source: "path" };
+  }
+  throw new Error("RG_DEPENDENCY_MISSING: install or upgrade the Runtime distribution to prepare ripgrep; read-only commands do not download tools.");
+}
+
+// runtime/vnext/src/file-context.ts
+var DEFAULT_CONTEXT_BYTES = 16 * 1024;
+var MAX_CONTEXT_BYTES = 64 * 1024;
+var sha2566 = (bytes) => createHash10("sha256").update(bytes).digest("hex");
+function contextInput(input, keys) {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw new Error("CONTEXT_INPUT_INVALID: expected an object.");
+  const value = input;
+  if (Object.keys(value).some((key) => !keys.includes(key)))
+    throw new Error("CONTEXT_INPUT_INVALID: unexpected input field.");
+  return value;
+}
+function integer(value, fallback, min, max) {
+  if (value === undefined)
+    return fallback;
+  if (!Number.isSafeInteger(value) || Number(value) < min || Number(value) > max)
+    throw new Error(`CONTEXT_INPUT_INVALID: integer must be ${min}..${max}.`);
+  return Number(value);
+}
+function contextPath(root, value) {
+  if (typeof value !== "string" || !value || value.length > 1024 || /[\0\r\n]/u.test(value))
+    throw new Error("CONTEXT_PATH_INVALID: expected a project-relative path.");
+  const relative3 = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  if (path11.posix.isAbsolute(relative3) || /^[A-Za-z]:/u.test(relative3) || relative3.split("/").includes(".."))
+    throw new Error("CONTEXT_PATH_INVALID: path escapes project.");
+  const absolute = path11.resolve(root, relative3);
+  let parent = path11.resolve(root);
+  for (const part of relative3.split("/").filter((part2) => part2 && part2 !== ".")) {
+    parent = path11.join(parent, part);
+    try {
+      if (fs10.lstatSync(parent).isSymbolicLink())
+        throw new Error("CONTEXT_SYMLINK: symbolic links are not followed.");
+    } catch (error) {
+      if (error.code !== "ENOENT")
+        throw error;
+    }
+  }
+  return { relative: relative3, absolute };
+}
+function decodeText(bytes) {
+  if (bytes.includes(0))
+    return null;
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+function textPage(text3, input) {
+  const startLine = integer(input.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
+  const endLine = integer(input.end_line, Number.MAX_SAFE_INTEGER, startLine, Number.MAX_SAFE_INTEGER);
+  let start = 0;
+  let line = 1;
+  while (line < startLine) {
+    const newline = text3.indexOf(`
+`, start);
+    if (newline < 0)
+      throw new Error("CONTEXT_RANGE_INVALID: start_line is beyond the file.");
+    start = newline + 1;
+    line++;
+  }
+  let end = start;
+  while (line <= endLine && end < text3.length) {
+    const newline = text3.indexOf(`
+`, end);
+    end = newline < 0 ? text3.length : newline + 1;
+    line++;
+  }
+  const bytes = Buffer.from(text3.slice(start, end));
+  const offset = integer(input.offset, 0, 0, bytes.length);
+  const budget = integer(input.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
+  if (offset < bytes.length && (bytes[offset] & 192) === 128)
+    throw new Error("CONTEXT_RANGE_INVALID: offset must be a UTF-8 boundary.");
+  let pageEnd = Math.min(bytes.length, offset + budget);
+  while (pageEnd < bytes.length && (bytes[pageEnd] & 192) === 128)
+    pageEnd--;
+  return { text: bytes.subarray(offset, pageEnd).toString("utf8"), start_line: startLine, offset, next_offset: pageEnd < bytes.length ? pageEnd : null, total_bytes: bytes.length, truncated: pageEnd < bytes.length };
+}
+function textDiff(file, before, after) {
+  return createTwoFilesPatch(`before/${file}`, `after/${file}`, before, after, "", "", { context: 3, timeout: 200, maxEditLength: 20000 });
+}
+function readFileContext(root, input) {
+  const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line"]);
+  const file = contextPath(root, value.path);
+  const bytes = fs10.readFileSync(file.absolute);
+  const revision = sha2566(bytes);
+  if (value.sha256 !== undefined && value.sha256 !== revision)
+    throw new Error("CONTEXT_STALE: file changed; start a fresh read.");
+  if (value.offset !== undefined && value.offset !== 0 && value.sha256 === undefined)
+    throw new Error("CONTEXT_INPUT_INVALID: continuation requires sha256.");
+  const text3 = decodeText(bytes);
+  return {
+    status: "pass",
+    operation_kind: "file-context",
+    committed: false,
+    path: file.relative,
+    sha256: revision,
+    ...text3 === null ? { content_status: "binary-or-non-utf8", size_bytes: bytes.length } : { content_status: "text", ...textPage(text3, value) }
+  };
+}
+async function searchFileContext(root, input) {
+  const value = contextInput(input, ["operation", "roots", "globs", "query", "include_hidden", "limit", "max_bytes"]);
+  if (!Array.isArray(value.roots) || !value.roots.length || value.roots.length > 32)
+    throw new Error("CONTEXT_INPUT_INVALID: provide 1..32 search roots.");
+  const roots = value.roots.map((item) => contextPath(root, item));
+  if (value.query !== undefined && (typeof value.query !== "string" || !value.query || value.query.length > 4096 || /[\0\r\n]/u.test(value.query)))
+    throw new Error("CONTEXT_INPUT_INVALID: query must be a non-empty single-line literal.");
+  if (value.include_hidden !== undefined && typeof value.include_hidden !== "boolean")
+    throw new Error("CONTEXT_INPUT_INVALID: include_hidden must be boolean.");
+  const globs = value.globs ?? [];
+  if (!Array.isArray(globs) || globs.length > 32 || globs.some((glob) => typeof glob !== "string" || glob.length > 1024 || /[\0\r\n]/u.test(glob)))
+    throw new Error("CONTEXT_INPUT_INVALID: invalid globs.");
+  const limit = integer(value.limit, 50, 1, 200);
+  const budget = integer(value.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
+  const rg = resolveRg(root);
+  const args = [
+    "--no-config",
+    "--color",
+    "never",
+    ...value.include_hidden ? ["--hidden"] : [],
+    ...globs.flatMap((glob) => ["--glob", glob]),
+    ...value.query === undefined ? ["--files", "--null"] : ["--json", "--fixed-strings", "--", value.query],
+    ...value.query === undefined ? ["--"] : [],
+    ...roots.map((item) => item.absolute)
+  ];
+  const hits = [];
+  let stopReason = null;
+  let used = 0;
+  let pending = Buffer.alloc(0);
+  let stderr = "";
+  await new Promise((resolve11, reject) => {
+    const child = spawn(rg.command, args, { cwd: root, windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const stop = (reason) => {
+      stopReason ??= reason;
+      child.kill();
+    };
+    const timer = setTimeout(() => stop("timeout"), 1e4);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(0, 2048);
+    });
+    child.stdout.on("data", (chunk) => {
+      if (stopReason)
+        return;
+      pending = Buffer.concat([pending, chunk]);
+      const separator = value.query === undefined ? 0 : 10;
+      let at;
+      while ((at = pending.indexOf(separator)) >= 0) {
+        const line = pending.subarray(0, at);
+        pending = pending.subarray(at + 1);
+        try {
+          let hit;
+          if (value.query === undefined)
+            hit = { path: path11.relative(root, line.toString("utf8")).replace(/\\/gu, "/") };
+          else {
+            const event = JSON.parse(line.toString("utf8"));
+            if (event.type !== "match")
+              continue;
+            if (!event.data.path.text || event.data.lines.text === undefined) {
+              stop("non-utf8-result");
+              return;
+            }
+            hit = { path: path11.relative(root, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
+          }
+          contextPath(root, hit.path);
+          const size = Buffer.byteLength(JSON.stringify(hit));
+          if (hits.length >= limit || used + size > budget) {
+            stop("result-limit");
+            return;
+          }
+          used += size;
+          hits.push(hit);
+        } catch {
+          stop("unreadable-result");
+          return;
+        }
+      }
+      if (pending.length > MAX_CONTEXT_BYTES)
+        stop("oversized-result");
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0 && code !== 1 && !stopReason)
+        stopReason = "search-error";
+      resolve11();
+    });
+  });
+  return {
+    status: stopReason ? "partial" : "pass",
+    operation_kind: "file-context",
+    committed: false,
+    rg: rg.version,
+    roots: roots.map((item) => item.relative),
+    globs,
+    query: value.query ?? null,
+    include_hidden: value.include_hidden === true,
+    hits,
+    complete_within_scope: stopReason === null,
+    truncated: stopReason !== null,
+    reason: stopReason,
+    error: stderr || null
+  };
+}
+async function fileContext(root, input) {
+  const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line", "roots", "globs", "query", "include_hidden", "limit"]);
+  if (value.operation === "read")
+    return readFileContext(root, value);
+  if (value.operation === "search")
+    return searchFileContext(root, value);
+  throw new Error("CONTEXT_INPUT_INVALID: operation must be search or read.");
+}
+
+// runtime/vnext/src/review-change-adapter.ts
+var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "review-read", "record-review-result"];
 var MAX_ITEMS3 = 256;
 var SHA256_PATTERN5 = /^[a-f0-9]{64}$/u;
 var WINDOWS_ABSOLUTE_PATH3 = /^[A-Za-z]:[\\/]/u;
@@ -15336,7 +16150,7 @@ function textList3(value, location, allowEmpty) {
 }
 function repoPath(value, location) {
   const normalized = text3(value, location, 1024).replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path10.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
+  if (path12.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
     fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be a project-relative path.`);
   }
   return normalized;
@@ -15481,7 +16295,8 @@ function reviewContext(root, input) {
       conditional: scope.conditional.map((item) => item.pattern),
       forbidden: scope.forbidden.map((item) => item.pattern)
     },
-    review_preimages: current.runtimeState.review_coverage?.preimages ?? [],
+    text_diff: execution.execution_result.change_delta.entries.length ? reviewFilePage(root, current, execution, execution.execution_result.change_delta.entries[0].path, "diff", {}) : null,
+    unexpanded_paths: execution.execution_result.change_delta.entries.slice(1).map((item) => item.path),
     persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
     claim_evidence: (current.runtimeState.claim_evidence ?? []).map((item) => ({
       ...item,
@@ -15496,6 +16311,53 @@ function reviewContext(root, input) {
       max_repair_attempts: item.max_repair_attempts
     })),
     receipt
+  };
+}
+function reviewFilePage(root, current, execution, file, view, input) {
+  if (!["before", "after", "diff"].includes(view))
+    fail7("CONTEXT_INPUT_INVALID", "view must be before, after or diff.");
+  const target = execution.execution_result.review_target.entries.find((item) => item.path === file);
+  if (!target)
+    fail7("REVIEW_PATH_OUTSIDE_TARGET", "path is not part of this cumulative review target.");
+  const preimage = current.runtimeState.review_coverage?.preimages.find((item) => item.path === file);
+  const base = { path: file, view, target_revision: execution.execution_result.review_target.revision };
+  if (!preimage && view !== "after")
+    return { ...base, content_status: "baseline-unavailable" };
+  if (target.state === "symlink" || preimage?.state === "symlink")
+    return { ...base, content_status: "symlink-not-followed" };
+  const before = preimage?.state === "file" ? Buffer.from(preimage.content_base64, "base64") : Buffer.alloc(0);
+  const after = target.state === "file" ? fs11.readFileSync(contextPath(root, file).absolute) : Buffer.alloc(0);
+  if (target.state === "file" && sha2566(after) !== target.sha256)
+    fail7("REVIEW_TARGET_STALE", "file changed while reading review context.");
+  if (preimage?.state === "file" && sha2566(before) !== preimage.sha256)
+    fail7("REVIEW_BASE_INVALID", "first-touch baseline hash mismatch.");
+  const left = decodeText(before);
+  const right = decodeText(after);
+  if (view !== "after" && left === null || view !== "before" && right === null)
+    return { ...base, content_status: "binary-or-non-utf8" };
+  let text4;
+  if (view === "before")
+    text4 = left;
+  else if (view === "after")
+    text4 = right;
+  else
+    text4 = textDiff(file, left, right);
+  if (text4 === undefined)
+    return { ...base, content_status: "diff-budget-exceeded", next_read: ["before", "after"] };
+  return { ...base, content_status: "text", before_state: preimage?.state ?? null, after_state: target.state, ...textPage(text4, input) };
+}
+function reviewRead(root, input) {
+  const value = contextInput(input, ["context_receipt", "path", "view", "offset", "max_bytes", "start_line", "end_line"]);
+  const current = readCanonicalCurrentTask(root);
+  assertReviewableTask(current);
+  const receipt = normalizeContextReceipt(value.context_receipt);
+  const execution = assertCurrentContext(root, current, receipt);
+  const file = repoPath(value.path, "path");
+  return {
+    status: "pass",
+    operation_kind: "review-read",
+    committed: false,
+    ...reviewFilePage(root, current, execution, file, String(value.view ?? "diff"), value)
   };
 }
 function normalizeContextReceipt(value) {
@@ -15733,7 +16595,7 @@ function parseCli2(argv) {
   return { command, root, dryRun };
 }
 function readSemanticStdin3(command) {
-  const raw = !process.stdin.isTTY ? fs9.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs11.readFileSync(0, "utf8") : "";
   if (!raw.trim())
     throw new Error(`${command} requires semantic JSON on stdin.`);
   try {
@@ -15743,8 +16605,8 @@ function readSemanticStdin3(command) {
   }
 }
 function validateInstalledRuntime3(root) {
-  const runtimeManifest = path10.join(path10.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs9.existsSync(runtimeManifest))
+  const runtimeManifest = path12.join(path12.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs11.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root, true);
 }
 async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
@@ -15753,9 +16615,35 @@ async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
     const args = parseCli2(argv);
     validateInstalledRuntime3(args.root);
     const input = readSemanticStdin3(args.command);
-    const result = args.command === "review-context" ? reviewContext(args.root, input) : recordReviewResult(args.root, input, { dryRun: args.dryRun });
+    let result;
+    if (args.command === "review-context")
+      result = reviewContext(args.root, input);
+    else if (args.command === "review-read")
+      result = reviewRead(args.root, input);
+    else
+      result = recordReviewResult(args.root, input, { dryRun: args.dryRun });
     console.log(JSON.stringify(result, null, 2));
     return "status" in result && (result.status === "blocked" || result.status === "conflict") ? 2 : 0;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+// runtime/vnext/src/file-context-cli.ts
+import * as fs12 from "node:fs";
+import * as path13 from "node:path";
+async function runFileContextCli(args) {
+  try {
+    validateRuntimeEnvironment();
+    if (args.length !== 2 || args[0] !== "--root" || !args[1])
+      throw new Error("Usage: file-context --root <project> (JSON on stdin)");
+    const root = path13.resolve(args[1]);
+    if (fs12.existsSync(path13.join(root, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
+      validateVNextRuntimeContract(root, true);
+    const result = await fileContext(root, JSON.parse(fs12.readFileSync(0, "utf8")));
+    console.log(JSON.stringify(result, null, 2));
+    return result.status === "partial" ? 2 : 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
@@ -15765,7 +16653,9 @@ async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
 // runtime/vnext/src/cli.ts
 var args = process.argv.slice(2);
 var runner;
-if (args[0] === "bootstrap-project")
+if (args[0] === "file-context")
+  runner = runFileContextCli(args.slice(1));
+else if (args[0] === "bootstrap-project")
   runner = runBootstrapCli(args.slice(1));
 else if (args[0] === "bootstrap-support")
   runner = runBootstrapSupportCli(args.slice(1));
