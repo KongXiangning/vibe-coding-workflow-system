@@ -45,6 +45,14 @@ Implement only the confirmed `CURRENT_TASK` step selected by Runtime. Do not red
 
 ## Operating rules
 
+Before implementation, follow **Project document navigation** in
+`.workflow-system/runtime/support/CONTEXT_API.md` for the confirmed step's relevant
+requirements, plan, design, Contracts, and Decisions. This reading does not reopen
+the plan or widen its mutation scope. Read the saved `project_documents` and
+`affected_contracts` using `validate --summary`, then their relevant body sections.
+Apply **Project document conflicts** in that support file before preflight and
+when contradictions emerge during execution; preserve existing explicit decisions.
+
 1. Send intended changed paths, including every exact planned command write, to Runtime `preflight-step` on stdin. Runtime freezes their before-state and returns the frozen test-strategy mode, execution phase, required outcome, and Persistent Tests in the receipt. Use only the current step, planned commands, validation, and receipt it returns. If the task is unconfirmed, a resume gate is active, explicit prerequisite evidence is unsupported, or preflight blocks, report that result and stop.
 2. Modify only paths admitted for the current step. A persistent test may be created or changed only when it is already frozen in the confirmed task's `Persistent Tests`; do not admit another test during execution.
 3. Obey the Runtime phase. `flexible` has no mandatory Red or tests-only first step; an admitted test may pass immediately. Use `outcome: implemented` only when planned results pass or explicitly match the admitted reproduction check. Explicit ordering requires Runtime-consumed before-step evidence; do not substitute flexible. Historical `outcome: test-red` and `status: expected-failure` remain readable. A new expected-failure result requires a new report submitted in this execution for its exact unconsumed before-step check constraining a later step. Historical reproduction reports cannot authorize later repair or delivery failures. Expected failure cannot satisfy positive acceptance. Syntax, type, import, fixture, tool, unrelated-test, and environment failures are not Red evidence; report actual failures as blocked.

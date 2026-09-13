@@ -1,8 +1,10 @@
 # 本次重构交接记录
 
+**最新交接（2026-09-13）：迁移器、必要契约与回归的源码修订已完成；真实 alpha 本轮未改动，整体迁移仍待从恢复后的旧基线重新验证。本轮不支持已是 vNext 的补齐迁移。两个历史暂停包及未完成义务仍按原文保留，待单独处理。未 commit、push 或发布。**
+
 S0 核实日期：2026-09-11；审查修订：2026-09-12。S1–S5 已实施；本会话累计审查发现 1 个 P1 和 3 个 P2，用户已授权修复，结果见末尾；具体落地范围见末尾实施记录，本文件不替代产品 canonical 状态或用户执行授权。
 
-**最新增量（2026-09-12）：Runtime 按需上下文与 rg 检索已实施为本地 0.17.0；最终完整回归 534 pass / 0 fail。具体接口、真实下载安装验证及限制见末尾同名记录。未发布、未提交，未重新运行业务 dogfood。**
+**0.17.0 阶段增量（历史记录）：Runtime 按需上下文与 rg 检索已实施为本地 0.17.0；当时完整回归 534 pass / 0 fail。该阶段接口与后续 dogfood、提交记录见下文，不代表当前完成状态。**
 
 **2026-09-12 用户最新执行约束：本次纠偏明确不使用旧治理渠道。** 此指令覆盖 PLAN §7、CONTEXT 和各 step 中会导向旧治理链的执行要求；不得调用旧 close/archive/create/lock-scope，不为本轮恢复旧 host skills，也不迁移、归档或手改任务 010。后续源码切片按用户直接指定的步骤及精确文件范围执行，不以旧任务所有权或旧/新治理回执作为源码开发的前置条件；产品 Runtime 的契约、验证与真实 dogfood 要求保持不变。用户先后单独授权 S1–S5，并于累计 diff 审查后明确授权修复四项 finding；本轮限这四项及必要回归、生成同步，不自动发布或推进其它任务。
 
@@ -288,3 +290,175 @@ S1 后续审查：两个 P2 均非进入 S2 的阻塞；没有执行绕过或产
 - 真实目录保护：真实 FixFlow 的 app.ts、server.ts、tickets.test.ts、package.json 和 CURRENT_TASK 前后 SHA-256 一致，哈希保留在 installation.json；真实 CURRENT_TASK revision 仍 `2ce6a42ab9aea277d04c3129843e7c7892dad15d9ecbfd7986963841167ef9e1`。没有读取/重置真实业务数据库，所有服务工作目录均是本次新 business 根；源仓库治理状态保持原样。
 - 中间尝试如实保留：`v017-business-bIcHKk` 的驱动误传 preflight 不支持字段，Runtime 拒绝；`v017-business-LI6Ogd` 的 raw complete envelope 漏 rule.json 引用，Runtime 在 evidence 校验拒绝。只修临时驱动输入，未改 Runtime；早期目录与日志保留，不计为成功实例，所启动服务均在 finally 退出。最终成功实例独立完成全部上述过程。
 - 剩余局限：当前树检索不覆盖 Git 已删除历史；完整基线的存储/解析成本仍随内容增长；旧于 0.17.0 的升级读取保留原有大输出限制。未运行 Linux/macOS 可执行程序、生产升级、真实页面（本业务 API 无页面）或独立身份审查；不认证所有调用方报告真实性。不再留“修复版真实流程报告未补齐”作为阻塞，下一步仅为用户按需审阅本次证据或决定发布；本轮到此停止。
+
+## 0.18.0 旧迁移兼容与 alpha 落地（2026-09-12）
+
+### 范围、接口与实际完成
+
+- 用户明确授权本方案及真实 alpha 迁移。起始源码 HEAD `469b8419e987825c5e345b4c181d064c7eaeed4b`，工作树干净；现行 AGENTS/CLAUDE 与冻结边界已核对。没有 reset、旧治理调用、源码 CURRENT_TASK 改写、commit、push 或发布。仅操作 `E:/coding/TermLink-rust-source-resolution-alpha`，未操作 gemini。
+- 已完成 `migrate --decisions-file`：caller-reported 决定绑定目标绝对路径/identity、当前任务原始路径/完整 SHA-256/历史 ID、完成认定、每个暂停文件路径/SHA-256、用户原文与来源。缺省保持严格准入；错目标/hash/ID、未声明暂停包、活动或中断状态及当前 open finding 继续阻断，无 force。
+- Pack v2 纳入决定；保留旧 Pack v1 确定性 identity 和旧转换规则；receipt v1/v2 都可读。共享 `migration-preservation.ts` 只校验结构化保留证据，没有旧协议解析、兼容 Skill 或恢复入口。Runtime/分发/契约同步为 0.18.0。
+- 旧 CURRENT_TASK 原始字节纳入现有原子事务，以完整 hash 命名备份；同内容复用、冲突拒绝。暂停包不进入转换、写入、删除清单。暂存依赖后、落盘前重新校验 Pack/目标漂移，落盘后校验备份与暂停文件摘要；原有冻结/回滚保留，外层回滚清单包括 rg 工具目录。
+- 真实历史材料暴露并修复两处兼容问题：WORKFLOW_GUIDE 的同目录文件引用仅在校验视图兼容；内联 HTTP/本机路径与命令示例保持原文，不将命令反斜杠或字面 `\n` 改成斜杠。旧 Pack v1 仍按旧字节规则校验，v2 使用收窄后的引用规则。未扩张 public Skill。
+
+### 真实 alpha 迁移与原文保护证据
+
+- 原安装 0.14.5（legacy protocol 0.3.0）；用户将 `TASK-20260827-002` 明确认定为完成。未手改旧 CURRENT_TASK 来满足预检，其原始状态 `completed_verified_archived（TASK-20260827-002 已归档）`、历史 ID 和缺失的旧生命周期字段保留在来源证据中。
+- 先在隔离副本验证，再对真实 alpha 重新快照、dry-run、核对与副本一致的清单，经正常 Node 分发入口迁移：97 项写入、187 项旧受管文件删除，业务 `src/`、`tests/`、`docs/codex/` 零写入/删除。安装返回 `installed`、`read_back_verified=true`。
+- 对迁移前 1,554 个 Git tracked/untracked 文件逐项核验：1,392 个字节不变；48 份长期文档/归档/项目 profile 经 canonical 转换，正文只允许清单内确定性路径规范化，零额外差异；项目 facts 解析后完全一致。其他变化限于声明的旧软件产物替换/删除及新任务基线。原有 15 modified、2 untracked 的业务改动保留；其中 dirty STATUS 与未跟踪的旧任务归档只加 canonical 结构并保留正文、原始摘要。未运行或替换业务代码/测试，未删除未跟踪业务文件。
+- 当前任务原文备份：`E:/coding/TermLink-rust-source-resolution-alpha/TASKS/legacy/CURRENT_TASK-f75cd2d7a0bc4559fa41b5d4a3afd4781e18d9fcd4251f0409a7c6b17f22593c.md`；其 SHA-256 等于文件名中的完整值，与迁移前旧 CURRENT_TASK 字节一致。
+- 暂停包一：`TASKS/paused/TASK-20260615-001-app-codex-ipc-realtime-sync.md`，SHA-256 `f46d952bed22f798c543102b0092c00b34ec01ea4777be91181ce406789a6d6c`。
+- 暂停包二：`TASKS/paused/TASK-20260727-002-codex-single-authority-owner-control-plane.md`，SHA-256 `b4ce7320e3baeeeef168847c6dc07f7d6e5d4f1f198907e08b8d6a616a76195b`。
+- 两个暂停包在副本与真实目录前后均同路径同字节；**未转换、未认定完成、不可直接由 vNext resume**。各自原文内的 manual smoke、后续步骤等未完成义务仍存在。安装版 Runtime 的两个合法形状 resume dry-run 都返回 `RUNTIME_PATH_INVALID`（不满足当前任务 identity-derived package 路径），`committed=false`、`governed_mutation_count=0`；没有为测试伪造新任务或将暂停包改成原生格式。
+- 持久 receipt：`E:/coding/TermLink-rust-source-resolution-alpha/.workflow-system/vnext/MIGRATION_RECEIPT.json`，schema 2、Pack `migration-5bfa1cd9d14999d5e24ebbdd`；含用户决定逐字摘录、来源、旧 ID/hash、备份路径和暂停文件摘要，assurance=`caller-reported`，paused_disposition=`verbatim-unconverted-not-resumable`。它不是认证签名，也不是历史测试、归档成功或业务执行的证明。
+- Runtime `validate --summary` 与 `validate-contract` 成功；新软件基线为 `000 / bootstrap-baseline / closed + archived`，canonical revision `76eddc36c81faf1f4f3b3bf6dd8e49567519eac17c30a2469eac79cea716b710`，没有把旧历史 ID 转成此任务。42 个软件受管文件全部校验。源码构建与安装 CLI SHA-256 均 `f6cd5f77428d02a5f674a91ef35f592fd6f951c1f456db4ac236cea09e3b8819`。
+- 最终分发 digest `a99115cd71c8126accd697c3843695c54d57015425db49c31f03377bb24e5b70`，bundle `bundle-1b1095dbab110446691f1646`，与真实安装相同。再次 `migrate` 保持原有 `MIGRATION_NOT_APPLICABLE`、零清单/零写入语义；正常 `install` 重验为 `no-op`、`read_back_verified=true`。Pack 层同 identity 重放成功由回归覆盖，不混称 CLI migrate 返回 replayed。
+
+### 验证与边界
+
+- 本轮完整 `test:workflow-all` 为 **540 pass / 0 fail**。其后副本发现的边界修正已重跑迁移回归 **18 pass / 0 fail / 100 assertions**，含备份复用/冲突、哈希绑定/漂移、当前 open finding、暂停不转换、失败回滚、Pack 重放、旧 v1 命令转换兼容、内联示例保留。分发回归另重跑 **18 pass / 0 fail**；不把增量测试冒充新的完整测试轮次。
+- `build:vnext-runtime`、`build:vibe-governance-distribution`、`gen:all`、`validate:protocol`、`validate:freshness`、`workflow:health --root .` 和 `git diff --check` 已执行；最终文档写回后再核对生成新鲜度与差异。验证报告是本调用方实测记录，不声称独立审查身份。
+- 最终证据目录 `C:/Users/kongx/AppData/Local/Temp/alpha-vnext-migration-nwpMoh`：`preimage/`、`original-hashes.json`、`original-status.txt`、`copy-confirmed-*-result.json`/`copy-confirmed-verification.json`、`alpha-decisions.json`、`alpha-preflight.json`、`alpha-result.json`、`alpha-verification.json`、`alpha-canonical.json`、`alpha-contract.json`、`alpha-replay.json`、`alpha-install-readback.json`、逐项检查脚本及测试日志。真实项目的上述 receipt/旧当前任务备份/暂停原文不依赖临时目录存续。
+- 早期 `alpha-vnext-migration-keH4uU` 与 `alpha-vnext-migration-MEfAwJ` 为中间副本；后者正文检查发现命令被旧转换器改写，已修复并以全新副本重验。它们不作为最终成功证据，真实项目在修复验证完成前未落盘。
+- **迁移完成；历史暂停工作仍待单独处理。** 本轮没有真实业务执行、业务验收或暂停工作接续。后续须用户单独指定暂停包，模型先读原文和当前业务状态，再通过正常 vNext prepare/confirm 明确计划。目标自有 AGENTS/私有 Skills 与长期文档中的历史指令未作语义改写，旧路由文字属于保留内容，不能据此认定旧命令仍受安装支持。未验证 Linux/macOS 实机迁移；无剩余软件迁移阻塞。到此停止，不自动创建业务任务。
+
+### 用户复审后的结论纠正（2026-09-12）
+
+本节撤回上节“迁移完成”及“无剩余软件迁移阻塞”作为整体验收结论。分发安装、Runtime canonical 读取、旧 CURRENT_TASK 备份和暂停包 hash 校验通过，只能证明相应安装与保留边界；**目标 workflow-system 整体迁移未完成**。
+
+用户提供的只读复审指出四组未收敛事项，本轮针对性复核确认了以下实际问题：
+
+1. AGENTS 仍要求旧 sync-host-guidance、Bun 生成/同步及旧工作目录；当前宿主入口未对齐已安装 vNext。
+2. WORKFLOW_GUIDE 与 DOCUMENT_CATALOG 仍引用旧流程和已删除产物；保留历史内容不能替代当前可执行指南。
+3. PROJECT_PROFILE 仍声明旧模板/生成目录、旧生成验证命令及不存在的 CLAUDE.md；业务事实保留不等于验证矩阵可用。真实 `.agents/skills/` 下可见 37 个 workflow-system-* 旧目录，先前隔离副本只额外复制 .codex/.claude 技能目录，未覆盖这些既存入口；此前“无双入口”的验证范围不充分。
+4. STATUS 当前视图仍保留旧任务 active/closeout 描述。正文校验曾将路径规范化视为可接受，未证明逐字保真；实查 Windows 安装文档将 `{localappdata}\\Programs\\TermLink` 作为 repo-relative 规范化，已进入正文。source_sha256 是原始输入摘要，并非转换后正文摘要，所以哈希不同本身不能单独证明损坏；但不能用此解释免除对用户报告的 13 份正文差异逐项核查，也不能继续将 original_text_preserved 等同于字节保真。
+
+下一修复范围应同时覆盖迁移器的实际入口盘点/收敛、目标宿主与项目画像、当前指南/目录/状态对账，以及原文保留与转换声明契约，并在包含现存 .agents 技能的完整隔离副本验收。当前报告纠正没有修改真实 alpha、删除旧技能、改写历史任务或暂停包，也没有把旧任务标完成绕过检查。整体完成前必须重新验收上述四组事项；历史暂停工作继续保持独立待处理状态。
+
+
+## 2026-09-13：迁移完整性修订（源码与回归）
+
+### 已实施边界
+
+- Pack 升为 schema 3，receipt 升为 schema 3；继续校验旧 v1/v2 Pack 与 receipt，旧转换规则含义不变。版本保持尚未发布的 0.18.0。
+- 新转换规则 `canonical-verbatim-v2` 保持历史 Markdown 正文原文；路径规范化仅用于索引。变量赋值、Windows 路径表达式不再误当仓库路径。当前投影的头部索引对应实际新正文，来源索引与原文绑定。
+- AGENTS/CLAUDE 只修订 workflow-system 指引与旧技能引用，保留业务约束和私有技能；不存在的 CLAUDE 不创建。当前 GUIDE、CATALOG、STATUS 与 vNext 入口及 baseline 对齐，历史业务状态明确作为历史快照保留。
+- 项目画像和 package.json 只清理已识别的旧 workflow 配置、失效命令；保留业务事实、业务槽、依赖与脚本。遇到自定义命令冲突或未解决引用拒绝迁移，不猜测替换。
+- 明确修订的当前文档不再声明原文保真：`original_text_preserved: false`，原始文件完整备份至 `.workflow-system/legacy/<sha256>/<原路径>`。原文备份、投影、原路径和 receipt 完整性绑定；辅助宿主/package 文件保持原生格式。
+- 删除 `.agents/.codex/.claude` 中识别出的旧 `workflow-system-*` 技能整个目录及支持文件；保留私有技能与非前缀同名技能。完整目录纳入漂移、冻结与删除清单检查，临时命名子目录不遗漏。
+- 沿用现有事务、漂移拒绝、冻结检查、回滚及幂等；不增加通用恢复平台、public Skill 或日常 Runtime 业务能力。原先 decisions-file 的精确完成决定及暂停包保留语义不变。
+
+### 实际验证
+
+- `bun run gen:all` 与完整 `bun run test:workflow-all` 通过：541 pass / 0 fail。日志：本机临时目录 `migration-v3-all.log`。
+- 完整回归后补充了投影索引、完整目录漂移、原路径/来源索引绑定和表达式分类检查；最终 `bun test test/vnext-migration-pack.test.ts`：19 pass / 0 fail，130 assertions。日志：`migration-v3-tests-final.log`。
+- 最终分发构建后，定向分发集成测试显式使用 `node` 运行正常 migrate 入口与安装后的 Runtime：1 pass / 0 fail，17 assertions（其余 17 项筛选未运行）。覆盖 37 个旧技能目录、业务指引/脚本保留及安装后校验。日志：`migration-v3-node-final.log`。此前完整套件中的分发测试使用 Bun；不将其冒称为 Node 验证。
+- 本地 0.18.0 分发 digest：`6a737588bc8a2d7f3f299a62c8bfa3aece1012655d715486cf7c483f8bbd387e`，bundle：`bundle-fe6ccb5f83d7cc8732201b82`。此摘要不代表真实 alpha 已安装此修订。
+
+### 尚未完成与下一步
+
+本轮仅源码、契约、生成分发和隔离回归 fixture；没有写入真实 alpha，没有还原其基线，没有替换业务源码/测试或清理其未跟踪文件。保留本轮开始前的未提交修改，没有 commit、push 或发布。
+
+下一阶段须在用户恢复后的旧 alpha 基线上制作隔离副本，完整迁移并核对业务改动、项目事实、当前入口、历史原文和两个暂停包；之后再对真实旧基线快照、dry-run 并核对精确清单。已是 vNext 的再次 migrate 补齐场景明确不支持。非 workflow 的 AGENTS 路径与用户业务指引不由本次迁移器改写。源码回归通过不能替代真实项目迁移验收，历史暂停工作也不能随软件迁移视为完成。
+
+最终检查：`validate:protocol`、`validate:freshness`、`workflow:health --root .` 与 `git diff --check` 均通过。health 为源码仓库既有检查，不表示调用旧治理完成/归档渠道。
+
+
+## 2026-09-13：独立审查两项修复与后续阻塞
+
+本轮仅修复冻结误判和公开 decisions 输入缺口，保留已有修改。真实 alpha 仍为旧基线 `6f1182f9f7ebb2818e237f487f38e6e15a881f81`、工作树干净；未写入目标、未 commit/push/发布。
+
+- 冻结检测继续检查前 20 行：保留大小写不敏感的显式 `@frozen` 标签、全大写 `DO NOT MODIFY` 标记和原冻结登记规则；普通 `Do not modify business code in this skill.` 不再误判。加入自然语言反例、真实标记/登记正例及旧技能支持文件的正常 Node 迁移回归。
+- 公开 `migrate --root <project> --json --dry-run` 在旧 profile 身份可解析时返回 `migration_target: {target_root,target_identity}`，包括缺少决定而拒绝的情形。该数据不授予准入，不生成用户决定。README、CLI help 和迁移契约同步；公开 Node 测试仅使用该输出构造决定，并验证错哈希拒绝、dry-run 不落盘。
+- 最终迁移回归：20 pass / 0 fail，138 assertions（临时目录 `migration-freeze-fix.log`）。最终完整分发回归：19 pass / 0 fail，249 assertions（`migration-public-suite-final.log`）。首轮新增测试错误使用 active 任务，准入正确拒绝；修正为历史完成格式后通过，未放宽产品规则。
+- `validate:protocol`、`validate:freshness`、源码 `workflow:health --root .` 和 diff 检查通过；本轮没有重新运行全部 workflow-all，不将局部套件冒称全量回归。
+
+对原验收隔离副本 `E:/coding/_acceptance/alpha-vnext-migration-20260913/alpha-copy` 再执行正常 Node dry-run：冻结误判已消失且目标身份公开返回，但出现后续 `UNSAFE_PATH`，指向 AGENTS 中 `E:\\coding\\TermLink\\.codex\\skills\\local-dev-server-control\\SKILL.md` 的历史私有技能 Markdown 链接。证据在临时目录 `alpha-fixed-dry-run.json`。其路径索引仍将 Markdown 绝对链接当成不安全仓库路径；本轮未改写目标正文或绕过错误。
+
+迁移整体验收仍 blocked，未执行迁移写入。下一修复应聚焦历史 Windows Markdown 外部路径的索引分类，同时维持真实读写路径校验和正文保真；然后从旧基线重新做公开用户流程验收。历史暂停工作仍待单独处理。
+
+
+## 2026-09-13：Windows 私有技能链接阻塞修复
+
+仅在 Pack v3 的 Markdown 引用索引中，将盘符绝对路径识别为 external，原值保留、adjusted=false；涵盖反斜杠/双反斜杠、正斜杠和带空格的尖括号链接。它们不被读取，不成为写入目标。实际 resolveRepoPath 与 artifact 目标准入保持不变；控制字符、父级穿越仍拒绝，Pack v1/v2 原规则不变。契约已同步。
+
+回归将真实 Windows 私有技能链接放入 AGENTS 业务段和历史正文，验证原文备份、正文一致性、索引分类与正常迁移/回滚。最终迁移套件 20 pass / 0 fail / 140 assertions（临时目录 migration-windows-links-final.log）；公开 Node 分发定向测试 2 pass / 0 fail / 27 assertions（migration-windows-node-final.log，其余 17 项未运行）。生成一致性与 diff 检查通过。本轮未声称重跑 workflow-all。
+
+正常 Node migrate --decisions-file --json --dry-run 在既有 alpha 隔离副本返回 ready，blockers=[]，计划写入 105 项、删除 295 项；证据：本机临时目录 alpha-windows-fixed-dry-run.json。旧快照涉及的 1554 个路径在副本与真实旧 alpha 间逐字节一致，未执行迁移写入。此前两项阻塞及本项阻塞均已解除，但 ready 仅为预检结果，不是完整迁移验收。
+
+真实 alpha 未改动，保留已有源码修改，未 commit/push/发布。下一步按公开用户流程在隔离副本执行迁移并独立验收实际效果；历史暂停工作仍待单独处理。
+
+## 2026-09-13：项目文档固定导航入口（限读取规则）
+
+按用户本轮要求，只补“项目画像 → 文档中心 → 与任务相关的 REQ、PLAN、架构/技术/设计、Contracts/Decisions 正文”的读取路径。使用 skill-creator 的渐进读取原则：共享说明位于现有 `runtime/vnext/support/CONTEXT_API.md#project-document-navigation`，prepare-task（含 refinement/replan）、execute-step、review-draft、review-change 四个模板引用该说明；SOURCE_CONTRACT 补充既有画像和文档中心作为导航输入。没有新增 public Skill、项目格式字段、自动语义解析或治理写入接口，没有修改迁移器。
+
+`paths.documentation_files` 作为种子而非全量必读列表；优先实际项目目录，缺索引时从 README 的文档链接和已观察目录进行有界检索。只跟随与任务有关的 related_docs/related_code、章节和 ID；保留用户/宿主明确要求的完整读取，检索截断不等于不存在。目录、草案、归档和模板不自动成为现行要求；有实质冲突或必要来源不可用时使用既有 unresolved/blocker 结果。来源只通过现有解释或引用说明，不塞入用户原文 Task Basis，不声称 Runtime 证明模型已读或自动识别全部冲突。
+
+实际验证：
+
+- `validate:vnext-source` 通过；`bun test test/workflow-vnext-source.test.ts test/vnext-context.test.ts` 为 33 pass / 0 fail / 336 assertions。
+- `validate:protocol`、`validate:freshness` 通过；现有生成参考 fresh。本轮不新增机械镜像文本的测试。
+- 正常分发构建完成，四个模板和共享说明均进入 payload。0.18.0 manifest digest：`74490d04f70d852549b8286ba1d53cfe8fc3a975ea50ca0e45f2aed5a35101fc`；bundle：`bundle-17e41c2c8e12faf1f25a5189`。公开 Node 安装定向回归 `fresh Node install promotes complete software`：1 pass / 0 fail / 124 assertions，其余 18 项未运行。未声称重跑 workflow-all。
+- 对真实 TermLink codex 使用已安装 Node Runtime `file-context` 只读查询：画像列出 `docs/README.md`，文档中心定位 `docs/product/`，检索 Linux installer 得到 REQ-20260715 的正文与其 related_docs 指向的 PLAN，再从现行 Decisions 找到 AD-003。检索均 pass、不截断，按范围读取返回文本和 SHA-256；没有创建或确认业务任务。
+- 该样本同时暴露历史材料限制：REQ/PLAN 的验收仍指向可变的 CURRENT_TASK，而现有 CURRENT_TASK 已是 bootstrap 000；PLAN 还记有待外部 smoke。导航找到这些材料不意味着验收已完成，也不能把 bootstrap 的验收当成旧安装器验收。本轮保留原文，仅报告该限制。
+
+本轮仅修订源码说明、契约和模板并构建本地分发，保留既有修改，未写真实 TermLink/alpha，未手改已安装 Skill、receipt 或 CURRENT_TASK，未 commit/push/发布。真实 TermLink 的安装版尚未获得本轮模板修订；此前列出的旧命令、私有 Skill 路径、遗漏产品约束及 receipt stale 不在本轮修复范围内。下一步若升级目标，应沿正常软件升级入口；结构化持久文档依据与版本门禁仍是后续独立范围。
+
+
+## 2026-09-13：任务保存具体项目文档依据
+
+本轮只补正常任务输入、canonical 持久化和后续读取，不扩展迁移器或语义冲突平台。未修改真实 TermLink 项目，未 commit/push/发布，保留本轮开始前的源码改动。冻结注册表不存在，修改文件无适用冻结标记。
+
+接口与存储：
+
+- `prepare-draft` / `replan` 的 semantic JSON 可选地成对提供 `project_documents` 与 `affected_contracts`。前者最多 64 项，每项为 `{path, section, revision, purpose}`，字段为有界单行文本；path 是仓库相对正斜杠路径，不接受越界/绝对路径，同路径同章节不重复。后者是本任务拟影响的具体契约引用/说明列表；查阅某契约不自动表示修改它。
+- 来源记录写入既有 CURRENT_TASK 背景章节的 `### Project documents` / version 1 JSON；契约影响写入既有“受影响的契约”章节，撤除固定 `- none`。不另存文档全文，不混入用户原文 Task Basis。共享 codec 参与 Runtime 定义校验与读取。
+- `validate --summary`、完整 `validate` 和 `review-context` 返回 `project_documents` / `affected_contracts`。执行使用已有 summary 读取；没有新增公共命令。旧任务未记录来源返回 null，显式无来源返回 []；旧任务缺少背景/契约章节时 summary 不要求补齐新格式。
+- 新记录在 refinement/replan 时必须明确重提交两个字段（可显式 [] 删除），不会被旧输入静默清空。未采用新记录的历史输入维持原行为。来源变化改变 canonical revision，旧确认凭据失效；已确认任务仍要求授权的 supersede/replan。
+- Runtime 契约、FILE_SCHEMAS、共享 CONTEXT_API、prepare-task 模板和分发源码列表同步；Skill 仅增加共享说明引用。使用 skill-creator 的精简/渐进读取原则，并按 simplify 检查本次改动。
+
+实际验证：
+
+- Runtime、context、daily-semantics 共 123 项通过。组合运行的 source 测试最初有 3 项因编辑器换行变为 CRLF 而失败，恢复 prepare-task 模板原 LF 后，source 全部 28 项通过。
+- 最终代码再次定向运行 4 项 / 78 assertions 全通过：独立 Node CLI prepare/validate 的持久读回、修改依据后旧确认失效、非法/重复来源无写入、历史 null 与显式 []、累计 review 读取来源、replan 保存与幂等。未把这些测试表述为模型已阅读或理解真实业务文档。
+- `validate:protocol`、`validate:freshness` 通过；公开 Node 全软件安装定向回归 1 pass / 124 assertions。未运行完整 workflow-all，也未在真实业务项目创建任务或进行新 dogfood。
+- 本地 0.18.0 分发已按构建脚本生成；最终 manifest `3de129faa50801863c58ecbf054f67448213a0db4df6f9f93412500b1e95f581`，bundle `bundle-a0307b7c0d6f48d3c8ddf80b`。
+
+限制：revision/path/purpose 是 caller-reported 的来源说明；Runtime 校验结构，不认证文件存在、模型已经读取、版本真实/仍最新、权威选择正确或全部冲突均已识别。本轮没有自动版本漂移门禁。模型仍须通过导航和 file-context 核实正文及实际冲突；必要冲突继续进入既有 unresolved/blocker。源码分发已修订，真实目标的安装版尚未更新。
+
+
+## 2026-09-13：接通项目文档冲突处理（第四项）
+
+本轮在源码仓库接通准备/refinement/replan、实施、草案审查和变更审查的模型处理规则。共享说明位于 `runtime/vnext/support/CONTEXT_API.md#project-document-conflicts`，四个既有 Skill 模板直接引用，没有新增 public Skill、冲突文件、Runtime 字段或通用冲突平台。按 skill-creator 使用共享说明，复用第二项的持久文档依据和既有决定/审查通道。未修改真实目标项目，保留已有改动，未 commit/push/发布。
+
+处理闭环：
+
+- 准备/重规划对照实际请求、Task Basis 用户决定及来源正文；通过 `design_decisions.unresolved` 保存双方位置、矛盾、影响及所需决定，通过 `decided` 保存有来源的既定解决方案，并提交 project_documents/affected_contracts。只把真实用户原文加入 Task Basis；未决问题继续阻止确认。
+- 实施首先通过 `validate --summary` 读取任务记录的依据，再读相关正文；审查分别通过 summary/review-context 读取记录并独立检查遗漏。null 历史依据需明确未记录，不能当成已读或无来源。版本变化只触发相关内容核查，不自动判定冲突，也不能静默刷新冻结任务。
+- 明确既有授权解决同一个选择时引用并按授权处理，不重复询问；一般性的“实施”请求不被解释为替用户裁定矛盾。超出已确认计划的改变仍须正常 replan，不通过修改依据绕过范围或生命周期。
+- 草案审查使用现有 authority-conflict findings / needs-user。变更审查使用现有 `record-review-result` 的 blocked verdict，`PROJECT_DOCUMENT_CONFLICT` 是 blocker.code 的具体取值；summary 包含位置、影响、决定，next_route 为 user 或 prepare-task:replan。已确定的实际实现缺陷仍走正常 findings，不把授权冲突伪装为可修代码问题。
+- 实施前冲突通过 change-result.blocker 返回，停止相关执行。执行中仅在真实计划检查失败/受阻时才可提交 blocked record-step-result；否则保留现场并返回阻塞，不声称已写 Runtime。需求冲突不能冒充 environment 来使用 retry。所有路由仍是后续调用建议。
+
+实际验证：新增冲突草案回归及扩展已有累计审查阻塞回归，3 项 / 64 assertions 通过，证明未决不能确认、显式决定及来源正常保存后可确认、审查 blocker 正常持久化并阻止完成/继续执行。此为调用方提供冲突结论的 Runtime 回归，不是独立模型语义识别实验。source/context 33 项 / 336 assertions、validate:protocol、validate:freshness、公开 Node 安装定向回归 1 项 / 124 assertions 全部通过；未重跑 workflow-all，未进行真实业务 dogfood。
+
+本地 0.18.0 分发已生成：manifest `ce611a2ccf8eafb1ae990e997a4ec0887cc0840a30c5b15df637d611fcfae32e`，bundle `bundle-0ee88f9691ce41165c39f68c`。真实 TermLink 的安装版尚未更新。限制仍明确：语义比对及授权解读是模型 caller-reported 判断，Runtime 只保存结果并执行既有门禁，不能保证发现所有矛盾，也未实现自动来源版本失效门禁。
+
+
+## 2026-09-13：兼容与真实隔离流程验证
+
+完成普通任务、需求变化、文档过期、来源缺失、历史无依据字段读取五类验证。详见同目录 `DOCUMENT-CONTEXT-VERIFICATION.md` 与 `.json` 命令/结果索引。两个全新隔离项目均通过公开 CLI 安装/bootstrap 和正常任务入口，实际 Node 检查分别返回 2/3、exit 0，记录 caller-reported evidence 后 review/complete-reviewed-step 成功；没有手改任务状态。最终只是步骤 completed，任务仍 active，未执行 close/archive，不冒充真实 TermLink 验收。
+
+155 项 / 2151 assertions 回归全部通过，protocol/freshness/源码 health 通过；gen:all 和 Runtime/分发构建已同步。最终 manifest `ce611a2ccf8eafb1ae990e997a4ec0887cc0840a30c5b15df637d611fcfae32e` 与两份安装一致，每份 receipt 的 43 个受管软件文件 SHA256 均匹配。原有改动保留，未 commit/push/发布，真实目标项目未更新。
+
+实际限制：没有自动文档失效/语义冲突门禁；缺失来源错误没有伪造为 canonical blocked。历史覆盖指无新依据字段的 vNext/bootstrap/旧 semantic 输入，不代表全部旧治理格式。已确认后完整 supersede/replan 仅由回归覆盖；此次真实需求变更流程在草案确认前发生。全文日志位于 JSON 指明的隔离临时目录，关键结果与摘要已写入仓库报告。
+
+
+## 2026-09-13：TermLink codex 正常 Distribution upgrade
+
+用户明确要求通过正常 `upgrade` 入口更新 `E:\coding\TermLink-rust-source-resolution-codex`。目标原为 vNext `0.18.0`、旧 manifest `6a737588bc8a2d7f3f299a62c8bfa3aece1012655d715486cf7c483f8bbd387e`；旧收据列出的 42 个受管文件全部匹配。源码同版本的新版内容 digest `ce611a2ccf8eafb1ae990e997a4ec0887cc0840a30c5b15df637d611fcfae32e` 触发正常同版本身份门禁 `MANAGED_TARGET_DRIFT`，预览无写入。没有绕过门禁或手改目标收据。
+
+为满足版本单调升级，将源码 VERSION、根/分发/Runtime package、Runtime lockfile、Runtime 契约与源码常量统一递增为 `0.18.1`，按现有构建生成 Runtime 与分发产物；未发布。新版 manifest `2b187f47d07cf2e9ec60cdc799d54f130062dcebf6a751bcfdd4c60ac1b556f0`，bundle `bundle-7c2b483078faa654c4581d6b`。正常 `upgrade --dry-run` 返回 ready：46 个计划写入（受管软件/依赖/收据）、零删除、零 blocker；`validate:vnext-runtime` 通过，Distribution 的 upgrade 定向回归 6 pass / 35 assertions。
+
+随后执行 `pwsh -File .\scripts\workflow-local.ps1 upgrade 'E:\coding\TermLink-rust-source-resolution-codex' -Execute`，公开 CLI 返回 `upgraded`、`read_back_verified: true`。目标安装状态为 `0.18.1`，43 个受管文件 SHA256 均匹配，新 `project-documents.ts` 和共享说明已安装。安装版 `validate-contract`、`validate --summary` 均成功；canonical bootstrap task 仍是 `000` / `closed + archived`，历史 `project_documents: null`。重复升级预览为 `no-op`、零写入。升级前后目标 Git status 条目完全一致，HEAD 保持 `20b79197ce8889294c7a12585ebe3ae008fac11d`；AGENTS、画像、CURRENT_TASK、指南、契约、业务源码、package.json 七项项目自有文件 SHA256 不变。
+
+本轮只完成目标软件 upgrade，未创建真实业务任务、未修改项目文档依据或业务代码、未 commit/push/发布。旧历史任务及已有未提交修改维持原状。隔离验证报告原先的 0.18.0 摘要是当时的历史结果，不应误读为当前安装版。

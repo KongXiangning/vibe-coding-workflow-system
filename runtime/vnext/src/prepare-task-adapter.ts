@@ -7,6 +7,7 @@
  * transaction kernel. Caller authority enters only through exact receipts.
  */
 
+import { normalizeProjectDocuments, readProjectDocuments, renderProjectDocuments, type ProjectDocument } from './project-documents';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -66,6 +67,8 @@ export type PrepareTaskStepCommand = {
 export type PrepareTaskTestStrategy = TestStrategyDefinition;
 
 export type PrepareTaskSemanticDraft = {
+  project_documents?: ProjectDocument[];
+  affected_contracts?: string[];
   task_basis: TaskBasis;
   goal: string;
   claim_evidence: ClaimEvidenceRecord[];
@@ -331,7 +334,11 @@ function stepScopeAdmitsCommandTarget(target: string, stepScope: readonly string
 
 function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   const source = record(input, 'prepare-task semantic draft');
-  exactKeys(source, SEMANTIC_DRAFT_FIELDS, 'prepare-task semantic draft');
+  exactKeys(source, [...SEMANTIC_DRAFT_FIELDS, ...['project_documents', 'affected_contracts'].filter(key => key in source)], 'prepare-task semantic draft');
+
+  if (('project_documents' in source) !== ('affected_contracts' in source)) {
+    fail('PROJECT_DOCUMENTS_INVALID', 'Supply project_documents and affected_contracts together, using [] where applicable.');
+  }
 
   const designDecisions = record(source.design_decisions, 'design_decisions');
   exactKeys(designDecisions, ['decided', 'unresolved'], 'design_decisions');
@@ -436,6 +443,8 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   }
 
   const normalized: PrepareTaskSemanticDraft = {
+    ...(source.project_documents === undefined ? {} : { project_documents: normalizeProjectDocuments(source.project_documents) }),
+    ...(source.affected_contracts === undefined ? {} : { affected_contracts: textList(source.affected_contracts, 'affected_contracts', true) }),
     task_basis: normalizeTaskBasis(source.task_basis),
     goal: text(source.goal, 'goal', 512),
     claim_evidence: validateClaimEvidence(source.claim_evidence, 'claim_evidence'),
@@ -606,12 +615,12 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
       '### Out of scope',
       '',
       markdownBullets(input.out_of_scope),
-    ].join('\n'),
+    ].join('\n') + renderProjectDocuments(input.project_documents),
     acceptance: markdownBullets(input.claim_evidence.filter(claim => claim.claim_kind === 'acceptance').map(claim => claim.requirement!), true),
     allowed_scope: markdownBullets(input.mutation_scope.allowed.map(item => `\`${item}\``)),
     conditional_scope: markdownBullets(input.mutation_scope.conditional.map(item => `\`${item.path}\` when ${item.condition}`)),
     forbidden_scope: markdownBullets(input.mutation_scope.forbidden.map(item => `\`${item}\``)),
-    affected_contracts: '- none',
+    affected_contracts: markdownBullets(input.affected_contracts ?? []),
     confirmed_decisions: markdownBullets(input.design_decisions.decided),
     open_questions: markdownBullets(input.design_decisions.unresolved),
     implementation_plan: input.implementation_steps.map(step => `- ${step.id}: ${step.description}`).join('\n'),
@@ -757,10 +766,20 @@ function isCurrentConfirmationReplay(
   );
 }
 
+function assertDocumentReferencesResubmitted(current: ReturnType<typeof readCanonicalCurrentTask>, semantic: PrepareTaskSemanticDraft): void {
+  if (current.runtimeState.lifecycle_state === 'archived') return;
+  const definition = readDraftDefinitionFromBody(current.body);
+  if (readProjectDocuments(definition.background_context) !== null
+    && (semantic.project_documents === undefined || semantic.affected_contracts === undefined)) {
+    fail('PROJECT_DOCUMENTS_REQUIRED', 'Resubmit recorded project_documents and affected_contracts when refining or replanning; use [] only for an explicit removal.');
+  }
+}
+
 export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
   const semantic = normalizeSemanticDraft(input);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
+  assertDocumentReferencesResubmitted(current, semantic);
   const creating = current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived';
   const updating = current.runtimeState.workflow_status === 'draft' && current.runtimeState.lifecycle_state === 'active';
   if (!creating && !updating) {
@@ -901,6 +920,7 @@ export function replan(root: string, input: unknown, options: RuntimeApplyOption
   const semantic = normalizeSemanticDraft(input);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
+  assertDocumentReferencesResubmitted(current, semantic);
   const digest = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey('replan', { task_id: current.runtimeState.task_id, semantic });
   if (

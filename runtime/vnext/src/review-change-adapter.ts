@@ -6,6 +6,7 @@
  * review result in canonical CURRENT_TASK.
  */
 
+import { readProjectDocuments, type ProjectDocument } from './project-documents';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -81,6 +82,8 @@ export type ReviewContextResult = {
     mutation_scope: string[];
     validation: string[];
   };
+  project_documents: ProjectDocument[] | null;
+  affected_contracts: string;
   acceptance: string;
   regression_checks: string;
   mutation_scope: {
@@ -294,6 +297,8 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       mutation_scope: stepScope(resolution.current.mutation_scope, `step ${resolution.current.id} mutation_scope`),
       validation: validationList(resolution.current.required_evidence, `step ${resolution.current.id} required_evidence`),
     },
+    project_documents: readProjectDocuments(definition.background_context),
+    affected_contracts: definition.affected_contracts,
     acceptance: definition.acceptance,
     regression_checks: definition.regression_checks,
     mutation_scope: {

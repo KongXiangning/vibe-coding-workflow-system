@@ -132,7 +132,7 @@ The system does not load all accumulated governance knowledge into every task an
 
 ### P-10 — Legacy migration is idle-only and one-time offline
 
-Only a legacy project in `idle` state may enter migration. The one-time Migration Pack converts old governance documents offline, validates the converted canonical Markdown/YAML documents, and only then permits installation of the vNext Distribution. A non-idle project is not migrated and is left on the old installation until its state is settled. The pack must preserve authoritative facts, report ambiguity, and never invent completion, ownership, recovery, or evidence.
+Only a legacy project in `idle` state may enter migration. Here idle means no active current task: an explicit hash-bound historical completion decision and verbatim preservation of declared paused files are supported by the one-time Migration Pack (0.18.0); this does not authorize interrupted execution or open current findings. The one-time Migration Pack converts old governance documents offline, validates the converted canonical Markdown/YAML documents, and only then permits installation of the vNext Distribution. A non-idle project is not migrated and is left on the old installation until its state is settled. The pack must preserve authoritative facts, report ambiguity, and never invent completion, ownership, recovery, or evidence.
 
 ### P-11 — Unsupported schema fails closed
 
@@ -864,9 +864,11 @@ The pack reads a declared old protocol/schema and an exact source revision, then
 - workflow schema/version metadata;
 - the Skill installation surface.
 
-`CURRENT_TASK.md` is a migration precondition, not a hot-migration input. Active findings, finding-repair state, paused packages, interrupted runtime state, and other unfinished lifecycle state are outside the pack scope and make the source project non-idle.
+`CURRENT_TASK.md` is a migration precondition, not a hot-migration input. Active findings, finding-repair state, interrupted runtime state, and other active lifecycle state are outside the pack scope and make the source project non-idle. As of 0.18.0, an explicit identity/hash-bound completion decision may admit a historical completed CURRENT_TASK format. Explicitly listed paused packages may remain at their original paths byte-for-byte; they are not converted, completed, or made directly resumable by vNext. The receipt retains their unresolved provenance. Their later interpretation requires a separate user request and a normally confirmed vNext plan.
 
 The converted output remains Markdown/YAML canonical knowledge and project truth; temporary mapping objects, reports, and indexes are evidence only.
+
+Migration completion includes usable current workflow guidance and validation configuration, not only software read-back. Pack v3 keeps historical Markdown bodies verbatim and normalizes references only in indexes. Explicit current guidance/profile projections preserve their source in hash-bound backups and declare that their current body was revised. Host guidance changes are restricted to workflow-system sections; product constraints and private Skills remain target-owned. All prefixed legacy workflow-system Skill directories across `.agents`, `.codex`, and `.claude` are included in the same atomic deletion and rollback boundary. This does not introduce re-migration of an already-vNext target.
 
 Conversion must:
 

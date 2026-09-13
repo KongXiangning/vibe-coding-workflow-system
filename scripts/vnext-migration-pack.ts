@@ -14,6 +14,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseDocument, stringify as stringifyYaml } from 'yaml';
 import { RG_INSTALL_ENTRY, RG_TOOLS_PATH, resolveRg, assertRgDirectory } from '../runtime/vnext/src/rg-tool';
+import { validateMigrationDecisions, validateMigrationPreservation, validateMigrationAlignment, legacyCurrentTaskBackup, type MigrationDecisions } from '../runtime/vnext/src/migration-preservation';
+import { alignLegacyText, originalBackupPath, isAlignedPath, type AlignmentContext } from './migration-alignment';
 import { checkTargetRoot, normalizeAbsoluteRootPath } from './guard-target-root';
 import {
   getWorkflowHome,
@@ -52,7 +54,7 @@ import {
 
 export { computeScopedTreeHash } from '../runtime/vnext/src/scoped-tree-hash';
 
-export const MIGRATION_PACK_SCHEMA_VERSION = 1 as const;
+export const MIGRATION_PACK_SCHEMA_VERSION = 3 as const;
 export const MIGRATION_PACK_KIND = 'workflow-vnext-migration-pack' as const;
 export const VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION = 1 as const;
 export const VNEXT_CANONICAL_DOCUMENT_KIND = 'vnext-canonical-document' as const;
@@ -175,6 +177,7 @@ const OPEN_FINDING_STATUSES = new Set([
   '进行中',
 ]);
 const KNOWN_HOST_SKILL_DIRS = [
+  path.posix.join('.agents', 'skills'),
   path.posix.join('.claude', 'skills'),
   path.posix.join('.codex', 'skills'),
   path.posix.join('.factory', 'skills'),
@@ -299,6 +302,7 @@ export type MigrationPreflight = {
   kind: 'migration-preflight';
   eligible: boolean;
   state: 'idle' | 'non-idle' | 'ambiguous' | 'unsupported' | 'already-vnext' | 'install-in-progress';
+  decisions?: MigrationDecisions;
   source: SourceIdentity;
   target: TargetIdentity | null;
   target_snapshot: TargetSnapshot | null;
@@ -332,8 +336,9 @@ type CanonicalMarkdownHeader = {
   legacy_source_revision: string;
   legacy_source_tree_hash: string;
   legacy_protocol_version: string;
-  conversion_rule: typeof VNEXT_CANONICAL_CONVERSION_RULE;
-  original_text_preserved: true;
+  conversion_rule: 'canonical-envelope-v1' | 'canonical-verbatim-v2';
+  original_text_preserved: boolean;
+  original_backup_path?: string;
   heading_index: Array<{ id: string; level: number; text: string }>;
   path_references: PathReference[];
 };
@@ -352,7 +357,7 @@ export type MigrationArtifact = {
   content_path: string;
   original_content_path: string;
   canonical_schema_version: typeof VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION;
-  conversion_rule: typeof VNEXT_CANONICAL_CONVERSION_RULE;
+  conversion_rule: 'canonical-envelope-v1' | 'canonical-verbatim-v2';
   source_sha256: string;
   content_sha256: string;
   byte_length: number;
@@ -364,12 +369,14 @@ export type MigrationArtifact = {
     legacy_source_tree_hash: string;
     source_path: string;
     source_sha256: string;
-    conversion_rule: typeof VNEXT_CANONICAL_CONVERSION_RULE;
+    conversion_rule: 'canonical-envelope-v1' | 'canonical-verbatim-v2';
   };
 };
 
 export type MigrationPackManifest = {
-  schema_version: typeof MIGRATION_PACK_SCHEMA_VERSION;
+  schema_version: 1 | 2 | 3;
+  alignment_context?: AlignmentContext;
+  decisions?: MigrationDecisions;
   kind: typeof MIGRATION_PACK_KIND;
   pack_id: string;
   status: 'validated';
@@ -478,6 +485,7 @@ export type MigrationOperationResult = {
 };
 
 export type PreflightOptions = {
+  decisions?: MigrationDecisions;
   sourceRoot?: string;
   targetRoot: string;
 };
@@ -637,7 +645,7 @@ function parseStrictJson(filePath: string): Record<string, unknown> {
   }
 }
 
-function listFiles(root: string, options: { skipDirectories?: Set<string> } = {}): string[] {
+function listFiles(root: string, options: { skipDirectories?: Set<string>; includeTransient?: boolean } = {}): string[] {
   if (!fs.existsSync(root)) return [];
   const skipDirectories = options.skipDirectories ?? new Set<string>();
   const files: string[] = [];
@@ -653,7 +661,7 @@ function listFiles(root: string, options: { skipDirectories?: Set<string> } = {}
         // being taken, so they must not become part of migration identity or
         // make a directory scan observe an impossible intermediate state.
         const transient = TRANSIENT_DIRECTORY_PREFIXES.some(prefix => entry.name.startsWith(prefix));
-        if (!skipDirectories.has(entry.name) && !transient) walk(fullPath);
+        if (!skipDirectories.has(entry.name) && (!transient || options.includeTransient)) walk(fullPath);
       } else if (entry.isFile()) {
         files.push(fullPath);
       }
@@ -919,7 +927,46 @@ function getCurrentTaskSnapshot(
   };
 }
 
-function scanSuspendedWork(targetRoot: string): MigrationIssue[] {
+function assertDecisionFile(root: string, relative: string, expectedHash: string): void {
+  const full = resolveRepoPath(root, relative, 'preserved migration file');
+  let current = root;
+  for (const part of relative.split('/')) {
+    current = path.join(current, part);
+    if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) throw new MigrationPackError('PACK_STALE', 'Preserved paths cannot traverse links.');
+  }
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile() || readSha256(full) !== expectedHash) {
+    throw new MigrationPackError('PACK_STALE', `Preserved file changed or is missing: ${relative}`);
+  }
+}
+
+function assertPreservedMigrationFiles(root: string, decisions: MigrationDecisions): void {
+  assertDecisionFile(root, legacyCurrentTaskBackup(decisions), decisions.current_task.sha256);
+  for (const item of decisions.preserved_paused) assertDecisionFile(root, item.path, item.sha256);
+}
+
+function assertMigrationDecisionTarget(root: string, target: TargetIdentity, current: CurrentTaskSnapshot, decisions: MigrationDecisions): void {
+  if (!target || !current || normalizeAbsoluteRootPath(decisions.target_root) !== target.root_path
+    || decisions.target_identity !== target.root_identity || decisions.current_task.path !== current.path || decisions.current_task.sha256 !== current.sha256) {
+    throw new MigrationPackError('PACK_STALE', 'Migration decisions do not match target/current-task identity.');
+  }
+  assertDecisionFile(root, current.path, current.sha256);
+  const content = fs.readFileSync(resolveRepoPath(root, current.path, 'CURRENT_TASK'), 'utf8');
+  const id = content.match(/^\s*-\s*(?:\*\*)?任务 ID(?:\*\*)?[：:]\s*(.+?)\s*$/m)?.[1];
+  if (id !== decisions.current_task.original_task_id) throw new MigrationPackError('CURRENT_TASK_INVALID', 'Original task ID differs from the completion decision.');
+  if (!/^(?:archived|closed)$|^completed_verified_archived(?:[（( ]|$)/.test(current.workflow_status)) {
+    throw new MigrationPackError('CURRENT_TASK_NON_IDLE', 'Completion decisions require an explicitly completed historical status.');
+  }
+  // A completion decision resolves historical format gaps, not active ownership.
+  if ((current.lifecycle_state && current.lifecycle_state !== 'archived')
+    || current.resume_requires_review === true || (current.resume_review_reasons ?? '').trim()) {
+    throw new MigrationPackError('CURRENT_TASK_NON_IDLE', 'Explicit active/recovery state cannot be waived by a migration decision.');
+  }
+  for (const item of decisions.preserved_paused) assertDecisionFile(root, item.path, item.sha256);
+  const backup = legacyCurrentTaskBackup(decisions);
+  if (fs.existsSync(resolveRepoPath(root, backup, 'legacy backup'))) assertDecisionFile(root, backup, current.sha256);
+}
+
+function scanSuspendedWork(targetRoot: string, decisions?: MigrationDecisions): MigrationIssue[] {
   const issues: MigrationIssue[] = [];
   for (const kind of ['paused', 'interrupted'] as const) {
     const relative = `TASKS/${kind}`;
@@ -927,7 +974,8 @@ function scanSuspendedWork(targetRoot: string): MigrationIssue[] {
     for (const filePath of listFiles(directory)) {
       const relativePath = path.relative(targetRoot, filePath).replace(/\\/g, '/');
       if (path.basename(filePath) === '.gitkeep') continue;
-      issues.push({ severity: 'error', code: 'SUSPENDED_WORK_PRESENT', message: `Recoverable ${kind} work is present; settle it through the old workflow before migration.`, path: relativePath || relative });
+      if (kind === 'paused' && decisions?.preserved_paused.some(item => item.path === relativePath)) continue;
+      issues.push({ severity: 'error', code: 'SUSPENDED_WORK_PRESENT', message: kind === 'paused' ? 'Undeclared paused work blocks migration; an explicit byte-bound preservation decision is required.' : 'Interrupted execution blocks migration; a completion or paused-preservation decision cannot waive it.', path: relativePath || relative });
     }
   }
   return issues;
@@ -969,6 +1017,15 @@ function mergeLegacySkillNames(sourceRoot: string, packNames: readonly string[])
   return [...names].sort();
 }
 
+function surfaceChecksum(root: string, relative: string): string | null {
+  const full = resolveRepoPath(root, relative, 'legacy surface');
+  if (!fs.existsSync(full)) return null;
+  if (fs.lstatSync(full).isSymbolicLink()) throw new MigrationPackError('LEGACY_SURFACE_AMBIGUOUS', `Linked legacy surface: ${relative}`);
+  if (fs.statSync(full).isFile()) return readSha256(full);
+  if (!/^\.(agents|codex|claude)\/skills\/workflow-system-[a-z0-9-]+$/.test(relative)) throw new MigrationPackError('LEGACY_SURFACE_AMBIGUOUS', `Unexpected legacy directory: ${relative}`);
+  return sha256(JSON.stringify(listFiles(full, { includeTransient: true }).map(p => [path.relative(full, p).replace(/\\/g, '/'), readSha256(p)]).sort()));
+}
+
 function addSurfaceEntry(
   entries: Map<string, LegacySurfaceEntry>,
   targetRoot: string,
@@ -978,11 +1035,8 @@ function addSurfaceEntry(
 ): void {
   const normalized = normalizeRepoPath(relativePath, 'legacy surface path');
   const fullPath = resolveRepoPath(targetRoot, normalized, 'legacy surface path');
-  if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isFile()) {
-    throw new MigrationPackError('LEGACY_SURFACE_AMBIGUOUS', `Legacy surface entry is not a regular file: ${normalized}`);
-  }
   const existing = entries.get(normalized);
-  const checksum = fs.existsSync(fullPath) && fs.statSync(fullPath).isFile() ? readSha256(fullPath) : null;
+  const checksum = surfaceChecksum(targetRoot, normalized);
   if (existing) {
     // A generated scan can discover CURRENT_TASK before the explicit
     // current-task pass.  Preserve the stronger replace intent in that case.
@@ -1048,11 +1102,22 @@ function collectLegacySurface(
   for (const relativeDir of KNOWN_HOST_SKILL_DIRS) {
     const directory = path.join(targetRoot, ...relativeDir.split('/'));
     if (!fs.existsSync(directory)) continue;
+    for (const name of fs.readdirSync(directory)) {
+      if (!/^workflow-system-[a-z0-9-]+$/.test(name) || !fs.statSync(path.join(directory, name)).isDirectory()) continue;
+      const dirPath = `${relativeDir}/${name}`;
+      for (const file of listFiles(path.join(directory, name), { includeTransient: true })) {
+        const relative = path.relative(targetRoot, file).replace(/\\/g, '/');
+        if (isFrozenPath(targetRoot, relative)) throw new MigrationPackError('FROZEN_PATH', `Frozen legacy Skill member: ${relative}`);
+        addSurfaceEntry(entries, targetRoot, relative, 'host-scan', 'remove');
+      }
+      addSurfaceEntry(entries, targetRoot, dirPath, 'host-scan', 'remove');
+    }
     for (const filePath of listFiles(directory)) {
+      if (/^workflow-system-[a-z0-9-]+\//.test(path.relative(directory, filePath).replace(/\\/g, '/'))) continue;
       const basename = path.basename(filePath);
       const parentName = path.basename(path.dirname(filePath));
       const isPrefixedLegacy = /^workflow-system-.+\.SKILL\.md$/.test(basename) || (basename === 'SKILL.md' && /^workflow-system-.+$/.test(parentName));
-      const isFlatAlias = legacySkillNames.some(name => basename === `${name}.SKILL.md` || (basename === 'SKILL.md' && parentName === name));
+      const isFlatAlias = relativeDir !== '.agents/skills' && legacySkillNames.some(name => basename === `${name}.SKILL.md` || (basename === 'SKILL.md' && parentName === name));
       if (isPrefixedLegacy || isFlatAlias) {
         addSurfaceEntry(entries, targetRoot, path.relative(targetRoot, filePath), 'host-scan', 'remove');
       }
@@ -1100,24 +1165,32 @@ export function isFrozenPath(targetRoot: string, relativePath: string): boolean 
   const fullPath = resolveRepoPath(targetRoot, normalized, 'freeze check');
   if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
     const head = fs.readFileSync(fullPath, 'utf8').split(/\r?\n/).slice(0, 20).join('\n');
-    if (/@frozen|DO NOT MODIFY/i.test(head)) return true;
+    // Explicit tags are case-insensitive; the uppercase banner is a marker,
+    // unlike ordinary instructions such as "Do not modify business code".
+    if (/@frozen\b/i.test(head) || /\bDO NOT MODIFY\b/.test(head)) return true;
   }
   return false;
 }
 
-function extractPathReferences(content: string): PathReference[] {
-  const candidates = new Set<string>();
+function extractPathReferences(content: string, packVersion: 1 | 2 | 3 = 3): PathReference[] {
+  const candidates = new Map<string, PathReference>();
   const markdownLink = /\]\(([^)]+)\)/g;
-  for (const match of content.matchAll(markdownLink)) candidates.add(match[1].trim().replace(/^<|>$/g, ''));
+  for (const match of content.matchAll(markdownLink)) {
+    const value = match[1].trim().replace(/^<|>$/g, '');
+    candidates.set(value, normalizePathReference(value, false, packVersion === 3));
+  }
   const inlineCode = /`([^`\n]+)`/g;
   for (const match of content.matchAll(inlineCode)) {
     const value = match[1].trim();
-    if (/[\\/]/.test(value) && !/\s/.test(value)) candidates.add(value);
+    if (/[\\/]/.test(value) && !/\s/.test(value)) {
+      const literal = packVersion === 3 && /^(?:[A-Za-z_][\w-]*=|[<{])/.test(value);
+      candidates.set(value, literal ? { raw: value, normalized: value, kind: 'unclassified', adjusted: false } : normalizePathReference(value, packVersion >= 2));
+    }
   }
-  return [...candidates].map(raw => normalizePathReference(raw)).sort((left, right) => left.raw.localeCompare(right.raw));
+  return [...candidates.values()].sort((left, right) => left.raw.localeCompare(right.raw));
 }
 
-function normalizePathReference(raw: string): PathReference {
+function normalizePathReference(raw: string, inlineCode = false, allowWindowsLink = false): PathReference {
   if (/^(?:https?:|mailto:|ftp:)/i.test(raw)) return { raw, normalized: raw, kind: 'external', adjusted: false };
   if (raw.startsWith('#')) return { raw, normalized: raw, kind: 'anchor', adjusted: false };
   // Legacy workflow documents commonly link to slash-prefixed Skill
@@ -1129,6 +1202,18 @@ function normalizePathReference(raw: string): PathReference {
   // as an opaque reference while still rejecting arbitrary slash paths.
   if (/^\/[a-z][a-z0-9-]*(?:\([^)\n]*\))?$/.test(raw)) return { raw, normalized: raw, kind: 'unclassified', adjusted: false };
   const normalized = raw.replace(/\\/g, '/').replace(/^\.\//, '');
+  // v3 indexes machine-local Markdown links as inert external references.
+  // Never resolve or read them; artifact write paths use resolveRepoPath separately.
+  if (allowWindowsLink && /^[A-Za-z]:\//.test(normalized)
+    && !/[\0-\x1F\x7F]/.test(normalized) && !normalized.split('/').includes('..')) {
+    return { raw, normalized: raw, kind: 'external', adjusted: false };
+  }
+  // Inline examples include HTTP routes and machine-local historical facts.
+  // They are inert prose, never a path used for reading or writing files.
+  if (inlineCode && (normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized))
+    && !/[\0-\x1F\x7F]/.test(normalized) && !normalized.split('/').includes('..')) {
+    return { raw, normalized: raw, kind: 'unclassified', adjusted: false };
+  }
   if (
     normalized.startsWith('/') ||
     /^[A-Za-z]:\//.test(normalized) ||
@@ -1140,19 +1225,21 @@ function normalizePathReference(raw: string): PathReference {
   return { raw, normalized, kind: 'repo-relative', adjusted: normalized !== raw };
 }
 
-function rewritePathReferences(content: string): string {
-  const rewrite = (rawValue: string): string => {
+function rewritePathReferences(content: string, packVersion: 1 | 2 | 3 = 3): string {
+  const rewrite = (rawValue: string, inlineCode = false): string => {
     const leading = rawValue.startsWith('<') ? '<' : '';
     const trailing = rawValue.endsWith('>') ? '>' : '';
     const raw = rawValue.slice(leading.length, rawValue.length - trailing.length || undefined);
-    const reference = normalizePathReference(raw.trim());
+    // Match the extractor: commands and prose inside code spans are not paths.
+    if (inlineCode && (!/[\\/]/.test(raw.trim()) || /\s/.test(raw.trim()))) return rawValue;
+    const reference = normalizePathReference(raw.trim(), inlineCode);
     if (reference.kind !== 'repo-relative' || reference.normalized === raw.trim()) return rawValue;
     const leftWhitespace = raw.match(/^\s*/)?.[0] ?? '';
     const rightWhitespace = raw.match(/\s*$/)?.[0] ?? '';
     return `${leading}${leftWhitespace}${reference.normalized}${rightWhitespace}${trailing}`;
   };
   let rewritten = content.replace(/\]\(([^)]+)\)/g, (whole, raw: string) => `](${rewrite(raw)})`);
-  rewritten = rewritten.replace(/`([^`\n]+)`/g, (whole, raw: string) => `\`${rewrite(raw)}\``);
+  rewritten = rewritten.replace(/`([^`\n]+)`/g, (whole, raw: string) => `\`${rewrite(raw, packVersion === 2)}\``);
   return rewritten;
 }
 
@@ -1210,17 +1297,31 @@ function canonicalizeMarkdownDocument(
   sourceSha: string,
   legacyProtocolVersion: string,
   legacySource: TargetSnapshot,
+  packVersion: 1 | 2 | 3 = 3,
+  context?: AlignmentContext,
 ): string {
   const header = canonicalMarkdownHeader(
     kind,
     sourcePath,
     content,
     sourceSha,
-    extractPathReferences(content),
+    extractPathReferences(content, packVersion),
     legacyProtocolVersion,
     legacySource,
   );
-  return `---\n${stringifyYaml(header).trimEnd()}\n---\n${rewritePathReferences(content)}`;
+  let body = packVersion === 3 ? content : rewritePathReferences(content, packVersion);
+  if (packVersion === 3) {
+    header.conversion_rule = 'canonical-verbatim-v2';
+    if (isAlignedPath(sourcePath)) {
+      if (!context) throw new MigrationPackError('PACK_INVALID', 'Missing alignment context');
+      header.original_text_preserved = false;
+      header.original_backup_path = originalBackupPath(sourcePath, sourceSha);
+      body = alignLegacyText(sourcePath, content, context, header.original_backup_path);
+      header.heading_index = extractHeadingIndex(body, sourcePath);
+      header.path_references = extractPathReferences(body, 3);
+    }
+  }
+  return `---\n${stringifyYaml(header).trimEnd()}\n---\n${body}`;
 }
 
 function canonicalizeProjectProfile(
@@ -1229,6 +1330,8 @@ function canonicalizeProjectProfile(
   sourceSha: string,
   legacyProtocolVersion: string,
   legacySource: TargetSnapshot,
+  packVersion: 1 | 2 | 3 = 3,
+  context?: AlignmentContext,
 ): string {
   const parsed = parseDocument(content, { uniqueKeys: true });
   const diagnostics = [...parsed.errors, ...parsed.warnings];
@@ -1248,10 +1351,16 @@ function canonicalizeProjectProfile(
     legacy_source_revision: legacySource.revision,
     legacy_source_tree_hash: legacySource.tree_hash,
     legacy_protocol_version: legacyProtocolVersion,
-    conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
-    original_text_preserved: true,
+    conversion_rule: packVersion === 3 ? 'canonical-verbatim-v2' : VNEXT_CANONICAL_CONVERSION_RULE,
+    original_text_preserved: packVersion !== 3,
+    ...(packVersion === 3 ? { original_backup_path: originalBackupPath(sourcePath, sourceSha) } : {}),
     path_references: extractPathReferences(content),
   };
+  if (packVersion === 3) {
+    if (!context) throw new MigrationPackError('PACK_INVALID', 'Missing alignment context');
+    content = alignLegacyText(sourcePath, content, context, originalBackupPath(sourcePath, sourceSha));
+    metadata.path_references = extractPathReferences(content, 3);
+  }
   const suffix = stringifyYaml({ vnext_migration: metadata }).trimEnd();
   return `${content.endsWith('\n') ? content : `${content}\n`}\n${suffix}\n`;
 }
@@ -1263,11 +1372,17 @@ function canonicalizeArtifactContent(
   sourceSha: string,
   legacyProtocolVersion: string,
   legacySource: TargetSnapshot,
+  packVersion: 1 | 2 | 3 = 3,
+  context?: AlignmentContext,
 ): string {
-  if (kind === 'project-profile') {
-    return canonicalizeProjectProfile(sourcePath, content, sourceSha, legacyProtocolVersion, legacySource);
+  if (packVersion === 3 && ['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(sourcePath)) {
+    if (!context) throw new MigrationPackError('PACK_INVALID', 'Missing alignment context');
+    return alignLegacyText(sourcePath, content, context, originalBackupPath(sourcePath, sourceSha));
   }
-  return canonicalizeMarkdownDocument(kind, sourcePath, content, sourceSha, legacyProtocolVersion, legacySource);
+  if (kind === 'project-profile') {
+    return canonicalizeProjectProfile(sourcePath, content, sourceSha, legacyProtocolVersion, legacySource, packVersion, context);
+  }
+  return canonicalizeMarkdownDocument(kind, sourcePath, content, sourceSha, legacyProtocolVersion, legacySource, packVersion, context);
 }
 
 function parseCanonicalFrontmatter(content: string, location: string): { header: Record<string, unknown>; body: string } {
@@ -1300,6 +1415,8 @@ function validateCanonicalArtifactContent(
   legacyProtocolVersion: string,
   legacySource: TargetSnapshot,
   location: string,
+  packVersion: 1 | 2 | 3,
+  context?: AlignmentContext,
 ): void {
   const expectedCanonicalContent = canonicalizeArtifactContent(
     artifact.kind,
@@ -1308,9 +1425,17 @@ function validateCanonicalArtifactContent(
     artifact.source_sha256,
     legacyProtocolVersion,
     legacySource,
+    packVersion,
+    context,
   );
   if (canonicalContent !== expectedCanonicalContent) {
     throw new MigrationPackError('PACK_INVALID', `${location} does not match the deterministic canonical conversion.`);
+  }
+  if (packVersion === 3) {
+    if (artifact.conversion_rule !== 'canonical-verbatim-v2') throw new MigrationPackError('PACK_INVALID', 'Pack v3 requires explicit verbatim/alignment conversion rule');
+    if (artifact.target_path !== artifact.source_path) throw new MigrationPackError('PACK_INVALID', 'Pack v3 alignment must keep the exact source path');
+    if (JSON.stringify(artifact.path_references) !== JSON.stringify(extractPathReferences(originalContent, 3))) throw new MigrationPackError('PACK_INVALID', 'Source reference inventory differs from preserved original');
+    return; // Exact deterministic content above validates the entire v3 envelope/projection.
   }
   if (artifact.kind === 'project-profile') {
     if (!canonicalContent.startsWith(originalContent)) throw new MigrationPackError('PACK_INVALID', `${location} does not preserve the original profile text as its prefix.`);
@@ -1346,7 +1471,7 @@ function validateCanonicalArtifactContent(
   });
   const references = validatePathReferenceList(header.path_references, `${location}.path_references`);
   if (JSON.stringify(references) !== JSON.stringify(artifact.path_references)) throw new MigrationPackError('PACK_INVALID', `${location}.path_references do not match the artifact inventory.`);
-  if (parsed.body !== rewritePathReferences(originalContent)) throw new MigrationPackError('PACK_INVALID', `${location} does not preserve the original Markdown body apart from deterministic path normalization.`);
+  if (parsed.body !== rewritePathReferences(originalContent, packVersion)) throw new MigrationPackError('PACK_INVALID', `${location} does not preserve the original Markdown body apart from deterministic path normalization.`);
   if (JSON.stringify(headingIndex) !== JSON.stringify(extractHeadingIndex(originalContent, artifact.source_path))) throw new MigrationPackError('PACK_INVALID', `${location}.heading_index does not match the preserved Markdown headings.`);
 }
 
@@ -1355,7 +1480,11 @@ function validateLegacyDocument(file: string, content: string): MigrationIssue[]
   const basename = path.basename(file) as WorkflowDocName;
   if ((WORKFLOW_DOC_NAMES as readonly string[]).includes(basename) && basename !== CURRENT_TASK_FILE) {
     try {
-      validateWorkflowDocContract(basename, content);
+      // Older guides refer to sibling workflow documents by basename. Validate that
+      // equivalent reference without changing the preserved document body.
+      const validationContent = basename === 'WORKFLOW_GUIDE.md'
+        ? [...WORKFLOW_DOC_NAMES, 'DOCUMENT_CATALOG.md'].reduce((text, name) => text.replaceAll('`' + name + '`', '`docs/workflow/' + name + '`'), content) : content;
+      validateWorkflowDocContract(basename, validationContent);
     } catch (error) {
       issues.push({ severity: 'error', code: 'DOCUMENT_INVALID', message: error instanceof Error ? error.message : String(error), path: file });
     }
@@ -1380,12 +1509,13 @@ function createArtifact(
   source: SourceIdentity,
   legacySource: TargetSnapshot,
   legacyProtocolVersion: string,
+  context: AlignmentContext,
 ): MigrationArtifact {
   const normalizedSourcePath = normalizeRepoPath(sourcePath, 'artifact.source_path');
   const normalizedTargetPath = normalizeRepoPath(targetPath, 'artifact.target_path');
   const sourceSha = sha256(content);
   const stableId = `artifact-${sha256(`${kind}\0${normalizedSourcePath}\0${sourceSha}`).slice(0, 24)}`;
-  const canonicalContent = canonicalizeArtifactContent(kind, normalizedSourcePath, content, sourceSha, legacyProtocolVersion, legacySource);
+  const canonicalContent = canonicalizeArtifactContent(kind, normalizedSourcePath, content, sourceSha, legacyProtocolVersion, legacySource, 3, context);
   return {
     stable_id: stableId,
     kind,
@@ -1394,7 +1524,7 @@ function createArtifact(
     content_path: `artifacts/${stableId}.content`,
     original_content_path: `originals/${stableId}.source`,
     canonical_schema_version: VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION,
-    conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
+    conversion_rule: 'canonical-verbatim-v2',
     source_sha256: sourceSha,
     content_sha256: sha256(canonicalContent),
     byte_length: Buffer.byteLength(canonicalContent, 'utf8'),
@@ -1406,7 +1536,7 @@ function createArtifact(
       legacy_source_tree_hash: legacySource.tree_hash,
       source_path: normalizedSourcePath,
       source_sha256: sourceSha,
-      conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
+      conversion_rule: 'canonical-verbatim-v2',
     },
   };
 }
@@ -1418,6 +1548,7 @@ function profilePath(targetRoot: string): string {
 export function preflightMigration(options: PreflightOptions): MigrationPreflight {
   const sourceRoot = path.resolve(options.sourceRoot ?? resolveRoot());
   const targetRoot = path.resolve(options.targetRoot);
+  const decisions = options.decisions ? validateMigrationDecisions(options.decisions) : undefined;
   const source = getSourceIdentity(sourceRoot);
   const blockers: MigrationIssue[] = [];
   const warnings: MigrationIssue[] = [];
@@ -1478,14 +1609,19 @@ export function preflightMigration(options: PreflightOptions): MigrationPrefligh
     try {
       const current = getCurrentTaskSnapshot(targetRoot, profile);
       currentTask = current.snapshot;
-      blockers.push(...current.blockers);
+      if (decisions) {
+        assertMigrationDecisionTarget(targetRoot, target!, current.snapshot!, decisions);
+        blockers.push(...current.blockers.filter(issue => issue.code === 'CURRENT_TASK_FINDING_OPEN'));
+        warnings.push({ severity: 'warning', code: 'CONVERSION_ISSUE', path: legacyCurrentTaskBackup(decisions), message: 'Current task completion is caller-reported by explicit user decision; preserve its original bytes, do not reinterpret its legacy ID.' });
+        for (const item of decisions.preserved_paused) warnings.push({ severity: 'warning', code: 'CONVERSION_ISSUE', path: item.path, message: `Preserved SHA-256 ${item.sha256}; unconverted, no completion decision, not directly resumable by vNext. Read this original and confirm a new vNext plan only on a later explicit request.` });
+      } else blockers.push(...current.blockers);
       warnings.push(...current.warnings);
       currentTaskPath = current.snapshot?.path ?? [getWorkflowHome(profile), CURRENT_TASK_FILE].filter(Boolean).join('/');
     } catch (error) {
       blockers.push({ severity: 'error', code: 'CURRENT_TASK_INVALID', message: error instanceof Error ? error.message : String(error), path: 'CURRENT_TASK.md' });
     }
     try {
-      blockers.push(...scanSuspendedWork(targetRoot));
+      blockers.push(...scanSuspendedWork(targetRoot, decisions));
     } catch (error) {
       blockers.push({ severity: 'error', code: 'SUSPENDED_WORK_PRESENT', message: error instanceof Error ? error.message : String(error), path: 'TASKS' });
     }
@@ -1531,6 +1667,7 @@ export function preflightMigration(options: PreflightOptions): MigrationPrefligh
 
   return {
     kind: 'migration-preflight',
+    ...(decisions ? { decisions } : {}),
     eligible,
     state,
     source,
@@ -1552,6 +1689,26 @@ function requiredDocumentPaths(targetRoot: string, profile: JsonObject): string[
   return REQUIRED_LEGACY_DOCUMENTS.map(file => [home, file].filter(Boolean).join('/')).map(relative => path.join(targetRoot, ...relative.split('/')));
 }
 
+function alignmentContext(root: string): AlignmentContext {
+  return {
+    host_files: ['AGENTS.md', 'CLAUDE.md', 'package.json'].filter(p => fs.existsSync(path.join(root, p))),
+    workflow_documents: listFiles(path.join(root, 'docs/workflow')).map(p => path.relative(root, p).replace(/\\/g, '/'))
+      .filter(p => p.endsWith('.md') && !p.includes('/generated/') && !p.endsWith('/SKILL_REGISTRY.md')).sort(),
+  };
+}
+
+function validateAlignmentContext(value: unknown): AlignmentContext {
+  const data = expectRecord(value, 'alignment_context');
+  expectExactKeys(data, ['host_files', 'workflow_documents'], 'alignment_context');
+  const hosts = expectStringArray(data.host_files, 'alignment_context.host_files', true);
+  const docs = expectStringArray(data.workflow_documents, 'alignment_context.workflow_documents', true);
+  if (hosts.some(p => !['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(p))
+    || docs.some(p => !p.startsWith('docs/workflow/') || normalizeRepoPath(p, 'alignment document') !== p || !p.endsWith('.md') || p.includes('/generated/') || p.endsWith('/SKILL_REGISTRY.md'))) {
+    throw new MigrationPackError('PACK_INVALID', 'Alignment context exceeds current guidance scope');
+  }
+  return { host_files: hosts, workflow_documents: docs };
+}
+
 function collectConversionArtifacts(
   targetRoot: string,
   profile: JsonObject,
@@ -1559,8 +1716,13 @@ function collectConversionArtifacts(
   legacySource: TargetSnapshot,
   legacyProtocolVersion: string,
   issues: MigrationIssue[],
+  decisions?: MigrationDecisions,
 ): MigrationArtifact[] {
   const artifacts: MigrationArtifact[] = [];
+  const context = alignmentContext(targetRoot);
+  for (const p of context.host_files) {
+    artifacts.push(createArtifact('target-owned-preserved', p, p, fs.readFileSync(path.join(targetRoot, p), 'utf8'), source, legacySource, legacyProtocolVersion, context));
+  }
   const home = getWorkflowHome(profile);
   for (const relativeName of WORKFLOW_DOC_NAMES) {
     if (relativeName === CURRENT_TASK_FILE) continue;
@@ -1574,7 +1736,7 @@ function collectConversionArtifacts(
     }
     const content = fs.readFileSync(filePath, 'utf8');
     issues.push(...validateLegacyDocument(relativeName, content));
-    artifacts.push(createArtifact('governance-document', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
+    artifacts.push(createArtifact('governance-document', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
   }
 
   const profileRelativePath = '.workflow-system/PROJECT_PROFILE.yaml';
@@ -1587,22 +1749,23 @@ function collectConversionArtifacts(
   } catch (error) {
     issues.push({ severity: 'error', code: 'DOCUMENT_INVALID', message: error instanceof Error ? error.message : String(error), path: profileRelativePath });
   }
-  artifacts.push(createArtifact('project-profile', profileRelativePath, profileRelativePath, profileContent, source, legacySource, legacyProtocolVersion));
+  artifacts.push(createArtifact('project-profile', profileRelativePath, profileRelativePath, profileContent, source, legacySource, legacyProtocolVersion, context));
 
   const tasksDir = path.join(targetRoot, 'TASKS');
   if (fs.existsSync(tasksDir)) {
     for (const filePath of listFiles(tasksDir)) {
       const relativePath = path.relative(targetRoot, filePath).replace(/\\/g, '/');
+      if (decisions && relativePath === legacyCurrentTaskBackup(decisions)) continue;
       if (relativePath.startsWith('TASKS/paused/') || relativePath.startsWith('TASKS/interrupted/') || relativePath.startsWith('TASKS/inbox/')) continue;
       const basename = path.basename(filePath);
       if (/^TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(basename)) {
         const content = fs.readFileSync(filePath, 'utf8');
         issues.push(...validateLegacyDocument(relativePath, content));
-        artifacts.push(createArtifact('task-archive', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
+        artifacts.push(createArtifact('task-archive', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
       } else if (basename !== 'README.md' && basename !== '.gitkeep') {
         const content = fs.readFileSync(filePath, 'utf8');
         issues.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Unclassified TASKS content is preserved as target-owned content.', path: relativePath });
-        artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
+        artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
       }
     }
   }
@@ -1622,7 +1785,7 @@ function collectConversionArtifacts(
     if (path.basename(filePath).endsWith('.md')) {
       const content = fs.readFileSync(filePath, 'utf8');
       issues.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Unclassified workflow document is preserved verbatim; no semantic rewrite was attempted.', path: relativePath });
-      artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion));
+      artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
     }
   }
   return artifacts.sort((left, right) => left.target_path.localeCompare(right.target_path));
@@ -1631,6 +1794,8 @@ function collectConversionArtifacts(
 function packIdFor(manifest: Omit<MigrationPackManifest, 'pack_id' | 'created_at' | 'status'>): string {
   const identity = {
     source: manifest.source,
+    ...(manifest.schema_version >= 2 ? { schema_version: manifest.schema_version, decisions: manifest.decisions ?? null } : {}),
+    ...(manifest.schema_version === 3 ? { alignment_context: manifest.alignment_context } : {}),
     target: manifest.target,
     legacy_source: manifest.legacy_source,
     legacy_protocol: manifest.legacy_protocol,
@@ -1676,7 +1841,7 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
   const sourceRoot = path.resolve(options.sourceRoot ?? resolveRoot());
   const targetRoot = path.resolve(options.targetRoot);
   assertExternalOutputDirectory(path.resolve(options.outDir), sourceRoot, targetRoot, 'Migration Pack output directory');
-  const preflight = preflightMigration({ sourceRoot, targetRoot });
+  const preflight = preflightMigration({ sourceRoot, targetRoot, decisions: options.decisions });
   if (!preflight.eligible || !preflight.target || !preflight.target_snapshot || !preflight.current_task || !preflight.legacy_protocol) {
     const firstBlocker = preflight.blockers.find(issue => issue.severity === 'error');
     throw new MigrationPackError(
@@ -1694,8 +1859,13 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
     preflight.target_snapshot,
     preflight.legacy_protocol.protocol_version,
     conversionIssues,
+    preflight.decisions,
   );
   const requiredPaths = requiredDocumentPaths(targetRoot, profile);
+  for (const artifact of artifacts.filter(a => isAlignedPath(a.source_path))) {
+    conversionIssues.push({ severity: 'warning', code: 'CONVERSION_ISSUE', path: artifact.target_path,
+      message: `Explicit current workflow projection; original SHA-256 ${artifact.source_sha256} is preserved at ${originalBackupPath(artifact.source_path, artifact.source_sha256)}. This is not verbatim current-body preservation.` });
+  }
   for (const requiredPath of requiredPaths) {
     if (!fs.existsSync(requiredPath)) {
       const relative = path.relative(targetRoot, requiredPath).replace(/\\/g, '/');
@@ -1710,6 +1880,8 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
 
   const manifestBase: Omit<MigrationPackManifest, 'pack_id' | 'created_at' | 'status'> = {
     schema_version: MIGRATION_PACK_SCHEMA_VERSION,
+    alignment_context: alignmentContext(targetRoot),
+    ...(preflight.decisions ? { decisions: preflight.decisions } : {}),
     kind: MIGRATION_PACK_KIND,
     source: preflight.source,
     target: preflight.target,
@@ -1761,6 +1933,7 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
       artifact.source_sha256,
       preflight.legacy_protocol.protocol_version,
       preflight.target_snapshot,
+      3, manifest.alignment_context,
     );
     if (sha256(sourceContent) !== artifact.source_sha256 || sha256(canonicalContent) !== artifact.content_sha256) {
       throw new MigrationPackError('PACK_STALE', `Source changed while writing converted artifact: ${artifact.source_path}`);
@@ -1838,20 +2011,20 @@ function validateTargetSnapshotShape(value: unknown, location: string): TargetSn
   return { revision, tree_hash: treeHash };
 }
 
-function validateCurrentTaskSnapshot(value: unknown, location: string): CurrentTaskSnapshot {
+function validateCurrentTaskSnapshot(value: unknown, location: string, decisions?: MigrationDecisions): CurrentTaskSnapshot {
   const record = expectRecord(value, location);
   expectExactKeys(record, ['path', 'sha256', 'workflow_status', 'lifecycle_state', 'resume_requires_review', 'resume_review_reasons', 'identity_status'], location);
   const result = {
     path: normalizeRepoPath(expectString(record.path, `${location}.path`), `${location}.path`),
     sha256: expectString(record.sha256, `${location}.sha256`),
-    workflow_status: expectString(record.workflow_status, `${location}.workflow_status`),
-    lifecycle_state: expectString(record.lifecycle_state, `${location}.lifecycle_state`),
+    workflow_status: decisions && record.workflow_status === '' ? '' : expectString(record.workflow_status, `${location}.workflow_status`),
+    lifecycle_state: decisions && record.lifecycle_state === '' ? '' : expectString(record.lifecycle_state, `${location}.lifecycle_state`),
     resume_requires_review: record.resume_requires_review === null ? null : expectBoolean(record.resume_requires_review, `${location}.resume_requires_review`),
     resume_review_reasons: record.resume_review_reasons === null ? null : expectString(record.resume_review_reasons, `${location}.resume_review_reasons`),
     identity_status: expectString(record.identity_status, `${location}.identity_status`),
   } as CurrentTaskSnapshot;
   if (!/^[a-f0-9]{64}$/.test(result.sha256)) throw new MigrationPackError('PACK_INVALID', `${location}.sha256 has invalid format.`);
-  if (result.workflow_status !== 'archived' || result.lifecycle_state !== 'archived' || result.resume_requires_review !== false || (result.resume_review_reasons ?? '').trim()) {
+  if (!decisions && (result.workflow_status !== 'archived' || result.lifecycle_state !== 'archived' || result.resume_requires_review !== false || (result.resume_review_reasons ?? '').trim())) {
     throw new MigrationPackError('PACK_INVALID', `${location} does not describe the required idle archived state.`);
   }
   return result;
@@ -1922,7 +2095,7 @@ function validateArtifactShape(value: unknown, location: string): MigrationArtif
   if (!originalContentPath.startsWith('originals/')) throw new MigrationPackError('PACK_INVALID', `${location}.original_content_path must stay under originals/.`);
   if (record.canonical_schema_version !== VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION) throw new MigrationPackError('PACK_INVALID', `${location}.canonical_schema_version is unsupported.`);
   const conversionRule = expectString(record.conversion_rule, `${location}.conversion_rule`);
-  if (conversionRule !== VNEXT_CANONICAL_CONVERSION_RULE) throw new MigrationPackError('PACK_INVALID', `${location}.conversion_rule must be ${VNEXT_CANONICAL_CONVERSION_RULE}.`);
+  if (!['canonical-envelope-v1', 'canonical-verbatim-v2'].includes(conversionRule)) throw new MigrationPackError('PACK_INVALID', `${location}.conversion_rule must be ${VNEXT_CANONICAL_CONVERSION_RULE}.`);
   const sourceSha = expectString(record.source_sha256, `${location}.source_sha256`);
   const contentSha = expectString(record.content_sha256, `${location}.content_sha256`);
   if (!/^[a-f0-9]{64}$/.test(sourceSha) || !/^[a-f0-9]{64}$/.test(contentSha)) throw new MigrationPackError('PACK_INVALID', `${location} checksum fields are invalid.`);
@@ -1931,7 +2104,7 @@ function validateArtifactShape(value: unknown, location: string): MigrationArtif
   const provenance = expectRecord(record.provenance, `${location}.provenance`);
   expectExactKeys(provenance, ['source_revision', 'source_tree_hash', 'legacy_source_revision', 'legacy_source_tree_hash', 'source_path', 'source_sha256', 'conversion_rule'], `${location}.provenance`);
   const provenanceConversionRule = expectString(provenance.conversion_rule, `${location}.provenance.conversion_rule`);
-  if (provenanceConversionRule !== VNEXT_CANONICAL_CONVERSION_RULE) throw new MigrationPackError('PACK_INVALID', `${location}.provenance.conversion_rule must be ${VNEXT_CANONICAL_CONVERSION_RULE}.`);
+  if (provenanceConversionRule !== conversionRule) throw new MigrationPackError('PACK_INVALID', `${location}.provenance.conversion_rule must match artifact.`);
   const provenanceSourceRevision = expectString(provenance.source_revision, `${location}.provenance.source_revision`);
   const provenanceSourceTreeHash = expectString(provenance.source_tree_hash, `${location}.provenance.source_tree_hash`);
   const legacySourceRevision = expectString(provenance.legacy_source_revision, `${location}.provenance.legacy_source_revision`);
@@ -1951,7 +2124,7 @@ function validateArtifactShape(value: unknown, location: string): MigrationArtif
     content_path: contentPath,
     original_content_path: originalContentPath,
     canonical_schema_version: VNEXT_CANONICAL_DOCUMENT_SCHEMA_VERSION,
-    conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
+    conversion_rule: conversionRule as MigrationArtifact['conversion_rule'],
     source_sha256: sourceSha,
     content_sha256: contentSha,
     byte_length: record.byte_length,
@@ -1963,7 +2136,7 @@ function validateArtifactShape(value: unknown, location: string): MigrationArtif
       legacy_source_tree_hash: legacySourceTreeHash,
       source_path: sourcePath,
       source_sha256: provenanceSourceSha,
-      conversion_rule: VNEXT_CANONICAL_CONVERSION_RULE,
+      conversion_rule: conversionRule as MigrationArtifact['conversion_rule'],
     },
   };
 }
@@ -1972,10 +2145,11 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
   const manifestPath = path.join(path.resolve(packDir), MIGRATION_PACK_FILE);
   if (!fs.existsSync(manifestPath)) throw new MigrationPackError('PACK_INVALID', `Migration Pack manifest is missing: ${manifestPath}`);
   const raw = parseStrictJson(manifestPath);
-  expectExactKeys(raw, ['schema_version', 'kind', 'pack_id', 'status', 'created_at', 'source', 'target', 'legacy_source', 'legacy_protocol', 'preflight', 'conversion', 'artifacts', 'legacy_surface', 'installation'], 'migration pack');
-  if (raw.schema_version !== MIGRATION_PACK_SCHEMA_VERSION || raw.kind !== MIGRATION_PACK_KIND || raw.status !== 'validated') throw new MigrationPackError('PACK_INVALID', 'Migration Pack schema/kind/status is unsupported.');
+  expectExactKeys(raw, ['schema_version', 'kind', 'pack_id', 'status', 'created_at', 'source', 'target', 'legacy_source', 'legacy_protocol', 'preflight', 'conversion', 'artifacts', 'legacy_surface', 'installation', ...(raw.schema_version !== 1 && raw.decisions !== undefined ? ['decisions'] : []), ...(raw.schema_version === 3 ? ['alignment_context'] : [])], 'migration pack');
+  if (![1, 2, 3].includes(raw.schema_version as number) || raw.kind !== MIGRATION_PACK_KIND || raw.status !== 'validated') throw new MigrationPackError('PACK_INVALID', 'Migration Pack schema/kind/status is unsupported.');
   const packId = expectString(raw.pack_id, 'migration pack.pack_id');
   if (!/^migration-[a-f0-9]{24}$/.test(packId)) throw new MigrationPackError('PACK_INVALID', 'Migration Pack pack_id is invalid.');
+  const alignment = raw.schema_version === 3 ? validateAlignmentContext(raw.alignment_context) : undefined;
   const source = validateSourceIdentityShape(raw.source, 'migration pack.source');
   const target = validateTargetIdentityShape(raw.target, 'migration pack.target');
   const legacySource = validateTargetSnapshotShape(raw.legacy_source, 'migration pack.legacy_source');
@@ -1983,7 +2157,9 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
   const preflight = expectRecord(raw.preflight, 'migration pack.preflight');
   expectExactKeys(preflight, ['state', 'current_task', 'current_task_excluded', 'checked_at'], 'migration pack.preflight');
   if (preflight.state !== 'idle' || preflight.current_task_excluded !== true) throw new MigrationPackError('PACK_INVALID', 'Migration Pack preflight must be idle and exclude CURRENT_TASK from conversion.');
-  const currentTask = validateCurrentTaskSnapshot(preflight.current_task, 'migration pack.preflight.current_task');
+  const decisions = raw.decisions === undefined ? undefined : validateMigrationDecisions(raw.decisions);
+  const currentTask = validateCurrentTaskSnapshot(preflight.current_task, 'migration pack.preflight.current_task', decisions);
+  if (decisions && (decisions.current_task.path !== currentTask.path || decisions.current_task.sha256 !== currentTask.sha256 || decisions.target_identity !== target.root_identity || normalizeAbsoluteRootPath(decisions.target_root) !== target.root_path)) throw new MigrationPackError('PACK_INVALID', 'Decision identity differs from Pack snapshot.');
   const conversion = expectRecord(raw.conversion, 'migration pack.conversion');
   expectExactKeys(conversion, ['mode', 'preserves_original_text', 'semantic_reinterpretation', 'allowed_surfaces', 'issues'], 'migration pack.conversion');
   if (conversion.mode !== 'offline-structural' || conversion.preserves_original_text !== true || conversion.semantic_reinterpretation !== false) throw new MigrationPackError('PACK_INVALID', 'Migration Pack conversion must be structural, preserve original text, and avoid semantic reinterpretation.');
@@ -2027,7 +2203,7 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
     if (artifact.provenance.source_revision !== source.revision || artifact.provenance.source_tree_hash !== source.tree_hash || artifact.provenance.legacy_source_revision !== legacySource.revision || artifact.provenance.legacy_source_tree_hash !== legacySource.tree_hash) {
       throw new MigrationPackError('PACK_INVALID', `artifact provenance does not bind to the pack source/legacy snapshot: ${artifact.target_path}`);
     }
-    validateCanonicalArtifactContent(artifact, content.toString('utf8'), originalContent.toString('utf8'), legacyProtocol.protocol_version, legacySource, `migration pack.artifacts[${index}]`);
+    validateCanonicalArtifactContent(artifact, content.toString('utf8'), originalContent.toString('utf8'), legacyProtocol.protocol_version, legacySource, `migration pack.artifacts[${index}]`, raw.schema_version as 1 | 2 | 3, alignment);
     return artifact;
   });
   const legacySurfaceRaw = expectRecord(raw.legacy_surface, 'migration pack.legacy_surface');
@@ -2041,7 +2217,9 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
   if (normalizeRepoPath(expectString(installation.migration_receipt_path, 'migration pack.installation.migration_receipt_path'), 'migration_receipt_path') !== VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH) throw new MigrationPackError('PACK_INVALID', 'Migration Pack migration_receipt_path is not canonical.');
   if (normalizeRepoPath(expectString(installation.in_progress_path, 'migration pack.installation.in_progress_path'), 'in_progress_path') !== VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH) throw new MigrationPackError('PACK_INVALID', 'Migration Pack in_progress_path is not canonical.');
   const base = {
-    schema_version: MIGRATION_PACK_SCHEMA_VERSION,
+    schema_version: raw.schema_version as 1 | 2 | 3,
+    ...(alignment ? { alignment_context: alignment } : {}),
+    ...(decisions ? { decisions } : {}),
     kind: MIGRATION_PACK_KIND,
     source,
     target,
@@ -2090,6 +2268,10 @@ export function validateMigrationPack(options: ValidatePackOptions): MigrationPa
   }
   if (targetIdentity.root_identity !== actualTargetIdentity.root_identity) throw new MigrationPackError('PACK_STALE', 'Migration Pack target identity does not match target PROJECT_PROFILE.yaml.');
   const artifactTargets = new Set(pack.artifacts.map(artifact => artifact.target_path));
+  if (pack.schema_version === 3) {
+    if (JSON.stringify(pack.alignment_context) !== JSON.stringify(alignmentContext(targetRoot))) throw new MigrationPackError('PACK_STALE', 'Guidance/document inventory changed');
+    for (const p of pack.alignment_context!.host_files) if (!artifactTargets.has(p)) throw new MigrationPackError('PACK_INVALID', `Missing host/config alignment: ${p}`);
+  }
   const requiredTargets = [
     '.workflow-system/PROJECT_PROFILE.yaml',
     ...requiredDocumentPaths(targetRoot, actualProfile).map(filePath => path.relative(targetRoot, filePath).replace(/\\/g, '/')),
@@ -2097,7 +2279,7 @@ export function validateMigrationPack(options: ValidatePackOptions): MigrationPa
   for (const requiredTarget of requiredTargets) {
     if (!artifactTargets.has(requiredTarget)) throw new MigrationPackError('PACK_INVALID', `Migration Pack is missing required converted artifact: ${requiredTarget}`);
   }
-  const preflight = preflightMigration({ sourceRoot, targetRoot });
+  const preflight = preflightMigration({ sourceRoot, targetRoot, decisions: pack.decisions });
   if (!preflight.eligible || !preflight.current_task || !preflight.target || !preflight.target_snapshot) throw new MigrationPackError('PACK_STALE', 'Target is no longer an eligible idle old project.', preflight.blockers);
   if (preflight.current_task.sha256 !== pack.preflight.current_task.sha256) throw new MigrationPackError('PACK_STALE', 'CURRENT_TASK.md changed after conversion.');
   if (preflight.source.revision !== pack.source.revision || preflight.source.tree_hash !== pack.source.tree_hash) throw new MigrationPackError('PACK_STALE', 'Source revision/tree changed after conversion.');
@@ -2105,10 +2287,14 @@ export function validateMigrationPack(options: ValidatePackOptions): MigrationPa
   for (const artifact of pack.artifacts) {
     const sourcePath = resolveRepoPath(targetRoot, artifact.source_path, `artifact ${artifact.stable_id}.source_path`);
     if (!fs.existsSync(sourcePath) || readSha256(sourcePath) !== artifact.source_sha256) throw new MigrationPackError('PACK_STALE', `Converted source changed: ${artifact.source_path}`);
+    if (pack.schema_version === 3 && isAlignedPath(artifact.source_path)) {
+      const backup = originalBackupPath(artifact.source_path, artifact.source_sha256);
+      if (fs.existsSync(resolveRepoPath(targetRoot, backup, 'original backup'))) assertDecisionFile(targetRoot, backup, artifact.source_sha256);
+    }
   }
   for (const entry of pack.legacy_surface.entries) {
     const fullPath = resolveRepoPath(targetRoot, entry.path, `legacy surface ${entry.path}`);
-    if (entry.sha256 === null ? fs.existsSync(fullPath) : !fs.existsSync(fullPath) || readSha256(fullPath) !== entry.sha256) throw new MigrationPackError('PACK_STALE', `Legacy installation surface changed: ${entry.path}`);
+    if (surfaceChecksum(targetRoot, entry.path) !== entry.sha256) throw new MigrationPackError('PACK_STALE', `Legacy installation surface changed: ${entry.path}`);
   }
   return pack;
 }
@@ -2357,6 +2543,7 @@ const REQUIRED_RUNTIME_BUNDLE_TARGETS = [
   '.workflow-system/runtime/src/bootstrap.ts',
   '.workflow-system/runtime/src/bootstrap-support.ts',
   '.workflow-system/runtime/src/migration-provenance.ts',
+  '.workflow-system/runtime/src/migration-preservation.ts',
   '.workflow-system/runtime/src/scoped-tree-hash.ts',
   '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl',
 ] as const;
@@ -2706,6 +2893,7 @@ export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonl
       '.workflow-system/runtime/src/task-identity.ts',
       '.workflow-system/runtime/src/bootstrap.ts',
       '.workflow-system/runtime/src/migration-provenance.ts',
+      '.workflow-system/runtime/src/migration-preservation.ts',
       '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
     ];
     for (const targetPath of requiredTargets) {
@@ -2793,7 +2981,7 @@ function validateNoLegacySurface(
       const basename = path.basename(filePath);
       const parentName = path.basename(path.dirname(filePath));
       const isPrefixedLegacy = /^workflow-system-.+\.SKILL\.md$/.test(basename) || (basename === 'SKILL.md' && /^workflow-system-.+$/.test(parentName));
-      const isFlatAlias = legacySkillNames.some(name => basename === `${name}.SKILL.md` || (basename === 'SKILL.md' && parentName === name));
+      const isFlatAlias = relativeDir !== '.agents/skills' && legacySkillNames.some(name => basename === `${name}.SKILL.md` || (basename === 'SKILL.md' && parentName === name));
       const relativePath = path.relative(targetRoot, filePath).replace(/\\/g, '/');
       if (!replaced.has(relativePath) && (isPrefixedLegacy || isFlatAlias)) throw new MigrationPackError('POST_INSTALL_LEGACY_SURFACE', `Legacy host Skill remains: ${relativePath}`);
     }
@@ -2804,7 +2992,7 @@ function validateNoLegacySurface(
   }
 }
 
-type AtomicWrite = { path: string; content: string };
+type AtomicWrite = { path: string; content: string | Buffer };
 
 function writeInProgressMarker(targetRoot: string, marker: VNextMigrationInProgress): void {
   const markerPath = resolveRepoPath(targetRoot, VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH, 'migration in-progress marker');
@@ -2950,8 +3138,10 @@ export type VNextMigrationReceiptValidationOptions = {
 
 export function validateVNextMigrationReceipt(value: unknown, location: string, options: VNextMigrationReceiptValidationOptions = {}): { migration_pack_id: string; bundle_id: string; source_revision: string; source_tree_hash: string; target_identity: string; runtime_distribution: RuntimeDistributionIdentity | null; installed_at: string; converted_artifact_ids: string[] } {
   const receipt = expectRecord(value, location);
-  expectExactKeys(receipt, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility'], location);
-  if (receipt.schema_version !== 1 || receipt.kind !== 'vnext-migration-receipt' || receipt.legacy_compatibility !== 'absent') {
+  expectExactKeys(receipt, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility', ...((receipt.schema_version === 2 || (receipt.schema_version === 3 && receipt.preservation !== undefined)) ? ['preservation'] : []), ...(receipt.schema_version === 3 ? ['aligned_originals'] : [])], location);
+  if (receipt.schema_version === 3) validateMigrationAlignment(receipt.aligned_originals);
+  if (receipt.schema_version === 2 || (receipt.schema_version === 3 && receipt.preservation !== undefined)) validateMigrationPreservation(receipt.preservation, receipt.target_identity);
+  if (![1, 2, 3].includes(receipt.schema_version as number) || receipt.kind !== 'vnext-migration-receipt' || receipt.legacy_compatibility !== 'absent') {
     throw new MigrationPackError('INSTALL_CONFLICT', `${location} is not a pure-vNext migration receipt.`);
   }
   const migrationPackId = expectString(receipt.migration_pack_id, `${location}.migration_pack_id`);
@@ -3190,6 +3380,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
   let pack: MigrationPackManifest;
   try {
     pack = validateMigrationPack({ packDir: options.packDir, sourceRoot, targetRoot });
+    warnings.push(...pack.conversion.issues.filter(issue => issue.severity === 'warning'));
   } catch (error) {
     const issue = error instanceof MigrationPackError ? { severity: 'error' as const, code: error.code, message: error.message } : { severity: 'error' as const, code: 'PACK_INVALID' as const, message: String(error) };
     return { status: 'rejected', target_root: targetRoot, blockers: [issue], warnings, planned_writes: [], planned_deletes: [] };
@@ -3232,6 +3423,14 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     }
   }
   const writes: AtomicWrite[] = [];
+  const alignedOriginals = pack.schema_version === 3 ? pack.artifacts.filter(a => isAlignedPath(a.source_path)).map(a => ({ path: a.source_path, sha256: a.source_sha256, backup_path: originalBackupPath(a.source_path, a.source_sha256) })) : [];
+  for (const original of alignedOriginals) {
+    writes.push({ path: original.backup_path, content: fs.readFileSync(resolveRepoPath(targetRoot, original.path, 'alignment original')) });
+  }
+  if (pack.decisions) {
+    const backup = legacyCurrentTaskBackup(pack.decisions);
+    writes.push({ path: backup, content: fs.readFileSync(resolveRepoPath(targetRoot, pack.decisions.current_task.path, 'legacy CURRENT_TASK')) });
+  }
   for (const artifact of pack.artifacts) {
     const contentPath = resolveRepoPath(options.packDir, artifact.content_path, 'pack artifact ' + artifact.content_path);
     writes.push({ path: artifact.target_path, content: fs.readFileSync(contentPath, 'utf8') });
@@ -3275,13 +3474,15 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     target_identity: pack.target.root_identity,
     runtime_distribution: runtimeDistribution,
     installed_at: now(),
-    managed_files: [...writes.map(write => ({ path: write.path, checksum: sha256(write.content), category: bundle.artifacts.find(artifact => artifact.target_path === write.path)?.category ?? 'migrated-document' })), { path: VNEXT_INSTALL_STATE_RELATIVE_PATH, checksum: '', category: 'vnext-install-state' }],
+    managed_files: [...writes.map(write => ({ path: write.path, checksum: sha256(write.content), category: bundle.artifacts.find(artifact => artifact.target_path === write.path)?.category ?? (write.path.startsWith('.workflow-system/legacy/') ? 'preserved-original' : ['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(write.path) ? 'migration-alignment' : pack.decisions && write.path === legacyCurrentTaskBackup(pack.decisions) ? 'preserved-legacy-task' : 'migrated-document') })), { path: VNEXT_INSTALL_STATE_RELATIVE_PATH, checksum: '', category: 'vnext-install-state' }],
     removed_legacy_files: removedLegacyPaths,
     legacy_compatibility: 'absent',
     recovery_boundary: 'in-progress-marker',
   };
   const receipt = {
-    schema_version: 1,
+    schema_version: pack.schema_version === 3 ? 3 : pack.decisions ? 2 : 1,
+    ...(pack.schema_version === 3 ? { aligned_originals: alignedOriginals } : {}),
+    ...(pack.decisions ? { preservation: { decisions: pack.decisions, current_task_backup: legacyCurrentTaskBackup(pack.decisions), paused_disposition: 'verbatim-unconverted-not-resumable', assurance: 'caller-reported' } } : {}),
     kind: 'vnext-migration-receipt',
     migration_pack_id: pack.pack_id,
     bundle_id: bundle.bundle_id,
@@ -3290,7 +3491,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     target_identity: pack.target.root_identity,
     runtime_distribution: runtimeDistribution,
     installed_at: installState.installed_at,
-    converted_artifact_ids: pack.artifacts.map(artifact => artifact.stable_id),
+    converted_artifact_ids: pack.artifacts.filter(artifact => !['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(artifact.source_path)).map(artifact => artifact.stable_id),
     legacy_compatibility: 'absent',
   };
   writes.push({ path: VNEXT_INSTALL_STATE_RELATIVE_PATH, content: JSON.stringify(installState, null, 2) + '\n' });
@@ -3318,6 +3519,17 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
     return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [{ severity: 'error', code: 'FROZEN_PATH', message: 'Migration cannot create or clear a frozen interruption marker.', path: VNEXT_MIGRATION_IN_PROGRESS_RELATIVE_PATH }], warnings, planned_writes: [], planned_deletes: [] };
   }
+  // Dependency preparation can take time. Reject target drift before any
+  // transaction marker or target write is promoted.
+  try {
+    validateMigrationPack({ packDir: options.packDir, sourceRoot, targetRoot });
+  } catch (error) {
+    if (preparedRuntime) fs.rmSync(preparedRuntime.stagingRoot, { recursive: true, force: true });
+    const issue = error instanceof MigrationPackError
+      ? { severity: 'error' as const, code: error.code, message: error.message }
+      : { severity: 'error' as const, code: 'PACK_INVALID' as const, message: String(error) };
+    return { status: 'rejected', target_root: targetRoot, pack_id: pack.pack_id, bundle_id: bundle.bundle_id, blockers: [issue], warnings, planned_writes: [], planned_deletes: [] };
+  }
   const inProgressMarker: VNextMigrationInProgress = {
     schema_version: 1,
     kind: 'vnext-migration-in-progress',
@@ -3336,6 +3548,11 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
       writes,
       plannedDeletes,
       () => {
+        for (const original of alignedOriginals) assertDecisionFile(targetRoot, original.backup_path, original.sha256);
+        if (pack.schema_version === 3) {
+          for (const artifact of pack.artifacts.filter(a => isAlignedPath(a.source_path))) assertDecisionFile(targetRoot, artifact.target_path, artifact.content_sha256);
+        }
+        if (pack.decisions) assertPreservedMigrationFiles(targetRoot, pack.decisions);
         validateNoLegacySurface(targetRoot, knownLegacyNames, plannedDeletes, [...bundleTargetPaths], getWorkflowHome(profile));
         const statePath = path.join(targetRoot, ...VNEXT_INSTALL_STATE_RELATIVE_PATH.split('/'));
         if (!fs.existsSync(statePath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext install state was not promoted.');
@@ -3344,7 +3561,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
         const receiptPath = path.join(targetRoot, ...VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH.split('/'));
         if (!fs.existsSync(receiptPath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt was not promoted.');
         const installedReceipt = validateVNextMigrationReceipt(parseStrictJson(receiptPath), 'vNext migration receipt');
-        if (installedReceipt.migration_pack_id !== pack.pack_id || installedReceipt.bundle_id !== bundle.bundle_id || installedReceipt.target_identity !== pack.target.root_identity || JSON.stringify(installedReceipt.runtime_distribution) !== JSON.stringify(runtimeDistribution) || JSON.stringify(installedReceipt.converted_artifact_ids) !== JSON.stringify(pack.artifacts.map(artifact => artifact.stable_id))) {
+        if (installedReceipt.migration_pack_id !== pack.pack_id || installedReceipt.bundle_id !== bundle.bundle_id || installedReceipt.target_identity !== pack.target.root_identity || JSON.stringify(installedReceipt.runtime_distribution) !== JSON.stringify(runtimeDistribution) || JSON.stringify(installedReceipt.converted_artifact_ids) !== JSON.stringify(pack.artifacts.filter(artifact => !['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(artifact.source_path)).map(artifact => artifact.stable_id))) {
           throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt read-back identity mismatch.');
         }
         if (phase2Runtime) {

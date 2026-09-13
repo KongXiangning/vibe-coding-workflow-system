@@ -23,17 +23,26 @@ pack:
     - artifacts
     - legacy_surface
     - installation
-  schema_version: 1
+  schema_version: 3
+  supported_read_versions: [1, 2, 3]
+  optional_fields: [decisions]
+  v3_required_fields: [alignment_context]
+  alignment_context: [host_files, workflow_documents]
   status: validated
   conversion:
     mode: offline-structural
     preserves_original_text: true
     semantic_reinterpretation: false
     canonical_document_schema_version: 1
-    conversion_rule: canonical-envelope-v1
+    conversion_rule: canonical-verbatim-v2
+    historical_body: exact-original-bytes
+    current_projection: explicit-original_text_preserved-false-with-backup
+    historical_read_rules: [canonical-envelope-v1]
   current_task:
     precondition_only: true
-    required_state: archived/archived
+    required_state: archived/archived-or-explicit-completed-historical-decision
+    raw_backup: TASKS/legacy/CURRENT_TASK-<sha256>.md
+    paused_policy: explicitly-declared-files-preserved-verbatim-not-resumable
     excluded_from_artifacts: true
   replay_identity:
     - source.root_identity
@@ -60,9 +69,25 @@ artifact:
     - path_references
     - provenance
   stable_id: artifact-<24 lowercase hex>
-  conversion_rule: canonical-envelope-v1
+  conversion_rule: canonical-verbatim-v2
+  historical_read_rules: [canonical-envelope-v1]
+  current_projection_optional_field: original_backup_path
+  current_projection_sources:
+    - AGENTS.md
+    - CLAUDE.md
+    - package.json
+    - .workflow-system/PROJECT_PROFILE.yaml
+    - docs/workflow/WORKFLOW_GUIDE.md
+    - docs/workflow/DOCUMENT_CATALOG.md
+    - docs/workflow/STATUS.md
+  original_backup: .workflow-system/legacy/<sha256>/<source-path>
+  host_guidance: workflow-system-sections-only-existing-files
+  legacy_skill_directories: [.agents/skills/workflow-system-*, .codex/skills/workflow-system-*, .claude/skills/workflow-system-*]
   original_content_path: originals/<stable-id>.source
   canonical_document: frontmatter-or-vnext-profile-extension
+  auxiliary_projection_exception: existing-host-guidance-and-package-json-remain-native-format
+  projection_indexes: current-projected-body
+  source_indexes: artifact-path-references-retain-original-source-inventory
   canonical_frontmatter_fields:
     - schema_version
     - kind
@@ -174,6 +199,9 @@ installation:
   all_or_nothing: true
   install_state: .workflow-system/vnext/INSTALL_STATE.json
   receipt: .workflow-system/vnext/MIGRATION_RECEIPT.json
+  receipt_version: 3
+  supported_receipt_versions: [1, 2, 3]
+  aligned_originals: [path, sha256, backup_path]
   in_progress_marker: .workflow-system/vnext/MIGRATION_IN_PROGRESS.json
   interruption_boundary: fail-closed-marker-requires-explicit-recovery
   no_legacy_surface: true
@@ -195,3 +223,23 @@ installation:
     self_check_before_promote: true
     atomic_directory_replace: .workflow-system/runtime/node_modules
     rollback_includes_runtime_directory: true
+
+public_decision_discovery:
+  command: migrate --root <project> --json --dry-run
+  output: migration_target
+  fields: [target_root, target_identity]
+  available_when: legacy profile identity resolves, including admission rejection
+  authority: read-only binding data, not completion or migration approval
+freeze_header_markers:
+  scan: first 20 lines
+  explicit_tag: case-insensitive "@frozen" with word boundary
+  banner: case-sensitive uppercase "DO NOT MODIFY" with word boundaries
+  ordinary_instruction: mixed-case "Do not modify business code" is not a freeze marker
+  registry: existing registry rules remain enforced
+
+v3_windows_markdown_links:
+  classification: external
+  scope: drive-absolute Markdown destinations, including backslashes and angle-wrapped spaces
+  representation: original raw value, adjusted false
+  access: index-only; never dereferenced or used as artifact destinations
+  safety: control characters and parent traversal remain rejected; v1/v2 unchanged

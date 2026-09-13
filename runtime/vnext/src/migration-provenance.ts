@@ -9,6 +9,7 @@
  */
 
 import * as crypto from 'crypto';
+import { validateMigrationPreservation, validateMigrationAlignment } from './migration-preservation';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseDocument } from 'yaml';
@@ -238,8 +239,10 @@ type MigrationReceipt = {
 };
 
 function validateReceipt(value: Record<string, unknown>): MigrationReceipt {
-  expectExactKeys(value, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility'], 'MIGRATION_RECEIPT.json');
-  if (value.schema_version !== 1 || value.kind !== 'vnext-migration-receipt' || value.legacy_compatibility !== 'absent') fail('MIGRATION_RECEIPT.json is not a pure vNext migration receipt.');
+  expectExactKeys(value, ['schema_version', 'kind', 'migration_pack_id', 'bundle_id', 'source_revision', 'source_tree_hash', 'target_identity', 'runtime_distribution', 'installed_at', 'converted_artifact_ids', 'legacy_compatibility', ...((value.schema_version === 2 || (value.schema_version === 3 && value.preservation !== undefined)) ? ['preservation'] : []), ...(value.schema_version === 3 ? ['aligned_originals'] : [])], 'MIGRATION_RECEIPT.json');
+  if (value.schema_version === 3) validateMigrationAlignment(value.aligned_originals);
+  if (value.schema_version === 2 || (value.schema_version === 3 && value.preservation !== undefined)) validateMigrationPreservation(value.preservation, value.target_identity);
+  if (![1, 2, 3].includes(value.schema_version as number) || value.kind !== 'vnext-migration-receipt' || value.legacy_compatibility !== 'absent') fail('MIGRATION_RECEIPT.json is not a pure vNext migration receipt.');
   const migrationPackId = expectString(value.migration_pack_id, 'MIGRATION_RECEIPT.json.migration_pack_id');
   const bundleId = expectString(value.bundle_id, 'MIGRATION_RECEIPT.json.bundle_id');
   const sourceRevision = expectString(value.source_revision, 'MIGRATION_RECEIPT.json.source_revision');
@@ -253,6 +256,15 @@ function validateReceipt(value: Record<string, unknown>): MigrationReceipt {
 
 function canonicalDocumentId(kind: string, sourcePath: string, sourceSha: string): string {
   return `doc-${sha256(`${kind}\0${sourcePath}\0${sourceSha}`).slice(0, 24)}`;
+}
+
+function validConversion(record: Record<string, unknown>): boolean {
+  if (record.conversion_rule === CANONICAL_CONVERSION_RULE) return record.original_text_preserved === true;
+  if (record.conversion_rule !== 'canonical-verbatim-v2') return false;
+  if (record.original_text_preserved === true) return record.original_backup_path === undefined;
+  if (record.original_text_preserved !== false) return false;
+  validateMigrationAlignment([{ path: record.source_path, sha256: record.source_sha256, backup_path: record.original_backup_path }]);
+  return true;
 }
 
 function canonicalArtifactIdentity(relativePath: string, content: string): { stableId: string; sourceRevision: string; sourceTreeHash: string } {
@@ -273,8 +285,8 @@ function canonicalArtifactIdentity(relativePath: string, content: string): { sta
       fail(`migrated project profile is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
     const metadata = expectRecord(document.vnext_migration, 'migrated project profile.vnext_migration');
-    expectExactKeys(metadata, ['schema_version', 'kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'path_references'], 'migrated project profile.vnext_migration');
-    if (metadata.schema_version !== CANONICAL_SCHEMA_VERSION || metadata.kind !== 'vnext-canonical-profile' || metadata.conversion_rule !== CANONICAL_CONVERSION_RULE || metadata.original_text_preserved !== true) fail('migrated project profile does not carry the canonical Migration Pack provenance envelope.');
+    expectExactKeys(metadata, ['schema_version', 'kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'path_references', ...(metadata.conversion_rule === 'canonical-verbatim-v2' && metadata.original_text_preserved === false ? ['original_backup_path'] : [])], 'migrated project profile.vnext_migration');
+    if (metadata.schema_version !== CANONICAL_SCHEMA_VERSION || metadata.kind !== 'vnext-canonical-profile' || !validConversion(metadata)) fail('migrated project profile does not carry the canonical Migration Pack provenance envelope.');
     kind = 'project-profile';
     sourcePath = normalizeRepoPath(expectString(metadata.source_path, 'migrated project profile source_path'), 'migrated project profile source_path');
     sourceSha = expectString(metadata.source_sha256, 'migrated project profile source_sha256');
@@ -288,8 +300,8 @@ function canonicalArtifactIdentity(relativePath: string, content: string): { sta
     const diagnostics = [...parsed.errors, ...parsed.warnings];
     if (diagnostics.length > 0) fail(`migrated artifact ${relativePath} has invalid canonical frontmatter: ${diagnostics.map(item => item.message).join('; ')}`);
     const header = expectRecord(parsed.toJS(), `migrated artifact ${relativePath} frontmatter`);
-    expectExactKeys(header, ['schema_version', 'kind', 'document_kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'heading_index', 'path_references'], `migrated artifact ${relativePath} frontmatter`);
-    if (header.schema_version !== CANONICAL_SCHEMA_VERSION || header.kind !== CANONICAL_DOCUMENT_KIND || header.conversion_rule !== CANONICAL_CONVERSION_RULE || header.original_text_preserved !== true) fail(`migrated artifact ${relativePath} does not carry the canonical Migration Pack provenance envelope.`);
+    expectExactKeys(header, ['schema_version', 'kind', 'document_kind', 'document_id', 'source_path', 'source_sha256', 'legacy_source_revision', 'legacy_source_tree_hash', 'legacy_protocol_version', 'conversion_rule', 'original_text_preserved', 'heading_index', 'path_references', ...(header.conversion_rule === 'canonical-verbatim-v2' && header.original_text_preserved === false ? ['original_backup_path'] : [])], `migrated artifact ${relativePath} frontmatter`);
+    if (header.schema_version !== CANONICAL_SCHEMA_VERSION || header.kind !== CANONICAL_DOCUMENT_KIND || !validConversion(header)) fail(`migrated artifact ${relativePath} does not carry the canonical Migration Pack provenance envelope.`);
     const documentKind = expectString(header.document_kind, `migrated artifact ${relativePath}.document_kind`);
     if (!['governance-document', 'task-archive', 'target-owned-preserved'].includes(documentKind)) fail(`migrated artifact ${relativePath} has an unsupported document kind.`);
     kind = documentKind;
@@ -348,7 +360,17 @@ export function validateCompletedMigrationProvenance(targetRoot: string): Comple
   if (!hasState || !hasReceipt) fail('completed migration provenance requires both INSTALL_STATE.json and MIGRATION_RECEIPT.json.');
 
   const state = validateInstallState(readJson(statePath, 'INSTALL_STATE.json'));
-  const receipt = validateReceipt(readJson(receiptPath, 'MIGRATION_RECEIPT.json'));
+  const rawReceipt = readJson(receiptPath, 'MIGRATION_RECEIPT.json');
+  const receipt = validateReceipt(rawReceipt);
+  if (rawReceipt.schema_version === 3) {
+    const originals = validateMigrationAlignment(rawReceipt.aligned_originals);
+    const recordedBackups = state.managed_files.filter(x => x.category === 'preserved-original').map(x => x.path).sort();
+    if (JSON.stringify(originals.map(x => x.backup_path).sort()) !== JSON.stringify(recordedBackups)) fail('Alignment original inventory differs from install state.');
+    for (const original of originals) {
+      const full = resolveRepoPath(root, original.backup_path, 'alignment original');
+      if (!fs.existsSync(full) || sha256(fs.readFileSync(full)) !== original.sha256) fail(`Alignment original is missing or changed: ${original.path}`);
+    }
+  }
   if (state.migration_pack_id !== receipt.migration_pack_id || state.bundle_id !== receipt.bundle_id || state.source_revision !== receipt.source_revision || state.source_tree_hash !== receipt.source_tree_hash || state.target_identity !== receipt.target_identity || state.installed_at !== receipt.installed_at || !sameRuntime(state.runtime_distribution, receipt.runtime_distribution)) {
     fail('INSTALL_STATE.json and MIGRATION_RECEIPT.json do not describe the same conversion.');
   }

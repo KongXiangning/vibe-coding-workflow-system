@@ -70,7 +70,13 @@ does not repair the draft.
    If exact request evidence is unavailable or the link is stale, return
    `needs-user` for that missing or conflicting input instead of reclassifying
    already-recorded user decisions as unsupported draft behavior.
-3. Read only the authoritative sources and minimal repository facts needed to
+3. Follow **Project document navigation** in
+   `.workflow-system/runtime/support/CONTEXT_API.md` to locate the candidate's
+   relevant project sources independently of the author's selected references.
+   Read the candidate's saved `project_documents` / `affected_contracts` using
+   `validate --summary` and apply **Project document conflicts** in that support
+   file; distinguish an unresolved choice from an already-authorized resolution.
+   Read only the authoritative sources and minimal repository facts needed to
    evaluate the candidate. Treat prior author rationale and conclusions as
    untrusted context; evaluate the request, sources, draft, and repository facts
    directly. Prior `draft_review_result` documents or messages are findings,

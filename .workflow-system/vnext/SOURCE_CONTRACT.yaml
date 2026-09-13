@@ -59,6 +59,7 @@ capabilities:
       - intent and task identity
       - scope, changed surfaces, claims, and risk triggers
       - local Markdown/YAML sources, path/symbol queries, and heading/ID locators
+      - project profile documentation seeds and the existing project documentation center
       - optional Contract/Decision implementation anchors from the current knowledge context
     output_contract:
       - relevant source locators

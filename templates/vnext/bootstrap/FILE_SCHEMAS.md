@@ -361,3 +361,13 @@ baselines, admissions or reports. `validate --summary` omits baseline bodies;
 plain `validate` retains the diagnostic format. Inputs, byte/line ranges,
 continuation and incomplete-result handling are defined in the installed
 `.workflow-system/runtime/support/CONTEXT_API.md`.
+
+## Optional project document references
+
+CURRENT_TASK background may contain `### Project documents` with a JSON block
+`{"version":1,"sources":[{"path":"docs/REQ.md","section":"REQ-1","revision":"unknown","purpose":"Acceptance constraint"}]}`.
+References are bounded caller-reported metadata, not source text or verified authority.
+Absence means unrecorded (legacy compatible); an empty sources array means explicitly
+no selected sources. The normal prepare adapter writes affected contracts to the
+existing affected-contracts section. Confirmation binds both sections; subsequent
+reads expose the saved metadata without loading the referenced documents.

@@ -1,3 +1,4 @@
+import { readProjectDocuments } from '../runtime/vnext/src/project-documents';
 import { reviewRead } from '../runtime/vnext/src/review-change-adapter';
 import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
@@ -4940,6 +4941,49 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(bytesFirstCommit);
   });
 
+  test('persists project document references through the public CLI, refinement and confirmation', () => {
+    const root = archivedBaselineRoot();
+    const sources = [
+      { path: 'docs/REQ.md', section: 'REQ-1', revision: 'v2', purpose: 'Required behavior' },
+      { path: 'docs/PLAN.md', section: 'S1', revision: 'unknown', purpose: 'Implementation boundary' },
+    ];
+    const input = semanticDraft({ project_documents: sources, affected_contracts: ['docs/API.md#retry — change retry limit'] });
+    const cli = (command: string, payload?: unknown) => spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), command, '--root', root, ...(command === 'validate' ? ['--summary'] : [])], { encoding: 'utf8', input: payload === undefined ? undefined : JSON.stringify(payload) });
+    const prepared = cli('prepare-draft', input);
+    expect(prepared.status).toBe(0);
+    const receipt = JSON.parse(prepared.stdout).confirmation_receipt;
+    const summary = cli('validate');
+    expect(summary.status).toBe(0);
+    expect(JSON.parse(summary.stdout).summary.project_documents).toEqual(sources);
+    expect(JSON.parse(summary.stdout).summary.affected_contracts).toContain('docs/API.md#retry');
+    expect(readCanonicalTaskBasis(root, readCanonicalCurrentTask(root)).basis).toEqual(input.task_basis);
+    expect(prepareDraft(root, input).status).toBe('no-op');
+    expect(() => prepareDraft(root, semanticDraft())).toThrow('PROJECT_DOCUMENTS_REQUIRED');
+    const changed = { ...input, project_documents: sources.map(source => ({ ...source, revision: 'v3' })) };
+    const refined = prepareDraft(root, changed);
+    expect(refined.status).toBe('success');
+    expect(() => confirmDraft(root, { confirmation_receipt: receipt })).toThrow('DRAFT_REVISION_CONFLICT');
+    expect(confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt }).status).toBe('success');
+    expect(readProjectDocuments(readDraftDefinitionFromBody(readCanonicalCurrentTask(root).body).background_context)).toEqual(changed.project_documents);
+    expect(() => replan(root, semanticDraft())).toThrow('PROJECT_DOCUMENTS_REQUIRED');
+    expect(() => replan(root, { ...changed, project_documents: [] })).toThrow('REPLAN_INVALIDATION_REQUIRED');
+  });
+
+  test('rejects malformed document references without writes and distinguishes legacy absence from explicit empty', () => {
+    const root = archivedBaselineRoot();
+    const before = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+    const source = { path: '../REQ.md', section: 'REQ-1', revision: 'v1', purpose: 'constraint' };
+    expect(() => prepareDraft(root, semanticDraft({ project_documents: [source], affected_contracts: [] }))).toThrow('PROJECT_DOCUMENTS_INVALID');
+    source.path = 'docs/REQ.md';
+    expect(() => prepareDraft(root, semanticDraft({ project_documents: [source, source], affected_contracts: [] }))).toThrow('PROJECT_DOCUMENTS_INVALID');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(before);
+    expect(prepareDraft(root, semanticDraft()).status).toBe('success');
+    expect(readProjectDocuments(readDraftDefinitionFromBody(readCanonicalCurrentTask(root).body).background_context)).toBeNull();
+    expect(prepareDraft(root, semanticDraft({ project_documents: [], affected_contracts: [] })).status).toBe('success');
+    expect(readProjectDocuments(readDraftDefinitionFromBody(readCanonicalCurrentTask(root).body).background_context)).toEqual([]);
+    expect(() => readProjectDocuments('### Project documents\n\n```json\n{"version":2,"sources":[]}\n```')).toThrow('PROJECT_DOCUMENTS_INVALID');
+  });
+
   test('adapts semantic prepare content into a canonical draft and confirms its exact revision', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
@@ -5425,7 +5469,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('S3 sparse checkpoint reviews dirty A plus B and verifies repair of the early oracle', { timeout: 30000 }, () => {
-    const semantic = semanticDraft();
+    const semantic = semanticDraft({ project_documents: [{ path: 'docs/REQ.md', section: 'Oracle', revision: 'v1', purpose: 'Required rule behavior' }], affected_contracts: ['docs/REQ.md#Oracle'] });
     const a = 'test/vnext-runtime.test.ts';
     const b = 'runtime/vnext/src/prepare-task-adapter.ts';
     semantic.implementation_steps[0]!.review_checkpoint = {policy:'not-required',reason:'Review the rule together with its integration at step-2'};
@@ -5452,6 +5496,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     const results = {command_results:[{command:'bun test test/vnext-runtime.test.ts',status:'passed',observed_repo_writes:[],evidence_refs:['evidence-report.txt']}],validation_results:[{validation:'bun test test/vnext-runtime.test.ts passes',status:'passed',evidence_refs:['evidence-report.txt']}],acceptance_evidence:[positive],outcome:'implemented',note:'integration result'};
     expect(recordStepResult(root,{...results,preflight_receipt:second.receipt,actual_changed_paths:[b]}).status).toBe('success');
     const context = reviewContext(root,{});
+    expect(context.project_documents).toEqual(semantic.project_documents!);
+    expect(context.affected_contracts).toContain('docs/REQ.md#Oracle');
     expect(context.recorded_execution.execution_result!.change_delta.entries.map(e=>e.path).sort()).toEqual([a,b].sort());
     expect(context.recorded_execution.execution_result!.actual_changed_paths).toEqual([b]);
     expect(JSON.stringify(context)).not.toContain('content_base64');
@@ -5545,8 +5591,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(context.recorded_execution.execution_result!.review_target.entries.find(e=>e.path===c)!.state).toBe('absent');
     expect(reviewRead(root,{context_receipt:context.receipt,path:c,view:'before'}).text).toBe(cOriginal);
     expect(JSON.stringify(context)).not.toContain('content_base64');
-    const review={context_receipt:context.receipt,verdict:'blocked',findings:[],unresolved_fingerprints:[],evidence_refs:['evidence-report.txt'],blocker:{code:'ORACLE_REVIEW_PENDING',summary:'Need original-request oracle comparison',next_route:'review-change'}};
+    const review={context_receipt:context.receipt,verdict:'blocked',findings:[],unresolved_fingerprints:[],evidence_refs:['evidence-report.txt'],blocker:{code:'PROJECT_DOCUMENT_CONFLICT',summary:'docs/REQ.md#Oracle requires 10; docs/API.md#Oracle requires 99; impact: rule acceptance cannot be determined; decision needed: select governing limit',next_route:'user'}};
     expect(recordReviewResult(root,review).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.pending_review_result?.blocker).toEqual(review.blocker);
+    expect(() => completeReviewedStep(root, { step_id: 'step-2', note: null })).toThrow();
     const pending=fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8');
     expect(() => preflightStep(root,{candidate_paths:[a]})).toThrow();
     expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8')).toBe(pending);
@@ -6761,6 +6809,36 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
   });
 
+  test('document conflict remains unconfirmable until a cited user decision is saved with its sources', () => {
+    const root = archivedBaselineRoot();
+    fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs/REQ.md'), '# Retry\nAt most two retries.\n');
+    fs.writeFileSync(path.join(root, 'docs/API.md'), '# Retry\nAt most five retries.\n');
+    const sources = ['REQ', 'API'].map(name => ({
+      path: `docs/${name}.md`, section: 'Retry',
+      revision: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, `docs/${name}.md`))).digest('hex'),
+      purpose: 'Defines the retry limit',
+    }));
+    const conflict = 'docs/REQ.md#Retry requires 2; docs/API.md#Retry requires 5; impact: retry acceptance and implementation; decision needed: which limit governs?';
+    const input = semanticDraft({ project_documents: sources, affected_contracts: ['docs/API.md#Retry'], design_decisions: { decided: [], unresolved: [conflict] } });
+    const prepared = prepareDraft(root, input);
+    expect(prepared.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).body).toContain(conflict);
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt })).toMatchObject({ status: 'blocked', code: 'DRAFT_DECISION_UNRESOLVED', committed: false });
+    const decision = { source: 'test:user-retry-decision', verbatim: 'Use two retries; the five-retry API text is superseded for this change.' };
+    const resolved = { ...input,
+      task_basis: { ...input.task_basis, user_decisions: [...input.task_basis.user_decisions, decision] },
+      design_decisions: { decided: [conflict + ' Resolution: use 2 per test:user-retry-decision; update the affected contract in the authorized plan.'], unresolved: [] },
+    };
+    const refined = prepareDraft(root, resolved);
+    expect(refined.status).toBe('success');
+    expect(confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt }).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    expect(readCanonicalTaskBasis(root, current).basis.user_decisions).toContainEqual(decision);
+    expect(readProjectDocuments(readDraftDefinitionFromBody(current.body).background_context)).toEqual(sources);
+    expect(() => prepareDraft(root, resolved)).toThrow('PREPARE_DRAFT_STATE_INVALID');
+  });
+
   test('preserves unresolved design choices and blocks confirmation until they are decided', () => {
     const root = archivedBaselineRoot();
     const prepared = prepareDraft(root, semanticDraft({
@@ -6944,14 +7022,16 @@ describe('vNext Phase 2 Runtime contract', () => {
       workflow_status: 'superseded',
       lifecycle_state: 'active',
     }));
-    const replanned = replan(replanRoot, semanticDraft());
+    const replanInput = semanticDraft({ project_documents: [{ path: 'docs/PLAN.md', section: 'S2', revision: 'v2', purpose: 'Replacement plan' }], affected_contracts: [] });
+    const replanned = replan(replanRoot, replanInput);
     expect(replanned).toMatchObject({ status: 'success' });
     const current = readCanonicalCurrentTask(replanRoot);
     expect(current.runtimeState.workflow_status).toBe('active');
     expect(current.runtimeState.active_step_id).toBe('step-1');
     expect(current.body).toContain('Add the prepare-task Runtime adapter');
     const replannedBytes = fs.readFileSync(current.filePath, 'utf8');
-    expect(replan(replanRoot, semanticDraft()).status).toBe('no-op');
+    expect(readProjectDocuments(readDraftDefinitionFromBody(current.body).background_context)).toEqual(replanInput.project_documents!);
+    expect(replan(replanRoot, replanInput).status).toBe('no-op');
     expect(fs.readFileSync(current.filePath, 'utf8')).toBe(replannedBytes);
   });
 

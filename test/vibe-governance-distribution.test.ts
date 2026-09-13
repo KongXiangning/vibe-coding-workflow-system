@@ -365,10 +365,57 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(nonIdle, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(false);
   });
 
+  test('public dry-run supplies decisions identity without granting admission', { timeout: 45000 }, () => {
+    const target = makeLegacyTarget();
+    const currentPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+    fs.writeFileSync(currentPath, fs.readFileSync(currentPath, 'utf8').replace('任务 ID：010', '任务 ID：TASK-20260827-002').replace('当前状态：archived', '当前状态：completed_verified_archived（已归档）').replace(/^- 生命周期状态：.*\r?\n/m, ''));
+    const before = fs.readFileSync(currentPath);
+    const invoke = (extra: string[] = []) => {
+      const call = spawnSync('node', [path.join(packageRoot, 'dist/cli.js'), 'migrate', '--root', target, '--json', '--dry-run', ...extra], { encoding: 'utf8' });
+      return { code: call.status, result: JSON.parse(call.stdout) };
+    };
+    const strict = invoke();
+    expect(strict.code).toBe(1);
+    expect(strict.result.blockers.length).toBeGreaterThan(0);
+    expect(strict.result.migration_target.target_identity).toMatch(/^[a-f0-9]{32}$/);
+    const decisions = {
+      schema_version: 1, ...strict.result.migration_target,
+      current_task: { path: 'docs/workflow/CURRENT_TASK.md', original_task_id: 'TASK-20260827-002', sha256: crypto.createHash('sha256').update(before).digest('hex') },
+      current_task_disposition: 'completed-by-user-confirmation', preserved_paused: [],
+      user_decision: { source: 'test user', verbatim: 'The current task is completed.' },
+    };
+    const input = path.join(tempRoot('public-decisions-'), 'decisions.json');
+    fs.writeFileSync(input, JSON.stringify(decisions));
+    const accepted = invoke(['--decisions-file', input]);
+    expect(accepted.result.blockers).toEqual([]);
+    expect(accepted.code).toBe(0);
+    expect(accepted.result.status).toBe('ready');
+    expect(accepted.result.planned_writes.length).toBeGreaterThan(0);
+    decisions.current_task.sha256 = '0'.repeat(64);
+    fs.writeFileSync(input, JSON.stringify(decisions));
+    expect(invoke(['--decisions-file', input]).code).toBe(1);
+    expect(fs.readFileSync(currentPath).equals(before)).toBe(true);
+    expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(false);
+  });
+
   test('valid idle legacy migrate invokes the Pack and promotes canonical .agents skills', { timeout: 45000 }, () => {
     const target = makeLegacyTarget();
     addUnmanagedBusinessSymlink(target);
-    const result = migrateDistribution({ targetRoot: target, packageRoot });
+    fs.mkdirSync(targetPath(target, '.agents/skills/workflow-system-create-current-task/scripts'), { recursive: true });
+    fs.writeFileSync(targetPath(target, '.agents/skills/workflow-system-create-current-task/SKILL.md'), '# old workflow');
+    fs.writeFileSync(targetPath(target, '.agents/skills/workflow-system-create-current-task/scripts/old.js'), 'old support');
+    const oldNames = fs.readdirSync(path.join(ROOT, 'templates/skills')).filter(p => p.endsWith('.SKILL.md.tmpl')).map(p => p.replace('.SKILL.md.tmpl', ''));
+    for (const name of oldNames) {
+      fs.mkdirSync(targetPath(target, `.agents/skills/workflow-system-${name}`), { recursive: true });
+      fs.writeFileSync(targetPath(target, `.agents/skills/workflow-system-${name}/SKILL.md`), `# old ${name}`);
+    }
+    fs.mkdirSync(targetPath(target, '.agents/skills/workflow-system-adopt-existing-project/agents'), { recursive: true });
+    fs.writeFileSync(targetPath(target, '.agents/skills/workflow-system-adopt-existing-project/agents/claude.md'), '# Claude Skill Card: adopt-existing-project\n\n## Notes\n\n- Do not modify business code in this skill.\n');
+    fs.writeFileSync(targetPath(target, 'AGENTS.md'), '# Agents\n\n## workflow-system baseline\n- bun run gen:all\n\n## Product\n- Preserve single authority.\n');
+    fs.writeFileSync(targetPath(target, 'package.json'), JSON.stringify({ scripts: { 'workflow:health': 'bun run scripts/workflow-runtime.ts health', test: 'node --test' } }));
+    const invocation = spawnSync('node', [path.join(packageRoot, 'dist/cli.js'), 'migrate', '--root', target, '--json'], { encoding: 'utf8' });
+    expect(invocation.status).toBe(0);
+    const result = JSON.parse(invocation.stdout);
     expect(result.status).toBe('installed');
     expect(result.read_back_verified).toBe(true);
     expect(result.migration?.status).toBe('installed');
@@ -378,6 +425,13 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(true);
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
+    expect(fs.existsSync(targetPath(target, '.agents/skills/workflow-system-create-current-task'))).toBe(false);
+    expect(fs.readdirSync(targetPath(target, '.agents/skills')).filter(p => p.startsWith('workflow-system-'))).toEqual([]);
+    expect(fs.readFileSync(targetPath(target, 'AGENTS.md'), 'utf8')).toContain('## Product\n- Preserve single authority.');
+    expect(JSON.parse(fs.readFileSync(targetPath(target, 'package.json'), 'utf8')).scripts).toEqual({ test: 'node --test' });
+    const validation = spawnSync('node', [targetPath(target, '.workflow-system/runtime/dist/cli.js'), 'validate', '--root', target, '--summary'], { encoding: 'utf8' });
+    expect(validation.status).toBe(0);
+    expect(JSON.parse(validation.stdout).status).toBe('success');
   });
 
   test('install reports upgrade-required and explicit upgrade promotes an older vNext state', { timeout: 60000 }, () => {

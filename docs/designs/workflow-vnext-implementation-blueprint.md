@@ -454,7 +454,8 @@ Migration Pack 不属于上面的 vNext entry 或 capability graph。它只在�
 ```text
 old project is idle
 CURRENT_TASK has completed close/archive
-no active, unresolved, paused, or interrupted recoverable work
+no active/unresolved current work or interrupted execution
+explicitly declared paused files may remain unconverted and unresolved (0.18.0)
         ↓
 one-time offline Migration Pack
         ↓
@@ -490,7 +491,7 @@ old Markdown
 
 Pack 必须保留原始文本和权威事实，不要求 AI 重新理解历史语义；不得猜 Lesson 的 symbol 适用范围、语义重复关系、semantic tags 或 inferred merge/supersede。上述判断留给未来 vNext 的 `project-context-resolver` 和显式的 `knowledge-admission-policy`，而不是迁移时批量重写历史。
 
-`CURRENT_TASK`、active finding repair、paused/interrupted runtime state 不在 Pack 输入范围内。检测到旧或不支持的 schema 时，vNext 只返回：
+`CURRENT_TASK` 不作热迁移输入：0.18.0 允许显式、身份/hash 绑定的旧完成认定，并备份原文；active finding repair 和 interrupted runtime state 仍拒绝。明确声明的 paused 文件原路径原字节保留，不转成 vNext 恢复状态，后续仅在用户单独请求后读取并确认新计划。检测到旧或不支持的 schema 时，vNext 只返回：
 
 ```text
 migration-required
@@ -498,6 +499,27 @@ migration-required
 ```
 
 vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期 version-aware reader 或业务项目双轨安装。
+
+0.18.0 的正常分发入口为 `migrate --root <target> --decisions-file <json>`，先用
+`--dry-run` 核对写入/删除清单。决定必须包含精确 target identity、旧 CURRENT_TASK
+路径/hash/原始 ID、`completed-by-user-confirmation`、全部允许原样保留的暂停文件
+路径/hash，以及用户决定原文和来源；格式见 `packages/vibe-governance/README.md`。
+缺省仍严格拒绝，不提供 force。完整旧 CURRENT_TASK 以原字节写入
+`TASKS/legacy/CURRENT_TASK-<完整SHA256>.md`，同内容复用、冲突拒绝。
+Pack v2 绑定决定；带保留决定的 receipt v2 持久记录 caller-reported assurance 和
+`verbatim-unconverted-not-resumable`。旧 Pack/receipt v1 按原规则校验，不静默改变
+历史转换字节；v2 只规范化实际路径引用，不改写命令或代码示例中的反斜杠。
+软件安装、备份、依赖和 receipt 仍进入同一暂存/漂移检查/冻结检查/回滚事务。
+
+迁移验收修订：新 Pack/receipt 使用 v3。历史 Markdown 正文逐字保留，引用规范化仅作为索引，
+旧 v1/v2 Pack 的转换字节仍按各自规则校验。AGENTS/已有 CLAUDE 仅修订 workflow-system
+区块及旧 workflow 技能条目，不重建项目指引、不自动新增宿主文件。当前 GUIDE、CATALOG、
+STATUS 与 profile 的旧 workflow 配置显式修订；原文放入 `.workflow-system/legacy/<hash>/<path>`，
+对应 canonical 标记 `original_text_preserved: false` 与备份路径，不能冒称正文仍等于原文。
+package.json 只删除已识别的旧 workflow 命令，业务命令/依赖保留；含不明确旧依赖的自定义命令拒绝自动处理。
+扫描与原子删除覆盖三个宿主目录中的 `workflow-system-*` 完整旧技能目录，保留非前缀的
+`.agents` 技能和项目私有技能。目录清单、备份和当前指引均进入精确写删清单及读回检查。
+本修订只处理旧基线的正常 migrate；不增加“已是 vNext 再 migrate”或恢复旧安装状态的入口。
 
 ## 7. 实施顺序
 

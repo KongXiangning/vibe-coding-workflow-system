@@ -1,0 +1,810 @@
+{
+  "assurance": "caller-reported",
+  "scope": "isolated synthetic project; public CLI; not real TermLink acceptance",
+  "raw_evidence_root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d",
+  "cases": [
+    {
+      "scenario": "requirement-change",
+      "target": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project",
+      "managed_files": 43,
+      "mismatches": [],
+      "manifest_digest": "ce611a2ccf8eafb1ae990e997a4ec0887cc0840a30c5b15df637d611fcfae32e",
+      "commands": [
+        {
+          "file": "01.json",
+          "sha256": "e43f0af8169b5f034f654db94bdc47a51b14e9a7ded50cd85b7dbb6ae456e5f8",
+          "command": [
+            "E:/coding/vibe-coding-workflow-system/packages/vibe-governance/dist/cli.js",
+            "install",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project",
+            "--json"
+          ],
+          "status": 0,
+          "result": "installed",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "02.json",
+          "sha256": "889741feec82bc9f0179ad3958e7b5470210ca42001b76565debb1e6d2969eaa",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "bootstrap-support",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project",
+            "prepare",
+            "--mode",
+            "greenfield",
+            "--design-baseline-file",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\design.json",
+            "--confirm-design",
+            "--project-name",
+            "Document Flow",
+            "--project-slug",
+            "document-flow",
+            "--json"
+          ],
+          "status": 1,
+          "result": null,
+          "code": null,
+          "stderr": "BOOTSTRAP_SUPPORT_INPUT_INVALID: unexpected argument: C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\n"
+        },
+        {
+          "file": "03.json",
+          "sha256": "5fa73d2c9733b1e9e90c05f6b3654f96b17b0f613a7b6d47ce61deee5b3c35d6",
+          "command": [
+            "E:/coding/vibe-coding-workflow-system/packages/vibe-governance/dist/cli.js",
+            "install",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project",
+            "--json"
+          ],
+          "status": 0,
+          "result": "no-op",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "04.json",
+          "sha256": "41ff195b81cb6506a0216174fed38bf3c71c0e0579a49a47272f623c5638829b",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "bootstrap-support",
+            "prepare",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project",
+            "--mode",
+            "greenfield",
+            "--design-baseline-file",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\design.json",
+            "--confirm-design",
+            "--project-name",
+            "Document Flow",
+            "--project-slug",
+            "document-flow",
+            "--json"
+          ],
+          "status": 0,
+          "result": "needs-confirmation",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "05.json",
+          "sha256": "7271c85da758dce5c624e69a097562e36eac07848d7258f331b3f1a9ff1a1ddc",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "bootstrap-support",
+            "prepare",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project",
+            "--mode",
+            "greenfield",
+            "--design-baseline-file",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\design.json",
+            "--confirm-design",
+            "--project-name",
+            "Document Flow",
+            "--project-slug",
+            "document-flow",
+            "--json",
+            "--changed-paths-file",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\writes.json",
+            "--write"
+          ],
+          "status": 0,
+          "result": "installed",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "06.json",
+          "sha256": "79505a1e8cfd8fd7dbde6390afd8fbb6df769256ea75b7a1e39be30e2ab7cec7",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "validate",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project",
+            "--summary"
+          ],
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "07.json",
+          "sha256": "a22f00ba3c3a181934f5fa50be95bffff4fea54493265440af12e412bd4a2146",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "08.json",
+          "sha256": "5d0c2114dfd0d25f66ab31bdbc35e400d92e36429515c677e48b994f8b27bf65",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "09.json",
+          "sha256": "9daa074166dde60fbb58b4b45291c2a9e598a86e12194df19fc5d5a108c15244",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "10.json",
+          "sha256": "9fec8e2e9453c584b97d953c17fbbcb1a48b33a0fc5fd91071aa244b4e4a40a0",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "11.json",
+          "sha256": "09e1ef2e7e550db8bf89a4e74befa572c75f2b2bd8cfc01920be9c31a1998916",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "prepare-draft",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project"
+          ],
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "12.json",
+          "sha256": "7471e0246a8d17a855ed53962a2b4252988d282c4c7061c05c1eac67df4cde44",
+          "command": "file-context",
+          "status": 1,
+          "result": null,
+          "code": null,
+          "stderr": "CONTEXT_STALE: file changed; start a fresh read.\n"
+        },
+        {
+          "file": "13.json",
+          "sha256": "6e415b64d9429429b2fdb9d5eadadc916a40fadd168844bea66e0b3ad6ffee8f",
+          "command": "file-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "14.json",
+          "sha256": "d35bc489eb4a1b95ff1a7162b8a64ad5ccb99a5fc15ed7646ce00a7545f8dc41",
+          "command": "validate",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "15.json",
+          "sha256": "f553f1966f58d15415eaf4cb07363891515e605e6ffb0e30c6410a2f8fb9ebe2",
+          "command": "file-context",
+          "status": 1,
+          "result": null,
+          "code": null,
+          "stderr": "ENOENT: no such file or directory, open 'C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\project\\docs\\API.md'\n"
+        },
+        {
+          "file": "16.json",
+          "sha256": "6f63dffbaf61d78b10c9eb4d22bf37439c06e47114c07caf79b49f32b4a575b4",
+          "command": "file-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "17.json",
+          "sha256": "7075e40ce04ca19ad3d4b7db54923e569cadf069f894075b9b6df0e99a03991d",
+          "command": "file-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "18.json",
+          "sha256": "6e2c3d6f62a8b0ec963447a76209bfa3532c6fa0918df2149f6ba34ef8900eb0",
+          "command": "prepare-draft",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "19.json",
+          "sha256": "f3fadc83aba0a5e8d214ad2d010d638a31afecc778b9f0cfec2a2eb26aa8c857",
+          "command": "confirm-draft",
+          "status": 2,
+          "result": "blocked",
+          "code": "DRAFT_DECISION_UNRESOLVED",
+          "stderr": null
+        },
+        {
+          "file": "20.json",
+          "sha256": "1e84ebef6006a12325851efb3450b8b616d5c410e910278f78d03f69dace4ced",
+          "command": "prepare-draft",
+          "status": 2,
+          "result": "blocked",
+          "code": "CLAIM_EVIDENCE_PLAN_CONFLICT",
+          "stderr": null
+        },
+        {
+          "file": "21.json",
+          "sha256": "a8b77b57c23e95b31966303cac222ea444aa1875fb9feb9438c375c1338f9ecf",
+          "command": "prepare-draft",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "22.json",
+          "sha256": "cab301f2a61d5ec3f9a5963a8ea7db4746ae5ed75fbd4399b2538e782f783297",
+          "command": "confirm-draft",
+          "status": 1,
+          "result": null,
+          "code": null,
+          "stderr": "DRAFT_REVISION_CONFLICT: confirmation_receipt draft_revision 61fa3a813b23fbab9c778ea1fae270c050e974e9b64f217b6685c15709d49fc0 does not match current draft revision 447385852061773fb39a845709f19f166117ad9a982cc9fd56ad298f05386d7c.\n"
+        },
+        {
+          "file": "23.json",
+          "sha256": "da1ba3ae7acde083d2d788444858f3c0eea40582f1e66f583bc63d6758096c5d",
+          "command": "confirm-draft",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "24.json",
+          "sha256": "a1adac3c3afb8b881d9c20f3a2cce9552ee1aaaea325a2c6eb5b77cc1a082d55",
+          "command": "validate",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "25.json",
+          "sha256": "3d04fcda46744deba36cb84135b314f43d7a7fca146857be461e7c3ecfb06e1b",
+          "command": "validate",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "26.json",
+          "sha256": "1a6c051d859eca72a4f2799c7b0d057e2cc9bc770c6697030c544463cc1809b1",
+          "command": "file-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "27.json",
+          "sha256": "7add66b2a65cea9416495a8291ded33fb57b576d3e7c62b8e5ca29ce00a834fb",
+          "command": "file-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "28.json",
+          "sha256": "ba9673e384303d4b0aa0b66ae640eacd9598dfc52e1f3f4ff30873dfa6696295",
+          "command": "preflight-step",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "29.json",
+          "sha256": "21ebb8fc20f39957464661e2d451a37f6dae81b42410dc603c2604e27fb3ecd8",
+          "command": "evidence-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "30.json",
+          "sha256": "5f188398f4cc5e9604388e9832598315276697c3f60da95207c23369c4208400",
+          "command": "record-step-result",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "31.json",
+          "sha256": "d534ffdf9d32dc6c731410d749987ee44f3429452e4685bf5eaac64360180461",
+          "command": "review-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "32.json",
+          "sha256": "24d75b9d9c6c7f9a010a3474651854190de14722727efeac64bfe1dece30485d",
+          "command": "review-read",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "33.json",
+          "sha256": "fcfcec3111f7dd47846a808e9a86485b440761696cb3e57475da30ac935baf91",
+          "command": "review-read",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "34.json",
+          "sha256": "1e9899075841d9fede03fda7573b38bd344d627717cfa187dbd29305e78cb968",
+          "command": "record-review-result",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "35.json",
+          "sha256": "e6ebc1aae9dea15ab927ad7a1766cb68043db2d008cf0a33e32a99352eb519bc",
+          "command": "complete-reviewed-step",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "36.json",
+          "sha256": "74632c3e71417b700ed9647e7127e375950de6e7a6659be4dfaf73c895d62413",
+          "command": "validate",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        }
+      ],
+      "actual_node_check": {
+        "command": "node verify.cjs",
+        "status": 0,
+        "stdout": "retry limit: 3; passed\n",
+        "stderr": ""
+      },
+      "final": {
+        "review": "success",
+        "completed": "success",
+        "final": {
+          "status": "success",
+          "source_tuple": {
+            "path": "docs/workflow/CURRENT_TASK.md",
+            "revision": "eb939f337def642e90699b2bf549ae84720cae9e39fae2fa0e282728238149b0",
+            "document_id": "doc-25696d845a149a82f35598e7",
+            "task_id": "001",
+            "task_slug": "implement-retry-limit-2",
+            "workflow_status": "active",
+            "lifecycle_state": "active",
+            "active_step_id": "implement",
+            "active_step_status": "completed",
+            "finding_queue_revision": 0,
+            "resume_requires_review": false,
+            "resume_review_reasons": []
+          },
+          "package_version": "0.18.0",
+          "summary": {
+            "project_documents": [
+              {
+                "path": "docs/REQ.md",
+                "section": "Retry",
+                "revision": "sha256:1b0058c2bb143fedfdfe27c7ee932cfd636cac3a12eeed4662c48fcb452b8ec4",
+                "purpose": "Defines the allowed retry limit"
+              },
+              {
+                "path": "docs/API.md",
+                "section": "Retry",
+                "revision": "sha256:d8323971762ff9dfe83d65431abe253dce6bd1e7b2e57b8de48d5e0ea054e439",
+                "purpose": "Defines the allowed retry limit"
+              }
+            ],
+            "affected_contracts": "- docs/API.md#Retry",
+            "task_id": "001",
+            "workflow_status": "active",
+            "lifecycle_state": "active",
+            "active_step_id": "implement",
+            "active_step_status": "completed",
+            "pending_review_verdict": null,
+            "review_target_revision": "1bae76147c49ae9e9d0fd0ba58e701e2014abd6ed89870022925ee452a17974e",
+            "pending_review_paths": [],
+            "evidence_plan_revision": "98061324e03f6d4e28f266305dfc90ccd82f3896d694427293f85ded27fb79f9"
+          }
+        }
+      }
+    },
+    {
+      "scenario": "ordinary",
+      "target": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project",
+      "managed_files": 43,
+      "mismatches": [],
+      "manifest_digest": "ce611a2ccf8eafb1ae990e997a4ec0887cc0840a30c5b15df637d611fcfae32e",
+      "commands": [
+        {
+          "file": "01.json",
+          "sha256": "48e56ce44e22713aa585b880b5d9a06af686ecc94a6483d7e1582c3daba38105",
+          "command": [
+            "E:/coding/vibe-coding-workflow-system/packages/vibe-governance/dist/cli.js",
+            "install",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project",
+            "--json"
+          ],
+          "status": 0,
+          "result": "installed",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "02.json",
+          "sha256": "1b42e505282da819c74cd6dc4d93556099bb87e2ce4f212d56844a0d855421ff",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "bootstrap-support",
+            "prepare",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project",
+            "--mode",
+            "greenfield",
+            "--design-baseline-file",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\design.json",
+            "--confirm-design",
+            "--project-name",
+            "Document Flow",
+            "--project-slug",
+            "document-flow",
+            "--json"
+          ],
+          "status": 0,
+          "result": "needs-confirmation",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "03.json",
+          "sha256": "1bab9d8b938f3fb932d3a3a9a3bf9b80d53593aa7109e730676d59db5d3fdb05",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "bootstrap-support",
+            "prepare",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project",
+            "--mode",
+            "greenfield",
+            "--design-baseline-file",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\design.json",
+            "--confirm-design",
+            "--project-name",
+            "Document Flow",
+            "--project-slug",
+            "document-flow",
+            "--json",
+            "--changed-paths-file",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\writes.json",
+            "--write"
+          ],
+          "status": 0,
+          "result": "installed",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "04.json",
+          "sha256": "49b26989d155b22bffd125dea215c565652e38c84e5010d38b4b4d1af4042065",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "validate",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project",
+            "--summary"
+          ],
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "05.json",
+          "sha256": "07d23f1b0bde01da56a3ff0e2afefaa9fac90859583328fe4c6b78422ae4d4f3",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "06.json",
+          "sha256": "0e871d967f9155b34a1a8aec1d197080cc46c4a08b79f9bdaf32f186397b986e",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "07.json",
+          "sha256": "3f112f74015c68392b72ac1f80de191798dd24535bbe814fc1a721c5e59fdf09",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "08.json",
+          "sha256": "22ff4979d4914aec2508f7583f49d6294cffcd0d7cfcb5078df2535144a6d2cb",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "file-context",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project"
+          ],
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "09.json",
+          "sha256": "b95f7abc4f9a108214298e89efc61e45811a9a5f679910088ac9032e5ce748fe",
+          "command": [
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project\\.workflow-system\\runtime\\dist\\cli.js",
+            "prepare-draft",
+            "--root",
+            "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-document-flow-57b9c612c9d841c1b792734a273f905d\\ordinary\\project"
+          ],
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "10.json",
+          "sha256": "1f244bf4e69fe8fa234299bf1b09e8fb716824b3bf6097cfb716c01614561d24",
+          "command": "confirm-draft",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "11.json",
+          "sha256": "0e16c36a9d1badd33992494d71766166281d4ce01ce781a695af3cf1fb81c2a5",
+          "command": "validate",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "12.json",
+          "sha256": "061bda0c24af9a2b56235dcc1ed85da04ab3b0726aee526a9fae03aca3f99fab",
+          "command": "file-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "13.json",
+          "sha256": "9604d34b0901e57d3e3ba4c9b1ed74356d7fef76f29f8ac85479c0762dd04e76",
+          "command": "file-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "14.json",
+          "sha256": "59a960a9f79c86985cb32cd794b200fb9fce47f58f85fc0e8645b49571ee9922",
+          "command": "preflight-step",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "15.json",
+          "sha256": "a941a4d1b706004e6faa6d12da5270e3e4ebbf778d412fb2fe9c4597a11dc9bc",
+          "command": "evidence-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "16.json",
+          "sha256": "ecaed6c691c848f02b2fa7928b91f0008ca759cb4499e35cdbbf978d5b7fa80a",
+          "command": "record-step-result",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "17.json",
+          "sha256": "81cabe72f5182eb00e240a085b234fd3207f6c06950fa8c201676fecec7d383e",
+          "command": "review-context",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "18.json",
+          "sha256": "c4f44decef150d4a7518ed140379e8f119b27d5a104cc44444fd5ba412b7e972",
+          "command": "review-read",
+          "status": 0,
+          "result": "pass",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "19.json",
+          "sha256": "be110c31b000738af0c8f061c4942a15d2dde5e102ba0a4bd5ea76dcc9b4eabb",
+          "command": "record-review-result",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "20.json",
+          "sha256": "f527b3bbdab561a8a0c58f05e4329965ca669d54dff2a46ff70763cabd6f7d3a",
+          "command": "complete-reviewed-step",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        },
+        {
+          "file": "21.json",
+          "sha256": "920e070370539e93d7ab3e535d1a4e51a1951259c4af1fbe877bf5ea52672868",
+          "command": "validate",
+          "status": 0,
+          "result": "success",
+          "code": null,
+          "stderr": null
+        }
+      ],
+      "actual_node_check": {
+        "status": 0,
+        "stdout": "retry limit: 2; passed\n"
+      },
+      "final": {
+        "review": "success",
+        "completed": "success",
+        "final": {
+          "status": "success",
+          "source_tuple": {
+            "path": "docs/workflow/CURRENT_TASK.md",
+            "revision": "9aceec68d1e534991345d27e024bc0b4f9466347b1f421c67447c02a7870c455",
+            "document_id": "doc-25696d845a149a82f35598e7",
+            "task_id": "001",
+            "task_slug": "implement-retry-limit-2",
+            "workflow_status": "active",
+            "lifecycle_state": "active",
+            "active_step_id": "implement",
+            "active_step_status": "completed",
+            "finding_queue_revision": 0,
+            "resume_requires_review": false,
+            "resume_review_reasons": []
+          },
+          "package_version": "0.18.0",
+          "summary": {
+            "project_documents": [
+              {
+                "path": "docs/REQ.md",
+                "section": "Retry",
+                "revision": "sha256:e9e2c7e1ee21827a2b216311b27edcb9360de3dbeafc748d5ed4aa6275bfd3a9",
+                "purpose": "Defines the allowed retry limit"
+              },
+              {
+                "path": "docs/API.md",
+                "section": "Retry",
+                "revision": "sha256:d8323971762ff9dfe83d65431abe253dce6bd1e7b2e57b8de48d5e0ea054e439",
+                "purpose": "Defines the allowed retry limit"
+              }
+            ],
+            "affected_contracts": "- none",
+            "task_id": "001",
+            "workflow_status": "active",
+            "lifecycle_state": "active",
+            "active_step_id": "implement",
+            "active_step_status": "completed",
+            "pending_review_verdict": null,
+            "review_target_revision": "ae73dc88e85b2850cf13772ef1d5f4cd0d92e83fe5a2ff0333d0a5384ae79cd0",
+            "pending_review_paths": [],
+            "evidence_plan_revision": "16d5ab2c8d5535afc59195da6234ae066450639fcdd1fd54c9d899269adca040"
+          }
+        }
+      }
+    }
+  ]
+}

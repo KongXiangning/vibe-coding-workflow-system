@@ -9,6 +9,7 @@
  * the result back before reporting success.
  */
 
+import { readProjectDocuments } from './project-documents';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -88,7 +89,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.17.0';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.18.1';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -2010,6 +2011,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
       'input',
       'commands',
       'draft_fields',
+      'optional_draft_fields',
       'task_basis_storage',
       'decision_partition',
       'command_footprint_preflight',
@@ -2035,6 +2037,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['task_basis', 'goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_scope', 'test_strategy', 'implementation_steps', 'validation_plan', 'persistent_tests'],
     'Runtime contract prepare-task adapter semantic fields',
   );
+  expectSetEqual(expectStringArray(prepareTaskAdapter.optional_draft_fields, 'prepare-task optional fields'), ['project_documents', 'affected_contracts'], 'prepare-task optional fields');
   if (prepareTaskAdapter.task_basis_storage !== 'linked-TASK_BASIS-with-path-and-revision') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must persist the linked task basis reference.');
   }
@@ -3345,6 +3348,7 @@ function validateReplanReplacementDefinition(value: unknown, location: string): 
       `${location}.${field}`,
     );
   }
+  readProjectDocuments(result.background_context);
   return result;
 }
 
@@ -12422,15 +12426,21 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       const state = current.runtimeState;
+      const sections = resolveReplanSectionRanges(current.body);
+      const sectionText = (key: 'background_context' | 'affected_contracts') => {
+        const section = sections[key];
+        return section ? current.body.slice(section.contentStart, section.contentEnd).trim() : null;
+      };
+      const documentContext = { project_documents: readProjectDocuments(sectionText('background_context') ?? ''), affected_contracts: sectionText('affected_contracts') };
       console.log(JSON.stringify(args.summary ? {
         status: 'success', source_tuple: current.sourceTuple, package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
-        summary: { task_id: state.task_id, workflow_status: state.workflow_status, lifecycle_state: state.lifecycle_state,
+        summary: { ...documentContext, task_id: state.task_id, workflow_status: state.workflow_status, lifecycle_state: state.lifecycle_state,
           active_step_id: state.active_step_id, active_step_status: state.active_step_status,
           pending_review_verdict: state.pending_review_result?.verdict ?? null,
           review_target_revision: state.review_coverage?.target.revision ?? null,
           pending_review_paths: state.review_coverage?.pending_paths ?? [],
           evidence_plan_revision: state.evidence_plan_revision ?? null },
-      } : { status: 'success', source_tuple: current.sourceTuple, runtime_state: state }, null, 2));
+      } : { status: 'success', source_tuple: current.sourceTuple, runtime_state: state, ...documentContext }, null, 2));
     } else if (args.command === 'scope-check') {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);

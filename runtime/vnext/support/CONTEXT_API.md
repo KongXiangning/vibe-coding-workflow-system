@@ -2,6 +2,142 @@
 
 Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
 
+## Project document navigation
+
+For task preparation/refinement/replanning, implementation, and review, start
+with `.workflow-system/PROJECT_PROFILE.yaml`: use `paths.documentation_files`
+as navigation seeds and `paths.workflow_home` for governance sources. Read the
+project's listed documentation center or index (commonly `docs/README.md`) before
+selecting topic documents. The list is not a requirement to load every file and
+does not grant write permission. Honor explicit user-supplied sources and
+applicable host-required reading as well.
+
+If the profile has no usable documentation index, inspect the repository README
+and its documentation links, then use `file-context` search in the observed
+documentation directories. Use actual project paths; do not assume REQ/PLAN
+names or a `docs/designs/` layout. A missing index alone does not block a task or
+authorize creating one. Search results with truncation or errors do not establish
+that relevant documentation is absent.
+
+Select the REQ and its linked PLAN, architecture/technical/design documents, and
+relevant Contracts/Decisions by the task's goal, affected paths, APIs, and domain
+terms. Follow `related_docs`, `related_code`, and heading/ID links only where they
+help resolve that scope; an index is not a substitute for the selected body.
+Read the relevant sections with `file-context` ranges and continuations. Read a
+whole document when explicitly required or when its relevant constraints cannot
+be separated. Do not recursively load every link or all historical documents.
+
+Check each selected source's status, scope, and supersession notes. A draft,
+archive, template, example, or search hit is not automatically an operative
+requirement. Apply the existing source-authority rules; report material conflicts
+or unavailable required sources through the entry's existing unresolved/blocker
+result. In execution and review, use the confirmed task to bound selection;
+reading a different design does not authorize changing the task.
+
+Identify the sources that influenced the result by path and heading/ID in the
+entry's existing explanation or source references. If no relevant project
+document was found, state the searched scope instead of inventing a baseline.
+This is caller-performed navigation using read-only tools, not automatic semantic
+conflict detection or evidence that every source was read. Do not copy document content into the verbatim user Task Basis.
+
+## Saved task document references
+
+`prepare-draft` and `replan` accept optional `project_documents` and
+`affected_contracts` together alongside the existing semantic fields:
+
+```json
+{
+  "project_documents": [{
+    "path": "docs/requirements/REQ-example.md",
+    "section": "REQ-3 / Acceptance",
+    "revision": "sha256:<hash returned by file-context>",
+    "purpose": "Defines the required retry limit"
+  }],
+  "affected_contracts": ["docs/contracts/API.md#retry — update the retry limit"]
+}
+```
+
+Use repository-relative forward-slash paths, exact heading/ID (or `whole document`),
+the observed revision (hash, commit, or declared version; `unknown` when unavailable),
+and the reason the source constrains this task. References are caller-reported:
+Runtime validates structure and saves them, but does not certify that a document
+exists, was read, remains current, or has authority. Check those facts using the
+navigation and read tools. `affected_contracts` lists changes this task intends to
+make, not every consulted contract; it does not grant write scope.
+
+Runtime stores version 1 references in the task's background section and contract
+impact in its affected-contracts section. Both are bound by draft confirmation and
+survive the normal task lifecycle. They do not enter verbatim Task Basis.
+`validate --summary` and `review-context` return `project_documents` and
+`affected_contracts`; execution should read the summary before selecting sources.
+A historical task returns `project_documents: null` (unrecorded); `[]` explicitly
+records no selected documents. New callers should always send both fields. When
+refining or replanning a task with saved references, resubmit those references or
+explicitly use `[]` to remove them; omission cannot silently erase recorded context.
+Confirmed task changes still require the existing authorized replan route.
+
+## Project document conflicts
+
+During prepare/refinement/replan, compare the request and recorded user decisions
+with the selected source sections before deciding acceptance, design, or contract
+changes. During execution and review, first read the task's `project_documents`
+and `affected_contracts` through `validate --summary` (or `review-context`), then
+read the relevant referenced body sections. Also check material omissions through
+the navigation above; saved references are a starting point, not an exhaustive
+or authoritative allowlist. For legacy null references, use that navigation and
+report the absence of a recorded baseline; do not invent prior reading.
+
+Compare the statements that govern this task, including applicability and known
+supersession. A changed hash is a reason to inspect relevant changes, not proof of
+a contradiction; an unavailable required source is missing context, not a clean
+comparison. Do not silently replace the confirmed task's recorded version.
+
+For each material contradiction, explain both exact locations (path and heading/ID
+or Task Basis locator), their incompatible requirements, the affected behavior,
+acceptance or step, and the decision needed. State which authority applies and
+why. A newer timestamp alone does not settle authority. If an existing explicit
+user decision already resolves that exact conflict, cite it, state the resolution,
+and proceed within the authorized scope without asking for the same decision again.
+A general request to implement is not an invented choice between incompatible
+requirements. Apply existing instruction precedence and task permission boundaries.
+
+Use the current entry's existing result and Runtime input, not a new conflict file:
+
+- **Prepare/refine/replan:** put unresolved conflict locations, impact, and the
+  needed choice in `design_decisions.unresolved`. Put source-determined or explicitly
+  authorized resolutions, including their locators, in `design_decisions.decided`;
+  submit the selected `project_documents` and intended `affected_contracts` together.
+  Record only actual explicit user statements in Task Basis. Runtime prevents
+  confirmation while unresolved choices remain. Replan still needs its existing
+  lifecycle prerequisite; authorization does not bypass a frozen task revision.
+- **Execute:** resolve the comparison before preflight/writes where possible. If
+  it remains unresolved, return it in `change-result.blocker` with the user/replan
+  recommendation and stop the affected execution. If already executing, preserve
+  actual writes and results; `record-step-result` may record `outcome: blocked` with
+  the conflict in `note` only when an actual planned command/validation is failed
+  or blocked. Never invent a check result or classify a requirement conflict as
+  an environment failure to unlock retry. Otherwise return the blocker without
+  claiming a Runtime state transition. An authorized correction outside the frozen
+  plan must go through replan before implementation.
+- **Review draft:** include saved references and independently selected sources.
+  Use the existing `authority-conflict` finding with `source_refs`, `request_refs`,
+  `draft_refs`, `impact`, and `correction_basis`. Use `needs-user` only for a remaining
+  user-owned choice; use `findings` for a determined correction. An already-authorized
+  resolution is not itself an unresolved finding.
+- **Review change:** if required behavior cannot be determined, persist `blocked`
+  through `record-review-result`, with `blocker.code: PROJECT_DOCUMENT_CONFLICT`,
+  both locations, impact and needed decision in `blocker.summary`, and
+  `blocker.next_route: user` or `prepare-task:replan`. Keep source locators in
+  `evidence_refs`, and submit the ordinary test assessment. Do not fabricate a
+  repairable code finding to resolve a user-owned choice. If authority already
+  determines required behavior, review against it; report a real in-scope defect
+  as a normal finding, or a needed plan change as a replan blocker. `clean` requires
+  the review itself to be complete, not merely a resolved source conflict.
+
+These are model-performed comparisons with caller-reported conclusions. Runtime
+persists the existing decisions/review results and enforces their existing gates;
+it does not automatically detect semantic contradictions or certify authorization.
+
 ## Cumulative review
 
 `review-context` accepts `{}`. Its execution delta contains the complete file index; `text_diff` expands the first changed file and `unexpanded_paths` lists the others. Full first-touch content stays in Runtime. Use `review-read` for the remaining relevant content:

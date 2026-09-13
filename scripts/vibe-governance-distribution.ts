@@ -19,6 +19,7 @@ import {
   applyAtomicFileTransaction,
   computeScopedTreeHash,
   createMigrationPack,
+  preflightMigration,
   installMigrationPack,
   isFrozenPath,
   prepareRuntimeDistribution,
@@ -41,6 +42,8 @@ import {
 } from './vnext-runtime';
 import { checkTargetRoot } from './guard-target-root';
 import { parseDocument } from 'yaml';
+import { validateMigrationDecisions, legacyCurrentTaskBackup } from '../runtime/vnext/src/migration-preservation';
+import { isAlignedPath, originalBackupPath } from './migration-alignment';
 import { RG_INSTALL_ENTRY, RG_TOOLS_PATH, resolveRg, assertRgDirectory } from '../runtime/vnext/src/rg-tool';
 
 export const VIBE_GOVERNANCE_PRODUCT = 'Vibe Governance' as const;
@@ -137,6 +140,8 @@ export type DistributionOperationResult = {
   read_back_verified: boolean;
   /** Optional fresh-install UX hint; not Distribution, Runtime, or governance state. */
   next?: typeof VIBE_GOVERNANCE_FRESH_INSTALL_NEXT_HINT;
+  /** Read-only identity for decisions input; never an admission or completion claim. */
+  migration_target?: { target_root: string; target_identity: string };
   migration?: MigrationOperationResult;
 };
 
@@ -144,6 +149,7 @@ export type DistributionOperationOptions = {
   targetRoot: string;
   packageRoot?: string;
   dryRun?: boolean;
+  decisionsFile?: string;
   testHooks?: {
     afterPromotion?: () => void;
   };
@@ -1148,7 +1154,15 @@ function runMigrate(options: DistributionOperationOptions, payload: LoadedPayloa
   let migrationPreimageWrites: string[] = [];
   let migrationPreimageDeletes: string[] = [];
   try {
-    const pack = createMigrationPack({ sourceRoot: payload.sourceRoot, targetRoot, outDir: packDir, overwrite: true });
+    if (options.dryRun) {
+      const preflight = preflightMigration({ sourceRoot: payload.sourceRoot, targetRoot });
+      if (preflight.target) result.migration_target = {
+        target_root: preflight.target.root_path,
+        target_identity: preflight.target.root_identity,
+      };
+    }
+    const decisions = options.decisionsFile ? validateMigrationDecisions(JSON.parse(fs.readFileSync(path.resolve(options.decisionsFile), 'utf8'))) : undefined;
+    const pack = createMigrationPack({ sourceRoot: payload.sourceRoot, targetRoot, outDir: packDir, overwrite: true, decisions });
     const runtimeIdentity = runtimeIdentityFromPayload(payload);
     // The Migration Pack remains the only converter. Distribution state is
     // opaque metadata appended to its same transaction, not a second parser.
@@ -1158,6 +1172,9 @@ function runMigrate(options: DistributionOperationOptions, payload: LoadedPayloa
     // the shared promotion path.
     const validatedPack = validateMigrationPack({ packDir, sourceRoot: payload.sourceRoot, targetRoot });
     const plannedWrites = [
+      ...(validatedPack.decisions ? [legacyCurrentTaskBackup(validatedPack.decisions)] : []),
+      ...(validatedPack.schema_version === 3 ? validatedPack.artifacts.filter(a => isAlignedPath(a.source_path)).map(a => originalBackupPath(a.source_path, a.source_sha256)) : []),
+      RG_TOOLS_PATH,
       ...validatedPack.artifacts.map(artifact => artifact.target_path),
       ...payload.bundle.artifacts.map(artifact => artifact.target_path),
       '.workflow-system/vnext/INSTALL_STATE.json',
@@ -1325,7 +1342,7 @@ export function runDistributionCli(argv: string[] = process.argv.slice(2)): numb
       '',
       'Usage:',
       '  npx vibe-governance@latest install [--root <project>] [--json] [--dry-run]',
-      '  npx vibe-governance@latest migrate [--root <project>] [--json] [--dry-run]',
+      '  npx vibe-governance@latest migrate [--root <project>] [--decisions-file <json>] [--json] [--dry-run]',
       '  npx vibe-governance@latest upgrade [--root <project>] [--json] [--dry-run]',
       '',
       'Install owns software distribution only. After a successful fresh install, next: invoke the `bootstrap-project` Agent Skill.',
@@ -1339,6 +1356,7 @@ export function runDistributionCli(argv: string[] = process.argv.slice(2)): numb
   let targetRoot = process.cwd();
   let json = false;
   let dryRun = false;
+  let decisionsFile: string | undefined;
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === '--root') {
@@ -1349,6 +1367,10 @@ export function runDistributionCli(argv: string[] = process.argv.slice(2)): numb
       }
       targetRoot = value;
       index += 1;
+    } else if (arg === '--decisions-file' && command === 'migrate') {
+      const value = rest[++index];
+      if (!value || value.startsWith('--')) { console.error('--decisions-file requires a JSON file'); return 1; }
+      decisionsFile = value;
     } else if (arg === '--json') json = true;
     else if (arg === '--dry-run') dryRun = true;
     else if (arg === '--path' || arg === '--paths-file' || arg === '--bundle' || arg === '--source' || arg === '--workflow-system-root') {
@@ -1362,7 +1384,7 @@ export function runDistributionCli(argv: string[] = process.argv.slice(2)): numb
   const result = command === 'install'
     ? installDistribution({ targetRoot, dryRun })
     : command === 'migrate'
-      ? migrateDistribution({ targetRoot, dryRun })
+      ? migrateDistribution({ targetRoot, dryRun, decisionsFile })
       : upgradeDistribution({ targetRoot, dryRun });
   if (json) console.log(JSON.stringify(result, null, 2));
   else {
