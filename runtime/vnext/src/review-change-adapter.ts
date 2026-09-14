@@ -18,6 +18,7 @@ import {
   assertReviewExecutionEligible,
   captureReviewTarget,
   createReviewResultProposal,
+  currentDefinitionExecutionLog,
   cumulativeReviewExecution,
   validateTestAssessment,
   readCanonicalCurrentTask,
@@ -171,7 +172,7 @@ function authority(current: CanonicalCurrentTask): AuthorityEvidence[] {
 }
 
 function latestRecordedExecution(current: CanonicalCurrentTask): StepExecutionLogEntry {
-  const records = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+  const records = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
     !('action' in item)
     && item.step_id === current.runtimeState.active_step_id
     && item.idempotency_key.startsWith('execute-step-result-')

@@ -1683,7 +1683,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.18.3";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.18.6";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -2027,6 +2027,12 @@ function validateStepAttempts(value) {
 }
 function retryRequestDigest(current, delta) {
   return digest({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: delta.step_id, blocked_attempt_id: delta.blocked_attempt_id, refs: delta.blocker_resolution_refs, ...delta.repair_diagnosis ? { repair_diagnosis: delta.repair_diagnosis } : {} });
+}
+function reviewCycleForNextStep(previousCycleId, nextStepId, completionKey) {
+  return {
+    ...createReviewCycleZero(),
+    id: `review-cycle-${digest({ previous_cycle_id: previousCycleId, next_step_id: nextStepId, completion_key: completionKey }).slice(0, 32)}`
+  };
 }
 function validateStepRepairDiagnosis(value) {
   const report = expectRecord2(value, "repair diagnosis");
@@ -6905,21 +6911,21 @@ function closureEligibilityBlockers(root, current, delta, archiveAlreadyExists) 
       blockers.push("remaining implementation steps have not been durably advanced to completion.");
     }
     if (stepResolution.steps.length > 1) {
-      const completedRecord = current.runtimeState.execution_log.find((item) => !("action" in item) && item.step_id === stepResolution.current.id && item.status === "completed" && item.advancement === "task-complete");
+      const completedRecord = currentDefinitionExecutionLog(current).find((item) => !("action" in item) && item.step_id === stepResolution.current.id && item.status === "completed" && item.advancement === "task-complete");
       if (!completedRecord)
         blockers.push("the final multi-step completion lacks a durable task-complete advancement record.");
       if (checkpoint === "required" && !completedRecord?.review_receipt) {
         blockers.push("the final required review checkpoint has no durable clean receipt.");
       }
     }
-    const repairRecords = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === stepResolution.current.id && item.mode === "repair");
+    const repairRecords = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === stepResolution.current.id && item.mode === "repair");
     if (repairRecords.length > 0) {
       const repairFingerprints = [...new Set(repairRecords.flatMap((item) => [
         ...item.repair_fingerprints ?? [],
         ...item.repair_fingerprint ? [item.repair_fingerprint] : []
       ]))];
       const repairTargets = [...new Set(repairRecords.map((item) => item.change_set_id).filter((value) => Boolean(value)))];
-      const verified = current.runtimeState.execution_log.some((item) => {
+      const verified = currentDefinitionExecutionLog(current).some((item) => {
         if ("action" in item || item.step_id !== stepResolution.current.id || item.review_receipt?.cycle_phase !== "verification")
           return false;
         const receipt = item.review_receipt;
@@ -8618,6 +8624,11 @@ function appendAppliedProposal(current, proposal, sourceRevision) {
 function appendExecutionLogEntry(current, entry) {
   return [...current.execution_log, entry].slice(-MAX_EXECUTION_LOG);
 }
+function currentDefinitionExecutionLog(current) {
+  const log = current.runtimeState.execution_log;
+  const lastReplan = log.findLastIndex((item) => ("action" in item) && item.action === "commit-replan");
+  return log.slice(lastReplan + 1);
+}
 function makeReplanAudit(current, proposal, next, now) {
   const delta = proposal.semantic_delta;
   let action;
@@ -9218,7 +9229,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("ACTIVE_STEP_CONFLICT", "review result does not belong to the active step.");
     if (review.cycle_id !== current.runtimeState.review_cycle.id)
       fail2("REVIEW_CYCLE_CONFLICT", "review result does not belong to the current review cycle.");
-    const stepExecutions = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === review.step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
+    const stepExecutions = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === review.step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
     const execution = stepExecutions[stepExecutions.length - 1];
     if (!execution || execution.idempotency_key !== review.execution_id) {
       fail2("REVIEW_EXECUTION_STALE", "review result does not bind the latest recorded execution for the active step.");
@@ -9417,7 +9428,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
   assertTestStrategyExecutionTransition(current, delta);
-  const currentStepRepairLogs = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === delta.step_id && item.mode === "repair");
+  const currentStepRepairLogs = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === delta.step_id && item.mode === "repair");
   const openFindings = current.runtimeState.findings.filter((item) => item.status === "admitted" || item.status === "in-progress");
   const deltaRepairFingerprints = delta.repair_fingerprints ?? (delta.repair_fingerprint ? [delta.repair_fingerprint] : []);
   if (executionMode === "repair") {
@@ -9693,6 +9704,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     ...current.runtimeState,
     active_step_id: advancement.outcome === "advanced" ? advancement.to_step_id : current.runtimeState.active_step_id,
     active_step_status: advancement.outcome === "advanced" ? "ready" : newStatus,
+    ...advancement.outcome === "advanced" ? { review_cycle: reviewCycleForNextStep(current.runtimeState.review_cycle.id, advancement.to_step_id, proposal.idempotency_key) } : {},
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
     pending_review_result: null,
@@ -9727,6 +9739,7 @@ function applyFindingQueueDelta(current, proposal, now) {
     ...current.runtimeState.review_cycle,
     counted_repair_wave_ids: [...current.runtimeState.review_cycle.counted_repair_wave_ids]
   };
+  let pendingReview = current.runtimeState.pending_review_result;
   if (delta.action === "admit") {
     const candidate = delta.finding;
     let reAdmitIndex;
@@ -9745,6 +9758,13 @@ function applyFindingQueueDelta(current, proposal, now) {
       const hasOpenFindings = findings.some((item) => item.status === "admitted" || item.status === "in-progress");
       if (hasOpenFindings) {
         fail2("REVIEW_CYCLE_NOT_CONVERGED", "A new review cycle may start only after all admitted and in-progress findings in the current cycle are terminal.");
+      }
+      if (pendingReview) {
+        const priorCompletion = currentDefinitionExecutionLog(current).findLast((item) => !("action" in item) && item.advancement === "advanced" && item.next_step_id === current.runtimeState.active_step_id && item.review_receipt?.cycle_id === reviewCycle.id);
+        const inheritedCycle = pendingReview.verdict === "findings" && pendingReview.step_id === current.runtimeState.active_step_id && pendingReview.cycle_id === reviewCycle.id && pendingReview.cycle_phase === "discovery" && priorCompletion && !("action" in priorCompletion) && reviewCycleForNextStep(reviewCycle.id, pendingReview.step_id, priorCompletion.idempotency_key).id === candidate.review_cycle_id;
+        if (!inheritedCycle)
+          fail2("REVIEW_CYCLE_PENDING", "A pending review cannot be moved into an unrelated review cycle.");
+        pendingReview = { ...pendingReview, cycle_id: candidate.review_cycle_id };
       }
       reviewCycle = {
         id: candidate.review_cycle_id,
@@ -9868,6 +9888,7 @@ function applyFindingQueueDelta(current, proposal, now) {
     ...current.runtimeState,
     finding_queue_revision: current.runtimeState.finding_queue_revision + 1,
     review_cycle: reviewCycle,
+    pending_review_result: pendingReview,
     findings,
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
   };
@@ -14773,6 +14794,8 @@ function beginRepair(root, input, options = {}) {
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
+  const previousStepCompletion = currentDefinitionExecutionLog(current).findLast((item) => !("action" in item) && item.advancement === "advanced" && item.next_step_id === pending.step_id && item.review_receipt?.cycle_id === current.runtimeState.review_cycle.id);
+  const admissionCycleId = pending.cycle_phase === "discovery" && pending.cycle_id === current.runtimeState.review_cycle.id && previousStepCompletion && !("action" in previousStepCompletion) ? reviewCycleForNextStep(current.runtimeState.review_cycle.id, pending.step_id, previousStepCompletion.idempotency_key).id : current.runtimeState.review_cycle.id;
   for (const candidate of pending.findings) {
     if (!candidatePaths.includes(candidate.file)) {
       fail6("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `candidate_paths must include review finding path ${candidate.file}.`);
@@ -14799,7 +14822,7 @@ function beginRepair(root, input, options = {}) {
           root_cause_status: candidate.root_cause_status,
           max_repair_attempts: MAX_REPAIR_ATTEMPTS,
           evidence_refs: candidate.evidence_refs,
-          review_cycle_id: current.runtimeState.review_cycle.id
+          review_cycle_id: admissionCycleId
         }
       },
       idempotency_key: admissionKey,
@@ -15350,10 +15373,21 @@ function resolveVerifiedFindings(root, current, receipt, options) {
     const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== "success" && result.status !== "no-op")
       return result;
-    if (options.dryRun)
-      return current;
   }
-  return readCanonicalCurrentTask(root);
+  return options.dryRun ? current : readCanonicalCurrentTask(root);
+}
+function previewResolvedFindings(current, fingerprints) {
+  const pending = new Set(fingerprints.filter((fingerprint) => current.runtimeState.findings.some((item) => item.fingerprint === fingerprint && item.status !== "resolved")));
+  const findingQueueRevision = current.runtimeState.finding_queue_revision + pending.size;
+  return {
+    ...current,
+    sourceTuple: { ...current.sourceTuple, finding_queue_revision: findingQueueRevision },
+    runtimeState: {
+      ...current.runtimeState,
+      finding_queue_revision: findingQueueRevision,
+      findings: current.runtimeState.findings.map((item) => pending.has(item.fingerprint) ? { ...item, status: "resolved" } : item)
+    }
+  };
 }
 function completeReviewedStep(root, input, options = {}) {
   const source = record2(input, "complete-reviewed-step input");
@@ -15363,7 +15397,7 @@ function completeReviewedStep(root, input, options = {}) {
     fail6("EXECUTE_ADAPTER_INPUT_INVALID", "step_id is invalid.");
   const note = nullableText(source.note, "note");
   let current = readCanonicalCurrentTask(root);
-  const replay = current.runtimeState.execution_log.find((item) => {
+  const replay = currentDefinitionExecutionLog(current).find((item) => {
     if ("action" in item || item.step_id !== stepId || !item.review_receipt)
       return false;
     const key = idempotencyKey("execute-reviewed-step", {
@@ -15382,7 +15416,7 @@ function completeReviewedStep(root, input, options = {}) {
     if (pending.verdict !== "clean") {
       fail6("CLEAN_REVIEW_REQUIRED", `complete-reviewed-step requires clean; current review verdict is ${pending.verdict}.`);
     }
-    const reviewedExecution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
+    const reviewedExecution = currentDefinitionExecutionLog(current).map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
     if (!reviewedExecution?.execution_result || reviewedExecution.change_set_id !== pending.change_set_id || reviewedExecution.execution_result.review_target.revision !== pending.review_target_revision) {
       fail6("REVIEW_TARGET_CONFLICT", "canonical clean review no longer binds its Runtime-recorded execution target.");
     }
@@ -15390,7 +15424,7 @@ function completeReviewedStep(root, input, options = {}) {
     if (currentTarget.revision !== pending.review_target_revision) {
       fail6("REVIEW_TARGET_STALE", "product files changed after the clean review was recorded.");
     }
-    const repairLogs2 = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
+    const repairLogs2 = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
     const repaired = [...new Set(repairLogs2.flatMap((item) => [
       ...item.repair_fingerprints ?? [],
       ...item.repair_fingerprint ? [item.repair_fingerprint] : []
@@ -15416,13 +15450,13 @@ function completeReviewedStep(root, input, options = {}) {
     fail6("ACTIVE_STEP_CONFLICT", `complete-reviewed-step targets ${stepId}, but the current active step is ${current.runtimeState.active_step_id}.`);
   }
   const stepPlan = currentStepPlan(current);
-  const priorExecution = current.runtimeState.execution_log.some((item) => !("action" in item) && item.step_id === stepId && item.idempotency_key.startsWith("execute-step-result-"));
+  const priorExecution = currentDefinitionExecutionLog(current).some((item) => !("action" in item) && item.step_id === stepId && item.idempotency_key.startsWith("execute-step-result-"));
   if (!priorExecution)
     fail6("EXECUTE_RESULT_REQUIRED", "complete-reviewed-step requires a prior semantic record-step-result for this step.");
   if (reviewReceipt.cycle_id !== current.runtimeState.review_cycle.id) {
     fail6("REVIEW_CYCLE_CONFLICT", "review receipt does not belong to the current Runtime review cycle.");
   }
-  const repairLogs = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
+  const repairLogs = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
   const repairedFingerprints = [...new Set(repairLogs.flatMap((item) => [
     ...item.repair_fingerprints ?? [],
     ...item.repair_fingerprint ? [item.repair_fingerprint] : []
@@ -15449,12 +15483,16 @@ function completeReviewedStep(root, input, options = {}) {
   if (resolution.next === null && (!claimEvidence2 || !evaluateClaimEvidence(claimEvidence2, { root, current }).validation_complete)) {
     fail6("CLAIM_EVIDENCE_INCOMPLETE", "the final step cannot complete until every frozen acceptance-evidence slot has evidence.");
   }
+  const sourceRevision = current.sourceTuple.revision;
   if (reviewReceipt.admitted_fingerprints.length > 0) {
     const resolved = resolveVerifiedFindings(root, current, reviewReceipt, options);
     if ("status" in resolved)
       return resolved;
     current = resolved;
   }
+  const previewedFindingResolution = options.dryRun === true && reviewReceipt.admitted_fingerprints.some((fingerprint) => current.runtimeState.findings.some((item) => item.fingerprint === fingerprint && item.status !== "resolved"));
+  if (previewedFindingResolution)
+    current = previewResolvedFindings(current, reviewReceipt.admitted_fingerprints);
   const evidenceRefs = [...reviewReceipt.evidence_refs];
   const proposal = createTaskStateProposal(current, {
     mode: "default",
@@ -15467,6 +15505,13 @@ function completeReviewedStep(root, input, options = {}) {
     ...note ? { note } : {},
     ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 }
   });
+  if (previewedFindingResolution) {
+    if (readCanonicalCurrentTask(root).sourceTuple.revision !== sourceRevision) {
+      fail6("SOURCE_TUPLE_MISMATCH", "CURRENT_TASK changed during reviewed-step dry-run; obtain fresh canonical state.");
+    }
+    const preview = new GovernanceTransactionKernel(root, () => current).apply(proposal, options);
+    return preview.status === "success" ? { ...preview, resulting_revision: undefined, message: "Finding resolutions and reviewed-step completion validated against an in-memory dry-run state; no files were written." } : preview;
+  }
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
 function parseExecuteStepAdapterCli(argv) {
@@ -16397,7 +16442,7 @@ function authority3(current) {
   }));
 }
 function latestRecordedExecution(current) {
-  const records = current.runtimeState.execution_log.filter((item) => !("action" in item) && item.step_id === current.runtimeState.active_step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
+  const records = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === current.runtimeState.active_step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
   const latest = records[records.length - 1];
   if (!latest)
     fail7("REVIEW_EXECUTION_REQUIRED", "review-change requires a recorded execute-step result for the active step.");

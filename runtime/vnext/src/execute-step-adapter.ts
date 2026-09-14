@@ -11,6 +11,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  GovernanceTransactionKernel,
   MAX_REPAIR_ATTEMPTS,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   VNextRuntimeError,
@@ -28,6 +29,8 @@ import {
   captureReviewTarget,
   createFindingQueueProposal,
   createReviewChangeDelta,
+  currentDefinitionExecutionLog,
+  reviewCycleForNextStep,
   cumulativeReviewExecution,
   createTaskStateProposal,
   readCanonicalCurrentTask,
@@ -625,6 +628,21 @@ export function beginRepair(
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
+  // Older installations kept the previous step's converged repair budget when
+  // advancing. Rotate only when its completion is durably bound to this step;
+  // the already-recorded discovery review remains intact.
+  const previousStepCompletion = currentDefinitionExecutionLog(current).findLast(item =>
+    !('action' in item)
+    && item.advancement === 'advanced'
+    && item.next_step_id === pending.step_id
+    && item.review_receipt?.cycle_id === current.runtimeState.review_cycle.id,
+  );
+  const admissionCycleId = pending.cycle_phase === 'discovery'
+    && pending.cycle_id === current.runtimeState.review_cycle.id
+    && previousStepCompletion
+    && !('action' in previousStepCompletion)
+    ? reviewCycleForNextStep(current.runtimeState.review_cycle.id, pending.step_id, previousStepCompletion.idempotency_key).id
+    : current.runtimeState.review_cycle.id;
   for (const candidate of pending.findings) {
     if (!candidatePaths.includes(candidate.file)) {
       fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', `candidate_paths must include review finding path ${candidate.file}.`);
@@ -650,7 +668,7 @@ export function beginRepair(
           root_cause_status: candidate.root_cause_status,
           max_repair_attempts: MAX_REPAIR_ATTEMPTS,
           evidence_refs: candidate.evidence_refs,
-          review_cycle_id: current.runtimeState.review_cycle.id,
+          review_cycle_id: admissionCycleId,
         },
       },
       idempotency_key: admissionKey,
@@ -1270,9 +1288,25 @@ function resolveVerifiedFindings(
     });
     const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== 'success' && result.status !== 'no-op') return result;
-    if (options.dryRun) return current;
   }
-  return readCanonicalCurrentTask(root);
+  return options.dryRun ? current : readCanonicalCurrentTask(root);
+}
+
+function previewResolvedFindings(current: CanonicalCurrentTask, fingerprints: readonly string[]): CanonicalCurrentTask {
+  const pending = new Set(fingerprints.filter(fingerprint =>
+    current.runtimeState.findings.some(item => item.fingerprint === fingerprint && item.status !== 'resolved')));
+  const findingQueueRevision = current.runtimeState.finding_queue_revision + pending.size;
+  return {
+    ...current,
+    sourceTuple: { ...current.sourceTuple, finding_queue_revision: findingQueueRevision },
+    runtimeState: {
+      ...current.runtimeState,
+      finding_queue_revision: findingQueueRevision,
+      findings: current.runtimeState.findings.map(item => pending.has(item.fingerprint)
+        ? { ...item, status: 'resolved' as const }
+        : item),
+    },
+  };
 }
 
 export function completeReviewedStep(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
@@ -1283,7 +1317,7 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
   const note = nullableText(source.note, 'note');
 
   let current = readCanonicalCurrentTask(root);
-  const replay = current.runtimeState.execution_log.find(item => {
+  const replay = currentDefinitionExecutionLog(current).find(item => {
     if ('action' in item || item.step_id !== stepId || !item.review_receipt) return false;
     const key = idempotencyKey('execute-reviewed-step', {
       step_id: stepId,
@@ -1301,7 +1335,7 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     if (pending.verdict !== 'clean') {
       fail('CLEAN_REVIEW_REQUIRED', `complete-reviewed-step requires clean; current review verdict is ${pending.verdict}.`);
     }
-    const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+    const reviewedExecution = currentDefinitionExecutionLog(current).map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
     );
     if (!reviewedExecution?.execution_result
@@ -1313,7 +1347,7 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     if (currentTarget.revision !== pending.review_target_revision) {
       fail('REVIEW_TARGET_STALE', 'product files changed after the clean review was recorded.');
     }
-    const repairLogs = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+    const repairLogs = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.step_id === stepId && item.mode === 'repair',
     );
     const repaired = [...new Set(repairLogs.flatMap(item => [
@@ -1341,7 +1375,7 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     fail('ACTIVE_STEP_CONFLICT', `complete-reviewed-step targets ${stepId}, but the current active step is ${current.runtimeState.active_step_id}.`);
   }
   const stepPlan = currentStepPlan(current);
-  const priorExecution = current.runtimeState.execution_log.some(item =>
+  const priorExecution = currentDefinitionExecutionLog(current).some(item =>
     !('action' in item)
     && item.step_id === stepId
     && item.idempotency_key.startsWith('execute-step-result-'),
@@ -1351,7 +1385,7 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     fail('REVIEW_CYCLE_CONFLICT', 'review receipt does not belong to the current Runtime review cycle.');
   }
 
-  const repairLogs = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+  const repairLogs = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
     !('action' in item) && item.step_id === stepId && item.mode === 'repair',
   );
   const repairedFingerprints = [...new Set(repairLogs.flatMap(item => [
@@ -1382,11 +1416,15 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     fail('CLAIM_EVIDENCE_INCOMPLETE', 'the final step cannot complete until every frozen acceptance-evidence slot has evidence.');
   }
 
+  const sourceRevision = current.sourceTuple.revision;
   if (reviewReceipt.admitted_fingerprints.length > 0) {
     const resolved = resolveVerifiedFindings(root, current, reviewReceipt, options);
     if ('status' in resolved) return resolved;
     current = resolved;
   }
+  const previewedFindingResolution = options.dryRun === true && reviewReceipt.admitted_fingerprints.some(fingerprint =>
+    current.runtimeState.findings.some(item => item.fingerprint === fingerprint && item.status !== 'resolved'));
+  if (previewedFindingResolution) current = previewResolvedFindings(current, reviewReceipt.admitted_fingerprints);
   const evidenceRefs = [...reviewReceipt.evidence_refs];
   const proposal = createTaskStateProposal(current, {
     mode: 'default',
@@ -1399,6 +1437,15 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     ...(note ? { note } : {}),
     ...(claimEvidence === undefined ? {} : { claim_evidence: claimEvidence }),
   });
+  if (previewedFindingResolution) {
+    if (readCanonicalCurrentTask(root).sourceTuple.revision !== sourceRevision) {
+      fail('SOURCE_TUPLE_MISMATCH', 'CURRENT_TASK changed during reviewed-step dry-run; obtain fresh canonical state.');
+    }
+    const preview = new GovernanceTransactionKernel(root, () => current).apply(proposal, options);
+    return preview.status === 'success'
+      ? { ...preview, resulting_revision: undefined, message: 'Finding resolutions and reviewed-step completion validated against an in-memory dry-run state; no files were written.' }
+      : preview;
+  }
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
 

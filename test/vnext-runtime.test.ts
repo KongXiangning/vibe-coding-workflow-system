@@ -6498,6 +6498,193 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(complete.runtimeState.pending_review_result).toBeNull();
   });
 
+  test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const draft = singleStepSemanticDraft({
+      implementation_steps: ['step-1', 'step-2'].map(id => ({
+        id, description: `Implement ${id}`, mutation_scope: [file],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' as const }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+      })),
+    });
+    for (const legacyCycle of [false, true]) {
+      const root = confirmedSemanticRoot(draft);
+      const product = path.join(root, file);
+      fs.mkdirSync(path.dirname(product), { recursive: true });
+      const execute = (step: string, content: string, receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt']) => {
+        fs.writeFileSync(product, content, 'utf8');
+        return recordStepResult(root, {
+          preflight_receipt: receipt, actual_changed_paths: [file],
+          command_results: [{ command: 'bun test test/vnext-runtime.test.ts', status: 'passed', observed_repo_writes: [], evidence_refs: ['test:command'] }],
+          validation_results: [{ validation: 'bun test test/vnext-runtime.test.ts passes', status: 'passed', evidence_refs: ['test:validation'] }],
+          acceptance_evidence: step === 'step-2' && receipt.mode === 'default' ? [reportFixture(root)] : [],
+          outcome: 'implemented', note: `execute ${step}`,
+        });
+      };
+      const review = (verdict: 'findings' | 'clean', label: string) => {
+        const context = reviewContext(root, {});
+        const result = recordReviewResult(root, {
+          context_receipt: context.receipt, verdict,
+          findings: verdict === 'findings' ? [{
+            category: 'traceability', file, failure_condition: `missing ${label}`,
+            required_behavior: `record ${label}`, root_cause_status: 'confirmed',
+            evidence_refs: ['test:finding'],
+          }] : [],
+          unresolved_fingerprints: [], evidence_refs: ['test:review', 'test:finding'], blocker: null,
+        });
+        expect(result.status).toBe('success');
+      };
+
+      const first = preflightStep(root, { candidate_paths: [file] });
+      expect(execute('step-1', 'initial\n', first.receipt).status).toBe('success');
+      review('findings', 'first-step-marker');
+      const firstRepair = beginRepair(root, { candidate_paths: [file] });
+      expect(execute('step-1', 'first-step-marker\n', firstRepair.receipt).status).toBe('success');
+      review('clean', 'first-step-marker');
+      const priorCycle = readCanonicalCurrentTask(root).runtimeState.review_cycle;
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: null })).toMatchObject({
+        status: 'success', advancement: { outcome: 'advanced', to_step_id: 'step-2' },
+      });
+      const advanced = readCanonicalCurrentTask(root);
+      expect(advanced.runtimeState.review_cycle).toMatchObject({
+        cycle_phase: 'discovery', repair_round: 0, counted_repair_wave_ids: [], active_repair_wave_id: null,
+        verification_new_finding_wave_used: false,
+      });
+      expect(advanced.runtimeState.review_cycle.id).not.toBe(priorCycle.id);
+      expect(advanced.runtimeState.findings.find(item => item.fingerprint === firstRepair.receipt.repair_fingerprints[0])?.status).toBe('resolved');
+
+      if (legacyCycle) {
+        const raw = fs.readFileSync(advanced.filePath, 'utf8');
+        const boundary = raw.indexOf('\n---\n', 4);
+        const frontmatter = parse(raw.slice(4, boundary)) as Record<string, any>;
+        frontmatter.runtime_state.review_cycle = priorCycle;
+        fs.writeFileSync(advanced.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${raw.slice(boundary + 5)}`, 'utf8');
+      }
+      const second = preflightStep(root, { candidate_paths: [file] });
+      expect(execute('step-2', 'second step\n', second.receipt).status).toBe('success');
+      review('findings', 'second-step-marker');
+      const secondRepair = beginRepair(root, { candidate_paths: [file] });
+      expect(secondRepair.status).toBe('pass');
+      expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toMatchObject({
+        id: advanced.runtimeState.review_cycle.id, repair_round: 0, cycle_phase: 'discovery',
+      });
+      expect(execute('step-2', 'second-step-marker\n', secondRepair.receipt).status).toBe('success');
+      review('clean', 'second-step-marker');
+      expect(completeReviewedStep(root, { step_id: 'step-2', note: null })).toMatchObject({
+        status: 'success', advancement: { outcome: 'task-complete' },
+      });
+    }
+  });
+
+  test('advances after a replan without re-resolving repair findings from the old definition', () => {
+    const historicalFingerprint = 'finding-historical-repair';
+    const root = makeRoot(makeRuntimeState({
+      active_step_status: 'completed',
+      review_cycle: {
+        id: 'review-cycle-0', cycle_phase: 'verification', repair_round: 1,
+        counted_repair_wave_ids: ['repair-wave-history'], active_repair_wave_id: 'repair-wave-history',
+        verification_new_finding_wave_used: false, verification_new_finding_wave_id: null,
+      },
+      findings: [runtimeFinding(historicalFingerprint, 'in-progress', {
+        review_cycle_id: 'review-cycle-0', last_repair_wave_id: 'repair-wave-history',
+      })],
+      execution_log: [{
+        idempotency_key: 'execute-step-result-historical', mode: 'repair', step_id: 'step-1',
+        status: 'completed', evidence_refs: ['test:historical-repair'],
+        repair_fingerprints: [historicalFingerprint], repair_wave_id: 'repair-wave-history',
+        change_set_id: 'change-set-history', checkpoint: 'required',
+        advancement: 'repair-awaiting-verification', next_step_id: null,
+        recorded_at: '2026-08-31T00:00:00.000Z',
+      }],
+    }));
+    const before = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createLifecycleProposal(before, {
+      mode: 'supersede', delta: supersedeDelta(), idempotency_key: 'supersede-history',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    })).status).toBe('success');
+    const definition = replacementDefinition({
+      acceptance: '- [ ] replanned acceptance',
+      allowed_scope: '- runtime/vnext/src/prepare-task-adapter.ts',
+      implementation_steps: [
+        '- step-1: verify the replacement definition',
+        '  - purpose: verify the replacement definition',
+        '  - mutation_scope: runtime/vnext/src/prepare-task-adapter.ts',
+        '  - required_evidence: replacement evidence is current',
+        '  - review_checkpoint: required: replacement implementation boundary',
+      ].join('\n'),
+    });
+    const claimEvidence = evidencePlanFixture('replanned acceptance', 'step-1');
+    const slot = claimEvidence[0]!.slots[0]!;
+    slot.minimum_type = 'static-proof';
+    slot.check!.method = 'static';
+    slot.check!.entry = 'runtime/vnext/src/prepare-task-adapter.ts';
+    slot.check!.expected_result = 'accepted';
+    slot.check!.subject_paths = ['runtime/vnext/src/prepare-task-adapter.ts'];
+    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-history', {
+      definition, active_step_id: 'step-1', claim_evidence: claimEvidence,
+    })).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.findings[0]?.status).toBe('deferred');
+
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const filePath = path.join(root, 'runtime/vnext/src/prepare-task-adapter.ts');
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, 'replacement implementation\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
+      command_results: [],
+      validation_results: [{ validation: 'replacement evidence is current', status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [reportFixture(root, 'A1', 'a1', 'accepted')],
+      outcome: 'implemented', note: 'replacement execution',
+    }).status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(discovery.receipt).toMatchObject({ cycle_phase: 'discovery', admitted_fingerprints: [] });
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt, verdict: 'findings',
+      findings: [{
+        category: 'replacement-check', file: 'runtime/vnext/src/prepare-task-adapter.ts',
+        failure_condition: 'the replacement implementation lacks a current marker',
+        required_behavior: 'record the current marker', root_cause_status: 'confirmed',
+        evidence_refs: ['test:replacement-finding'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:replacement-review'], blocker: null,
+    }).status).toBe('success');
+    const repair = beginRepair(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    expect(repair.receipt.repair_fingerprints).toHaveLength(1);
+    fs.writeFileSync(filePath, 'replacement implementation with current marker\n', 'utf8');
+    const repairEvidence = reportFixture(root, 'A1', 'a1', 'accepted');
+    repairEvidence.report.result_id = 'result-current-repair';
+    const repairResult = recordStepResult(root, {
+      preflight_receipt: repair.receipt,
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
+      command_results: [],
+      validation_results: [{ validation: 'replacement evidence is current', status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [repairEvidence],
+      outcome: 'implemented', note: 'current definition repair',
+    });
+    expect(repairResult).toMatchObject({ status: 'success' });
+    const verification = reviewContext(root, {});
+    expect(verification.receipt.admitted_fingerprints).toEqual(repair.receipt.repair_fingerprints);
+    expect(recordReviewResult(root, {
+      context_receipt: verification.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:replacement-verification'], blocker: null,
+    }).status).toBe('success');
+    const beforePreview = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+    const preview = completeReviewedStep(root, { step_id: 'step-1', note: 'current definition reviewed' }, { dryRun: true });
+    expect(preview).toMatchObject({ status: 'success', dry_run: true, committed: false, advancement: { outcome: 'task-complete' } });
+    expect(preview.resulting_revision).toBeUndefined();
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(beforePreview);
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === repair.receipt.repair_fingerprints[0])?.status).toBe('in-progress');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'current definition reviewed' })).toMatchObject({
+      status: 'success', advancement: { outcome: 'task-complete' },
+    });
+    const completed = readCanonicalCurrentTask(root);
+    expect(completed.runtimeState.findings.find(item => item.fingerprint === historicalFingerprint)?.status).toBe('deferred');
+    expect(completed.runtimeState.findings.find(item => item.fingerprint === repair.receipt.repair_fingerprints[0])?.status).toBe('resolved');
+    expect(completed.runtimeState.execution_log.some(item => !('action' in item) && item.idempotency_key === 'execute-step-result-historical')).toBe(true);
+  });
+
   test('keeps repair behind the durable review handoff instead of caller-supplied preflight coordinates', () => {
     const root = confirmedSemanticRoot();
     const current = readCanonicalCurrentTask(root);

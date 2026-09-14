@@ -89,7 +89,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.18.3';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.18.6';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -1392,6 +1392,13 @@ function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger>
 
 function retryRequestDigest(current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>): string {
   return digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision,step:delta.step_id,blocked_attempt_id:delta.blocked_attempt_id,refs:delta.blocker_resolution_refs,...(delta.repair_diagnosis ? {repair_diagnosis:delta.repair_diagnosis} : {})});
+}
+
+export function reviewCycleForNextStep(previousCycleId: string, nextStepId: string, completionKey: string): ReviewCycleState {
+  return {
+    ...createReviewCycleZero(),
+    id: `review-cycle-${digest({ previous_cycle_id: previousCycleId, next_step_id: nextStepId, completion_key: completionKey }).slice(0, 32)}`,
+  };
 }
 
 function validateStepRepairDiagnosis(value: unknown): StepRepairDiagnosis {
@@ -6765,7 +6772,7 @@ function closureEligibilityBlockers(root: string, current: CanonicalCurrentTask,
       blockers.push('remaining implementation steps have not been durably advanced to completion.');
     }
     if (stepResolution.steps.length > 1) {
-      const completedRecord = current.runtimeState.execution_log.find((item): item is StepExecutionLogEntry =>
+      const completedRecord = currentDefinitionExecutionLog(current).find((item): item is StepExecutionLogEntry =>
         !('action' in item)
         && item.step_id === stepResolution.current.id
         && item.status === 'completed'
@@ -6776,7 +6783,7 @@ function closureEligibilityBlockers(root: string, current: CanonicalCurrentTask,
         blockers.push('the final required review checkpoint has no durable clean receipt.');
       }
     }
-    const repairRecords = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+    const repairRecords = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.step_id === stepResolution.current.id && item.mode === 'repair',
     );
     if (repairRecords.length > 0) {
@@ -6785,7 +6792,7 @@ function closureEligibilityBlockers(root: string, current: CanonicalCurrentTask,
         ...(item.repair_fingerprint ? [item.repair_fingerprint] : []),
       ]))];
       const repairTargets = [...new Set(repairRecords.map(item => item.change_set_id).filter((value): value is string => Boolean(value)))];
-      const verified = current.runtimeState.execution_log.some((item): item is StepExecutionLogEntry => {
+      const verified = currentDefinitionExecutionLog(current).some((item): item is StepExecutionLogEntry => {
         if ('action' in item || item.step_id !== stepResolution.current.id || item.review_receipt?.cycle_phase !== 'verification') return false;
         const receipt = item.review_receipt;
         return receipt !== undefined
@@ -8733,6 +8740,12 @@ function appendExecutionLogEntry(current: RuntimeState, entry: ExecutionLogEntry
   return [...current.execution_log, entry].slice(-MAX_EXECUTION_LOG);
 }
 
+export function currentDefinitionExecutionLog(current: CanonicalCurrentTask): ExecutionLogEntry[] {
+  const log = current.runtimeState.execution_log;
+  const lastReplan = log.findLastIndex(item => 'action' in item && item.action === 'commit-replan');
+  return log.slice(lastReplan + 1);
+}
+
 function makeReplanAudit(
   current: CanonicalCurrentTask,
   proposal: RuntimeProposal,
@@ -9399,7 +9412,7 @@ function applyTaskStateDelta(
     const review = delta.review_result;
     if (review.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'review result does not belong to the active step.');
     if (review.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CYCLE_CONFLICT', 'review result does not belong to the current review cycle.');
-    const stepExecutions = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+    const stepExecutions = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.step_id === review.step_id && item.idempotency_key.startsWith('execute-step-result-') && item.review_receipt === undefined,
     );
     const execution = stepExecutions[stepExecutions.length - 1];
@@ -9591,7 +9604,7 @@ function applyTaskStateDelta(
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
   assertTestStrategyExecutionTransition(current, delta);
-  const currentStepRepairLogs = current.runtimeState.execution_log.filter((item): item is StepExecutionLogEntry =>
+  const currentStepRepairLogs = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
     !('action' in item) && item.step_id === delta.step_id && item.mode === 'repair',
   );
   const openFindings = current.runtimeState.findings.filter(item => item.status === 'admitted' || item.status === 'in-progress');
@@ -9855,6 +9868,9 @@ function applyTaskStateDelta(
     ...current.runtimeState,
     active_step_id: advancement.outcome === 'advanced' ? advancement.to_step_id! : current.runtimeState.active_step_id,
     active_step_status: advancement.outcome === 'advanced' ? 'ready' : newStatus,
+    ...(advancement.outcome === 'advanced'
+      ? { review_cycle: reviewCycleForNextStep(current.runtimeState.review_cycle.id, advancement.to_step_id!, proposal.idempotency_key) }
+      : {}),
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
     pending_review_result: null,
@@ -9893,6 +9909,7 @@ function applyFindingQueueDelta(
     ...current.runtimeState.review_cycle,
     counted_repair_wave_ids: [...current.runtimeState.review_cycle.counted_repair_wave_ids],
   };
+  let pendingReview = current.runtimeState.pending_review_result;
   if (delta.action === 'admit') {
     const candidate = delta.finding;
     let reAdmitIndex: number | undefined;
@@ -9911,6 +9928,22 @@ function applyFindingQueueDelta(
       const hasOpenFindings = findings.some(item => item.status === 'admitted' || item.status === 'in-progress');
       if (hasOpenFindings) {
         fail('REVIEW_CYCLE_NOT_CONVERGED', 'A new review cycle may start only after all admitted and in-progress findings in the current cycle are terminal.');
+      }
+      if (pendingReview) {
+        const priorCompletion = currentDefinitionExecutionLog(current).findLast(item =>
+          !('action' in item)
+          && item.advancement === 'advanced'
+          && item.next_step_id === current.runtimeState.active_step_id
+          && item.review_receipt?.cycle_id === reviewCycle.id,
+        );
+        const inheritedCycle = pendingReview.verdict === 'findings'
+          && pendingReview.step_id === current.runtimeState.active_step_id
+          && pendingReview.cycle_id === reviewCycle.id
+          && pendingReview.cycle_phase === 'discovery'
+          && priorCompletion && !('action' in priorCompletion)
+          && reviewCycleForNextStep(reviewCycle.id, pendingReview.step_id, priorCompletion.idempotency_key).id === candidate.review_cycle_id;
+        if (!inheritedCycle) fail('REVIEW_CYCLE_PENDING', 'A pending review cannot be moved into an unrelated review cycle.');
+        pendingReview = { ...pendingReview, cycle_id: candidate.review_cycle_id };
       }
       reviewCycle = {
         id: candidate.review_cycle_id,
@@ -10028,6 +10061,7 @@ function applyFindingQueueDelta(
     ...current.runtimeState,
     finding_queue_revision: current.runtimeState.finding_queue_revision + 1,
     review_cycle: reviewCycle,
+    pending_review_result: pendingReview,
     findings,
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };

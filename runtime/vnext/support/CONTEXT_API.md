@@ -1,4 +1,4 @@
-# Runtime source context (0.18.3)
+# Runtime source context (0.18.6)
 
 Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
 
