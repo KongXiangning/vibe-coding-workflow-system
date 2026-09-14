@@ -1,6 +1,40 @@
-# Runtime source context (0.17.0)
+# Runtime source context (0.18.3)
 
 Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
+
+## Bounded CURRENT_TASK reading
+
+For `execute-step` and `review-change`, start each invocation with a fresh
+`validate --summary`. Its `source_tuple` identifies the current file and task;
+its `summary` supplies current lifecycle and step status, document references,
+and `evidence_plan_revision`. Never infer current status from an earlier body
+read. Versioned tasks are checked against their stored plan revision by both
+forms of `validate`; a failed validation supplies no reusable definition.
+
+To read the confirmed definition, use `file-context` search with
+`roots:[source_tuple.path]` for the literal headings
+`## 任务输入依据` and `## 执行记录`. Require one exact heading line for each, in
+that order. Read from the first heading through the line before the second,
+using `file-context` `operation:"read"`, `path:source_tuple.path`,
+`start_line`, `end_line`, and
+`sha256` set to the fresh `source_tuple.revision`. The first read and every
+continuation must match that hash. Follow `next_offset` with the same range
+and hash until `truncated:false`; only then treat the definition as complete.
+The returned range must include all intervening sections. If a heading is
+missing, duplicated, out of order, or search is partial, use bounded pages to
+inspect the task and report the navigation gap; do not silently assume a
+partial range is the complete definition. If a read is stale, rerun the
+summary and restart at offset zero.
+
+Within the same visible conversation, an already complete definition can be
+reused only when the fresh summary has the same task ID, document ID, and
+non-null `evidence_plan_revision`. If any identity is different, the previous text is
+not fully visible, or the conversation was compacted, read the range again.
+Read linked Task Basis, execution history, and relevant project documents
+separately when the current work requires them. Continue to obtain fresh
+`preflight-step` or `review-context` results and inspect current evidence and
+cumulative diff; a prior definition read cannot certify those results. This is
+in-conversation reuse, not persistent or cross-conversation memory.
 
 ## Project document navigation
 
@@ -147,6 +181,23 @@ it does not automatically detect semantic contradictions or certify authorizatio
 ```
 
 `context_receipt` must be the object, not a string. `view` is `diff` (default), `before`, or `after`. `before` uses the exact first-touch baseline, including a dirty starting tree; it is never reconstructed from Git HEAD. A changed task or cumulative target rejects the old receipt. Added/deleted files expose their states. Binary/non-UTF-8 content, symlinks, missing historical baselines, and a diff computation limit are explicit `content_status` values, not an empty clean diff. If diff computation is unavailable, read `before`/`after` ranges.
+
+## Same-plan blocked execution recovery
+
+When a planned check fails from a confirmed current-step code, test or fixture
+error, `execute-step` may diagnose and recover within the same execution intent.
+First commit the truthful blocked result. Send `retry-step` the retained
+`blocked_attempt_id`, failure evidence references, and inline
+`repair_diagnosis: {kind:"same-plan-repair/v1",status:"confirmed",owner:"current-step",failed_check,cause,repair_paths}`.
+`failed_check` must be the exact failed command or validation; every repair path
+must already be in that failed attempt's preflight candidates. The diagnosis is
+caller-reported and persists in the attempt ledger. Runtime preserves the failed
+attempt and allows at most two retries. A successful recovery returns `ready`
+only: obtain a fresh preflight before editing, rerun the failed check and due
+evidence, and keep any required review. If subjects drifted, scope changed, or
+the cause is unconfirmed, report the blocker; do not supersede a task solely
+because a check failed. Environment failures continue to use the bound
+`environment-restored/v1` report.
 
 ## Existing test discovery and reading
 

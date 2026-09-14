@@ -939,7 +939,6 @@ The pack is fail-closed and all-or-nothing with respect to vNext installation:
 | `prepare-task` result state `ready` | default `execute-step` intent | the original request authorizes implementation and no user-owned gate remains |
 | `execute-step` result state `change-ready` | default `review-change` intent | the diff target is explicit and review is read-only |
 | admitted mechanical finding | `execute-step:repair` | owner/scope/authority/root-cause and repair-budget gates pass |
-| `debug-task` result state `root-cause-confirmed` | `execute-step:repair` | caller selected resolve intent and repair is authorized |
 | lifecycle resume success | `prepare-task` readiness review | recovery package and active-owner transaction succeeded |
 | `closed + archived` baseline | default `prepare-task` | the request is genuinely independent and identity allocation plus draft definition are complete |
 | `draft + active` | default `prepare-task` refinement | the same draft identity is preserved and only typed task-definition sections change |
@@ -947,7 +946,7 @@ The pack is fail-closed and all-or-nothing with respect to vNext installation:
 | review evidence request | `validate-change` expert call | the evidence plan names the claim and validation remains read-only |
 | closure intent with satisfied gates | `close-task` Runtime proposals | acceptance, evidence, release, and remaining-risk rules pass |
 
-An “automatic” route is execution permission, not merely a recommendation. If user intent did not authorize end-to-end work, or the next route changes user-owned authority, the system reports the recommended route and stops.
+An “automatic” route is execution permission, not merely a recommendation. If user intent did not authorize end-to-end work, or the next route changes user-owned authority, the system reports the recommended route and stops. A separate `debug-task` invocation is terminal and reports a route rather than automatically entering another public Skill: a confirmed same-plan blocked check may recommend ordinary `execute-step` recovery; admitted review findings may recommend `execute-step:repair`; an already superseded definition may recommend `prepare-task:replan`. `blocked_by_replan` requires a readiness or invalidation decision and cannot execute. Only confirmed goal, scope, or acceptance invalidation permits `task-lifecycle:supersede` before replan. A failed Runtime retry or an ordinary test/code error does not establish that invalidation.
 
 ### 12.2 Forbidden handoff patterns
 

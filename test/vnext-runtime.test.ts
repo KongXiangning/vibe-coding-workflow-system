@@ -5336,6 +5336,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     const raw=createStepRetryProposal(blocked,retryInput);
     expect(retryStep(root,retryInput)).toMatchObject({status:'success',state:{active_step_status:'ready'}});
     const recovered=readCanonicalCurrentTask(root);
+    const legacyEnvironmentDigest=crypto.createHash('sha256').update(JSON.stringify({blocked_attempt_id:failure.attempt_id,document:blocked.sourceTuple.document_id,plan:blocked.runtimeState.evidence_plan_revision,refs:[resolutionPath],step:'step-1'})).digest('hex');
+    expect(recovered.runtimeState.step_attempts!['step-1']!.attempts[1]!.request_digest).toBe(legacyEnvironmentDigest);
     expect(recovered.runtimeState.claim_evidence).toEqual(blocked.runtimeState.claim_evidence);
     expect(recovered.runtimeState.review_coverage!.pending_paths).toEqual(blocked.runtimeState.review_coverage!.pending_paths);
     expect(recovered.runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(failure);
@@ -5424,6 +5426,86 @@ describe('vNext Phase 2 Runtime contract', () => {
       expect(readDraftDefinitionFromBody(exhausted.body)).toEqual(draft);
       expect(exhausted.runtimeState.findings).toEqual(current.runtimeState.findings);
     }
+  });
+
+  test('a confirmed same-plan test error can recover, edit, rerun and retain its failed attempt', () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = `bun ${file}`;
+    const semantic = singleStepSemanticDraft();
+    semantic.implementation_steps[0]!.commands = [{ command, expected_repo_writes: 'none' }];
+    semantic.implementation_steps[0]!.validation = [command];
+    semantic.claim_evidence[0]!.slots[0]!.check!.entry = command;
+    const root = confirmedSemanticRoot(semantic);
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    const preflight = preflightStep(root, { candidate_paths: [file] });
+    fs.writeFileSync(path.join(root, file), 'throw new Error("test asset has a type error")\n');
+    const failed = spawnSync('bun', [file], { cwd: root, encoding: 'utf8' });
+    expect(failed.status).not.toBe(0);
+    fs.writeFileSync(path.join(root, 'failed-check.txt'), failed.stderr);
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt, actual_changed_paths: [file],
+      command_results: [{ command, status: 'failed', observed_repo_writes: [], evidence_refs: ['failed-check.txt'] }],
+      validation_results: [{ validation: command, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'unknown', note: 'test asset failed before validation',
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const prior = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    expect(() => preflightStep(root, { candidate_paths: [file] })).toThrow('PREFLIGHT_BLOCKED');
+    const diagnosis = {
+      kind: 'same-plan-repair/v1' as const, status: 'confirmed' as const, owner: 'current-step' as const,
+      failed_check: command, cause: 'The current step test asset throws before validation.', repair_paths: [file],
+    };
+    const retry = { step_id: 'step-1', blocked_attempt_id: prior.attempt_id, blocker_resolution_refs: ['failed-check.txt'], repair_diagnosis: diagnosis, idempotency_key: 'same-plan-test-repair-1' };
+    expect(retryStep(root, retry)).toMatchObject({ status: 'success', state: { active_step_status: 'ready' } });
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(prior);
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts[1]!.recovery).toEqual(diagnosis);
+    expect(retryStep(root, retry).status).toBe('no-op');
+    const fresh = preflightStep(root, { candidate_paths: [file] });
+    expect(fresh.receipt.attempt_id).not.toBe(preflight.receipt.attempt_id);
+    fs.writeFileSync(path.join(root, file), 'process.exit(0)\n');
+    const rerun = spawnSync('bun', [file], { cwd: root, encoding: 'utf8' });
+    expect(rerun.status).toBe(0);
+    fs.writeFileSync(path.join(root, 'rerun-check.txt'), `exit=${rerun.status}`);
+    expect(recordStepResult(root, {
+      preflight_receipt: fresh.receipt, actual_changed_paths: [file],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['rerun-check.txt'] }],
+      validation_results: [{ validation: command, status: 'passed', evidence_refs: ['rerun-check.txt'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'same-plan repair reran the failed check',
+    }).status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
+    expect(after.runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(prior);
+    expect(after.runtimeState.step_attempts!['step-1']!.attempts[1]!.recovery).toEqual(diagnosis);
+  });
+
+  test('same-plan recovery rejects a fabricated failure, extra repair path and changed diagnosis replay', () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const other = 'runtime/vnext/src/other.ts';
+    const semantic = singleStepSemanticDraft();
+    semantic.mutation_scope.allowed.push(other);
+    semantic.implementation_steps[0]!.mutation_scope.push(other);
+    const root = confirmedSemanticRoot(semantic);
+    const first = preflightStep(root, { candidate_paths: [file, other] });
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    fs.writeFileSync(path.join(root, file), '// failed test asset\n');
+    expect(recordStepResult(root, {
+      preflight_receipt: first.receipt, actual_changed_paths: [file],
+      command_results: [{ command: 'bun test test/vnext-runtime.test.ts', status: 'failed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: 'bun test test/vnext-runtime.test.ts passes', status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'unknown', note: 'known local test error',
+    }).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const failed = current.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    const diagnosis = {
+      kind: 'same-plan-repair/v1' as const, status: 'confirmed' as const, owner: 'current-step' as const,
+      failed_check: 'bun test test/vnext-runtime.test.ts', cause: 'The local test asset has an invalid expression.', repair_paths: [file],
+    };
+    const input = { step_id: 'step-1', blocked_attempt_id: failed.attempt_id, blocker_resolution_refs: ['evidence-report.txt'], repair_diagnosis: diagnosis, idempotency_key: 'same-plan-error-1' };
+    expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, failed_check: 'never ran' } })).toMatchObject({ status: 'blocked', code: 'RETRY_DIAGNOSIS_REQUIRED' });
+    expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, repair_paths: ['src/login.ts'] } })).toMatchObject({ status: 'blocked', code: 'RETRY_SCOPE_BLOCKED' });
+    expect(retryStep(root, input).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, createStepPreflightProposal(readCanonicalCurrentTask(root), [file, other]))).toMatchObject({ status: 'blocked', code: 'RETRY_SCOPE_BLOCKED' });
+    expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, cause: 'changed after admission' } })).toMatchObject({ status: 'conflict', code: 'RETRY_IDEMPOTENCY_CONFLICT' });
   });
 
   test('same-version rg recovery preserves an active task with a large Runtime baseline', { timeout: 30000 }, () => {
@@ -5718,10 +5800,17 @@ describe('vNext Phase 2 Runtime contract', () => {
     const slot = semantic.claim_evidence[0]!.slots[0]!;
     slot.minimum_type = 'static-proof'; slot.check!.method = 'static'; slot.check!.expected_result = 'accepted'; slot.check!.entry = 'README.md'; slot.check!.subject_paths = ['README.md'];
     const root = confirmedSemanticRoot(semantic);
+    const before = readCanonicalCurrentTask(root);
     const preflight = preflightStep(root, { candidate_paths: ['README.md'] });
     fs.writeFileSync(path.join(root, 'README.md'), '# Reviewed documentation');
     const evidence = reportFixture(root, 'A1', 'a1', 'accepted');
     expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: ['README.md'], command_results: [], validation_results: [{ validation: 'Review the rendered documentation content', status: 'passed', evidence_refs: ['evidence-report.txt'] }], acceptance_evidence: [evidence], outcome: 'implemented', note: 'static observation' }).status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    expect(after.sourceTuple.revision).not.toBe(before.sourceTuple.revision);
+    expect(after.runtimeState.evidence_plan_revision).toBe(before.runtimeState.evidence_plan_revision);
+    const summary = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+    expect(summary.status).toBe(0);
+    expect(JSON.parse(summary.stdout).summary.evidence_plan_revision).toBe(before.runtimeState.evidence_plan_revision);
     const context = reviewContext(root, {});
     recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null });
     expect(completeReviewedStep(root, { step_id: 'update-docs', note: 'verified' }).status).toBe('success');
@@ -7033,6 +7122,34 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readProjectDocuments(readDraftDefinitionFromBody(current.body).background_context)).toEqual(replanInput.project_documents!);
     expect(replan(replanRoot, replanInput).status).toBe('no-op');
     expect(fs.readFileSync(current.filePath, 'utf8')).toBe(replannedBytes);
+  });
+
+  test('validate refuses to reuse a plan revision after direct definition drift, while authorized replan changes it', () => {
+    const root = confirmedSemanticRoot();
+    const initial = readCanonicalCurrentTask(root);
+    const validate = (summary: boolean) => spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', ...(summary ? ['--summary'] : []), '--root', root], { encoding: 'utf8' });
+    expect(validate(true).status).toBe(0);
+    const original = fs.readFileSync(initial.filePath, 'utf8');
+    fs.writeFileSync(initial.filePath, original.replace('Do not refactor unrelated Runtime handlers', 'Do not refactor unrelated Runtime handlers or fixtures'));
+    for (const summary of [true, false]) {
+      const result = validate(summary);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('CLAIM_EVIDENCE_STALE');
+    }
+    fs.writeFileSync(initial.filePath, original);
+    const supersede = createLifecycleProposal(readCanonicalCurrentTask(root), {
+      mode: 'supersede', delta: supersedeDelta(), idempotency_key: 'bounded-read-supersede',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    expect(applyVNextRuntimeProposal(root, supersede).status).toBe('success');
+    expect(replan(root, singleStepSemanticDraft({
+      goal: 'Add the prepare-task Runtime adapter with revised scope',
+      project_documents: [], affected_contracts: [],
+    })).status).toBe('success');
+    const replanned = readCanonicalCurrentTask(root);
+    expect(replanned.runtimeState.evidence_plan_revision).not.toBe(initial.runtimeState.evidence_plan_revision);
+    expect(validate(true).status).toBe(0);
   });
 
   test('keeps migration and replan convergence actions internal to Runtime owners', () => {

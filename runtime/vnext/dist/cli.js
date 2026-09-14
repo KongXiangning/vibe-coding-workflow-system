@@ -1683,7 +1683,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.18.1";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.18.3";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -2005,7 +2005,7 @@ function validateStepAttempts(value) {
       fail2("RETRY_LEDGER_INVALID", "Attempt budget must be three including the initial execution.");
     const attempts = ledger.attempts.map((raw2) => {
       const item = expectRecord2(raw2, "attempt");
-      expectExactKeys2(item, ["attempt_id", "idempotency_key", "request_digest", "status", "blocker", "evidence_refs"], "attempt");
+      expectExactKeys2(item, ["attempt_id", "idempotency_key", "request_digest", "status", "blocker", ...item.recovery === undefined ? [] : ["recovery"], "evidence_refs"], "attempt");
       let blocker = null;
       if (item.blocker !== null) {
         const rawBlocker = expectRecord2(item.blocker, "attempt blocker");
@@ -2017,7 +2017,7 @@ function validateStepAttempts(value) {
       const status = expectEnum(item.status, ["ready", "preflighted", "blocked", "implemented"], "attempt.status");
       if (status === "blocked" !== (blocker !== null))
         fail2("RETRY_LEDGER_INVALID", "Blocked attempts retain their original failure.");
-      return { attempt_id: expectString2(item.attempt_id, "attempt_id", SAFE_KEY_PATTERN2), idempotency_key: expectString2(item.idempotency_key, "attempt.idempotency_key", SAFE_KEY_PATTERN2), request_digest: item.request_digest === null ? null : expectString2(item.request_digest, "request_digest", /^[a-f0-9]{64}$/u), status, blocker, evidence_refs: validateEvidenceRefs(item.evidence_refs, "attempt.evidence_refs") };
+      return { attempt_id: expectString2(item.attempt_id, "attempt_id", SAFE_KEY_PATTERN2), idempotency_key: expectString2(item.idempotency_key, "attempt.idempotency_key", SAFE_KEY_PATTERN2), request_digest: item.request_digest === null ? null : expectString2(item.request_digest, "request_digest", /^[a-f0-9]{64}$/u), status, blocker, ...item.recovery === undefined ? {} : { recovery: validateStepRepairDiagnosis(item.recovery) }, evidence_refs: validateEvidenceRefs(item.evidence_refs, "attempt.evidence_refs") };
     });
     if (new Set(attempts.map((a) => a.attempt_id)).size !== attempts.length || new Set(attempts.map((a) => a.idempotency_key)).size !== attempts.length)
       fail2("RETRY_LEDGER_INVALID", "Attempt identities must be unique.");
@@ -2026,11 +2026,35 @@ function validateStepAttempts(value) {
   return result;
 }
 function retryRequestDigest(current, delta) {
-  return digest({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: delta.step_id, blocked_attempt_id: delta.blocked_attempt_id, refs: delta.blocker_resolution_refs });
+  return digest({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: delta.step_id, blocked_attempt_id: delta.blocked_attempt_id, refs: delta.blocker_resolution_refs, ...delta.repair_diagnosis ? { repair_diagnosis: delta.repair_diagnosis } : {} });
+}
+function validateStepRepairDiagnosis(value) {
+  const report = expectRecord2(value, "repair diagnosis");
+  expectExactKeys2(report, ["kind", "status", "owner", "failed_check", "cause", "repair_paths"], "repair diagnosis");
+  if (report.kind !== "same-plan-repair/v1" || report.status !== "confirmed" || report.owner !== "current-step")
+    fail2("RETRY_DIAGNOSIS_REQUIRED", "Same-plan repair requires a confirmed current-step diagnosis.");
+  return { kind: "same-plan-repair/v1", status: "confirmed", owner: "current-step", failed_check: expectText(report.failed_check, "repair failed_check"), cause: expectText(report.cause, "repair cause"), repair_paths: expectStringArray2(report.repair_paths, "repair repair_paths", false, 256).map((p) => normalizeRepoPath2(p, "repair path")) };
 }
 function validateRetryResolution(root, current, delta, failure) {
   if (captureReviewTarget(root, failure.subject_snapshot.entries.map((e) => e.path)).revision !== failure.subject_snapshot.revision)
     fail2("RETRY_SUBJECT_STALE", "Declared code, fixture or check objects changed after failure; use authorized repair or replan.");
+  if (delta.repair_diagnosis) {
+    if (failure.kind !== "unknown")
+      fail2("RETRY_DIAGNOSIS_REQUIRED", "Same-plan repair requires the retained non-environment failure.");
+    const failed = [...failure.execution_result.command_results.filter((item) => item.status === "failed"), ...failure.execution_result.validation_results.filter((item) => item.status === "failed")];
+    const checkNames = failed.map((item) => ("command" in item) ? item.command : item.validation);
+    if (!checkNames.includes(delta.repair_diagnosis.failed_check))
+      fail2("RETRY_DIAGNOSIS_REQUIRED", "The diagnosis must identify a check that actually failed in the retained attempt.");
+    const failedEvidence = new Set(failed.flatMap((item) => item.evidence_refs));
+    if (!delta.blocker_resolution_refs.every((ref) => failedEvidence.has(ref)))
+      fail2("RETRY_DIAGNOSIS_REQUIRED", "Recovery evidence must cite the retained failed check.");
+    const admittedPaths = new Set(failure.execution_result.review_base.entries.map((entry) => entry.path));
+    if (delta.repair_diagnosis.repair_paths.some((p) => !admittedPaths.has(p)))
+      fail2("RETRY_SCOPE_BLOCKED", "Same-plan repair paths must be a subset of the failed preflight candidate paths.");
+    return;
+  }
+  if (failure.kind !== "environment" || [...failure.execution_result.command_results, ...failure.execution_result.validation_results].some((item) => item.status === "failed"))
+    fail2("RETRY_DIAGNOSIS_REQUIRED", "Environment retry requires a recorded environment blocker without failed checks.");
   for (const ref of delta.blocker_resolution_refs) {
     const relative2 = normalizeRepoPath2(ref, "blocker_resolution_ref");
     const absolute = path4.resolve(root, relative2);
@@ -2372,8 +2396,12 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(findingQueueAdmission, ["required"], "Runtime contract.proposal.finding_queue_admission");
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
-  expectExactKeys2(taskStateContract, ["actions", "step_progress", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
+  expectExactKeys2(taskStateContract, ["actions", "retry_step", "step_progress", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
   expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
+  const retryContract = expectRecord2(taskStateContract.retry_step, "Runtime contract.proposal.task_state.retry_step");
+  expectExactKeys2(retryContract, ["max_attempts", "environment_report", "same_plan_repair_diagnosis", "repair_paths", "failure_preservation", "result_required"], "Runtime contract.proposal.task_state.retry_step");
+  if (retryContract.max_attempts !== 3 || retryContract.environment_report !== "environment-restored/v1" || retryContract.same_plan_repair_diagnosis !== "same-plan-repair/v1" || retryContract.repair_paths !== "failed-preflight-subset" || retryContract.failure_preservation !== "durable-step-attempts" || retryContract.result_required !== "fresh-preflight-and-execution")
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime retry contract must retain bounded same-plan recovery and fresh execution.");
   const stepProgressContract = expectRecord2(taskStateContract.step_progress, "Runtime contract.proposal.task_state.step_progress");
   expectExactKeys2(stepProgressContract, ["required", "optional"], "Runtime contract.proposal.task_state.step_progress");
   expectSetEqual(expectStringArray2(stepProgressContract.required, "Runtime contract.proposal.task_state.step_progress.required"), ["step_id", "status", "evidence_refs"], "Runtime contract task-state required fields");
@@ -4032,8 +4060,8 @@ function validateTaskStateDelta(value) {
   const kind = expectEnum(record.kind, ["task-state"], "semantic_delta.kind");
   const action = expectEnum(record.action, ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
   if (action === "retry-step") {
-    expectExactKeys2(record, ["kind", "action", "step_id", "blocked_attempt_id", "blocker_resolution_refs", "evidence_refs"], "retry-step");
-    return { kind, action, step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2), blocked_attempt_id: expectString2(record.blocked_attempt_id, "blocked_attempt_id", SAFE_KEY_PATTERN2), blocker_resolution_refs: validateEvidenceRefs(record.blocker_resolution_refs, "blocker_resolution_refs"), evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs") };
+    expectExactKeys2(record, ["kind", "action", "step_id", "blocked_attempt_id", "blocker_resolution_refs", ...record.repair_diagnosis === undefined ? [] : ["repair_diagnosis"], "evidence_refs"], "retry-step");
+    return { kind, action, step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2), blocked_attempt_id: expectString2(record.blocked_attempt_id, "blocked_attempt_id", SAFE_KEY_PATTERN2), blocker_resolution_refs: validateEvidenceRefs(record.blocker_resolution_refs, "blocker_resolution_refs"), ...record.repair_diagnosis === undefined ? {} : { repair_diagnosis: validateStepRepairDiagnosis(record.repair_diagnosis) }, evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs") };
   }
   if (action === "record-step-preflight") {
     expectExactKeys2(record, ["kind", "action", "step_id", "candidate_paths", "evidence_refs"], "semantic_delta");
@@ -9324,15 +9352,12 @@ function applyTaskStateDelta(root, current, proposal, now) {
     const failed = ledger?.attempts.at(-1);
     if (!ledger || ledger.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || !failed || failed.attempt_id !== delta.blocked_attempt_id || failed.status !== "blocked" || !failed.blocker)
       fail2("RETRY_ATTEMPT_CONFLICT", "Retry must bind the durable latest failure in the same plan.");
-    if (failed.blocker.kind !== "environment" || [...failed.blocker.execution_result.command_results, ...failed.blocker.execution_result.validation_results].some((r) => r.status === "failed")) {
-      fail2("RETRY_DIAGNOSIS_REQUIRED", "Only a recorded environment blocker can retry; business or unknown failures require debug/authorized repair.");
-    }
     if (ledger.attempts.length >= ledger.max_attempts)
       fail2("RETRY_BUDGET_EXHAUSTED", "Three attempts exhausted; route to debug-task or the user.");
     if (!delta.blocker_resolution_refs.every((ref) => delta.evidence_refs.includes(ref) && proposal.evidence_refs.includes(ref)))
       fail2("RETRY_RESOLUTION_REQUIRED", "Retry evidence must cover resolution artifacts.");
     validateRetryResolution(root, current, delta, failed.blocker);
-    const attempt = { attempt_id: `attempt-${digest({ document: current.sourceTuple.document_id, plan: ledger.evidence_plan_revision, step: delta.step_id, n: ledger.attempts.length + 1 }).slice(0, 40)}`, idempotency_key: proposal.idempotency_key, request_digest: retryRequestDigest(current, delta), status: "ready", blocker: null, evidence_refs: [...delta.blocker_resolution_refs] };
+    const attempt = { attempt_id: `attempt-${digest({ document: current.sourceTuple.document_id, plan: ledger.evidence_plan_revision, step: delta.step_id, n: ledger.attempts.length + 1 }).slice(0, 40)}`, idempotency_key: proposal.idempotency_key, request_digest: retryRequestDigest(current, delta), status: "ready", blocker: null, ...delta.repair_diagnosis ? { recovery: delta.repair_diagnosis } : {}, evidence_refs: [...delta.blocker_resolution_refs] };
     return { next: { ...current.runtimeState, active_step_status: "ready", step_attempts: { ...current.runtimeState.step_attempts, [delta.step_id]: { ...ledger, attempts: [...ledger.attempts, attempt] } }, ...current.runtimeState.review_coverage ? { review_coverage: { ...current.runtimeState.review_coverage, last_clean_revision: null } } : {}, applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
   }
   if (delta.action === "record-step-preflight") {
@@ -9355,6 +9380,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
       }
     const coverage2 = registerReviewCoverage(root, current, delta.candidate_paths);
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+    const recovery = ledger?.attempts.at(-1)?.recovery;
+    if (recovery && delta.candidate_paths.some((p) => !recovery.repair_paths.includes(p)))
+      fail2("RETRY_SCOPE_BLOCKED", "Recovered preflight candidates must stay within the admitted diagnosis paths.");
     const stepAttempts2 = ledger && ledger.attempts.at(-1)?.status === "ready" ? { ...current.runtimeState.step_attempts, [delta.step_id]: { ...ledger, attempts: ledger.attempts.map((a, i) => i === ledger.attempts.length - 1 ? { ...a, status: "preflighted" } : a) } } : current.runtimeState.step_attempts;
     return { next: { ...current.runtimeState, review_coverage: coverage2, ...stepAttempts2 ? { step_attempts: stepAttempts2 } : {}, claim_evidence: claims, applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
   }
@@ -9611,7 +9639,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     }
     if (current.runtimeState.evidence_plan_revision && result.attempt_id) {
       const paths = [...new Set([...current.runtimeState.review_coverage?.target.entries.map((e) => e.path) ?? [], ...result.review_target.entries.map((e) => e.path), ...(current.runtimeState.claim_evidence ?? []).flatMap((c) => c.slots.flatMap((s) => s.check?.subject_paths ?? []))])];
-      const attempt = { attempt_id: result.attempt_id, idempotency_key: activeAttempt?.idempotency_key ?? proposal.idempotency_key, request_digest: activeAttempt?.request_digest ?? null, status: result.outcome === "blocked" ? "blocked" : "implemented", blocker: result.outcome === "blocked" ? { kind: result.blocker_kind ?? "unknown", execution_result: result, subject_snapshot: captureReviewTarget(root, paths) } : null, evidence_refs: [...new Set([...activeAttempt?.evidence_refs ?? [], ...delta.evidence_refs])] };
+      const attempt = { attempt_id: result.attempt_id, idempotency_key: activeAttempt?.idempotency_key ?? proposal.idempotency_key, request_digest: activeAttempt?.request_digest ?? null, status: result.outcome === "blocked" ? "blocked" : "implemented", blocker: result.outcome === "blocked" ? { kind: result.blocker_kind ?? "unknown", execution_result: result, subject_snapshot: captureReviewTarget(root, paths) } : null, ...activeAttempt?.recovery ? { recovery: activeAttempt.recovery } : {}, evidence_refs: [...new Set([...activeAttempt?.evidence_refs ?? [], ...delta.evidence_refs])] };
       stepAttempts = { ...stepAttempts, [delta.step_id]: { evidence_plan_revision: current.runtimeState.evidence_plan_revision, max_attempts: 3, attempts: ledger ? [...ledger.attempts.slice(0, -1), attempt] : [attempt] } };
     }
   }
@@ -11242,7 +11270,7 @@ function createStepRetryProposal(current, input) {
     mode: "default",
     source_tuple: current.sourceTuple,
     authority_evidence: ["active-task-owner", "scope-admission", "evidence-admission"].map((kind) => ({ kind, source: current.relativePath, subject: current.runtimeState.active_step_id })),
-    semantic_delta: { kind: "task-state", action: "retry-step", step_id: input.step_id, blocked_attempt_id: input.blocked_attempt_id, blocker_resolution_refs: input.blocker_resolution_refs, evidence_refs: input.blocker_resolution_refs },
+    semantic_delta: { kind: "task-state", action: "retry-step", step_id: input.step_id, blocked_attempt_id: input.blocked_attempt_id, blocker_resolution_refs: input.blocker_resolution_refs, ...input.repair_diagnosis ? { repair_diagnosis: input.repair_diagnosis } : {}, evidence_refs: input.blocker_resolution_refs },
     preconditions: ["current-task-is-active", "active-step-matches", "scope-admitted"],
     evidence_refs: input.blocker_resolution_refs,
     idempotency_key: input.idempotency_key,
@@ -11569,6 +11597,12 @@ async function runCli(argv = process.argv.slice(2)) {
       requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       const state = current.runtimeState;
+      if (state.business_evidence_version === 1) {
+        const actualPlanRevision = assertEvidencePlan(readDraftDefinitionFromBody(current.body), state.claim_evidence ?? []);
+        if (state.evidence_plan_revision !== actualPlanRevision) {
+          fail2("CLAIM_EVIDENCE_STALE", "canonical evidence plan revision does not match its definitions.");
+        }
+      }
       const sections = resolveReplanSectionRanges(current.body);
       const sectionText = (key) => {
         const section = sections[key];
@@ -14826,12 +14860,13 @@ function beginRepair(root, input, options = {}) {
 }
 function retryStep(root, input, options = {}) {
   const source = record2(input, "retry-step input");
-  exactKeys2(source, ["step_id", "blocked_attempt_id", "blocker_resolution_refs", "idempotency_key"], "retry-step input");
+  exactKeys2(source, ["step_id", "blocked_attempt_id", "blocker_resolution_refs", ...source.repair_diagnosis === undefined ? [] : ["repair_diagnosis"], "idempotency_key"], "retry-step input");
   const current = readCanonicalCurrentTask(root);
   const proposal = createStepRetryProposal(current, {
     step_id: text3(source.step_id, "step_id", 128),
     blocked_attempt_id: text3(source.blocked_attempt_id, "blocked_attempt_id", 128),
     blocker_resolution_refs: textList2(source.blocker_resolution_refs, "blocker_resolution_refs", false),
+    ...source.repair_diagnosis === undefined ? {} : { repair_diagnosis: source.repair_diagnosis },
     idempotency_key: text3(source.idempotency_key, "idempotency_key", 128)
   });
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);

@@ -42,6 +42,14 @@ Review the cumulative task delta at the current checkpoint. Do not modify code, 
 
 ## Operating rules
 
+Start with a fresh `validate --summary`, then follow **Bounded CURRENT_TASK
+reading** in `.workflow-system/runtime/support/CONTEXT_API.md`. Read the full
+definition range on first use. Reuse it only while it remains completely
+visible in this conversation and task ID, document ID, and
+non-null `evidence_plan_revision` still match the fresh summary; otherwise read it
+again. Use the latest summary for status, and always obtain a fresh
+`review-context` with its cumulative diff and current evidence.
+
 Use **Project document navigation** in
 `.workflow-system/runtime/support/CONTEXT_API.md` to read the project sources
 relevant to the admitted review target. Discovery may be broader than the diff;

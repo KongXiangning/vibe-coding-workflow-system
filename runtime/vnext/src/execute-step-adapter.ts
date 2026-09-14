@@ -20,6 +20,7 @@ import {
   assertBusinessEvidenceVersion,
   createStepPreflightProposal,
   createStepRetryProposal,
+  type StepRepairDiagnosis,
   nextStepAttemptId,
   evaluateClaimEvidence,
   validateStepAcceptanceEvidence,
@@ -711,12 +712,13 @@ export function beginRepair(
 
 export function retryStep(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input,'retry-step input');
-  exactKeys(source,['step_id','blocked_attempt_id','blocker_resolution_refs','idempotency_key'],'retry-step input');
+  exactKeys(source,['step_id','blocked_attempt_id','blocker_resolution_refs',...(source.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),'idempotency_key'],'retry-step input');
   const current = readCanonicalCurrentTask(root);
   const proposal = createStepRetryProposal(current,{
     step_id:text(source.step_id,'step_id',128),
     blocked_attempt_id:text(source.blocked_attempt_id,'blocked_attempt_id',128),
     blocker_resolution_refs:textList(source.blocker_resolution_refs,'blocker_resolution_refs',false),
+    ...(source.repair_diagnosis === undefined ? {} : {repair_diagnosis:source.repair_diagnosis as StepRepairDiagnosis}),
     idempotency_key:text(source.idempotency_key,'idempotency_key',128),
   });
   return verifyReadBack(root,applyVNextRuntimeProposal(root,proposal,options),options);

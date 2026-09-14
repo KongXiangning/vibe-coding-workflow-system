@@ -69,6 +69,33 @@ test('UTF-8 long-line pagination preserves exact bytes, detects stale reads and 
   await expect(fileContext(root, { operation: 'read', path: 'linked/private' })).rejects.toThrow('CONTEXT_SYMLINK');
 });
 
+test('CURRENT_TASK definition headings locate a hash-bound complete range without returning runtime history', async () => {
+  const root = temp();
+  const relative = 'docs/workflow/CURRENT_TASK.md';
+  const file = path.join(root, relative);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const definition = `## 任务输入依据\n${'定义🙂\n'.repeat(4000)}`;
+  fs.writeFileSync(file, `runtime-state: ${'x'.repeat(100_000)}\n${definition}## 执行记录\nprivate history\n`);
+  const start = await fileContext(root, { operation: 'search', roots: [relative], query: '## 任务输入依据' });
+  const end = await fileContext(root, { operation: 'search', roots: [relative], query: '## 执行记录' });
+  expect(start).toMatchObject({ status: 'pass', complete_within_scope: true });
+  expect(end).toMatchObject({ status: 'pass', complete_within_scope: true });
+  const startLine = start.hits!.find(hit => hit.text?.trim() === '## 任务输入依据')!.line!;
+  const endLine = end.hits!.find(hit => hit.text?.trim() === '## 执行记录')!.line!;
+  let page = await fileContext(root, { operation: 'read', path: relative, start_line: startLine, end_line: endLine - 1, max_bytes: 4096 });
+  const revision = page.sha256;
+  let bounded = page.text!;
+  while (page.truncated) {
+    page = await fileContext(root, { operation: 'read', path: relative, start_line: startLine, end_line: endLine - 1, offset: page.next_offset!, sha256: revision, max_bytes: 4096 });
+    bounded += page.text;
+  }
+  expect(bounded).toBe(definition);
+  expect(bounded).not.toContain('private history');
+  expect((await fileContext(root, { operation: 'search', roots: [relative], query: '## missing' })).hits).toEqual([]);
+  fs.appendFileSync(file, 'changed\n');
+  await expect(fileContext(root, { operation: 'read', path: relative, start_line: startLine, end_line: endLine - 1, sha256: revision })).rejects.toThrow('CONTEXT_STALE');
+});
+
 test('Node CLI bounds oversized rg output and missing rg is explicit without installation', () => {
   const root = temp();
   fs.writeFileSync(path.join(root, 'large.ts'), 'needle ' + 'x'.repeat(200_000));

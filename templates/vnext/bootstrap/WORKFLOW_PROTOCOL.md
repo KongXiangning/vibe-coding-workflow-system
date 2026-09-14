@@ -229,8 +229,9 @@ confirmed reason explicitly starts with `final-exemption:` and explains why the
 entire cumulative task may be exempt. Project-required reviews cannot be waived.
 Clean completion consumes pending coverage; findings, blocked and stale results
 preserve it. Repair still requires verification. The internal retry-step action
-only restores an explicitly recorded environment blocker to ready in the
-same plan. It retains failure evidence and permits at most three attempts in
-canonical step_attempts. Retry never completes the step: a fresh preflight and
-execution are required. Unknown/business failures and open findings do not use
+can restore a recorded environment blocker or a confirmed same-plan current-step
+failed check to ready only when its distinct evidence and scope gates pass. It
+retains failure evidence and permits at most three attempts in canonical
+step_attempts. Retry never completes the step: a fresh preflight and execution
+are required. Unknown causes, changed plans, and open findings do not use this
 retry; no server restart or database reset is an implicit recovery action.

@@ -89,7 +89,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.18.1';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.18.3';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -585,7 +585,7 @@ export type TaskStepProgressDelta = {
 
 export type TaskStateDelta =
   | TaskStepProgressDelta
-  | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; evidence_refs: string[] }
+  | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; repair_diagnosis?: StepRepairDiagnosis; evidence_refs: string[] }
   | { kind: 'task-state'; action: 'record-step-preflight'; step_id: string; candidate_paths: string[]; evidence_refs: string[] }
   | {
       kind: 'task-state';
@@ -1089,10 +1089,13 @@ export type InboxRecordProposal = RuntimeProposal & {
   semantic_delta: InboxRecordDelta;
 };
 
+export type StepRepairDiagnosis = { kind: 'same-plan-repair/v1'; status: 'confirmed'; owner: 'current-step'; failed_check: string; cause: string; repair_paths: string[] };
+
 export type StepAttempt = {
   attempt_id: string; idempotency_key: string; request_digest: string | null;
   status: 'ready' | 'preflighted' | 'blocked' | 'implemented';
   blocker: { kind: 'environment' | 'unknown'; execution_result: StepExecutionResult; subject_snapshot: ReviewTarget } | null;
+  recovery?: StepRepairDiagnosis;
   evidence_refs: string[];
 };
 export type StepAttemptLedger = { evidence_plan_revision: string; max_attempts: 3; attempts: StepAttempt[] };
@@ -1369,7 +1372,7 @@ function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger>
     if (ledger.max_attempts !== 3 || !Array.isArray(ledger.attempts) || !ledger.attempts.length || ledger.attempts.length > 3) fail('RETRY_LEDGER_INVALID','Attempt budget must be three including the initial execution.');
     const attempts = ledger.attempts.map(raw => {
       const item = expectRecord(raw,'attempt');
-      expectExactKeys(item,['attempt_id','idempotency_key','request_digest','status','blocker','evidence_refs'],'attempt');
+      expectExactKeys(item,['attempt_id','idempotency_key','request_digest','status','blocker',...(item.recovery === undefined ? [] : ['recovery']),'evidence_refs'],'attempt');
       let blocker: StepAttempt['blocker'] = null;
       if (item.blocker !== null) {
         const rawBlocker = expectRecord(item.blocker,'attempt blocker');
@@ -1379,7 +1382,7 @@ function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger>
       }
       const status = expectEnum(item.status,['ready','preflighted','blocked','implemented'],'attempt.status');
       if ((status === 'blocked') !== (blocker !== null)) fail('RETRY_LEDGER_INVALID','Blocked attempts retain their original failure.');
-      return {attempt_id:expectString(item.attempt_id,'attempt_id',SAFE_KEY_PATTERN),idempotency_key:expectString(item.idempotency_key,'attempt.idempotency_key',SAFE_KEY_PATTERN),request_digest:item.request_digest === null ? null : expectString(item.request_digest,'request_digest',/^[a-f0-9]{64}$/u),status,blocker,evidence_refs:validateEvidenceRefs(item.evidence_refs,'attempt.evidence_refs')};
+      return {attempt_id:expectString(item.attempt_id,'attempt_id',SAFE_KEY_PATTERN),idempotency_key:expectString(item.idempotency_key,'attempt.idempotency_key',SAFE_KEY_PATTERN),request_digest:item.request_digest === null ? null : expectString(item.request_digest,'request_digest',/^[a-f0-9]{64}$/u),status,blocker,...(item.recovery === undefined ? {} : {recovery:validateStepRepairDiagnosis(item.recovery)}),evidence_refs:validateEvidenceRefs(item.evidence_refs,'attempt.evidence_refs')};
     });
     if (new Set(attempts.map(a=>a.attempt_id)).size !== attempts.length || new Set(attempts.map(a=>a.idempotency_key)).size !== attempts.length) fail('RETRY_LEDGER_INVALID','Attempt identities must be unique.');
     result[step] = {evidence_plan_revision:expectString(ledger.evidence_plan_revision,'attempt plan',/^[a-f0-9]{64}$/u),max_attempts:3,attempts};
@@ -1388,11 +1391,30 @@ function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger>
 }
 
 function retryRequestDigest(current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>): string {
-  return digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision,step:delta.step_id,blocked_attempt_id:delta.blocked_attempt_id,refs:delta.blocker_resolution_refs});
+  return digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision,step:delta.step_id,blocked_attempt_id:delta.blocked_attempt_id,refs:delta.blocker_resolution_refs,...(delta.repair_diagnosis ? {repair_diagnosis:delta.repair_diagnosis} : {})});
+}
+
+function validateStepRepairDiagnosis(value: unknown): StepRepairDiagnosis {
+  const report = expectRecord(value,'repair diagnosis');
+  expectExactKeys(report,['kind','status','owner','failed_check','cause','repair_paths'],'repair diagnosis');
+  if (report.kind !== 'same-plan-repair/v1' || report.status !== 'confirmed' || report.owner !== 'current-step') fail('RETRY_DIAGNOSIS_REQUIRED','Same-plan repair requires a confirmed current-step diagnosis.');
+  return {kind:'same-plan-repair/v1',status:'confirmed',owner:'current-step',failed_check:expectText(report.failed_check,'repair failed_check'),cause:expectText(report.cause,'repair cause'),repair_paths:expectStringArray(report.repair_paths,'repair repair_paths',false,256).map(p=>normalizeRepoPath(p,'repair path'))};
 }
 
 function validateRetryResolution(root: string, current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>, failure: NonNullable<StepAttempt['blocker']>): void {
   if (captureReviewTarget(root,failure.subject_snapshot.entries.map(e=>e.path)).revision !== failure.subject_snapshot.revision) fail('RETRY_SUBJECT_STALE','Declared code, fixture or check objects changed after failure; use authorized repair or replan.');
+  if (delta.repair_diagnosis) {
+    if (failure.kind !== 'unknown') fail('RETRY_DIAGNOSIS_REQUIRED','Same-plan repair requires the retained non-environment failure.');
+    const failed = [...failure.execution_result.command_results.filter(item=>item.status==='failed'),...failure.execution_result.validation_results.filter(item=>item.status==='failed')];
+    const checkNames = failed.map(item=>'command' in item ? item.command : item.validation);
+    if (!checkNames.includes(delta.repair_diagnosis.failed_check)) fail('RETRY_DIAGNOSIS_REQUIRED','The diagnosis must identify a check that actually failed in the retained attempt.');
+    const failedEvidence = new Set(failed.flatMap(item=>item.evidence_refs));
+    if (!delta.blocker_resolution_refs.every(ref=>failedEvidence.has(ref))) fail('RETRY_DIAGNOSIS_REQUIRED','Recovery evidence must cite the retained failed check.');
+    const admittedPaths = new Set(failure.execution_result.review_base.entries.map(entry=>entry.path));
+    if (delta.repair_diagnosis.repair_paths.some(p=>!admittedPaths.has(p))) fail('RETRY_SCOPE_BLOCKED','Same-plan repair paths must be a subset of the failed preflight candidate paths.');
+    return;
+  }
+  if (failure.kind !== 'environment' || [...failure.execution_result.command_results,...failure.execution_result.validation_results].some(item=>item.status==='failed')) fail('RETRY_DIAGNOSIS_REQUIRED','Environment retry requires a recorded environment blocker without failed checks.');
   for (const ref of delta.blocker_resolution_refs) {
     const relative = normalizeRepoPath(ref,'blocker_resolution_ref');
     const absolute = path.resolve(root,relative);
@@ -1760,12 +1782,15 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime contract finding-queue admission fields',
   );
   const taskStateContract = expectRecord(proposal.task_state, 'Runtime contract.proposal.task_state');
-  expectExactKeys(taskStateContract, ['actions', 'step_progress', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
+  expectExactKeys(taskStateContract, ['actions', 'retry_step', 'step_progress', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
   expectSetEqual(
     expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
     ['retry-step', 'record-step-preflight', 'step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS],
     'Runtime contract task-state actions',
   );
+  const retryContract = expectRecord(taskStateContract.retry_step, 'Runtime contract.proposal.task_state.retry_step');
+  expectExactKeys(retryContract, ['max_attempts','environment_report','same_plan_repair_diagnosis','repair_paths','failure_preservation','result_required'], 'Runtime contract.proposal.task_state.retry_step');
+  if (retryContract.max_attempts !== 3 || retryContract.environment_report !== 'environment-restored/v1' || retryContract.same_plan_repair_diagnosis !== 'same-plan-repair/v1' || retryContract.repair_paths !== 'failed-preflight-subset' || retryContract.failure_preservation !== 'durable-step-attempts' || retryContract.result_required !== 'fresh-preflight-and-execution') fail('RUNTIME_CONTRACT_INVALID','Runtime retry contract must retain bounded same-plan recovery and fresh execution.');
   const stepProgressContract = expectRecord(taskStateContract.step_progress, 'Runtime contract.proposal.task_state.step_progress');
   expectExactKeys(stepProgressContract, ['required', 'optional'], 'Runtime contract.proposal.task_state.step_progress');
   expectSetEqual(
@@ -3803,8 +3828,8 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
   const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'step-progress', 'clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], 'semantic_delta.action');
   if (action === 'retry-step') {
-    expectExactKeys(record, ['kind','action','step_id','blocked_attempt_id','blocker_resolution_refs','evidence_refs'], 'retry-step');
-    return {kind,action,step_id:expectString(record.step_id,'step_id',STEP_ID_PATTERN),blocked_attempt_id:expectString(record.blocked_attempt_id,'blocked_attempt_id',SAFE_KEY_PATTERN),blocker_resolution_refs:validateEvidenceRefs(record.blocker_resolution_refs,'blocker_resolution_refs'),evidence_refs:validateEvidenceRefs(record.evidence_refs,'evidence_refs')};
+    expectExactKeys(record, ['kind','action','step_id','blocked_attempt_id','blocker_resolution_refs',...(record.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),'evidence_refs'], 'retry-step');
+    return {kind,action,step_id:expectString(record.step_id,'step_id',STEP_ID_PATTERN),blocked_attempt_id:expectString(record.blocked_attempt_id,'blocked_attempt_id',SAFE_KEY_PATTERN),blocker_resolution_refs:validateEvidenceRefs(record.blocker_resolution_refs,'blocker_resolution_refs'),...(record.repair_diagnosis === undefined ? {} : {repair_diagnosis:validateStepRepairDiagnosis(record.repair_diagnosis)}),evidence_refs:validateEvidenceRefs(record.evidence_refs,'evidence_refs')};
   }
   if (action === 'record-step-preflight') {
     expectExactKeys(record, ['kind', 'action', 'step_id', 'candidate_paths', 'evidence_refs'], 'semantic_delta');
@@ -9509,13 +9534,10 @@ function applyTaskStateDelta(
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
     const failed = ledger?.attempts.at(-1);
     if (!ledger || ledger.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || !failed || failed.attempt_id !== delta.blocked_attempt_id || failed.status !== 'blocked' || !failed.blocker) fail('RETRY_ATTEMPT_CONFLICT','Retry must bind the durable latest failure in the same plan.');
-    if (failed.blocker.kind !== 'environment' || [...failed.blocker.execution_result.command_results, ...failed.blocker.execution_result.validation_results].some(r => r.status === 'failed')) {
-      fail('RETRY_DIAGNOSIS_REQUIRED', 'Only a recorded environment blocker can retry; business or unknown failures require debug/authorized repair.');
-    }
     if (ledger.attempts.length >= ledger.max_attempts) fail('RETRY_BUDGET_EXHAUSTED','Three attempts exhausted; route to debug-task or the user.');
     if (!delta.blocker_resolution_refs.every(ref=>delta.evidence_refs.includes(ref) && proposal.evidence_refs.includes(ref))) fail('RETRY_RESOLUTION_REQUIRED','Retry evidence must cover resolution artifacts.');
     validateRetryResolution(root,current,delta,failed.blocker);
-    const attempt: StepAttempt = {attempt_id:`attempt-${digest({document:current.sourceTuple.document_id,plan:ledger.evidence_plan_revision,step:delta.step_id,n:ledger.attempts.length+1}).slice(0,40)}`,idempotency_key:proposal.idempotency_key,request_digest:retryRequestDigest(current,delta),status:'ready',blocker:null,evidence_refs:[...delta.blocker_resolution_refs]};
+    const attempt: StepAttempt = {attempt_id:`attempt-${digest({document:current.sourceTuple.document_id,plan:ledger.evidence_plan_revision,step:delta.step_id,n:ledger.attempts.length+1}).slice(0,40)}`,idempotency_key:proposal.idempotency_key,request_digest:retryRequestDigest(current,delta),status:'ready',blocker:null,...(delta.repair_diagnosis ? {recovery:delta.repair_diagnosis} : {}),evidence_refs:[...delta.blocker_resolution_refs]};
     return {next:{...current.runtimeState,active_step_status:'ready',step_attempts:{...current.runtimeState.step_attempts,[delta.step_id]:{...ledger,attempts:[...ledger.attempts,attempt]}},...(current.runtimeState.review_coverage ? {review_coverage:{...current.runtimeState.review_coverage,last_clean_revision:null}} : {}),applied_proposals:appendAppliedProposal(current.runtimeState,proposal,current.sourceTuple.revision)}};
   }
   if (delta.action === 'record-step-preflight') {
@@ -9534,6 +9556,8 @@ function applyTaskStateDelta(
     }
     const coverage = registerReviewCoverage(root, current, delta.candidate_paths);
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+    const recovery = ledger?.attempts.at(-1)?.recovery;
+    if (recovery && delta.candidate_paths.some(p=>!recovery.repair_paths.includes(p))) fail('RETRY_SCOPE_BLOCKED','Recovered preflight candidates must stay within the admitted diagnosis paths.');
     const stepAttempts = ledger && ledger.attempts.at(-1)?.status === 'ready'
       ? {...current.runtimeState.step_attempts,[delta.step_id]:{...ledger,attempts:ledger.attempts.map((a,i)=>i===ledger.attempts.length-1 ? {...a,status:'preflighted' as const} : a)}}
       : current.runtimeState.step_attempts;
@@ -9783,7 +9807,7 @@ function applyTaskStateDelta(
     }
     if (current.runtimeState.evidence_plan_revision && result.attempt_id) {
       const paths = [...new Set([...(current.runtimeState.review_coverage?.target.entries.map(e=>e.path) ?? []),...result.review_target.entries.map(e=>e.path),...(current.runtimeState.claim_evidence ?? []).flatMap(c=>c.slots.flatMap(s=>s.check?.subject_paths ?? []))])];
-      const attempt: StepAttempt = {attempt_id:result.attempt_id,idempotency_key:activeAttempt?.idempotency_key ?? proposal.idempotency_key,request_digest:activeAttempt?.request_digest ?? null,status:result.outcome==='blocked'?'blocked':'implemented',blocker:result.outcome==='blocked'?{kind:result.blocker_kind ?? 'unknown',execution_result:result,subject_snapshot:captureReviewTarget(root,paths)}:null,evidence_refs:[...new Set([...(activeAttempt?.evidence_refs ?? []),...delta.evidence_refs])]};
+      const attempt: StepAttempt = {attempt_id:result.attempt_id,idempotency_key:activeAttempt?.idempotency_key ?? proposal.idempotency_key,request_digest:activeAttempt?.request_digest ?? null,status:result.outcome==='blocked'?'blocked':'implemented',blocker:result.outcome==='blocked'?{kind:result.blocker_kind ?? 'unknown',execution_result:result,subject_snapshot:captureReviewTarget(root,paths)}:null,...(activeAttempt?.recovery ? {recovery:activeAttempt.recovery} : {}),evidence_refs:[...new Set([...(activeAttempt?.evidence_refs ?? []),...delta.evidence_refs])]};
       stepAttempts = {...stepAttempts,[delta.step_id]:{evidence_plan_revision:current.runtimeState.evidence_plan_revision,max_attempts:3,attempts:ledger ? [...ledger.attempts.slice(0,-1),attempt] : [attempt]}};
     }
   }
@@ -11652,11 +11676,11 @@ export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: str
   }
 }
 
-export function createStepRetryProposal(current: CanonicalCurrentTask, input: {step_id:string;blocked_attempt_id:string;blocker_resolution_refs:string[];idempotency_key:string}): RuntimeProposal {
+export function createStepRetryProposal(current: CanonicalCurrentTask, input: {step_id:string;blocked_attempt_id:string;blocker_resolution_refs:string[];repair_diagnosis?:StepRepairDiagnosis;idempotency_key:string}): RuntimeProposal {
   return validateRuntimeProposal({
     schema_version:1,kind:VNEXT_RUNTIME_PROPOSAL_KIND,operation_kind:'task-state-transaction',caller:'execute-step',mode:'default',source_tuple:current.sourceTuple,
     authority_evidence:['active-task-owner','scope-admission','evidence-admission'].map(kind=>({kind,source:current.relativePath,subject:current.runtimeState.active_step_id})),
-    semantic_delta:{kind:'task-state',action:'retry-step',step_id:input.step_id,blocked_attempt_id:input.blocked_attempt_id,blocker_resolution_refs:input.blocker_resolution_refs,evidence_refs:input.blocker_resolution_refs},
+    semantic_delta:{kind:'task-state',action:'retry-step',step_id:input.step_id,blocked_attempt_id:input.blocked_attempt_id,blocker_resolution_refs:input.blocker_resolution_refs,...(input.repair_diagnosis ? {repair_diagnosis:input.repair_diagnosis} : {}),evidence_refs:input.blocker_resolution_refs},
     preconditions:['current-task-is-active','active-step-matches','scope-admitted'],evidence_refs:input.blocker_resolution_refs,idempotency_key:input.idempotency_key,requested_write_targets:[current.relativePath],
   });
 }
@@ -12426,6 +12450,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       requireBootstrappedProject(args.root);
       const current = readCanonicalCurrentTask(args.root);
       const state = current.runtimeState;
+      if (state.business_evidence_version === 1) {
+        const actualPlanRevision = assertEvidencePlan(readDraftDefinitionFromBody(current.body), state.claim_evidence ?? []);
+        if (state.evidence_plan_revision !== actualPlanRevision) {
+          fail('CLAIM_EVIDENCE_STALE', 'canonical evidence plan revision does not match its definitions.');
+        }
+      }
       const sections = resolveReplanSectionRanges(current.body);
       const sectionText = (key: 'background_context' | 'affected_contracts') => {
         const section = sections[key];
