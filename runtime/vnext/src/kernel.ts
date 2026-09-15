@@ -95,7 +95,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.19.2';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.19.3';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -9381,7 +9381,7 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
   for (const challenge of challenges) {
     const corrected = records.find(item => item.claim_id === challenge!.claim_id)?.slots.find(item => item.slot_id === challenge!.slot_id);
     const sourceSlot = current.runtimeState.claim_evidence?.find(item => item.claim_id === challenge!.claim_id)?.slots.find(item => item.slot_id === challenge!.slot_id);
-    if (!sourceSlot?.report || !corrected?.check || !challengeReportIsRetained(current, challenge!, sourceSlot.report.result_id)) fail('REPLAN_CHALLENGE_STALE', 'The challenged report has no verified correction relationship to the current report.');
+    if (!sourceSlot?.report || !corrected?.check || !challengeReportIsRetained(root, current, challenge!, sourceSlot.report.result_id)) fail('REPLAN_CHALLENGE_STALE', 'The challenged report has no verified correction relationship to the current report.');
     if (corrected && correctedSlots.has(corrected)) continue;
     correctedSlots.add(corrected);
     corrected.due_step_id = step.id;
@@ -9825,7 +9825,7 @@ function inheritedRecoveryProblemKeys(current: CanonicalCurrentTask, stepId: str
   return [...keys];
 }
 
-function challengeReportIsRetained(current: CanonicalCurrentTask, challenge: EvidenceChallenge, currentResultId: string): boolean {
+function challengeReportIsRetained(root: string, current: CanonicalCurrentTask, challenge: EvidenceChallenge, currentResultId: string): boolean {
   if (challenge.result_id === currentResultId) return true;
   // Edges come only from confirmed batches with real results and clean reviewed
   // completion snapshots. The bounded execution log also bounds this traversal.
@@ -9844,10 +9844,19 @@ function challengeReportIsRetained(current: CanonicalCurrentTask, challenge: Evi
       && entry.execution_result?.acceptance_evidence.some(evidence => !('acceptance' in evidence) && evidence.claim_id === challenge.claim_id
         && evidence.slot_id === challenge.slot_id && evidence.check_id === slot.check!.check_id && digest(evidence.report) === digest(slot.report)));
     if (!executed) continue;
-    for (const parent of parents) {
-      const outputs = edges.get(parent.result_id) ?? new Set<string>();
+    // The selected challenges can refer to older reports than the one this
+    // batch actually replaced. Preserve both relationships, using the verified
+    // source preimage rather than caller-supplied lineage or current state.
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, candidate.source_revision, 'confirm-replan');
+    const historyPath = path.join(path.dirname(current.filePath), 'task-history', current.sourceTuple.document_id, `${candidate.source_revision}.json`);
+    const history = JSON.parse(fs.readFileSync(safeRepositoryFile(root, path.relative(root, historyPath).replace(/\\/g, '/')), 'utf8'));
+    const source = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, 'base64').toString('utf8'), current.filePath, current.relativePath);
+    const replaced = source.runtimeState.claim_evidence?.find(item => item.claim_id === challenge.claim_id)?.slots.find(item => item.slot_id === challenge.slot_id)?.report;
+    if (!replaced) continue;
+    for (const resultId of new Set([replaced.result_id, ...parents.map(parent => parent.result_id)])) {
+      const outputs = edges.get(resultId) ?? new Set<string>();
       outputs.add(slot.report.result_id);
-      edges.set(parent.result_id, outputs);
+      edges.set(resultId, outputs);
     }
   }
   const pending = [challenge.result_id], visited = new Set<string>();

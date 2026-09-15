@@ -330,7 +330,9 @@ fresh post-restore checks and review remain required.
 
 Multiple challenges of one original report may be corrected in separate batches.
 Runtime traverses bounded confirmed correction relationships backed by real
-results and clean completion snapshots, including interleaved challenges, retaining the
+results and clean completion snapshots. Verified candidate source preimages bind
+the actually replaced report as well as selected challenge origins, so either
+interleaved processing order retains the
 original challenge result IDs; each remaining batch needs fresh evidence and review.
 Failure budgets follow confirmed execution and pending-step replacement identities,
 including old v2 candidates with separate stored keys; changing IDs cannot reset them.

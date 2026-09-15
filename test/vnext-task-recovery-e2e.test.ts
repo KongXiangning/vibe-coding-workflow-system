@@ -13,7 +13,7 @@ import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governanc
 const sourceRoot = path.resolve(import.meta.dir, '..');
 const sha = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
 
-for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-budget', 'interleaved', 'restore-retry']) test(`fixed tgz recovery: ${scenario}`, { timeout: 180000 }, () => {
+for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-budget', 'interleaved', 'reverse-interleaved', 'restore-retry']) test(`fixed tgz recovery: ${scenario}`, { timeout: 180000 }, () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-recovery-distribution-'));
   const target = path.join(workspace, 'target');
   const npmHome = path.join(workspace, 'package-user');
@@ -26,7 +26,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     const packed = JSON.parse(execFileSync(npm, ['pack', '--json', '--pack-destination', workspace], { cwd: packageRoot, encoding: 'utf8' }));
     tgz = path.join(workspace, packed[0].filename);
   }
-  expect(path.basename(tgz)).toBe('vibe-governance-0.19.2.tgz');
+  expect(path.basename(tgz)).toBe('vibe-governance-0.19.3.tgz');
   fs.writeFileSync(path.join(npmHome, 'package.json'), '{"name":"isolated-recovery-installer","private":true}\n');
   execFileSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', tgz], { cwd: npmHome, encoding: 'utf8' });
   const bin = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');
@@ -145,16 +145,29 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     return JSON.parse(fs.readFileSync(path.join(target, candidate.candidate_path), 'utf8'));
   }
   complete('S1', ['A', 'B'], { 'notes/a.md': 'analysis A\n', 'notes/b.md': 'analysis B\n' });
-  if (scenario === 'interleaved') {
+  if (scenario === 'interleaved' || scenario === 'reverse-interleaved') {
     const ids = challenge(['A', 'A']);
     const original = state().runtime_state.evidence_challenges.map((item: any) => item.result_id);
     confirm({ challenge_ids: [ids[0]], correction_step: recovery('FIRST') });
     complete('FIRST', ['A']);
     const newer = challenge(['A']).find((id: string) => !ids.includes(id));
-    confirm({ challenge_ids: [newer], correction_step: recovery('SECOND') });
+    const second = confirm({ challenge_ids: [scenario === 'interleaved' ? newer : ids[1]], correction_step: recovery('SECOND') });
     complete('SECOND', ['A']);
     rejected('preflight-step', { candidate_paths: allPaths }, 'EVIDENCE_CHALLENGE_UNRESOLVED');
-    confirm({ challenge_ids: [ids[1]], correction_step: recovery('REMAINING') });
+    const remaining = { challenge_ids: [scenario === 'interleaved' ? ids[1] : newer], correction_step: recovery('REMAINING') };
+    if (scenario === 'reverse-interleaved') {
+      const historyFile = path.join(target, 'docs/workflow/task-history', state().source_tuple.document_id, `${second.source_revision}.json`);
+      const historyBytes = fs.readFileSync(historyFile);
+      fs.renameSync(historyFile, `${historyFile}.unavailable`);
+      rejected('prepare-replan', remaining, 'TASK_HISTORY_MISSING');
+      fs.renameSync(`${historyFile}.unavailable`, historyFile);
+      const history = JSON.parse(historyBytes.toString());
+      history.current_task_base64 = Buffer.from('fabricated report replacement').toString('base64');
+      fs.writeFileSync(historyFile, JSON.stringify(history));
+      rejected('prepare-replan', remaining, 'TASK_HISTORY_INVALID');
+      fs.writeFileSync(historyFile, historyBytes);
+    }
+    confirm(remaining);
     complete('REMAINING', ['A']);
     expect(state().runtime_state.evidence_challenges.slice(0, 2).map((item: any) => item.result_id)).toEqual(original);
     expect(state().runtime_state.evidence_challenges.every((item: any) => item.status === 'resolved')).toBe(true);

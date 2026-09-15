@@ -2297,7 +2297,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.19.2";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.19.3";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -9857,7 +9857,7 @@ function buildCorrectionCandidate(root, current, input) {
   for (const challenge of challenges) {
     const corrected = records.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id);
     const sourceSlot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id);
-    if (!sourceSlot?.report || !corrected?.check || !challengeReportIsRetained(current, challenge, sourceSlot.report.result_id))
+    if (!sourceSlot?.report || !corrected?.check || !challengeReportIsRetained(root, current, challenge, sourceSlot.report.result_id))
       fail2("REPLAN_CHALLENGE_STALE", "The challenged report has no verified correction relationship to the current report.");
     if (corrected && correctedSlots.has(corrected))
       continue;
@@ -10495,7 +10495,7 @@ function inheritedRecoveryProblemKeys(current, stepId) {
   }
   return [...keys];
 }
-function challengeReportIsRetained(current, challenge, currentResultId) {
+function challengeReportIsRetained(root, current, challenge, currentResultId) {
   if (challenge.result_id === currentResultId)
     return true;
   const edges = new Map;
@@ -10513,10 +10513,17 @@ function challengeReportIsRetained(current, challenge, currentResultId) {
     const executed = current.runtimeState.execution_log.some((entry) => !("action" in entry) && entry.step_id === stepId && entry.execution_result?.acceptance_evidence.some((evidence) => !("acceptance" in evidence) && evidence.claim_id === challenge.claim_id && evidence.slot_id === challenge.slot_id && evidence.check_id === slot.check.check_id && digest2(evidence.report) === digest2(slot.report)));
     if (!executed)
       continue;
-    for (const parent of parents) {
-      const outputs = edges.get(parent.result_id) ?? new Set;
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, candidate.source_revision, "confirm-replan");
+    const historyPath = path7.join(path7.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${candidate.source_revision}.json`);
+    const history = JSON.parse(fs6.readFileSync(safeRepositoryFile(root, path7.relative(root, historyPath).replace(/\\/g, "/")), "utf8"));
+    const source = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
+    const replaced = source.runtimeState.claim_evidence?.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id)?.report;
+    if (!replaced)
+      continue;
+    for (const resultId of new Set([replaced.result_id, ...parents.map((parent) => parent.result_id)])) {
+      const outputs = edges.get(resultId) ?? new Set;
       outputs.add(slot.report.result_id);
-      edges.set(parent.result_id, outputs);
+      edges.set(resultId, outputs);
     }
   }
   const pending = [challenge.result_id], visited = new Set;
