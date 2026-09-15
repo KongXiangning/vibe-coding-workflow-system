@@ -110,7 +110,7 @@ function publish(root: string, currentPath: string, image: ArtifactImage): void 
   try { fs.renameSync(stage, file); } finally { if (fs.existsSync(stage)) fs.unlinkSync(stage); }
 }
 
-export function applyArtifactRestore(root: string, currentPath: string, plan: ArtifactRestorePlan, afterPublish?: () => void): void {
+export function applyArtifactRestore(root: string, currentPath: string, plan: ArtifactRestorePlan, afterPublish?: () => void, recordCompletion?: () => void): void {
   assertNoArtifactPublication(currentPath);
   if (digest(captureArtifactImages(root, currentPath, plan.expected.map(image => image.path))) !== digest(plan.expected)) throw new Error('ARTIFACT_RESTORE_STALE: current files differ; user changes were preserved.');
   preserveEvidenceObjects(root, currentPath, plan.expected.flatMap(image => image.object ? [image.object] : []));
@@ -127,6 +127,9 @@ export function applyArtifactRestore(root: string, currentPath: string, plan: Ar
       afterPublish?.();
     }
     if (digest(captureArtifactImages(root, currentPath, plan.targets.map(image => image.path))) !== digest(plan.targets)) throw new Error('ARTIFACT_RESTORE_VERIFY_FAILED: restored files differ.');
+    // Publish the completion fact while the interruption journal still blocks
+    // ordinary execution. A process exit before journal removal fails closed.
+    recordCompletion?.();
     fs.unlinkSync(lock);
   } catch (error) {
     for (const target of applied.reverse()) {

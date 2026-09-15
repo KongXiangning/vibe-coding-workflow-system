@@ -311,6 +311,21 @@ cannot be restored. Drift blocks without overwriting user edits. A durable
 multi-file journal preserves preimages; an interrupted publication fails closed
 until its exact write set is recovered. No reset, clean or whole-repository checkout.
 
+Restoration writes a bounded `artifact-restore-completion/v1` object under the
+task's immutable `task-history/<document_id>/artifact-restores/` directory before
+removing its publication journal. It binds task, document, candidate, plan, step,
+attempt, preflight identity and exact restore plan. Successful result recording
+and reviewed completion require both this fact and the target file images.
+Caller-reported command status cannot replace the fact. Put forward mutations of
+restored paths in a later recovery step. Missing facts on older active restores
+fail closed; software upgrade does not invent proof of earlier restoration.
+
+Multiple challenges of one original report may be corrected in separate batches.
+Runtime verifies the confirmed correction/result relationship while retaining the
+original challenge result IDs; each remaining batch needs fresh evidence and review.
+Failure budgets follow confirmed execution and pending-step replacement identities,
+including old v2 candidates with separate stored keys; changing IDs cannot reset them.
+
 ## Existing test discovery and reading
 
 `file-context` accepts either operation, without requiring an active confirmed task:

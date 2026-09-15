@@ -1,4 +1,4 @@
-# vNext 0.19.0：任务纠错与执行恢复
+# vNext 0.19.1：任务纠错与执行恢复
 
 ## 适用范围
 
@@ -39,6 +39,8 @@
 
 候选的 `restore_plan` 指明 checkpoint ID、确切文件集、当前预期哈希、目标哈希或 absent。prepare/confirm 不修改产品。恢复步骤须声明 `runtime:artifact-restore` command footprint，preflight 后用 `apply-artifact-restore` 提交当前 receipt。随后仍须真实检查、记录和审查。
 
+从 0.19.1 起，Runtime 在删除恢复 journal 前保存绑定候选、attempt 和 preflight 的 `artifact-restore-completion/v1` 不可变凭据。记录成功结果和完成审查步骤时，必须同时存在该凭据且文件仍匹配恢复目标；调用者填报命令通过不能代替回退。对恢复路径的前向修改放在下一个恢复步骤。失败结果仍可如实记录。旧活动恢复缺少凭据时明确阻塞，升级不会补造历史执行事实。
+
 仅支持仓库内有界常规 UTF-8 文件及新增/删除状态；符号链接、子模块、二进制、超限内容、远端副作用无通用回退。任务/Basis/历史、Runtime 安装目录及 `.git` 均排除。无 checkpoint 时只能前向修复或报告缺口；当前内容漂移时阻塞并保留用户修改。
 
 多文件恢复采用持久 journal 和精确前像；失败尝试回滚，进程中断或无法证明一致时 fail closed。遗留 `.vnext-artifact-restore.lock` 或 `.vnext-governance-write.lock` 必须保留供诊断，不能直接删除后继续，也不能用 reset/clean/无条件 checkout。此版本不提供自动清理故障 journal 的公共命令。任务记录从不随产品回退。
@@ -51,9 +53,11 @@
 
 累计审查基线和未审 diff 不清零，新改动需要新审查。候选次数按稳定问题身份累计，原失败尝试及 finding repair budget 保留；跨恢复计划的同问题失败和修复 wave 继续计数。达到预算返回诊断/用户决定，不通过改文件名或恢复 ID 重试。
 
+0.19.1 会沿已确认候选的历史 execution 和后续步骤替代关系承接问题身份，包括旧 v2 候选；三次真实失败后，新恢复步骤的 preflight 仍拒绝。针对同一原报告的多个质疑可分批处理：保留原 result ID，通过已确认纠错结果建立关联，剩余质疑继续阻塞普通推进，每批都需新的结果与审查。
+
 ## 安装、升级和兼容
 
-使用发行报告列出的固定 `vibe-governance-0.19.0.tgz`，先核对 SHA-256。可在独立安装目录执行：
+使用发行报告列出的固定 `vibe-governance-0.19.1.tgz`，先核对 SHA-256。可在独立安装目录执行：
 
 ```powershell
 npm install --ignore-scripts --no-audit --no-fund <固定tgz绝对路径>

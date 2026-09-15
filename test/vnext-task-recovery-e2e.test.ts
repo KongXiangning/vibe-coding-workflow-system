@@ -13,7 +13,7 @@ import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governanc
 const sourceRoot = path.resolve(import.meta.dir, '..');
 const sha = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
 
-test('fixed tgz: real historical steps, batch correction, lineage, mixed recovery, pending revision and tail correction', { timeout: 180000 }, () => {
+for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-budget']) test(`fixed tgz recovery: ${scenario}`, { timeout: 180000 }, () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-recovery-distribution-'));
   const target = path.join(workspace, 'target');
   const npmHome = path.join(workspace, 'package-user');
@@ -26,7 +26,7 @@ test('fixed tgz: real historical steps, batch correction, lineage, mixed recover
     const packed = JSON.parse(execFileSync(npm, ['pack', '--json', '--pack-destination', workspace], { cwd: packageRoot, encoding: 'utf8' }));
     tgz = path.join(workspace, packed[0].filename);
   }
-  expect(path.basename(tgz)).toBe('vibe-governance-0.19.0.tgz');
+  expect(path.basename(tgz)).toBe('vibe-governance-0.19.1.tgz');
   fs.writeFileSync(path.join(npmHome, 'package.json'), '{"name":"isolated-recovery-installer","private":true}\n');
   execFileSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', tgz], { cwd: npmHome, encoding: 'utf8' });
   const bin = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');
@@ -81,7 +81,21 @@ test('fixed tgz: real historical steps, batch correction, lineage, mixed recover
   function complete(id: string, reports: string[], changes: Record<string, string> = {}, restore = false) {
     const preflight = invoke(['preflight-step'], { candidate_paths: allPaths });
     const before = Object.fromEntries(allPaths.map(p => [p, fs.readFileSync(path.join(target, p), 'utf8')]));
-    if (restore) invoke(['apply-artifact-restore'], { preflight_receipt: preflight.receipt });
+    let completionFile: string | undefined;
+    if (restore) {
+      const claimedSuccess = { preflight_receipt: preflight.receipt, actual_changed_paths: [],
+        command_results: preflight.current_step.commands.map((command: any) => ({ command: command.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['fixture:claimed'] })),
+        validation_results: preflight.current_step.validation.map((validation: string) => ({ validation, status: 'passed', evidence_refs: ['fixture:claimed'] })),
+        acceptance_evidence: [], outcome: 'implemented', note: 'Caller-reported success without Runtime restoration' };
+      rejected('record-step-result', claimedSuccess, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
+      invoke(['apply-artifact-restore'], { preflight_receipt: preflight.receipt });
+      const restored = fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8');
+      fs.writeFileSync(path.join(target, 'notes/a.md'), before['notes/a.md']);
+      rejected('record-step-result', claimedSuccess, 'ARTIFACT_RESTORE_TARGET_STALE');
+      fs.writeFileSync(path.join(target, 'notes/a.md'), restored);
+      const directory = path.join(target, 'docs/workflow/task-history', state().source_tuple.document_id, 'artifact-restores');
+      completionFile = path.join(directory, fs.readdirSync(directory)[0]);
+    }
     for (const [p, value] of Object.entries(changes)) fs.writeFileSync(path.join(target, p), value);
     const context = invoke(['evidence-context'], {});
     const refs = reports.map(id => {
@@ -102,6 +116,12 @@ test('fixed tgz: real historical steps, batch correction, lineage, mixed recover
     const review = invoke(['review-context'], {});
     invoke(['record-review-result'], { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: evidenceRefs.length ? evidenceRefs : ['fixture:reviewed'], blocker: null,
       test_assessment: { applicable: false, reason: 'Only declared non-executable documents changed', evidence_refs: evidenceRefs.length ? evidenceRefs : ['fixture:reviewed'], necessity: 'Bounded document read is sufficient', oracle: 'Observed complete UTF-8 document bodies', boundary: 'Local fixture only', reuse: 'Retain unaffected document observations', applicability: 'Current review manifest and reports inspected' } });
+    if (completionFile) {
+      const bytes = fs.readFileSync(completionFile);
+      fs.writeFileSync(completionFile, '{}\n');
+      rejected('complete-reviewed-step', { step_id: id, note: `Reviewed ${id}` }, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
+      fs.writeFileSync(completionFile, bytes);
+    }
     invoke(['complete-reviewed-step'], { step_id: id, note: `Reviewed ${id}` });
   }
   function challenge(ids: string[]) {
@@ -125,6 +145,72 @@ test('fixed tgz: real historical steps, batch correction, lineage, mixed recover
     return JSON.parse(fs.readFileSync(path.join(target, candidate.candidate_path), 'utf8'));
   }
   complete('S1', ['A', 'B'], { 'notes/a.md': 'analysis A\n', 'notes/b.md': 'analysis B\n' });
+  if (scenario === 'same-report') {
+    const ids = challenge(['A', 'A', 'A']);
+    const original = state().runtime_state.evidence_challenges.map((item: any) => item.result_id);
+    for (let index = 0; index < ids.length; index++) {
+      const id = `PARTIAL${index}`;
+      confirm({ challenge_ids: [ids[index]], correction_step: recovery(id) });
+      complete(id, ['A'], { 'notes/a.md': `bounded correction ${index}\n` });
+      const challenges = state().runtime_state.evidence_challenges;
+      expect(challenges.map((item: any) => item.result_id)).toEqual(original);
+      expect(challenges.filter((item: any) => item.status !== 'resolved')).toHaveLength(ids.length - index - 1);
+      if (index < ids.length - 1) rejected('preflight-step', { candidate_paths: allPaths }, 'EVIDENCE_CHALLENGE_UNRESOLVED');
+    }
+    complete('S2', []);
+    fs.rmSync(workspace, { recursive: true, force: true });
+    return;
+  }
+  if (scenario === 'first-restore' || scenario === 'failure-budget') {
+    if (scenario === 'failure-budget') {
+      // Isolate budget inheritance from the independent optional-challenge fix.
+      confirm({ challenge_ids: challenge(['A']), correction_step: recovery('BOOT') });
+      complete('BOOT', ['A']);
+    }
+    const prior = state();
+    if (scenario === 'first-restore') expect(prior.runtime_state.evidence_challenges).toBeUndefined();
+    const result = prior.runtime_state.execution_log.find((item: any) => item.step_id === 'S1' && item.execution_result);
+    const diagnosis = invoke(['ingest-evidence'], { source_revision: prior.source_tuple.revision, source_locator: 'fixture:execution-diagnosis', body: 'Recover the real completed S1 observation.' });
+    let targets = [{ execution_id: result.idempotency_key, reason: 'Recover S1', evidence_ref: diagnosis.evidence_ref, evidence_sha256: diagnosis.evidence_sha256 }];
+    const obligations = (id: string) => [{ claim_id: 'A', slot_id: 'a', due_step_id: id }, { claim_id: 'B', slot_id: 'b', due_step_id: id }];
+    if (scenario === 'first-restore') {
+      const checkpoint = invoke(['artifact-checkpoints'], {}).checkpoints.find((item: any) => item.step_id === 'S1' && item.phase === 'before' && item.committed);
+      confirm({ mode: 'execution-recovery', strategy: 'mixed', challenge_ids: [], execution_targets: targets,
+        correction_step: { ...recovery('RESTORE'), commands: [{ command: 'runtime:artifact-restore', expected_repo_writes: ['notes/a.md'] }] },
+        recovery_steps: [recovery('VERIFY')], restore_plan: { checkpoint_id: checkpoint.checkpoint_id, paths: ['notes/a.md'] }, obligation_map: obligations('VERIFY') });
+      complete('RESTORE', [], {}, true);
+      expect(fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8')).toBe('initial A\n');
+      complete('VERIFY', ['A', 'B']);
+      complete('S2', []);
+    } else {
+      let pendingId = 'S2';
+      let failedStep: string | null = null;
+      for (let i = 1; i <= 4; i++) {
+        const id = `FAILURE${i}`, follow = `FOLLOW${i}`;
+        const pending_step_changes = failedStep ? { steps: [recovery(follow)], step_map: [{ old_step_id: pendingId, new_step_ids: [follow] }, { old_step_id: failedStep, new_step_ids: [id] }] } : undefined;
+        const candidate = confirm({ mode: 'execution-recovery', challenge_ids: [], execution_targets: targets, correction_step: recovery(id), obligation_map: obligations(id), ...(pending_step_changes ? { pending_step_changes } : {}) });
+        expect(candidate.problem_keys).toContain('claim:A/a');
+        if (i === 4) {
+          rejected('preflight-step', { candidate_paths: allPaths }, 'RETRY_BUDGET_EXHAUSTED');
+          break;
+        }
+        const preflight = invoke(['preflight-step'], { candidate_paths: allPaths });
+        const failure = invoke(['ingest-evidence'], { source_revision: state().source_tuple.revision, source_locator: `fixture:failure-${i}`, body: 'Same mismatch: expected initial A, observed analysis A.' });
+        invoke(['record-step-result'], { preflight_receipt: preflight.receipt, actual_changed_paths: [], command_results: [],
+          validation_results: preflight.current_step.validation.map((validation: string) => ({ validation, status: 'failed', evidence_refs: [failure.evidence_ref] })),
+          acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'unknown', note: 'Same unchanged document mismatch' });
+        const failed = state();
+        const observed = failed.runtime_state.execution_log.findLast((item: any) => item.step_id === id && item.execution_result);
+        invoke(['suspend-recovery'], { source_revision: failed.source_tuple.revision, reason: 'Diagnose the same failed recovery', evidence_refs: [failure.evidence_ref] });
+        targets = [{ execution_id: observed.idempotency_key, reason: 'Same original failure', evidence_ref: failure.evidence_ref, evidence_sha256: failure.evidence_sha256 }];
+        if (failedStep) pendingId = follow;
+        failedStep = id;
+      }
+      expect(Object.values(state().runtime_state.step_attempts).flatMap((ledger: any) => ledger.attempts).filter((attempt: any) => attempt.blocker)).toHaveLength(3);
+    }
+    fs.rmSync(workspace, { recursive: true, force: true });
+    return;
+  }
   const history = state().runtime_state.execution_log;
   const batch = challenge(['A', 'B']);
   const subset = invoke(['prepare-replan'], { challenge_ids: [batch[0]], correction_step: recovery('SUBSET') });

@@ -103,3 +103,18 @@ test('G16 real process exit during multi-file restore leaves a durable journal a
   expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('first A\n');
   expect(fs.readFileSync(path.join(root, 'b.txt'), 'utf8')).toBe('second B\n');
 });
+
+test('restore completion publication failure rolls back; process exit at completion keeps the journal', () => {
+  const { root, current, identity } = fixture();
+  const checkpoint = saveArtifactCheckpoint(root, current, identity, ['a.txt']);
+  fs.writeFileSync(path.join(root, 'a.txt'), 'second A\n');
+  const plan = prepareArtifactRestore(root, current, identity.task_id, identity.document_id, checkpoint, ['a.txt']);
+  expect(() => applyArtifactRestore(root, current, plan, undefined, () => { throw new Error('receipt write failed'); })).toThrow('receipt write failed');
+  expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('second A\n');
+  expect(() => assertNoArtifactPublication(current)).not.toThrow();
+  const module = path.resolve(import.meta.dir, '../runtime/vnext/src/artifact-checkpoints.ts');
+  const child = spawnSync('bun', ['-e', `import { applyArtifactRestore } from ${JSON.stringify(module)}; applyArtifactRestore(${JSON.stringify(root)}, ${JSON.stringify(current)}, ${JSON.stringify(plan)}, undefined, () => process.exit(79));`], { encoding: 'utf8' });
+  expect(child.status).toBe(79);
+  expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('first A\n');
+  expect(() => assertNoArtifactPublication(current)).toThrow('ARTIFACT_RECOVERY_REQUIRED');
+});

@@ -49,6 +49,11 @@ the declared `runtime:artifact-restore` footprint. Run post-restore checks, reco
 real outcomes, and complete required cumulative review. Never reset/clean/checkout
 the repository or roll back governance records. Drift, missing checkpoints,
 frozen files or retained publication journals are blockers. Read CONTEXT_API.md.
+Runtime must persist `artifact-restore-completion/v1` for the exact candidate and
+attempt. A passed command report cannot replace it. Keep restored paths at their
+confirmed target images through result recording and reviewed completion; place
+forward edits in a subsequent recovery step. Missing or changed completion facts
+block successful advancement; actual failures can still be recorded truthfully.
 
 ## Intent
 

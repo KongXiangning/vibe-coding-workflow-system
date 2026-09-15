@@ -11,8 +11,8 @@
 
 import { readProjectDocuments } from './project-documents';
 import { TASK_RECOVERY_PROTOCOL } from './task-recovery';
-import { describeEvidenceObjects, preserveEvidenceObjects, verifyEvidenceObject, type EvidenceObject } from './evidence-lineage';
-import { saveArtifactCheckpoint, prepareArtifactRestore, applyArtifactRestore, assertNoArtifactPublication, type ArtifactRestorePlan } from './artifact-checkpoints';
+import { describeEvidenceObjects, preserveEvidenceObjects, verifyEvidenceObject, safeRepositoryFile, type EvidenceObject } from './evidence-lineage';
+import { captureArtifactImages, saveArtifactCheckpoint, prepareArtifactRestore, applyArtifactRestore, assertNoArtifactPublication, type ArtifactRestorePlan } from './artifact-checkpoints';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -95,7 +95,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.19.0';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.19.1';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -9381,7 +9381,7 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
   for (const challenge of challenges) {
     const corrected = records.find(item => item.claim_id === challenge!.claim_id)?.slots.find(item => item.slot_id === challenge!.slot_id);
     if (corrected && correctedSlots.has(corrected)) continue;
-    if (!corrected?.report || corrected.report.result_id !== challenge!.result_id || !corrected.check) fail('REPLAN_CHALLENGE_STALE', 'The challenged report no longer matches the candidate source.');
+    if (!corrected?.report || !corrected.check || !challengeReportIsRetained(current, challenge!, corrected.report.result_id)) fail('REPLAN_CHALLENGE_STALE', 'The challenged report has no verified correction relationship to the current report.');
     correctedSlots.add(corrected);
     corrected.due_step_id = step.id;
     corrected.disposition = 'missing';
@@ -9446,7 +9446,8 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
       ...challenges.map(item => `claim:${item!.claim_id}/${item!.slot_id}`),
       ...executionTargets.flatMap(item => {
         const refs = item.execution_result!.acceptance_evidence.flatMap(evidence => 'acceptance' in evidence ? [] : [`claim:${evidence.claim_id}/${evidence.slot_id}`]);
-        return refs.length ? refs : [`execution-step:${item.step_id}`];
+        const inherited = inheritedRecoveryProblemKeys(current, item.step_id);
+        return [...inherited, ...(refs.length ? refs : [`execution-step:${item.step_id}`])];
       }),
     ])].sort(),
     retained_budget: { review_cycle: current.runtimeState.review_cycle, step_attempts: current.runtimeState.step_attempts ?? {} },
@@ -9587,7 +9588,7 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
     fail('REPLAN_CANDIDATE_STALE', 'Candidate no longer matches the Runtime-computed source, obligations, and evidence.');
   }
   if (current.runtimeState.workflow_status !== 'blocked_by_replan' && current.runtimeState.active_step_status !== 'completed' && current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts.length) fail('REPLAN_ACTIVE_ATTEMPT_PRESENT', 'Suspend the retained current attempt before preparing its recovery.');
-  const challenges = current.runtimeState.evidence_challenges!.filter(item => rebuilt.input.challenge_ids.includes(item.challenge_id));
+  const challenges = (current.runtimeState.evidence_challenges ?? []).filter(item => rebuilt.input.challenge_ids.includes(item.challenge_id));
   const challengeRefs = challenges.map(item => item.evidence_ref);
   const nextBasis: TaskBasis = { original_request: basis.basis.original_request, user_decisions: [...basis.basis.user_decisions, { source: decisionSource, verbatim: decisionText }] };
   const nextBasisArtifact = materializeTaskBasis(root, current,
@@ -9676,6 +9677,25 @@ function discardCorrectionReplanLocked(root: string, rawInput: unknown, options:
     evidence_assurance: 'caller-reported' };
 }
 
+function artifactRestoreCompletion(root: string, current: CanonicalCurrentTask, candidate: CorrectionCandidate) {
+  const attempt = current.runtimeState.step_attempts?.[candidate.input.correction_step.id]?.attempts.at(-1);
+  if (!attempt) fail('ARTIFACT_RESTORE_PREFLIGHT_REQUIRED', 'Restore requires a durable attempt.');
+  const receipt = { kind: 'artifact-restore-completion/v1', task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id,
+    candidate_digest: digest(candidate), plan_revision: candidate.new_plan_revision, step_id: candidate.input.correction_step.id,
+    attempt_id: attempt.attempt_id, preflight_id: attempt.idempotency_key, restore_plan_digest: digest(candidate.restore_plan) };
+  const location = path.join(path.dirname(current.filePath), 'task-history', current.sourceTuple.document_id, 'artifact-restores', `${digest(receipt)}.json`);
+  const file = safeRepositoryFile(root, path.relative(root, location).replace(/\\/g, '/'));
+  return { file, bytes: JSON.stringify(receipt) + '\n' };
+}
+
+function assertArtifactRestoreCompleted(root: string, current: CanonicalCurrentTask): void {
+  const candidate = confirmedRecoveryCandidates(current).find(item => item.input.correction_step.id === current.runtimeState.active_step_id && item.restore_plan);
+  if (!candidate) return;
+  const completion = artifactRestoreCompletion(root, current, candidate);
+  if (!fs.existsSync(completion.file) || fs.readFileSync(completion.file, 'utf8') !== completion.bytes) fail('ARTIFACT_RESTORE_COMPLETION_REQUIRED', 'Run the confirmed Runtime restore for this exact attempt before reporting success.');
+  if (digest(captureArtifactImages(root, current.filePath, candidate.restore_plan!.targets.map(image => image.path))) !== digest(candidate.restore_plan!.targets)) fail('ARTIFACT_RESTORE_TARGET_STALE', 'Restored paths changed; the confirmed target images are required at result and completion. Put forward edits in a subsequent recovery step.');
+}
+
 export function executeConfirmedArtifactRestore(root: string, sourceRevision: string, stepId: string, candidatePaths: string[], dryRun = false) {
   return withGovernanceWriteLock(root, () => {
     const current = readCanonicalCurrentTask(root);
@@ -9692,7 +9712,15 @@ export function executeConfirmedArtifactRestore(root: string, sourceRevision: st
     if (!current.runtimeState.step_attempts?.[stepId]?.attempts.some(item => item.status === 'preflighted')) fail('ARTIFACT_RESTORE_PREFLIGHT_REQUIRED', 'Restore needs a real recorded preflight.');
     const checked = prepareArtifactRestore(root, current.filePath, current.runtimeState.task_id, current.sourceTuple.document_id, candidate.restore_plan.checkpoint_id, paths);
     if (digest(checked) !== digest(candidate.restore_plan)) fail('ARTIFACT_RESTORE_STALE', 'Checkpoint or current files changed after confirmation.');
-    if (!dryRun) applyArtifactRestore(root, current.filePath, candidate.restore_plan);
+    const completion = artifactRestoreCompletion(root, current, candidate);
+    if (!dryRun) applyArtifactRestore(root, current.filePath, candidate.restore_plan, undefined, () => {
+      fs.mkdirSync(path.dirname(completion.file), { recursive: true });
+      if (!fs.existsSync(completion.file)) {
+        const fd = fs.openSync(completion.file, 'wx');
+        try { fs.writeFileSync(fd, completion.bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      }
+      if (fs.readFileSync(completion.file, 'utf8') !== completion.bytes) fail('ARTIFACT_RESTORE_COMPLETION_INVALID', 'Immutable restore completion differs.');
+    });
     return { status: 'success', committed: !dryRun, evidence_assurance: 'caller-reported', restored_paths: paths,
       next: 'Run the declared post-restore checks, record-step-result, and complete the required review.' };
   });
@@ -9722,17 +9750,61 @@ function implementationStepBlock(definition: DraftTaskDefinition, stepId: string
     .find(block => block.startsWith(`- ${stepId}:`) || block.startsWith(`- ${stepId}：`))?.trimEnd();
 }
 
-function recoveryProblemBudget(current: CanonicalCurrentTask): { failedAttempts: number; repairWaves: Set<string> } | null {
+function confirmedRecoveryCandidates(current: CanonicalCurrentTask): CorrectionCandidate[] {
   // Canonical reads have already verified these immutable, confirmed candidates.
-  const candidates = current.runtimeState.execution_log.flatMap(entry => {
+  return current.runtimeState.execution_log.flatMap(entry => {
     if (!('action' in entry) || entry.action !== 'commit-replan' || !entry.candidate_digest) return [];
-    const candidate = JSON.parse(fs.readFileSync(correctionCandidateLocation(current, entry.candidate_digest).filePath, 'utf8')) as CorrectionCandidate;
+    const { candidate_digest: marker, ...candidate } = JSON.parse(fs.readFileSync(correctionCandidateLocation(current, entry.candidate_digest).filePath, 'utf8')) as CorrectionCandidate & { candidate_digest: string };
+    if (marker !== entry.candidate_digest || digest(candidate) !== marker) fail('RECOVERY_HISTORY_CORRUPT', 'Confirmed recovery candidate changed.');
     return candidate.kind === 'correction-replan-candidate/v2' ? [candidate] : [];
   });
-  const recoveryIds = (candidate: CorrectionCandidate) => [candidate.input.correction_step.id, ...candidate.input.recovery_steps.map(step => step.id)];
+}
+
+function recoveryOwnedStepIds(candidate: CorrectionCandidate): string[] {
+  return [candidate.input.correction_step.id, ...candidate.input.recovery_steps.map(step => step.id), ...(candidate.input.pending_step_changes?.steps ?? []).map(step => step.id)];
+}
+
+function inheritedRecoveryProblemKeys(current: CanonicalCurrentTask, stepId: string): string[] {
+  const candidates = confirmedRecoveryCandidates(current);
+  const pending = [stepId], visited = new Set<string>(), keys = new Set<string>();
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    for (const candidate of candidates) if (recoveryOwnedStepIds(candidate).includes(id)) {
+      for (const key of candidate.problem_keys) keys.add(key);
+      // Follow retained execution identities, including old v2 candidates whose
+      // stored problem keys preceded the inheritance fix. Never rewrite them.
+      for (const target of candidate.input.execution_targets) {
+        const execution = current.runtimeState.execution_log.find(entry => !('action' in entry) && entry.idempotency_key === target.execution_id);
+        if (execution && !('action' in execution)) pending.push(execution.step_id);
+      }
+      for (const mapping of candidate.input.pending_step_changes?.step_map ?? []) pending.push(mapping.old_step_id);
+    }
+  }
+  return [...keys];
+}
+
+function challengeReportIsRetained(current: CanonicalCurrentTask, challenge: EvidenceChallenge, currentResultId: string): boolean {
+  if (challenge.result_id === currentResultId) return true;
+  // A confirmed correction of the same original report bridges a partial batch;
+  // the remaining challenge still requires its own fresh result and review.
+  return confirmedRecoveryCandidates(current).some(candidate => {
+    const sibling = (current.runtimeState.evidence_challenges ?? []).find(item => candidate.input.challenge_ids.includes(item.challenge_id)
+      && item.claim_id === challenge.claim_id && item.slot_id === challenge.slot_id && item.result_id === challenge.result_id && item.status === 'resolved');
+    if (!sibling) return false;
+    return current.runtimeState.execution_log.some(entry => !('action' in entry) && entry.step_id === candidate.input.correction_step.id
+      && entry.execution_result?.acceptance_evidence.some(evidence => !('acceptance' in evidence) && evidence.claim_id === challenge.claim_id
+        && evidence.slot_id === challenge.slot_id && evidence.report?.result_id === currentResultId));
+  });
+}
+
+function recoveryProblemBudget(current: CanonicalCurrentTask): { failedAttempts: number; repairWaves: Set<string> } | null {
+  const candidates = confirmedRecoveryCandidates(current);
+  const recoveryIds = recoveryOwnedStepIds;
   const active = candidates.find(candidate => recoveryIds(candidate).includes(current.runtimeState.active_step_id));
   if (!active) return null;
-  const keys = new Set(active.problem_keys);
+  const keys = new Set([...active.problem_keys, ...inheritedRecoveryProblemKeys(current, current.runtimeState.active_step_id)]);
   // A batch connects its problem identities; later splitting it cannot reset budgets.
   for (let pass = 0; pass < candidates.length; pass++) {
     for (const candidate of candidates) if (candidate.problem_keys.some(key => keys.has(key))) {
@@ -10633,6 +10705,9 @@ function applyTaskStateDelta(
     fail('RESUME_REVIEW_REQUIRED', 'execute-step cannot proceed until prepare-task clears the resume review gate.');
   }
   if (delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'Proposal step_id does not match the admitted current step.');
+  // Failed observations remain recordable; a successful result or completion
+  // cannot substitute caller-reported command status for an actual restore.
+  if (delta.status === 'completed' || (delta.execution_result && delta.execution_result.outcome !== 'blocked')) assertArtifactRestoreCompleted(root, current);
   const currentClaimEvidenceEnabled = claimEvidenceStateEnabled(current.runtimeState);
   if (!currentClaimEvidenceEnabled && delta.claim_evidence !== undefined) {
     fail('CLAIM_EVIDENCE_MIGRATION_REQUIRED', 'execute-step cannot create a claim_evidence plan for a legacy task; prepare-task refinement/migration must persist the plan first.');
