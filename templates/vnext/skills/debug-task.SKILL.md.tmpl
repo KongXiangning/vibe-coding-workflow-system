@@ -75,6 +75,14 @@ Establish a reproducible root cause and select one authorized recovery route. In
 6. Before a turn, session, delegation, pause, interruption, or session-end boundary, carry claim identity, owner, certainty, admitted evidence types, and completion state through a typed proposal into the existing canonical task record; harness memory cannot reset or widen the plan.
 7. Read a fresh Runtime `validate --summary` and the relevant failed attempt/review state before selecting a route; bind the diagnostic result to the observed task identity and source tuple. An active current task with a retained blocked failed check, confirmed current-step cause, unchanged plan/scope, no pending review or admitted finding, and remaining retry budget may recommend ordinary `execute-step` same-plan recovery. An admitted review finding with its repair gate satisfied may recommend `execute-step:repair`. A task already `superseded` may recommend `prepare-task:replan`; `blocked_by_replan` needs a readiness/authority decision and cannot execute. Only confirmed invalidation of goal, scope, or acceptance may recommend `task-lifecycle:supersede` before replan. An unknown cause, stale identity, exhausted budget, missing authority, or failed Runtime admission is a blocker, not a reason to invent invalidation. A current-task diagnostic evidence update may be described as a `task-state-transaction` proposal, but this entry never claims that task state was written. After a correction, failed checks and due evidence must be rerun; finding repair also requires verification of the same logical diff and fingerprint.
 
+An external counterexample to an earlier completed claim is a reviewable
+evidence challenge, not automatic goal invalidation. Identify its exact
+claim/slot/result and retained evidence; recommend `review-change` to record
+`contested` when the evidence file can be admitted. A confirmed old-result
+invalidation may use the restricted `prepare-replan` candidate to insert a
+correction before the original next step. Do not recommend `supersede` merely
+because another AI disputes a conclusion.
+
 ## Required result
 
 Return one structured `debug_result` containing:

@@ -17,6 +17,8 @@ import {
   applyVNextRuntimeProposal,
   assertReviewExecutionEligible,
   captureReviewTarget,
+  createEvidenceChallengeDismissalProposal,
+  createEvidenceChallengeProposal,
   createReviewResultProposal,
   currentDefinitionExecutionLog,
   cumulativeReviewExecution,
@@ -45,7 +47,7 @@ import {
 import { resolveTaskStep } from './task-steps';
 import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
 
-export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result'] as const;
+export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'] as const;
 export type ReviewChangeAdapterCommand = (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number];
 
 type JsonRecord = Record<string, unknown>;
@@ -169,6 +171,58 @@ function authority(current: CanonicalCurrentTask): AuthorityEvidence[] {
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
   }));
+}
+
+export function recordEvidenceChallenge(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const source = record(input, 'record-evidence-challenge input');
+  exactKeys(source, ['claim_id', 'slot_id', 'result_id', 'evidence_ref', 'evidence_sha256', 'reason'], 'record-evidence-challenge input');
+  const current = readCanonicalCurrentTask(root);
+  const challenge = {
+    claim_id: text(source.claim_id, 'claim_id', 128),
+    slot_id: text(source.slot_id, 'slot_id', 128),
+    result_id: text(source.result_id, 'result_id', 128),
+    evidence_ref: repoPath(source.evidence_ref, 'evidence_ref'),
+    evidence_sha256: text(source.evidence_sha256, 'evidence_sha256', 64),
+    reason: text(source.reason, 'reason'),
+  };
+  if (!SHA256_PATTERN.test(challenge.evidence_sha256)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'evidence_sha256 must be a lowercase SHA-256 digest.');
+  const idempotencyKey = `evidence-challenge-${digest({ document_id: current.sourceTuple.document_id, ...challenge }).slice(0, 40)}`;
+  const existing = (current.runtimeState.evidence_challenges ?? []).find(item => item.claim_id === challenge.claim_id
+    && item.slot_id === challenge.slot_id && item.result_id === challenge.result_id && item.evidence_sha256 === challenge.evidence_sha256);
+  if (existing) {
+    if (existing.evidence_ref !== challenge.evidence_ref || existing.reason !== challenge.reason) fail('EVIDENCE_CHALLENGE_DUPLICATE', 'The same result and material are already bound to a different challenge description.');
+    return semanticNoOp(current, idempotencyKey, 'The exact challenge is already recorded.', options);
+  }
+  const proposal = createEvidenceChallengeProposal(current, {
+    ...challenge,
+    idempotency_key: idempotencyKey,
+    authority_evidence: authority(current),
+  });
+  return applyVNextRuntimeProposal(root, proposal, options);
+}
+
+export function dismissEvidenceChallenge(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const source = record(input, 'dismiss-evidence-challenge input');
+  exactKeys(source, ['challenge_id', 'evidence_ref', 'evidence_sha256', 'reason'], 'dismiss-evidence-challenge input');
+  const current = readCanonicalCurrentTask(root);
+  const assessment = {
+    challenge_id: text(source.challenge_id, 'challenge_id', 128),
+    evidence_ref: repoPath(source.evidence_ref, 'evidence_ref'),
+    evidence_sha256: text(source.evidence_sha256, 'evidence_sha256', 64),
+    reason: text(source.reason, 'reason'),
+  };
+  if (!SHA256_PATTERN.test(assessment.evidence_sha256)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'evidence_sha256 must be a lowercase SHA-256 digest.');
+  const existing = current.runtimeState.evidence_challenges?.find(item => item.challenge_id === assessment.challenge_id);
+  const idempotencyKey = `evidence-challenge-dismissal-${digest({ document_id: current.sourceTuple.document_id, ...assessment }).slice(0, 40)}`;
+  if (existing?.resolution) {
+    if (existing.resolution.evidence_ref !== assessment.evidence_ref || existing.resolution.evidence_sha256 !== assessment.evidence_sha256
+      || existing.resolution.reason !== assessment.reason) fail('EVIDENCE_CHALLENGE_ALREADY_RESOLVED', 'Challenge was resolved by a different assessment.');
+    return semanticNoOp(current, idempotencyKey, 'The exact challenge assessment is already recorded.', options);
+  }
+  const proposal = createEvidenceChallengeDismissalProposal(current, {
+    ...assessment, idempotency_key: idempotencyKey, authority_evidence: authority(current),
+  });
+  return applyVNextRuntimeProposal(root, proposal, options);
 }
 
 function latestRecordedExecution(current: CanonicalCurrentTask): StepExecutionLogEntry {
@@ -609,7 +663,9 @@ export async function runReviewChangeAdapterCli(argv: string[] = process.argv.sl
     let result;
     if (args.command === 'review-context') result = reviewContext(args.root, input);
     else if (args.command === 'review-read') result = reviewRead(args.root, input);
-    else result = recordReviewResult(args.root, input, { dryRun: args.dryRun });
+    else if (args.command === 'record-review-result') result = recordReviewResult(args.root, input, { dryRun: args.dryRun });
+    else if (args.command === 'record-evidence-challenge') result = recordEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
+    else result = dismissEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
     console.log(JSON.stringify(result, null, 2));
     return 'status' in result && (result.status === 'blocked' || result.status === 'conflict') ? 2 : 0;
   } catch (error) {

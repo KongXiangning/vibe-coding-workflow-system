@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.18.6
+  package_version: 0.18.7
   node_min_version: ">=20.0.0"
 
 proposal:
@@ -73,6 +73,8 @@ proposal:
       - confirm-draft
       - migrate-claim-evidence
       - record-review-result
+      - record-evidence-challenge
+      - dismiss-evidence-challenge
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
@@ -313,6 +315,8 @@ proposal:
         - review-context
         - review-read
         - record-review-result
+        - record-evidence-challenge
+        - dismiss-evidence-challenge
       context_source: latest-recorded-execution
       reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification
       change_set: runtime-owned-stable-id
@@ -322,6 +326,8 @@ proposal:
       advancement_owner: execute-step
     bound_actions:
       - record-review-result
+      - record-evidence-challenge
+      - dismiss-evidence-challenge
   prepare_task:
     semantic_adapter:
       input: stdin-json
@@ -330,6 +336,10 @@ proposal:
         - confirm-draft
         - clear-resume-review
         - replan
+        - prepare-replan
+        - confirm-replan
+        - discard-replan
+        - initialize-preservation
       draft_fields:
         - task_basis
         - goal
@@ -357,7 +367,7 @@ proposal:
         timing: before-draft-commit
       confirmation_binding: runtime-issued-draft-receipt-plus-authorized-caller
       resume_review_binding: caller-provided-exact-readiness-receipt
-      replan_entry: superseded + active
+      replan_entry: blocked-pending-confirmed-candidate
       test_strategy:
         storage: current-task-regression-checks/test-strategy
         fields:
@@ -421,7 +431,6 @@ proposal:
       - migrate-claim-evidence
       - mark-replan-blocked
       - clear-replan-block
-      - commit-replan
     draft_mode: default
     draft_actions:
       - create-draft
@@ -437,6 +446,15 @@ proposal:
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
+    direct_replan_result: REPLAN_CONFIRMATION_REQUIRED
+    task_history:
+      initialization_preimage: exact-current-task-and-linked-task-basis-before-version-marker
+      supersede_preimage: exact-current-task-and-linked-task-basis
+      confirmed_replan_preimage: exact-current-task-and-linked-task-basis-before-publish
+      correction_candidate: independent-revision-bound-candidate-with-full-old-obligations
+      evidence_carry_forward: runtime-derived-old-report-and-subject-verified
+      external_evidence: locator-only-not-automatically-reusable
+      interrupted_commit: fail-closed-lock-and-hash-recovery
   inbox_record:
     mode: default
     action: record
@@ -676,6 +694,8 @@ canonical_current_task:
     fields:
       - business_evidence_version
       - evidence_plan_revision
+      - task_evolution_version
+      - preservation_source_revision
       - task_id
       - task_slug
       - workflow_status
@@ -694,6 +714,8 @@ canonical_current_task:
       - pending_review_result
       - review_coverage
       - step_attempts
+      - evidence_challenges
+      - evidence_carry_forward
     review_cycle:
       fields:
         - id

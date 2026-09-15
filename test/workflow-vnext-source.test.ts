@@ -303,7 +303,8 @@ describe('vNext Phase 2 source contract', () => {
 
     expect(content).toContain('report all clear repairable findings together');
     expect(content).toContain('`blocked`: include the blocker and recommended route');
-    expect(content).toContain('canonical review result is the only durable effect');
+    expect(content).toContain('record-evidence-challenge');
+    expect(content).toContain('This records `contested`, not an automatic invalidation');
     expect(content).toContain('For historical `test-red`, verify that only frozen test assets were admitted');
   });
 

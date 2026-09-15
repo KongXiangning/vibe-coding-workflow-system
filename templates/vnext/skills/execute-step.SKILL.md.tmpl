@@ -71,6 +71,14 @@ when contradictions emerge during execution; preserve existing explicit decision
 6. Send declared actual changed paths, command results, validation results, and permitted acceptance evidence to Runtime `record-step-result` on stdin. Do not submit `outcome: test-red` without an admitted reproduction obligation (new executions use implemented and a bound expected-failure report). Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns phase/order enforcement, scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
 7. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again. Runtime retains the existing required review and repair verification gates.
 
+If the fresh summary reports an unresolved evidence challenge, do not consume
+the challenged old result. Only the confirmed correction step may run. Record a
+new result ID for the exact challenged slot, then obtain a fresh clean review;
+Runtime resolves the challenge on reviewed completion and advances to the
+original pending step. Unaffected old reports may satisfy the new plan only
+when Runtime supplies and rechecks an `evidence-carry-forward/v1` proof. A
+previous before-step receipt or clean review cannot be copied to the correction.
+
 ## Required result
 
 Return one structured `change-result` with the current step, Runtime-detected changed files, commands and validation run, evidence, Runtime result, and any blocker. A blocked `record-step-result` commit may be followed in this invocation only by bounded `retry-step`, fresh preflight, correction and rerun under the unchanged plan; no other public Skill is invoked. After an implemented/completed result, stop.

@@ -1,4 +1,4 @@
-# Runtime source context (0.18.6)
+# Runtime source context (0.18.7)
 
 Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
 
@@ -108,7 +108,8 @@ A historical task returns `project_documents: null` (unrecorded); `[]` explicitl
 records no selected documents. New callers should always send both fields. When
 refining or replanning a task with saved references, resubmit those references or
 explicitly use `[]` to remove them; omission cannot silently erase recorded context.
-Confirmed task changes still require the existing authorized replan route.
+Confirmed task changes require a confirmed replan route; the legacy one-call
+route is currently disabled as described below.
 
 ## Project document conflicts
 
@@ -198,6 +199,66 @@ evidence, and keep any required review. If subjects drifted, scope changed, or
 the cause is unconfirmed, report the blocker; do not supersede a task solely
 because a check failed. Environment failures continue to use the bound
 `environment-restored/v1` report.
+
+The legacy one-call `prepare-task:replan` and raw `commit-replan` paths remain
+blocked with `REPLAN_CONFIRMATION_REQUIRED`.
+An upgraded older task first needs explicit `prepare-task:initialize-preservation`
+with `{source_revision,basis_revision}` from a fresh summary and linked Task
+Basis. `upgrade` itself leaves both files unchanged. Initialization verifies
+the existing plan, saves exact CURRENT_TASK and Task Basis bytes in task history,
+then adds `task_evolution_version: 1` without changing the definition, evidence,
+or active step. A missing marker blocks supersede and correction confirmation;
+an unknown marker version is rejected. New drafts receive the marker at creation.
+Do not edit the marker or history manually. For a challenged prior result,
+`review-change:record-evidence-challenge` accepts its `claim_id`, `slot_id`,
+`result_id`, repository-relative `evidence_ref`, SHA-256 of that file, and
+reason. It records `contested`; it does not assert that the previous result is
+wrong. `validate --summary` exposes unresolved challenge IDs. Unresolved
+challenges block ordinary preflight, advancement and successful closure.
+If review establishes that the challenge is not substantiated, use
+`review-change:dismiss-evidence-challenge` with
+`{challenge_id,evidence_ref,evidence_sha256,reason}`. The assessment file must
+state the inspected counterevidence and why it does not invalidate the bound
+result. Runtime retains both records and the original report, marks only that
+challenge resolved, and does not alter task scope or plan. This assessment is
+caller-reported; do not dismiss a confirmed error to bypass correction.
+
+For a confirmed incorrect old result, `prepare-task:prepare-replan` accepts
+`{challenge_id, correction_step:{id,description,mutation_scope,required_evidence,commands}}`.
+The restricted step can write only exact audit documents already allowed under
+`docs/`. Runtime copies the old goal, acceptance, scope, claim/check identities,
+and all original steps; inserts this correction before the pending step; and
+writes an independently inspectable candidate. The receipt binds its digest,
+old CURRENT_TASK/Task Basis revisions, full old-obligations digest, new plan
+revision and `permission_change:none`. Preparing does not change CURRENT_TASK.
+Read the candidate file before obtaining an exact authorization decision.
+`confirm-replan` takes `{candidate_receipt,authorization:{approved_candidate_digest,decision_source,decision_text,invalidation_reason}}`.
+This caller-reported decision must bind that exact candidate. Runtime rechecks
+the source, old obligations and live evidence, then atomically publishes a new
+Task Basis and CURRENT_TASK with an exact-byte history preimage. It marks the
+challenged result invalidated, activates the correction step, and retains the
+original later step. `discard-replan` takes `{candidate_digest}` and only
+marks the candidate discarded. It does not reactivate a superseded task.
+For a superseded source, confirmation additionally requires
+`authorization.reactivate_superseded:true` and a prior acceptance invalidation;
+a prior goal or scope invalidation cannot be repaired by this restricted route.
+Changing the goal, permission scope, claim/check method or an original step is
+outside this restricted route and remains blocked.
+The current Runtime has no non-completion successor transition. A superseded
+task cannot create a new draft (`REPLACEMENT_OUTCOME_UNSUPPORTED`); keep its
+unfinished obligations visible instead of closing it as completed.
+
+Unchanged old reports remain unmodified and may satisfy a new plan only through
+Runtime-generated `evidence-carry-forward/v1` records. Runtime checks the
+immutable old report/check, current subject files, method, plan revisions and
+open challenges at each consumption. The challenged slot needs a new result ID
+and a fresh clean correction review. Old before-step receipts cannot be carried
+by this route; a candidate requiring one is blocked for explicit temporal
+revalidation. Old clean reviews do not cover new correction changes. Exact
+CURRENT_TASK and linked Task Basis bytes are saved under
+`<workflow_home>/task-history/<document_id>/<source_revision>.json`; external
+evidence locators are references only. Do not read the base64 package into
+model context by default; use normal bounded CURRENT_TASK reading.
 
 ## Existing test discovery and reading
 

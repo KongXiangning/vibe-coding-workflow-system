@@ -59,9 +59,9 @@ function readProjectDocuments(background) {
 }
 
 // runtime/vnext/src/kernel.ts
-import * as crypto3 from "crypto";
-import * as fs3 from "fs";
-import * as path4 from "path";
+import * as crypto4 from "crypto";
+import * as fs4 from "fs";
+import * as path5 from "path";
 import { parseDocument, stringify } from "yaml";
 
 // runtime/vnext/src/runtime-io.ts
@@ -145,8 +145,289 @@ function executeWrites(operations, dryRun, _summary, _prepare, fileSystem = fs) 
   }
 }
 
-// runtime/vnext/src/task-identity.ts
+// runtime/vnext/src/task-evolution-io.ts
+import * as crypto from "crypto";
+import * as fs2 from "fs";
 import * as path2 from "path";
+function sha256(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+}
+function lockPathFor(currentPath) {
+  return path2.join(path2.dirname(currentPath), ".vnext-task-evolution.lock");
+}
+function assertSafeHistoryDirectory(currentPath, directory) {
+  const workflowDirectory = path2.dirname(currentPath);
+  const relative2 = path2.relative(workflowDirectory, directory);
+  if (!relative2 || relative2.startsWith("..") || path2.isAbsolute(relative2)) {
+    throw new Error("TASK_HISTORY_PATH_INVALID: history must stay below the canonical workflow directory.");
+  }
+  let cursor = workflowDirectory;
+  for (const part of relative2.split(path2.sep)) {
+    cursor = path2.join(cursor, part);
+    if (fs2.existsSync(cursor) && fs2.lstatSync(cursor).isSymbolicLink()) {
+      throw new Error("TASK_HISTORY_PATH_INVALID: history path cannot traverse a symbolic link.");
+    }
+  }
+}
+function taskHistoryLocation(input) {
+  if (!/^doc-[a-f0-9]+$/u.test(input.documentId))
+    throw new Error("TASK_HISTORY_IDENTITY_INVALID: document ID is invalid.");
+  const revision = sha256(input.previousContent);
+  if (input.basisPath === undefined !== (input.basisContent === undefined)) {
+    throw new Error("TASK_HISTORY_BASIS_INVALID: Task Basis path and bytes must be provided together.");
+  }
+  const basisRelativePath = input.basisPath === undefined ? null : path2.relative(path2.dirname(input.currentPath), input.basisPath);
+  if (basisRelativePath !== null && (!basisRelativePath || basisRelativePath.startsWith("..") || path2.isAbsolute(basisRelativePath))) {
+    throw new Error("TASK_HISTORY_BASIS_INVALID: linked Task Basis must stay inside the canonical workflow directory.");
+  }
+  const basisRevision = input.basisContent === undefined ? null : sha256(input.basisContent);
+  const directory = path2.join(path2.dirname(input.currentPath), "task-history", input.documentId);
+  assertSafeHistoryDirectory(input.currentPath, directory);
+  const historyPath = path2.join(directory, `${revision}.json`);
+  const packageContent = JSON.stringify({
+    schema_version: 1,
+    kind: "vnext-task-definition-history",
+    operation: input.operation ?? "supersede",
+    task_id: input.taskId,
+    document_id: input.documentId,
+    source_path: path2.basename(input.currentPath),
+    source_revision: revision,
+    task_basis_path: basisRelativePath?.replace(/\\/gu, "/") ?? null,
+    task_basis_revision: basisRevision,
+    evidence_plan_revision: input.evidencePlanRevision ?? null,
+    referenced_evidence: [...new Set(input.referencedEvidence ?? [])].sort().map((locator) => ({ locator, preservation: "reference-only; content not snapshotted" })),
+    current_task_base64: Buffer.from(input.previousContent, "utf8").toString("base64"),
+    task_basis_base64: input.basisContent === undefined ? null : Buffer.from(input.basisContent, "utf8").toString("base64")
+  }, null, 2) + `
+`;
+  return {
+    path: historyPath,
+    relativePath: path2.relative(path2.dirname(input.currentPath), historyPath).replace(/\\/gu, "/"),
+    content: packageContent
+  };
+}
+function assertTaskHistoryForRevision(currentPath, documentId, taskId, sourceRevision, operation = "supersede") {
+  if (!/^doc-[a-f0-9]+$/u.test(documentId) || !/^[a-f0-9]{64}$/u.test(sourceRevision)) {
+    throw new Error("TASK_HISTORY_INVALID: replay identity or revision is invalid.");
+  }
+  const directory = path2.join(path2.dirname(currentPath), "task-history", documentId);
+  assertSafeHistoryDirectory(currentPath, directory);
+  const historyPath = path2.join(directory, `${sourceRevision}.json`);
+  if (!fs2.existsSync(historyPath) || !fs2.lstatSync(historyPath).isFile()) {
+    throw new Error("TASK_HISTORY_MISSING: task evolution requires the immutable preimage.");
+  }
+  let history;
+  try {
+    history = JSON.parse(fs2.readFileSync(historyPath, "utf8"));
+  } catch {
+    throw new Error("TASK_HISTORY_INVALID: preimage package is unreadable.");
+  }
+  if (history.schema_version !== 1 || history.kind !== "vnext-task-definition-history" || history.operation !== operation || history.document_id !== documentId || history.task_id !== taskId || history.source_path !== path2.basename(currentPath) || history.source_revision !== sourceRevision || typeof history.current_task_base64 !== "string" || sha256(Buffer.from(history.current_task_base64, "base64").toString("utf8")) !== sourceRevision || history.task_basis_revision === null && (history.task_basis_base64 !== null || history.task_basis_path !== null) || history.task_basis_revision !== null && (typeof history.task_basis_revision !== "string" || typeof history.task_basis_base64 !== "string" || typeof history.task_basis_path !== "string" || sha256(Buffer.from(history.task_basis_base64, "base64").toString("utf8")) !== history.task_basis_revision)) {
+    throw new Error("TASK_HISTORY_INVALID: preimage identity or content digest changed.");
+  }
+}
+function atomicReplace(filePath, content) {
+  const temporaryPath = path2.join(path2.dirname(filePath), `.${path2.basename(filePath)}.${crypto.randomUUID()}.tmp`);
+  let descriptor;
+  try {
+    descriptor = fs2.openSync(temporaryPath, "wx");
+    fs2.writeFileSync(descriptor, content, "utf8");
+    fs2.fsyncSync(descriptor);
+    fs2.closeSync(descriptor);
+    descriptor = undefined;
+    fs2.renameSync(temporaryPath, filePath);
+  } finally {
+    if (descriptor !== undefined)
+      fs2.closeSync(descriptor);
+    if (fs2.existsSync(temporaryPath))
+      fs2.rmSync(temporaryPath, { force: true });
+  }
+}
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
+  }
+}
+function parseLock(content, currentPath) {
+  let value;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock is unreadable.");
+  }
+  if (value.schema_version !== 1 || !["prepared", "history-written", "current-published"].includes(value.phase ?? "") || !Number.isSafeInteger(value.pid) || !value.pid || value.current_path !== currentPath || ![value.previous_revision, value.next_revision, value.history_revision].every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item)) || typeof value.history_path !== "string" || path2.basename(value.history_path) !== `${value.previous_revision}.json`) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock is invalid.");
+  }
+  if (value.basis_path !== undefined) {
+    if (typeof value.basis_path !== "string" || !value.basis_path || ![value.previous_basis_revision, value.next_basis_revision].every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item))) {
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock basis binding is invalid.");
+    }
+    const relative2 = path2.relative(path2.dirname(currentPath), value.basis_path);
+    if (!relative2 || relative2.startsWith("..") || path2.isAbsolute(relative2))
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: Task Basis path escapes workflow directory.");
+    assertSafeHistoryDirectory(currentPath, path2.dirname(value.basis_path));
+  } else if (value.previous_basis_revision !== undefined || value.next_basis_revision !== undefined) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock has incomplete Task Basis binding.");
+  }
+  const historyDirectory = path2.dirname(value.history_path);
+  assertSafeHistoryDirectory(currentPath, historyDirectory);
+  if (path2.dirname(historyDirectory) !== path2.join(path2.dirname(currentPath), "task-history")) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock history path is not canonical.");
+  }
+  return value;
+}
+function recoverTaskEvolution(currentPath) {
+  const lockPath = lockPathFor(currentPath);
+  if (!fs2.existsSync(lockPath))
+    return;
+  const lock = parseLock(fs2.readFileSync(lockPath, "utf8"), currentPath);
+  if (processIsAlive(lock.pid)) {
+    throw new Error("TASK_EVOLUTION_IN_PROGRESS: another process owns the task evolution lock.");
+  }
+  if (!fs2.existsSync(currentPath)) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: CURRENT_TASK is missing after an interrupted evolution.");
+  }
+  const currentRevision = sha256(fs2.readFileSync(currentPath, "utf8"));
+  if (currentRevision !== lock.previous_revision && currentRevision !== lock.next_revision) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: CURRENT_TASK is neither the old nor the new recorded revision.");
+  }
+  if (fs2.existsSync(lock.history_path)) {
+    if (sha256(fs2.readFileSync(lock.history_path, "utf8")) !== lock.history_revision) {
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history bytes changed after interruption.");
+    }
+  } else if (currentRevision === lock.next_revision) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: new CURRENT_TASK is visible without its required history.");
+  }
+  if (lock.basis_path) {
+    if (!fs2.existsSync(lock.basis_path))
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: linked Task Basis is missing.");
+    const basisRevision = sha256(fs2.readFileSync(lock.basis_path, "utf8"));
+    if (basisRevision !== lock.previous_basis_revision && basisRevision !== lock.next_basis_revision) {
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: linked Task Basis is neither old nor new revision.");
+    }
+    if (currentRevision !== lock.next_revision || basisRevision !== lock.next_basis_revision) {
+      if (basisRevision === lock.next_basis_revision) {
+        if (!fs2.existsSync(lock.history_path))
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: cannot restore Task Basis without history.");
+        const history = JSON.parse(fs2.readFileSync(lock.history_path, "utf8"));
+        if (!history.task_basis_base64)
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history lacks old Task Basis bytes.");
+        const oldBasis = Buffer.from(history.task_basis_base64, "base64").toString("utf8");
+        if (sha256(oldBasis) !== lock.previous_basis_revision || history.task_basis_revision !== lock.previous_basis_revision) {
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history Task Basis preimage is invalid.");
+        }
+        atomicReplace(lock.basis_path, oldBasis);
+      }
+      if (currentRevision === lock.next_revision) {
+        const history = JSON.parse(fs2.readFileSync(lock.history_path, "utf8"));
+        if (!history.current_task_base64)
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history lacks old CURRENT_TASK bytes.");
+        const oldCurrent = Buffer.from(history.current_task_base64, "base64").toString("utf8");
+        if (sha256(oldCurrent) !== lock.previous_revision)
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history CURRENT_TASK preimage is invalid.");
+        atomicReplace(currentPath, oldCurrent);
+      }
+    }
+  }
+  fs2.rmSync(lockPath);
+}
+function commitTaskEvolutionWithHistory(input, verifyNext, afterBasisPublished) {
+  recoverTaskEvolution(input.currentPath);
+  const history = taskHistoryLocation(input);
+  const previousRevision = sha256(input.previousContent);
+  const nextRevision = sha256(input.nextContent);
+  const lock = {
+    schema_version: 1,
+    phase: "prepared",
+    pid: process.pid,
+    current_path: input.currentPath,
+    previous_revision: previousRevision,
+    next_revision: nextRevision,
+    history_path: history.path,
+    history_revision: sha256(history.content),
+    ...input.nextBasisContent === undefined ? {} : {
+      basis_path: input.basisPath,
+      previous_basis_revision: sha256(input.basisContent),
+      next_basis_revision: sha256(input.nextBasisContent)
+    }
+  };
+  const lockPath = lockPathFor(input.currentPath);
+  let descriptor;
+  let ownsLock = false;
+  try {
+    descriptor = fs2.openSync(lockPath, "wx");
+    ownsLock = true;
+    fs2.writeFileSync(descriptor, JSON.stringify(lock) + `
+`, "utf8");
+    fs2.fsyncSync(descriptor);
+    fs2.closeSync(descriptor);
+    descriptor = undefined;
+    if (!fs2.existsSync(input.currentPath) || sha256(fs2.readFileSync(input.currentPath, "utf8")) !== previousRevision) {
+      throw new Error("TASK_EVOLUTION_SOURCE_STALE: CURRENT_TASK changed before the evolution lock was acquired.");
+    }
+    if (input.basisPath !== undefined && input.basisContent !== undefined && (!fs2.existsSync(input.basisPath) || sha256(fs2.readFileSync(input.basisPath, "utf8")) !== sha256(input.basisContent))) {
+      throw new Error("TASK_EVOLUTION_BASIS_STALE: Task Basis changed before the evolution lock was acquired.");
+    }
+    fs2.mkdirSync(path2.dirname(history.path), { recursive: true });
+    assertSafeHistoryDirectory(input.currentPath, path2.dirname(history.path));
+    if (fs2.existsSync(history.path)) {
+      if (fs2.readFileSync(history.path, "utf8") !== history.content) {
+        throw new Error("TASK_HISTORY_CONFLICT: existing source revision has different bytes.");
+      }
+    } else {
+      atomicReplace(history.path, history.content);
+    }
+    if (fs2.readFileSync(history.path, "utf8") !== history.content) {
+      throw new Error("TASK_HISTORY_READ_BACK_FAILED: history bytes differ after write.");
+    }
+    atomicReplace(lockPath, JSON.stringify({ ...lock, phase: "history-written" }) + `
+`);
+    if (input.nextBasisContent !== undefined) {
+      if (!input.basisPath || input.basisContent === undefined)
+        throw new Error("TASK_EVOLUTION_BASIS_INVALID: new Task Basis requires its exact old binding.");
+      atomicReplace(input.basisPath, input.nextBasisContent);
+      if (fs2.readFileSync(input.basisPath, "utf8") !== input.nextBasisContent)
+        throw new Error("TASK_EVOLUTION_BASIS_READ_BACK_FAILED: Task Basis bytes differ after write.");
+      afterBasisPublished?.();
+    }
+    atomicReplace(input.currentPath, input.nextContent);
+    const readBack = fs2.readFileSync(input.currentPath, "utf8");
+    if (sha256(readBack) !== nextRevision) {
+      throw new Error("TASK_EVOLUTION_READ_BACK_FAILED: CURRENT_TASK bytes differ after write.");
+    }
+    atomicReplace(lockPath, JSON.stringify({ ...lock, phase: "current-published" }) + `
+`);
+    verifyNext(readBack);
+    fs2.rmSync(lockPath);
+    return history;
+  } catch (error) {
+    if (descriptor !== undefined)
+      fs2.closeSync(descriptor);
+    if (ownsLock && fs2.existsSync(input.currentPath) && sha256(fs2.readFileSync(input.currentPath, "utf8")) === nextRevision) {
+      try {
+        atomicReplace(input.currentPath, input.previousContent);
+      } catch {}
+    }
+    if (ownsLock && input.basisPath && input.basisContent !== undefined && input.nextBasisContent !== undefined && fs2.existsSync(input.basisPath) && sha256(fs2.readFileSync(input.basisPath, "utf8")) === sha256(input.nextBasisContent)) {
+      try {
+        atomicReplace(input.basisPath, input.basisContent);
+      } catch {}
+    }
+    if (ownsLock && fs2.existsSync(input.currentPath) && sha256(fs2.readFileSync(input.currentPath, "utf8")) === previousRevision && (input.nextBasisContent === undefined || input.basisPath && fs2.existsSync(input.basisPath) && sha256(fs2.readFileSync(input.basisPath, "utf8")) === sha256(input.basisContent)) && fs2.existsSync(lockPath)) {
+      fs2.rmSync(lockPath);
+    }
+    throw error;
+  }
+}
+function commitSupersedeWithHistory(input, verifyNext) {
+  return commitTaskEvolutionWithHistory({ ...input, operation: "supersede" }, verifyNext);
+}
+
+// runtime/vnext/src/task-identity.ts
+import * as path3 from "path";
 var CURRENT_TASK_WORKFLOW_STATUSES = [
   "draft",
   "active",
@@ -330,8 +611,8 @@ function getTaskArtifactPath(taskId, taskSlug, kind) {
     throw new Error(`Invalid TaskArtifactKind "${kind}".`);
   const fileName = `TASK-${taskId}-${taskSlug}.md`;
   if (kind === "archive")
-    return path2.posix.join("TASKS", fileName);
-  return path2.posix.join("TASKS", kind, fileName);
+    return path3.posix.join("TASKS", fileName);
+  return path3.posix.join("TASKS", kind, fileName);
 }
 function validateTaskId(taskId) {
   const normalized = normalizeValue(taskId);
@@ -347,7 +628,7 @@ function validateTaskSlug(taskSlug) {
 }
 
 // runtime/vnext/src/mutation-scope.ts
-import * as crypto from "crypto";
+import * as crypto2 from "crypto";
 
 class MutationScopeError extends Error {
   code;
@@ -579,10 +860,10 @@ function parsePersistentTests(body, sections) {
     }
     if (sawMarker)
       failInvalid("Persistent Tests mixes an empty marker with path declarations.");
-    const path3 = normalizeScopePattern(extractDeclarationPath(declaration).pattern, "Persistent Tests declaration");
-    if (path3.includes("*"))
-      failInvalid(`Persistent Tests declaration ${path3} must be an exact path.`);
-    entries.push(path3);
+    const path4 = normalizeScopePattern(extractDeclarationPath(declaration).pattern, "Persistent Tests declaration");
+    if (path4.includes("*"))
+      failInvalid(`Persistent Tests declaration ${path4} must be an exact path.`);
+    entries.push(path4);
   }
   if (bulletCount === 0)
     failInvalid("Persistent Tests must explicitly list exact paths or declare none.");
@@ -591,7 +872,7 @@ function parsePersistentTests(body, sections) {
   return entries;
 }
 function hash(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
+  return crypto2.createHash("sha256").update(value).digest("hex");
 }
 function scopeSummary(scope) {
   return {
@@ -727,15 +1008,15 @@ function validateConditionalAuthorizations(value) {
   return { authorizations, blockers };
 }
 function blockedResult(scope, inputPaths, transformationKind, blockers) {
-  const normalizedPaths = inputPaths.filter((path3) => typeof path3 === "string").map((path3) => path3.trim()).filter(Boolean);
+  const normalizedPaths = inputPaths.filter((path4) => typeof path4 === "string").map((path4) => path4.trim()).filter(Boolean);
   return {
     status: "blocked",
     source_revision: scope.source_revision,
     transformation_kind: transformationKind,
     scope: scopeSummary(scope),
     changed_paths: normalizedPaths,
-    decisions: normalizedPaths.map((path3) => ({
-      path: path3,
+    decisions: normalizedPaths.map((path4) => ({
+      path: path4,
       classification: "invalid",
       mutation_admitted: false,
       matched_scope: [],
@@ -1037,7 +1318,7 @@ function auditCommandMutation(scope, input) {
   const expected = evaluateCommandWriteFootprint(scope, input);
   const observedWritePaths = Array.isArray(input?.observed_write_paths) ? input.observed_write_paths : [];
   const cleanupPerformed = input?.cleanup?.performed === true;
-  const cleanupPaths = Array.isArray(input?.cleanup?.paths) ? input.cleanup.paths.filter((path3) => typeof path3 === "string").map((path3) => path3.trim()).filter(Boolean) : [];
+  const cleanupPaths = Array.isArray(input?.cleanup?.paths) ? input.cleanup.paths.filter((path4) => typeof path4 === "string").map((path4) => path4.trim()).filter(Boolean) : [];
   const auditedWritePaths = [...new Set([...observedWritePaths, ...cleanupPaths])];
   const cleanupBlockers = input?.cleanup !== undefined && typeof input.cleanup.performed !== "boolean" ? ["cleanup.performed must be a boolean when cleanup audit metadata is supplied."] : [];
   if (expected.status === "blocked") {
@@ -1265,9 +1546,9 @@ function resolveTaskStep(body, activeStepId) {
 }
 
 // runtime/vnext/src/bootstrap.ts
-import * as crypto2 from "crypto";
-import * as fs2 from "fs";
-import * as path3 from "path";
+import * as crypto3 from "crypto";
+import * as fs3 from "fs";
+import * as path4 from "path";
 var VNEXT_BOOTSTRAP_PROPOSAL_SCHEMA_VERSION = 1;
 var VNEXT_BOOTSTRAP_PROPOSAL_KIND = "vnext-bootstrap-proposal";
 var BOOTSTRAP_MODES = ["design", "greenfield", "inventory", "adopt", "realign"];
@@ -1331,12 +1612,12 @@ function normalizeRepoPath(value, location) {
 function normalizePathArray(value, location, allowEmpty = false) {
   return expectStringArray(value, location, allowEmpty).map((item, index) => normalizeRepoPath(item, `${location}[${index}]`));
 }
-function sha256(value) {
-  return crypto2.createHash("sha256").update(value).digest("hex");
+function sha2562(value) {
+  return crypto3.createHash("sha256").update(value).digest("hex");
 }
 function computeBootstrapTargetIdentity(root) {
-  const resolved = path3.resolve(root).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
-  return sha256(resolved).slice(0, 32);
+  const resolved = path4.resolve(root).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
+  return sha2562(resolved).slice(0, 32);
 }
 function isAllowedAssetPath(value) {
   if (value === "AGENTS.md" || value === "CLAUDE.md")
@@ -1530,7 +1811,7 @@ function validateBootstrapProjectProposal(value) {
   };
   validateTargetSet(proposal, assets);
   validateModeOperationBoundary(proposal);
-  const scope = parseMutationScope(scopeDocument, sha256(scopeDocument));
+  const scope = parseMutationScope(scopeDocument, sha2562(scopeDocument));
   const scopeResult = evaluateMutationScope(scope, {
     changed_paths: changedPaths,
     conditional_authorizations: conditionalAuthorizations,
@@ -1541,67 +1822,67 @@ function validateBootstrapProjectProposal(value) {
   return { proposal, scope: scopeResult };
 }
 function absoluteTarget(root, relativePath) {
-  const resolvedRoot = path3.resolve(root);
-  const resolved = path3.resolve(resolvedRoot, ...relativePath.split("/"));
-  const prefix = resolvedRoot.endsWith(path3.sep) ? resolvedRoot : `${resolvedRoot}${path3.sep}`;
+  const resolvedRoot = path4.resolve(root);
+  const resolved = path4.resolve(resolvedRoot, ...relativePath.split("/"));
+  const prefix = resolvedRoot.endsWith(path4.sep) ? resolvedRoot : `${resolvedRoot}${path4.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
     fail("BOOTSTRAP_PATH_INVALID", `target escapes project root: ${relativePath}`);
   return resolved;
 }
 function contentHash(content) {
-  return sha256(Buffer.from(content, "utf8"));
+  return sha2562(Buffer.from(content, "utf8"));
 }
 function applyAtomicBootstrapTransaction(root, proposal, verify) {
-  const resolvedRoot = path3.resolve(root);
-  const stagingRoot = fs2.mkdtempSync(path3.join(path3.dirname(resolvedRoot), ".workflow-vnext-bootstrap-"));
+  const resolvedRoot = path4.resolve(root);
+  const stagingRoot = fs3.mkdtempSync(path4.join(path4.dirname(resolvedRoot), ".workflow-vnext-bootstrap-"));
   const backups = [];
   const newlyPromoted = [];
   try {
     const stagedFiles = [];
     for (const [index, asset] of proposal.assets.entries()) {
-      const stagedPath = path3.join(stagingRoot, "files", `${index}.tmp`);
-      fs2.mkdirSync(path3.dirname(stagedPath), { recursive: true });
-      fs2.writeFileSync(stagedPath, asset.content, "utf8");
+      const stagedPath = path4.join(stagingRoot, "files", `${index}.tmp`);
+      fs3.mkdirSync(path4.dirname(stagedPath), { recursive: true });
+      fs3.writeFileSync(stagedPath, asset.content, "utf8");
       stagedFiles.push({ relative: asset.path, path: stagedPath });
     }
     const touched = stagedFiles.map((item) => item.relative);
-    for (const [index, relative] of touched.entries()) {
-      const targetPath = absoluteTarget(resolvedRoot, relative);
-      if (!fs2.existsSync(targetPath))
+    for (const [index, relative2] of touched.entries()) {
+      const targetPath = absoluteTarget(resolvedRoot, relative2);
+      if (!fs3.existsSync(targetPath))
         continue;
-      const backupPath = path3.join(stagingRoot, "backups", `${index}.bak`);
-      fs2.mkdirSync(path3.dirname(backupPath), { recursive: true });
-      fs2.renameSync(targetPath, backupPath);
+      const backupPath = path4.join(stagingRoot, "backups", `${index}.bak`);
+      fs3.mkdirSync(path4.dirname(backupPath), { recursive: true });
+      fs3.renameSync(targetPath, backupPath);
       backups.push({ targetPath, backupPath });
     }
     for (const staged of stagedFiles) {
       const targetPath = absoluteTarget(resolvedRoot, staged.relative);
-      fs2.mkdirSync(path3.dirname(targetPath), { recursive: true });
-      fs2.renameSync(staged.path, targetPath);
+      fs3.mkdirSync(path4.dirname(targetPath), { recursive: true });
+      fs3.renameSync(staged.path, targetPath);
       newlyPromoted.push(targetPath);
     }
     for (const asset of proposal.assets) {
       const targetPath = absoluteTarget(resolvedRoot, asset.path);
-      if (!fs2.existsSync(targetPath) || contentHash(fs2.readFileSync(targetPath, "utf8")) !== contentHash(asset.content)) {
+      if (!fs3.existsSync(targetPath) || contentHash(fs3.readFileSync(targetPath, "utf8")) !== contentHash(asset.content)) {
         fail("BOOTSTRAP_READ_BACK_FAILED", `promoted asset did not read back identically: ${asset.path}`);
       }
     }
     verify?.();
-    fs2.rmSync(stagingRoot, { recursive: true, force: true });
+    fs3.rmSync(stagingRoot, { recursive: true, force: true });
   } catch (error) {
     for (const targetPath of newlyPromoted.reverse()) {
-      if (fs2.existsSync(targetPath))
-        fs2.rmSync(targetPath, { recursive: true, force: true });
+      if (fs3.existsSync(targetPath))
+        fs3.rmSync(targetPath, { recursive: true, force: true });
     }
     for (const entry of backups.reverse()) {
-      if (fs2.existsSync(entry.targetPath))
-        fs2.rmSync(entry.targetPath, { recursive: true, force: true });
-      if (fs2.existsSync(entry.backupPath)) {
-        fs2.mkdirSync(path3.dirname(entry.targetPath), { recursive: true });
-        fs2.renameSync(entry.backupPath, entry.targetPath);
+      if (fs3.existsSync(entry.targetPath))
+        fs3.rmSync(entry.targetPath, { recursive: true, force: true });
+      if (fs3.existsSync(entry.backupPath)) {
+        fs3.mkdirSync(path4.dirname(entry.targetPath), { recursive: true });
+        fs3.renameSync(entry.backupPath, entry.targetPath);
       }
     }
-    fs2.rmSync(stagingRoot, { recursive: true, force: true });
+    fs3.rmSync(stagingRoot, { recursive: true, force: true });
     throw error;
   }
 }
@@ -1628,7 +1909,7 @@ function applyBootstrapProjectProposal(root, value, options = {}) {
 }
 function parseJsonFile(filePath) {
   try {
-    return JSON.parse(fs2.readFileSync(path3.resolve(filePath), "utf8"));
+    return JSON.parse(fs3.readFileSync(path4.resolve(filePath), "utf8"));
   } catch (error) {
     throw new BootstrapRuntimeError("BOOTSTRAP_SCHEMA_INVALID", `proposal file is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -1683,7 +1964,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.18.6";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.18.7";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -1720,6 +2001,8 @@ var RUNTIME_REQUIRED_ENVELOPE_FIELDS = [
 var RUNTIME_STATE_FIELDS = [
   "business_evidence_version",
   "evidence_plan_revision",
+  "task_evolution_version",
+  "preservation_source_revision",
   "task_id",
   "task_slug",
   "workflow_status",
@@ -1737,7 +2020,9 @@ var RUNTIME_STATE_FIELDS = [
   "claim_evidence",
   "pending_review_result",
   "review_coverage",
-  "step_attempts"
+  "step_attempts",
+  "evidence_challenges",
+  "evidence_carry_forward"
 ];
 var REVIEW_CYCLE_FIELDS = [
   "id",
@@ -1947,8 +2232,8 @@ function normalizeRepoPath2(value, location) {
   }
   return normalized;
 }
-function sha2562(value) {
-  return crypto3.createHash("sha256").update(value).digest("hex");
+function sha2563(value) {
+  return crypto4.createHash("sha256").update(value).digest("hex");
 }
 function stableValue(value) {
   if (Array.isArray(value))
@@ -1959,26 +2244,26 @@ function stableValue(value) {
   return value;
 }
 function digest(value) {
-  return sha2562(JSON.stringify(stableValue(value)));
+  return sha2563(JSON.stringify(stableValue(value)));
 }
 function captureReviewTarget(root, paths) {
-  const resolvedRoot = path4.resolve(root);
+  const resolvedRoot = path5.resolve(root);
   const normalizedPaths = [...new Set(paths.map((item, index) => normalizeRepoPath2(item, `review_target.paths[${index}]`)))].sort();
   const entries = normalizedPaths.map((relativePath) => {
-    const filePath = path4.resolve(resolvedRoot, ...relativePath.split("/"));
-    if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path4.sep}`)) {
+    const filePath = path5.resolve(resolvedRoot, ...relativePath.split("/"));
+    if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path5.sep}`)) {
       fail2("RUNTIME_PATH_INVALID", `review target escapes the target root: ${relativePath}`);
     }
-    if (!fs3.existsSync(filePath))
+    if (!fs4.existsSync(filePath))
       return { path: relativePath, state: "absent", sha256: null };
-    const stat = fs3.lstatSync(filePath);
+    const stat = fs4.lstatSync(filePath);
     if (stat.isSymbolicLink()) {
-      return { path: relativePath, state: "symlink", sha256: sha2562(fs3.readlinkSync(filePath)) };
+      return { path: relativePath, state: "symlink", sha256: sha2563(fs4.readlinkSync(filePath)) };
     }
     if (!stat.isFile()) {
       fail2("REVIEW_TARGET_INVALID", `review target must be a file, symlink, or absent path: ${relativePath}`);
     }
-    return { path: relativePath, state: "file", sha256: sha2562(fs3.readFileSync(filePath)) };
+    return { path: relativePath, state: "file", sha256: sha2563(fs4.readFileSync(filePath)) };
   });
   return {
     kind: "runtime-file-manifest/v1",
@@ -2062,13 +2347,13 @@ function validateRetryResolution(root, current, delta, failure) {
   if (failure.kind !== "environment" || [...failure.execution_result.command_results, ...failure.execution_result.validation_results].some((item) => item.status === "failed"))
     fail2("RETRY_DIAGNOSIS_REQUIRED", "Environment retry requires a recorded environment blocker without failed checks.");
   for (const ref of delta.blocker_resolution_refs) {
-    const relative2 = normalizeRepoPath2(ref, "blocker_resolution_ref");
-    const absolute = path4.resolve(root, relative2);
-    if (!fs3.existsSync(absolute) || !fs3.statSync(absolute).isFile() || fs3.statSync(absolute).size > 65536)
+    const relative3 = normalizeRepoPath2(ref, "blocker_resolution_ref");
+    const absolute = path5.resolve(root, relative3);
+    if (!fs4.existsSync(absolute) || !fs4.statSync(absolute).isFile() || fs4.statSync(absolute).size > 65536)
       fail2("RETRY_RESOLUTION_REQUIRED", "Resolution must be a retained bounded JSON report.");
     let parsed;
     try {
-      parsed = JSON.parse(fs3.readFileSync(absolute, "utf8"));
+      parsed = JSON.parse(fs4.readFileSync(absolute, "utf8"));
     } catch {
       fail2("RETRY_RESOLUTION_REQUIRED", "Resolution must be structured JSON, not a free-form unlock note.");
     }
@@ -2112,7 +2397,7 @@ function validateReviewCoverage(value) {
       if (typeof content !== "string")
         fail2("REVIEW_COVERAGE_INVALID", "preimage content is required.");
       const buffer = Buffer.from(content, "base64");
-      if (buffer.toString("base64") !== content || sha2562(buffer) !== entry.sha256)
+      if (buffer.toString("base64") !== content || sha2563(buffer) !== entry.sha256)
         fail2("REVIEW_COVERAGE_INVALID", "preimage content hash is invalid.");
     }
     return { ...entry, content_base64: content };
@@ -2128,8 +2413,8 @@ function registerReviewCoverage(root, current, paths) {
     fail2("REVIEW_TARGET_STALE", "Unrecorded changes cannot refresh the cumulative review target.");
   const added = captureReviewTarget(root, paths.filter((p) => !old?.base.entries.some((e) => e.path === p)));
   const preimages = [...old?.preimages ?? [], ...added.entries.map((entry) => {
-    const absolute = path4.resolve(root, entry.path);
-    const content = entry.state === "absent" ? null : entry.state === "symlink" ? Buffer.from(fs3.readlinkSync(absolute)) : fs3.readFileSync(absolute);
+    const absolute = path5.resolve(root, entry.path);
+    const content = entry.state === "absent" ? null : entry.state === "symlink" ? Buffer.from(fs4.readlinkSync(absolute)) : fs4.readFileSync(absolute);
     return { ...entry, content_base64: content?.toString("base64") ?? null };
   })].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   return validateReviewCoverage({ change_set_id: old?.change_set_id ?? `change-set-${digest({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision }).slice(0, 32)}`, base: manifest(preimages.map(({ content_base64, ...entry }) => entry)), target: manifest([...old?.target.entries ?? [], ...added.entries]), preimages, pending_paths: old?.pending_paths ?? [], last_clean_revision: old?.last_clean_revision ?? null });
@@ -2199,9 +2484,9 @@ function parseYamlFrontmatter(content, location) {
   return { frontmatter, body: match[2] };
 }
 function parseYamlMappingFile(filePath) {
-  if (!fs3.existsSync(filePath))
+  if (!fs4.existsSync(filePath))
     fail2("RUNTIME_CONTRACT_MISSING", `Runtime contract is missing: ${filePath}`);
-  const document = parseDocument(fs3.readFileSync(filePath, "utf8"), { uniqueKeys: true });
+  const document = parseDocument(fs4.readFileSync(filePath, "utf8"), { uniqueKeys: true });
   const diagnostics = [...document.errors, ...document.warnings];
   if (diagnostics.length > 0)
     fail2("RUNTIME_CONTRACT_INVALID", `${filePath} has invalid YAML: ${diagnostics.map((item) => item.message).join("; ")}`);
@@ -2228,29 +2513,29 @@ function validateRuntimeEnvironment(nodeVersion = process.versions.node, nodeMin
   }
 }
 function readJsonObject(filePath, code) {
-  if (!fs3.existsSync(filePath))
+  if (!fs4.existsSync(filePath))
     fail2(code, "Required Runtime distribution file is missing: " + filePath);
   let parsed;
   try {
-    parsed = JSON.parse(fs3.readFileSync(filePath, "utf8"));
+    parsed = JSON.parse(fs4.readFileSync(filePath, "utf8"));
   } catch (error) {
     fail2(code, filePath + " is not valid JSON: " + (error instanceof Error ? error.message : String(error)));
   }
   return expectRecord2(parsed, filePath);
 }
 function resolveRuntimeDistributionDirectory(root) {
-  const resolvedRoot = path4.resolve(root);
-  const installedDirectory = path4.join(resolvedRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"));
-  if (fs3.existsSync(path4.join(installedDirectory, "package.json"))) {
+  const resolvedRoot = path5.resolve(root);
+  const installedDirectory = path5.join(resolvedRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"));
+  if (fs4.existsSync(path5.join(installedDirectory, "package.json"))) {
     return { directory: installedDirectory, installed: true };
   }
-  return { directory: path4.join(resolvedRoot, "runtime", "vnext"), installed: false };
+  return { directory: path5.join(resolvedRoot, "runtime", "vnext"), installed: false };
 }
 function validateVNextRuntimeDistribution(root, contract, requireDependencies = false) {
   const { directory } = resolveRuntimeDistributionDirectory(root);
-  const packagePath = path4.join(directory, "package.json");
-  const lockfilePath = path4.join(directory, "package-lock.json");
-  const entrypointPath = path4.join(directory, "dist", "cli.js");
+  const packagePath = path5.join(directory, "package.json");
+  const lockfilePath = path5.join(directory, "package-lock.json");
+  const entrypointPath = path5.join(directory, "dist", "cli.js");
   const packageManifest = readJsonObject(packagePath, "RUNTIME_PACKAGE_INVALID");
   if (packageManifest.name !== contract.package_name || packageManifest.version !== contract.package_version || packageManifest.private !== true || packageManifest.type !== "module") {
     fail2("RUNTIME_PACKAGE_INVALID", "Runtime package.json must declare the contract name, version, private=true, and type=module.");
@@ -2272,13 +2557,13 @@ function validateVNextRuntimeDistribution(root, contract, requireDependencies = 
   const yamlLock = expectRecord2(lockPackages["node_modules/yaml"], "Runtime package-lock.json.packages[node_modules/yaml]");
   if (yamlLock.version !== "2.8.3")
     fail2("RUNTIME_PACKAGE_INVALID", "Runtime package-lock.json must lock yaml to 2.8.3.");
-  if (!fs3.existsSync(entrypointPath) || !fs3.statSync(entrypointPath).isFile())
+  if (!fs4.existsSync(entrypointPath) || !fs4.statSync(entrypointPath).isFile())
     fail2("RUNTIME_PACKAGE_INVALID", "Runtime entrypoint is missing: " + entrypointPath);
-  const entrypoint = fs3.readFileSync(entrypointPath, "utf8");
+  const entrypoint = fs4.readFileSync(entrypointPath, "utf8");
   if (!entrypoint.includes("vnext-runtime-proposal") || !entrypoint.includes("runCli"))
     fail2("RUNTIME_PACKAGE_INVALID", "Runtime dist/cli.js is not the generated vNext Runtime entrypoint.");
   if (requireDependencies) {
-    const localYaml = path4.join(directory, "node_modules", "yaml", "package.json");
+    const localYaml = path5.join(directory, "node_modules", "yaml", "package.json");
     const localYamlManifest = readJsonObject(localYaml, "RUNTIME_DEPENDENCY_MISSING");
     if (localYamlManifest.version !== "2.8.3")
       fail2("RUNTIME_DEPENDENCY_INVALID", "Runtime-local yaml dependency does not match package-lock.json.");
@@ -2289,8 +2574,8 @@ function validateVNextRuntimeDistribution(root, contract, requireDependencies = 
     entrypoint: contract.entrypoint,
     package_version: contract.package_version,
     node_min_version: contract.node_min_version,
-    package_lock_sha256: sha2562(fs3.readFileSync(lockfilePath)),
-    entrypoint_sha256: sha2562(fs3.readFileSync(entrypointPath))
+    package_lock_sha256: sha2563(fs4.readFileSync(lockfilePath)),
+    entrypoint_sha256: sha2563(fs4.readFileSync(entrypointPath))
   };
 }
 function validateRuntimeDistributionContract(value) {
@@ -2379,7 +2664,7 @@ function validateBootstrapRuntimeContract(value) {
   return bound;
 }
 function validateVNextRuntimeContract(root, requireDependencies = false) {
-  const filePath = path4.join(path4.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split("/"));
+  const filePath = path5.join(path5.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split("/"));
   const contract = parseYamlMappingFile(filePath);
   expectExactKeys2(contract, ["schema_version", "kind", "phase", "runtime_distribution", "proposal", "mutation_scope", "canonical_current_task", "concurrency", "operations", "unbound_operations", "bootstrap_project"], "vNext Runtime contract");
   if (contract.schema_version !== 1 || contract.kind !== "vnext-runtime-contract" || contract.phase !== "Phase 2") {
@@ -2403,7 +2688,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
   expectExactKeys2(taskStateContract, ["actions", "retry_step", "step_progress", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
-  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
+  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract task-state actions");
   const retryContract = expectRecord2(taskStateContract.retry_step, "Runtime contract.proposal.task_state.retry_step");
   expectExactKeys2(retryContract, ["max_attempts", "environment_report", "same_plan_repair_diagnosis", "repair_paths", "failure_preservation", "result_required"], "Runtime contract.proposal.task_state.retry_step");
   if (retryContract.max_attempts !== 3 || retryContract.environment_report !== "environment-restored/v1" || retryContract.same_plan_repair_diagnosis !== "same-plan-repair/v1" || retryContract.repair_paths !== "failed-preflight-subset" || retryContract.failure_preservation !== "durable-step-attempts" || retryContract.result_required !== "fresh-preflight-and-execution")
@@ -2541,10 +2826,10 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(reviewChangeAdapter, ["input", "commands", "context_source", "reviewable_execution", "change_set", "review_target", "result_storage", "direct_product_writes", "advancement_owner"], "Runtime contract.proposal.review_change.semantic_adapter");
   if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-cumulative-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime review-change adapter semantic boundary is invalid.");
-  expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "review-read", "record-review-result"], "Runtime contract review-change commands");
-  expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result"], "Runtime contract review-change actions");
+  expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "review-read", "record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"], "Runtime contract review-change commands");
+  expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"], "Runtime contract review-change actions");
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
-  expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions"], "Runtime contract.proposal.prepare_task");
+  expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions", "direct_replan_result", "task_history"], "Runtime contract.proposal.prepare_task");
   const prepareTaskAdapter = expectRecord2(prepareTaskContract.semantic_adapter, "Runtime contract.proposal.prepare_task.semantic_adapter");
   expectExactKeys2(prepareTaskAdapter, [
     "input",
@@ -2565,7 +2850,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   ], "Runtime contract.proposal.prepare_task.semantic_adapter");
   if (prepareTaskAdapter.input !== "stdin-json")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter input must remain stdin-json.");
-  expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "confirm-draft", "clear-resume-review", "replan"], "Runtime contract prepare-task adapter commands");
+  expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "confirm-draft", "clear-resume-review", "replan", "prepare-replan", "confirm-replan", "discard-replan", "initialize-preservation"], "Runtime contract prepare-task adapter commands");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["task_basis", "goal", "acceptance", "out_of_scope", "design_decisions", "mutation_scope", "test_strategy", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.optional_draft_fields, "prepare-task optional fields"), ["project_documents", "affected_contracts"], "prepare-task optional fields");
   if (prepareTaskAdapter.task_basis_storage !== "linked-TASK_BASIS-with-path-and-revision") {
@@ -2591,8 +2876,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (prepareTaskAdapter.resume_review_binding !== "caller-provided-exact-readiness-receipt") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task resume review must consume a caller-provided exact readiness receipt.");
   }
-  if (prepareTaskAdapter.replan_entry !== "superseded + active") {
-    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task replan must enter from superseded + active.");
+  if (prepareTaskAdapter.replan_entry !== "blocked-pending-confirmed-candidate") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task replan must remain blocked pending a confirmed candidate.");
   }
   const testStrategy = expectRecord2(prepareTaskAdapter.test_strategy, "Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy");
   expectExactKeys2(testStrategy, ["storage", "fields", "modes", "sources", "classifications", "source_binding", "precedence", "ambiguity", "frozen_by", "change_after_confirm", "enforcement", "ordering_enforcement", "non_executable_scope"], "Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy");
@@ -2621,7 +2906,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (internalActionOwners["migrate-claim-evidence"] !== "runtime-compatibility" || internalActionOwners["mark-replan-blocked"] !== "runtime-convergence" || internalActionOwners["clear-replan-block"] !== "runtime-convergence") {
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task internal action ownership is invalid.");
   }
-  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task bound actions");
+  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, "mark-replan-blocked", "clear-replan-block"], "Runtime contract prepare-task bound actions");
   if (prepareTaskContract.draft_mode !== "default" || prepareTaskContract.confirm_mode !== "confirm")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task draft/confirm modes are invalid.");
   expectSetEqual(expectStringArray2(prepareTaskContract.draft_actions, "Runtime contract.proposal.prepare_task.draft_actions"), ["create-draft", "update-draft"], "Runtime contract prepare-task draft actions");
@@ -2632,6 +2917,14 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (prepareTaskContract.replan_mode !== "replan")
     fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task replan_mode must be replan.");
   expectSetEqual(expectStringArray2(prepareTaskContract.replan_actions, "Runtime contract.proposal.prepare_task.replan_actions"), [...REPLAN_TASK_STATE_ACTIONS], "Runtime contract prepare-task replan actions");
+  if (prepareTaskContract.direct_replan_result !== "REPLAN_CONFIRMATION_REQUIRED") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime contract must describe the disabled direct replan result.");
+  }
+  const taskHistory = expectRecord2(prepareTaskContract.task_history, "Runtime contract.proposal.prepare_task.task_history");
+  expectExactKeys2(taskHistory, ["initialization_preimage", "supersede_preimage", "confirmed_replan_preimage", "correction_candidate", "evidence_carry_forward", "external_evidence", "interrupted_commit"], "Runtime contract.proposal.prepare_task.task_history");
+  if (taskHistory.initialization_preimage !== "exact-current-task-and-linked-task-basis-before-version-marker" || taskHistory.supersede_preimage !== "exact-current-task-and-linked-task-basis" || taskHistory.confirmed_replan_preimage !== "exact-current-task-and-linked-task-basis-before-publish" || taskHistory.correction_candidate !== "independent-revision-bound-candidate-with-full-old-obligations" || taskHistory.evidence_carry_forward !== "runtime-derived-old-report-and-subject-verified" || taskHistory.external_evidence !== "locator-only-not-automatically-reusable" || taskHistory.interrupted_commit !== "fail-closed-lock-and-hash-recovery") {
+    fail2("RUNTIME_CONTRACT_INVALID", "Runtime task history contract is invalid.");
+  }
   const inboxRecordContract = expectRecord2(proposal.inbox_record, "Runtime contract.proposal.inbox_record");
   expectExactKeys2(inboxRecordContract, ["mode", "action", "required", "record_fields", "relation", "duplicate_check", "proposed_owner", "target_pattern", "provenance_fields"], "Runtime contract.proposal.inbox_record");
   if (inboxRecordContract.mode !== "default" || inboxRecordContract.action !== "record") {
@@ -3278,14 +3571,29 @@ function assertPersistentTestAdmission(definition, records) {
 }
 function assertEvidenceReportApplicable(root, current, slot) {
   const report = slot.report;
-  if (!report || !slot.check || report.actual_method !== slot.check.method || report.evidence_plan_revision !== current.runtimeState.evidence_plan_revision)
-    fail2("CLAIM_EVIDENCE_INCOMPLETE", "report must bind its frozen check and plan revision.");
+  if (!report || !slot.check || report.actual_method !== slot.check.method)
+    fail2("CLAIM_EVIDENCE_INCOMPLETE", "report must bind its frozen check and method.");
+  if (report.evidence_plan_revision !== current.runtimeState.evidence_plan_revision) {
+    const owner = (current.runtimeState.claim_evidence ?? []).find((record) => record.slots.some((item) => item.slot_id === slot.slot_id && item.report?.result_id === report.result_id));
+    const proof = (current.runtimeState.evidence_carry_forward ?? []).find((item) => item.claim_id === owner?.claim_id && item.slot_id === slot.slot_id && item.check_id === slot.check.check_id && item.result_id === report.result_id && item.old_plan_revision === report.evidence_plan_revision && item.new_plan_revision === current.runtimeState.evidence_plan_revision && item.report_sha256 === digest(report) && item.subject_revision === report.subject_revision);
+    if (!proof || (current.runtimeState.evidence_challenges ?? []).some((item) => item.claim_id === proof.claim_id && item.slot_id === proof.slot_id && item.status !== "resolved")) {
+      fail2("CLAIM_EVIDENCE_INCOMPLETE", "old-plan report has no applicable unchallenged Runtime carry-forward proof.");
+    }
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proof.old_source_revision, "confirm-replan");
+    const historyFile = path5.join(path5.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${proof.old_source_revision}.json`);
+    const history = JSON.parse(fs4.readFileSync(historyFile, "utf8"));
+    const previous = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
+    const oldSlot = previous.runtimeState.claim_evidence?.find((record) => record.claim_id === proof.claim_id)?.slots.find((item) => item.slot_id === proof.slot_id);
+    if (previous.runtimeState.evidence_plan_revision !== proof.old_plan_revision || digest(oldSlot?.report) !== proof.report_sha256 || digest(oldSlot?.check) !== digest(slot.check)) {
+      fail2("EVIDENCE_CARRY_FORWARD_STALE", "immutable source does not contain the exact unchanged report and check.");
+    }
+  }
   if (report.actual_method === "human")
     fail2("EVIDENCE_AUTHORITY_UNSUPPORTED", "No authenticated human acceptance channel is bound; caller-reported human approval is insufficient.");
   if (!slot.evidence_refs.length || slot.evidence_refs.some((ref) => {
     try {
       const p = normalizeRepoPath2(ref.split("#")[0], "evidence_ref");
-      return !fs3.statSync(path4.resolve(root, p)).isFile();
+      return !fs4.statSync(path5.resolve(root, p)).isFile();
     } catch {
       return true;
     }
@@ -3880,10 +4188,10 @@ function assertTestStrategySource(root, strategy, taskBasis) {
   if (normalized !== strategy.source_ref || normalized.includes("*") || /^[A-Za-z]:[\\/]/u.test(normalized)) {
     fail2("TEST_STRATEGY_INVALID", "project-policy source_ref must be one canonical repository-relative exact file path.");
   }
-  const resolvedRoot = path4.resolve(root);
-  const resolved = path4.resolve(resolvedRoot, ...normalized.split("/"));
-  const relative2 = path4.relative(resolvedRoot, resolved);
-  if (!relative2 || relative2.startsWith(`..${path4.sep}`) || path4.isAbsolute(relative2) || !fs3.existsSync(resolved) || !fs3.statSync(resolved).isFile()) {
+  const resolvedRoot = path5.resolve(root);
+  const resolved = path5.resolve(resolvedRoot, ...normalized.split("/"));
+  const relative3 = path5.relative(resolvedRoot, resolved);
+  if (!relative3 || relative3.startsWith(`..${path5.sep}`) || path5.isAbsolute(relative3) || !fs4.existsSync(resolved) || !fs4.statSync(resolved).isFile()) {
     fail2("TEST_STRATEGY_INVALID", `project-policy source_ref does not identify an existing project file: ${strategy.source_ref}.`);
   }
 }
@@ -4064,7 +4372,7 @@ function assertReviewExecutionEligible(current, execution) {
 function validateTaskStateDelta(value) {
   const record = expectRecord2(value, "semantic_delta");
   const kind = expectEnum(record.kind, ["task-state"], "semantic_delta.kind");
-  const action = expectEnum(record.action, ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
+  const action = expectEnum(record.action, ["retry-step", "record-step-preflight", "step-progress", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], "semantic_delta.action");
   if (action === "retry-step") {
     expectExactKeys2(record, ["kind", "action", "step_id", "blocked_attempt_id", "blocker_resolution_refs", ...record.repair_diagnosis === undefined ? [] : ["repair_diagnosis"], "evidence_refs"], "retry-step");
     return { kind, action, step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2), blocked_attempt_id: expectString2(record.blocked_attempt_id, "blocked_attempt_id", SAFE_KEY_PATTERN2), blocker_resolution_refs: validateEvidenceRefs(record.blocker_resolution_refs, "blocker_resolution_refs"), ...record.repair_diagnosis === undefined ? {} : { repair_diagnosis: validateStepRepairDiagnosis(record.repair_diagnosis) }, evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs") };
@@ -4119,6 +4427,32 @@ function validateTaskStateDelta(value) {
     return {
       kind,
       action: "clear-resume-review-gate",
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
+    };
+  }
+  if (action === "record-evidence-challenge") {
+    expectExactKeys2(record, ["kind", "action", "claim_id", "slot_id", "result_id", "evidence_ref", "evidence_sha256", "reason", "evidence_refs"], "semantic_delta");
+    return {
+      kind,
+      action,
+      claim_id: expectString2(record.claim_id, "claim_id", CLAIM_ID_PATTERN),
+      slot_id: expectString2(record.slot_id, "slot_id", CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+      result_id: expectString2(record.result_id, "result_id", CLAIM_ID_PATTERN),
+      evidence_ref: normalizeRepoPath2(expectString2(record.evidence_ref, "evidence_ref"), "evidence_ref"),
+      evidence_sha256: expectString2(record.evidence_sha256, "evidence_sha256", /^[a-f0-9]{64}$/),
+      reason: expectString2(record.reason, "reason"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
+    };
+  }
+  if (action === "dismiss-evidence-challenge") {
+    expectExactKeys2(record, ["kind", "action", "challenge_id", "evidence_ref", "evidence_sha256", "reason", "evidence_refs"], "semantic_delta");
+    return {
+      kind,
+      action,
+      challenge_id: expectString2(record.challenge_id, "challenge_id", SAFE_KEY_PATTERN2),
+      evidence_ref: normalizeRepoPath2(expectString2(record.evidence_ref, "evidence_ref"), "evidence_ref"),
+      evidence_sha256: expectString2(record.evidence_sha256, "evidence_sha256", /^[a-f0-9]{64}$/),
+      reason: expectString2(record.reason, "reason"),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
@@ -4511,7 +4845,7 @@ function validateImplementationAnchors(value, location) {
     }
     const rawAnchorPath = expectString2(anchor.path, `${location}.anchors[${index}].path`);
     const anchorPath = normalizeRepoPath2(rawAnchorPath, `${location}.anchors[${index}].path`);
-    if (/^[A-Za-z]:\//u.test(anchorPath) || anchorPath.includes(":") || anchorPath !== path4.posix.normalize(anchorPath)) {
+    if (/^[A-Za-z]:\//u.test(anchorPath) || anchorPath.includes(":") || anchorPath !== path5.posix.normalize(anchorPath)) {
       fail2("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors[${index}].path must be a canonical repository-relative path.`);
     }
     if (anchorPath.includes("*") || /:\d+(?:-\d+)?$/u.test(anchorPath)) {
@@ -4972,8 +5306,8 @@ function validateRuntimeProposal(value) {
     } else if (caller === "review-change") {
       if (mode !== "default")
         fail2("RUNTIME_MODE_INVALID", "review-change task-state proposals must use default mode.");
-      if (semanticDelta.kind !== "task-state" || semanticDelta.action !== "record-review-result") {
-        fail2("RUNTIME_CALLER_NOT_BOUND", "review-change is bound only to record-review-result.");
+      if (semanticDelta.kind !== "task-state" || !["record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"].includes(semanticDelta.action)) {
+        fail2("RUNTIME_CALLER_NOT_BOUND", "review-change is bound only to review results and evidence challenge assessment.");
       }
     } else if (caller === "execute-step") {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode))
@@ -5432,7 +5766,7 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
       "evidence_refs",
       "recorded_at"
     ];
-    const optionalKeys = ["partial_diff_disposition", "invalidation_kind", "invalidation_reason"];
+    const optionalKeys = ["partial_diff_disposition", "invalidation_kind", "invalidation_reason", "candidate_digest", "correction_reason"];
     const missing = requiredKeys.filter((key) => !(key in record));
     const extra = Object.keys(record).filter((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key));
     if (missing.length > 0 || extra.length > 0) {
@@ -5472,6 +5806,8 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     const evidenceRefs = validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`);
     const recordedAt = expectString2(record.recorded_at, `${location}.recorded_at`);
     if (action === "supersede") {
+      if (record.candidate_digest !== undefined || record.correction_reason !== undefined)
+        fail2("RUNTIME_SCHEMA_INVALID", `${location} supersede audit cannot bind a correction candidate.`);
       if (operationKind !== "lifecycle-transaction" || caller !== "task-lifecycle" || mode !== "supersede") {
         fail2("RUNTIME_STATE_CONFLICT", `${location} supersede audit has an invalid operation binding.`);
       }
@@ -5512,8 +5848,15 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     if (record.partial_diff_disposition !== undefined || record.invalidation_kind !== undefined || record.invalidation_reason !== undefined) {
       fail2("RUNTIME_SCHEMA_INVALID", `${location} non-supersede audit must not carry supersede-only evidence.`);
     }
+    const candidateDigest = record.candidate_digest === undefined ? undefined : expectString2(record.candidate_digest, `${location}.candidate_digest`, /^[a-f0-9]{64}$/);
+    if (action !== "commit-replan" && candidateDigest !== undefined)
+      fail2("RUNTIME_SCHEMA_INVALID", `${location} candidate digest belongs only to confirmed replans.`);
+    const correctionReason = record.correction_reason === undefined ? undefined : expectText(record.correction_reason, `${location}.correction_reason`, 1024);
+    if (candidateDigest === undefined !== (correctionReason === undefined))
+      fail2("RUNTIME_SCHEMA_INVALID", `${location} correction reason must bind an exact candidate digest.`);
     const expectedTransition = action === "mark-replan-blocked" ? ["active", "active", "blocked_by_replan", "active"] : action === "clear-replan-block" ? ["blocked_by_replan", "active", "active", "active"] : ["superseded", "active", "active", "active"];
-    if (fromWorkflowStatus !== expectedTransition[0] || fromLifecycleState !== expectedTransition[1] || toWorkflowStatus !== expectedTransition[2] || toLifecycleState !== expectedTransition[3]) {
+    const activeCorrection = action === "commit-replan" && candidateDigest !== undefined && fromWorkflowStatus === "active" && fromLifecycleState === "active" && toWorkflowStatus === "active" && toLifecycleState === "active";
+    if (!activeCorrection && (fromWorkflowStatus !== expectedTransition[0] || fromLifecycleState !== expectedTransition[1] || toWorkflowStatus !== expectedTransition[2] || toLifecycleState !== expectedTransition[3])) {
       fail2("RUNTIME_STATE_CONFLICT", `${location} replan audit has an invalid transition.`);
     }
     return {
@@ -5532,6 +5875,8 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
       source_revision: sourceRevision,
       authority_evidence: authorityEvidence,
       evidence_refs: evidenceRefs,
+      ...candidateDigest === undefined ? {} : { candidate_digest: candidateDigest },
+      ...correctionReason === undefined ? {} : { correction_reason: correctionReason },
       recorded_at: recordedAt
     };
   }
@@ -5616,6 +5961,59 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
   }
   return result;
 }
+function validateEvidenceChallenge(value, location) {
+  const item = expectRecord2(value, location);
+  expectExactKeys2(item, ["challenge_id", "claim_id", "slot_id", "result_id", "evidence_ref", "evidence_sha256", "reason", "status", "source_revision", "correction_step_id", ..."resolution" in item ? ["resolution"] : []], location);
+  const resolution = item.resolution === undefined ? undefined : (() => {
+    const value2 = expectRecord2(item.resolution, `${location}.resolution`);
+    expectExactKeys2(value2, ["kind", "evidence_ref", "evidence_sha256", "reason", "source_revision"], `${location}.resolution`);
+    if (value2.kind !== "not-substantiated")
+      fail2("RUNTIME_SCHEMA_INVALID", `${location}.resolution.kind is invalid.`);
+    return {
+      kind: "not-substantiated",
+      evidence_ref: normalizeRepoPath2(expectString2(value2.evidence_ref, `${location}.resolution.evidence_ref`), `${location}.resolution.evidence_ref`),
+      evidence_sha256: expectString2(value2.evidence_sha256, `${location}.resolution.evidence_sha256`, /^[a-f0-9]{64}$/),
+      reason: expectString2(value2.reason, `${location}.resolution.reason`),
+      source_revision: expectString2(value2.source_revision, `${location}.resolution.source_revision`, /^[a-f0-9]{64}$/)
+    };
+  })();
+  if (resolution && (item.status !== "resolved" || item.correction_step_id !== null))
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.resolution requires a dismissed challenge.`);
+  if (item.status === "resolved" && item.correction_step_id === null && !resolution)
+    fail2("RUNTIME_SCHEMA_INVALID", `${location} needs a correction step or an assessment resolution.`);
+  return {
+    challenge_id: expectString2(item.challenge_id, `${location}.challenge_id`, SAFE_KEY_PATTERN2),
+    claim_id: expectString2(item.claim_id, `${location}.claim_id`, CLAIM_ID_PATTERN),
+    slot_id: expectString2(item.slot_id, `${location}.slot_id`, CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+    result_id: expectString2(item.result_id, `${location}.result_id`, CLAIM_ID_PATTERN),
+    evidence_ref: normalizeRepoPath2(expectString2(item.evidence_ref, `${location}.evidence_ref`), `${location}.evidence_ref`),
+    evidence_sha256: expectString2(item.evidence_sha256, `${location}.evidence_sha256`, /^[a-f0-9]{64}$/),
+    reason: expectString2(item.reason, `${location}.reason`),
+    status: expectEnum(item.status, ["contested", "invalidated", "resolved"], `${location}.status`),
+    source_revision: expectString2(item.source_revision, `${location}.source_revision`, /^[a-f0-9]{64}$/),
+    correction_step_id: item.correction_step_id === null ? null : expectString2(item.correction_step_id, `${location}.correction_step_id`, STEP_ID_PATTERN2),
+    ...resolution ? { resolution } : {}
+  };
+}
+function validateEvidenceCarryForward(value, location) {
+  const item = expectRecord2(value, location);
+  expectExactKeys2(item, ["kind", "old_source_revision", "old_plan_revision", "new_plan_revision", "claim_id", "slot_id", "check_id", "result_id", "report_sha256", "subject_revision"], location);
+  if (item.kind !== "evidence-carry-forward/v1")
+    fail2("RUNTIME_SCHEMA_INVALID", `${location}.kind is invalid.`);
+  const hash2 = (key) => expectString2(item[key], `${location}.${key}`, /^[a-f0-9]{64}$/);
+  return {
+    kind: "evidence-carry-forward/v1",
+    old_source_revision: hash2("old_source_revision"),
+    old_plan_revision: hash2("old_plan_revision"),
+    new_plan_revision: hash2("new_plan_revision"),
+    claim_id: expectString2(item.claim_id, `${location}.claim_id`, CLAIM_ID_PATTERN),
+    slot_id: expectString2(item.slot_id, `${location}.slot_id`, CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+    check_id: expectString2(item.check_id, `${location}.check_id`, CLAIM_ID_PATTERN),
+    result_id: expectString2(item.result_id, `${location}.result_id`, CLAIM_ID_PATTERN),
+    report_sha256: hash2("report_sha256"),
+    subject_revision: hash2("subject_revision")
+  };
+}
 function validateVNextRuntimeState(value) {
   const runtime = expectRecord2(value, "runtime_state");
   const requiredRuntimeStateFields = [
@@ -5635,7 +6033,7 @@ function validateVNextRuntimeState(value) {
     "execution_log",
     "applied_proposals"
   ];
-  const optionalRuntimeStateFields = ["business_evidence_version", "evidence_plan_revision", "claim_evidence_required", "claim_evidence", "pending_review_result", "review_coverage", "step_attempts"];
+  const optionalRuntimeStateFields = ["business_evidence_version", "evidence_plan_revision", "task_evolution_version", "preservation_source_revision", "claim_evidence_required", "claim_evidence", "pending_review_result", "review_coverage", "step_attempts", "evidence_challenges", "evidence_carry_forward"];
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter((field) => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter((field) => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
   if (missingRuntimeStateFields.length > 0 || extraRuntimeStateFields.length > 0) {
@@ -5643,6 +6041,12 @@ function validateVNextRuntimeState(value) {
   }
   if (runtime.business_evidence_version !== undefined && runtime.business_evidence_version !== 1) {
     fail2("TASK_SEMANTICS_VERSION_UNSUPPORTED", "runtime_state.business_evidence_version must be 1 when present.");
+  }
+  if (runtime.task_evolution_version !== undefined && runtime.task_evolution_version !== 1) {
+    fail2("TASK_EVOLUTION_VERSION_UNSUPPORTED", "runtime_state.task_evolution_version must be 1 when present.");
+  }
+  if (runtime.preservation_source_revision !== undefined && runtime.task_evolution_version !== 1) {
+    fail2("RUNTIME_SCHEMA_INVALID", "preservation_source_revision requires task_evolution_version=1.");
   }
   if (runtime.schema_version !== VNEXT_RUNTIME_SCHEMA_VERSION)
     fail2("RUNTIME_SCHEMA_INVALID", "runtime_state.schema_version must be 1.");
@@ -5678,6 +6082,18 @@ function validateVNextRuntimeState(value) {
   const activeStepStatus = expectEnum(runtime.active_step_status, STEP_STATUSES, "runtime_state.active_step_status");
   const claimEvidenceRequired = runtime.claim_evidence_required === undefined ? runtime.claim_evidence !== undefined : expectBoolean(runtime.claim_evidence_required, "runtime_state.claim_evidence_required");
   const claimEvidence = runtime.claim_evidence === undefined ? [] : validateClaimEvidence(runtime.claim_evidence, "runtime_state.claim_evidence");
+  const evidenceChallenges = runtime.evidence_challenges === undefined ? [] : (() => {
+    if (!Array.isArray(runtime.evidence_challenges) || runtime.evidence_challenges.length > 128)
+      fail2("RUNTIME_SCHEMA_INVALID", "evidence_challenges must be a bounded array.");
+    return runtime.evidence_challenges.map((item, index) => validateEvidenceChallenge(item, `runtime_state.evidence_challenges[${index}]`));
+  })();
+  const evidenceCarryForward = runtime.evidence_carry_forward === undefined ? [] : (() => {
+    if (!Array.isArray(runtime.evidence_carry_forward) || runtime.evidence_carry_forward.length > 256)
+      fail2("RUNTIME_SCHEMA_INVALID", "evidence_carry_forward must be a bounded array.");
+    return runtime.evidence_carry_forward.map((item, index) => validateEvidenceCarryForward(item, `runtime_state.evidence_carry_forward[${index}]`));
+  })();
+  if (new Set(evidenceChallenges.map((item) => item.challenge_id)).size !== evidenceChallenges.length)
+    fail2("RUNTIME_SCHEMA_INVALID", "evidence_challenges IDs must be unique.");
   const findingsValue = runtime.findings;
   if (!Array.isArray(findingsValue) || findingsValue.length > MAX_FINDINGS)
     fail2("RUNTIME_SCHEMA_INVALID", "runtime_state.findings must be an array within the bounded size.");
@@ -5730,6 +6146,8 @@ function validateVNextRuntimeState(value) {
     kind: VNEXT_RUNTIME_STATE_KIND,
     ...runtime.evidence_plan_revision === undefined ? {} : { evidence_plan_revision: expectString2(runtime.evidence_plan_revision, "evidence_plan_revision", /^[a-f0-9]{64}$/) },
     ...runtime.business_evidence_version === 1 ? { business_evidence_version: 1 } : {},
+    ...runtime.task_evolution_version === 1 ? { task_evolution_version: 1 } : {},
+    ...runtime.preservation_source_revision === undefined ? {} : { preservation_source_revision: expectString2(runtime.preservation_source_revision, "preservation_source_revision", /^[a-f0-9]{64}$/) },
     task_id: taskId,
     task_slug: taskSlug,
     workflow_status: workflowStatus,
@@ -5745,6 +6163,8 @@ function validateVNextRuntimeState(value) {
     applied_proposals: appliedProposals,
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: claimEvidence,
+    ...runtime.evidence_challenges === undefined ? {} : { evidence_challenges: evidenceChallenges },
+    ...runtime.evidence_carry_forward === undefined ? {} : { evidence_carry_forward: evidenceCarryForward },
     pending_review_result: pendingReviewResult,
     ...runtime.step_attempts === undefined ? {} : { step_attempts: validateStepAttempts(runtime.step_attempts) },
     ...runtime.review_coverage === undefined ? {} : { review_coverage: validateReviewCoverage(runtime.review_coverage) }
@@ -6083,6 +6503,10 @@ function renderExecutionAuditRecord(audit, includeEmptyKnowledge = true) {
       lines.push(`  draft_revision: ${draftAudit.draft_revision}`);
   } else {
     const replanAudit = audit;
+    if (replanAudit.candidate_digest !== undefined)
+      lines.push(`  candidate_digest: ${replanAudit.candidate_digest}`);
+    if (replanAudit.correction_reason !== undefined)
+      lines.push(`  correction_reason: ${replanAudit.correction_reason}`);
     if (replanAudit.invalidation_kind !== undefined)
       lines.push(`  invalidation_kind: ${replanAudit.invalidation_kind}`);
     if (replanAudit.invalidation_reason !== undefined)
@@ -6133,14 +6557,14 @@ function taskBasisRelativePath(currentTaskPath, taskId) {
   } catch (error) {
     fail2("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const directory = path4.posix.dirname(normalizeRepoPath2(currentTaskPath, "CURRENT_TASK source path"));
-  return path4.posix.join(directory, "task-basis", `TASK_BASIS-${taskId}.md`);
+  const directory = path5.posix.dirname(normalizeRepoPath2(currentTaskPath, "CURRENT_TASK source path"));
+  return path5.posix.join(directory, "task-basis", `TASK_BASIS-${taskId}.md`);
 }
 function taskBasisFilePath(root, relativePath) {
-  const resolvedRoot = path4.resolve(root);
-  const filePath = path4.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath, "task basis path").split("/"));
-  const relative2 = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relative2 || relative2.startsWith("../") || path4.isAbsolute(relative2)) {
+  const resolvedRoot = path5.resolve(root);
+  const filePath = path5.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath, "task basis path").split("/"));
+  const relative3 = path5.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relative3 || relative3.startsWith("../") || path5.isAbsolute(relative3)) {
     fail2("RUNTIME_PATH_INVALID", `task basis path escapes the target root: ${relativePath}`);
   }
   return filePath;
@@ -6172,7 +6596,7 @@ function materializeTaskBasis(root, current, identity, basis) {
   return {
     path: relativePath,
     filePath: taskBasisFilePath(root, relativePath),
-    revision: sha2562(content),
+    revision: sha2563(content),
     content,
     basis
   };
@@ -6335,24 +6759,24 @@ ${stringify(nextFrontmatter).trimEnd()}
 ${nextBody}`;
 }
 function currentTaskPathForRoot(root) {
-  const resolvedRoot = path4.resolve(root);
+  const resolvedRoot = path5.resolve(root);
   const profilePath = getWorkflowProfilePath(resolvedRoot);
-  if (!fs3.existsSync(profilePath))
+  if (!fs4.existsSync(profilePath))
     fail2("RUNTIME_SOURCE_MISSING", `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
   const profile = loadProfile(profilePath);
   const filePath = getWorkflowDocPath(resolvedRoot, profile, "CURRENT_TASK.md");
-  const relativePath = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relativePath || relativePath.startsWith("../") || path4.isAbsolute(relativePath))
+  const relativePath = path5.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relativePath || relativePath.startsWith("../") || path5.isAbsolute(relativePath))
     fail2("RUNTIME_PATH_INVALID", "CURRENT_TASK path escapes the target root.");
   return { filePath, relativePath: relativePath || CURRENT_TASK_RELATIVE_FALLBACK };
 }
 function walkMarkdownFiles(directory) {
-  if (!fs3.existsSync(directory))
+  if (!fs4.existsSync(directory))
     return [];
   const files = [];
   const visit = (currentDirectory) => {
-    for (const entry of fs3.readdirSync(currentDirectory, { withFileTypes: true })) {
-      const entryPath = path4.join(currentDirectory, entry.name);
+    for (const entry of fs4.readdirSync(currentDirectory, { withFileTypes: true })) {
+      const entryPath = path5.join(currentDirectory, entry.name);
       if (entry.isDirectory())
         visit(entryPath);
       else if (entry.isFile() && entry.name.endsWith(".md"))
@@ -6369,11 +6793,11 @@ function allocateNextTaskId(root, currentTaskId) {
     fail2("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
   const current = BigInt(currentTaskId);
-  const taskDirectory = path4.join(path4.resolve(root), "TASKS");
+  const taskDirectory = path5.join(path5.resolve(root), "TASKS");
   const usedIds = new Set([current]);
   const taskFilePattern = /^TASK-([0-9]{3,})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
   for (const taskFile of walkMarkdownFiles(taskDirectory)) {
-    const match = taskFilePattern.exec(path4.basename(taskFile));
+    const match = taskFilePattern.exec(path5.basename(taskFile));
     if (match) {
       usedIds.add(BigInt(match[1]));
     }
@@ -6387,11 +6811,11 @@ function allocateNextTaskId(root, currentTaskId) {
 function collectTaskDocumentIds(root) {
   const { filePath } = currentTaskPathForRoot(root);
   const documentIds = new Set;
-  const allFiles = [filePath, ...walkMarkdownFiles(path4.join(path4.resolve(root), "TASKS"))];
+  const allFiles = [filePath, ...walkMarkdownFiles(path5.join(path5.resolve(root), "TASKS"))];
   for (const file of allFiles) {
-    if (!fs3.existsSync(file))
+    if (!fs4.existsSync(file))
       continue;
-    const content = fs3.readFileSync(file, "utf8");
+    const content = fs4.readFileSync(file, "utf8");
     for (const match of content.matchAll(/^\s*(?:-\s*)?document_id:\s*['"]?(doc-[a-f0-9]{24})['"]?\s*$/gim)) {
       documentIds.add(match[1]);
     }
@@ -6399,7 +6823,7 @@ function collectTaskDocumentIds(root) {
   return documentIds;
 }
 function generatedDraftDocumentId(identity, sourceRevision) {
-  return `doc-${sha2562(`${identity.task_id}:${identity.task_slug}:${sourceRevision}`).slice(0, 24)}`;
+  return `doc-${sha2563(`${identity.task_id}:${identity.task_slug}:${sourceRevision}`).slice(0, 24)}`;
 }
 function parseCanonicalCurrentTaskContent(raw, filePath, relativePath) {
   const { frontmatter, body } = parseYamlFrontmatter(raw, relativePath);
@@ -6414,7 +6838,7 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath) {
     fail2("RUNTIME_SCHEMA_INVALID", `${relativePath}.document_id is invalid.`);
   const runtimeState = validateVNextRuntimeState(frontmatter.runtime_state);
   try {
-    parseMutationScope(body, sha2562(raw));
+    parseMutationScope(body, sha2563(raw));
   } catch (error) {
     if (error instanceof MutationScopeError)
       fail2(error.code, error.message);
@@ -6443,7 +6867,7 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath) {
   resolveTaskStepForState(body, runtimeState.active_step_id);
   const sourceTuple = {
     path: relativePath,
-    revision: sha2562(raw),
+    revision: sha2563(raw),
     document_id: documentId,
     task_id: runtimeState.task_id,
     task_slug: runtimeState.task_slug,
@@ -6459,9 +6883,14 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath) {
 }
 function readCanonicalCurrentTask(root) {
   const { filePath, relativePath } = currentTaskPathForRoot(root);
-  if (!fs3.existsSync(filePath))
+  recoverTaskEvolution(filePath);
+  if (!fs4.existsSync(filePath))
     fail2("RUNTIME_SOURCE_MISSING", `CURRENT_TASK.md is missing: ${relativePath}`);
-  return parseCanonicalCurrentTaskContent(fs3.readFileSync(filePath, "utf8"), filePath, relativePath);
+  const current = parseCanonicalCurrentTaskContent(fs4.readFileSync(filePath, "utf8"), filePath, relativePath);
+  if (current.runtimeState.preservation_source_revision) {
+    assertTaskHistoryForRevision(filePath, current.sourceTuple.document_id, current.runtimeState.task_id, current.runtimeState.preservation_source_revision, "initialize-preservation");
+  }
+  return current;
 }
 function readCanonicalTaskBasis(root, current = readCanonicalCurrentTask(root)) {
   const reference = readTaskBasisReferenceFromBody(current.body);
@@ -6472,10 +6901,10 @@ function readCanonicalTaskBasis(root, current = readCanonicalCurrentTask(root)) 
     fail2("TASK_BASIS_REFERENCE_INVALID", `CURRENT_TASK task basis path must be ${expectedPath}.`);
   }
   const filePath = taskBasisFilePath(root, reference.path);
-  if (!fs3.existsSync(filePath))
+  if (!fs4.existsSync(filePath))
     fail2("TASK_BASIS_MISSING", `Linked task basis is missing: ${reference.path}`);
-  const content = fs3.readFileSync(filePath, "utf8");
-  const revision = sha2562(content);
+  const content = fs4.readFileSync(filePath, "utf8");
+  const revision = sha2563(content);
   if (revision !== reference.revision)
     fail2("TASK_BASIS_REVISION_CONFLICT", "Linked task basis revision does not match its file content.");
   const { frontmatter, body } = parseYamlFrontmatter(content, reference.path);
@@ -6504,14 +6933,14 @@ function readCanonicalTaskBasis(root, current = readCanonicalCurrentTask(root)) 
   };
 }
 function workflowDocPathForRoot(root, file, missingCode = "RUNTIME_SOURCE_MISSING") {
-  const resolvedRoot = path4.resolve(root);
+  const resolvedRoot = path5.resolve(root);
   const profilePath = getWorkflowProfilePath(resolvedRoot);
-  if (!fs3.existsSync(profilePath))
+  if (!fs4.existsSync(profilePath))
     fail2(missingCode, `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
   const profile = loadProfile(profilePath);
   const filePath = getWorkflowDocPath(resolvedRoot, profile, file);
-  const relativePath = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relativePath || relativePath.startsWith("../") || path4.isAbsolute(relativePath)) {
+  const relativePath = path5.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relativePath || relativePath.startsWith("../") || path5.isAbsolute(relativePath)) {
     fail2("RUNTIME_PATH_INVALID", `${file} path escapes the target root.`);
   }
   return { filePath, relativePath };
@@ -6523,10 +6952,10 @@ function archivePathForTask(root, current) {
   } catch (error) {
     fail2("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const resolvedRoot = path4.resolve(root);
-  const filePath = path4.resolve(resolvedRoot, ...relativePath.split("/"));
-  const relativeCheck = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path4.isAbsolute(relativeCheck)) {
+  const resolvedRoot = path5.resolve(root);
+  const filePath = path5.resolve(resolvedRoot, ...relativePath.split("/"));
+  const relativeCheck = path5.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path5.isAbsolute(relativeCheck)) {
     fail2("RUNTIME_PATH_INVALID", `archive path escapes the target root: ${relativePath}`);
   }
   return { filePath, relativePath };
@@ -6543,10 +6972,10 @@ function canonicalInboxRecordTarget(root, delta) {
   if (delta.target_path !== relativePath) {
     fail2("RUNTIME_PATH_INVALID", "inbox target_path is not the canonical identity-derived path.");
   }
-  const resolvedRoot = path4.resolve(root);
-  const filePath = path4.resolve(resolvedRoot, ...relativePath.split("/"));
-  const relativeCheck = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path4.isAbsolute(relativeCheck)) {
+  const resolvedRoot = path5.resolve(root);
+  const filePath = path5.resolve(resolvedRoot, ...relativePath.split("/"));
+  const relativeCheck = path5.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path5.isAbsolute(relativeCheck)) {
     fail2("RUNTIME_PATH_INVALID", `inbox path escapes the target root: ${relativePath}`);
   }
   return { filePath, relativePath };
@@ -6649,12 +7078,12 @@ function readInboxProvenanceMarkers(content, location) {
   return markers;
 }
 function scanInboxRecordFiles(root) {
-  const resolvedRoot = path4.resolve(root);
-  const inboxRoot = path4.join(resolvedRoot, "TASKS", "inbox");
+  const resolvedRoot = path5.resolve(root);
+  const inboxRoot = path5.join(resolvedRoot, "TASKS", "inbox");
   return walkMarkdownFiles(inboxRoot).map((filePath) => {
-    const relativePath = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+    const relativePath = path5.relative(resolvedRoot, filePath).replace(/\\/g, "/");
     const pathMatch = INBOX_RECORD_PATH_PATTERN.exec(relativePath);
-    const content = fs3.readFileSync(filePath, "utf8");
+    const content = fs4.readFileSync(filePath, "utf8");
     const provenance = readInboxProvenanceMarkers(content, relativePath);
     if (provenance.length > 0 && !pathMatch) {
       fail2("INBOX_PATH_INVALID", `${relativePath} contains vNext inbox provenance but is not a canonical inbox path.`);
@@ -6687,11 +7116,11 @@ function assertCanonicalInboxRecordContent(content, proposal, location) {
 function inspectInboxRecordTransaction(root, proposal) {
   const delta = proposal.semantic_delta;
   const target = canonicalInboxRecordTarget(root, delta);
-  if (fs3.existsSync(target.filePath)) {
-    if (!fs3.statSync(target.filePath).isFile()) {
+  if (fs4.existsSync(target.filePath)) {
+    if (!fs4.statSync(target.filePath).isFile()) {
       fail2("INBOX_IDENTITY_CONFLICT", `${target.relativePath} exists but is not a regular inbox record file.`);
     }
-    const existingContent = fs3.readFileSync(target.filePath, "utf8");
+    const existingContent = fs4.readFileSync(target.filePath, "utf8");
     try {
       assertCanonicalInboxRecordContent(existingContent, proposal, target.relativePath);
     } catch (error) {
@@ -6804,9 +7233,9 @@ function readCanonicalArchive(root, current, expectedPath) {
   if (expectedPath !== undefined && expectedPath !== expected.relativePath) {
     fail2("RUNTIME_PATH_INVALID", "archive path is not the exact identity-derived path.");
   }
-  if (!fs3.existsSync(expected.filePath))
+  if (!fs4.existsSync(expected.filePath))
     fail2("ARCHIVE_MISSING", `canonical task archive is missing: ${expected.relativePath}`);
-  const raw = fs3.readFileSync(expected.filePath, "utf8");
+  const raw = fs4.readFileSync(expected.filePath, "utf8");
   const sections = requiredArchiveSections(raw);
   const metadata = raw.slice(sections["任务元数据"].contentStart, sections["任务元数据"].contentEnd);
   const lessonSection = raw.slice(sections["Lessons 回写"].contentStart, sections["Lessons 回写"].contentEnd);
@@ -6819,7 +7248,7 @@ function readCanonicalArchive(root, current, expectedPath) {
     filePath: expected.filePath,
     relativePath: expected.relativePath,
     raw,
-    revision: sha2562(raw),
+    revision: sha2563(raw),
     taskId: readArchiveScalar(metadata, "task_id", "archive.任务元数据"),
     taskSlug: readArchiveScalar(metadata, "task_slug", "archive.任务元数据"),
     taskTitle: readArchiveScalar(metadata, "task_title", "archive.任务元数据"),
@@ -6904,6 +7333,8 @@ function closureEligibilityBlockers(root, current, delta, archiveAlreadyExists) 
     blockers.push("resume review gate is not cleared.");
   if (current.runtimeState.active_step_status !== "completed")
     blockers.push("the admitted current step is not completed.");
+  if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.status !== "resolved"))
+    blockers.push("challenged evidence remains unresolved.");
   try {
     const stepResolution = resolveCanonicalTaskStep(current);
     const checkpoint = effectiveCheckpointPolicy(stepResolution);
@@ -7155,7 +7586,7 @@ function prepareArchiveTransaction(root, current, proposal, now) {
     fail2("CLOSURE_TUPLE_INVALID", "first successful close requires active + active.");
   }
   const archiveTarget = archivePathForTask(root, current);
-  const blockers = closureEligibilityBlockers(root, current, delta, fs3.existsSync(archiveTarget.filePath));
+  const blockers = closureEligibilityBlockers(root, current, delta, fs4.existsSync(archiveTarget.filePath));
   if (blockers.length > 0)
     fail2("CLOSURE_NOT_ELIGIBLE", blockers.join(" "));
   const closureDeltaDigest = digest(delta);
@@ -7168,7 +7599,7 @@ function prepareArchiveTransaction(root, current, proposal, now) {
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
   };
   const nextArchiveContent = renderArchiveDocument(current, proposal, delta, archiveTarget.relativePath, closureDeltaDigest);
-  const archiveRevision = sha2562(nextArchiveContent);
+  const archiveRevision = sha2563(nextArchiveContent);
   const audit = makeArchiveAudit(current, proposal, delta, archiveTarget.relativePath, archiveRevision, closureDeltaDigest, nextWithoutAudit, now);
   const next = {
     ...nextWithoutAudit,
@@ -7583,9 +8014,9 @@ function prepareProjectStatusTransaction(root, current, proposal) {
   ensureAuthorityKinds(proposal, ["evidence-admission"]);
   const { receipt } = matchingArchiveReceipt(root, current);
   const target = workflowDocPathForRoot(root, "STATUS.md");
-  if (!fs3.existsSync(target.filePath))
+  if (!fs4.existsSync(target.filePath))
     fail2("RUNTIME_SOURCE_MISSING", `STATUS.md is missing: ${target.relativePath}`);
-  const originalStatusContent = fs3.readFileSync(target.filePath, "utf8");
+  const originalStatusContent = fs4.readFileSync(target.filePath, "utf8");
   validateStatusDocument(originalStatusContent, target.relativePath);
   const existingReceipt = matchingStatusReceipt(originalStatusContent, target.relativePath, receipt);
   const deltaDigest = digest(proposal.semantic_delta);
@@ -7610,7 +8041,7 @@ function prepareProjectStatusTransaction(root, current, proposal) {
     statusRelativePath: target.relativePath,
     nextStatusContent,
     originalStatusContent,
-    statusRevision: sha2562(nextStatusContent),
+    statusRevision: sha2563(nextStatusContent),
     archive: receipt
   };
 }
@@ -8087,9 +8518,9 @@ function prepareLessonRecordTransaction(root, current, proposal) {
     fail2("KNOWLEDGE_ADMISSION_INVALID", "lesson-record evidence_refs must cover the durable archive lesson admission evidence_refs.");
   }
   const target = workflowDocPathForRoot(root, "LESSONS.md");
-  if (!fs3.existsSync(target.filePath))
+  if (!fs4.existsSync(target.filePath))
     fail2("RUNTIME_SOURCE_MISSING", `LESSONS.md is missing: ${target.relativePath}`);
-  const originalLessonsContent = fs3.readFileSync(target.filePath, "utf8");
+  const originalLessonsContent = fs4.readFileSync(target.filePath, "utf8");
   const sections = scanMarkdownSections2(originalLessonsContent);
   for (const heading2 of LESSON_REQUIRED_SECTION_HEADINGS) {
     if (!findUniqueMarkdownSection(sections, [heading2], 2))
@@ -8192,7 +8623,7 @@ function prepareLessonRecordTransaction(root, current, proposal) {
     lessonsRelativePath: target.relativePath,
     nextLessonsContent,
     originalLessonsContent,
-    lessonsRevision: sha2562(nextLessonsContent),
+    lessonsRevision: sha2563(nextLessonsContent),
     archive: receipt,
     candidateCount
   };
@@ -8413,11 +8844,11 @@ function scanKnowledgeRecords(root) {
   const result = [];
   for (const knowledgeKind of ["contract", "decision"]) {
     const target = knowledgeTarget(root, knowledgeKind);
-    if (!fs3.existsSync(target.filePath))
+    if (!fs4.existsSync(target.filePath))
       continue;
-    if (!fs3.statSync(target.filePath).isFile())
+    if (!fs4.statSync(target.filePath).isFile())
       fail2("KNOWLEDGE_RECORD_INVALID", `${target.relativePath} is not a regular file.`);
-    result.push(...readDurableKnowledgeRecords(fs3.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind));
+    result.push(...readDurableKnowledgeRecords(fs4.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind));
   }
   return result;
 }
@@ -8429,9 +8860,9 @@ function inspectKnowledgeRecordTransaction(root, current, proposal) {
     fail2("KNOWLEDGE_PROVENANCE_MISMATCH", "knowledge proposal admission does not match the archived close-task admission decision.");
   const expectedRecord = durableKnowledgeRecordFromProposal(proposal, receipt);
   const target = knowledgeTarget(root, delta.knowledge_kind);
-  if (!fs3.existsSync(target.filePath))
+  if (!fs4.existsSync(target.filePath))
     fail2("RUNTIME_SOURCE_MISSING", `knowledge target is missing: ${target.relativePath}`);
-  const originalContent = fs3.readFileSync(target.filePath, "utf8");
+  const originalContent = fs4.readFileSync(target.filePath, "utf8");
   const records = readDurableKnowledgeRecords(originalContent, target.relativePath, delta.knowledge_kind);
   const allRecords = scanKnowledgeRecords(root);
   const sameIdempotency = allRecords.filter((record) => record.proposal_idempotency_key === proposal.idempotency_key);
@@ -8536,10 +8967,10 @@ function assertPreviousTaskReconciliationComplete(root, current, receipt) {
     for (const admission of knowledgeAdmissions) {
       const knowledgeKind = admission.candidate.kind;
       const target = knowledgeTarget(root, knowledgeKind);
-      if (!fs3.existsSync(target.filePath)) {
+      if (!fs4.existsSync(target.filePath)) {
         fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation is incomplete: ${target.relativePath} does not exist.`);
       }
-      const records = readDurableKnowledgeRecords(fs3.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind);
+      const records = readDurableKnowledgeRecords(fs4.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind);
       const exactIdentity = records.find((record) => record.candidate_id === admission.candidate.candidateId);
       const equivalent = records.some((record) => record.semantic_digest === knowledgeCandidateSemanticDigest(admission.candidate));
       if (exactIdentity) {
@@ -8552,10 +8983,10 @@ function assertPreviousTaskReconciliationComplete(root, current, receipt) {
     }
   }
   const statusTarget = workflowDocPathForRoot(root, "STATUS.md");
-  if (!fs3.existsSync(statusTarget.filePath)) {
+  if (!fs4.existsSync(statusTarget.filePath)) {
     fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete: STATUS.md does not exist.`);
   }
-  const statusContent = fs3.readFileSync(statusTarget.filePath, "utf8");
+  const statusContent = fs4.readFileSync(statusTarget.filePath, "utf8");
   const statusReceipt = matchingStatusReceipt(statusContent, statusTarget.relativePath, receipt);
   if (!statusReceipt) {
     fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete.`);
@@ -8566,10 +8997,10 @@ function assertPreviousTaskReconciliationComplete(root, current, receipt) {
   assertStatusProjection(statusContent, statusDeltaFromReceipt(statusReceipt), statusTarget.relativePath);
   if (receipt.lessonAdmission.decision === "admit") {
     const lessonsTarget = workflowDocPathForRoot(root, "LESSONS.md");
-    if (!fs3.existsSync(lessonsTarget.filePath)) {
+    if (!fs4.existsSync(lessonsTarget.filePath)) {
       fail2("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} lesson reconciliation is incomplete: LESSONS.md does not exist.`);
     }
-    const lessonsContent = fs3.readFileSync(lessonsTarget.filePath, "utf8");
+    const lessonsContent = fs4.readFileSync(lessonsTarget.filePath, "utf8");
     const existingRecords = readDurableLessonRecords(lessonsContent, lessonsTarget.relativePath);
     for (const candidateRef of receipt.lessonAdmission.candidate_refs) {
       const matching = existingRecords.find((record) => record.marker.candidate_ref === candidateRef && record.marker.task_id === receipt.taskId && record.marker.task_slug === receipt.taskSlug && record.marker.document_id === receipt.documentId && record.marker.archive_path === receipt.relativePath && record.marker.archive_revision === receipt.revision && record.marker.source_revision === receipt.sourceRevision);
@@ -8623,6 +9054,612 @@ function appendAppliedProposal(current, proposal, sourceRevision) {
 }
 function appendExecutionLogEntry(current, entry) {
   return [...current.execution_log, entry].slice(-MAX_EXECUTION_LOG);
+}
+function initializeTaskPreservation(root, rawInput, options = {}) {
+  const input = expectRecord2(rawInput, "initialize-preservation input");
+  expectExactKeys2(input, ["source_revision", "basis_revision"], "initialize-preservation input");
+  const sourceRevision = expectString2(input.source_revision, "source_revision", /^[a-f0-9]{64}$/);
+  const basisRevision = expectString2(input.basis_revision, "basis_revision", /^[a-f0-9]{64}$/);
+  const current = readCanonicalCurrentTask(root);
+  const idempotencyKey = `initialize-preservation-${current.sourceTuple.document_id}`;
+  if (current.runtimeState.task_evolution_version === 1) {
+    if (sourceRevision !== (current.runtimeState.preservation_source_revision ?? current.sourceTuple.revision)) {
+      fail2("TASK_EVOLUTION_SOURCE_STALE", "Preservation replay does not name the initialized source revision.");
+    }
+    const boundBasisRevision = current.runtimeState.preservation_source_revision ? JSON.parse(fs4.readFileSync(path5.join(path5.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${current.runtimeState.preservation_source_revision}.json`), "utf8")).task_basis_revision : readCanonicalTaskBasis(root, current).revision;
+    if (basisRevision !== boundBasisRevision)
+      fail2("TASK_EVOLUTION_BASIS_STALE", "Preservation replay does not name the initialized Task Basis revision.");
+    return {
+      status: "no-op",
+      operation_kind: "task-state-transaction",
+      idempotency_key: idempotencyKey,
+      target_path: current.relativePath,
+      dry_run: options.dryRun === true,
+      committed: false,
+      message: "This task already uses task-evolution preservation.",
+      planned_writes: [],
+      governed_mutation_count: 0,
+      read_back_verified: true,
+      resulting_revision: current.sourceTuple.revision,
+      evidence_assurance: "caller-reported"
+    };
+  }
+  if (current.sourceTuple.revision !== sourceRevision)
+    fail2("TASK_EVOLUTION_SOURCE_STALE", "CURRENT_TASK changed after preservation admission.");
+  if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+    fail2("TASK_EVOLUTION_STATE_INVALID", "Preservation initialization requires a confirmed active task.");
+  }
+  const basis = readCanonicalTaskBasis(root, current);
+  if (basis.revision !== basisRevision)
+    fail2("TASK_EVOLUTION_BASIS_STALE", "Task Basis changed after preservation admission.");
+  assertTestStrategySequenceReady(current);
+  const nextState = {
+    ...current.runtimeState,
+    task_evolution_version: 1,
+    preservation_source_revision: current.sourceTuple.revision
+  };
+  const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState);
+  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
+  if (preview.body !== current.body || digest({ ...preview.runtimeState, task_evolution_version: undefined, preservation_source_revision: undefined }) !== digest({ ...current.runtimeState, task_evolution_version: undefined, preservation_source_revision: undefined })) {
+    fail2("TASK_EVOLUTION_INIT_INVALID", "Initialization must preserve the complete definition and runtime state.");
+  }
+  const history = taskHistoryLocation({
+    currentPath: current.filePath,
+    previousContent: current.raw,
+    nextContent,
+    documentId: current.sourceTuple.document_id,
+    taskId: current.runtimeState.task_id,
+    basisPath: basis.filePath,
+    basisContent: basis.content,
+    operation: "initialize-preservation",
+    evidencePlanRevision: current.runtimeState.evidence_plan_revision
+  });
+  const plannedWrites = [path5.posix.join(path5.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
+  if (options.dryRun)
+    return {
+      status: "success",
+      operation_kind: "task-state-transaction",
+      idempotency_key: idempotencyKey,
+      target_path: current.relativePath,
+      dry_run: true,
+      committed: false,
+      message: "Preservation initialization is ready without changing the task definition.",
+      planned_writes: plannedWrites,
+      governed_mutation_count: 0,
+      read_back_verified: false,
+      evidence_assurance: "caller-reported"
+    };
+  commitTaskEvolutionWithHistory({
+    currentPath: current.filePath,
+    previousContent: current.raw,
+    nextContent,
+    documentId: current.sourceTuple.document_id,
+    taskId: current.runtimeState.task_id,
+    basisPath: basis.filePath,
+    basisContent: basis.content,
+    operation: "initialize-preservation",
+    evidencePlanRevision: current.runtimeState.evidence_plan_revision
+  }, (content) => {
+    const parsed = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
+    if (parsed.body !== current.body || parsed.runtimeState.preservation_source_revision !== sourceRevision || parsed.runtimeState.task_evolution_version !== 1)
+      fail2("TASK_EVOLUTION_INIT_INVALID", "Preservation initialization read-back differs.");
+  });
+  const readBack = readCanonicalCurrentTask(root);
+  return {
+    status: "success",
+    operation_kind: "task-state-transaction",
+    idempotency_key: idempotencyKey,
+    target_path: current.relativePath,
+    dry_run: false,
+    committed: true,
+    previous_revision: sourceRevision,
+    resulting_revision: readBack.sourceTuple.revision,
+    message: "Original task and Task Basis were preserved; versioned task protection is active.",
+    planned_writes: plannedWrites,
+    governed_mutation_count: plannedWrites.length,
+    read_back_verified: true,
+    evidence_assurance: "caller-reported"
+  };
+}
+function normalizeCorrectionInput(input) {
+  const value = expectRecord2(input, "prepare-replan input");
+  expectExactKeys2(value, ["challenge_id", "correction_step"], "prepare-replan input");
+  const step = expectRecord2(value.correction_step, "correction_step");
+  expectExactKeys2(step, ["id", "description", "mutation_scope", "required_evidence", "commands"], "correction_step");
+  const id = expectString2(step.id, "correction_step.id", STEP_ID_PATTERN2);
+  const description = expectText(step.description, "correction_step.description", 512);
+  if (/[\r\n]/u.test(description))
+    fail2("REPLAN_CORRECTION_INVALID", "Correction description must be one line.");
+  const mutationScope = expectStringArray2(step.mutation_scope, "correction_step.mutation_scope", false, 32).map((item) => normalizeRepoPath2(item, "correction_step.mutation_scope"));
+  if (mutationScope.some((item) => !item.startsWith("docs/") || item.includes("*")))
+    fail2("REPLAN_SCOPE_EXPANSION", "This restricted correction candidate can write only exact audit documents under docs/.");
+  const requiredEvidence = expectStringArray2(step.required_evidence, "correction_step.required_evidence", false, 32);
+  if (requiredEvidence.some((item) => /[\r\n]/u.test(item)))
+    fail2("REPLAN_CORRECTION_INVALID", "Required evidence must use one line per item.");
+  if (!Array.isArray(step.commands) || step.commands.length > 32)
+    fail2("REPLAN_CORRECTION_INVALID", "Correction commands must be a bounded array.");
+  const commands = step.commands.map((raw, index) => {
+    const command = expectRecord2(raw, `correction_step.commands[${index}]`);
+    expectExactKeys2(command, ["command", "expected_repo_writes"], `correction_step.commands[${index}]`);
+    const text = expectText(command.command, `correction_step.commands[${index}].command`, 2048);
+    if (/[\r\n]/u.test(text))
+      fail2("REPLAN_CORRECTION_INVALID", "Command must be one line.");
+    const writes = command.expected_repo_writes === "none" ? "none" : expectStringArray2(command.expected_repo_writes, `correction_step.commands[${index}].expected_repo_writes`, false, 32).map((item) => normalizeRepoPath2(item, "expected_repo_writes"));
+    if (writes !== "none" && writes.some((item) => !mutationScope.includes(item)))
+      fail2("REPLAN_SCOPE_EXPANSION", "Command writes must be exact members of the correction step scope.");
+    return { command: text, expected_repo_writes: writes };
+  });
+  return { challenge_id: expectString2(value.challenge_id, "challenge_id", SAFE_KEY_PATTERN2), correction_step: { id, description, mutation_scope: mutationScope, required_evidence: requiredEvidence, commands } };
+}
+function correctionCandidateLocation(current, candidateDigest) {
+  if (!/^[a-f0-9]{64}$/u.test(candidateDigest))
+    fail2("REPLAN_CANDIDATE_INVALID", "Candidate digest must be SHA-256.");
+  const directory = path5.join(path5.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  const filePath = path5.join(directory, `${candidateDigest}.json`);
+  return { filePath, relativePath: path5.posix.join(path5.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${candidateDigest}.json`) };
+}
+function pendingCorrectionCandidates(current) {
+  const directory = path5.join(path5.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  if (!fs4.existsSync(directory))
+    return [];
+  const names = fs4.readdirSync(directory).filter((item) => /^[a-f0-9]{64}\.json$/u.test(item));
+  if (names.length > 128)
+    fail2("REPLAN_CANDIDATE_BUDGET_EXHAUSTED", "Task has too many retained candidates to summarize safely.");
+  return names.flatMap((name) => {
+    const candidateDigest = name.slice(0, -5);
+    const location = correctionCandidateLocation(current, candidateDigest);
+    if (fs4.existsSync(`${location.filePath}.discarded`))
+      return [];
+    try {
+      const value = JSON.parse(fs4.readFileSync(location.filePath, "utf8"));
+      if (value.source_revision !== current.sourceTuple.revision || value.document_id !== current.sourceTuple.document_id)
+        return [];
+      const { candidate_digest: _marker, ...payload } = value;
+      return [{
+        candidate_digest: candidateDigest,
+        candidate_path: location.relativePath,
+        valid: value.candidate_digest === candidateDigest && digest(payload) === candidateDigest
+      }];
+    } catch {
+      return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath, valid: false }];
+    }
+  });
+}
+function correctionObligations(current) {
+  const definition = readDraftDefinitionFromBody(current.body);
+  const steps = parseImplementationSteps(definition.implementation_steps);
+  return {
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    goal: definition.background_context,
+    acceptance: definition.acceptance,
+    scope: [definition.allowed_scope, definition.conditional_scope, definition.forbidden_scope],
+    steps: steps.map((step) => ({ id: step.id, description: step.description, purpose: step.purpose, mutation_scope: step.mutation_scope, required_evidence: step.required_evidence, review_checkpoint: step.review_checkpoint, checkpoint_boundary: step.checkpoint_boundary })),
+    claims: (current.runtimeState.claim_evidence ?? []).map((record) => ({ claim_id: record.claim_id, claim_kind: record.claim_kind, requirement: record.requirement, source_ref: record.source_ref, slots: record.slots.map((slot) => ({
+      slot_id: slot.slot_id,
+      minimum_type: slot.minimum_type,
+      due_step_id: slot.due_step_id,
+      applicability: slot.applicability,
+      before_step_id: slot.before_step_id,
+      check: slot.check,
+      disposition: slot.disposition,
+      evidence_refs: slot.evidence_refs,
+      report_result_id: slot.report?.result_id ?? null,
+      report_status: slot.report?.status ?? null,
+      report_sha256: slot.report ? digest(slot.report) : null
+    })) })),
+    findings: current.runtimeState.findings.map((item) => ({ fingerprint: item.fingerprint, status: item.status }))
+  };
+}
+function insertCorrectionStep(definition, activeStepId, step) {
+  const oldSteps = parseImplementationSteps(definition.implementation_steps);
+  if (oldSteps.some((item) => item.id === step.id))
+    fail2("REPLAN_CORRECTION_INVALID", "Correction step ID already exists.");
+  const activeIndex = oldSteps.findIndex((item) => item.id === activeStepId);
+  if (activeIndex < 1)
+    fail2("REPLAN_CORRECTION_INVALID", "A correction can only be inserted before a pending later step.");
+  const rendered = [
+    `- ${step.id}: ${step.description}`,
+    `  - purpose: Correct the challenged result ${step.description}`,
+    `  - mutation_scope: ${step.mutation_scope.join(", ")}`,
+    `  - required_evidence: ${step.required_evidence.join("; ")}`,
+    "  - review_checkpoint: required: fresh correction review of the affected audit documents",
+    ...step.commands.flatMap((item) => [
+      `  - planned_command: ${item.command}`,
+      `    - expected_repo_writes: ${item.expected_repo_writes === "none" ? "none" : item.expected_repo_writes.join(", ")}`,
+      "    - transformation_kind: localized"
+    ])
+  ].join(`
+`);
+  const lines = definition.implementation_steps.split(`
+`);
+  const insertion = lines.findIndex((line) => new RegExp(`^-\\s*${activeStepId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[:：]`).test(line));
+  if (insertion < 0)
+    fail2("REPLAN_CORRECTION_INVALID", "The current step must have one explicit top-level definition line.");
+  lines.splice(insertion, 0, rendered);
+  const planLines = definition.implementation_plan.split(`
+`);
+  const planIndex = planLines.findIndex((line) => line.startsWith(`- ${activeStepId}:`));
+  if (planIndex < 0)
+    fail2("REPLAN_CORRECTION_INVALID", "The current step must be present in the implementation plan.");
+  planLines.splice(planIndex, 0, `- ${step.id}: ${step.description}`);
+  const next = { ...definition, implementation_steps: lines.join(`
+`), implementation_plan: planLines.join(`
+`) };
+  assertReplacementActiveStep(step.id, next.implementation_steps);
+  return next;
+}
+function buildCorrectionCandidate(root, current, input) {
+  if (!["active", "superseded"].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== "active" || current.runtimeState.resume_requires_review || current.runtimeState.active_step_status !== "ready" || current.runtimeState.pending_review_result || current.runtimeState.findings.some((item) => ["admitted", "in-progress"].includes(item.status))) {
+    fail2("REPLAN_CANDIDATE_STATE_INVALID", "Restricted correction requires a ready active/superseded task without a competing review, finding, or resume gate.");
+  }
+  assertBusinessEvidenceVersion(current);
+  assertTestStrategySequenceReady(current);
+  const challenges = (current.runtimeState.evidence_challenges ?? []).filter((item) => item.status !== "resolved");
+  if (challenges.length !== 1 || challenges[0].challenge_id !== input.challenge_id || challenges[0].correction_step_id !== null) {
+    fail2("REPLAN_CHALLENGE_REQUIRED", "Restricted correction must bind the single unresolved, unassigned challenge.");
+  }
+  const challenge = challenges[0];
+  const evidencePath = path5.resolve(root, challenge.evidence_ref);
+  if (!fs4.existsSync(evidencePath) || sha2563(fs4.readFileSync(evidencePath)) !== challenge.evidence_sha256)
+    fail2("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge evidence changed.");
+  const step = input.correction_step;
+  if (evaluateMutationScope(parseMutationScope(current.body), { changed_paths: step.mutation_scope }).status !== "pass")
+    fail2("REPLAN_SCOPE_EXPANSION", "Correction paths exceed the old task scope.");
+  const basis = readCanonicalTaskBasis(root, current);
+  const oldObligations = correctionObligations(current);
+  const retainedStepIds = parseImplementationSteps(readDraftDefinitionFromBody(current.body).implementation_steps).map((item) => item.id);
+  const definition = insertCorrectionStep(readDraftDefinitionFromBody(current.body), current.runtimeState.active_step_id, step);
+  assertPreparedTestStrategy(root, definition, basis.basis);
+  const records = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
+  const corrected = records.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id);
+  if (!corrected?.report || corrected.report.result_id !== challenge.result_id || !corrected.check)
+    fail2("REPLAN_CHALLENGE_STALE", "The challenged report no longer matches the candidate source.");
+  corrected.due_step_id = step.id;
+  corrected.disposition = "missing";
+  corrected.evidence_refs = [];
+  corrected.report = null;
+  delete corrected.prerequisite_receipt;
+  const newPlan = assertEvidencePlan(definition, records);
+  const carry = [];
+  for (const record of records)
+    for (const slot of record.slots) {
+      if (slot === corrected || !slot.report)
+        continue;
+      if (slot.applicability === "before-step")
+        fail2("REPLAN_PREREQUISITE_RECHECK_REQUIRED", "Before-step evidence needs a fresh temporal binding and cannot be carried by this restricted candidate.");
+      const oldSlot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === record.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
+      if (!oldSlot?.report || !slot.check)
+        fail2("REPLAN_CARRY_FORWARD_INVALID", "Candidate evidence source changed.");
+      if (!COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition)) {
+        slot.report = null;
+        slot.evidence_refs = [];
+        slot.disposition = "missing";
+        continue;
+      }
+      assertEvidenceReportApplicable(root, current, oldSlot);
+      carry.push({
+        kind: "evidence-carry-forward/v1",
+        old_source_revision: current.sourceTuple.revision,
+        old_plan_revision: current.runtimeState.evidence_plan_revision,
+        new_plan_revision: newPlan,
+        claim_id: record.claim_id,
+        slot_id: slot.slot_id,
+        check_id: slot.check.check_id,
+        result_id: slot.report.result_id,
+        report_sha256: digest(slot.report),
+        subject_revision: slot.report.subject_revision
+      });
+      slot.disposition = "reused";
+    }
+  return {
+    kind: "correction-replan-candidate/v1",
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    basis_revision: basis.revision,
+    old_plan_revision: current.runtimeState.evidence_plan_revision,
+    old_obligations: oldObligations,
+    old_obligations_digest: digest(oldObligations),
+    scope_diff: { added_paths: [], removed_paths: [] },
+    step_diff: { inserted_step_id: step.id, inserted_before: current.runtimeState.active_step_id, retained_step_ids: retainedStepIds },
+    challenge_digest: digest(challenge),
+    input,
+    definition,
+    claim_evidence: records,
+    carry_forward: carry,
+    new_plan_revision: newPlan,
+    permission_change: "none"
+  };
+}
+function prepareCorrectionReplan(root, rawInput, options = {}) {
+  const current = readCanonicalCurrentTask(root);
+  const input = normalizeCorrectionInput(rawInput);
+  const candidate = buildCorrectionCandidate(root, current, input);
+  const candidateDigest = digest(candidate);
+  const location = correctionCandidateLocation(current, candidateDigest);
+  const content = JSON.stringify({ ...candidate, candidate_digest: candidateDigest }, null, 2) + `
+`;
+  const existed = fs4.existsSync(location.filePath);
+  const candidateDirectory = path5.dirname(location.filePath);
+  if (fs4.existsSync(candidateDirectory)) {
+    const prior = fs4.readdirSync(candidateDirectory).filter((item) => item.endsWith(".json"));
+    let sameChallengeCount = 0;
+    for (const name of prior) {
+      const discarded = fs4.existsSync(path5.join(candidateDirectory, `${name}.discarded`));
+      let previous;
+      try {
+        previous = JSON.parse(fs4.readFileSync(path5.join(candidateDirectory, name), "utf8"));
+      } catch {
+        if (!discarded)
+          fail2("REPLAN_CANDIDATE_INVALID", `Unreadable candidate ${name} must be discarded before preparing another.`);
+        continue;
+      }
+      if (previous.input?.challenge_id !== input.challenge_id)
+        continue;
+      sameChallengeCount += 1;
+      if (name !== path5.basename(location.filePath) && !discarded) {
+        fail2("REPLAN_CANDIDATE_CONFLICT", "Discard the earlier unconfirmed correction candidate before preparing a different one for this challenge.");
+      }
+    }
+    if (sameChallengeCount >= 3 && !existed)
+      fail2("REPLAN_CANDIDATE_BUDGET_EXHAUSTED", "Three candidates have already been retained for this challenged result.");
+  }
+  if (!options.dryRun) {
+    fs4.mkdirSync(path5.dirname(location.filePath), { recursive: true });
+    if (existed) {
+      if (fs4.readFileSync(location.filePath, "utf8") !== content)
+        fail2("REPLAN_CANDIDATE_CONFLICT", "Existing candidate bytes differ.");
+    } else {
+      const fd = fs4.openSync(location.filePath, "wx");
+      try {
+        fs4.writeFileSync(fd, content, "utf8");
+        fs4.fsyncSync(fd);
+      } finally {
+        fs4.closeSync(fd);
+      }
+    }
+    if (fs4.readFileSync(location.filePath, "utf8") !== content)
+      fail2("REPLAN_CANDIDATE_READ_BACK_FAILED", "Candidate read-back failed.");
+  }
+  return {
+    status: existed ? "no-op" : "success",
+    operation_kind: "task-state-transaction",
+    idempotency_key: `prepare-replan-${candidateDigest.slice(0, 40)}`,
+    target_path: location.relativePath,
+    dry_run: options.dryRun === true,
+    committed: !options.dryRun && !existed,
+    message: "Restricted correction candidate prepared; CURRENT_TASK is unchanged.",
+    planned_writes: [location.relativePath],
+    governed_mutation_count: options.dryRun || existed ? 0 : 1,
+    read_back_verified: options.dryRun !== true,
+    evidence_assurance: "caller-reported",
+    candidate_path: location.relativePath,
+    candidate_receipt: {
+      kind: "correction-replan-candidate-receipt/v1",
+      candidate_digest: candidateDigest,
+      source_revision: candidate.source_revision,
+      basis_revision: candidate.basis_revision,
+      obligations_digest: candidate.old_obligations_digest,
+      new_plan_revision: candidate.new_plan_revision,
+      permission_change: "none"
+    }
+  };
+}
+function confirmCorrectionReplan(root, rawInput, options = {}) {
+  const source = expectRecord2(rawInput, "confirm-replan input");
+  expectExactKeys2(source, ["candidate_receipt", "authorization"], "confirm-replan input");
+  const receipt = expectRecord2(source.candidate_receipt, "candidate_receipt");
+  expectExactKeys2(receipt, ["kind", "candidate_digest", "source_revision", "basis_revision", "obligations_digest", "new_plan_revision", "permission_change"], "candidate_receipt");
+  if (receipt.kind !== "correction-replan-candidate-receipt/v1" || receipt.permission_change !== "none")
+    fail2("REPLAN_CONFIRMATION_INVALID", "Receipt kind or permission change is invalid.");
+  for (const field of ["candidate_digest", "source_revision", "basis_revision", "obligations_digest", "new_plan_revision"])
+    expectString2(receipt[field], `candidate_receipt.${field}`, /^[a-f0-9]{64}$/);
+  const approval = expectRecord2(source.authorization, "authorization");
+  expectExactKeys2(approval, ["approved_candidate_digest", "decision_source", "decision_text", "invalidation_reason", ...approval.reactivate_superseded === undefined ? [] : ["reactivate_superseded"]], "authorization");
+  if (approval.approved_candidate_digest !== receipt.candidate_digest)
+    fail2("REPLAN_CONFIRMATION_INVALID", "Authorization does not name the exact candidate digest.");
+  const decisionSource = expectText(approval.decision_source, "authorization.decision_source", 512);
+  const decisionText = expectText(approval.decision_text, "authorization.decision_text", 4096);
+  const invalidationReason = expectText(approval.invalidation_reason, "authorization.invalidation_reason", 1024);
+  const current = readCanonicalCurrentTask(root);
+  const candidateDigest = receipt.candidate_digest;
+  const location = correctionCandidateLocation(current, candidateDigest);
+  const idempotencyKey = `confirm-replan-${digest({ receipt, approval }).slice(0, 40)}`;
+  const previousCommit = current.runtimeState.execution_log.find((item) => ("action" in item) && item.action === "commit-replan" && item.evidence_refs.includes(location.relativePath));
+  if (previousCommit) {
+    if (previousCommit.idempotency_key !== idempotencyKey)
+      fail2("REPLAN_ALREADY_COMMITTED", "This candidate was confirmed with different authorization semantics.");
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, previousCommit.source_revision, "confirm-replan");
+    return {
+      status: "no-op",
+      operation_kind: "task-state-transaction",
+      idempotency_key: idempotencyKey,
+      target_path: current.relativePath,
+      dry_run: options.dryRun === true,
+      committed: false,
+      message: "Exact correction confirmation was already committed.",
+      planned_writes: [],
+      governed_mutation_count: 0,
+      read_back_verified: true,
+      resulting_revision: current.sourceTuple.revision,
+      evidence_assurance: "caller-reported",
+      state: resultState(current.runtimeState)
+    };
+  }
+  if (current.runtimeState.task_evolution_version !== 1)
+    fail2("TASK_EVOLUTION_INITIALIZATION_REQUIRED", "Initialize task preservation before confirming a correction for an older task.");
+  if (current.runtimeState.workflow_status === "superseded") {
+    const lastSupersede = current.runtimeState.execution_log.findLast((item) => ("action" in item) && item.action === "supersede");
+    if (!lastSupersede || !("invalidation_kind" in lastSupersede) || lastSupersede.invalidation_kind !== "acceptance" || approval.reactivate_superseded !== true) {
+      fail2("REPLAN_SUPERSEDED_AUTHORITY_REQUIRED", "A superseded task can use restricted correction only for an acceptance-result invalidation with explicit reactivation approval.");
+    }
+  } else if (approval.reactivate_superseded !== undefined) {
+    fail2("REPLAN_CONFIRMATION_INVALID", "An active task cannot carry superseded-reactivation approval.");
+  }
+  if (current.sourceTuple.revision !== receipt.source_revision)
+    fail2("REPLAN_SOURCE_STALE", "CURRENT_TASK changed after candidate preparation.");
+  const basis = readCanonicalTaskBasis(root, current);
+  if (basis.revision !== receipt.basis_revision || digest(correctionObligations(current)) !== receipt.obligations_digest)
+    fail2("REPLAN_OBLIGATIONS_STALE", "Task Basis or old obligations changed after candidate preparation.");
+  if (!fs4.existsSync(location.filePath) || fs4.existsSync(`${location.filePath}.discarded`))
+    fail2("REPLAN_CANDIDATE_MISSING", "Candidate is absent or discarded.");
+  const saved = JSON.parse(fs4.readFileSync(location.filePath, "utf8"));
+  if (saved.candidate_digest !== candidateDigest)
+    fail2("REPLAN_CANDIDATE_INVALID", "Candidate digest marker differs.");
+  const { candidate_digest: _marker, ...storedCandidate } = saved;
+  if (digest(storedCandidate) !== candidateDigest)
+    fail2("REPLAN_CANDIDATE_INVALID", "Candidate content changed after preparation.");
+  const rebuilt = buildCorrectionCandidate(root, current, normalizeCorrectionInput(saved.input));
+  if (digest(rebuilt) !== candidateDigest || rebuilt.new_plan_revision !== receipt.new_plan_revision || rebuilt.old_obligations_digest !== receipt.obligations_digest || rebuilt.basis_revision !== receipt.basis_revision) {
+    fail2("REPLAN_CANDIDATE_STALE", "Candidate no longer matches the Runtime-computed source, obligations, and evidence.");
+  }
+  if (current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts.length)
+    fail2("REPLAN_ACTIVE_ATTEMPT_PRESENT", "The original next step already has attempts; resolve them before restricted correction.");
+  const challenge = current.runtimeState.evidence_challenges.find((item) => item.challenge_id === rebuilt.input.challenge_id);
+  const nextBasis = { original_request: basis.basis.original_request, user_decisions: [...basis.basis.user_decisions, { source: decisionSource, verbatim: decisionText }] };
+  const nextBasisArtifact = materializeTaskBasis(root, current, {
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    task_title: extractTaskIdentityFromCurrentTask(current.body).title,
+    document_id: current.sourceTuple.document_id
+  }, nextBasis);
+  const authorityEvidence = ["active-task-owner", "scope-admission", "evidence-admission", "authorized-caller"].map((kind) => ({
+    kind,
+    source: decisionSource,
+    subject: candidateDigest,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision
+  }));
+  const proposal = createPrepareTaskReplanProposal(current, {
+    delta: {
+      kind: "task-state",
+      action: "commit-replan",
+      task_basis: nextBasis,
+      replacement_definition: rebuilt.definition,
+      active_step_id: rebuilt.input.correction_step.id,
+      claim_evidence: rebuilt.claim_evidence,
+      evidence_refs: [location.relativePath, challenge.evidence_ref]
+    },
+    idempotency_key: idempotencyKey,
+    authority_evidence: authorityEvidence,
+    evidence_refs: [location.relativePath, challenge.evidence_ref]
+  });
+  const { review_coverage: _oldCoverage, ...oldState } = current.runtimeState;
+  const nextWithoutAudit = {
+    ...oldState,
+    workflow_status: "active",
+    lifecycle_state: "active",
+    active_step_id: rebuilt.input.correction_step.id,
+    active_step_status: "ready",
+    evidence_plan_revision: rebuilt.new_plan_revision,
+    claim_evidence: rebuilt.claim_evidence,
+    evidence_carry_forward: rebuilt.carry_forward,
+    evidence_challenges: (current.runtimeState.evidence_challenges ?? []).map((item) => item.challenge_id === challenge.challenge_id ? { ...item, status: "invalidated", correction_step_id: rebuilt.input.correction_step.id } : item),
+    pending_review_result: null,
+    review_cycle: reviewCycleForNextStep(current.runtimeState.review_cycle.id, rebuilt.input.correction_step.id, idempotencyKey),
+    applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
+  };
+  const audit = { ...makeReplanAudit(current, proposal, nextWithoutAudit, options.now?.() ?? new Date().toISOString()), candidate_digest: candidateDigest, correction_reason: invalidationReason };
+  const nextState = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
+  const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState, { replacementDefinition: rebuilt.definition, taskBasisReference: { path: basis.path, revision: nextBasisArtifact.revision }, audit });
+  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
+  if (preview.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || preview.runtimeState.active_step_id !== rebuilt.input.correction_step.id) {
+    fail2("REPLAN_CANDIDATE_INVALID", "Rendered correction does not match the admitted plan and step.");
+  }
+  const history = taskHistoryLocation({
+    currentPath: current.filePath,
+    previousContent: current.raw,
+    nextContent,
+    documentId: current.sourceTuple.document_id,
+    taskId: current.runtimeState.task_id,
+    basisPath: basis.filePath,
+    basisContent: basis.content,
+    nextBasisContent: nextBasisArtifact.content,
+    operation: "confirm-replan",
+    evidencePlanRevision: current.runtimeState.evidence_plan_revision,
+    referencedEvidence: [challenge.evidence_ref, ...rebuilt.carry_forward.flatMap((item) => {
+      const slot = rebuilt.claim_evidence.find((record) => record.claim_id === item.claim_id)?.slots.find((entry) => entry.slot_id === item.slot_id);
+      return slot?.evidence_refs ?? [];
+    })]
+  });
+  const plannedWrites = [path5.posix.join(path5.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
+  if (options.dryRun)
+    return {
+      status: "success",
+      operation_kind: "task-state-transaction",
+      idempotency_key: idempotencyKey,
+      target_path: current.relativePath,
+      dry_run: true,
+      committed: false,
+      message: "Correction confirmation dry run passed; no live task was changed.",
+      planned_writes: plannedWrites,
+      governed_mutation_count: 0,
+      read_back_verified: false,
+      evidence_assurance: "caller-reported"
+    };
+  commitTaskEvolutionWithHistory({
+    currentPath: current.filePath,
+    previousContent: current.raw,
+    nextContent,
+    documentId: current.sourceTuple.document_id,
+    taskId: current.runtimeState.task_id,
+    basisPath: basis.filePath,
+    basisContent: basis.content,
+    nextBasisContent: nextBasisArtifact.content,
+    operation: "confirm-replan",
+    evidencePlanRevision: current.runtimeState.evidence_plan_revision,
+    referencedEvidence: [challenge.evidence_ref]
+  }, (content) => {
+    const parsed = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
+    if (parsed.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || parsed.runtimeState.active_step_id !== rebuilt.input.correction_step.id || readCanonicalTaskBasis(root, parsed).revision !== nextBasisArtifact.revision)
+      fail2("REPLAN_READ_BACK_FAILED", "Correction task/Basis read-back is inconsistent.");
+  });
+  const readBack = readCanonicalCurrentTask(root);
+  return {
+    status: "success",
+    operation_kind: "task-state-transaction",
+    idempotency_key: idempotencyKey,
+    target_path: current.relativePath,
+    dry_run: false,
+    committed: true,
+    message: "Restricted correction confirmed; old obligations, original next step, and immutable preimage retained.",
+    planned_writes: plannedWrites,
+    governed_mutation_count: 3,
+    read_back_verified: readBack.raw === nextContent,
+    previous_revision: current.sourceTuple.revision,
+    resulting_revision: readBack.sourceTuple.revision,
+    evidence_assurance: "caller-reported",
+    state: resultState(readBack.runtimeState)
+  };
+}
+function discardCorrectionReplan(root, rawInput, options = {}) {
+  const input = expectRecord2(rawInput, "discard-replan input");
+  expectExactKeys2(input, ["candidate_digest"], "discard-replan input");
+  const current = readCanonicalCurrentTask(root);
+  const candidateDigest = expectString2(input.candidate_digest, "candidate_digest", /^[a-f0-9]{64}$/);
+  const location = correctionCandidateLocation(current, candidateDigest);
+  if (!fs4.existsSync(location.filePath))
+    fail2("REPLAN_CANDIDATE_MISSING", "Candidate does not exist.");
+  const marker = `${location.filePath}.discarded`;
+  const existed = fs4.existsSync(marker);
+  if (!options.dryRun && !existed)
+    fs4.writeFileSync(marker, `${candidateDigest}
+`, { flag: "wx" });
+  return {
+    status: existed ? "no-op" : "success",
+    operation_kind: "task-state-transaction",
+    idempotency_key: `discard-replan-${candidateDigest.slice(0, 40)}`,
+    target_path: location.relativePath,
+    dry_run: options.dryRun === true,
+    committed: !options.dryRun && !existed,
+    message: "Candidate discarded; CURRENT_TASK lifecycle was not changed.",
+    planned_writes: [`${location.relativePath}.discarded`],
+    governed_mutation_count: options.dryRun || existed ? 0 : 1,
+    read_back_verified: options.dryRun !== true,
+    evidence_assurance: "caller-reported"
+  };
 }
 function currentDefinitionExecutionLog(current) {
   const log = current.runtimeState.execution_log;
@@ -9027,7 +10064,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     }
     if (current.runtimeState.task_id === "000") {
       const bootstrapArchive = archivePathForTask(root, current);
-      if (fs3.existsSync(bootstrapArchive.filePath))
+      if (fs4.existsSync(bootstrapArchive.filePath))
         fail2("TASK_ARCHIVE_CONFLICT", "bootstrap TASK-000 must not already have a canonical archive before the first ordinary draft.");
     } else {
       const { receipt } = matchingArchiveReceipt(root, current);
@@ -9046,6 +10083,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     };
     const emptyDraftState = {
       business_evidence_version: 1,
+      task_evolution_version: 1,
       schema_version: 1,
       kind: VNEXT_RUNTIME_STATE_KIND,
       task_id: delta.task_id,
@@ -9225,6 +10263,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail2("RESUME_REVIEW_REQUIRED", "review-change cannot record a step review while the resume review gate is active.");
     }
     const review = delta.review_result;
+    if (review.verdict === "clean" && (current.runtimeState.evidence_challenges ?? []).some((item) => item.status !== "resolved" && item.correction_step_id !== review.step_id)) {
+      fail2("EVIDENCE_CHALLENGE_UNRESOLVED", "A clean review cannot consume an unresolved challenge outside its admitted correction step.");
+    }
     if (review.step_id !== current.runtimeState.active_step_id)
       fail2("ACTIVE_STEP_CONFLICT", "review result does not belong to the active step.");
     if (review.cycle_id !== current.runtimeState.review_cycle.id)
@@ -9305,52 +10346,64 @@ function applyTaskStateDelta(root, current, proposal, now) {
     };
   }
   if (delta.action === "commit-replan") {
-    ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
-    if (current.runtimeState.workflow_status !== "superseded" || current.runtimeState.lifecycle_state !== "active") {
-      fail2("REPLAN_TRANSITION_INVALID", "commit-replan requires superseded + active.");
-    }
-    assertReplacementActiveStep(delta.active_step_id, delta.replacement_definition.implementation_steps);
-    assertPreparedTestStrategy(root, delta.replacement_definition, delta.task_basis);
-    const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "commit-replan claim_evidence");
-    requireAcceptanceClaim(claimEvidence, "commit-replan claim_evidence");
-    const planRevision = assertEvidencePlan(delta.replacement_definition, claimEvidence, true);
-    const findings = current.runtimeState.findings.map((item) => {
-      const preserved = { ...item, evidence_refs: [...item.evidence_refs] };
-      if (preserved.status === "admitted" || preserved.status === "in-progress") {
-        return { ...preserved, status: "deferred", updated_at: now };
-      }
-      return preserved;
-    });
-    const hadOpenFindings = current.runtimeState.findings.some((item) => item.status === "admitted" || item.status === "in-progress");
-    if (current.runtimeState.evidence_plan_revision === planRevision && current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts.at(-1)?.status === "blocked")
-      fail2("RETRY_ATTEMPT_CONFLICT", "Same-plan replan cannot reset a blocked attempt; use bounded retry or diagnose the failure.");
-    const nextWithoutAudit = {
+    fail2("REPLAN_CONFIRMATION_REQUIRED", "Direct commit-replan is disabled until a revision-bound candidate, complete prior-obligation disposition, and explicit confirmation are available. CURRENT_TASK was not changed.");
+  }
+  if (delta.action === "record-evidence-challenge") {
+    ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active")
+      fail2("EVIDENCE_CHALLENGE_STATE_INVALID", "Evidence challenges require the active task.");
+    const claim = current.runtimeState.claim_evidence?.find((item) => item.claim_id === delta.claim_id);
+    const slot = claim?.slots.find((item) => item.slot_id === delta.slot_id);
+    if (!slot?.report || slot.report.result_id !== delta.result_id)
+      fail2("EVIDENCE_CHALLENGE_TARGET_INVALID", "Challenge must bind an existing claim, slot, and report result.");
+    if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
+      fail2("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge evidence must be admitted by both proposal and delta.");
+    const evidencePath = path5.resolve(root, delta.evidence_ref);
+    if (!fs4.existsSync(evidencePath) || !fs4.statSync(evidencePath).isFile() || crypto4.createHash("sha256").update(fs4.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
+      fail2("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge artifact is missing or changed.");
+    const challengeId = `challenge-${digest({ task: current.runtimeState.task_id, claim: delta.claim_id, slot: delta.slot_id, result: delta.result_id, evidence_sha256: delta.evidence_sha256 }).slice(0, 32)}`;
+    if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.challenge_id === challengeId))
+      fail2("EVIDENCE_CHALLENGE_DUPLICATE", "The same challenge is already recorded.");
+    if ((current.runtimeState.evidence_challenges ?? []).filter((item) => item.claim_id === delta.claim_id && item.slot_id === delta.slot_id && item.result_id === delta.result_id).length >= 3)
+      fail2("EVIDENCE_CHALLENGE_BUDGET_EXHAUSTED", "Three distinct counterevidence submissions for this result are already retained.");
+    const challenge = {
+      challenge_id: challengeId,
+      claim_id: delta.claim_id,
+      slot_id: delta.slot_id,
+      result_id: delta.result_id,
+      evidence_ref: delta.evidence_ref,
+      evidence_sha256: delta.evidence_sha256,
+      reason: delta.reason,
+      status: "contested",
+      source_revision: current.sourceTuple.revision,
+      correction_step_id: null
+    };
+    return { next: { ...current.runtimeState, evidence_challenges: [...current.runtimeState.evidence_challenges ?? [], challenge], applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
+  }
+  if (delta.action === "dismiss-evidence-challenge") {
+    ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active")
+      fail2("EVIDENCE_CHALLENGE_STATE_INVALID", "Challenge assessment requires the active task.");
+    const challenge = current.runtimeState.evidence_challenges?.find((item) => item.challenge_id === delta.challenge_id);
+    if (!challenge || challenge.status !== "contested" || challenge.correction_step_id !== null)
+      fail2("EVIDENCE_CHALLENGE_STATE_INVALID", "Only an unresolved contested challenge may be dismissed.");
+    if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
+      fail2("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge assessment evidence must be admitted by both proposal and delta.");
+    const evidencePath = path5.resolve(root, delta.evidence_ref);
+    if (!fs4.existsSync(evidencePath) || !fs4.statSync(evidencePath).isFile() || crypto4.createHash("sha256").update(fs4.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
+      fail2("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge assessment artifact is missing or changed.");
+    const resolution = {
+      kind: "not-substantiated",
+      evidence_ref: delta.evidence_ref,
+      evidence_sha256: delta.evidence_sha256,
+      reason: delta.reason,
+      source_revision: current.sourceTuple.revision
+    };
+    return { next: {
       ...current.runtimeState,
-      business_evidence_version: 1,
-      step_attempts: current.runtimeState.evidence_plan_revision === planRevision ? current.runtimeState.step_attempts ?? {} : {},
-      workflow_status: "active",
-      lifecycle_state: "active",
-      resume_requires_review: false,
-      resume_review_reasons: [],
-      active_step_id: delta.active_step_id,
-      active_step_status: "ready",
-      finding_queue_revision: hadOpenFindings ? current.runtimeState.finding_queue_revision + 1 : current.runtimeState.finding_queue_revision,
-      review_cycle: createReviewCycleZero(),
-      findings,
-      pending_review_result: null,
-      claim_evidence_required: true,
-      claim_evidence: copyClaimEvidence(claimEvidence),
-      evidence_plan_revision: planRevision,
-      review_coverage: current.runtimeState.review_coverage ? { ...current.runtimeState.review_coverage, last_clean_revision: null, pending_paths: current.runtimeState.review_coverage.base.entries.map((entry) => entry.path) } : emptyReviewCoverage(planRevision),
+      evidence_challenges: current.runtimeState.evidence_challenges.map((item) => item.challenge_id === challenge.challenge_id ? { ...item, status: "resolved", resolution } : item),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
-    };
-    const audit = makeReplanAudit(current, proposal, nextWithoutAudit, now);
-    return {
-      next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
-      replacementDefinition: delta.replacement_definition,
-      taskBasis: delta.task_basis,
-      audit
-    };
+    } };
   }
   if (delta.action === "retry-step") {
     ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
@@ -9503,6 +10556,24 @@ function applyTaskStateDelta(root, current, proposal, now) {
       if (slot.before_step_id === delta.step_id && !slot.prerequisite_receipt)
         fail2("PREREQUISITE_REQUIRED", "record-step-preflight must consume prerequisites before any execution result or progress.");
     }
+  const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter((item) => item.status !== "resolved");
+  for (const challenge of unresolvedChallenges) {
+    const slot = transitionClaimEvidence.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id);
+    if (slot?.report?.result_id === challenge.result_id)
+      fail2("EVIDENCE_CHALLENGE_UNRESOLVED", "The challenged result ID cannot be resubmitted as a correction.");
+  }
+  if (newStatus === "completed" && unresolvedChallenges.length > 0) {
+    if (!delta.review_receipt || unresolvedChallenges.some((item) => item.status !== "invalidated" || item.correction_step_id !== delta.step_id)) {
+      fail2("EVIDENCE_CHALLENGE_UNRESOLVED", "Challenge resolution requires the admitted correction step and its fresh clean review.");
+    }
+    for (const challenge of unresolvedChallenges) {
+      const slot = transitionClaimEvidence.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id);
+      if (!slot?.report || !slot.check || slot.report.result_id === challenge.result_id || slot.report.status !== slot.check.expected_result || !COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition)) {
+        fail2("EVIDENCE_CHALLENGE_UNRESOLVED", "Correction must provide a new successful report for the exact challenged slot.");
+      }
+      assertEvidenceReportApplicable(root, current, slot);
+    }
+  }
   for (const result of [...delta.execution_result?.command_results ?? [], ...delta.execution_result?.validation_results ?? []]) {
     if (result.status !== "expected-failure")
       continue;
@@ -9707,6 +10778,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     ...advancement.outcome === "advanced" ? { review_cycle: reviewCycleForNextStep(current.runtimeState.review_cycle.id, advancement.to_step_id, proposal.idempotency_key) } : {},
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
+    ...newStatus === "completed" && unresolvedChallenges.length > 0 ? { evidence_challenges: (current.runtimeState.evidence_challenges ?? []).map((item) => unresolvedChallenges.some((challenge) => challenge.challenge_id === item.challenge_id) ? { ...item, status: "resolved" } : item) } : {},
     pending_review_result: null,
     ...coverage ? { review_coverage: coverage } : {},
     ...stepAttempts ? { step_attempts: stepAttempts } : {},
@@ -9927,10 +10999,10 @@ function packagePathForTask(root, taskId, taskSlug, artifactKind) {
   } catch (error) {
     fail2("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const filePath = path4.resolve(path4.resolve(root), ...relativePath.split("/"));
-  const resolvedRoot = path4.resolve(root);
-  const relativeCheck = path4.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path4.isAbsolute(relativeCheck)) {
+  const filePath = path5.resolve(path5.resolve(root), ...relativePath.split("/"));
+  const resolvedRoot = path5.resolve(root);
+  const relativeCheck = path5.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path5.isAbsolute(relativeCheck)) {
     fail2("RUNTIME_PATH_INVALID", `suspended package path escapes the target root: ${relativePath}`);
   }
   return { filePath, relativePath };
@@ -9959,9 +11031,9 @@ function parseSuspendedPackage(root, current, relativePath, expectedKind) {
   if (normalizedPath !== canonicalExpectedPath.relativePath)
     fail2("RUNTIME_PATH_INVALID", "suspended package path is not the canonical identity-derived path.");
   const filePath = canonicalExpectedPath.filePath;
-  if (!fs3.existsSync(filePath))
+  if (!fs4.existsSync(filePath))
     fail2("SUSPENDED_PACKAGE_MISSING", `suspended package is missing: ${normalizedPath}`);
-  const raw = fs3.readFileSync(filePath, "utf8");
+  const raw = fs4.readFileSync(filePath, "utf8");
   if (raw.split(SUSPENDED_PACKAGE_BEGIN).length !== 2 || raw.split(SUSPENDED_PACKAGE_END).length !== 2) {
     fail2("SUSPENDED_PACKAGE_INVALID", `${normalizedPath} must contain exactly one complete CURRENT_TASK snapshot.`);
   }
@@ -10024,7 +11096,7 @@ function parseSuspendedPackage(root, current, relativePath, expectedKind) {
   const snapshotRegion = raw.slice(snapshotStart, endIndex);
   const snapshotCandidates = [snapshotRegion, snapshotRegion.endsWith(`
 `) ? snapshotRegion.slice(0, -1) : snapshotRegion];
-  const snapshotRaw = snapshotCandidates.find((candidate) => sha2562(candidate) === snapshotSha256);
+  const snapshotRaw = snapshotCandidates.find((candidate) => sha2563(candidate) === snapshotSha256);
   if (snapshotRaw === undefined)
     fail2("SUSPENDED_PACKAGE_INVALID", `${normalizedPath} snapshot_sha256 does not match the embedded CURRENT_TASK snapshot.`);
   const snapshot = parseCanonicalCurrentTaskContent(snapshotRaw, current.filePath, current.relativePath);
@@ -10057,7 +11129,7 @@ function parseSuspendedPackage(root, current, relativePath, expectedKind) {
     filePath,
     relativePath: normalizedPath,
     raw,
-    revision: sha2562(raw),
+    revision: sha2563(raw),
     taskId,
     taskTitle,
     taskSlug,
@@ -10098,7 +11170,7 @@ function renderSuspendedPackage(current, delta, artifactKind) {
     "- rehydration_status: ready_for_resume",
     "- ownership_state: recovery_only",
     `- document_id: ${String(current.frontmatter.document_id)}`,
-    `- snapshot_sha256: ${sha2562(current.raw)}`
+    `- snapshot_sha256: ${sha2563(current.raw)}`
   ];
   if (delta.action === "pause" && delta.lifecycle_state === "paused_blocked") {
     fields.push(`- blocker_status: ${packageText(delta.blocker_status, "semantic_delta.blocker_status")}`);
@@ -10181,6 +11253,7 @@ function assertLifecycleReplayArtifacts(root, current, proposal) {
         fail2("LIFECYCLE_REPLAY_INCOMPLETE", "supersede replay is missing its durable invalidation audit record.");
       }
       assertExecutionAuditInBody(current.body, audit);
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proposal.source_tuple.revision);
       assertNoLaterReplanAudit(current, audit, "LIFECYCLE_REPLAY_INCOMPLETE");
     }
     return;
@@ -10210,7 +11283,7 @@ function assertLifecycleReplayArtifacts(root, current, proposal) {
 function assertSiblingRecoveryIsReconciled(root, current, artifactKind) {
   const siblingKind = artifactKind === "paused" ? "interrupted" : "paused";
   const sibling = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, siblingKind);
-  if (!fs3.existsSync(sibling.filePath))
+  if (!fs4.existsSync(sibling.filePath))
     return;
   const siblingArtifact = parseSuspendedPackage(root, current, sibling.relativePath, siblingKind);
   if (siblingArtifact.rehydrationStatus === "rehydrated" && siblingArtifact.ownershipState === "rehydrated")
@@ -10219,7 +11292,7 @@ function assertSiblingRecoveryIsReconciled(root, current, artifactKind) {
 }
 function prepareExistingPackageForReplacement(root, current, packageRelativePath, artifactKind) {
   const expected = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
-  if (!fs3.existsSync(expected.filePath))
+  if (!fs4.existsSync(expected.filePath))
     return;
   const existing = parseSuspendedPackage(root, current, packageRelativePath, artifactKind);
   if (existing.rehydrationStatus === "rehydrated" && existing.ownershipState === "rehydrated")
@@ -10252,6 +11325,8 @@ function assertRequestedLifecycleTargets(root, current, proposal) {
 function prepareLifecycleTransaction(root, current, proposal, now) {
   const delta = proposal.semantic_delta;
   if (delta.action === "supersede") {
+    if (current.runtimeState.task_evolution_version !== 1)
+      fail2("TASK_EVOLUTION_INITIALIZATION_REQUIRED", "Initialize task preservation before superseding an older task.");
     ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
     if (!["active", "blocked_by_replan"].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== "active") {
       fail2("LIFECYCLE_TRANSITION_INVALID", "supersede requires active + active or blocked_by_replan + active.");
@@ -10298,7 +11373,7 @@ function prepareLifecycleTransaction(root, current, proposal, now) {
   const expectedLifecycle = delta.action === "resume-paused" ? ["paused_pending_closure", "paused_blocked"] : ["interrupted"];
   if (!expectedLifecycle.includes(current.runtimeState.lifecycle_state))
     fail2("LIFECYCLE_TRANSITION_INVALID", "resume mode does not match the current suspended lifecycle state.");
-  if (!fs3.existsSync(packageFilePath))
+  if (!fs4.existsSync(packageFilePath))
     fail2("SUSPENDED_PACKAGE_MISSING", `suspended package is missing: ${packageRelativePath}`);
   const packageArtifact = parseSuspendedPackage(root, current, packageRelativePath, delta.artifact_kind);
   if (packageArtifact.rehydrationStatus !== "ready_for_resume" || packageArtifact.ownershipState !== "recovery_only") {
@@ -10368,9 +11443,9 @@ function resultState(state, findingStatus, recoveryPackagePath) {
   };
 }
 function fileRevisionForPath(filePath) {
-  if (!fs3.existsSync(filePath))
+  if (!fs4.existsSync(filePath))
     fail2("RUNTIME_SOURCE_MISSING", `Required file is missing: ${filePath}`);
-  return sha2562(fs3.readFileSync(filePath, "utf8"));
+  return sha2563(fs4.readFileSync(filePath, "utf8"));
 }
 function rollbackCurrentTaskAndVerify(root, current, readCurrentTask) {
   try {
@@ -10404,8 +11479,8 @@ function rollbackDraftTransactionAndVerify(root, current, artifact, originalTask
       writes.push({ path: artifact.filePath, content: originalTaskBasisContent });
     }
     executeWrites(writes, false, "vNext Runtime draft rollback after read-back failure");
-    if (originalTaskBasisContent === undefined && fs3.existsSync(artifact.filePath)) {
-      fs3.rmSync(artifact.filePath, { force: true });
+    if (originalTaskBasisContent === undefined && fs4.existsSync(artifact.filePath)) {
+      fs4.rmSync(artifact.filePath, { force: true });
     }
   } catch (error) {
     return { verified: false, detail: `rollback failed: ${error instanceof Error ? error.message : String(error)}` };
@@ -10416,9 +11491,9 @@ function rollbackDraftTransactionAndVerify(root, current, artifact, originalTask
       return { verified: false, detail: "rollback read-back did not restore the original canonical CURRENT_TASK document." };
     }
     if (originalTaskBasisContent === undefined) {
-      if (fs3.existsSync(artifact.filePath))
+      if (fs4.existsSync(artifact.filePath))
         return { verified: false, detail: "rollback left a newly-created task basis behind." };
-    } else if (!fs3.existsSync(artifact.filePath) || fs3.readFileSync(artifact.filePath, "utf8") !== originalTaskBasisContent) {
+    } else if (!fs4.existsSync(artifact.filePath) || fs4.readFileSync(artifact.filePath, "utf8") !== originalTaskBasisContent) {
       return { verified: false, detail: "rollback read-back did not restore the original task basis." };
     }
     return { verified: true, detail: "rollback read-back verified for CURRENT_TASK and task basis." };
@@ -10436,8 +11511,8 @@ function rollbackLifecycleTransactionAndVerify(root, current, plan, readCurrentT
       rollbackOperations.push({ path: plan.packageFilePath, content: plan.originalPackageContent });
     }
     executeWrites(rollbackOperations, false, "vNext Runtime lifecycle rollback after read-back failure");
-    if (plan.originalPackageContent === undefined && fs3.existsSync(plan.packageFilePath)) {
-      fs3.rmSync(plan.packageFilePath, { force: true });
+    if (plan.originalPackageContent === undefined && fs4.existsSync(plan.packageFilePath)) {
+      fs4.rmSync(plan.packageFilePath, { force: true });
     }
   } catch (error) {
     return {
@@ -10450,11 +11525,11 @@ function rollbackLifecycleTransactionAndVerify(root, current, plan, readCurrentT
     if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
       return { verified: false, detail: "rollback read-back did not restore the original canonical CURRENT_TASK document." };
     }
-    const packageExists = fs3.existsSync(plan.packageFilePath);
+    const packageExists = fs4.existsSync(plan.packageFilePath);
     if (plan.originalPackageContent === undefined) {
       if (packageExists)
         return { verified: false, detail: "rollback read-back left a newly-created suspended package behind." };
-    } else if (!packageExists || fs3.readFileSync(plan.packageFilePath, "utf8") !== plan.originalPackageContent) {
+    } else if (!packageExists || fs4.readFileSync(plan.packageFilePath, "utf8") !== plan.originalPackageContent) {
       return { verified: false, detail: "rollback read-back did not restore the original suspended package." };
     }
     return { verified: true, detail: "rollback read-back verified." };
@@ -10466,8 +11541,8 @@ function rollbackArchiveTransactionAndVerify(root, current, plan, readCurrentTas
   try {
     executeWrites([{ path: current.filePath, content: current.raw }], false, "vNext Runtime archive rollback CURRENT_TASK");
     if (plan.originalArchiveContent === undefined) {
-      if (fs3.existsSync(plan.archiveFilePath))
-        fs3.rmSync(plan.archiveFilePath, { force: true });
+      if (fs4.existsSync(plan.archiveFilePath))
+        fs4.rmSync(plan.archiveFilePath, { force: true });
     } else {
       executeWrites([{ path: plan.archiveFilePath, content: plan.originalArchiveContent }], false, "vNext Runtime archive rollback archive");
     }
@@ -10480,9 +11555,9 @@ function rollbackArchiveTransactionAndVerify(root, current, plan, readCurrentTas
       return { verified: false, detail: "archive rollback read-back did not restore the original CURRENT_TASK document." };
     }
     if (plan.originalArchiveContent === undefined) {
-      if (fs3.existsSync(plan.archiveFilePath))
+      if (fs4.existsSync(plan.archiveFilePath))
         return { verified: false, detail: "archive rollback left a newly-created archive behind." };
-    } else if (!fs3.existsSync(plan.archiveFilePath) || fs3.readFileSync(plan.archiveFilePath, "utf8") !== plan.originalArchiveContent) {
+    } else if (!fs4.existsSync(plan.archiveFilePath) || fs4.readFileSync(plan.archiveFilePath, "utf8") !== plan.originalArchiveContent) {
       return { verified: false, detail: "archive rollback did not restore the original archive." };
     }
     return { verified: true, detail: "archive rollback read-back verified for CURRENT_TASK and archive." };
@@ -10493,7 +11568,7 @@ function rollbackArchiveTransactionAndVerify(root, current, plan, readCurrentTas
 function rollbackSingleFileAndVerify(filePath, originalContent, label) {
   try {
     executeWrites([{ path: filePath, content: originalContent }], false, `vNext Runtime ${label} rollback`);
-    if (fs3.readFileSync(filePath, "utf8") !== originalContent)
+    if (fs4.readFileSync(filePath, "utf8") !== originalContent)
       return { verified: false, detail: `${label} rollback read-back did not restore the original document.` };
     return { verified: true, detail: `${label} rollback read-back verified.` };
   } catch (error) {
@@ -10502,13 +11577,13 @@ function rollbackSingleFileAndVerify(filePath, originalContent, label) {
 }
 function rollbackCreatedInboxRecordAndVerify(filePath) {
   try {
-    if (fs3.existsSync(filePath)) {
-      if (!fs3.lstatSync(filePath).isFile()) {
+    if (fs4.existsSync(filePath)) {
+      if (!fs4.lstatSync(filePath).isFile()) {
         return { verified: false, detail: "inbox rollback refused to remove a non-file target." };
       }
-      fs3.rmSync(filePath, { force: true });
+      fs4.rmSync(filePath, { force: true });
     }
-    if (fs3.existsSync(filePath))
+    if (fs4.existsSync(filePath))
       return { verified: false, detail: "inbox rollback left the newly-created record behind." };
     return { verified: true, detail: "inbox rollback read-back verified." };
   } catch (error) {
@@ -10521,15 +11596,15 @@ class GovernanceTransactionKernel {
   readCurrentTask;
   readFile;
   writeFiles;
-  constructor(root, readCurrentTask = readCanonicalCurrentTask, readFile = (filePath) => fs3.readFileSync(filePath, "utf8"), writeFiles = (operations, dryRun, summary) => executeWrites(operations, dryRun, summary)) {
-    this.root = path4.resolve(root);
+  constructor(root, readCurrentTask = readCanonicalCurrentTask, readFile = (filePath) => fs4.readFileSync(filePath, "utf8"), writeFiles = (operations, dryRun, summary) => executeWrites(operations, dryRun, summary)) {
+    this.root = path5.resolve(root);
     this.readCurrentTask = readCurrentTask;
     this.readFile = readFile;
     this.writeFiles = writeFiles;
   }
   commitInboxRecordTransaction(current, proposal, plan, options) {
     const targetPath = plan.relativePath;
-    const recordRevision = sha2562(plan.nextContent);
+    const recordRevision = sha2563(plan.nextContent);
     if (plan.existing) {
       return buildResult("no-op", proposal, current, options, "matching canonical inbox record already exists; exact replay is a deterministic no-op.", {
         target_path: targetPath,
@@ -10590,7 +11665,7 @@ class GovernanceTransactionKernel {
         state: resultState(current.runtimeState)
       });
     }
-    const nextRevision = sha2562(plan.nextContent);
+    const nextRevision = sha2563(plan.nextContent);
     if (options.dryRun) {
       return buildResult("success", proposal, current, options, "typed archive proposal validated; atomic CURRENT_TASK + canonical archive write planned (dry-run).", {
         previous_revision: current.sourceTuple.revision,
@@ -10616,7 +11691,7 @@ class GovernanceTransactionKernel {
       if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
         throw new Error("canonical CURRENT_TASK read-back did not match the staged terminal document.");
       }
-      if (!fs3.existsSync(plan.archiveFilePath) || fs3.readFileSync(plan.archiveFilePath, "utf8") !== plan.nextArchiveContent) {
+      if (!fs4.existsSync(plan.archiveFilePath) || fs4.readFileSync(plan.archiveFilePath, "utf8") !== plan.nextArchiveContent) {
         throw new Error("canonical task archive read-back did not match the staged archive.");
       }
       const receipt = readCanonicalArchive(this.root, readBack, plan.archiveRelativePath);
@@ -10658,7 +11733,7 @@ class GovernanceTransactionKernel {
     if (options.dryRun) {
       return buildResult("success", proposal, current, options, "typed project-status proposal validated; STATUS-only write planned (dry-run).", {
         target_path: plan.statusRelativePath,
-        previous_revision: sha2562(plan.originalStatusContent),
+        previous_revision: sha2563(plan.originalStatusContent),
         resulting_revision: plan.statusRevision,
         state: resultState(current.runtimeState)
       });
@@ -10673,7 +11748,7 @@ class GovernanceTransactionKernel {
       });
     }
     try {
-      const readBack = fs3.readFileSync(plan.statusFilePath, "utf8");
+      const readBack = fs4.readFileSync(plan.statusFilePath, "utf8");
       if (readBack !== plan.nextStatusContent)
         throw new Error("STATUS read-back did not match the staged typed reconciliation.");
       const receipt = matchingStatusReceipt(readBack, plan.statusRelativePath, plan.archive);
@@ -10685,7 +11760,7 @@ class GovernanceTransactionKernel {
         target_path: plan.statusRelativePath,
         committed: true,
         governed_mutation_count: 1,
-        previous_revision: sha2562(plan.originalStatusContent),
+        previous_revision: sha2563(plan.originalStatusContent),
         resulting_revision: plan.statusRevision,
         read_back_verified: true,
         state: resultState(current.runtimeState)
@@ -10711,7 +11786,7 @@ class GovernanceTransactionKernel {
     if (options.dryRun) {
       return buildResult("success", proposal, current, options, "typed lesson-record proposal validated; LESSONS-only write planned (dry-run).", {
         target_path: plan.lessonsRelativePath,
-        previous_revision: sha2562(plan.originalLessonsContent),
+        previous_revision: sha2563(plan.originalLessonsContent),
         resulting_revision: plan.lessonsRevision,
         state: resultState(current.runtimeState)
       });
@@ -10726,7 +11801,7 @@ class GovernanceTransactionKernel {
       });
     }
     try {
-      const readBack = fs3.readFileSync(plan.lessonsFilePath, "utf8");
+      const readBack = fs4.readFileSync(plan.lessonsFilePath, "utf8");
       if (readBack !== plan.nextLessonsContent)
         throw new Error("LESSONS read-back did not match the staged typed lesson record.");
       readDurableLessonRecords(readBack, plan.lessonsRelativePath);
@@ -10734,7 +11809,7 @@ class GovernanceTransactionKernel {
         target_path: plan.lessonsRelativePath,
         committed: true,
         governed_mutation_count: 1,
-        previous_revision: sha2562(plan.originalLessonsContent),
+        previous_revision: sha2563(plan.originalLessonsContent),
         resulting_revision: plan.lessonsRevision,
         read_back_verified: true,
         state: resultState(current.runtimeState)
@@ -10753,8 +11828,8 @@ class GovernanceTransactionKernel {
       return buildResult("no-op", proposal, current, options, "matching durable Contract/Decision record already exists; knowledge promotion is a deterministic no-op.", {
         target_path: targetPath,
         planned_writes: [],
-        previous_revision: sha2562(plan.originalContent),
-        resulting_revision: sha2562(plan.originalContent),
+        previous_revision: sha2563(plan.originalContent),
+        resulting_revision: sha2563(plan.originalContent),
         read_back_verified: true,
         state: resultState(current.runtimeState)
       });
@@ -10762,8 +11837,8 @@ class GovernanceTransactionKernel {
     if (options.dryRun) {
       return buildResult("success", proposal, current, options, "typed knowledge admission validated; one canonical knowledge document write planned (dry-run).", {
         target_path: targetPath,
-        previous_revision: sha2562(plan.originalContent),
-        resulting_revision: sha2562(plan.nextContent),
+        previous_revision: sha2563(plan.originalContent),
+        resulting_revision: sha2563(plan.nextContent),
         state: resultState(current.runtimeState)
       });
     }
@@ -10788,8 +11863,8 @@ class GovernanceTransactionKernel {
         target_path: targetPath,
         committed: true,
         governed_mutation_count: 1,
-        previous_revision: sha2562(plan.originalContent),
-        resulting_revision: sha2562(plan.nextContent),
+        previous_revision: sha2563(plan.originalContent),
+        resulting_revision: sha2563(plan.nextContent),
         read_back_verified: true,
         state: resultState(current.runtimeState)
       });
@@ -10802,40 +11877,64 @@ class GovernanceTransactionKernel {
     }
   }
   commitLifecycleTransaction(current, proposal, plan, options) {
-    const nextRevision = sha2562(plan.nextContent);
+    const nextRevision = sha2563(plan.nextContent);
     if (proposal.mode === "supersede") {
+      let basis;
+      let historyPath;
+      const historyInput = {
+        currentPath: current.filePath,
+        previousContent: current.raw,
+        nextContent: plan.nextContent,
+        documentId: current.sourceTuple.document_id,
+        taskId: current.runtimeState.task_id,
+        evidencePlanRevision: current.runtimeState.evidence_plan_revision,
+        referencedEvidence: [
+          ...current.runtimeState.execution_log.flatMap((item) => item.evidence_refs),
+          ...current.runtimeState.findings.flatMap((item) => item.evidence_refs),
+          ...(current.runtimeState.claim_evidence ?? []).flatMap((claim) => claim.slots.flatMap((slot) => slot.evidence_refs))
+        ]
+      };
+      try {
+        basis = readTaskBasisReferenceFromBody(current.body) ? readCanonicalTaskBasis(this.root, current) : undefined;
+        const location = taskHistoryLocation({ ...historyInput, ...basis ? { basisPath: basis.filePath, basisContent: basis.content } : {} });
+        historyPath = path5.relative(this.root, location.path).replace(/\\/gu, "/");
+      } catch (error) {
+        return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+          code: error instanceof VNextRuntimeError ? error.code : "TASK_HISTORY_INVALID"
+        });
+      }
+      const plannedWrites = [current.relativePath, historyPath];
       if (options.dryRun) {
-        return buildResult("success", proposal, current, options, "typed supersede proposal validated; canonical CURRENT_TASK write planned (dry-run).", {
+        return buildResult("success", proposal, current, options, "typed supersede proposal validated; immutable history and canonical CURRENT_TASK writes planned (dry-run).", {
+          planned_writes: plannedWrites,
           previous_revision: current.sourceTuple.revision,
           resulting_revision: nextRevision,
           state: resultState(plan.next)
         });
       }
+      let readBack;
       try {
-        executeWrites([{ path: current.filePath, content: plan.nextContent }], false, "vNext Runtime supersede lifecycle transaction committed");
-      } catch (error) {
-        return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: "ATOMIC_COMMIT_FAILED" });
-      }
-      try {
-        const readBack = this.readCurrentTask(this.root);
-        if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
-          throw new Error("canonical CURRENT_TASK read-back did not match the staged supersede document.");
-        }
-        if (readBack.runtimeState.workflow_status !== "superseded" || readBack.runtimeState.lifecycle_state !== "active") {
-          throw new Error("supersede CURRENT_TASK read-back did not preserve the superseded + active tuple.");
-        }
-        return buildResult("success", proposal, current, options, "typed supersede proposal committed; canonical CURRENT_TASK read-back verified.", {
-          committed: true,
-          governed_mutation_count: 1,
-          previous_revision: current.sourceTuple.revision,
-          resulting_revision: nextRevision,
-          read_back_verified: true,
-          state: resultState(readBack.runtimeState)
+        commitSupersedeWithHistory({ ...historyInput, ...basis ? { basisPath: basis.filePath, basisContent: basis.content } : {} }, (content) => {
+          readBack = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
+          if (readBack.sourceTuple.revision !== nextRevision || readBack.runtimeState.workflow_status !== "superseded" || readBack.runtimeState.lifecycle_state !== "active") {
+            throw new Error("supersede CURRENT_TASK read-back did not preserve the exact superseded + active state.");
+          }
         });
       } catch (error) {
-        const rollback = rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
-        return buildResult("blocked", proposal, current, options, rollback.verified ? `Runtime supersede read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.` : `Runtime supersede read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, { code: rollback.verified ? "READ_BACK_FAILED" : "ROLLBACK_FAILED" });
+        return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+          planned_writes: plannedWrites,
+          code: "TASK_EVOLUTION_COMMIT_FAILED"
+        });
       }
+      return buildResult("success", proposal, current, options, "typed supersede proposal committed; immutable history and canonical CURRENT_TASK read-back verified.", {
+        planned_writes: plannedWrites,
+        committed: true,
+        governed_mutation_count: 2,
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        read_back_verified: true,
+        state: resultState(readBack.runtimeState)
+      });
     }
     if (!plan.packageFilePath || !plan.packageRelativePath || plan.nextPackageContent === undefined) {
       return buildResult("blocked", proposal, current, options, "lifecycle transaction is missing its suspended package plan.", { code: "RUNTIME_HANDLER_BLOCKED" });
@@ -10860,7 +11959,7 @@ class GovernanceTransactionKernel {
       if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
         throw new Error("canonical CURRENT_TASK read-back did not match the staged lifecycle document.");
       }
-      if (!fs3.existsSync(plan.packageFilePath) || fs3.readFileSync(plan.packageFilePath, "utf8") !== plan.nextPackageContent) {
+      if (!fs4.existsSync(plan.packageFilePath) || fs4.readFileSync(plan.packageFilePath, "utf8") !== plan.nextPackageContent) {
         throw new Error("suspended package read-back did not match the staged lifecycle artifact.");
       }
       const lifecycleDelta = proposal.semantic_delta;
@@ -10943,6 +12042,9 @@ class GovernanceTransactionKernel {
       }
     } catch (error) {
       return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_PATH_INVALID" });
+    }
+    if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "commit-replan") {
+      return buildResult("blocked", proposal, current, options, "Direct commit-replan is disabled until a revision-bound candidate, complete prior-obligation disposition, and explicit confirmation are available. CURRENT_TASK was not changed.", { code: "REPLAN_CONFIRMATION_REQUIRED" });
     }
     if (proposal.operation_kind === "inbox-record-transaction") {
       const inboxProposal = proposal;
@@ -11135,7 +12237,7 @@ class GovernanceTransactionKernel {
         };
         taskBasisArtifact = materializeTaskBasis(this.root, current, identity, transition.taskBasis);
         const existingReference = readTaskBasisReferenceFromBody(current.body);
-        const basisExists = fs3.existsSync(taskBasisArtifact.filePath);
+        const basisExists = fs4.existsSync(taskBasisArtifact.filePath);
         if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "create-draft") {
           if (basisExists)
             fail2("TASK_BASIS_CONFLICT", `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
@@ -11145,9 +12247,13 @@ class GovernanceTransactionKernel {
           }
           if (!basisExists)
             fail2("TASK_BASIS_MISSING", `Linked task basis is missing: ${taskBasisArtifact.path}`);
-          originalTaskBasisContent = fs3.readFileSync(taskBasisArtifact.filePath, "utf8");
-          if (sha2562(originalTaskBasisContent) !== existingReference.revision) {
+          originalTaskBasisContent = fs4.readFileSync(taskBasisArtifact.filePath, "utf8");
+          if (sha2563(originalTaskBasisContent) !== existingReference.revision) {
             fail2("TASK_BASIS_REVISION_CONFLICT", "Linked task basis changed outside the Runtime transaction.");
+          }
+          const priorBasis = readCanonicalTaskBasis(this.root, current).basis;
+          if (digest(priorBasis.original_request) !== digest(taskBasisArtifact.basis.original_request) || priorBasis.user_decisions.length > taskBasisArtifact.basis.user_decisions.length || priorBasis.user_decisions.some((decision, index) => digest(decision) !== digest(taskBasisArtifact.basis.user_decisions[index]))) {
+            fail2("TASK_BASIS_IMMUTABLE", "Task Basis original_request and existing user_decisions must remain unchanged; append a new user decision instead.");
           }
         } else if (basisExists) {
           fail2("TASK_BASIS_CONFLICT", `Unlinked task basis already exists at ${taskBasisArtifact.path}.`);
@@ -11173,7 +12279,7 @@ class GovernanceTransactionKernel {
         code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_RENDER_BLOCKED"
       });
     }
-    const nextRevision = sha2562(nextContent);
+    const nextRevision = sha2563(nextContent);
     if (nextContent === current.raw) {
       return buildResult("no-op", proposal, current, options, "proposal produced no canonical state change.", {
         previous_revision: current.sourceTuple.revision,
@@ -11263,6 +12369,16 @@ function createTaskStateProposal(current, input) {
   });
 }
 function assertOrdinaryPreflight(current, root) {
+  const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter((item) => item.status !== "resolved");
+  if (unresolvedChallenges.some((item) => item.correction_step_id !== current.runtimeState.active_step_id)) {
+    fail2("EVIDENCE_CHALLENGE_UNRESOLVED", "A challenged result may affect the next step; only its admitted correction step can run.");
+  }
+  for (const carry of current.runtimeState.evidence_carry_forward ?? []) {
+    const slot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === carry.claim_id)?.slots.find((item) => item.slot_id === carry.slot_id);
+    if (!slot?.report)
+      fail2("EVIDENCE_CARRY_FORWARD_STALE", "A carried slot no longer has its old report.");
+    assertEvidenceReportApplicable(root, current, slot);
+  }
   const pending = current.runtimeState.pending_review_result;
   if (pending) {
     const execution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
@@ -11336,6 +12452,56 @@ function createReviewResultProposal(current, input) {
     },
     preconditions: ["current-task-is-active", "latest-execution-matches", "review-context-current"],
     evidence_refs: evidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createEvidenceChallengeProposal(current, input) {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "review-change",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: "record-evidence-challenge",
+      claim_id: input.claim_id,
+      slot_id: input.slot_id,
+      result_id: input.result_id,
+      evidence_ref: input.evidence_ref,
+      evidence_sha256: input.evidence_sha256,
+      reason: input.reason,
+      evidence_refs: [input.evidence_ref]
+    },
+    preconditions: ["current-task-is-active", "evidence-admitted"],
+    evidence_refs: [input.evidence_ref],
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
+function createEvidenceChallengeDismissalProposal(current, input) {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "review-change",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: "dismiss-evidence-challenge",
+      challenge_id: input.challenge_id,
+      evidence_ref: input.evidence_ref,
+      evidence_sha256: input.evidence_sha256,
+      reason: input.reason,
+      evidence_refs: [input.evidence_ref]
+    },
+    preconditions: ["current-task-is-active", "evidence-admitted"],
+    evidence_refs: [input.evidence_ref],
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath]
   });
@@ -11507,17 +12673,17 @@ function parseCli(argv) {
   return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary };
 }
 function resolveExternalProposalFile(root, proposalFile) {
-  const resolvedRoot = path4.resolve(root);
-  const resolvedProposal = path4.resolve(proposalFile);
-  const relative2 = path4.relative(resolvedRoot, resolvedProposal);
-  const insideProject = relative2 === "" || !relative2.startsWith(`..${path4.sep}`) && relative2 !== ".." && !path4.isAbsolute(relative2);
+  const resolvedRoot = path5.resolve(root);
+  const resolvedProposal = path5.resolve(proposalFile);
+  const relative3 = path5.relative(resolvedRoot, resolvedProposal);
+  const insideProject = relative3 === "" || !relative3.startsWith(`..${path5.sep}`) && relative3 !== ".." && !path5.isAbsolute(relative3);
   if (insideProject) {
     fail2("PROPOSAL_FILE_INSIDE_PROJECT", "proposal/helper files must not be created inside the target project; send the proposal on stdin or use an OS-temporary path outside the project.");
   }
   return resolvedProposal;
 }
 function readCliStringList(filePath, label) {
-  const content = fs3.readFileSync(path4.resolve(filePath), "utf8");
+  const content = fs4.readFileSync(path5.resolve(filePath), "utf8");
   if (content.trimStart().startsWith("[")) {
     let parsed;
     try {
@@ -11534,7 +12700,7 @@ function readCliStringList(filePath, label) {
 function readCliConditionalAuthorizations(filePath) {
   let parsed;
   try {
-    parsed = JSON.parse(fs3.readFileSync(path4.resolve(filePath), "utf8"));
+    parsed = JSON.parse(fs4.readFileSync(path5.resolve(filePath), "utf8"));
   } catch (error) {
     throw new Error(`conditional authorizations file must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -11546,7 +12712,7 @@ function readCliCommandAudit(args) {
   if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin || args.persistentTestPaths.length > 0 || args.persistentTestPathsFile) {
     throw new Error("command audit input cannot be combined with ordinary path or persistent-test scope input.");
   }
-  const content = args.commandAuditFile ? fs3.readFileSync(path4.resolve(args.commandAuditFile), "utf8") : (() => {
+  const content = args.commandAuditFile ? fs4.readFileSync(path5.resolve(args.commandAuditFile), "utf8") : (() => {
     if (process.stdin.isTTY)
       throw new Error("--command-audit-stdin requires a JSON command audit on stdin.");
     const input = process.stdin.read();
@@ -11585,14 +12751,14 @@ function readScopeCheckInput(args) {
   };
 }
 function validateInstalledRuntimeForCli(root) {
-  const runtimePackagePath = path4.join(path4.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs3.existsSync(runtimePackagePath)) {
+  const runtimePackagePath = path5.join(path5.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs4.existsSync(runtimePackagePath)) {
     validateVNextRuntimeContract(root, true);
   }
 }
 function requireBootstrappedProject(root) {
   const profilePath = getWorkflowProfilePath(root);
-  if (!fs3.existsSync(profilePath)) {
+  if (!fs4.existsSync(profilePath)) {
     fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
   let profile;
@@ -11602,7 +12768,7 @@ function requireBootstrappedProject(root) {
     fail2("BOOTSTRAP_REQUIRED", "Project governance profile is unavailable or invalid; invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
   const currentTaskPath = getWorkflowDocPath(root, profile, "CURRENT_TASK.md");
-  if (!fs3.existsSync(currentTaskPath)) {
+  if (!fs4.existsSync(currentTaskPath)) {
     fail2("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
 }
@@ -11644,7 +12810,12 @@ async function runCli(argv = process.argv.slice(2)) {
           pending_review_verdict: state.pending_review_result?.verdict ?? null,
           review_target_revision: state.review_coverage?.target.revision ?? null,
           pending_review_paths: state.review_coverage?.pending_paths ?? [],
-          evidence_plan_revision: state.evidence_plan_revision ?? null
+          evidence_plan_revision: state.evidence_plan_revision ?? null,
+          task_evolution_version: state.task_evolution_version ?? null,
+          preservation_initialization_required: state.task_evolution_version !== 1,
+          pending_replan_candidates: pendingCorrectionCandidates(current),
+          carried_evidence_slots: (state.evidence_carry_forward ?? []).map((item) => ({ claim_id: item.claim_id, slot_id: item.slot_id, old_result_id: item.result_id })),
+          unresolved_evidence_challenges: (state.evidence_challenges ?? []).filter((item) => item.status !== "resolved").map((item) => ({ challenge_id: item.challenge_id, claim_id: item.claim_id, slot_id: item.slot_id, result_id: item.result_id, correction_step_id: item.correction_step_id }))
         }
       } : { status: "success", source_tuple: current.sourceTuple, runtime_state: state, ...documentContext }, null, 2));
     } else if (args.command === "scope-check") {
@@ -11659,7 +12830,7 @@ async function runCli(argv = process.argv.slice(2)) {
     } else {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);
-      const proposalText = args.proposalFile ? fs3.readFileSync(resolveExternalProposalFile(args.root, args.proposalFile), "utf8") : !process.stdin.isTTY ? fs3.readFileSync(0, "utf8") : "";
+      const proposalText = args.proposalFile ? fs4.readFileSync(resolveExternalProposalFile(args.root, args.proposalFile), "utf8") : !process.stdin.isTTY ? fs4.readFileSync(0, "utf8") : "";
       if (!proposalText.trim())
         throw new Error("apply requires a JSON proposal on stdin or via --proposal-file <json-file>.");
       const proposal = JSON.parse(proposalText);
@@ -11680,15 +12851,15 @@ async function runCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/bootstrap-support.ts
-import * as crypto6 from "crypto";
-import * as fs6 from "fs";
-import * as path7 from "path";
+import * as crypto7 from "crypto";
+import * as fs7 from "fs";
+import * as path8 from "path";
 import { parse as parse3, parseDocument as parseDocument3, stringify as stringify2 } from "yaml";
 
 // runtime/vnext/src/scoped-tree-hash.ts
-import * as crypto4 from "crypto";
-import * as fs4 from "fs";
-import * as path5 from "path";
+import * as crypto5 from "crypto";
+import * as fs5 from "fs";
+import * as path6 from "path";
 
 class ScopedTreeHashError extends Error {
   code = "UNSAFE_PATH";
@@ -11697,8 +12868,8 @@ class ScopedTreeHashError extends Error {
     this.name = "ScopedTreeHashError";
   }
 }
-function sha2563(value) {
-  return crypto4.createHash("sha256").update(value).digest("hex");
+function sha2564(value) {
+  return crypto5.createHash("sha256").update(value).digest("hex");
 }
 function normalizeRepoPath3(value, location) {
   const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").replace(/\/+/gu, "/");
@@ -11709,20 +12880,20 @@ function normalizeRepoPath3(value, location) {
 }
 function resolveRepoPath(root, relativePath, location) {
   const normalized = normalizeRepoPath3(relativePath, location);
-  const resolvedRoot = path5.resolve(root);
-  const resolved = path5.resolve(resolvedRoot, ...normalized.split("/"));
-  const prefix = resolvedRoot.endsWith(path5.sep) ? resolvedRoot : `${resolvedRoot}${path5.sep}`;
+  const resolvedRoot = path6.resolve(root);
+  const resolved = path6.resolve(resolvedRoot, ...normalized.split("/"));
+  const prefix = resolvedRoot.endsWith(path6.sep) ? resolvedRoot : `${resolvedRoot}${path6.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix)) {
     throw new ScopedTreeHashError(`${location} escapes the target root: ${relativePath}`);
   }
   return resolved;
 }
 function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths = []) {
-  const resolvedRoot = path5.resolve(root);
+  const resolvedRoot = path6.resolve(root);
   const included = [...new Set(includedRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash included path")))].sort((left, right) => left.localeCompare(right));
   const ignored = new Set(ignoredRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash ignored path")));
   const visited = new Set;
-  const hash2 = crypto4.createHash("sha256");
+  const hash2 = crypto5.createHash("sha256");
   const isMissingPathError = (error) => {
     if (!error || typeof error !== "object" || !("code" in error))
       return false;
@@ -11730,7 +12901,7 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
   };
   const lstatOrMissing = (fullPath) => {
     try {
-      return fs4.lstatSync(fullPath);
+      return fs5.lstatSync(fullPath);
     } catch (error) {
       if (isMissingPathError(error))
         return null;
@@ -11750,7 +12921,7 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
     const parts = relativePath.split("/");
     let current = resolvedRoot;
     for (let index = 0;index < parts.length - 1; index += 1) {
-      current = path5.join(current, parts[index]);
+      current = path6.join(current, parts[index]);
       const status = lstatOrMissing(current);
       if (!status)
         return;
@@ -11772,19 +12943,19 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
     }
     visited.add(relativePath);
     if (status.isSymbolicLink()) {
-      record(relativePath, "symlink", fs4.readlinkSync(fullPath));
+      record(relativePath, "symlink", fs5.readlinkSync(fullPath));
       return;
     }
     if (status.isDirectory()) {
       record(relativePath, "directory");
-      for (const name of fs4.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
-        visit(`${relativePath}/${name}`, path5.join(fullPath, name));
+      for (const name of fs5.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
+        visit(`${relativePath}/${name}`, path6.join(fullPath, name));
       }
       return;
     }
     if (status.isFile()) {
-      const content = fs4.readFileSync(fullPath);
-      record(relativePath, "file", `${content.byteLength}\x00${sha2563(content)}`);
+      const content = fs5.readFileSync(fullPath);
+      record(relativePath, "file", `${content.byteLength}\x00${sha2564(content)}`);
       return;
     }
     record(relativePath, "special", String(status.mode));
@@ -11797,7 +12968,7 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
 }
 
 // runtime/vnext/src/migration-provenance.ts
-import * as crypto5 from "crypto";
+import * as crypto6 from "crypto";
 
 // runtime/vnext/src/migration-preservation.ts
 function object(value, keys) {
@@ -11878,8 +13049,8 @@ function validateMigrationAlignment(value) {
 }
 
 // runtime/vnext/src/migration-provenance.ts
-import * as fs5 from "fs";
-import * as path6 from "path";
+import * as fs6 from "fs";
+import * as path7 from "path";
 import { parseDocument as parseDocument2 } from "yaml";
 var COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH = ".workflow-system/vnext/INSTALL_STATE.json";
 var COMPLETED_MIGRATION_RECEIPT_RELATIVE_PATH = ".workflow-system/vnext/MIGRATION_RECEIPT.json";
@@ -11932,13 +13103,13 @@ function expectExactKeys3(value, expected, location) {
   if (missing.length > 0 || extra.length > 0)
     fail3(`${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
 }
-function sha2564(value) {
-  return crypto5.createHash("sha256").update(value).digest("hex");
+function sha2565(value) {
+  return crypto6.createHash("sha256").update(value).digest("hex");
 }
 function normalizeRoot(root) {
-  const resolved = path6.resolve(root);
+  const resolved = path7.resolve(root);
   const normalized = resolved.replace(/\\/gu, "/");
-  const parsedRoot = path6.parse(resolved).root.replace(/\\/gu, "/");
+  const parsedRoot = path7.parse(resolved).root.replace(/\\/gu, "/");
   const rootValue = process.platform === "win32" ? parsedRoot.toLowerCase() : parsedRoot;
   const normalizedValue = process.platform === "win32" ? normalized.toLowerCase() : normalized;
   return normalizedValue === rootValue ? rootValue : normalizedValue.replace(/\/+$/u, "");
@@ -11950,18 +13121,18 @@ function normalizeRepoPath4(value, location) {
   }
   return normalized;
 }
-function resolveRepoPath2(root, relative2, location) {
-  const normalized = normalizeRepoPath4(relative2, location);
-  const resolvedRoot = path6.resolve(root);
-  const resolved = path6.resolve(resolvedRoot, ...normalized.split("/"));
-  const prefix = resolvedRoot.endsWith(path6.sep) ? resolvedRoot : `${resolvedRoot}${path6.sep}`;
+function resolveRepoPath2(root, relative3, location) {
+  const normalized = normalizeRepoPath4(relative3, location);
+  const resolvedRoot = path7.resolve(root);
+  const resolved = path7.resolve(resolvedRoot, ...normalized.split("/"));
+  const prefix = resolvedRoot.endsWith(path7.sep) ? resolvedRoot : `${resolvedRoot}${path7.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
-    fail3(`${location} escapes the target root: ${relative2}`);
+    fail3(`${location} escapes the target root: ${relative3}`);
   return resolved;
 }
 function readJson(filePath, location) {
   try {
-    return expectRecord3(JSON.parse(fs5.readFileSync(filePath, "utf8")), location);
+    return expectRecord3(JSON.parse(fs6.readFileSync(filePath, "utf8")), location);
   } catch (error) {
     if (error instanceof MigrationProvenanceError)
       throw error;
@@ -11970,7 +13141,7 @@ function readJson(filePath, location) {
 }
 function readYaml(filePath, location) {
   try {
-    const document = parseDocument2(fs5.readFileSync(filePath, "utf8"), { uniqueKeys: true });
+    const document = parseDocument2(fs6.readFileSync(filePath, "utf8"), { uniqueKeys: true });
     const diagnostics = [...document.errors, ...document.warnings];
     if (diagnostics.length > 0)
       fail3(`${location} is invalid YAML: ${diagnostics.map((item) => item.message).join("; ")}`);
@@ -12033,14 +13204,14 @@ function validateInstallState(value) {
   const managedFiles = value.managed_files.map((raw, index) => {
     const item = expectRecord3(raw, `INSTALL_STATE.json.managed_files[${index}]`);
     expectExactKeys3(item, ["path", "checksum", "category"], `INSTALL_STATE.json.managed_files[${index}]`);
-    const relative2 = normalizeRepoPath4(expectString3(item.path, `INSTALL_STATE.json.managed_files[${index}].path`), `INSTALL_STATE.json.managed_files[${index}].path`);
-    if (seen.has(relative2))
-      fail3(`INSTALL_STATE.json.managed_files contains duplicate path ${relative2}.`);
-    seen.add(relative2);
+    const relative3 = normalizeRepoPath4(expectString3(item.path, `INSTALL_STATE.json.managed_files[${index}].path`), `INSTALL_STATE.json.managed_files[${index}].path`);
+    if (seen.has(relative3))
+      fail3(`INSTALL_STATE.json.managed_files contains duplicate path ${relative3}.`);
+    seen.add(relative3);
     const checksum = item.checksum === "" ? "" : expectString3(item.checksum, `INSTALL_STATE.json.managed_files[${index}].checksum`);
-    if (!SHA256_PATTERN3.test(checksum) && !(relative2 === COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH && checksum === ""))
+    if (!SHA256_PATTERN3.test(checksum) && !(relative3 === COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH && checksum === ""))
       fail3(`INSTALL_STATE.json.managed_files[${index}].checksum is invalid.`);
-    return { path: relative2, checksum, category: expectString3(item.category, `INSTALL_STATE.json.managed_files[${index}].category`) };
+    return { path: relative3, checksum, category: expectString3(item.category, `INSTALL_STATE.json.managed_files[${index}].category`) };
   });
   const removed = expectStringArray3(value.removed_legacy_files, "INSTALL_STATE.json.removed_legacy_files", true).map((item, index) => normalizeRepoPath4(item, `INSTALL_STATE.json.removed_legacy_files[${index}]`));
   return { migration_pack_id: migrationPackId, bundle_id: bundleId, source_revision: sourceRevision, source_tree_hash: sourceTreeHash, target_identity: targetIdentity, runtime_distribution: runtime, installed_at: installedAt, managed_files: managedFiles, removed_legacy_files: removed };
@@ -12066,7 +13237,7 @@ function validateReceipt(value) {
   return { migration_pack_id: migrationPackId, bundle_id: bundleId, source_revision: sourceRevision, source_tree_hash: sourceTreeHash, target_identity: targetIdentity, runtime_distribution: runtimeIdentity(value.runtime_distribution, "MIGRATION_RECEIPT.json.runtime_distribution"), installed_at: expectString3(value.installed_at, "MIGRATION_RECEIPT.json.installed_at"), converted_artifact_ids: ids };
 }
 function canonicalDocumentId(kind, sourcePath, sourceSha) {
-  return `doc-${sha2564(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`;
+  return `doc-${sha2565(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`;
 }
 function validConversion(record) {
   if (record.conversion_rule === CANONICAL_CONVERSION_RULE)
@@ -12135,10 +13306,10 @@ function canonicalArtifactIdentity(relativePath, content) {
   }
   if (!SHA256_PATTERN3.test(sourceSha) || !SHA256_PATTERN3.test(sourceTreeHash) || sourcePath !== relativePath)
     fail3(`migrated artifact ${relativePath} has an invalid or unbound source identity.`);
-  return { stableId: `artifact-${sha2564(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`, sourceRevision, sourceTreeHash };
+  return { stableId: `artifact-${sha2565(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`, sourceRevision, sourceTreeHash };
 }
 function validateCurrentTaskShape(root, currentTaskPath, runtimeInstalled) {
-  const content = fs5.readFileSync(currentTaskPath, "utf8");
+  const content = fs6.readFileSync(currentTaskPath, "utf8");
   if (runtimeInstalled) {
     try {
       readCanonicalCurrentTask(root);
@@ -12166,14 +13337,14 @@ function profileTargetIdentity(root, profile) {
   const slug = expectString3(project.slug, "PROJECT_PROFILE.yaml.project.slug");
   if (!SAFE_ID_PATTERN.test(slug))
     fail3(`PROJECT_PROFILE.yaml.project.slug is not a safe slug: ${slug}`);
-  return sha2564(`${normalizeRoot(root)}\x00${slug}`).slice(0, 32);
+  return sha2565(`${normalizeRoot(root)}\x00${slug}`).slice(0, 32);
 }
 function validateCompletedMigrationProvenance(targetRoot) {
-  const root = path6.resolve(targetRoot);
+  const root = path7.resolve(targetRoot);
   const statePath = resolveRepoPath2(root, COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH, "completed migration install state");
   const receiptPath = resolveRepoPath2(root, COMPLETED_MIGRATION_RECEIPT_RELATIVE_PATH, "completed migration receipt");
-  const hasState = fs5.existsSync(statePath);
-  const hasReceipt = fs5.existsSync(receiptPath);
+  const hasState = fs6.existsSync(statePath);
+  const hasReceipt = fs6.existsSync(receiptPath);
   if (!hasState && !hasReceipt)
     return null;
   if (!hasState || !hasReceipt)
@@ -12188,7 +13359,7 @@ function validateCompletedMigrationProvenance(targetRoot) {
       fail3("Alignment original inventory differs from install state.");
     for (const original of originals) {
       const full = resolveRepoPath2(root, original.backup_path, "alignment original");
-      if (!fs5.existsSync(full) || sha2564(fs5.readFileSync(full)) !== original.sha256)
+      if (!fs6.existsSync(full) || sha2565(fs6.readFileSync(full)) !== original.sha256)
         fail3(`Alignment original is missing or changed: ${original.path}`);
     }
   }
@@ -12199,11 +13370,11 @@ function validateCompletedMigrationProvenance(targetRoot) {
   for (const removedPath of state.removed_legacy_files) {
     if (admittedCurrentPaths.has(removedPath))
       continue;
-    if (fs5.existsSync(resolveRepoPath2(root, removedPath, `removed legacy path ${removedPath}`)))
+    if (fs6.existsSync(resolveRepoPath2(root, removedPath, `removed legacy path ${removedPath}`)))
       fail3(`completed migration still has a Pack-declared removed legacy path: ${removedPath}`);
   }
   const profilePath = resolveRepoPath2(root, ".workflow-system/PROJECT_PROFILE.yaml", "completed migration PROJECT_PROFILE");
-  if (!fs5.existsSync(profilePath) || !fs5.statSync(profilePath).isFile())
+  if (!fs6.existsSync(profilePath) || !fs6.statSync(profilePath).isFile())
     fail3("completed migration provenance is missing PROJECT_PROFILE.yaml.");
   const profile = readYaml(profilePath, "PROJECT_PROFILE.yaml");
   if (profileTargetIdentity(root, profile) !== state.target_identity)
@@ -12214,7 +13385,7 @@ function validateCompletedMigrationProvenance(targetRoot) {
     fail3("completed migration workflow_home is not canonical.");
   const currentTaskRelative = `${workflowHome}/${CURRENT_TASK_FILE}`;
   const currentTaskPath = resolveRepoPath2(root, currentTaskRelative, "completed migration CURRENT_TASK");
-  if (!fs5.existsSync(currentTaskPath) || !fs5.statSync(currentTaskPath).isFile())
+  if (!fs6.existsSync(currentTaskPath) || !fs6.statSync(currentTaskPath).isFile())
     fail3("completed migration provenance is missing the canonical CURRENT_TASK.md.");
   const currentTaskRecord = state.managed_files.find((entry) => entry.path === currentTaskRelative);
   if (!currentTaskRecord || !SHA256_PATTERN3.test(currentTaskRecord.checksum))
@@ -12227,9 +13398,9 @@ function validateCompletedMigrationProvenance(targetRoot) {
     fail3("completed migration install state does not record the converted PROJECT_PROFILE.yaml artifact.");
   const derived = migratedFiles.map((entry) => {
     const fullPath = resolveRepoPath2(root, entry.path, `completed migration artifact ${entry.path}`);
-    if (!fs5.existsSync(fullPath) || !fs5.statSync(fullPath).isFile())
+    if (!fs6.existsSync(fullPath) || !fs6.statSync(fullPath).isFile())
       fail3(`converted migration artifact is missing: ${entry.path}`);
-    return { path: entry.path, ...canonicalArtifactIdentity(entry.path, fs5.readFileSync(fullPath, "utf8")) };
+    return { path: entry.path, ...canonicalArtifactIdentity(entry.path, fs6.readFileSync(fullPath, "utf8")) };
   });
   const derivedIds = derived.map((item) => item.stableId);
   if (JSON.stringify(derivedIds) !== JSON.stringify(receipt.converted_artifact_ids))
@@ -12356,8 +13527,8 @@ function expectExactKeys4(value, keys, location) {
   if (missing.length > 0 || extra.length > 0)
     fail4("BOOTSTRAP_SUPPORT_SCHEMA_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
 }
-function sha2565(value) {
-  return crypto6.createHash("sha256").update(value).digest("hex");
+function sha2566(value) {
+  return crypto7.createHash("sha256").update(value).digest("hex");
 }
 function stableValue2(value) {
   if (Array.isArray(value))
@@ -12367,7 +13538,7 @@ function stableValue2(value) {
   return value;
 }
 function digest2(value) {
-  return sha2565(JSON.stringify(stableValue2(value)));
+  return sha2566(JSON.stringify(stableValue2(value)));
 }
 function normalizeRelative(value, location = "path") {
   const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").replace(/\/+/gu, "/");
@@ -12375,19 +13546,19 @@ function normalizeRelative(value, location = "path") {
     fail4("BOOTSTRAP_SUPPORT_PATH_INVALID", `${location} must be a concrete repository-relative path.`);
   return normalized;
 }
-function targetPath(root, relative2) {
-  const resolvedRoot = path7.resolve(root);
-  const resolved = path7.resolve(resolvedRoot, ...normalizeRelative(relative2).split("/"));
-  const prefix = resolvedRoot.endsWith(path7.sep) ? resolvedRoot : `${resolvedRoot}${path7.sep}`;
+function targetPath(root, relative3) {
+  const resolvedRoot = path8.resolve(root);
+  const resolved = path8.resolve(resolvedRoot, ...normalizeRelative(relative3).split("/"));
+  const prefix = resolvedRoot.endsWith(path8.sep) ? resolvedRoot : `${resolvedRoot}${path8.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
-    fail4("BOOTSTRAP_SUPPORT_PATH_INVALID", `target path escapes root: ${relative2}`);
+    fail4("BOOTSTRAP_SUPPORT_PATH_INVALID", `target path escapes root: ${relative3}`);
   return resolved;
 }
 function readJsonObject2(filePath, location) {
-  if (!fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile())
+  if (!fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile())
     fail4("BOOTSTRAP_SUPPORT_INPUT_INVALID", `${location} is missing.`);
   try {
-    return expectRecord4(JSON.parse(fs6.readFileSync(filePath, "utf8")), location);
+    return expectRecord4(JSON.parse(fs7.readFileSync(filePath, "utf8")), location);
   } catch (error) {
     if (error instanceof BootstrapSupportError)
       throw error;
@@ -12395,21 +13566,21 @@ function readJsonObject2(filePath, location) {
   }
 }
 function readYamlObject(filePath, location) {
-  if (!fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile())
+  if (!fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile())
     return {};
   try {
-    const value = parse3(fs6.readFileSync(filePath, "utf8"));
+    const value = parse3(fs7.readFileSync(filePath, "utf8"));
     return value === null ? {} : expectRecord4(value, location);
   } catch (error) {
     fail4("BOOTSTRAP_SUPPORT_PROFILE_INVALID", `${location} is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 function fileHash(filePath) {
-  return sha2565(fs6.readFileSync(filePath));
+  return sha2566(fs7.readFileSync(filePath));
 }
 function existingProfile(root) {
   const filePath = targetPath(root, PROJECT_PROFILE_RELATIVE_PATH);
-  if (!fs6.existsSync(filePath))
+  if (!fs7.existsSync(filePath))
     return null;
   return readYamlObject(filePath, PROJECT_PROFILE_RELATIVE_PATH);
 }
@@ -12428,7 +13599,7 @@ function resolveProject(root, options, receipt) {
   const profileIdentity = profileProject(profile);
   let packageName = null;
   const packagePath = targetPath(root, "package.json");
-  if (fs6.existsSync(packagePath)) {
+  if (fs7.existsSync(packagePath)) {
     try {
       const packageJson = readJsonObject2(packagePath, "package.json");
       packageName = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name.trim() : null;
@@ -12436,7 +13607,7 @@ function resolveProject(root, options, receipt) {
       packageName = null;
     }
   }
-  const name = options.projectName?.trim() || profileIdentity?.name || receipt?.project.name || packageName || path7.basename(path7.resolve(root));
+  const name = options.projectName?.trim() || profileIdentity?.name || receipt?.project.name || packageName || path8.basename(path8.resolve(root));
   const slug = options.projectSlug?.trim() || profileIdentity?.slug || receipt?.project.slug || safeSlug(name);
   if (!SAFE_SLUG.test(slug))
     fail4("BOOTSTRAP_SUPPORT_PROFILE_INVALID", `project slug must be lowercase kebab-case: ${slug}`);
@@ -12449,20 +13620,20 @@ function resolveProject(root, options, receipt) {
   return { name, slug };
 }
 function listTopLevelNames(root) {
-  if (!fs6.existsSync(root))
+  if (!fs7.existsSync(root))
     return [];
-  return fs6.readdirSync(root, { withFileTypes: true }).map((entry) => entry.name).sort();
+  return fs7.readdirSync(root, { withFileTypes: true }).map((entry) => entry.name).sort();
 }
-function readExistingDocument(root, relative2) {
-  const filePath = targetPath(root, relative2);
-  if (!fs6.existsSync(filePath))
+function readExistingDocument(root, relative3) {
+  const filePath = targetPath(root, relative3);
+  if (!fs7.existsSync(filePath))
     return null;
-  if (!fs6.statSync(filePath).isFile())
-    fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative2} is not a regular governance document.`);
-  return fs6.readFileSync(filePath, "utf8");
+  if (!fs7.statSync(filePath).isFile())
+    fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative3} is not a regular governance document.`);
+  return fs7.readFileSync(filePath, "utf8");
 }
-function readExistingMarkdownSection(root, relative2, title) {
-  const content = readExistingDocument(root, relative2);
+function readExistingMarkdownSection(root, relative3, title) {
+  const content = readExistingDocument(root, relative3);
   if (content === null)
     return [];
   const body = readCanonicalMarkdownSection(content, [title]);
@@ -12470,13 +13641,13 @@ function readExistingMarkdownSection(root, relative2, title) {
 `).split(`
 `);
 }
-function readExistingRuntimeDocument(relative2, reader) {
+function readExistingRuntimeDocument(relative3, reader) {
   try {
     return reader();
   } catch (error) {
     if (error instanceof BootstrapSupportError)
       throw error;
-    fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative2} contains invalid canonical Runtime governance state: ${error instanceof Error ? error.message : String(error)}`);
+    fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative3} contains invalid canonical Runtime governance state: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 function sameGovernanceFact(left, right) {
@@ -12531,22 +13702,22 @@ function hasMeaningfulImplementation(root) {
     return true;
   return names.some((name) => /\.(?:ts|tsx|js|jsx|py|go|rs|java|cs|php|rb|swift)$/iu.test(name));
 }
-function isVNextMarkerFile(root, relative2) {
-  const filePath = targetPath(root, relative2);
-  if (!fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile())
+function isVNextMarkerFile(root, relative3) {
+  const filePath = targetPath(root, relative3);
+  if (!fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile())
     return false;
-  return /vnext|vNext/iu.test(fs6.readFileSync(filePath, "utf8").slice(0, 1600));
+  return /vnext|vNext/iu.test(fs7.readFileSync(filePath, "utf8").slice(0, 1600));
 }
-function isFrozenPath(root, relative2) {
-  const normalized = normalizeRelative(relative2, "freeze check");
-  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file2) => targetPath(root, file2)).filter((file2) => fs6.existsSync(file2) && fs6.statSync(file2).isFile());
+function isFrozenPath(root, relative3) {
+  const normalized = normalizeRelative(relative3, "freeze check");
+  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file2) => targetPath(root, file2)).filter((file2) => fs7.existsSync(file2) && fs7.statSync(file2).isFile());
   for (const registry of registries) {
-    if (fs6.readFileSync(registry, "utf8").split(/\r?\n/u).some((line) => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/iu.test(line)))
+    if (fs7.readFileSync(registry, "utf8").split(/\r?\n/u).some((line) => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/iu.test(line)))
       return true;
   }
   const filePath = targetPath(root, normalized);
-  if (fs6.existsSync(filePath) && fs6.statSync(filePath).isFile()) {
-    const head = fs6.readFileSync(filePath, "utf8").split(/\r?\n/u).slice(0, 20).join(`
+  if (fs7.existsSync(filePath) && fs7.statSync(filePath).isFile()) {
+    const head = fs7.readFileSync(filePath, "utf8").split(/\r?\n/u).slice(0, 20).join(`
 `);
     if (/@frozen|DO NOT MODIFY/iu.test(head))
       return true;
@@ -12555,7 +13726,7 @@ function isFrozenPath(root, relative2) {
 }
 function readBootstrapReceipt(root) {
   const filePath = targetPath(root, BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH);
-  if (!fs6.existsSync(filePath))
+  if (!fs7.existsSync(filePath))
     return null;
   const raw = readJsonObject2(filePath, "BOOTSTRAP_RECEIPT.json");
   expectExactKeys4(raw, BOOTSTRAP_RECEIPT_KEYS, "BOOTSTRAP_RECEIPT.json");
@@ -12569,13 +13740,13 @@ function readBootstrapReceipt(root) {
   const managed = raw.managed_files.map((item, index) => {
     const record = expectRecord4(item, `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
     expectExactKeys4(record, ["path", "checksum"], `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
-    const relative2 = normalizeRelative(expectString4(record.path, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].path`));
+    const relative3 = normalizeRelative(expectString4(record.path, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].path`));
     const checksum = expectString4(record.checksum, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].checksum`);
     if (!HASH64.test(checksum))
       fail4("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP_RECEIPT.json.managed_files[${index}].checksum is invalid.`);
-    if (relative2.startsWith(".workflow-system/runtime/") || relative2.startsWith(".agents/skills/") || relative2 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative2 === ".workflow-system/FILE_SCHEMAS.md" || relative2 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative2 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml")
-      fail4("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP receipt cannot own Distribution software: ${relative2}`);
-    return { path: relative2, checksum };
+    if (relative3.startsWith(".workflow-system/runtime/") || relative3.startsWith(".agents/skills/") || relative3 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative3 === ".workflow-system/FILE_SCHEMAS.md" || relative3 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative3 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml")
+      fail4("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP receipt cannot own Distribution software: ${relative3}`);
+    return { path: relative3, checksum };
   });
   if (new Set(managed.map((item) => item.path)).size !== managed.length)
     fail4("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", "BOOTSTRAP_RECEIPT.json.managed_files contains duplicates.");
@@ -12594,33 +13765,33 @@ function readBootstrapReceipt(root) {
     recovery_boundary: "in-progress-marker"
   };
 }
-function isDistributionManagedPath(relative2) {
-  return relative2 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative2 === ".workflow-system/FILE_SCHEMAS.md" || relative2 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative2 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative2.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative2);
+function isDistributionManagedPath(relative3) {
+  return relative3 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative3 === ".workflow-system/FILE_SCHEMAS.md" || relative3 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative3 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative3.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative3);
 }
 function validateSkillFile(root, entry) {
-  const relative2 = `.agents/skills/${entry}/SKILL.md`;
-  const filePath = targetPath(root, relative2);
-  if (!fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile())
-    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `required Distribution Skill is missing: ${relative2}`);
-  const content = fs6.readFileSync(filePath, "utf8");
+  const relative3 = `.agents/skills/${entry}/SKILL.md`;
+  const filePath = targetPath(root, relative3);
+  if (!fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile())
+    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `required Distribution Skill is missing: ${relative3}`);
+  const content = fs7.readFileSync(filePath, "utf8");
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/u.exec(content);
   if (!match)
-    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2} is missing Agent Skill frontmatter.`);
+    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative3} is missing Agent Skill frontmatter.`);
   const document = parseDocument3(match[1], { uniqueKeys: true });
   const diagnostics = [...document.errors, ...document.warnings];
   if (diagnostics.length > 0)
-    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2} frontmatter is invalid: ${diagnostics.map((item) => item.message).join("; ")}`);
-  const frontmatter = expectRecord4(document.toJS(), `${relative2} frontmatter`);
+    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative3} frontmatter is invalid: ${diagnostics.map((item) => item.message).join("; ")}`);
+  const frontmatter = expectRecord4(document.toJS(), `${relative3} frontmatter`);
   if (frontmatter.name !== entry || typeof frontmatter.description !== "string" || !frontmatter.description.trim())
-    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2} must declare name=${entry} and a non-empty description.`);
-  const contract = expectRecord4(frontmatter.entry_contract, `${relative2}.entry_contract`);
+    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative3} must declare name=${entry} and a non-empty description.`);
+  const contract = expectRecord4(frontmatter.entry_contract, `${relative3}.entry_contract`);
   if (contract.entry !== entry)
-    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative2}.entry_contract.entry is not canonical.`);
+    fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative3}.entry_contract.entry is not canonical.`);
 }
 function validateInstalledDistributionReadback(root) {
   const statePath = targetPath(root, DISTRIBUTION_STATE_RELATIVE_PATH);
   const journalPath = targetPath(root, DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH);
-  if (fs6.existsSync(journalPath))
+  if (fs7.existsSync(journalPath))
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution has an interrupted transaction marker; recover through Distribution before Bootstrap.");
   const raw = readJsonObject2(statePath, "DISTRIBUTION_STATE.json");
   expectExactKeys4(raw, DISTRIBUTION_STATE_KEYS, "DISTRIBUTION_STATE.json");
@@ -12635,21 +13806,21 @@ function validateInstalledDistributionReadback(root) {
   const managed = raw.managed_files.map((item, index) => {
     const record = expectRecord4(item, `DISTRIBUTION_STATE.json.managed_files[${index}]`);
     expectExactKeys4(record, ["path", "checksum", "category"], `DISTRIBUTION_STATE.json.managed_files[${index}]`);
-    const relative2 = normalizeRelative(expectString4(record.path, `DISTRIBUTION_STATE.json.managed_files[${index}].path`));
+    const relative3 = normalizeRelative(expectString4(record.path, `DISTRIBUTION_STATE.json.managed_files[${index}].path`));
     const checksum = expectString4(record.checksum, `DISTRIBUTION_STATE.json.managed_files[${index}].checksum`);
-    if (!isDistributionManagedPath(relative2) || !HASH64.test(checksum))
-      fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an invalid managed path/checksum: ${relative2}`);
+    if (!isDistributionManagedPath(relative3) || !HASH64.test(checksum))
+      fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an invalid managed path/checksum: ${relative3}`);
     const category = expectString4(record.category, `DISTRIBUTION_STATE.json.managed_files[${index}].category`);
     if (!["protocol", "schema", "skill", "runtime", "config"].includes(category))
-      fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an unsupported managed category: ${relative2}`);
-    return { path: relative2, checksum, category };
+      fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an unsupported managed category: ${relative3}`);
+    return { path: relative3, checksum, category };
   }).sort((left, right) => left.path.localeCompare(right.path));
   if (new Set(managed.map((item) => item.path)).size !== managed.length)
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "DISTRIBUTION_STATE.json.managed_files contains duplicates.");
   const managedMap = new Map(managed.map((item) => [item.path, item]));
   for (const entry of managed) {
     const filePath = targetPath(root, entry.path);
-    if (!fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile() || fileHash(filePath) !== entry.checksum)
+    if (!fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile() || fileHash(filePath) !== entry.checksum)
       fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution managed artifact read-back failed: ${entry.path}`);
   }
   const required = [
@@ -12663,26 +13834,26 @@ function validateInstalledDistributionReadback(root) {
     BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH,
     ...REQUIRED_SKILL_ENTRIES.map((entry) => `.agents/skills/${entry}/SKILL.md`)
   ];
-  for (const relative2 of required) {
-    const entry = managedMap.get(relative2);
+  for (const relative3 of required) {
+    const entry = managedMap.get(relative3);
     if (!entry)
-      fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State does not admit required artifact: ${relative2}`);
+      fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State does not admit required artifact: ${relative3}`);
   }
   const runtime = validateVNextRuntimeContract(root, true).runtime_distribution;
   if (runtime.package_version !== version)
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution State and project-local Runtime versions differ.");
-  const protocol = fs6.readFileSync(targetPath(root, ".workflow-system/WORKFLOW_PROTOCOL.md"), "utf8");
-  const schema = fs6.readFileSync(targetPath(root, ".workflow-system/FILE_SCHEMAS.md"), "utf8");
+  const protocol = fs7.readFileSync(targetPath(root, ".workflow-system/WORKFLOW_PROTOCOL.md"), "utf8");
+  const schema = fs7.readFileSync(targetPath(root, ".workflow-system/FILE_SCHEMAS.md"), "utf8");
   if (!/^kind:\s*vnext-protocol\s*$/imu.test(protocol) || !/schema_version\s*:\s*1/iu.test(protocol))
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Protocol is invalid.");
   if (!/^kind:\s*vnext-file-schema\s*$/imu.test(schema) || !/CURRENT_TASK\.md/iu.test(schema))
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Schema is invalid.");
-  const supportTemplate = fs6.readFileSync(targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH), "utf8");
+  const supportTemplate = fs7.readFileSync(targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH), "utf8");
   if (!/^kind:\s*vnext-current-task\s*$/imu.test(supportTemplate) || !supportTemplate.includes("# vNext CURRENT_TASK"))
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed Bootstrap support template is invalid.");
   for (const entry of REQUIRED_SKILL_ENTRIES)
     validateSkillFile(root, entry);
-  return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs6.readFileSync(statePath, "utf8"), managed_files: managed };
+  return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs7.readFileSync(statePath, "utf8"), managed_files: managed };
 }
 function renderProfile(project, targetIdentity, mode, host, existing) {
   const existingProject = existing?.project && isRecord4(existing.project) ? existing.project : {};
@@ -12922,7 +14093,7 @@ function renderRoadmap(project, mode, baseline, preservedBaselineKeys = []) {
 `);
 }
 function renderDesignDocument(filePath, baseline) {
-  const key = path7.basename(filePath, ".md");
+  const key = path8.basename(filePath, ".md");
   const value = baseline[key] ?? baseline[filePath] ?? "No confirmed content was supplied for this design section.";
   return [`# Design baseline: ${key}`, "", "## Authority", "", "- source: caller-provided confirmed design baseline", "- certainty: confirmed or explicitly awaiting confirmation", "", "## Content", "", value, ""].join(`
 `);
@@ -12965,11 +14136,11 @@ function renderGovernanceDocument(file2, project, mode, facts, baseline, preserv
 }
 function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, baseline, preservedBaselineKeys = [], existingGovernance = null) {
   const templatePath = targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
-  if (!fs6.existsSync(templatePath) || !fs6.statSync(templatePath).isFile())
+  if (!fs7.existsSync(templatePath) || !fs7.statSync(templatePath).isFile())
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
   return [
     { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root)) },
-    { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs6.readFileSync(templatePath, "utf8") },
+    { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs7.readFileSync(templatePath, "utf8") },
     ...FULL_WORKFLOW_DOCS.map((file2) => ({ path: file2, category: "governance", content: renderGovernanceDocument(file2, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: "AGENTS.md", category: "governance", content: renderGuidance(project) },
     { path: "CLAUDE.md", category: "governance", content: renderGuidance(project) }
@@ -13053,22 +14224,22 @@ function normalizeBaseline(value) {
     fail4("BOOTSTRAP_SUPPORT_INPUT_INVALID", error instanceof Error ? error.message : String(error));
   }
 }
-function existingIsWorkflowOwned(root, relative2, receipt = null) {
-  const filePath = targetPath(root, relative2);
-  if (!fs6.existsSync(filePath))
+function existingIsWorkflowOwned(root, relative3, receipt = null) {
+  const filePath = targetPath(root, relative3);
+  if (!fs7.existsSync(filePath))
     return true;
-  if (isFrozenPath(root, relative2))
+  if (isFrozenPath(root, relative3))
     return false;
-  if (relative2 === BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH && receipt)
+  if (relative3 === BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH && receipt)
     return true;
-  if (receipt?.managed_files.some((file2) => file2.path === relative2))
+  if (receipt?.managed_files.some((file2) => file2.path === relative3))
     return true;
-  if (relative2.startsWith(".workflow-system/"))
-    return relative2 === PROJECT_PROFILE_RELATIVE_PATH;
-  if (relative2 === "AGENTS.md" || relative2 === "CLAUDE.md")
-    return isVNextMarkerFile(root, relative2);
-  if (relative2.startsWith("docs/workflow/") || relative2.startsWith("docs/designs/") || relative2.startsWith("docs/adoption/"))
-    return isVNextMarkerFile(root, relative2);
+  if (relative3.startsWith(".workflow-system/"))
+    return relative3 === PROJECT_PROFILE_RELATIVE_PATH;
+  if (relative3 === "AGENTS.md" || relative3 === "CLAUDE.md")
+    return isVNextMarkerFile(root, relative3);
+  if (relative3.startsWith("docs/workflow/") || relative3.startsWith("docs/designs/") || relative3.startsWith("docs/adoption/"))
+    return isVNextMarkerFile(root, relative3);
   return false;
 }
 function renderReceipt(mode, targetIdentity, project, host, source, inputFingerprint, assets) {
@@ -13082,7 +14253,7 @@ function renderReceipt(mode, targetIdentity, project, host, source, inputFingerp
     source,
     input_fingerprint: inputFingerprint,
     completed_at: new Date().toISOString(),
-    managed_files: assets.map((asset) => ({ path: asset.path, checksum: sha2565(Buffer.from(asset.content, "utf8")) })).sort((left, right) => left.path.localeCompare(right.path)),
+    managed_files: assets.map((asset) => ({ path: asset.path, checksum: sha2566(Buffer.from(asset.content, "utf8")) })).sort((left, right) => left.path.localeCompare(right.path)),
     legacy_compatibility: "absent",
     recovery_boundary: "in-progress-marker"
   }, null, 2)}
@@ -13099,7 +14270,7 @@ function migrationAdmission(root, supplied) {
   }
 }
 function classifyBootstrapTargetLocal(root, options = {}) {
-  if (fs6.existsSync(targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH)))
+  if (fs7.existsSync(targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH)))
     return { state: "in-progress", receipt: null, migration: { status: "none" }, reasons: ["an explicit Bootstrap interruption marker is present"] };
   let receipt = null;
   try {
@@ -13126,14 +14297,14 @@ function classifyBootstrapTargetLocal(root, options = {}) {
   if (receipt) {
     const drift = receipt.managed_files.filter((file2) => {
       const filePath = targetPath(root, file2.path);
-      return !fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum;
+      return !fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum;
     });
     return drift.length === 0 ? { state: "valid", receipt, migration, reasons: [] } : { state: "stale", receipt, migration, reasons: drift.map((file2) => `managed governance asset drifted: ${file2.path}`) };
   }
   if (migration.status === "valid")
     return { state: "governed", receipt: null, migration, reasons: ["the project was admitted by the completed Migration Pack provenance verifier; a Bootstrap Receipt is not required"] };
   const governanceSignals = [PROJECT_PROFILE_RELATIVE_PATH, CURRENT_TASK_RELATIVE_PATH, ...FULL_WORKFLOW_DOCS];
-  if (governanceSignals.some((relative2) => fs6.existsSync(targetPath(root, relative2))))
+  if (governanceSignals.some((relative3) => fs7.existsSync(targetPath(root, relative3))))
     return { state: "incomplete", receipt: null, migration, reasons: ["governance assets exist without Bootstrap transaction provenance"] };
   return { state: hasMeaningfulImplementation(root) ? "existing" : "empty", receipt: null, migration, reasons: [] };
 }
@@ -13156,7 +14327,7 @@ function modeBlockers(root, state, mode, options, baseline, facts, receipt, migr
     blockers.push({ code: "BOOTSTRAP_NOT_REQUIRED", message: "Migration Pack provenance already establishes a governed vNext project; ordinary Bootstrap is not required." });
     return blockers;
   }
-  if (["greenfield", "adopt", "realign"].includes(mode) && fs6.existsSync(targetPath(root, CURRENT_TASK_RELATIVE_PATH))) {
+  if (["greenfield", "adopt", "realign"].includes(mode) && fs7.existsSync(targetPath(root, CURRENT_TASK_RELATIVE_PATH))) {
     try {
       const current = readCanonicalCurrentTask(root);
       if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived" || current.runtimeState.active_step_status !== "completed" || mode !== "realign" && current.runtimeState.task_id !== "000") {
@@ -13185,7 +14356,7 @@ function modeBlockers(root, state, mode, options, baseline, facts, receipt, migr
   if (mode === "adopt") {
     if (state !== "valid" && (!["existing", "incomplete"].includes(state) || !hasMeaningfulImplementation(root)))
       blockers.push({ code: "ADOPT_PRECONDITION", message: "adopt mode requires an existing project implementation or valid replay." });
-    if (state !== "valid" && !fs6.existsSync(targetPath(root, "docs/adoption/architecture-inventory.md")))
+    if (state !== "valid" && !fs7.existsSync(targetPath(root, "docs/adoption/architecture-inventory.md")))
       blockers.push({ code: "INVENTORY_REQUIRED", message: "adopt mode requires inventory evidence from inventory mode." });
     if (options.adoptionConfirmed !== true)
       blockers.push({ code: "ADOPTION_CONFIRMATION_REQUIRED", message: "adopt mode requires explicit project-owner confirmation." });
@@ -13203,13 +14374,13 @@ function verifyReceiptReadBack(root, receipt, assets) {
     fail4("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed-file paths do not match the governance proposal.");
   for (const file2 of receipt.managed_files) {
     const filePath = targetPath(root, file2.path);
-    if (!fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum)
+    if (!fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum)
       fail4("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `Bootstrap governance asset read-back failed: ${file2.path}`);
   }
 }
 function verifyReceipt(root, receipt, assets) {
   verifyReceiptReadBack(root, receipt, assets);
-  const expected = assets.filter((asset) => asset.path !== BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH).map((asset) => ({ path: asset.path, checksum: sha2565(Buffer.from(asset.content, "utf8")) })).sort((left, right) => left.path.localeCompare(right.path));
+  const expected = assets.filter((asset) => asset.path !== BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH).map((asset) => ({ path: asset.path, checksum: sha2566(Buffer.from(asset.content, "utf8")) })).sort((left, right) => left.path.localeCompare(right.path));
   const actual = receipt.managed_files.slice().sort((left, right) => left.path.localeCompare(right.path));
   if (JSON.stringify(expected) !== JSON.stringify(actual))
     fail4("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed_files does not match the governance proposal.");
@@ -13220,7 +14391,7 @@ function verifyBootstrapHealth(root, proposal, distributionBefore) {
     fail4("BOOTSTRAP_SUPPORT_DISTRIBUTION_MUTATED", "Bootstrap changed Distribution State bytes.");
   for (const asset of proposal.assets) {
     const filePath = targetPath(root, asset.path);
-    if (!fs6.existsSync(filePath) || !fs6.statSync(filePath).isFile() || fileHash(filePath) !== sha2565(Buffer.from(asset.content, "utf8")))
+    if (!fs7.existsSync(filePath) || !fs7.statSync(filePath).isFile() || fileHash(filePath) !== sha2566(Buffer.from(asset.content, "utf8")))
       fail4("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `promoted governance asset did not read back identically: ${asset.path}`);
   }
   const receipt = readBootstrapReceipt(root);
@@ -13244,7 +14415,7 @@ function markerValue(proposal) {
 `;
 }
 function prepareProposal(options, distribution, classification) {
-  const root = path7.resolve(options.targetRoot);
+  const root = path8.resolve(options.targetRoot);
   const project = resolveProject(root, options, classification.receipt);
   const host = options.host ?? "codex";
   const baseline = normalizeBaseline(options.designBaseline);
@@ -13267,7 +14438,7 @@ function prepareProposal(options, distribution, classification) {
     assets = mergeAssets(assets, [{ path: "docs/adoption/ADOPTION_DECISION.md", category: "governance", content: renderDecisions(project, options.mode, facts) }]);
   if (options.mode === "realign") {
     const preservedMigrationPaths = new Set(classification.migration.provenance?.converted_artifact_paths ?? []);
-    assets = assets.filter((asset) => asset.path !== CURRENT_TASK_RELATIVE_PATH && !(preservedMigrationPaths.has(asset.path) && fs6.existsSync(targetPath(root, asset.path))));
+    assets = assets.filter((asset) => asset.path !== CURRENT_TASK_RELATIVE_PATH && !(preservedMigrationPaths.has(asset.path) && fs7.existsSync(targetPath(root, asset.path))));
   }
   const targetIdentity = computeBootstrapTargetIdentity(root);
   const source = options.source ?? { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest };
@@ -13281,11 +14452,11 @@ function prepareProposal(options, distribution, classification) {
   });
   assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: "config", content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
   const plannedWrites = assets.map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
-  for (const relative2 of plannedWrites) {
-    if (isFrozenPath(root, relative2))
-      fail4("BOOTSTRAP_SUPPORT_FROZEN_PATH", `Bootstrap cannot replace a frozen target: ${relative2}`);
-    if (!existingIsWorkflowOwned(root, relative2, classification.receipt))
-      fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `target-owned/native asset would be overwritten: ${relative2}`);
+  for (const relative3 of plannedWrites) {
+    if (isFrozenPath(root, relative3))
+      fail4("BOOTSTRAP_SUPPORT_FROZEN_PATH", `Bootstrap cannot replace a frozen target: ${relative3}`);
+    if (!existingIsWorkflowOwned(root, relative3, classification.receipt))
+      fail4("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `target-owned/native asset would be overwritten: ${relative3}`);
   }
   const changedPaths = (options.changedPaths ?? []).map((value) => normalizeRelative(value, "changed_paths")).sort((left, right) => left.localeCompare(right));
   const proposal = {
@@ -13367,7 +14538,7 @@ function publicPlan(plan) {
   return publicValue;
 }
 function bootstrapProjectTargetLocal(options) {
-  const root = path7.resolve(options.targetRoot);
+  const root = path8.resolve(options.targetRoot);
   if (!BOOTSTRAP_MODES.includes(options.mode))
     return {
       status: "blocked",
@@ -13453,11 +14624,11 @@ function bootstrapProjectTargetLocal(options) {
     const beforeHash = computeBootstrapPreimageHash(root, proposal);
     const markerPath = targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH);
     try {
-      fs6.mkdirSync(path7.dirname(markerPath), { recursive: true });
-      fs6.writeFileSync(markerPath, markerValue(proposal), "utf8");
+      fs7.mkdirSync(path8.dirname(markerPath), { recursive: true });
+      fs7.writeFileSync(markerPath, markerValue(proposal), "utf8");
       const runtimeResult = applyBootstrapProjectProposal(root, proposal, { verify: () => verifyBootstrapHealth(root, proposal, distribution) });
-      if (fs6.existsSync(markerPath))
-        fs6.rmSync(markerPath, { force: true });
+      if (fs7.existsSync(markerPath))
+        fs7.rmSync(markerPath, { force: true });
       return { status: "installed", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
     } catch (error) {
       let rollbackVerified = false;
@@ -13466,8 +14637,8 @@ function bootstrapProjectTargetLocal(options) {
       } catch {
         rollbackVerified = false;
       }
-      if (rollbackVerified && fs6.existsSync(markerPath))
-        fs6.rmSync(markerPath, { force: true });
+      if (rollbackVerified && fs7.existsSync(markerPath))
+        fs7.rmSync(markerPath, { force: true });
       return { status: "blocked", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_TRANSACTION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? "ROLLBACK_VERIFIED" : "RECOVERY_REQUIRED", message: rollbackVerified ? "Bootstrap-owned governance scope was restored and its interruption marker was cleared." : "Bootstrap rollback could not be verified; interruption marker retained for explicit recovery." }], read_back_verified: false, proposal };
     }
   } catch (error) {
@@ -13502,7 +14673,7 @@ function flagString(flags, key, required = false) {
   return;
 }
 function readStringListFile(filePath) {
-  const content = fs6.readFileSync(path7.resolve(filePath), "utf8");
+  const content = fs7.readFileSync(path8.resolve(filePath), "utf8");
   if (content.trimStart().startsWith("[")) {
     const parsed = JSON.parse(content);
     if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string"))
@@ -13512,17 +14683,17 @@ function readStringListFile(filePath) {
   return content.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
 }
 function readFactsFile(filePath) {
-  const value = JSON.parse(fs6.readFileSync(path7.resolve(filePath), "utf8"));
+  const value = JSON.parse(fs7.readFileSync(path8.resolve(filePath), "utf8"));
   if (!Array.isArray(value))
     fail4("BOOTSTRAP_SUPPORT_INPUT_INVALID", "facts file must contain an array.");
   return value;
 }
 function readBaselineFile(filePath) {
-  const value = JSON.parse(fs6.readFileSync(path7.resolve(filePath), "utf8"));
+  const value = JSON.parse(fs7.readFileSync(path8.resolve(filePath), "utf8"));
   return expectRecord4(value, "design baseline file");
 }
 function readAuthorizationsFile(filePath) {
-  const value = JSON.parse(fs6.readFileSync(path7.resolve(filePath), "utf8"));
+  const value = JSON.parse(fs7.readFileSync(path8.resolve(filePath), "utf8"));
   if (!Array.isArray(value))
     fail4("BOOTSTRAP_SUPPORT_INPUT_INVALID", "conditional authorizations file must contain an array.");
   return value;
@@ -13576,14 +14747,18 @@ async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/prepare-task-adapter.ts
-import * as crypto7 from "crypto";
-import * as fs7 from "fs";
-import * as path8 from "path";
+import * as crypto8 from "crypto";
+import * as fs8 from "fs";
+import * as path9 from "path";
 var PREPARE_TASK_ADAPTER_COMMANDS = [
   "prepare-draft",
   "confirm-draft",
   "clear-resume-review",
-  "replan"
+  "replan",
+  "prepare-replan",
+  "confirm-replan",
+  "discard-replan",
+  "initialize-preservation"
 ];
 var SEMANTIC_DRAFT_FIELDS = [
   "task_basis",
@@ -13968,17 +15143,17 @@ function assertSemanticScopeIsExecutable(input) {
   }
 }
 function semanticDigest(input) {
-  return crypto7.createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  return crypto8.createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 function adapterIdempotencyKey(prefix, value) {
-  const digest3 = crypto7.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const digest3 = crypto8.createHash("sha256").update(JSON.stringify(value)).digest("hex");
   return `${prefix}-${digest3.slice(0, 48)}`;
 }
 function taskSlug(goal) {
   const ascii = goal.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 80).replace(/-+$/gu, "");
   if (ascii)
     return ascii;
-  return `task-${crypto7.createHash("sha256").update(goal).digest("hex").slice(0, 12)}`;
+  return `task-${crypto8.createHash("sha256").update(goal).digest("hex").slice(0, 12)}`;
 }
 function authority(current, subject, kinds) {
   return kinds.map((kind) => ({ kind, source: current.relativePath, subject }));
@@ -14146,7 +15321,10 @@ function prepareDraft(root, input, options = {}) {
   const creating = current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived";
   const updating = current.runtimeState.workflow_status === "draft" && current.runtimeState.lifecycle_state === "active";
   if (!creating && !updating) {
-    fail5("PREPARE_DRAFT_STATE_INVALID", "prepare-draft requires closed + archived to create, or draft + active to update. A confirmed task must first be invalidated through the authorized task-lifecycle supersede route, then replaced with replan.");
+    if (current.runtimeState.workflow_status === "superseded") {
+      fail5("REPLACEMENT_OUTCOME_UNSUPPORTED", "A superseded task retains unfinished obligations. This Runtime has no authorized non-completion successor transition; do not close it as completed or overwrite it with a new draft.");
+    }
+    fail5("PREPARE_DRAFT_STATE_INVALID", "prepare-draft requires closed + archived to create, or draft + active to update. A confirmed task cannot be replaced through the disabled one-call replan route.");
   }
   const identity = creating ? {
     task_id: allocateNextTaskId(root, current.runtimeState.task_id),
@@ -14269,6 +15447,7 @@ function clearResumeReview(root, input, options = {}) {
   return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
 function replan(root, input, options = {}) {
+  fail5("REPLAN_CONFIRMATION_REQUIRED", "The legacy replan command commits immediately and is disabled. A revision-bound candidate and explicit confirmation are required before replacement.");
   const semantic = normalizeSemanticDraft(input);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
@@ -14329,7 +15508,7 @@ function parsePrepareTaskAdapterCli(argv) {
   return { command, root, dryRun };
 }
 function readSemanticStdin(command) {
-  const raw = !process.stdin.isTTY ? fs7.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs8.readFileSync(0, "utf8") : "";
   if (!raw.trim()) {
     throw new Error(`${command} requires semantic JSON on stdin.`);
   }
@@ -14340,8 +15519,8 @@ function readSemanticStdin(command) {
   }
 }
 function validateInstalledRuntime(root) {
-  const runtimeManifest = path8.join(path8.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs7.existsSync(runtimeManifest))
+  const runtimeManifest = path9.join(path9.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs8.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root, true);
 }
 async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
@@ -14365,6 +15544,18 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
       case "replan":
         result = replan(args.root, input, options);
         break;
+      case "prepare-replan":
+        result = prepareCorrectionReplan(args.root, input, options);
+        break;
+      case "confirm-replan":
+        result = confirmCorrectionReplan(args.root, input, options);
+        break;
+      case "discard-replan":
+        result = discardCorrectionReplan(args.root, input, options);
+        break;
+      case "initialize-preservation":
+        result = initializeTaskPreservation(args.root, input, options);
+        break;
     }
     console.log(JSON.stringify(result, null, 2));
     return result.status === "blocked" || result.status === "conflict" ? 2 : 0;
@@ -14375,9 +15566,9 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/execute-step-adapter.ts
-import * as crypto8 from "crypto";
-import * as fs8 from "fs";
-import * as path9 from "path";
+import * as crypto9 from "crypto";
+import * as fs9 from "fs";
+import * as path10 from "path";
 var EXECUTE_STEP_ADAPTER_COMMANDS = [
   "preflight-step",
   "evidence-context",
@@ -14448,7 +15639,7 @@ function pathList(value, location, allowEmpty, allowGlob = false) {
   return values;
 }
 function digest3(value) {
-  return crypto8.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return crypto9.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 function idempotencyKey(prefix, value) {
   return `${prefix}-${digest3(value).slice(0, 48)}`;
@@ -15535,7 +16726,7 @@ function parseExecuteStepAdapterCli(argv) {
   return { command, root, dryRun };
 }
 function readSemanticStdin2(command) {
-  const raw = !process.stdin.isTTY ? fs8.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs9.readFileSync(0, "utf8") : "";
   if (!raw.trim())
     throw new Error(`${command} requires semantic JSON on stdin.`);
   try {
@@ -15545,8 +16736,8 @@ function readSemanticStdin2(command) {
   }
 }
 function validateInstalledRuntime2(root) {
-  const runtimeManifest = path9.join(path9.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs8.existsSync(runtimeManifest))
+  const runtimeManifest = path10.join(path10.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs9.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root, true);
 }
 async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
@@ -15585,14 +16776,14 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/review-change-adapter.ts
-import * as crypto9 from "crypto";
-import * as fs11 from "fs";
-import * as path12 from "path";
+import * as crypto10 from "crypto";
+import * as fs12 from "fs";
+import * as path13 from "path";
 
 // runtime/vnext/src/file-context.ts
-import * as fs10 from "node:fs";
-import * as path11 from "node:path";
-import { createHash as createHash10 } from "node:crypto";
+import * as fs11 from "node:fs";
+import * as path12 from "node:path";
+import { createHash as createHash11 } from "node:crypto";
 import { spawn } from "node:child_process";
 // node_modules/diff/libesm/diff/base.js
 class Diff {
@@ -15694,16 +16885,16 @@ class Diff {
       }
     }
   }
-  addToPath(path10, added, removed, oldPosInc, options) {
-    const last = path10.lastComponent;
+  addToPath(path11, added, removed, oldPosInc, options) {
+    const last = path11.lastComponent;
     if (last && !options.oneChangePerToken && last.added === added && last.removed === removed) {
       return {
-        oldPos: path10.oldPos + oldPosInc,
+        oldPos: path11.oldPos + oldPosInc,
         lastComponent: { count: last.count + 1, added, removed, previousComponent: last.previousComponent }
       };
     } else {
       return {
-        oldPos: path10.oldPos + oldPosInc,
+        oldPos: path11.oldPos + oldPosInc,
         lastComponent: { count: 1, added, removed, previousComponent: last }
       };
     }
@@ -16113,18 +17304,18 @@ function splitLines(text4) {
   return result;
 }
 // runtime/vnext/src/rg-tool.ts
-import * as fs9 from "node:fs";
-import * as path10 from "node:path";
+import * as fs10 from "node:fs";
+import * as path11 from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash as createHash9 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 var RG_TOOLS_PATH = ".workflow-system/runtime/tools/rg";
 var RG_BINARY = process.platform === "win32" ? "rg.exe" : "rg";
 function assertRgDirectory(root) {
-  let directory = path10.resolve(root);
+  let directory = path11.resolve(root);
   for (const part of RG_TOOLS_PATH.split("/")) {
-    directory = path10.join(directory, part);
+    directory = path11.join(directory, part);
     try {
-      if (!fs9.lstatSync(directory).isDirectory())
+      if (!fs10.lstatSync(directory).isDirectory())
         throw new Error("RG_DEPENDENCY_PATH_INVALID: tool directory must not be a symlink or file.");
     } catch (error) {
       if (error.code !== "ENOENT")
@@ -16147,18 +17338,18 @@ function probeRg(command) {
 }
 function resolveRg(root) {
   const directory = assertRgDirectory(root);
-  const command = path10.join(directory, RG_BINARY);
+  const command = path11.join(directory, RG_BINARY);
   try {
-    const identity = JSON.parse(fs9.readFileSync(path10.join(directory, "identity.json"), "utf8"));
-    if (!fs9.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash9("sha256").update(fs9.readFileSync(command)).digest("hex")) {
+    const identity = JSON.parse(fs10.readFileSync(path11.join(directory, "identity.json"), "utf8"));
+    if (!fs10.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash10("sha256").update(fs10.readFileSync(command)).digest("hex")) {
       const version = probeRg(command);
       if (version && identity.version === version)
         return { command, version, source: "project" };
     }
   } catch {}
-  for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path10.delimiter).filter(Boolean)) {
-    const command2 = path10.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
-    if (!fs9.existsSync(command2))
+  for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path11.delimiter).filter(Boolean)) {
+    const command2 = path11.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
+    if (!fs10.existsSync(command2))
       continue;
     const version = probeRg(command2);
     if (version)
@@ -16170,7 +17361,7 @@ function resolveRg(root) {
 // runtime/vnext/src/file-context.ts
 var DEFAULT_CONTEXT_BYTES = 16 * 1024;
 var MAX_CONTEXT_BYTES = 64 * 1024;
-var sha2566 = (bytes) => createHash10("sha256").update(bytes).digest("hex");
+var sha2567 = (bytes) => createHash11("sha256").update(bytes).digest("hex");
 function contextInput(input, keys) {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("CONTEXT_INPUT_INVALID: expected an object.");
@@ -16189,22 +17380,22 @@ function integer(value, fallback, min, max) {
 function contextPath(root, value) {
   if (typeof value !== "string" || !value || value.length > 1024 || /[\0\r\n]/u.test(value))
     throw new Error("CONTEXT_PATH_INVALID: expected a project-relative path.");
-  const relative3 = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path11.posix.isAbsolute(relative3) || /^[A-Za-z]:/u.test(relative3) || relative3.split("/").includes(".."))
+  const relative4 = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  if (path12.posix.isAbsolute(relative4) || /^[A-Za-z]:/u.test(relative4) || relative4.split("/").includes(".."))
     throw new Error("CONTEXT_PATH_INVALID: path escapes project.");
-  const absolute = path11.resolve(root, relative3);
-  let parent = path11.resolve(root);
-  for (const part of relative3.split("/").filter((part2) => part2 && part2 !== ".")) {
-    parent = path11.join(parent, part);
+  const absolute = path12.resolve(root, relative4);
+  let parent = path12.resolve(root);
+  for (const part of relative4.split("/").filter((part2) => part2 && part2 !== ".")) {
+    parent = path12.join(parent, part);
     try {
-      if (fs10.lstatSync(parent).isSymbolicLink())
+      if (fs11.lstatSync(parent).isSymbolicLink())
         throw new Error("CONTEXT_SYMLINK: symbolic links are not followed.");
     } catch (error) {
       if (error.code !== "ENOENT")
         throw error;
     }
   }
-  return { relative: relative3, absolute };
+  return { relative: relative4, absolute };
 }
 function decodeText(bytes) {
   if (bytes.includes(0))
@@ -16251,8 +17442,8 @@ function textDiff(file2, before, after) {
 function readFileContext(root, input) {
   const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line"]);
   const file2 = contextPath(root, value.path);
-  const bytes = fs10.readFileSync(file2.absolute);
-  const revision = sha2566(bytes);
+  const bytes = fs11.readFileSync(file2.absolute);
+  const revision = sha2567(bytes);
   if (value.sha256 !== undefined && value.sha256 !== revision)
     throw new Error("CONTEXT_STALE: file changed; start a fresh read.");
   if (value.offset !== undefined && value.offset !== 0 && value.sha256 === undefined)
@@ -16323,7 +17514,7 @@ async function searchFileContext(root, input) {
         try {
           let hit;
           if (value.query === undefined)
-            hit = { path: path11.relative(root, line.toString("utf8")).replace(/\\/gu, "/") };
+            hit = { path: path12.relative(root, line.toString("utf8")).replace(/\\/gu, "/") };
           else {
             const event = JSON.parse(line.toString("utf8"));
             if (event.type !== "match")
@@ -16332,7 +17523,7 @@ async function searchFileContext(root, input) {
               stop("non-utf8-result");
               return;
             }
-            hit = { path: path11.relative(root, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
+            hit = { path: path12.relative(root, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
           }
           contextPath(root, hit.path);
           const size = Buffer.byteLength(JSON.stringify(hit));
@@ -16383,7 +17574,7 @@ async function fileContext(root, input) {
 }
 
 // runtime/vnext/src/review-change-adapter.ts
-var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "review-read", "record-review-result"];
+var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "review-read", "record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"];
 var MAX_ITEMS3 = 256;
 var SHA256_PATTERN5 = /^[a-f0-9]{64}$/u;
 var WINDOWS_ABSOLUTE_PATH3 = /^[A-Za-z]:[\\/]/u;
@@ -16423,13 +17614,13 @@ function textList3(value, location, allowEmpty) {
 }
 function repoPath(value, location) {
   const normalized = text4(value, location, 1024).replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path12.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
+  if (path13.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
     fail7("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be a project-relative path.`);
   }
   return normalized;
 }
 function digest4(value) {
-  return crypto9.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return crypto10.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 function authority3(current) {
   return ["active-task-owner", "scope-admission", "evidence-admission"].map((kind) => ({
@@ -16440,6 +17631,60 @@ function authority3(current) {
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision
   }));
+}
+function recordEvidenceChallenge(root, input, options = {}) {
+  const source = record3(input, "record-evidence-challenge input");
+  exactKeys3(source, ["claim_id", "slot_id", "result_id", "evidence_ref", "evidence_sha256", "reason"], "record-evidence-challenge input");
+  const current = readCanonicalCurrentTask(root);
+  const challenge = {
+    claim_id: text4(source.claim_id, "claim_id", 128),
+    slot_id: text4(source.slot_id, "slot_id", 128),
+    result_id: text4(source.result_id, "result_id", 128),
+    evidence_ref: repoPath(source.evidence_ref, "evidence_ref"),
+    evidence_sha256: text4(source.evidence_sha256, "evidence_sha256", 64),
+    reason: text4(source.reason, "reason")
+  };
+  if (!SHA256_PATTERN5.test(challenge.evidence_sha256))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "evidence_sha256 must be a lowercase SHA-256 digest.");
+  const idempotencyKey2 = `evidence-challenge-${digest4({ document_id: current.sourceTuple.document_id, ...challenge }).slice(0, 40)}`;
+  const existing = (current.runtimeState.evidence_challenges ?? []).find((item) => item.claim_id === challenge.claim_id && item.slot_id === challenge.slot_id && item.result_id === challenge.result_id && item.evidence_sha256 === challenge.evidence_sha256);
+  if (existing) {
+    if (existing.evidence_ref !== challenge.evidence_ref || existing.reason !== challenge.reason)
+      fail7("EVIDENCE_CHALLENGE_DUPLICATE", "The same result and material are already bound to a different challenge description.");
+    return semanticNoOp3(current, idempotencyKey2, "The exact challenge is already recorded.", options);
+  }
+  const proposal = createEvidenceChallengeProposal(current, {
+    ...challenge,
+    idempotency_key: idempotencyKey2,
+    authority_evidence: authority3(current)
+  });
+  return applyVNextRuntimeProposal(root, proposal, options);
+}
+function dismissEvidenceChallenge(root, input, options = {}) {
+  const source = record3(input, "dismiss-evidence-challenge input");
+  exactKeys3(source, ["challenge_id", "evidence_ref", "evidence_sha256", "reason"], "dismiss-evidence-challenge input");
+  const current = readCanonicalCurrentTask(root);
+  const assessment = {
+    challenge_id: text4(source.challenge_id, "challenge_id", 128),
+    evidence_ref: repoPath(source.evidence_ref, "evidence_ref"),
+    evidence_sha256: text4(source.evidence_sha256, "evidence_sha256", 64),
+    reason: text4(source.reason, "reason")
+  };
+  if (!SHA256_PATTERN5.test(assessment.evidence_sha256))
+    fail7("REVIEW_ADAPTER_INPUT_INVALID", "evidence_sha256 must be a lowercase SHA-256 digest.");
+  const existing = current.runtimeState.evidence_challenges?.find((item) => item.challenge_id === assessment.challenge_id);
+  const idempotencyKey2 = `evidence-challenge-dismissal-${digest4({ document_id: current.sourceTuple.document_id, ...assessment }).slice(0, 40)}`;
+  if (existing?.resolution) {
+    if (existing.resolution.evidence_ref !== assessment.evidence_ref || existing.resolution.evidence_sha256 !== assessment.evidence_sha256 || existing.resolution.reason !== assessment.reason)
+      fail7("EVIDENCE_CHALLENGE_ALREADY_RESOLVED", "Challenge was resolved by a different assessment.");
+    return semanticNoOp3(current, idempotencyKey2, "The exact challenge assessment is already recorded.", options);
+  }
+  const proposal = createEvidenceChallengeDismissalProposal(current, {
+    ...assessment,
+    idempotency_key: idempotencyKey2,
+    authority_evidence: authority3(current)
+  });
+  return applyVNextRuntimeProposal(root, proposal, options);
 }
 function latestRecordedExecution(current) {
   const records = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === current.runtimeState.active_step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
@@ -16601,10 +17846,10 @@ function reviewFilePage(root, current, execution, file2, view, input) {
   if (target.state === "symlink" || preimage?.state === "symlink")
     return { ...base, content_status: "symlink-not-followed" };
   const before = preimage?.state === "file" ? Buffer.from(preimage.content_base64, "base64") : Buffer.alloc(0);
-  const after = target.state === "file" ? fs11.readFileSync(contextPath(root, file2).absolute) : Buffer.alloc(0);
-  if (target.state === "file" && sha2566(after) !== target.sha256)
+  const after = target.state === "file" ? fs12.readFileSync(contextPath(root, file2).absolute) : Buffer.alloc(0);
+  if (target.state === "file" && sha2567(after) !== target.sha256)
     fail7("REVIEW_TARGET_STALE", "file changed while reading review context.");
-  if (preimage?.state === "file" && sha2566(before) !== preimage.sha256)
+  if (preimage?.state === "file" && sha2567(before) !== preimage.sha256)
     fail7("REVIEW_BASE_INVALID", "first-touch baseline hash mismatch.");
   const left = decodeText(before);
   const right = decodeText(after);
@@ -16870,7 +18115,7 @@ function parseCli2(argv) {
   return { command, root, dryRun };
 }
 function readSemanticStdin3(command) {
-  const raw = !process.stdin.isTTY ? fs11.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs12.readFileSync(0, "utf8") : "";
   if (!raw.trim())
     throw new Error(`${command} requires semantic JSON on stdin.`);
   try {
@@ -16880,8 +18125,8 @@ function readSemanticStdin3(command) {
   }
 }
 function validateInstalledRuntime3(root) {
-  const runtimeManifest = path12.join(path12.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs11.existsSync(runtimeManifest))
+  const runtimeManifest = path13.join(path13.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs12.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root, true);
 }
 async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
@@ -16895,8 +18140,12 @@ async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
       result = reviewContext(args.root, input);
     else if (args.command === "review-read")
       result = reviewRead(args.root, input);
-    else
+    else if (args.command === "record-review-result")
       result = recordReviewResult(args.root, input, { dryRun: args.dryRun });
+    else if (args.command === "record-evidence-challenge")
+      result = recordEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
+    else
+      result = dismissEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
     console.log(JSON.stringify(result, null, 2));
     return "status" in result && (result.status === "blocked" || result.status === "conflict") ? 2 : 0;
   } catch (error) {
@@ -16906,17 +18155,17 @@ async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/file-context-cli.ts
-import * as fs12 from "node:fs";
-import * as path13 from "node:path";
+import * as fs13 from "node:fs";
+import * as path14 from "node:path";
 async function runFileContextCli(args) {
   try {
     validateRuntimeEnvironment();
     if (args.length !== 2 || args[0] !== "--root" || !args[1])
       throw new Error("Usage: file-context --root <project> (JSON on stdin)");
-    const root = path13.resolve(args[1]);
-    if (fs12.existsSync(path13.join(root, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
+    const root = path14.resolve(args[1]);
+    if (fs13.existsSync(path14.join(root, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
       validateVNextRuntimeContract(root, true);
-    const result = await fileContext(root, JSON.parse(fs12.readFileSync(0, "utf8")));
+    const result = await fileContext(root, JSON.parse(fs13.readFileSync(0, "utf8")));
     console.log(JSON.stringify(result, null, 2));
     return result.status === "partial" ? 2 : 0;
   } catch (error) {

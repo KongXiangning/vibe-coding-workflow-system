@@ -187,11 +187,29 @@ redesign the task or reconstruct the receipt from current state.
 In `confirm` mode, submit the user's explicit confirmation through
 `confirm-draft` with the exact confirmation receipt returned by the committed
 draft; do not reconstruct it from the current task. Report the result and stop.
-In `replan` mode, revise only the task decisions explicitly reopened by the user
-or current task state. `replan` consumes an authorized supersede result from an
-earlier lifecycle invocation; if that prerequisite is absent, report the route
-instead of exposing or driving Runtime's internal replan actions. Persist the
-replacement through `replan`, report the result, and stop.
+The legacy one-call `replan` and raw `commit-replan` remain closed. For a
+confirmed active task from an older installation, first read a fresh summary
+and linked Task Basis, then use `initialize-preservation` with their exact
+source and Basis revisions. Runtime saves both original files before adding
+the task-evolution marker; it does not rewrite the definition or evidence.
+Do not hand-edit the marker or task history. For a
+recorded challenge to one completed claim result, use Runtime `prepare-replan`
+with its `challenge_id` and a docs-only correction step. Runtime derives a
+candidate that keeps the current task identity, goal, scope, all claims and
+checks, and all original steps; it inserts the correction before the pending
+step. Read the candidate's full obligation map, scope/step diff and carry-forward
+proof before requesting a decision. `prepare-replan` leaves `CURRENT_TASK`
+unchanged. An explicit decision for the exact candidate digest, source revision,
+Task Basis revision, obligations digest and permission change is required for
+`confirm-replan`. Supply its receipt and the exact decision source/text; Runtime
+records this as caller-reported authorization, not authenticated approval.
+`discard-replan` retains a discarded marker and does not reactivate a superseded
+task. A changed goal, acceptance, scope, check method or missing old step is
+outside this restricted route. This Runtime currently rejects a successor draft
+from `superseded` with `REPLACEMENT_OUTCOME_UNSUPPORTED`; it has no non-completion
+replacement transition. Supersede alone never approves a new plan or completes
+the old task. Do not edit the
+canonical task, Task Basis or candidate to bypass confirmation.
 
 Do not implement business code. Once the user confirms the draft,
 `CURRENT_TASK` is the execution authority: later execution must not redesign the

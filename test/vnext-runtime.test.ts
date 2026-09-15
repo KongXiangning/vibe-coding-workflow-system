@@ -3,6 +3,7 @@ import { reviewRead } from '../runtime/vnext/src/review-change-adapter';
 import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
+import { commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from '../runtime/vnext/src/task-evolution-io';
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
 import { spawnSync } from 'child_process';
@@ -31,6 +32,13 @@ import {
   readDraftDefinitionFromBody,
   createReviewChangeDelta,
   confirmDraft,
+  prepareCorrectionReplan,
+  confirmCorrectionReplan,
+  discardCorrectionReplan,
+  initializeTaskPreservation,
+  recordEvidenceChallenge,
+  dismissEvidenceChallenge,
+  assertOrdinaryPreflight,
   completeReviewedStep,
   beginRepair,
   prepareDraft,
@@ -99,6 +107,7 @@ const temporaryRoots: string[] = [];
 function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
     business_evidence_version: 1,
+    task_evolution_version: 1,
     schema_version: 1,
     kind: 'vnext-current-task-runtime-state',
     task_id: '010',
@@ -1268,7 +1277,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       replanProposal(replanRoot, 'commit-replan', 'plan-freeze-replan-missing'),
     );
     expect(missingReplanPlan.status).toBe('blocked');
-    expect(missingReplanPlan.code).toBe('CLAIM_EVIDENCE_REQUIRED');
+    expect(missingReplanPlan.code).toBe('REPLAN_CONFIRMATION_REQUIRED');
 
     const strictEmptyRoot = makeRoot(makeRuntimeState({
       claim_evidence_required: true,
@@ -2391,7 +2400,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     const result = applyVNextRuntimeProposal(root, proposal);
     expect(result.status).toBe('success');
-    expect(result.governed_mutation_count).toBe(1);
+    expect(result.governed_mutation_count).toBe(2);
     const after = readCanonicalCurrentTask(root);
     expect(after.runtimeState.workflow_status).toBe('superseded');
     expect(after.runtimeState.lifecycle_state).toBe('active');
@@ -2412,7 +2421,235 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(after.runtimeState.applied_proposals.map(item => item.idempotency_key)).toContain('lifecycle-supersede-active');
     const replay = applyVNextRuntimeProposal(root, proposal);
     expect(replay.status).toBe('no-op');
+    expect(() => prepareDraft(root, singleStepSemanticDraft())).toThrow('REPLACEMENT_OUTCOME_UNSUPPORTED');
     expect(readCanonicalCurrentTask(root).body).toContain(beforeDefinition.slice(beforeDefinition.indexOf('## 背景与上下文'), beforeDefinition.indexOf('## 执行记录')));
+  });
+
+  test('supersede preserves the exact confirmed task and Task Basis bytes before invalidation', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      task_basis: taskBasisFixture('Verify the Rust issue ledger and its nine acceptance obligations; external code is review evidence only.'),
+    }));
+    const before = readCanonicalCurrentTask(root);
+    const basis = readCanonicalTaskBasis(root, before);
+    const basisBytes = fs.readFileSync(basis.filePath);
+    const currentBytes = fs.readFileSync(before.filePath);
+    const proposal = createLifecycleProposal(before, {
+      mode: 'supersede', delta: supersedeDelta({ invalidation_kind: 'acceptance' }),
+      idempotency_key: 'incident-preserve-original',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'],
+    });
+    const dryRun = applyVNextRuntimeProposal(root, proposal, { dryRun: true });
+    expect(dryRun.status).toBe('success');
+    expect(dryRun.committed).toBe(false);
+    expect(fs.readFileSync(before.filePath)).toEqual(currentBytes);
+    const historyPath = path.join(root, dryRun.planned_writes![1]!);
+    expect(fs.existsSync(historyPath)).toBe(false);
+    expect(applyVNextRuntimeProposal(root, proposal).status).toBe('success');
+    const history = JSON.parse(fs.readFileSync(historyPath, 'utf8'));
+    expect(Buffer.from(history.current_task_base64, 'base64')).toEqual(currentBytes);
+    expect(Buffer.from(history.task_basis_base64, 'base64')).toEqual(basisBytes);
+    expect(history.source_path).toBe('CURRENT_TASK.md');
+    expect(history.task_basis_path).toBe(path.relative(path.dirname(before.filePath), basis.filePath).replace(/\\/g, '/'));
+    expect(history.source_revision).toBe(crypto.createHash('sha256').update(currentBytes).digest('hex'));
+    expect(history.task_basis_revision).toBe(crypto.createHash('sha256').update(basisBytes).digest('hex'));
+    expect(Array.isArray(history.referenced_evidence)).toBe(true);
+    expect(history.referenced_evidence.every((item: { preservation: string }) => item.preservation.includes('not snapshotted'))).toBe(true);
+    expect(fs.readFileSync(basis.filePath)).toEqual(basisBytes);
+    const canonical = fs.readFileSync(before.filePath);
+    expect(applyVNextRuntimeProposal(root, proposal).status).toBe('no-op');
+    expect(fs.readFileSync(historyPath, 'utf8')).toBe(JSON.stringify(history, null, 2) + '\n');
+    expect(fs.readFileSync(before.filePath)).toEqual(canonical);
+    fs.rmSync(historyPath);
+    expect(applyVNextRuntimeProposal(root, proposal).status).toBe('blocked');
+  });
+
+  test('task evolution recovers after a real process exit at the post-publication boundary', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-evolution-crash-'));
+    temporaryRoots.push(root);
+    const workflow = path.join(root, 'docs', 'workflow');
+    fs.mkdirSync(workflow, { recursive: true });
+    const currentPath = path.join(workflow, 'CURRENT_TASK.md');
+    const previousContent = 'original task bytes\r\nacceptance survives\r\n';
+    const nextContent = 'superseded task bytes\n';
+    fs.writeFileSync(currentPath, previousContent, 'utf8');
+    const input = { currentPath, previousContent, nextContent, documentId: 'doc-aaaaaaaaaaaaaaaaaaaaaaaa', taskId: '001' };
+    const source = path.join(ROOT, 'runtime', 'vnext', 'src', 'task-evolution-io.ts').replace(/\\/g, '/');
+    const childScript = `import { commitSupersedeWithHistory } from ${JSON.stringify(source)}; commitSupersedeWithHistory(${JSON.stringify(input)}, () => process.exit(19));`;
+    const child = spawnSync(process.execPath, ['-e', childScript], { encoding: 'utf8' });
+    expect(child.status).toBe(19);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(nextContent);
+    const history = taskHistoryLocation(input);
+    expect(JSON.parse(fs.readFileSync(history.path, 'utf8')).current_task_base64).toBe(Buffer.from(previousContent).toString('base64'));
+    const lockPath = path.join(workflow, '.vnext-task-evolution.lock');
+    expect(fs.existsSync(lockPath)).toBe(true);
+    const interruptedLock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    expect(interruptedLock.phase).toBe('current-published');
+    recoverTaskEvolution(currentPath);
+    expect(fs.existsSync(lockPath)).toBe(false);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(nextContent);
+
+    fs.writeFileSync(currentPath, previousContent, 'utf8');
+    fs.writeFileSync(lockPath, JSON.stringify({ ...interruptedLock, phase: 'history-written' }) + '\n');
+    recoverTaskEvolution(currentPath);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(previousContent);
+    expect(fs.existsSync(lockPath)).toBe(false);
+
+    fs.writeFileSync(currentPath, nextContent, 'utf8');
+    fs.rmSync(history.path);
+    fs.writeFileSync(lockPath, JSON.stringify(interruptedLock) + '\n');
+    expect(() => recoverTaskEvolution(currentPath)).toThrow('TASK_EVOLUTION_RECOVERY_REQUIRED');
+    expect(fs.existsSync(lockPath)).toBe(true);
+  });
+
+  test('confirmed correction recovers a crash between Task Basis and CURRENT_TASK publication', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-correction-crash-'));
+    temporaryRoots.push(root);
+    const workflow = path.join(root, 'docs', 'workflow');
+    const basisDirectory = path.join(workflow, 'task-basis');
+    fs.mkdirSync(basisDirectory, { recursive: true });
+    const currentPath = path.join(workflow, 'CURRENT_TASK.md');
+    const basisPath = path.join(basisDirectory, 'TASK_BASIS-001.md');
+    const input = { currentPath, previousContent: 'old exact task\r\n', nextContent: 'confirmed correction\n',
+      documentId: 'doc-cccccccccccccccccccccccc', taskId: '001', basisPath,
+      basisContent: 'old exact basis\r\n', nextBasisContent: 'basis with decision\n', operation: 'confirm-replan' as const };
+    fs.writeFileSync(currentPath, input.previousContent);
+    fs.writeFileSync(basisPath, input.basisContent);
+    const source = path.join(ROOT, 'runtime', 'vnext', 'src', 'task-evolution-io.ts').replace(/\\/g, '/');
+    const childScript = `import { commitTaskEvolutionWithHistory } from ${JSON.stringify(source)}; commitTaskEvolutionWithHistory(${JSON.stringify(input)}, () => {}, () => process.exit(17));`;
+    const child = spawnSync(process.execPath, ['-e', childScript], { encoding: 'utf8' });
+    expect(child.status).toBe(17);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(input.previousContent);
+    expect(fs.readFileSync(basisPath, 'utf8')).toBe(input.nextBasisContent);
+    recoverTaskEvolution(currentPath);
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(input.previousContent);
+    expect(fs.readFileSync(basisPath, 'utf8')).toBe(input.basisContent);
+    expect(fs.existsSync(path.join(workflow, '.vnext-task-evolution.lock'))).toBe(false);
+    expect(() => commitTaskEvolutionWithHistory(input, () => { throw new Error('injected read-back failure'); })).toThrow('injected read-back failure');
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(input.previousContent);
+    expect(fs.readFileSync(basisPath, 'utf8')).toBe(input.basisContent);
+    commitTaskEvolutionWithHistory(input, () => {});
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(input.nextContent);
+    expect(fs.readFileSync(basisPath, 'utf8')).toBe(input.nextBasisContent);
+  });
+
+  test('explicitly initializes a valid older task without changing its definition or existing evidence', () => {
+    const root = confirmedSemanticRoot();
+    const original = readCanonicalCurrentTask(root);
+    const frontmatter = structuredClone(original.frontmatter);
+    delete frontmatter.runtime_state.task_evolution_version;
+    fs.writeFileSync(original.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${original.body}`, 'utf8');
+    const old = readCanonicalCurrentTask(root);
+    const basis = readCanonicalTaskBasis(root, old);
+    const input = { source_revision: old.sourceTuple.revision, basis_revision: basis.revision };
+    const oldBytes = fs.readFileSync(old.filePath);
+    const basisBytes = fs.readFileSync(basis.filePath);
+    const supersede = createLifecycleProposal(old, { mode: 'supersede', delta: supersedeDelta(),
+      idempotency_key: 'older-task-supersede', authority_evidence: evidence('active-task-owner', 'evidence-admission'),
+      evidence_refs: ['test:evidence:supersede'] });
+    expect(applyVNextRuntimeProposal(root, supersede)).toMatchObject({ status: 'blocked', code: 'TASK_EVOLUTION_INITIALIZATION_REQUIRED' });
+    expect(fs.readFileSync(old.filePath)).toEqual(oldBytes);
+    expect(initializeTaskPreservation(root, input, { dryRun: true })).toMatchObject({ status: 'success', committed: false });
+    expect(fs.readFileSync(old.filePath)).toEqual(oldBytes);
+    expect(() => initializeTaskPreservation(root, { ...input, basis_revision: '0'.repeat(64) })).toThrow('TASK_EVOLUTION_BASIS_STALE');
+    const result = initializeTaskPreservation(root, input);
+    expect(result).toMatchObject({ status: 'success', committed: true, read_back_verified: true });
+    const current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.task_evolution_version).toBe(1);
+    expect(current.runtimeState.preservation_source_revision).toBe(old.sourceTuple.revision);
+    expect(current.body).toBe(old.body);
+    expect(current.runtimeState.claim_evidence).toEqual(old.runtimeState.claim_evidence);
+    expect(current.runtimeState.active_step_id).toBe(old.runtimeState.active_step_id);
+    expect(fs.readFileSync(basis.filePath)).toEqual(basisBytes);
+    const historyPath = path.join(root, 'docs', 'workflow', 'task-history', old.sourceTuple.document_id, `${old.sourceTuple.revision}.json`);
+    const history = JSON.parse(fs.readFileSync(historyPath, 'utf8'));
+    expect(history.operation).toBe('initialize-preservation');
+    expect(Buffer.from(history.current_task_base64, 'base64')).toEqual(oldBytes);
+    expect(Buffer.from(history.task_basis_base64, 'base64')).toEqual(basisBytes);
+    expect(initializeTaskPreservation(root, input).status).toBe('no-op');
+    const initializedBytes = fs.readFileSync(current.filePath, 'utf8');
+    fs.writeFileSync(current.filePath, initializedBytes.replace('task_evolution_version: 1', 'task_evolution_version: 2'));
+    expect(() => readCanonicalCurrentTask(root)).toThrow('TASK_EVOLUTION_VERSION_UNSUPPORTED');
+    fs.writeFileSync(current.filePath, initializedBytes);
+    fs.rmSync(historyPath);
+    expect(() => readCanonicalCurrentTask(root)).toThrow('TASK_HISTORY_MISSING');
+  });
+
+  test('installed Runtime initializes an upgraded older task through the public CLI', { timeout: 60000 }, () => {
+    const source = confirmedSemanticRoot();
+    const sourceCurrent = readCanonicalCurrentTask(source);
+    const frontmatter = structuredClone(sourceCurrent.frontmatter);
+    delete frontmatter.runtime_state.task_evolution_version;
+    fs.writeFileSync(sourceCurrent.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${sourceCurrent.body}`, 'utf8');
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-preservation-installed-'));
+    temporaryRoots.push(target);
+    fs.writeFileSync(path.join(target, 'package.json'), '{"name":"preservation-fixture","private":true}\n');
+    buildVibeGovernanceDistribution({ outputRoot: path.join(ROOT, 'packages', 'vibe-governance') });
+    expect(installDistribution({ targetRoot: target, packageRoot: path.join(ROOT, 'packages', 'vibe-governance') }).status).toBe('installed');
+    fs.copyFileSync(path.join(source, '.workflow-system', 'PROJECT_PROFILE.yaml'), path.join(target, '.workflow-system', 'PROJECT_PROFILE.yaml'));
+    fs.cpSync(path.join(source, 'docs', 'workflow'), path.join(target, 'docs', 'workflow'), { recursive: true });
+    const targetCurrent = path.join(target, 'docs', 'workflow', 'CURRENT_TASK.md');
+    const before = fs.readFileSync(targetCurrent);
+    const statePath = path.join(target, '.workflow-system', 'vnext', 'DISTRIBUTION_STATE.json');
+    const distributionState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    distributionState.distribution_version = '0.18.6';
+    fs.writeFileSync(statePath, JSON.stringify(distributionState, null, 2) + '\n');
+    expect(upgradeDistribution({ targetRoot: target, packageRoot: path.join(ROOT, 'packages', 'vibe-governance') }).status).toBe('upgraded');
+    expect(fs.readFileSync(targetCurrent)).toEqual(before);
+    const installedCli = path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
+    const summaryProcess = spawnSync('node', [installedCli, 'validate', '--root', target, '--summary'], { cwd: target, encoding: 'utf8' });
+    expect(summaryProcess.status).toBe(0);
+    expect(JSON.parse(summaryProcess.stdout).summary.preservation_initialization_required).toBe(true);
+    const current = readCanonicalCurrentTask(target);
+    const basis = readCanonicalTaskBasis(target, current);
+    const input = { source_revision: current.sourceTuple.revision, basis_revision: basis.revision };
+    const initialized = spawnSync('node', [installedCli, 'initialize-preservation', '--root', target],
+      { cwd: target, input: JSON.stringify(input), encoding: 'utf8' });
+    expect(initialized.status).toBe(0);
+    expect(JSON.parse(initialized.stdout)).toMatchObject({ status: 'success', committed: true, read_back_verified: true });
+    expect(readCanonicalCurrentTask(target).body).toBe(current.body);
+    const historyPath = path.join(target, 'docs', 'workflow', 'task-history', current.sourceTuple.document_id, `${current.sourceTuple.revision}.json`);
+    expect(Buffer.from(JSON.parse(fs.readFileSync(historyPath, 'utf8')).current_task_base64, 'base64')).toEqual(before);
+    const protectedBytes = fs.readFileSync(targetCurrent);
+    const laterUpgradeState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    laterUpgradeState.distribution_version = '0.18.6';
+    fs.writeFileSync(statePath, JSON.stringify(laterUpgradeState, null, 2) + '\n');
+    expect(upgradeDistribution({ targetRoot: target, packageRoot: path.join(ROOT, 'packages', 'vibe-governance') }).status).toBe('upgraded');
+    expect(fs.readFileSync(targetCurrent)).toEqual(protectedBytes);
+  });
+
+  test('task evolution rejects conflicting history and rolls back a failed read-back', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-evolution-rollback-'));
+    temporaryRoots.push(root);
+    const workflow = path.join(root, 'docs', 'workflow');
+    fs.mkdirSync(workflow, { recursive: true });
+    const currentPath = path.join(workflow, 'CURRENT_TASK.md');
+    const input = {
+      currentPath, previousContent: 'before\n', nextContent: 'after\n',
+      documentId: 'doc-bbbbbbbbbbbbbbbbbbbbbbbb', taskId: '001',
+    };
+    fs.writeFileSync(currentPath, input.previousContent, 'utf8');
+    const history = taskHistoryLocation(input);
+    fs.mkdirSync(path.dirname(history.path), { recursive: true });
+    fs.writeFileSync(history.path, 'conflicting history', 'utf8');
+    expect(() => commitSupersedeWithHistory(input, () => {})).toThrow('TASK_HISTORY_CONFLICT');
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(input.previousContent);
+    expect(fs.existsSync(path.join(workflow, '.vnext-task-evolution.lock'))).toBe(false);
+    fs.rmSync(history.path);
+    expect(() => commitSupersedeWithHistory(input, () => { throw new Error('injected read-back failure'); })).toThrow('injected read-back failure');
+    expect(fs.readFileSync(currentPath, 'utf8')).toBe(input.previousContent);
+    expect(fs.readFileSync(history.path, 'utf8')).toBe(history.content);
+    expect(fs.existsSync(path.join(workflow, '.vnext-task-evolution.lock'))).toBe(false);
+    const lockPath = path.join(workflow, '.vnext-task-evolution.lock');
+    const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
+    const foreignLock = JSON.stringify({
+      schema_version: 1, phase: 'prepared', pid: process.pid, current_path: currentPath,
+      previous_revision: hash(input.previousContent), next_revision: hash(input.nextContent),
+      history_path: history.path, history_revision: hash(history.content),
+    }) + '\n';
+    fs.writeFileSync(lockPath, foreignLock);
+    expect(() => commitSupersedeWithHistory(input, () => {})).toThrow('TASK_EVOLUTION_IN_PROGRESS');
+    expect(fs.readFileSync(lockPath, 'utf8')).toBe(foreignLock);
   });
 
   test('transitions active to blocked_by_replan, blocks execution and lifecycle pause/interrupt, then clears the block', () => {
@@ -2471,8 +2708,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       evidence_refs: ['test:evidence:supersede'],
     }));
     expect(superseded.status).toBe('success');
-    expect(superseded.planned_writes).toEqual(['docs/workflow/CURRENT_TASK.md']);
-    expect(superseded.governed_mutation_count).toBe(1);
+    expect(superseded.planned_writes?.[0]).toBe('docs/workflow/CURRENT_TASK.md');
+    expect(superseded.planned_writes?.[1]).toMatch(/^docs\/workflow\/task-history\/doc-[a-f0-9]+\/[a-f0-9]{64}\.json$/);
+    expect(superseded.governed_mutation_count).toBe(2);
     const after = readCanonicalCurrentTask(root);
     expect(after.runtimeState.workflow_status).toBe('superseded');
     expect(after.runtimeState.lifecycle_state).toBe('active');
@@ -2498,122 +2736,50 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(supersededInterrupt.code).toBe('LIFECYCLE_TRANSITION_INVALID');
   });
 
-  test('commits same-task replan with closed sections, deterministic normalization, history and identity preservation', () => {
-    const state = makeRuntimeState({
-      active_step_id: 'old-step',
-      active_step_status: 'in-progress',
-      finding_queue_revision: 7,
-      findings: [
-        runtimeFinding('finding-open-admitted', 'admitted'),
-        runtimeFinding('finding-open-progress', 'in-progress'),
-        runtimeFinding('finding-resolved', 'resolved'),
-        runtimeFinding('finding-rejected', 'rejected'),
-        runtimeFinding('finding-deferred', 'deferred'),
-      ],
-      execution_log: [{
-        idempotency_key: 'historical-step',
-        mode: 'default',
-        step_id: 'old-step',
-        status: 'in-progress',
-        evidence_refs: ['test:evidence:historical-step'],
-        recorded_at: '2026-08-31T00:00:00.000Z',
-      }],
+  test('blocks an incident-shaped direct replan and preserves the original review obligations', () => {
+    const nineIssues = Array.from({ length: 9 }, (_, index): ClaimEvidenceRecord => {
+      const claim = evidencePlanFixture(`Rust issue ${index + 1} verified`)[0]!;
+      const slot = claim.slots[0]!;
+      return { ...claim, claim_id: `A${index + 1}`, slots: [{ ...slot, slot_id: `a${index + 1}`, check: { ...slot.check!, check_id: `K${index + 1}` } }] };
     });
-    const root = makeRoot(state);
+    const root = makeRoot(makeRuntimeState({
+      claim_evidence_required: true,
+      claim_evidence: nineIssues,
+      findings: [
+        runtimeFinding('external-review-issue-1', 'admitted'),
+        runtimeFinding('external-review-issue-2', 'in-progress'),
+      ],
+    }));
     const initial = readCanonicalCurrentTask(root);
-    const documentId = initial.frontmatter.document_id;
-    const supersedeProposal = createLifecycleProposal(initial, {
+    const supersede = createLifecycleProposal(initial, {
       mode: 'supersede',
       delta: supersedeDelta({ invalidation_kind: 'acceptance' }),
-      idempotency_key: 'lifecycle-supersede-before-replan',
+      idempotency_key: 'incident-supersede',
       authority_evidence: evidence('active-task-owner', 'evidence-admission'),
       evidence_refs: ['test:evidence:supersede'],
     });
-    expect(applyVNextRuntimeProposal(root, supersedeProposal).status).toBe('success');
-
-    const superseded = readCanonicalCurrentTask(root);
-    const committed = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-commit-1', {
+    expect(applyVNextRuntimeProposal(root, supersede).status).toBe('success');
+    const before = readCanonicalCurrentTask(root);
+    const bytes = fs.readFileSync(before.filePath, 'utf8');
+    const attempt = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'incident-replace-audit-with-code', {
       active_step_id: 'step-2',
       definition: replacementDefinition(),
-      evidence_refs: ['test:evidence:replan-commit'],
       claim_evidence: completeClaimEvidence(),
-    }), { now: () => '2026-08-31T01:00:00.000Z' });
-    expect(committed.status).toBe('success');
-    expect(committed.governed_mutation_count).toBe(2);
-
-    const after = readCanonicalCurrentTask(root);
-    expect(after.runtimeState.task_id).toBe(initial.runtimeState.task_id);
-    expect(after.runtimeState.task_slug).toBe(initial.runtimeState.task_slug);
-    expect(after.frontmatter.document_id).toBe(documentId);
-    expect(after.runtimeState.workflow_status).toBe('active');
-    expect(after.runtimeState.lifecycle_state).toBe('active');
-    expect(after.runtimeState.active_step_id).toBe('step-2');
-    expect(after.runtimeState.active_step_status).toBe('ready');
-    expect(after.runtimeState.resume_requires_review).toBe(false);
-    expect(after.runtimeState.resume_review_reasons).toEqual([]);
-    expect(after.runtimeState.review_cycle).toEqual(createReviewCycleZero());
-    expect(after.runtimeState.finding_queue_revision).toBe(8);
-    expect(after.runtimeState.findings.map(item => [item.fingerprint, item.status])).toEqual([
-      ['finding-open-admitted', 'deferred'],
-      ['finding-open-progress', 'deferred'],
-      ['finding-resolved', 'resolved'],
-      ['finding-rejected', 'rejected'],
-      ['finding-deferred', 'deferred'],
-    ]);
-    expect(after.runtimeState.execution_log).toEqual(expect.arrayContaining([
-      expect.objectContaining({ idempotency_key: 'historical-step' }),
-      expect.objectContaining({ action: 'supersede', invalidation_kind: 'acceptance' }),
-      expect.objectContaining({ action: 'commit-replan', source_revision: superseded.sourceTuple.revision }),
-    ]));
-    expect(after.runtimeState.applied_proposals.map(item => item.idempotency_key)).toEqual([
-      'lifecycle-supersede-before-replan',
-      'replan-commit-1',
-    ]);
-    expect(after.body).toContain('- replanned background');
-    expect(after.body).toContain('- step-2: implement the replacement');
-    expect(after.body).toContain('historical review queue entry');
-    expect(after.body).toContain('action: commit-replan');
-    expect(after.body).not.toContain('- original background');
-
-    const oldSupersedeReplay = applyVNextRuntimeProposal(root, supersedeProposal);
-    expect(oldSupersedeReplay.status).toBe('blocked');
-    expect(oldSupersedeReplay.code).toBe('LIFECYCLE_REPLAY_INCOMPLETE');
-    const oldDefinitionCommit = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-illegal-from-active'));
-    expect(oldDefinitionCommit.status).toBe('blocked');
-    expect(oldDefinitionCommit.code).toBe('REPLAN_TRANSITION_INVALID');
-
-    const historical = after.runtimeState.findings[0];
-    const readmitted = applyVNextRuntimeProposal(root, createFindingQueueProposal(after, {
-      mode: 'repair',
-      delta: {
-        kind: 'finding-queue',
-        action: 'admit',
-        cycle_phase: 'discovery',
-        finding_admission_wave_id: 'finding-wave-after-replan',
-        finding: {
-          fingerprint: historical.fingerprint,
-          category: historical.category,
-          owner_task_id: historical.owner_task_id,
-          scope: historical.scope,
-          decision: historical.decision,
-          file: historical.file,
-          failure_condition: historical.failure_condition,
-          violated_invariant: historical.violated_invariant,
-          root_cause_status: historical.root_cause_status,
-          max_repair_attempts: historical.max_repair_attempts,
-          evidence_refs: ['test:evidence:re-admission'],
-          review_cycle_id: 'review-cycle-after-replan',
-        },
-      },
-      idempotency_key: 'finding-readmission-after-replan',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
-      evidence_refs: ['test:evidence:re-admission'],
     }));
-    expect(readmitted.status).toBe('success');
-    expect(readCanonicalCurrentTask(root).runtimeState.findings[0]?.status).toBe('admitted');
+    expect(attempt).toMatchObject({
+      status: 'blocked',
+      code: 'REPLAN_CONFIRMATION_REQUIRED',
+      committed: false,
+      governed_mutation_count: 0,
+    });
+    expect(fs.readFileSync(before.filePath, 'utf8')).toBe(bytes);
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.map(item => item.status)).toEqual(['admitted', 'in-progress']);
+    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence?.map(claim => claim.claim_id)).toEqual(nineIssues.map(claim => claim.claim_id));
+    expect(readCanonicalCurrentTask(root).body).toContain('original background');
+    expect(applyVNextRuntimeProposal(root, supersede).status).toBe('no-op');
   });
 
-  test('requires active_step_id to uniquely identify a replacement implementation step', () => {
+  test('rejects raw replacement proposals before validating a new active step', () => {
     const root = makeRoot();
     const current = readCanonicalCurrentTask(root);
     expect(applyVNextRuntimeProposal(root, createLifecycleProposal(current, {
@@ -2628,7 +2794,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       active_step_id: 'missing-step',
     }));
     expect(missingStep.status).toBe('blocked');
-    expect(missingStep.code).toBe('RUNTIME_SECTION_INVALID');
+    expect(missingStep.code).toBe('REPLAN_CONFIRMATION_REQUIRED');
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
 
     const duplicateStep = applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-duplicate-step', {
@@ -2636,7 +2802,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       definition: replacementDefinition({ implementation_steps: '- step-2: first\n- step-2: duplicate' }),
     }));
     expect(duplicateStep.status).toBe('blocked');
-    expect(duplicateStep.code).toBe('RUNTIME_SECTION_INVALID');
+    expect(duplicateStep.code).toBe('REPLAN_CONFIRMATION_REQUIRED');
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
   });
 
@@ -2667,38 +2833,21 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(replayWithoutBodyAudit.code).toBe('RUNTIME_REPLAY_INCOMPLETE');
   });
 
-  test('blocks replay of a supersede proposal from an earlier definition generation', () => {
+  test('cannot replay supersede to authorize a direct definition generation', () => {
     const root = makeRoot();
     const initial = readCanonicalCurrentTask(root);
-    const supersedeA = createLifecycleProposal(initial, {
-      mode: 'supersede',
-      delta: supersedeDelta(),
-      idempotency_key: 'supersede-generation-a',
+    const supersede = createLifecycleProposal(initial, {
+      mode: 'supersede', delta: supersedeDelta(), idempotency_key: 'supersede-generation-a',
       authority_evidence: evidence('active-task-owner', 'evidence-admission'),
       evidence_refs: ['test:evidence:supersede'],
     });
-    expect(applyVNextRuntimeProposal(root, supersedeA).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, supersede).status).toBe('success');
+    const before = fs.readFileSync(initial.filePath, 'utf8');
     expect(applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'commit-generation-replan', {
       claim_evidence: completeClaimEvidence(),
-    })).status).toBe('success');
-
-    const replanned = readCanonicalCurrentTask(root);
-    const supersedeB = createLifecycleProposal(replanned, {
-      mode: 'supersede',
-      delta: supersedeDelta({
-        invalidation_kind: 'acceptance',
-        invalidation_reason: 'the replacement acceptance is now invalid',
-      }),
-      idempotency_key: 'supersede-generation-b',
-      authority_evidence: evidence('active-task-owner', 'evidence-admission'),
-      evidence_refs: ['test:evidence:supersede'],
-    });
-    expect(applyVNextRuntimeProposal(root, supersedeB).status).toBe('success');
-
-    const oldGenerationReplay = applyVNextRuntimeProposal(root, supersedeA);
-    expect(oldGenerationReplay.status).toBe('blocked');
-    expect(oldGenerationReplay.code).toBe('LIFECYCLE_REPLAY_INCOMPLETE');
-    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
+    }))).toMatchObject({ status: 'blocked', code: 'REPLAN_CONFIRMATION_REQUIRED' });
+    expect(fs.readFileSync(initial.filePath, 'utf8')).toBe(before);
+    expect(applyVNextRuntimeProposal(root, supersede).status).toBe('no-op');
   });
 
   test('rejects replan definition patches outside the closed section and identity allowlist', () => {
@@ -2789,7 +2938,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(staleReplay.code).toBe('RUNTIME_REPLAY_INCOMPLETE');
   });
 
-  test('rolls back a commit-replan when canonical read-back fails', () => {
+  test('does not reach write or read-back for a direct commit-replan', () => {
     const root = makeRoot();
     const current = readCanonicalCurrentTask(root);
     expect(applyVNextRuntimeProposal(root, createLifecycleProposal(current, {
@@ -2812,10 +2961,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     const result = kernel.apply(proposal, { now: () => '2026-08-31T02:00:00.000Z' });
     expect(result.status).toBe('blocked');
-    expect(result.code).toBe('READ_BACK_FAILED');
+    expect(result.code).toBe('REPLAN_CONFIRMATION_REQUIRED');
     expect(result.governed_mutation_count).toBe(0);
-    expect(result.message).toContain('rollback read-back verified');
-    expect(readCount).toBe(3);
+    expect(readCount).toBe(1);
     expect(fs.readFileSync(superseded.filePath, 'utf8')).toBe(before);
     expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-basis', 'TASK_BASIS-010.md'))).toBe(false);
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('superseded');
@@ -4243,6 +4391,10 @@ describe('vNext Phase 2 Runtime contract', () => {
       const missingCoords = originalContract.replace(/authority_coordinates:[\s\S]*?from: draft \+ active/, 'from: draft + active');
       fs.writeFileSync(contractPath, missingCoords, 'utf8');
       expect(() => validateVNextRuntimeContract(ROOT)).toThrow('RUNTIME_SCHEMA_INVALID');
+
+      const unsafeReplan = originalContract.replace('direct_replan_result: REPLAN_CONFIRMATION_REQUIRED', 'direct_replan_result: success');
+      fs.writeFileSync(contractPath, unsafeReplan, 'utf8');
+      expect(() => validateVNextRuntimeContract(ROOT)).toThrow('RUNTIME_CONTRACT_INVALID');
     } finally {
       fs.writeFileSync(contractPath, originalContract, 'utf8');
     }
@@ -4965,8 +5117,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => confirmDraft(root, { confirmation_receipt: receipt })).toThrow('DRAFT_REVISION_CONFLICT');
     expect(confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt }).status).toBe('success');
     expect(readProjectDocuments(readDraftDefinitionFromBody(readCanonicalCurrentTask(root).body).background_context)).toEqual(changed.project_documents);
-    expect(() => replan(root, semanticDraft())).toThrow('PROJECT_DOCUMENTS_REQUIRED');
-    expect(() => replan(root, { ...changed, project_documents: [] })).toThrow('REPLAN_INVALIDATION_REQUIRED');
+    expect(() => replan(root, semanticDraft())).toThrow('REPLAN_CONFIRMATION_REQUIRED');
+    expect(() => replan(root, { ...changed, project_documents: [] })).toThrow('REPLAN_CONFIRMATION_REQUIRED');
   });
 
   test('rejects malformed document references without writes and distinguishes legacy absence from explicit empty', () => {
@@ -5132,6 +5284,29 @@ describe('vNext Phase 2 Runtime contract', () => {
       governed_mutation_count: 0,
     });
     expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('draft');
+  });
+
+  test('Task Basis retains the original request and earlier decisions across draft refinement', () => {
+    const root = archivedBaselineRoot();
+    const originalBasis: TaskBasis = {
+      original_request: { source: 'test:incident-request', verbatim: 'Verify the nine Rust issues without changing product code.' },
+      user_decisions: [{ source: 'test:owner-decision', verbatim: 'Treat external code as review evidence.' }],
+    };
+    expect(prepareDraft(root, singleStepSemanticDraft({ task_basis: originalBasis })).status).toBe('success');
+    const draft = readCanonicalCurrentTask(root);
+    const basis = readCanonicalTaskBasis(root, draft);
+    const beforeTask = fs.readFileSync(draft.filePath, 'utf8');
+    const beforeBasis = fs.readFileSync(basis.filePath, 'utf8');
+    const alteredRequest = prepareDraft(root, singleStepSemanticDraft({
+      task_basis: { ...originalBasis, original_request: { ...originalBasis.original_request, verbatim: 'Implement the Rust fixes.' } },
+    }));
+    expect(alteredRequest).toMatchObject({ status: 'blocked', code: 'TASK_BASIS_IMMUTABLE' });
+    const deletedDecision = prepareDraft(root, singleStepSemanticDraft({
+      task_basis: { ...originalBasis, user_decisions: [] },
+    }));
+    expect(deletedDecision).toMatchObject({ status: 'blocked', code: 'TASK_BASIS_IMMUTABLE' });
+    expect(fs.readFileSync(draft.filePath, 'utf8')).toBe(beforeTask);
+    expect(fs.readFileSync(basis.filePath, 'utf8')).toBe(beforeBasis);
   });
 
   test('preflights the confirmed current step and blocks unlisted persistent tests', () => {
@@ -5897,7 +6072,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const historical = fs.readFileSync(file, 'utf8').replace(/^  business_evidence_version: 1\r?\n/m, '');
     fs.writeFileSync(file, historical);
     expect(readCanonicalCurrentTask(root).runtimeState.business_evidence_version).toBeUndefined();
-    expect(() => replan(root, singleStepSemanticDraft())).toThrow('REPLAN_INVALIDATION_REQUIRED');
+    expect(() => replan(root, singleStepSemanticDraft())).toThrow('REPLAN_CONFIRMATION_REQUIRED');
     expect(() => preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] })).toThrow('TASK_SEMANTICS_UPGRADE_REQUIRED');
     expect(applyVNextRuntimeProposal(root, taskProposal(root))).toMatchObject({ status: 'blocked', code: 'TASK_SEMANTICS_UPGRADE_REQUIRED', committed: false });
     expect(JSON.stringify(previewCloseTask(root, archiveDelta()))).toContain('TASK_SEMANTICS_UPGRADE_REQUIRED');
@@ -6576,113 +6751,23 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('advances after a replan without re-resolving repair findings from the old definition', () => {
-    const historicalFingerprint = 'finding-historical-repair';
+  test('does not defer an old repair finding when direct replan is rejected', () => {
     const root = makeRoot(makeRuntimeState({
-      active_step_status: 'completed',
-      review_cycle: {
-        id: 'review-cycle-0', cycle_phase: 'verification', repair_round: 1,
-        counted_repair_wave_ids: ['repair-wave-history'], active_repair_wave_id: 'repair-wave-history',
-        verification_new_finding_wave_used: false, verification_new_finding_wave_id: null,
-      },
-      findings: [runtimeFinding(historicalFingerprint, 'in-progress', {
-        review_cycle_id: 'review-cycle-0', last_repair_wave_id: 'repair-wave-history',
-      })],
-      execution_log: [{
-        idempotency_key: 'execute-step-result-historical', mode: 'repair', step_id: 'step-1',
-        status: 'completed', evidence_refs: ['test:historical-repair'],
-        repair_fingerprints: [historicalFingerprint], repair_wave_id: 'repair-wave-history',
-        change_set_id: 'change-set-history', checkpoint: 'required',
-        advancement: 'repair-awaiting-verification', next_step_id: null,
-        recorded_at: '2026-08-31T00:00:00.000Z',
-      }],
+      findings: [runtimeFinding('finding-historical-repair', 'in-progress')],
     }));
-    const before = readCanonicalCurrentTask(root);
-    expect(applyVNextRuntimeProposal(root, createLifecycleProposal(before, {
+    const initial = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createLifecycleProposal(initial, {
       mode: 'supersede', delta: supersedeDelta(), idempotency_key: 'supersede-history',
       authority_evidence: evidence('active-task-owner', 'evidence-admission'),
       evidence_refs: ['test:evidence:supersede'],
     })).status).toBe('success');
-    const definition = replacementDefinition({
-      acceptance: '- [ ] replanned acceptance',
-      allowed_scope: '- runtime/vnext/src/prepare-task-adapter.ts',
-      implementation_steps: [
-        '- step-1: verify the replacement definition',
-        '  - purpose: verify the replacement definition',
-        '  - mutation_scope: runtime/vnext/src/prepare-task-adapter.ts',
-        '  - required_evidence: replacement evidence is current',
-        '  - review_checkpoint: required: replacement implementation boundary',
-      ].join('\n'),
-    });
-    const claimEvidence = evidencePlanFixture('replanned acceptance', 'step-1');
-    const slot = claimEvidence[0]!.slots[0]!;
-    slot.minimum_type = 'static-proof';
-    slot.check!.method = 'static';
-    slot.check!.entry = 'runtime/vnext/src/prepare-task-adapter.ts';
-    slot.check!.expected_result = 'accepted';
-    slot.check!.subject_paths = ['runtime/vnext/src/prepare-task-adapter.ts'];
+    const before = readCanonicalCurrentTask(root);
+    const bytes = fs.readFileSync(before.filePath, 'utf8');
     expect(applyVNextRuntimeProposal(root, replanProposal(root, 'commit-replan', 'replan-history', {
-      definition, active_step_id: 'step-1', claim_evidence: claimEvidence,
-    })).status).toBe('success');
-    expect(readCanonicalCurrentTask(root).runtimeState.findings[0]?.status).toBe('deferred');
-
-    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
-    const filePath = path.join(root, 'runtime/vnext/src/prepare-task-adapter.ts');
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, 'replacement implementation\n', 'utf8');
-    expect(recordStepResult(root, {
-      preflight_receipt: preflight.receipt,
-      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
-      command_results: [],
-      validation_results: [{ validation: 'replacement evidence is current', status: 'passed', evidence_refs: ['evidence-report.txt'] }],
-      acceptance_evidence: [reportFixture(root, 'A1', 'a1', 'accepted')],
-      outcome: 'implemented', note: 'replacement execution',
-    }).status).toBe('success');
-    const discovery = reviewContext(root, {});
-    expect(discovery.receipt).toMatchObject({ cycle_phase: 'discovery', admitted_fingerprints: [] });
-    expect(recordReviewResult(root, {
-      context_receipt: discovery.receipt, verdict: 'findings',
-      findings: [{
-        category: 'replacement-check', file: 'runtime/vnext/src/prepare-task-adapter.ts',
-        failure_condition: 'the replacement implementation lacks a current marker',
-        required_behavior: 'record the current marker', root_cause_status: 'confirmed',
-        evidence_refs: ['test:replacement-finding'],
-      }],
-      unresolved_fingerprints: [], evidence_refs: ['test:replacement-review'], blocker: null,
-    }).status).toBe('success');
-    const repair = beginRepair(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
-    expect(repair.receipt.repair_fingerprints).toHaveLength(1);
-    fs.writeFileSync(filePath, 'replacement implementation with current marker\n', 'utf8');
-    const repairEvidence = reportFixture(root, 'A1', 'a1', 'accepted');
-    repairEvidence.report.result_id = 'result-current-repair';
-    const repairResult = recordStepResult(root, {
-      preflight_receipt: repair.receipt,
-      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
-      command_results: [],
-      validation_results: [{ validation: 'replacement evidence is current', status: 'passed', evidence_refs: ['evidence-report.txt'] }],
-      acceptance_evidence: [repairEvidence],
-      outcome: 'implemented', note: 'current definition repair',
-    });
-    expect(repairResult).toMatchObject({ status: 'success' });
-    const verification = reviewContext(root, {});
-    expect(verification.receipt.admitted_fingerprints).toEqual(repair.receipt.repair_fingerprints);
-    expect(recordReviewResult(root, {
-      context_receipt: verification.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
-      evidence_refs: ['test:replacement-verification'], blocker: null,
-    }).status).toBe('success');
-    const beforePreview = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
-    const preview = completeReviewedStep(root, { step_id: 'step-1', note: 'current definition reviewed' }, { dryRun: true });
-    expect(preview).toMatchObject({ status: 'success', dry_run: true, committed: false, advancement: { outcome: 'task-complete' } });
-    expect(preview.resulting_revision).toBeUndefined();
-    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(beforePreview);
-    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === repair.receipt.repair_fingerprints[0])?.status).toBe('in-progress');
-    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'current definition reviewed' })).toMatchObject({
-      status: 'success', advancement: { outcome: 'task-complete' },
-    });
-    const completed = readCanonicalCurrentTask(root);
-    expect(completed.runtimeState.findings.find(item => item.fingerprint === historicalFingerprint)?.status).toBe('deferred');
-    expect(completed.runtimeState.findings.find(item => item.fingerprint === repair.receipt.repair_fingerprints[0])?.status).toBe('resolved');
-    expect(completed.runtimeState.execution_log.some(item => !('action' in item) && item.idempotency_key === 'execute-step-result-historical')).toBe(true);
+      claim_evidence: completeClaimEvidence(),
+    }))).toMatchObject({ status: 'blocked', code: 'REPLAN_CONFIRMATION_REQUIRED' });
+    expect(fs.readFileSync(before.filePath, 'utf8')).toBe(bytes);
+    expect(readCanonicalCurrentTask(root).runtimeState.findings[0]?.status).toBe('in-progress');
   });
 
   test('keeps repair behind the durable review handoff instead of caller-supplied preflight coordinates', () => {
@@ -7254,7 +7339,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(prepareDraft(root, admitted).status).toBe('success');
   });
 
-  test('wraps resume review and replan without public proposal fields', () => {
+  test('wraps resume review and rejects the disabled public replan path', () => {
     const resumeRoot = makeRoot(makeRuntimeState({
       resume_requires_review: true,
       resume_review_reasons: ['manual_review_pending'],
@@ -7291,7 +7376,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const activeReplanRoot = makeRoot();
     const activeBytes = fs.readFileSync(readCanonicalCurrentTask(activeReplanRoot).filePath, 'utf8');
-    expect(() => replan(activeReplanRoot, semanticDraft())).toThrow('REPLAN_INVALIDATION_REQUIRED');
+    expect(() => replan(activeReplanRoot, semanticDraft())).toThrow('REPLAN_CONFIRMATION_REQUIRED');
     expect(fs.readFileSync(readCanonicalCurrentTask(activeReplanRoot).filePath, 'utf8')).toBe(activeBytes);
 
     const replanRoot = makeRoot(makeRuntimeState({
@@ -7299,19 +7384,13 @@ describe('vNext Phase 2 Runtime contract', () => {
       lifecycle_state: 'active',
     }));
     const replanInput = semanticDraft({ project_documents: [{ path: 'docs/PLAN.md', section: 'S2', revision: 'v2', purpose: 'Replacement plan' }], affected_contracts: [] });
-    const replanned = replan(replanRoot, replanInput);
-    expect(replanned).toMatchObject({ status: 'success' });
     const current = readCanonicalCurrentTask(replanRoot);
-    expect(current.runtimeState.workflow_status).toBe('active');
-    expect(current.runtimeState.active_step_id).toBe('step-1');
-    expect(current.body).toContain('Add the prepare-task Runtime adapter');
-    const replannedBytes = fs.readFileSync(current.filePath, 'utf8');
-    expect(readProjectDocuments(readDraftDefinitionFromBody(current.body).background_context)).toEqual(replanInput.project_documents!);
-    expect(replan(replanRoot, replanInput).status).toBe('no-op');
-    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(replannedBytes);
+    const before = fs.readFileSync(current.filePath, 'utf8');
+    expect(() => replan(replanRoot, replanInput)).toThrow('REPLAN_CONFIRMATION_REQUIRED');
+    expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
   });
 
-  test('validate refuses to reuse a plan revision after direct definition drift, while authorized replan changes it', () => {
+  test('validate refuses a directly drifted plan and rejected replan cannot legitimize it', () => {
     const root = confirmedSemanticRoot();
     const initial = readCanonicalCurrentTask(root);
     const validate = (summary: boolean) => spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', ...(summary ? ['--summary'] : []), '--root', root], { encoding: 'utf8' });
@@ -7330,13 +7409,14 @@ describe('vNext Phase 2 Runtime contract', () => {
       evidence_refs: ['test:evidence:supersede'],
     });
     expect(applyVNextRuntimeProposal(root, supersede).status).toBe('success');
-    expect(replan(root, singleStepSemanticDraft({
+    const superseded = readCanonicalCurrentTask(root);
+    const bytes = fs.readFileSync(superseded.filePath, 'utf8');
+    expect(() => replan(root, singleStepSemanticDraft({
       goal: 'Add the prepare-task Runtime adapter with revised scope',
       project_documents: [], affected_contracts: [],
-    })).status).toBe('success');
-    const replanned = readCanonicalCurrentTask(root);
-    expect(replanned.runtimeState.evidence_plan_revision).not.toBe(initial.runtimeState.evidence_plan_revision);
-    expect(validate(true).status).toBe(0);
+    }))).toThrow('REPLAN_CONFIRMATION_REQUIRED');
+    expect(fs.readFileSync(superseded.filePath, 'utf8')).toBe(bytes);
+    expect(superseded.runtimeState.evidence_plan_revision).toBe(initial.runtimeState.evidence_plan_revision);
   });
 
   test('keeps migration and replan convergence actions internal to Runtime owners', () => {
@@ -7518,5 +7598,129 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => resolveExternalProposalFile(root, insideProposal)).toThrow('PROPOSAL_FILE_INSIDE_PROJECT');
     const outsideProposal = path.join(os.tmpdir(), 'prepare-task-proposal.json');
     expect(resolveExternalProposalFile(root, outsideProposal)).toBe(path.resolve(outsideProposal));
+  });
+
+  test('keeps original audit obligations while confirming a bounded correction before the original next step', () => {
+    const audited = evidencePlanFixture('Nine issue conclusions remain verified', 'S3');
+    audited[0]!.slots[0]!.check!.subject_paths = ['docs/audit.md'];
+    const unaffected = structuredClone(audited[0]!);
+    unaffected.claim_id = 'I1';
+    unaffected.claim_kind = 'invariant';
+    unaffected.requirement = 'The independent issue observation remains valid';
+    unaffected.slots[0]!.slot_id = 'i1';
+    unaffected.slots[0]!.check!.check_id = 'K2';
+    unaffected.slots[0]!.check!.subject_paths = ['docs/other.md'];
+    const input = semanticDraft({
+      task_basis: taskBasisFixture('Audit the Rust issue ledger, preserve all claims, then run S4'),
+      goal: 'Audit the Rust issue ledger and then run S4',
+      claim_evidence: [audited[0]!, unaffected],
+      mutation_scope: { allowed: ['docs/audit.md', 'docs/other.md'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [
+        { id: 'S3', description: 'Audit the issue ledger', mutation_scope: ['docs/audit.md'], commands: [], validation: ['Issue audit report is recorded'], review_checkpoint: { policy: 'not-required', reason: 'S4 reviews cumulative audit changes' } },
+        { id: 'S4', description: 'Evaluate static reuse after the audit', mutation_scope: ['docs/audit.md', 'docs/other.md'], commands: [], validation: ['Original S4 evaluation remains required'], review_checkpoint: { policy: 'required', reason: 'Review cumulative audit and reuse decision' } },
+      ],
+      persistent_tests: 'none',
+    });
+    const root = confirmedSemanticRoot(input);
+    fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'audit.md'), 'old audit result\n');
+    fs.writeFileSync(path.join(root, 'docs', 'other.md'), 'independent observation\n');
+    fs.writeFileSync(path.join(root, 'docs', 'challenge.md'), 'External review: public cursor result is unsupported.\n');
+    const confirmed = readCanonicalCurrentTask(root);
+    const claims = structuredClone(confirmed.runtimeState.claim_evidence!);
+    for (const claim of claims) for (const slot of claim.slots) {
+      slot.disposition = 'newly-executed';
+      slot.evidence_refs = ['evidence-report.txt'];
+      slot.report = { result_id: `result-${slot.check!.check_id}`, status: 'passed', evidence_plan_revision: confirmed.runtimeState.evidence_plan_revision!,
+        subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision, actual_method: slot.check!.method,
+        environment: 'isolated audit fixture', assurance: 'caller-reported' };
+    }
+    const state = { ...confirmed.runtimeState, active_step_id: 'S4', active_step_status: 'ready' as const, claim_evidence: claims };
+    const frontmatter = { ...confirmed.frontmatter, runtime_state: state };
+    fs.writeFileSync(confirmed.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${confirmed.body}`, 'utf8');
+    const before = readCanonicalCurrentTask(root);
+    const challenged = recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1', evidence_ref: 'docs/challenge.md',
+      evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge.md')), reason: 'The public cursor boundary was not observed' });
+    expect(challenged.status).toBe('success');
+    expect(recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1', evidence_ref: 'docs/challenge.md',
+      evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge.md')), reason: 'The public cursor boundary was not observed' }).status).toBe('no-op');
+    const firstChallengedCurrent = readCanonicalCurrentTask(root);
+    expect(() => assertOrdinaryPreflight(firstChallengedCurrent, root)).toThrow('EVIDENCE_CHALLENGE_UNRESOLVED');
+    const challengeId = firstChallengedCurrent.runtimeState.evidence_challenges![0]!.challenge_id;
+    fs.writeFileSync(path.join(root, 'docs', 'assessment.md'), 'The independent observation covers the disputed result and the counterexample does not apply.\n');
+    const independent = recordEvidenceChallenge(root, { claim_id: 'I1', slot_id: 'i1', result_id: 'result-K2', evidence_ref: 'docs/challenge.md',
+      evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge.md')), reason: 'Check whether the independent observation also fails' });
+    expect(independent.status).toBe('success');
+    const independentId = readCanonicalCurrentTask(root).runtimeState.evidence_challenges![1]!.challenge_id;
+    const assessment = { challenge_id: independentId, evidence_ref: 'docs/assessment.md',
+      evidence_sha256: fileRevision(path.join(root, 'docs', 'assessment.md')), reason: 'The cited counterexample does not affect independent K2' };
+    expect(dismissEvidenceChallenge(root, { ...assessment, evidence_sha256: '0'.repeat(64) })).toMatchObject({ status: 'blocked', code: 'EVIDENCE_CHALLENGE_SOURCE_STALE' });
+    expect(dismissEvidenceChallenge(root, assessment).status).toBe('success');
+    expect(dismissEvidenceChallenge(root, assessment).status).toBe('no-op');
+    expect(readCanonicalCurrentTask(root).runtimeState.evidence_challenges?.[1]?.resolution?.kind).toBe('not-substantiated');
+    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence?.[1]?.slots[0]?.report?.result_id).toBe('result-K2');
+    const challengedCurrent = readCanonicalCurrentTask(root);
+    const challengedBytes = fs.readFileSync(challengedCurrent.filePath);
+    const candidateInput = { challenge_id: challengeId, correction_step: { id: 'S3-C1', description: 'Recheck challenged public cursor conclusion',
+      mutation_scope: ['docs/audit.md'], required_evidence: ['Targeted public cursor observation'], commands: [] } };
+    const candidate = prepareCorrectionReplan(root, candidateInput);
+    expect(candidate.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(challengedCurrent.sourceTuple.revision);
+    expect(() => prepareCorrectionReplan(root, { ...candidateInput, correction_step: { ...candidateInput.correction_step, mutation_scope: ['src/login.ts'] } })).toThrow('REPLAN_SCOPE_EXPANSION');
+    const receipt = candidate.candidate_receipt;
+    const authorization = { approved_candidate_digest: receipt.candidate_digest, decision_source: 'user:explicit-correction',
+      decision_text: 'Approve only S3-C1 correction of the challenged result before original S4; preserve all original audit obligations.',
+      invalidation_reason: 'Independent counterevidence invalidates the old public cursor conclusion.' };
+    expect(() => confirmCorrectionReplan(root, { candidate_receipt: { ...receipt, obligations_digest: '0'.repeat(64) }, authorization })).toThrow('REPLAN_OBLIGATIONS_STALE');
+    fs.writeFileSync(path.join(root, 'docs', 'other.md'), 'changed independent observation\n');
+    expect(() => confirmCorrectionReplan(root, { candidate_receipt: receipt, authorization })).toThrow('CLAIM_EVIDENCE_STALE');
+    fs.writeFileSync(path.join(root, 'docs', 'other.md'), 'independent observation\n');
+    const candidatePath = path.join(root, ...candidate.candidate_path.split('/'));
+    const candidateBytes = fs.readFileSync(candidatePath, 'utf8');
+    fs.writeFileSync(candidatePath, candidateBytes.replace('Nine issue conclusions remain verified', 'Drop old acceptance'));
+    expect(() => confirmCorrectionReplan(root, { candidate_receipt: receipt, authorization })).toThrow('REPLAN_CANDIDATE_INVALID');
+    fs.writeFileSync(candidatePath, candidateBytes);
+    const committed = confirmCorrectionReplan(root, { candidate_receipt: receipt, authorization });
+    expect(committed.status).toBe('success');
+    expect(committed.read_back_verified).toBe(true);
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.task_id).toBe(before.runtimeState.task_id);
+    expect(after.runtimeState.active_step_id).toBe('S3-C1');
+    expect(after.body).toContain('- S4: Evaluate static reuse after the audit');
+    expect(after.runtimeState.claim_evidence?.map(item => item.claim_id)).toEqual(['A1', 'I1']);
+    expect(after.runtimeState.claim_evidence?.[0]?.slots[0]?.report).toBeNull();
+    expect(after.runtimeState.claim_evidence?.[1]?.slots[0]?.report?.result_id).toBe('result-K2');
+    expect(after.runtimeState.evidence_carry_forward).toHaveLength(1);
+    expect(after.runtimeState.evidence_challenges?.[0]?.status).toBe('invalidated');
+    expect(readCanonicalTaskBasis(root, after).basis.user_decisions.at(-1)?.verbatim).toBe(authorization.decision_text);
+    const historyPath = path.join(root, 'docs', 'workflow', 'task-history', after.sourceTuple.document_id, `${challengedCurrent.sourceTuple.revision}.json`);
+    const history = JSON.parse(fs.readFileSync(historyPath, 'utf8'));
+    expect(history.operation).toBe('confirm-replan');
+    expect(Buffer.from(history.current_task_base64, 'base64')).toEqual(challengedBytes);
+    expect(confirmCorrectionReplan(root, { candidate_receipt: receipt, authorization }).status).toBe('no-op');
+    expect(() => assertOrdinaryPreflight(after, root)).not.toThrow();
+    const correctionPreflight = preflightStep(root, { candidate_paths: ['docs/audit.md'] });
+    fs.writeFileSync(path.join(root, 'docs', 'audit.md'), 'corrected public cursor conclusion\n');
+    const correctionReport = reportFixture(root);
+    correctionReport.report.result_id = 'result-K1-correction';
+    expect(recordStepResult(root, {
+      preflight_receipt: correctionPreflight.receipt,
+      actual_changed_paths: ['docs/audit.md'],
+      command_results: [],
+      validation_results: [{ validation: 'Targeted public cursor observation', status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [correctionReport],
+      outcome: 'implemented', note: 'Correct only challenged audit conclusion',
+    }).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(review.receipt.step_id).toBe('S3-C1');
+    expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'S3-C1', note: 'Corrected report reviewed' })).toMatchObject({
+      status: 'success', advancement: { outcome: 'advanced', to_step_id: 'S4' },
+    });
+    const resumed = readCanonicalCurrentTask(root);
+    expect(resumed.runtimeState.active_step_id).toBe('S4');
+    expect(resumed.runtimeState.evidence_challenges?.[0]?.status).toBe('resolved');
+    expect(resumed.runtimeState.claim_evidence?.[1]?.slots[0]?.report?.result_id).toBe('result-K2');
   });
 });

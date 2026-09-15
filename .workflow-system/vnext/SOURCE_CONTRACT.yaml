@@ -277,6 +277,12 @@ capabilities:
       - 'prepare-task creates and persists a non-empty canonical CURRENT_TASK.runtime_state.claim_evidence plan with at least one acceptance claim; each claim has stable claim_id/claim_kind and each planned slot has slot_id, minimum_type, disposition, and evidence_refs'
       - 'migrate-claim-evidence is a Runtime-compatibility-owned internal transition, not a public prepare-task semantic command; it remains reachable through the low-level Runtime API for legacy active + active tasks, installs only a non-empty acceptance-bearing plan, and preserves task identity, definition, scope, acceptance, implementation state, execution history, findings, review state, and lifecycle tuple'
       - 'existing, reused, and newly-executed slots require evidence_refs; missing, deferred, and blocked slots are not completion evidence'
+      - 'counterevidence binds an existing claim/slot/result and a retained file hash; contested conclusions block dependent execution and closure without rewriting historical reports'
+      - 'a contested challenge may be dismissed only with a bound, hashed review assessment; dismissal retains the challenge and original report'
+      - 'restricted correction candidates retain original task identity, goal, scope, claims, checks, and later steps; confirmation binds exact candidate, old Task Basis and obligations, and remains caller-reported without trusted host approval'
+      - 'only Runtime-derived carry-forward may satisfy an unchanged old report under a new plan; challenged, stale-subject and before-step receipts cannot be silently reused'
+      - 'upgrade preserves the old CURRENT_TASK bytes; explicit initialize-preservation saves exact task and Task Basis preimages before adding a version marker, and missing or unknown protection versions cannot authorize task replacement'
+      - 'supersede preserves unfinished obligations but does not authorize a successor; prepare-draft from superseded fails with REPLACEMENT_OUTCOME_UNSUPPORTED until a non-completion replacement outcome exists'
       - 'execute-step may update only disposition and evidence_refs for an existing plan; it cannot add, remove, or redefine claims or evidence slots'
       - 'legacy CURRENT_TASK documents remain readable but require prepare-task refinement/migration before task-complete or terminal close-task; aggregate command success cannot provide completion compatibility'
       - 'exploratory probe budget: duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule'
@@ -508,6 +514,8 @@ runtime_operations:
     bound_actions:
       - execute-step:step-progress
       - review-change:default:record-review-result
+      - review-change:default:record-evidence-challenge
+      - review-change:default:dismiss-evidence-challenge
       - prepare-task:default:clear-resume-review-gate
       - prepare-task:default:create-draft
       - prepare-task:default:update-draft
@@ -515,7 +523,6 @@ runtime_operations:
       - prepare-task:default:migrate-claim-evidence
       - prepare-task:replan:mark-replan-blocked
       - prepare-task:replan:clear-replan-block
-      - prepare-task:replan:commit-replan
 
   - id: finding-queue-transaction
     status: bound
@@ -544,10 +551,12 @@ runtime_operations:
       - vNext lifecycle marker
       - vNext snapshot
       - vNext recovery package and its observed content revision
+      - linked Task Basis when superseding
     write_targets:
       - vNext lifecycle marker
       - vNext snapshot
       - vNext recovery package
+      - task-history immutable preimage on supersede
     allowed_callers:
       - task-lifecycle
     bound_callers:

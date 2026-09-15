@@ -26,6 +26,10 @@ import {
   createPrepareTaskDraftProposal,
   createPrepareTaskReplanProposal,
   createPrepareTaskResumeReviewProposal,
+  prepareCorrectionReplan,
+  confirmCorrectionReplan,
+  discardCorrectionReplan,
+  initializeTaskPreservation,
   readCanonicalCurrentTask,
   readCanonicalTaskBasis,
   readDraftDefinitionFromBody,
@@ -55,6 +59,10 @@ export const PREPARE_TASK_ADAPTER_COMMANDS = [
   'confirm-draft',
   'clear-resume-review',
   'replan',
+  'prepare-replan',
+  'confirm-replan',
+  'discard-replan',
+  'initialize-preservation',
 ] as const;
 
 export type PrepareTaskAdapterCommand = (typeof PREPARE_TASK_ADAPTER_COMMANDS)[number];
@@ -783,7 +791,10 @@ export function prepareDraft(root: string, input: unknown, options: RuntimeApply
   const creating = current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived';
   const updating = current.runtimeState.workflow_status === 'draft' && current.runtimeState.lifecycle_state === 'active';
   if (!creating && !updating) {
-    fail('PREPARE_DRAFT_STATE_INVALID', 'prepare-draft requires closed + archived to create, or draft + active to update. A confirmed task must first be invalidated through the authorized task-lifecycle supersede route, then replaced with replan.');
+    if (current.runtimeState.workflow_status === 'superseded') {
+      fail('REPLACEMENT_OUTCOME_UNSUPPORTED', 'A superseded task retains unfinished obligations. This Runtime has no authorized non-completion successor transition; do not close it as completed or overwrite it with a new draft.');
+    }
+    fail('PREPARE_DRAFT_STATE_INVALID', 'prepare-draft requires closed + archived to create, or draft + active to update. A confirmed task cannot be replaced through the disabled one-call replan route.');
   }
   const identity = creating
     ? {
@@ -917,6 +928,7 @@ export function clearResumeReview(root: string, input: unknown, options: Runtime
 }
 
 export function replan(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  fail('REPLAN_CONFIRMATION_REQUIRED', 'The legacy replan command commits immediately and is disabled. A revision-bound candidate and explicit confirmation are required before replacement.');
   const semantic = normalizeSemanticDraft(input);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
@@ -1021,6 +1033,18 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
         break;
       case 'replan':
         result = replan(args.root, input, options);
+        break;
+      case 'prepare-replan':
+        result = prepareCorrectionReplan(args.root, input, options);
+        break;
+      case 'confirm-replan':
+        result = confirmCorrectionReplan(args.root, input, options);
+        break;
+      case 'discard-replan':
+        result = discardCorrectionReplan(args.root, input, options);
+        break;
+      case 'initialize-preservation':
+        result = initializeTaskPreservation(args.root, input, options);
         break;
     }
     console.log(JSON.stringify(result, null, 2));

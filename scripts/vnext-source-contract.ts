@@ -229,6 +229,8 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
   'task-state-transaction': [
     'execute-step:step-progress',
     'review-change:default:record-review-result',
+    'review-change:default:record-evidence-challenge',
+    'review-change:default:dismiss-evidence-challenge',
     'prepare-task:default:clear-resume-review-gate',
     'prepare-task:default:create-draft',
     'prepare-task:default:update-draft',
@@ -236,7 +238,6 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'prepare-task:default:migrate-claim-evidence',
     'prepare-task:replan:mark-replan-blocked',
     'prepare-task:replan:clear-replan-block',
-    'prepare-task:replan:commit-replan',
   ],
   'finding-queue-transaction': [
     'execute-step:repair:admit',
