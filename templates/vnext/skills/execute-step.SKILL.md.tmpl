@@ -54,6 +54,11 @@ attempt. A passed command report cannot replace it. Keep restored paths at their
 confirmed target images through result recording and reviewed completion; place
 forward edits in a subsequent recovery step. Missing or changed completion facts
 block successful advancement; actual failures can still be recorded truthfully.
+After an environment retry, obtain fresh preflight and call apply-artifact-restore
+again. Runtime may revalidate exact targets against the original immutable v1
+fact and mint a new attempt-bound v2 fact. Run fresh checks and review; never
+reuse the old receipt as proof of the new attempt. Recovery progress through raw
+apply also requires the durable current admitted attempt and retained budget.
 
 ## Intent
 

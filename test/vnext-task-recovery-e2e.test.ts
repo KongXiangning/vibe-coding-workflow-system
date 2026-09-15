@@ -13,7 +13,7 @@ import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governanc
 const sourceRoot = path.resolve(import.meta.dir, '..');
 const sha = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
 
-for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-budget']) test(`fixed tgz recovery: ${scenario}`, { timeout: 180000 }, () => {
+for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-budget', 'interleaved', 'restore-retry']) test(`fixed tgz recovery: ${scenario}`, { timeout: 180000 }, () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-recovery-distribution-'));
   const target = path.join(workspace, 'target');
   const npmHome = path.join(workspace, 'package-user');
@@ -26,7 +26,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     const packed = JSON.parse(execFileSync(npm, ['pack', '--json', '--pack-destination', workspace], { cwd: packageRoot, encoding: 'utf8' }));
     tgz = path.join(workspace, packed[0].filename);
   }
-  expect(path.basename(tgz)).toBe('vibe-governance-0.19.1.tgz');
+  expect(path.basename(tgz)).toBe('vibe-governance-0.19.2.tgz');
   fs.writeFileSync(path.join(npmHome, 'package.json'), '{"name":"isolated-recovery-installer","private":true}\n');
   execFileSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', tgz], { cwd: npmHome, encoding: 'utf8' });
   const bin = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');
@@ -145,6 +145,23 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     return JSON.parse(fs.readFileSync(path.join(target, candidate.candidate_path), 'utf8'));
   }
   complete('S1', ['A', 'B'], { 'notes/a.md': 'analysis A\n', 'notes/b.md': 'analysis B\n' });
+  if (scenario === 'interleaved') {
+    const ids = challenge(['A', 'A']);
+    const original = state().runtime_state.evidence_challenges.map((item: any) => item.result_id);
+    confirm({ challenge_ids: [ids[0]], correction_step: recovery('FIRST') });
+    complete('FIRST', ['A']);
+    const newer = challenge(['A']).find((id: string) => !ids.includes(id));
+    confirm({ challenge_ids: [newer], correction_step: recovery('SECOND') });
+    complete('SECOND', ['A']);
+    rejected('preflight-step', { candidate_paths: allPaths }, 'EVIDENCE_CHALLENGE_UNRESOLVED');
+    confirm({ challenge_ids: [ids[1]], correction_step: recovery('REMAINING') });
+    complete('REMAINING', ['A']);
+    expect(state().runtime_state.evidence_challenges.slice(0, 2).map((item: any) => item.result_id)).toEqual(original);
+    expect(state().runtime_state.evidence_challenges.every((item: any) => item.status === 'resolved')).toBe(true);
+    complete('S2', []);
+    fs.rmSync(workspace, { recursive: true, force: true });
+    return;
+  }
   if (scenario === 'same-report') {
     const ids = challenge(['A', 'A', 'A']);
     const original = state().runtime_state.evidence_challenges.map((item: any) => item.result_id);
@@ -161,7 +178,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     fs.rmSync(workspace, { recursive: true, force: true });
     return;
   }
-  if (scenario === 'first-restore' || scenario === 'failure-budget') {
+  if (scenario === 'first-restore' || scenario === 'failure-budget' || scenario === 'restore-retry') {
     if (scenario === 'failure-budget') {
       // Isolate budget inheritance from the independent optional-challenge fix.
       confirm({ challenge_ids: challenge(['A']), correction_step: recovery('BOOT') });
@@ -173,12 +190,57 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     const diagnosis = invoke(['ingest-evidence'], { source_revision: prior.source_tuple.revision, source_locator: 'fixture:execution-diagnosis', body: 'Recover the real completed S1 observation.' });
     let targets = [{ execution_id: result.idempotency_key, reason: 'Recover S1', evidence_ref: diagnosis.evidence_ref, evidence_sha256: diagnosis.evidence_sha256 }];
     const obligations = (id: string) => [{ claim_id: 'A', slot_id: 'a', due_step_id: id }, { claim_id: 'B', slot_id: 'b', due_step_id: id }];
-    if (scenario === 'first-restore') {
+    if (scenario === 'first-restore' || scenario === 'restore-retry') {
       const checkpoint = invoke(['artifact-checkpoints'], {}).checkpoints.find((item: any) => item.step_id === 'S1' && item.phase === 'before' && item.committed);
       confirm({ mode: 'execution-recovery', strategy: 'mixed', challenge_ids: [], execution_targets: targets,
         correction_step: { ...recovery('RESTORE'), commands: [{ command: 'runtime:artifact-restore', expected_repo_writes: ['notes/a.md'] }] },
         recovery_steps: [recovery('VERIFY')], restore_plan: { checkpoint_id: checkpoint.checkpoint_id, paths: ['notes/a.md'] }, obligation_map: obligations('VERIFY') });
-      complete('RESTORE', [], {}, true);
+      if (scenario === 'restore-retry') {
+        const preflight = invoke(['preflight-step'], { candidate_paths: allPaths });
+        invoke(['apply-artifact-restore'], { preflight_receipt: preflight.receipt });
+        const directory = path.join(target, 'docs/workflow/task-history', state().source_tuple.document_id, 'artifact-restores');
+        const originFile = path.join(directory, fs.readdirSync(directory)[0]);
+        const originBytes = fs.readFileSync(originFile);
+        const probe = (ready: string) => spawnSync('node', ['-e', "process.exit(process.env.VNEXT_REVIEW_READY === '1' ? 0 : 2)"], { env: { ...process.env, VNEXT_REVIEW_READY: ready }, encoding: 'utf8' });
+        expect(probe('0').status).toBe(2);
+        const blockedEvidence = invoke(['ingest-evidence'], { source_revision: state().source_tuple.revision, source_locator: 'fixture:environment-unavailable', body: 'Readiness probe exited 2 after successful restoration; post-restore validation is blocked.' });
+        const commands = preflight.current_step.commands.map((command: any) => ({ command: command.command, status: 'passed', observed_repo_writes: ['notes/a.md'], evidence_refs: [blockedEvidence.evidence_ref] }));
+        invoke(['record-step-result'], { preflight_receipt: preflight.receipt, actual_changed_paths: ['notes/a.md'], command_results: commands,
+          validation_results: preflight.current_step.validation.map((validation: string) => ({ validation, status: 'blocked', evidence_refs: [blockedEvidence.evidence_ref] })),
+          acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Environment unavailable after successful restoration' });
+        const blocked = state(), attempt = blocked.runtime_state.step_attempts.RESTORE.attempts.at(-1);
+        expect(probe('1').status).toBe(0);
+        const resolution = invoke(['ingest-evidence'], { source_revision: blocked.source_tuple.revision, source_locator: 'fixture:environment-ready', body: JSON.stringify({
+          kind: 'environment-restored/v1', task_id: blocked.source_tuple.task_id, document_id: blocked.source_tuple.document_id, step_id: 'RESTORE', blocked_attempt_id: attempt.attempt_id,
+          evidence_plan_revision: blocked.runtime_state.evidence_plan_revision, subject_revision: attempt.blocker.subject_snapshot.revision, status: 'passed',
+          diagnosis: 'Environment readiness probe unavailable', resolution: 'Actual probe with VNEXT_REVIEW_READY=1 exited 0' }) });
+        invoke(['retry-step'], { step_id: 'RESTORE', blocked_attempt_id: attempt.attempt_id, blocker_resolution_refs: [resolution.evidence_ref], idempotency_key: 'fixture-retry-restored-step' });
+        const retry = invoke(['preflight-step'], { candidate_paths: allPaths });
+        const success = { note: 'Environment recovered; verify restored targets', preflight_receipt: retry.receipt, actual_changed_paths: [], command_results: commands.map((command: any) => ({ ...command, observed_repo_writes: [] })),
+          validation_results: retry.current_step.validation.map((validation: string) => ({ validation, status: 'passed', evidence_refs: [resolution.evidence_ref] })), acceptance_evidence: [], outcome: 'implemented' };
+        rejected('record-step-result', success, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
+        fs.writeFileSync(path.join(target, 'notes/a.md'), 'new user edit\n');
+        rejected('apply-artifact-restore', { preflight_receipt: retry.receipt }, 'ARTIFACT_RESTORE_STALE');
+        expect(fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8')).toBe('new user edit\n');
+        fs.writeFileSync(path.join(target, 'notes/a.md'), 'initial A\n');
+        fs.renameSync(originFile, `${originFile}.unavailable`);
+        rejected('apply-artifact-restore', { preflight_receipt: retry.receipt }, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
+        fs.renameSync(`${originFile}.unavailable`, originFile);
+        const before = state().source_tuple.revision;
+        expect(invoke(['apply-artifact-restore'], { preflight_receipt: retry.receipt }).execution_kind).toBe('revalidated');
+        expect(state().source_tuple.revision).toBe(before);
+        expect(fs.readFileSync(originFile)).toEqual(originBytes);
+        const receiptFile = path.join(directory, fs.readdirSync(directory).find(name => name !== path.basename(originFile))!);
+        const receiptBytes = fs.readFileSync(receiptFile), receipt = JSON.parse(receiptBytes.toString());
+        expect(receipt.kind).toBe('artifact-restore-completion/v2');
+        expect(receipt.origin_completion).toBe(path.basename(originFile, '.json'));
+        expect(receipt.attempt_id).not.toBe(attempt.attempt_id);
+        expect(invoke(['apply-artifact-restore'], { preflight_receipt: retry.receipt }).status).toBe('no-op');
+        fs.writeFileSync(receiptFile, '{}\n');
+        rejected('record-step-result', success, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
+        fs.writeFileSync(receiptFile, receiptBytes);
+        complete('RESTORE', []);
+      } else complete('RESTORE', [], {}, true);
       expect(fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8')).toBe('initial A\n');
       complete('VERIFY', ['A', 'B']);
       complete('S2', []);
@@ -190,12 +252,25 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
         const pending_step_changes = failedStep ? { steps: [recovery(follow)], step_map: [{ old_step_id: pendingId, new_step_ids: [follow] }, { old_step_id: failedStep, new_step_ids: [id] }] } : undefined;
         const candidate = confirm({ mode: 'execution-recovery', challenge_ids: [], execution_targets: targets, correction_step: recovery(id), obligation_map: obligations(id), ...(pending_step_changes ? { pending_step_changes } : {}) });
         expect(candidate.problem_keys).toContain('claim:A/a');
+        const current = state();
+        const rawProposal = (delta: any, refs: string[]) => ({ schema_version: 1, kind: 'vnext-runtime-proposal', operation_kind: 'task-state-transaction', caller: 'execute-step', mode: 'default', source_tuple: current.source_tuple,
+          authority_evidence: ['active-task-owner', 'scope-admission', 'evidence-admission'].map(kind => ({ kind, source: current.source_tuple.path, subject: id })),
+          semantic_delta: { kind: 'task-state', action: 'step-progress', step_id: id, evidence_refs: refs, ...delta },
+          preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted'], evidence_refs: refs, idempotency_key: `raw-recovery-${i}`, requested_write_targets: [current.source_tuple.path] });
+        if (i === 1) rejected('apply', rawProposal({ status: 'in-progress' }, [diagnosis.evidence_ref]), 'RETRY_PREFLIGHT_REQUIRED');
         if (i === 4) {
           rejected('preflight-step', { candidate_paths: allPaths }, 'RETRY_BUDGET_EXHAUSTED');
+          const old = current.runtime_state.execution_log.findLast((entry: any) => entry.execution_result).execution_result;
+          const evidence = invoke(['ingest-evidence'], { source_revision: current.source_tuple.revision, source_locator: 'fixture:fourth-observation', body: fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8') });
+          const result = { ...old, acceptance_evidence: [], validation_results: [{ validation: `Validate ${id}`, status: 'failed', evidence_refs: [evidence.evidence_ref] }], outcome: 'blocked', blocker_kind: 'unknown' };
+          delete result.attempt_id;
+          rejected('apply', rawProposal({ status: 'blocked', change_set_id: result.change_set_id, execution_result: result }, [evidence.evidence_ref]), 'RETRY_BUDGET_EXHAUSTED');
           break;
         }
         const preflight = invoke(['preflight-step'], { candidate_paths: allPaths });
-        const failure = invoke(['ingest-evidence'], { source_revision: state().source_tuple.revision, source_locator: `fixture:failure-${i}`, body: 'Same mismatch: expected initial A, observed analysis A.' });
+        const observedText = fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8');
+        expect(observedText).not.toBe('initial A\n');
+        const failure = invoke(['ingest-evidence'], { source_revision: state().source_tuple.revision, source_locator: `fixture:failure-${i}`, body: `Same mismatch: expected initial A, observed ${observedText}` });
         invoke(['record-step-result'], { preflight_receipt: preflight.receipt, actual_changed_paths: [], command_results: [],
           validation_results: preflight.current_step.validation.map((validation: string) => ({ validation, status: 'failed', evidence_refs: [failure.evidence_ref] })),
           acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'unknown', note: 'Same unchanged document mismatch' });

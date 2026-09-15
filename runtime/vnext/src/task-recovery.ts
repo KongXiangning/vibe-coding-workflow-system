@@ -12,7 +12,7 @@ export const TASK_RECOVERY_PROTOCOL = {
   history: 'immutable-definitions-executions-and-content-addressed-evidence',
   evidence: 'evidence-carry-forward/v2-original-anchor-and-current-reception',
   artifact_checkpoint: 'artifact-checkpoint/v1',
-  artifact_completion: 'artifact-restore-completion/v1-candidate-attempt-and-exact-targets',
+  artifact_completion: 'artifact-restore-completion/v1-execution-v2-revalidation-and-exact-targets',
   artifact_publication: 'exact-write-set-journal-rollback-or-fail-closed',
   concurrency: 'shared-governance-write-lock-and-source-cas',
   authority: 'caller-reported-no-permission-expansion',

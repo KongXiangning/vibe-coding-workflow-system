@@ -320,11 +320,22 @@ Caller-reported command status cannot replace the fact. Put forward mutations of
 restored paths in a later recovery step. Missing facts on older active restores
 fail closed; software upgrade does not invent proof of earlier restoration.
 
+After an environment blocker following a successful restore, retry-step and fresh
+preflight must be followed by apply-artifact-restore again. If exact targets and
+the immutable original v1 fact still verify, Runtime writes a new attempt-bound
+artifact-restore-completion/v2 referencing that original fact, without rewriting
+products or extending a recursive receipt chain. Old receipts alone cannot admit
+new attempt results. Missing origin facts or changed files block revalidation;
+fresh post-restore checks and review remain required.
+
 Multiple challenges of one original report may be corrected in separate batches.
-Runtime verifies the confirmed correction/result relationship while retaining the
+Runtime traverses bounded confirmed correction relationships backed by real
+results and clean completion snapshots, including interleaved challenges, retaining the
 original challenge result IDs; each remaining batch needs fresh evidence and review.
 Failure budgets follow confirmed execution and pending-step replacement identities,
 including old v2 candidates with separate stored keys; changing IDs cannot reset them.
+Raw step-progress shares the durable current preflight admission gate for recovery
+steps. Real outcomes of admitted attempts remain recordable.
 
 ## Existing test discovery and reading
 

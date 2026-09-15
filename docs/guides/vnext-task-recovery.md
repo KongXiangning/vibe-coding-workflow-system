@@ -1,4 +1,4 @@
-# vNext 0.19.1：任务纠错与执行恢复
+# vNext 0.19.2：任务纠错与执行恢复
 
 ## 适用范围
 
@@ -57,7 +57,7 @@
 
 ## 安装、升级和兼容
 
-使用发行报告列出的固定 `vibe-governance-0.19.1.tgz`，先核对 SHA-256。可在独立安装目录执行：
+使用发行报告列出的固定 `vibe-governance-0.19.2.tgz`，先核对 SHA-256。可在独立安装目录执行：
 
 ```powershell
 npm install --ignore-scripts --no-audit --no-fund <固定tgz绝对路径>
@@ -80,3 +80,11 @@ node <目标路径>/.workflow-system/runtime/dist/cli.js validate --root <目标
 - 实际执行恢复后检查、必要审查、前置证据再次消费和剩余步骤，再独立判断业务验收。
 
 源码测试环境为 Windows。Linux/macOS 尚需运行相同的锁竞争、rename、部分恢复、中断 fail-closed 和固定包安装链；Windows 结果不代表这些平台已验收。
+
+## 0.19.2 补充边界
+
+- 恢复步骤的 raw `apply / step-progress` 同样要求当前受管 preflight；换步骤身份无法绕过累计失败预算。已经准入的尝试仍能如实记录失败。
+- 原报告的剩余质疑可跨越交错的多轮纠错，通过真实结果和 clean 审查完成快照建立有界关系；原报告和质疑 result ID 保持不变。
+- 回退已成功但随后环境阻塞时，先 `retry-step`、新 `preflight-step`，再调用 `apply-artifact-restore`。Runtime 验证当前精确目标和原 v1 完成事实，生成绑定新尝试、直接引用原事实的 `artifact-restore-completion/v2`；不重复改写产品。缺失原事实或用户修改导致阻塞；仍须新检查和审查。
+
+发行验证见 [0.19.2 报告](vnext-task-recovery-release-0.19.2.md)。P2 活动执行恢复批次互斥限制仍保留。
