@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseDocument } from 'yaml';
 import { resolveRoot } from './workflow-core';
+import { TASK_RECOVERY_PROTOCOL } from '../runtime/vnext/src/task-recovery';
 
 export const VNEXT_SOURCE_CONTRACT_RELATIVE_PATH = '.workflow-system/vnext/SOURCE_CONTRACT.yaml';
 export const VNEXT_SKILL_TEMPLATE_RELATIVE_PATH = 'templates/vnext/skills';
@@ -1031,6 +1032,17 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
   const resolvedRoot = path.resolve(root);
   const contractPath = path.join(resolvedRoot, ...VNEXT_SOURCE_CONTRACT_RELATIVE_PATH.split('/'));
   const sourceContract = readYamlMapping(contractPath);
+  // Migration bundles may supply the Runtime contract as a separate artifact.
+  const runtimeContractPath = path.join(resolvedRoot, '.workflow-system/vnext/RUNTIME_CONTRACT.yaml');
+  if (fs.existsSync(runtimeContractPath)) {
+    const runtimeContract = readYamlMapping(runtimeContractPath);
+    const proposal = expectRecord(runtimeContract.proposal, 'Runtime proposal');
+    const prepareTask = expectRecord(proposal.prepare_task, 'Runtime prepare_task');
+    const history = expectRecord(prepareTask.task_history, 'Runtime task_history');
+    const recovery = expectRecord(history.recovery_protocol, 'Runtime recovery_protocol');
+    if (Object.keys(recovery).length !== Object.keys(TASK_RECOVERY_PROTOCOL).length
+      || Object.entries(TASK_RECOVERY_PROTOCOL).some(([key, value]) => JSON.stringify(recovery[key]) !== JSON.stringify(value))) fail('vNext recovery protocol must match the Kernel version, modes, boundaries and limits.');
+  }
   const phase = validateSourceNamespace(sourceContract);
   const entryTemplates = validateCatalogEntries(resolvedRoot, sourceContract);
   const administrativeTemplates = validateAdministrativeCatalog(resolvedRoot, sourceContract);
@@ -1048,6 +1060,14 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
       runtimeOperations,
       legacySkillNames,
     );
+  }
+  for (const [entry, terms] of Object.entries({
+    'prepare-task': ['challenge_ids', 'obligation_map', 'pending_step_changes', 'suspend-recovery', 'restore_plan'],
+    'review-change': ['route-input', 'ingest-evidence', 'Historical', 'Counterevidence is not product-fix authority'],
+    'execute-step': ['apply-artifact-restore', 'preflight', 'journal'],
+  })) {
+    const content = fs.readFileSync(path.join(resolvedRoot, 'templates/vnext/skills', `${entry}.SKILL.md.tmpl`), 'utf8');
+    for (const term of terms) if (!content.includes(term)) fail(`${entry} must preserve recovery boundary ${term}.`);
   }
   for (const entry of ADMIN_ENTRIES) {
     validateAdministrativeTemplate(

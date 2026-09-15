@@ -63,6 +63,7 @@ export const PREPARE_TASK_ADAPTER_COMMANDS = [
   'confirm-replan',
   'discard-replan',
   'initialize-preservation',
+  'suspend-recovery',
 ] as const;
 
 export type PrepareTaskAdapterCommand = (typeof PREPARE_TASK_ADAPTER_COMMANDS)[number];
@@ -1046,6 +1047,20 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
       case 'initialize-preservation':
         result = initializeTaskPreservation(args.root, input, options);
         break;
+      case 'suspend-recovery': {
+        const source = record(input, 'suspend-recovery');
+        exactKeys(source, ['source_revision', 'reason', 'evidence_refs'], 'suspend-recovery');
+        const current = readCanonicalCurrentTask(args.root);
+        if (source.source_revision !== current.sourceTuple.revision) fail('RECOVERY_SOURCE_STALE', 'Suspension must bind the current task revision.');
+        if (current.runtimeState.findings.some(item => ['admitted', 'in-progress'].includes(item.status))) fail('RECOVERY_OWNER_CONFLICT', 'Existing repair owner must converge before recovery.');
+        const refs = [...textList(source.evidence_refs, 'evidence_refs', false), `caller-reported-recovery-reason:${text(source.reason, 'reason')}`];
+        result = applyVNextRuntimeProposal(args.root, createPrepareTaskReplanProposal(current, {
+          delta: { kind: 'task-state', action: 'mark-replan-blocked', evidence_refs: refs },
+          idempotency_key: `suspend-recovery-${crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex').slice(0, 40)}`,
+          authority_evidence: authority(current, current.runtimeState.task_id, ['active-task-owner', 'scope-admission', 'evidence-admission']), evidence_refs: refs,
+        }), options);
+        break;
+      }
     }
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'blocked' || result.status === 'conflict' ? 2 : 0;

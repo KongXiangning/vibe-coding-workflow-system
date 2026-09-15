@@ -107,7 +107,7 @@ const temporaryRoots: string[] = [];
 function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
     business_evidence_version: 1,
-    task_evolution_version: 1,
+    task_evolution_version: 2,
     schema_version: 1,
     kind: 'vnext-current-task-runtime-state',
     task_id: '010',
@@ -2555,7 +2555,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const result = initializeTaskPreservation(root, input);
     expect(result).toMatchObject({ status: 'success', committed: true, read_back_verified: true });
     const current = readCanonicalCurrentTask(root);
-    expect(current.runtimeState.task_evolution_version).toBe(1);
+    expect(current.runtimeState.task_evolution_version).toBe(2);
     expect(current.runtimeState.preservation_source_revision).toBe(old.sourceTuple.revision);
     expect(current.body).toBe(old.body);
     expect(current.runtimeState.claim_evidence).toEqual(old.runtimeState.claim_evidence);
@@ -2568,7 +2568,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(Buffer.from(history.task_basis_base64, 'base64')).toEqual(basisBytes);
     expect(initializeTaskPreservation(root, input).status).toBe('no-op');
     const initializedBytes = fs.readFileSync(current.filePath, 'utf8');
-    fs.writeFileSync(current.filePath, initializedBytes.replace('task_evolution_version: 1', 'task_evolution_version: 2'));
+    fs.writeFileSync(current.filePath, initializedBytes.replace('task_evolution_version: 2', 'task_evolution_version: 3'));
     expect(() => readCanonicalCurrentTask(root)).toThrow('TASK_EVOLUTION_VERSION_UNSUPPORTED');
     fs.writeFileSync(current.filePath, initializedBytes);
     fs.rmSync(historyPath);
@@ -7600,6 +7600,50 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(resolveExternalProposalFile(root, outsideProposal)).toBe(path.resolve(outsideProposal));
   });
 
+  test('G09 G20 recovery replaces a check identity and binds a new prerequisite consumer without copying old consumption', () => {
+    const claims = evidencePlanFixture('The document observation stays verified', 'S1');
+    claims[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const prerequisite = structuredClone(claims[0]!);
+    prerequisite.claim_id = 'I1'; prerequisite.claim_kind = 'invariant';
+    prerequisite.slots[0]!.slot_id = 'i1'; prerequisite.slots[0]!.check!.check_id = 'K-I1';
+    prerequisite.slots[0]!.applicability = 'before-step'; prerequisite.slots[0]!.before_step_id = 'S2';
+    const input = semanticDraft({ claim_evidence: [...claims, prerequisite], persistent_tests: 'none',
+      mutation_scope: { allowed: ['README.md'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: ['S1', 'S2', 'S3'].map(id => ({ id, description: `Verify ${id}`, mutation_scope: ['README.md'], commands: [], validation: [`Validate ${id}`], review_checkpoint: { policy: 'required', reason: 'Review the document observation' } })) });
+    const root = confirmedSemanticRoot(input);
+    fs.writeFileSync(path.join(root, 'README.md'), 'Observation\n');
+    function execute(id: string, withReports: boolean) {
+      const preflight = preflightStep(root, { candidate_paths: ['README.md'] });
+      const acceptance = withReports ? [reportFixture(root), reportFixture(root, 'I1', 'i1')] : [];
+      for (const report of acceptance) { report.report.result_id += `-${id}`; report.report.status = readCanonicalCurrentTask(root).runtimeState.claim_evidence!.find(claim => claim.claim_id === report.claim_id)!.slots[0]!.check!.expected_result; }
+      expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [], command_results: [], validation_results: [{ validation: `Validate ${id}`, status: 'passed', evidence_refs: ['evidence-report.txt'] }], acceptance_evidence: acceptance, outcome: 'implemented', note: `Observed ${id}` }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: id, note: `Reviewed ${id}` }).status).toBe('success');
+    }
+    execute('S1', true); execute('S2', false);
+    const old = readCanonicalCurrentTask(root);
+    const oldReceipt = structuredClone(old.runtimeState.claim_evidence![1]!.slots[0]!.prerequisite_receipt);
+    expect(oldReceipt?.step_id).toBe('S2');
+    fs.writeFileSync(path.join(root, 'counterexample.txt'), 'The observation requires a revised check.\n');
+    recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: old.runtimeState.claim_evidence![0]!.slots[0]!.report!.result_id,
+      evidence_ref: 'counterexample.txt', evidence_sha256: fileRevision(path.join(root, 'counterexample.txt')), reason: 'Reassess the observation boundary' });
+    const recovery = { id: 'R1', description: 'Revalidate observation', mutation_scope: ['README.md'], commands: [], required_evidence: ['Validate R1'] };
+    const replacementCheck = { ...prerequisite.slots[0]!.check!, check_id: 'K-I2', method: 'static', expected_result: 'accepted' };
+    const candidateInput = { challenge_ids: [readCanonicalCurrentTask(root).runtimeState.evidence_challenges![0]!.challenge_id], correction_step: recovery,
+      pending_step_changes: { steps: [{ ...recovery, id: 'S3-new', required_evidence: ['Validate S3-new'] }], step_map: [{ old_step_id: 'S3', new_step_ids: ['S3-new'] }] },
+      obligation_map: [{ claim_id: 'A1', slot_id: 'a1', due_step_id: 'R1' }, { claim_id: 'I1', slot_id: 'i1', due_step_id: 'R1', before_step_id: 'S3-new', replaces_check_id: 'K-I1', check: replacementCheck }] };
+    expect(() => prepareCorrectionReplan(root, { ...candidateInput, obligation_map: [candidateInput.obligation_map[0], { ...candidateInput.obligation_map[1], check: { ...replacementCheck, check_id: 'K-I1' } }] })).toThrow('RECOVERY_CHECK_ID_REUSED');
+    const prepared = prepareCorrectionReplan(root, candidateInput);
+    confirmCorrectionReplan(root, { candidate_receipt: prepared.candidate_receipt, authorization: { approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
+      decision_source: 'fixture:recovery', decision_text: 'Approve the new check and consumer while preserving all requirements.', invalidation_reason: 'A bounded check replacement is required.' } });
+    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence![1]!.slots[0]!.prerequisite_receipt).toBeUndefined();
+    execute('R1', true); execute('S3-new', false);
+    const nextReceipt = readCanonicalCurrentTask(root).runtimeState.claim_evidence![1]!.slots[0]!.prerequisite_receipt;
+    expect(nextReceipt?.step_id).toBe('S3-new');
+    expect(nextReceipt?.preflight_id).not.toBe(oldReceipt?.preflight_id);
+  });
+
   test('keeps original audit obligations while confirming a bounded correction before the original next step', () => {
     const audited = evidencePlanFixture('Nine issue conclusions remain verified', 'S3');
     audited[0]!.slots[0]!.check!.subject_paths = ['docs/audit.md'];
@@ -7623,14 +7667,16 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     const root = confirmedSemanticRoot(input);
     fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+    fs.appendFileSync(path.join(root, '.workflow-system/PROJECT_PROFILE.yaml'), '    - docs/audit.md\n    - docs/other.md\n');
     fs.writeFileSync(path.join(root, 'docs', 'audit.md'), 'old audit result\n');
     fs.writeFileSync(path.join(root, 'docs', 'other.md'), 'independent observation\n');
+    fs.writeFileSync(path.join(root, 'independent-evidence.txt'), 'Independent observation evidence.\n');
     fs.writeFileSync(path.join(root, 'docs', 'challenge.md'), 'External review: public cursor result is unsupported.\n');
     const confirmed = readCanonicalCurrentTask(root);
     const claims = structuredClone(confirmed.runtimeState.claim_evidence!);
     for (const claim of claims) for (const slot of claim.slots) {
       slot.disposition = 'newly-executed';
-      slot.evidence_refs = ['evidence-report.txt'];
+      slot.evidence_refs = ['independent-evidence.txt'];
       slot.report = { result_id: `result-${slot.check!.check_id}`, status: 'passed', evidence_plan_revision: confirmed.runtimeState.evidence_plan_revision!,
         subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision, actual_method: slot.check!.method,
         environment: 'isolated audit fixture', assurance: 'caller-reported' };
@@ -7722,5 +7768,45 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(resumed.runtimeState.active_step_id).toBe('S4');
     expect(resumed.runtimeState.evidence_challenges?.[0]?.status).toBe('resolved');
     expect(resumed.runtimeState.claim_evidence?.[1]?.slots[0]?.report?.result_id).toBe('result-K2');
+    // A -> B -> C must retain A's original report, rather than relabel it as B.
+    const originalReport = structuredClone(resumed.runtimeState.claim_evidence![1]!.slots[0]!.report);
+    fs.writeFileSync(path.join(root, 'docs', 'challenge-2.md'), 'A second bounded counterexample.\n');
+    recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1-correction',
+      evidence_ref: 'docs/challenge-2.md', evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge-2.md')),
+      reason: 'A second counterexample requires a new observation' });
+    const secondChallenge = readCanonicalCurrentTask(root).runtimeState.evidence_challenges!.at(-1)!;
+    const second = prepareCorrectionReplan(root, { challenge_id: secondChallenge.challenge_id,
+      correction_step: { ...candidateInput.correction_step, id: 'S3-C2' } });
+    const secondPayload = JSON.parse(fs.readFileSync(path.join(root, second.candidate_path), 'utf8'));
+    expect(secondPayload.carry_forward[0].old_plan_revision).toBe(originalReport!.evidence_plan_revision);
+    expect(secondPayload.claim_evidence[1].slots[0].report).toEqual(originalReport);
+    expect(confirmCorrectionReplan(root, { candidate_receipt: second.candidate_receipt,
+      authorization: { ...authorization, decision_text: 'Approve the second bounded correction while retaining all original obligations.', approved_candidate_digest: second.candidate_receipt.candidate_digest } }).status).toBe('success');
+    // Preparing yet another generation consumes C's carry-forward proof.
+    const secondPreflight = preflightStep(root, { candidate_paths: ['docs/audit.md'] });
+    const secondReport = reportFixture(root);
+    secondReport.report.result_id = 'result-K1-second-correction';
+    expect(recordStepResult(root, { preflight_receipt: secondPreflight.receipt, actual_changed_paths: [],
+      command_results: [], validation_results: [{ validation: 'Targeted public cursor observation', status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [secondReport], outcome: 'implemented', note: 'Second correction' }).status).toBe('success');
+    const secondReview = reviewContext(root, {});
+    recordReviewResult(root, { context_receipt: secondReview.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'], blocker: null });
+    completeReviewedStep(root, { step_id: 'S3-C2', note: 'Second correction reviewed' });
+    fs.writeFileSync(path.join(root, 'docs', 'challenge-3.md'), 'Third bounded observation.\n');
+    recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1-second-correction',
+      evidence_ref: 'docs/challenge-3.md', evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge-3.md')), reason: 'Third observation' });
+    const thirdInput = { challenge_id: readCanonicalCurrentTask(root).runtimeState.evidence_challenges!.at(-1)!.challenge_id,
+      correction_step: { ...candidateInput.correction_step, id: 'S3-C3' } };
+    const third = prepareCorrectionReplan(root, thirdInput);
+    // G18: discarding and changing recovery IDs cannot renew the candidate budget.
+    discardCorrectionReplan(root, { candidate_digest: third.candidate_receipt.candidate_digest });
+    for (const id of ['S3-C3-alternative', 'S3-C3-final']) {
+      const alternative = prepareCorrectionReplan(root, { ...thirdInput, correction_step: { ...thirdInput.correction_step, id } });
+      discardCorrectionReplan(root, { candidate_digest: alternative.candidate_receipt.candidate_digest });
+    }
+    const preserved = fs.readFileSync(resumed.filePath);
+    expect(() => prepareCorrectionReplan(root, { ...thirdInput, correction_step: { ...thirdInput.correction_step, id: 'S3-C3-again' } })).toThrow('REPLAN_CANDIDATE_BUDGET_EXHAUSTED');
+    expect(fs.readFileSync(resumed.filePath)).toEqual(preserved);
   });
 });

@@ -206,7 +206,7 @@ An upgraded older task first needs explicit `prepare-task:initialize-preservatio
 with `{source_revision,basis_revision}` from a fresh summary and linked Task
 Basis. `upgrade` itself leaves both files unchanged. Initialization verifies
 the existing plan, saves exact CURRENT_TASK and Task Basis bytes in task history,
-then adds `task_evolution_version: 1` without changing the definition, evidence,
+then sets `task_evolution_version: 2` (including an explicit upgrade from version 1) without changing the definition, evidence,
 or active step. A missing marker blocks supersede and correction confirmation;
 an unknown marker version is rejected. New drafts receive the marker at creation.
 Do not edit the marker or history manually. For a challenged prior result,
@@ -225,9 +225,10 @@ caller-reported; do not dismiss a confirmed error to bypass correction.
 
 For a confirmed incorrect old result, `prepare-task:prepare-replan` accepts
 `{challenge_id, correction_step:{id,description,mutation_scope,required_evidence,commands}}`.
-The restricted step can write only exact audit documents already allowed under
-`docs/`. Runtime copies the old goal, acceptance, scope, claim/check identities,
-and all original steps; inserts this correction before the pending step; and
+The conclusion step can write only exact documents admitted by both the original
+mutation scope and `boundaries.non_executable_change_paths`; directory names
+grant no permission. Runtime copies the old goal, acceptance and total authority,
+retains executed definitions, inserts recovery before pending work or at task end, and
 writes an independently inspectable candidate. The receipt binds its digest,
 old CURRENT_TASK/Task Basis revisions, full old-obligations digest, new plan
 revision and `permission_change:none`. Preparing does not change CURRENT_TASK.
@@ -249,16 +250,66 @@ task cannot create a new draft (`REPLACEMENT_OUTCOME_UNSUPPORTED`); keep its
 unfinished obligations visible instead of closing it as completed.
 
 Unchanged old reports remain unmodified and may satisfy a new plan only through
-Runtime-generated `evidence-carry-forward/v1` records. Runtime checks the
+Runtime-generated `evidence-carry-forward/v2` records. The old_source_revision and
+old_plan_revision identify the immutable original report; receiving_source_revision
+and new_plan_revision describe this generation's reception. Runtime checks the
 immutable old report/check, current subject files, method, plan revisions and
 open challenges at each consumption. The challenged slot needs a new result ID
-and a fresh clean correction review. Old before-step receipts cannot be carried
-by this route; a candidate requiring one is blocked for explicit temporal
-revalidation. Old clean reviews do not cover new correction changes. Exact
+and a fresh clean correction review. Old consumed before-step receipts remain
+historical. A replacement consumer uses an explicit new before_step_id and a
+new preceding verification step; it cannot copy an old consumption receipt.
+Old clean reviews do not cover new correction changes. Exact
 CURRENT_TASK and linked Task Basis bytes are saved under
 `<workflow_home>/task-history/<document_id>/<source_revision>.json`; external
 evidence locators are references only. Do not read the base64 package into
 model context by default; use normal bounded CURRENT_TASK reading.
+
+### Versioned recovery input
+
+`prepare-replan` normalizes the legacy single challenge into `challenge_ids`
+(1–16 for conclusion correction). It also accepts:
+
+- `mode`: conclusion-correction or execution-recovery.
+- `strategy`: forward-fix, artifact-restore or mixed. Conclusion correction uses forward-fix.
+- `execution_targets`: up to 16 exact `{execution_id,reason,evidence_ref,evidence_sha256}` records from this task, without fabricated reports.
+- `correction_step`: first recovery step `{id,description,mutation_scope,required_evidence,commands}`; `recovery_steps` lists up to 15 subsequent recovery steps of the same shape. Every recovery checkpoint is required.
+- `pending_step_changes`: `{steps,step_map:[{old_step_id,new_step_ids}]}` replaces never-executed future definitions using new IDs. Every removed future obligation and suspended unfinished attempt requires a destination. Executed definition bytes and logs remain historical facts.
+- `obligation_map`: all old `{claim_id,slot_id,due_step_id}` records for execution recovery or pending-plan changes. A check replacement adds `replaces_check_id` and a new `check`; old required boundaries and subjects remain. A new prerequisite consumer adds `before_step_id` and a new preceding verification step.
+- `restore_plan`: `{checkpoint_id,paths}` from `artifact-checkpoints`. The first recovery step declares `runtime:artifact-restore` and its exact expected_repo_writes. Preparation and confirmation only bind the plan.
+
+Candidate v2 contains source_tuple, Basis/source/plan revisions, full old obligations,
+obligation_map, historical_completion_refs, result_validity, evidence_admission,
+evidence_objects and the exact derived restore_plan. Read these before confirmation.
+Old v1 candidate receipts never authorize v2 writes. V1 evidence without preserved
+bodies requires affected-slot revalidation. Unresolved challenges outside a batch
+remain recorded and block ordinary progression and closure.
+
+If a preflight, dirty attempt or pending review already exists, `suspend-recovery`
+takes `{source_revision,reason,evidence_refs}`. It retains the real attempt and
+first-touch baseline, records the dirty target, and blocks ordinary execution.
+Existing admitted repair owners must converge first; suspension does not invent
+failed checks or environment errors.
+
+`ingest-evidence` takes `{source_revision,source_locator,body}` on stdin and returns
+an immutable evidence_ref, evidence_sha256 and provenance_ref. Limits: 1 MiB per
+object, 8 MiB per snapshot, 128 files; repository paths cannot traverse links.
+Old document bodies are saved before correction and can be read via bounded
+`file-context` reads of the corresponding evidence-objects SHA `.blob` file.
+Material reuse, report reuse and historical completion are separate facts.
+
+`route-input` takes `{source_revision,input_ref,input_sha256,relation,operation,reason}`.
+Relation is `unrelated` or `current-task`; operation is `review-conclusion`,
+`recover-execution`, `change-goal`, `change-acceptance`, `expand-authority` or `other`.
+It returns a task-bound, caller-reported route, never extra write permission.
+
+After confirmation, run normal `preflight-step`, then `apply-artifact-restore`
+with `{preflight_receipt}`. Run the declared post-restore checks and record the
+real result before required review. Added/deleted UTF-8 regular files are supported;
+symlinks, submodules, unverified binary baselines, oversized content and remote
+side effects are unsupported. Governance, .git and Runtime installation files
+cannot be restored. Drift blocks without overwriting user edits. A durable
+multi-file journal preserves preimages; an interrupted publication fails closed
+until its exact write set is recovered. No reset, clean or whole-repository checkout.
 
 ## Existing test discovery and reading
 

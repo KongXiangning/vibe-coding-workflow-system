@@ -30,7 +30,7 @@ entry_contract:
   runtime_operations:
     - task-state-transaction
   stop_conditions:
-    - Runtime cannot provide one current executed step and verified review target
+    - ordinary checkpoint review lacks a current executed step and verified review target
     - the review cannot be completed read-only
     - Runtime rejects the review result
   output_kind: review-result
@@ -49,8 +49,10 @@ reading** in `.workflow-system/runtime/support/CONTEXT_API.md`. Read the full
 definition range on first use. Reuse it only while it remains completely
 visible in this conversation and task ID, document ID, and
 non-null `evidence_plan_revision` still match the fresh summary; otherwise read it
-again. Use the latest summary for status, and always obtain a fresh
-`review-context` with its cumulative diff and current evidence.
+again. Use the latest summary for status. For ordinary checkpoint review obtain
+a fresh `review-context` with its cumulative diff and current evidence. Historical
+counterevidence does not require a current reviewable execution; choose its route
+before invoking ordinary `review-context`.
 
 Use **Project document navigation** in
 `.workflow-system/runtime/support/CONTEXT_API.md` to read the project sources
@@ -59,6 +61,17 @@ it does not widen the review target or authorize task changes. Start with the
 saved `project_documents` and `affected_contracts` returned by `review-context`,
 read their relevant sections, and apply **Project document conflicts** in that
 support file. Persist unresolved authority conflicts as blockers, not invented repairs.
+
+Classify each new input using `route-input` with the exact current source revision,
+input reference/hash, relation, requested operation and reason. Return the binding
+and one of: unrelated -> capture/owner; conclusion counterevidence -> historical
+review; execution error -> debug-task; goal/acceptance/total authority change ->
+user decision or unsupported. Runtime checks binding and permissions; it does
+not prove natural-language relatedness. Counterevidence is not product-fix authority.
+For pasted or external text use `ingest-evidence` on stdin with source_revision,
+source_locator and body, then cite the returned immutable evidence_ref/SHA-256.
+Do not create helper files or request arbitrary absolute-path reads. Keep disputed
+material contested until assessed; dismissal requires evidence, not convenience.
 
 1. For an ordinary checkpoint, ask Runtime `review-context` for the successful `implemented` or `test-red` execution awaiting a required review checkpoint, Runtime-recorded cumulative change set, complete file index and bounded text diff, acceptance, validation evidence, mutation scope, Persistent Tests, and any admitted findings. Review only that target and context. A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable. For new counterevidence to a previously completed result, inspect the exact claim/slot/result and retained source, then use `record-evidence-challenge` with a repository-relative evidence file and its SHA-256. This records `contested`, not an automatic invalidation or a new review verdict. If a contested challenge is demonstrably not substantiated, use `dismiss-evidence-challenge` with a hashed assessment file explaining why; retain the old report and challenge. Do not call `record-review-result` for a nonexistent current execution.
 2. Check step compliance, scope, implementation or test correctness, acceptance coverage, validation evidence, unauthorized persistent-test changes, and regression risk. For historical `test-red`, verify that only frozen test assets were admitted, the assertions encode the required behavior, and the recorded failure is caused by missing behavior rather than syntax, type, import, fixture, tool, unrelated-test, or environment failure; Red carries no final acceptance evidence. New flexible execution requires no Red; explicit prerequisites use S2 bound reports and consumption receipts and must not be waived by review.

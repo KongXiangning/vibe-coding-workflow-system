@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.18.7
+  package_version: 0.19.0
   node_min_version: ">=20.0.0"
 
 proposal:
@@ -453,8 +453,25 @@ proposal:
       confirmed_replan_preimage: exact-current-task-and-linked-task-basis-before-publish
       correction_candidate: independent-revision-bound-candidate-with-full-old-obligations
       evidence_carry_forward: runtime-derived-old-report-and-subject-verified
-      external_evidence: locator-only-not-automatically-reusable
+      external_evidence: references-remain-references-explicit-bounded-content-ingestion
       interrupted_commit: fail-closed-lock-and-hash-recovery
+      recovery_protocol:
+        candidate: correction-replan-candidate/v2
+        confirmation: correction-replan-candidate-receipt/v2
+        modes: [conclusion-correction, execution-recovery]
+        strategies: [forward-fix, artifact-restore, mixed]
+        routing: [unrelated, conclusion-counterevidence, execution-error, authority-change]
+        target_limit: 16
+        recovery_step_limit: 16
+        source: runtime-task-document-source-tuple-basis-and-plan
+        obligations: all-old-claim-slots-and-replaced-step-obligations
+        history: immutable-definitions-executions-and-content-addressed-evidence
+        evidence: evidence-carry-forward/v2-original-anchor-and-current-reception
+        artifact_checkpoint: artifact-checkpoint/v1
+        artifact_publication: exact-write-set-journal-rollback-or-fail-closed
+        concurrency: shared-governance-write-lock-and-source-cas
+        authority: caller-reported-no-permission-expansion
+        legacy: readable-explicit-preservation-old-receipts-rejected
   inbox_record:
     mode: default
     action: record
@@ -716,6 +733,7 @@ canonical_current_task:
       - step_attempts
       - evidence_challenges
       - evidence_carry_forward
+      - artifact_checkpoint_ids
     review_cycle:
       fields:
         - id

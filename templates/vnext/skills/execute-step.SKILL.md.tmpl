@@ -41,6 +41,15 @@ entry_contract:
 
 # vNext Skill: execute-step
 
+## Confirmed recovery execution
+
+Only execute the active confirmed recovery step. For artifact-restore or mixed,
+obtain ordinary preflight then call `apply-artifact-restore` with that receipt for
+the declared `runtime:artifact-restore` footprint. Run post-restore checks, record
+real outcomes, and complete required cumulative review. Never reset/clean/checkout
+the repository or roll back governance records. Drift, missing checkpoints,
+frozen files or retained publication journals are blockers. Read CONTEXT_API.md.
+
 ## Intent
 
 Implement only the confirmed `CURRENT_TASK` step selected by Runtime. Do not redesign the task, widen scope, or implement a later step.

@@ -7,6 +7,8 @@
  */
 
 import { readProjectDocuments, type ProjectDocument } from './project-documents';
+import { describeEvidenceObjects, ingestEvidenceText } from './evidence-lineage';
+import { withGovernanceWriteLock } from './runtime-io';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -47,7 +49,7 @@ import {
 import { resolveTaskStep } from './task-steps';
 import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
 
-export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'] as const;
+export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'ingest-evidence', 'route-input'] as const;
 export type ReviewChangeAdapterCommand = (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number];
 
 type JsonRecord = Record<string, unknown>;
@@ -199,6 +201,36 @@ export function recordEvidenceChallenge(root: string, input: unknown, options: R
     authority_evidence: authority(current),
   });
   return applyVNextRuntimeProposal(root, proposal, options);
+}
+
+export function ingestEvidence(root: string, input: unknown, options: RuntimeApplyOptions = {}) {
+  return withGovernanceWriteLock(root, () => {
+    const source = record(input, 'ingest-evidence input');
+    exactKeys(source, ['source_revision', 'source_locator', 'body'], 'ingest-evidence input');
+    const current = readCanonicalCurrentTask(root);
+    if (source.source_revision !== current.sourceTuple.revision) fail('EVIDENCE_SOURCE_STALE', 'Evidence ingestion must bind the exact current task revision.');
+    return { status: 'success', evidence_assurance: 'caller-reported', ...ingestEvidenceText(root, current.filePath, {
+      source_revision: current.sourceTuple.revision, task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id,
+      source_locator: text(source.source_locator, 'source_locator', 2048), body: text(source.body, 'body', 1048576),
+    }, options.dryRun === true) };
+  });
+}
+
+export function routeTaskInput(root: string, input: unknown) {
+  const source = record(input, 'route-input');
+  exactKeys(source, ['source_revision', 'input_ref', 'input_sha256', 'relation', 'operation', 'reason'], 'route-input');
+  const current = readCanonicalCurrentTask(root);
+  if (source.source_revision !== current.sourceTuple.revision) fail('INPUT_SOURCE_STALE', 'Input routing must bind the current task.');
+  const ref = repoPath(source.input_ref, 'input_ref');
+  if (describeEvidenceObjects(root, [ref])[0]?.sha256 !== source.input_sha256) fail('INPUT_EVIDENCE_STALE', 'Input material changed.');
+  if (!['unrelated', 'current-task'].includes(String(source.relation)) || !['review-conclusion', 'recover-execution', 'change-goal', 'change-acceptance', 'expand-authority', 'other'].includes(String(source.operation))) fail('INPUT_ROUTE_INVALID', 'Unknown relation or requested operation.');
+  const reason = text(source.reason, 'reason');
+  const authorityChange = ['change-goal', 'change-acceptance', 'expand-authority'].includes(String(source.operation));
+  const route = source.relation === 'unrelated' ? 'capture-work-item' : authorityChange || source.operation === 'other' ? 'user' : source.operation === 'review-conclusion' ? 'review-change' : 'debug-task';
+  return { status: authorityChange ? 'user-decision-required' : 'routed', kind: 'task-input-routing/v1', source_tuple: current.sourceTuple,
+    input_ref: ref, input_sha256: source.input_sha256, relation: source.relation, operation: source.operation, reason,
+    next_route: route, evidence_assurance: 'caller-reported', permission_change: 'none',
+    receipt_digest: digest({ source_tuple: current.sourceTuple, input: source, route }) };
 }
 
 export function dismissEvidenceChallenge(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
@@ -665,6 +697,8 @@ export async function runReviewChangeAdapterCli(argv: string[] = process.argv.sl
     else if (args.command === 'review-read') result = reviewRead(args.root, input);
     else if (args.command === 'record-review-result') result = recordReviewResult(args.root, input, { dryRun: args.dryRun });
     else if (args.command === 'record-evidence-challenge') result = recordEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
+    else if (args.command === 'ingest-evidence') result = ingestEvidence(args.root, input, { dryRun: args.dryRun });
+    else if (args.command === 'route-input') result = routeTaskInput(args.root, input);
     else result = dismissEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
     console.log(JSON.stringify(result, null, 2));
     return 'status' in result && (result.status === 'blocked' || result.status === 'conflict') ? 2 : 0;

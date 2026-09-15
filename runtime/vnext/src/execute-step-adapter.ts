@@ -11,6 +11,8 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  executeConfirmedArtifactRestore,
+  listArtifactCheckpoints,
   GovernanceTransactionKernel,
   MAX_REPAIR_ATTEMPTS,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
@@ -24,6 +26,7 @@ import {
   type StepRepairDiagnosis,
   nextStepAttemptId,
   evaluateClaimEvidence,
+  hasRemainingCorrectionTargets,
   validateStepAcceptanceEvidence,
   type StepAcceptanceEvidence,
   captureReviewTarget,
@@ -64,6 +67,8 @@ import { resolveTaskStep, type TaskStepDefinition } from './task-steps';
 
 export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'preflight-step',
+  'apply-artifact-restore',
+  'artifact-checkpoints',
   'evidence-context',
   'retry-step',
   'begin-repair',
@@ -793,7 +798,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const coverage = current.runtimeState.review_coverage;
   const hasPrerequisites = current.runtimeState.claim_evidence?.some(claim => claim.slots.some(slot => slot.before_step_id === stepPlan.step.id && !slot.prerequisite_receipt));
   if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map(entry => entry.path)).revision !== coverage.target.revision) fail('REVIEW_TARGET_STALE', 'Unrecorded changes cannot refresh the cumulative baseline.');
-  if (!coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready') {
+  if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready') {
     const registration = applyVNextRuntimeProposal(root, createStepPreflightProposal(current, candidatePaths));
     if (!['success', 'no-op'].includes(registration.status)) fail('PREFLIGHT_BLOCKED', registration.message);
     committed = registration.committed;
@@ -1412,7 +1417,9 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
   }
   const claimEvidence = current.runtimeState.claim_evidence;
   const resolution = resolveTaskStep(current.body, stepId);
-  if (resolution.next === null && (!claimEvidence || !evaluateClaimEvidence(claimEvidence, { root, current }).validation_complete)) {
+  const finalEvidenceContext = hasRemainingCorrectionTargets(current, stepId)
+    ? { root, current, due_step_id: stepId } : { root, current };
+  if (resolution.next === null && (!claimEvidence || !evaluateClaimEvidence(claimEvidence, finalEvidenceContext).validation_complete)) {
     fail('CLAIM_EVIDENCE_INCOMPLETE', 'the final step cannot complete until every frozen acceptance-evidence slot has evidence.');
   }
 
@@ -1498,6 +1505,19 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
       case 'preflight-step':
         result = preflightStep(args.root, input);
         break;
+      case 'artifact-checkpoints':
+        exactKeys(record(input, 'artifact-checkpoints'), [], 'artifact-checkpoints');
+        result = listArtifactCheckpoints(args.root);
+        break;
+      case 'apply-artifact-restore': {
+        const source = record(input, 'apply-artifact-restore');
+        exactKeys(source, ['preflight_receipt'], 'apply-artifact-restore');
+        const receipt = normalizePreflightReceipt(source.preflight_receipt);
+        const current = readCanonicalCurrentTask(args.root);
+        assertCurrentReceipt(current, currentStepPlan(current), receipt);
+        result = executeConfirmedArtifactRestore(args.root, current.sourceTuple.revision, receipt.step_id, receipt.candidate_paths, args.dryRun);
+        break;
+      }
       case 'evidence-context':
         result = evidenceContext(args.root, input);
         break;

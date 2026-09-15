@@ -61,6 +61,13 @@ entry_contract:
 
 # vNext Skill: task-lifecycle
 
+## Recovery history boundary
+
+Same-task recovery uses prepare-task candidates, preserves task/document identity,
+original request, decisions and obligations, and adds new execution facts.
+Do not reopen an archived closed task or use lifecycle switching to bypass a
+freeze, permission boundary, outstanding challenge or recovery publication lock.
+
 ## Intent
 
 Perform one explicit, identity-safe task ownership or lifecycle transition. The lifecycle state and workflow status remain distinct facts, and this entry handles only the requested transition.

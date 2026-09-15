@@ -37,7 +37,7 @@ Interpret this file using the following boundary:
 - the following vNext daily-execution semantics are now docs-frozen: evidence-first validation and persistent-test admission, mutation-oriented scope, and the Task / Step / Review Checkpoint / Repair execution model
 - this freeze defines target business behavior; the ordinary draft/confirm boundary is now Runtime-enforced by the typed Slice C actions below, while ordinary step advancement remains a later execution slice, and it does not alter Slice A, Slice B, or close-task terminal semantics
 
-For the authoritative freeze boundary and update rules, see [`docs/plans/workflow-protocol-freeze-boundary.md`](./docs/plans/workflow-protocol-freeze-boundary.md).
+This `Freeze status` section is the current authoritative freeze boundary and update rule. Extensions for task correction and execution recovery must preserve the frozen semantics and compatibility boundaries above.
 
 ---
 
