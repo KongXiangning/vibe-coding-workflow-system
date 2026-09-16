@@ -552,6 +552,10 @@ export function validateInstalledDistributionReadback(root: string): Distributio
   return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs.readFileSync(statePath, 'utf8'), managed_files: managed };
 }
 
+const DEFAULT_MUTATION_AUTHORITY_DOMAINS = [
+  { id: 'application', roots: ['src/**', 'test/**'] },
+];
+
 function renderProfile(project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapSupportHost, existing: Record<string, unknown> | null): string {
   const existingProject = existing?.project && isRecord(existing.project) ? existing.project : {};
   const existingPaths = existing?.paths && isRecord(existing.paths) ? existing.paths : {};
@@ -569,6 +573,17 @@ function renderProfile(project: { name: string; slug: string }, targetIdentity: 
       primary_hosts: existingHosts.length > 0 ? existingHosts : [host],
     },
     paths: { ...existingPaths, workflow_home: 'docs/workflow' },
+    // A project declares its mutation-ownership boundaries once. Simple
+    // projects start with one domain; large projects split them further. The
+    // domain map is deliberately empty-safe: a project without it keeps the
+    // legacy exact-path semantics for every existing task.
+    mutation_authority: {
+      ...(isRecord(existing?.mutation_authority) ? existing.mutation_authority : {}),
+      domains: Array.isArray((existing?.mutation_authority as { domains?: unknown } | undefined)?.domains)
+        && ((existing!.mutation_authority as { domains: unknown[] }).domains.length > 0)
+        ? (existing!.mutation_authority as { domains: unknown[] }).domains
+        : DEFAULT_MUTATION_AUTHORITY_DOMAINS,
+    },
     vnext: {
       ...existingVNext,
       bootstrap_mode: mode,

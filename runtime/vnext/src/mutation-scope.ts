@@ -36,6 +36,18 @@ export type MutationScope = {
   read_discovery: MutationScopePattern[];
   /** null means the legacy task has no frozen Persistent Tests section. */
   persistent_tests: string[] | null;
+  /**
+   * Mutation Authority v2 authorization. When present, the authority envelope
+   * is the hard boundary and Allowed / Conditional only describe the planned
+   * footprint: a target inside the envelope that this step admitted is not an
+   * authority violation just because the plan did not enumerate it.
+   */
+  v2?: {
+    domains: Array<{ id: string; roots: string[] }>;
+    exact_exceptions: string[];
+    /** Paths admitted for the current step by preflight or extend-preflight. */
+    admitted_paths: string[];
+  };
 };
 
 export type ConditionalScopeAuthorization = {
@@ -63,7 +75,9 @@ export type MutationScopeDecisionClassification =
   | 'persistent-test-unadmitted'
   | 'read-context-only'
   | 'unowned'
-  | 'invalid';
+  | 'invalid'
+  /** Mutation Authority v2: inside the envelope and already admitted for this step. */
+  | 'authority-admitted-in-envelope';
 
 export type MutationScopeDecision = {
   path: string;
@@ -172,7 +186,8 @@ const ALLOWED_SCOPE_HEADINGS = new Set(['允许修改范围', 'mutation scope', 
 const ALLOWED_BUCKET_HEADINGS = new Set(['allowed files', 'allowed targets', '允许文件', '允许目标']);
 const CONDITIONAL_BUCKET_HEADINGS = new Set(['条件修改范围', '条件允许修改范围', 'conditional files', 'conditional targets']);
 const FORBIDDEN_SCOPE_HEADINGS = new Set(['禁止修改范围', 'forbidden files', 'forbidden targets']);
-const READ_DISCOVERY_HEADINGS = new Set([
+/** Exported so Runtime can place the v2 authority envelope next to the scope declaration. */
+export const MUTATION_SCOPE_FORBIDDEN_HEADINGS: readonly string[] = ['禁止修改范围', 'forbidden files', 'forbidden targets'];const READ_DISCOVERY_HEADINGS = new Set([
   'read / discovery context',
   'read/discovery context',
   'read context',
@@ -489,6 +504,16 @@ export function mutationScopePatternIsSubset(candidate: string, boundary: string
   return false;
 }
 
+function v2AuthorityAdmission(scope: MutationScope, path: string): { v2Admitted: boolean; v2InEnvelope: boolean; v2Reason: string | null } {
+  const v2 = scope.v2;
+  if (!v2) return { v2Admitted: false, v2InEnvelope: false, v2Reason: null };
+  if (v2.exact_exceptions.includes(path)) return { v2Admitted: true, v2InEnvelope: true, v2Reason: 'exact' };
+  const owners = v2.domains.filter(domain => domain.roots.some(root => mutationScopePatternMatchesPath(path, root)));
+  if (owners.length === 0) return { v2Admitted: false, v2InEnvelope: false, v2Reason: null };
+  if (owners.length > 1) return { v2Admitted: false, v2InEnvelope: true, v2Reason: owners.map(owner => owner.id).join('+') };
+  return { v2Admitted: v2.admitted_paths.includes(path), v2InEnvelope: true, v2Reason: owners[0]!.id };
+}
+
 function normalizeChangedPath(value: unknown, index: number): string | null {
   if (typeof value !== 'string' || value.trim().length === 0) return null;
   try {
@@ -634,6 +659,11 @@ export function evaluateMutationScope(scope: MutationScope, input: MutationScope
     const allowed = scope.allowed.filter(entry => mutationScopePatternMatchesPath(pathValue, entry.pattern));
     const conditional = scope.conditional.filter(entry => mutationScopePatternMatchesPath(pathValue, entry.pattern));
     const readMatches = scope.read_discovery.filter(entry => mutationScopePatternMatchesPath(pathValue, entry.pattern));
+    // Mutation Authority v2 keeps the envelope as the hard boundary and the
+    // planned footprint as guidance. This is evaluated after Forbidden and the
+    // frozen Persistent Tests rule, so v2 can only add authority inside its
+    // own envelope and can never bypass a real boundary.
+    const { v2Admitted, v2InEnvelope, v2Reason } = v2AuthorityAdmission(scope, pathValue);
     const matchedScope = [
       ...forbidden.map(entry => `Forbidden:${entry.pattern}`),
       ...allowed.map(entry => `Allowed:${entry.pattern}`),
@@ -690,7 +720,14 @@ export function evaluateMutationScope(scope: MutationScope, input: MutationScope
       decisions.push({ path: pathValue, classification: 'read-context-only', mutation_admitted: false, matched_scope: [], read_discovery_matches: readDiscoveryMatches, reason: 'Read / discovery context is intentionally broader but never grants write authority.' });
       continue;
     }
-    decisions.push({ path: pathValue, classification: 'unowned', mutation_admitted: false, matched_scope: [], read_discovery_matches: [], reason: 'the path is not listed in Allowed Files or an authorized Conditional Files entry.' });
+    const v2 = scope.v2;
+    if (v2Admitted) {
+      decisions.push({ path: pathValue, classification: 'authority-admitted-in-envelope', mutation_admitted: true, matched_scope: [...matchedScope, `AuthorityDomain:${v2Reason!}`], read_discovery_matches: readDiscoveryMatches, reason: 'the path is inside the granted task authority envelope and this step admitted it; the planned footprint is guidance, not an independent authority boundary.' });
+      continue;
+    }
+    decisions.push({ path: pathValue, classification: 'unowned', mutation_admitted: false, matched_scope: [], read_discovery_matches: [], reason: v2 !== undefined && v2InEnvelope
+      ? 'the path is inside the granted authority domain but this step has not admitted it yet; run preflight-step or extend-preflight first.'
+      : 'the path is not listed in Allowed Files or an authorized Conditional Files entry.' });
   }
 
   const admittedPaths = decisions.filter(decision => decision.mutation_admitted).map(decision => decision.path);

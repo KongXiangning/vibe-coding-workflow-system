@@ -35,17 +35,24 @@ import {
   readCanonicalCurrentTask,
   readCanonicalTaskBasis,
   readDraftDefinitionFromBody,
+  readProjectAuthorityDomains,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
   type CanonicalCurrentTask,
   type ClaimEvidenceRecord,
+  type DraftMutationAuthority,
   type DraftTaskDefinition,
   type RuntimeApplyOptions,
   type RuntimeResult,
   type TaskBasis,
   type TestStrategyDefinition,
 } from './kernel';
+import {
+  MUTATION_AUTHORITY_VERSION_V2,
+  MutationAuthorityError,
+  evaluateMutationAuthority,
+} from './mutation-authority';
 import {
   evaluateCommandWriteFootprint,
   evaluateMutationScope,
@@ -105,6 +112,15 @@ export type PrepareTaskSemanticDraft = {
     review_checkpoint?: { policy: 'required' | 'not-required'; reason: string };
   }>;
   validation_plan: string[];
+  /**
+   * Mutation Authority v2. Absent keeps the legacy v1 exact-path semantics;
+   * supplying it opts the task into the authority envelope plus planned
+   * footprint model.
+   */
+  mutation_authority?: {
+    domains: string[];
+    exact_exceptions: string[];
+  };
   persistent_tests: 'none' | Array<{
     path: string;
     proves: string[];
@@ -161,6 +177,7 @@ const SEMANTIC_DRAFT_FIELDS = [
   'validation_plan',
   'persistent_tests',
 ] as const;
+const OPTIONAL_SEMANTIC_DRAFT_FIELDS = ['project_documents', 'affected_contracts', 'mutation_authority'] as const;
 const STEP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
 const MAX_ITEMS = 256;
@@ -345,9 +362,85 @@ function stepScopeAdmitsCommandTarget(target: string, stepScope: readonly string
     : stepScope.some(pattern => mutationScopePatternMatchesPath(target, pattern));
 }
 
-function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
-  const source = record(input, 'prepare-task semantic draft');
-  exactKeys(source, [...SEMANTIC_DRAFT_FIELDS, ...['project_documents', 'affected_contracts'].filter(key => key in source)], 'prepare-task semantic draft');
+function normalizeDraftMutationAuthority(value: unknown, location: string): DraftMutationAuthority {
+  const source = record(value, location);
+  exactKeys(source, ['domains', 'exact_exceptions', ...(source.version === undefined ? [] : ['version'])], location);
+  const rawDomains = source.domains;
+  if (!Array.isArray(rawDomains) || rawDomains.length === 0 || rawDomains.length > MAX_ITEMS) {
+    fail('MUTATION_AUTHORITY_INVALID', `${location}.domains must be a bounded non-empty array of project authority domain ids.`);
+  }
+  const domains = rawDomains.map((item, index) => {
+    const id = text(item, `${location}.domains[${index}]`, 128);
+    if (id.includes('*')) fail('MUTATION_AUTHORITY_INVALID', `${location}.domains[${index}] must be an authority domain id, not a path pattern.`);
+    return id;
+  });
+  if (new Set(domains).size !== domains.length) fail('MUTATION_AUTHORITY_INVALID', `${location}.domains must not contain duplicate authority domains.`);
+  if (!Array.isArray(source.exact_exceptions) || source.exact_exceptions.length > MAX_ITEMS) {
+    fail('MUTATION_AUTHORITY_INVALID', `${location}.exact_exceptions must be a bounded array; use [] when none is authorized.`);
+  }
+  const exactExceptions = source.exact_exceptions.map((item, index) =>
+    normalizeScopePath(item, `${location}.exact_exceptions[${index}]`, false));
+  if (new Set(exactExceptions).size !== exactExceptions.length) {
+    fail('MUTATION_AUTHORITY_INVALID', `${location}.exact_exceptions must not contain duplicate paths.`);
+  }
+  return { version: MUTATION_AUTHORITY_VERSION_V2, domains, exact_exceptions: exactExceptions };
+}
+
+/**
+ * Mutation Authority v2 keeps the planned footprint free to be wrong.
+ *
+ * prepare-task selects the authority domains and names the targets it expects
+ * to touch; it does not have to enumerate every implementation file, and a
+ * read dependency never becomes a mutation grant. What it must not do is plan
+ * a target its own envelope cannot authorize.
+ */
+function assertMutationAuthorityPlanIsExecutable(root: string, input: PrepareTaskSemanticDraft): void {  const authority = input.mutation_authority;
+  if (authority === undefined) return;
+  let domainRoots: Map<string, string[]> | undefined;
+  try {
+    domainRoots = readProjectAuthorityDomains(root, { required: true });
+  } catch (error) {
+    if (error instanceof VNextRuntimeError) fail(error.code, error.message);
+    throw error;
+  }
+  if (!domainRoots) fail('MUTATION_AUTHORITY_PROFILE_INVALID', 'Mutation Authority v2 requires PROJECT_PROFILE.yaml mutation_authority.domains.');
+  const undeclared = authority.domains.filter(domain => !domainRoots.has(domain));
+  if (undeclared.length > 0) {
+    fail('MUTATION_AUTHORITY_PROFILE_INVALID', `mutation_authority.domains names authority domains that PROJECT_PROFILE.yaml does not declare: ${undeclared.join(', ')}.`);
+  }
+  const envelope = {
+    version: MUTATION_AUTHORITY_VERSION_V2 as const,
+    domains: [...authority.domains],
+    exact_exceptions: [...authority.exact_exceptions],
+    forbidden: [] as string[],
+  };
+  for (const step of input.implementation_steps) {
+    const plannedTargets = step.mutation_scope.filter(target => !target.includes('*'));
+    if (plannedTargets.length === 0) continue;
+    let evaluation;
+    try {
+      evaluation = evaluateMutationAuthority(envelope, {
+        changed_paths: plannedTargets,
+        planned_targets: step.mutation_scope,
+        step_id: step.id,
+        domain_roots: domainRoots,
+      });
+    } catch (error) {
+      if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+      throw error;
+    }
+    const outside = evaluation.admissions.filter(item => !item.admitted && item.classification !== 'invalid');
+    if (outside.length > 0) {
+      fail(
+        'MUTATION_AUTHORITY_PLAN_OUTSIDE_ENVELOPE',
+        `step ${step.id} plans targets outside the task authority envelope: ${outside.map(item => `${item.path} (${item.classification})`).join(', ')}. Grant the owning authority domain or an explicit exact exception.`,
+      );
+    }
+  }
+}
+
+function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {  const source = record(input, 'prepare-task semantic draft');
+  exactKeys(source, [...SEMANTIC_DRAFT_FIELDS, ...OPTIONAL_SEMANTIC_DRAFT_FIELDS.filter(key => key in source)], 'prepare-task semantic draft');
 
   if (('project_documents' in source) !== ('affected_contracts' in source)) {
     fail('PROJECT_DOCUMENTS_INVALID', 'Supply project_documents and affected_contracts together, using [] where applicable.');
@@ -458,6 +551,7 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   const normalized: PrepareTaskSemanticDraft = {
     ...(source.project_documents === undefined ? {} : { project_documents: normalizeProjectDocuments(source.project_documents) }),
     ...(source.affected_contracts === undefined ? {} : { affected_contracts: textList(source.affected_contracts, 'affected_contracts', true) }),
+    ...(source.mutation_authority === undefined ? {} : { mutation_authority: normalizeDraftMutationAuthority(source.mutation_authority, 'mutation_authority') }),
     task_basis: normalizeTaskBasis(source.task_basis),
     goal: text(source.goal, 'goal', 512),
     claim_evidence: validateClaimEvidence(source.claim_evidence, 'claim_evidence'),
@@ -670,6 +764,13 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
     design_constraints: null,
     post_release_validation: null,
     propagation_governance: null,
+    mutation_authority: input.mutation_authority === undefined
+      ? null
+      : {
+        version: MUTATION_AUTHORITY_VERSION_V2,
+        domains: [...input.mutation_authority.domains],
+        exact_exceptions: [...input.mutation_authority.exact_exceptions],
+      },
   };
 }
 
@@ -790,6 +891,7 @@ function assertDocumentReferencesResubmitted(current: ReturnType<typeof readCano
 
 export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
   const semantic = normalizeSemanticDraft(input);
+  assertMutationAuthorityPlanIsExecutable(root, semantic);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);

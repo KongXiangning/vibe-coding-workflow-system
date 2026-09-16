@@ -499,6 +499,57 @@ export function validateProfilePathSemantics(profile: JsonObject, context = WORK
     context,
   );
 
+  // A project-level authority domain map is optional, but when present every
+  // declared root must be a bounded repository-relative pattern and no two
+  // domains may own the same path.
+  if (hasDottedPath(profile, 'mutation_authority')) {
+    const authority = getRequiredPath(profile, 'mutation_authority');
+    if (!authority || typeof authority !== 'object' || Array.isArray(authority)) {
+      throw new Error(`Invalid repo pattern in ${context}.mutation_authority: value must be a mapping`);
+    }
+    const domains = (authority as JsonObject).domains;
+    if (!Array.isArray(domains) || domains.length === 0) {
+      throw new Error(`Invalid repo pattern in ${context}.mutation_authority.domains: value must be a non-empty array`);
+    }
+    const claimed = new Map<string, string>();
+    for (const [index, raw] of domains.entries()) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error(`Invalid repo pattern in ${context}.mutation_authority.domains[${index}]: value must be a mapping`);
+      }
+      const domain = raw as JsonObject;
+      const id = typeof domain.id === 'string' ? domain.id.trim() : '';
+      if (!id || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)) {
+        throw new Error(`Invalid repo pattern in ${context}.mutation_authority.domains[${index}].id: "${String(domain.id)}"`);
+      }
+      if (claimed.has(`#${id}`)) {
+        throw new Error(`Duplicate authority domain id in ${context}: "${id}"`);
+      }
+      claimed.set(`#${id}`, id);
+      if (!Array.isArray(domain.roots) || domain.roots.length === 0) {
+        throw new Error(`Invalid repo pattern in ${context}.mutation_authority.domains[${index}].roots: value must be a non-empty array`);
+      }
+      for (const root of domain.roots) {
+        const normalized = validateRepoPatternEntry(
+          String(root),
+          'mutation_authority.domains[].roots',
+          context,
+        );
+        if (normalized.includes('*') && !/^[^*]+\/\*\*$/.test(normalized)) {
+          throw new Error(
+            `Invalid repo pattern in ${context}.mutation_authority.domains[${index}].roots: "${root}" (must be an exact path or a literal /** prefix)`,
+          );
+        }
+        const owner = claimed.get(normalized);
+        if (owner !== undefined && owner !== id) {
+          throw new Error(
+            `Overlapping authority domain roots in ${context}: "${normalized}" is owned by "${owner}" and "${id}"`,
+          );
+        }
+        claimed.set(normalized, id);
+      }
+    }
+  }
+
   if (hasDottedPath(profile, 'boundaries.non_executable_change_paths')) {
     const configured = getRequiredPath(profile, 'boundaries.non_executable_change_paths');
     if (!Array.isArray(configured)) {

@@ -21,6 +21,7 @@ import {
   assertTestStrategySequenceReady,
   assertOrdinaryPreflight,
   assertBusinessEvidenceVersion,
+  createStepPreflightExtensionProposal,
   createStepPreflightProposal,
   createStepRetryProposal,
   type StepRepairDiagnosis,
@@ -39,6 +40,9 @@ import {
   createRetainedReviewConsumptionProposal,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
+  readProjectAuthorityDomains,
+  readTaskAuthorityEnvelope,
+  mutationAuthorityIsV2,
   resolveTestStrategyExecutionContext,
   validateRuntimeEnvironment,
   validateRuntimeReviewTarget,
@@ -64,12 +68,22 @@ import {
   parseMutationScope,
   type MutationTransformationKind,
 } from './mutation-scope';
+import {
+  MutationAuthorityError,
+  evaluateMutationAuthority,
+  mutationAuthorityBlockerCode,
+  normalizeBlastRadiusAssessments,
+  type MutationBlastRadiusAssessment,
+  type MutationBlastRadiusLocality,
+  type MutationBlastRadiusVisibility,
+} from './mutation-authority';
 import { resolveTaskStep, type TaskStepDefinition } from './task-steps';
 import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
 import { contextInput, integer } from './file-context';
 
 export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'preflight-step',
+  'extend-preflight',
   'apply-artifact-restore',
   'artifact-checkpoints',
   'evidence-context',
@@ -110,6 +124,17 @@ export type ExecuteStepPreflightReceipt = {
   repair_fingerprint: string | null;
   change_set_id: string;
   review_base: ReviewTarget;
+  /**
+   * Mutation Authority v2: cumulative in-envelope expansion history of this
+   * same execution attempt. Present only after extend-preflight.
+   */
+  extended_targets?: Array<{
+    path: string;
+    admission_id: string;
+    locality: MutationBlastRadiusLocality;
+    visibility: MutationBlastRadiusVisibility;
+    dynamic_review_required: true;
+  }>;
 };
 
 export type ExecuteStepRepairPreflightReceipt = {
@@ -160,6 +185,13 @@ export type ExecuteStepRepairPreflightResult = Omit<ExecuteStepPreflightResult, 
   receipt: ExecuteStepRepairPreflightReceipt;
 };
 
+export type ExecuteStepPreflightExtensionResult = Omit<ExecuteStepPreflightResult, 'operation_kind' | 'receipt' | 'candidate_paths'> & {
+  operation_kind: 'execute-step-preflight-extension';
+  receipt: ExecuteStepPreflightReceipt;
+  extended_targets: NonNullable<ExecuteStepPreflightReceipt['extended_targets']>;
+  dynamic_review_required: true;
+};
+
 export type ExecuteStepEvidenceContext = {
   status: 'pass' | 'partial';
   operation_kind: 'execute-step-evidence-context';
@@ -191,7 +223,7 @@ export type ExecuteStepEvidenceContext = {
   context_projection: TaskContextReference;
 };
 
-export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult | ExecuteStepEvidenceContext;
+export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult | ExecuteStepPreflightExtensionResult | ExecuteStepEvidenceContext;
 
 const MAX_ITEMS = 256;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
@@ -394,14 +426,44 @@ function stepAdmitsFootprintTarget(target: string, stepScope: readonly string[])
   return target.includes('*') ? stepScope.includes(target) : stepAdmitsExactPath(target, stepScope);
 }
 
-function assertPathsAdmitted(current: CanonicalCurrentTask, stepPlan: StepPlan, paths: readonly string[], location: string): void {
+function stepPlannedPaths(stepPlan: StepPlan): string[] {
+  return stepPlan.mutation_scope.filter(pattern => !pattern.includes('*'));
+}
+
+/**
+ * Build the shared evaluator's v2 authorization view.
+ *
+ * The envelope is the hard boundary; `admitted_paths` is everything this step
+ * has admitted so far (its planned targets plus any extend-preflight
+ * expansion). Nothing here can override Forbidden or the frozen Persistent
+ * Tests rule, both of which the shared evaluator applies first.
+ */
+function scopeWithAuthority(root: string, current: CanonicalCurrentTask, stepPlan: StepPlan): ReturnType<typeof parseMutationScope> {
+  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+  if (!mutationAuthorityIsV2(current)) return scope;
+  const envelope = readTaskAuthorityEnvelope(current);
+  const roots = readProjectAuthorityDomains(root, { required: true });
+  if (!roots) fail('MUTATION_AUTHORITY_PROFILE_INVALID', 'Mutation Authority v2 requires PROJECT_PROFILE.yaml mutation_authority.domains.');
+  scope.v2 = {
+    domains: envelope.domains.map(domain => ({ id: domain, roots: [...(roots.get(domain) ?? [])] })),
+    exact_exceptions: [...envelope.exact_exceptions],
+    admitted_paths: [
+      ...stepPlannedPaths(stepPlan),
+      ...(current.runtimeState.mutation_authority_admissions ?? []).map(item => item.path),
+    ],
+  };
+  return scope;
+}
+
+function assertPathsAdmitted(root: string, current: CanonicalCurrentTask, stepPlan: StepPlan, paths: readonly string[], location: string): void {
   if (paths.length === 0) return;
-  const scopeResult = evaluateMutationScope(parseMutationScope(current.body, current.sourceTuple.revision), {
-    changed_paths: [...paths],
-  });
+  const scopeResult = evaluateMutationScope(scopeWithAuthority(root, current, stepPlan), { changed_paths: [...paths] });
   if (scopeResult.status !== 'pass') {
     fail('EXECUTE_SCOPE_BLOCKED', `${location} is outside confirmed task scope: ${scopeResult.blockers.join(' ')}`);
   }
+  // A v1 task keeps its step hard scope. A v2 task treats the step line as the
+  // planned footprint, so an unplanned-but-admitted target is allowed.
+  if (mutationAuthorityIsV2(current)) return;
   const outsideStep = paths.filter(file => !stepAdmitsExactPath(file, stepPlan.mutation_scope));
   if (outsideStep.length > 0) {
     fail('EXECUTE_STEP_SCOPE_BLOCKED', `${location} is outside current step scope: ${outsideStep.join(', ')}.`);
@@ -493,6 +555,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       'review_target_paths',
       'review_id',
       'review_base',
+      ...(source.extended_targets === undefined ? [] : ['extended_targets']),
     ], 'preflight_receipt');
     if (source.mode !== 'repair') fail('EXECUTE_ADAPTER_INPUT_INVALID', 'repair preflight receipt mode must be repair.');
     const sourceRevision = text(source.source_revision, 'preflight_receipt.source_revision', 64);
@@ -515,6 +578,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       review_target_paths: pathList(source.review_target_paths, 'preflight_receipt.review_target_paths', true),
       review_id: text(source.review_id, 'preflight_receipt.review_id', 128),
       review_base: validateRuntimeReviewTarget(source.review_base, 'preflight_receipt.review_base'),
+      ...(source.extended_targets === undefined ? {} : { extended_targets: normalizeExtendedTargets(source.extended_targets) }),
     };
   }
   exactKeys(source, [
@@ -532,6 +596,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     'change_set_id',
     'review_base',
     ...(source.attempt_id === undefined ? [] : ['attempt_id']),
+    ...(source.extended_targets === undefined ? [] : ['extended_targets']),
   ], 'preflight_receipt');
   if (source.kind !== 'execute-step-preflight/v1') {
     fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.kind must be execute-step-preflight/v1.');
@@ -560,7 +625,34 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     repair_fingerprint: nullableText(source.repair_fingerprint, 'preflight_receipt.repair_fingerprint', 128),
     change_set_id: text(source.change_set_id, 'preflight_receipt.change_set_id', 128),
     review_base: validateRuntimeReviewTarget(source.review_base, 'preflight_receipt.review_base'),
+    ...(source.extended_targets === undefined ? {} : { extended_targets: normalizeExtendedTargets(source.extended_targets) }),
   };
+}
+
+function normalizeExtendedTargets(value: unknown): NonNullable<ExecuteStepPreflightReceipt['extended_targets']> {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 256) {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.extended_targets must be a bounded non-empty array.');
+  }
+  return value.map((raw, index) => {
+    const source = record(raw, `preflight_receipt.extended_targets[${index}]`);
+    exactKeys(source, ['path', 'admission_id', 'locality', 'visibility', 'dynamic_review_required'], `preflight_receipt.extended_targets[${index}]`);
+    if (source.dynamic_review_required !== true) {
+      fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.extended_targets dynamic_review_required must be true.');
+    }
+    if (!['local', 'elevated', 'high'].includes(String(source.locality))) {
+      fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.extended_targets locality is invalid.');
+    }
+    if (!['private', 'shared', 'public', 'unknown'].includes(String(source.visibility))) {
+      fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.extended_targets visibility is invalid.');
+    }
+    return {
+      path: text(source.path, `preflight_receipt.extended_targets[${index}].path`, 1024),
+      admission_id: text(source.admission_id, `preflight_receipt.extended_targets[${index}].admission_id`, 128),
+      locality: source.locality as MutationBlastRadiusLocality,
+      visibility: source.visibility as MutationBlastRadiusVisibility,
+      dynamic_review_required: true as const,
+    };
+  });
 }
 
 function assertCurrentReceipt(current: CanonicalCurrentTask, stepPlan: StepPlan, receipt: AnyExecuteStepPreflightReceipt): void {
@@ -664,7 +756,7 @@ export function beginRepair(
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   assertTestStrategyCandidatePaths(strategy, candidatePaths);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths');
+  assertPathsAdmitted(root, current, stepPlan, candidatePaths, 'candidate_paths');
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
@@ -856,8 +948,129 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
   };
 }
 
-export function preflightStep(root: string, input: unknown): ExecuteStepPreflightResult {
-  const source = record(input, 'preflight-step input');
+function buildDefaultPreflightReceipt(
+  root: string,
+  current: CanonicalCurrentTask,
+  stepPlan: StepPlan,
+  strategy: TestStrategyExecutionContext,
+  candidatePaths: readonly string[],
+): ExecuteStepPreflightReceipt {
+  return {
+    kind: 'execute-step-preflight/v1',
+    attempt_id: nextStepAttemptId(current),
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: stepPlan.step.id,
+    plan_revision: stepPlanRevision(stepPlan),
+    mode: 'default',
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
+    candidate_paths: [...candidatePaths],
+    repair_fingerprint: null,
+    change_set_id: changeSetId(current, stepPlan.step.id),
+    review_base: captureReviewTarget(root, candidatePaths),
+  };
+}
+
+/**
+ * Mutation Authority v2 mid-execution discovery.
+ *
+ * `extend-preflight` admits additional targets that are inside the task
+ * authority envelope but outside this step's planned footprint. It stays in
+ * the same execution attempt: no retry budget is consumed, no plan revision
+ * changes, and no continuation is created. The replacement receipt becomes the
+ * only valid receipt for `record-step-result`, and every expansion is marked
+ * for mandatory review.
+ */
+export function extendPreflight(root: string, input: unknown): ExecuteStepPreflightExtensionResult {
+  const source = record(input, 'extend-preflight input');
+  exactKeys(source, ['preflight_receipt', 'additional_targets'], 'extend-preflight input');
+  const receipt = normalizePreflightReceipt(source.preflight_receipt);
+  if (receipt.kind !== 'execute-step-preflight/v1') {
+    fail('MUTATION_AUTHORITY_EXPANSION_REQUIRED', 'extend-preflight is available only for an ordinary execute-step preflight; repair mode keeps its Runtime-owned reviewed scope.');
+  }
+  let assessments: MutationBlastRadiusAssessment[];
+  try {
+    assessments = normalizeBlastRadiusAssessments(Array.isArray(source.additional_targets)
+      ? source.additional_targets.map((raw, index) => {
+        const entry = record(raw, `additional_targets[${index}]`);
+        exactKeys(entry, ['path', 'assessment'], `additional_targets[${index}]`);
+        const assessment = record(entry.assessment, `additional_targets[${index}].assessment`);
+        if (typeof entry.path !== 'string') fail('MUTATION_AUTHORITY_INVALID', `additional_targets[${index}].path must be a repository-relative path.`);
+        return { ...assessment, path: entry.path };
+      })
+      : source.additional_targets);
+  } catch (error) {
+    if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+    throw error;
+  }
+  const requestedPaths = pathList(assessments.map(item => item.path), 'additional_targets.path', false);
+
+  let current = readCanonicalCurrentTask(root);
+  if (!mutationAuthorityIsV2(current)) {
+    fail('MUTATION_AUTHORITY_EXPANSION_REQUIRED', 'extend-preflight requires a Mutation Authority v2 task; a v1 task must use prepare-task:amend-scope with explicit user authorization.');
+  }
+  const stepPlan = currentStepPlan(current);
+  assertCurrentReceipt(current, stepPlan, receipt);
+  const envelope = readTaskAuthorityEnvelope(current);
+  const domainRoots = readProjectAuthorityDomains(root, { required: true });
+  if (!domainRoots) fail('MUTATION_AUTHORITY_PROFILE_INVALID', 'Mutation Authority v2 requires PROJECT_PROFILE.yaml mutation_authority.domains.');
+  const evaluation = evaluateMutationAuthority(envelope, {
+    changed_paths: requestedPaths,
+    planned_targets: stepPlan.mutation_scope,
+    step_id: stepPlan.step.id,
+    domain_roots: domainRoots,
+    target_exists: target => fs.existsSync(path.resolve(root, ...target.split('/'))),
+    assessments,
+  });
+  if (evaluation.status !== 'pass') {
+    fail(mutationAuthorityBlockerCode(evaluation) ?? 'MUTATION_AUTHORITY_EXPANSION_REQUIRED', evaluation.blockers.join(' '));
+  }
+
+  const committed = applyVNextRuntimeProposal(root, createStepPreflightExtensionProposal(current, {
+    plannedTargets: stepPlan.mutation_scope,
+    targets: assessments.map(item => ({ path: item.path, assessment: item })),
+  }));
+  if (!['success', 'no-op'].includes(committed.status)) {
+    fail('MUTATION_AUTHORITY_EXPANSION_BLOCKED', committed.message);
+  }
+  current = readCanonicalCurrentTask(root);
+  const extension = (current.runtimeState.mutation_authority_admissions ?? [])
+    .filter(item => item.step_id === stepPlan.step.id && requestedPaths.includes(item.path));
+  const extendedTargets = [
+    ...(receipt.extended_targets ?? []),
+    ...extension
+      .filter(item => !(receipt.extended_targets ?? []).some(existing => existing.path === item.path))
+      .map(item => ({
+        path: item.path,
+        admission_id: item.admission_id,
+        locality: item.assessment.locality,
+        visibility: item.assessment.visibility,
+        dynamic_review_required: true as const,
+      })),
+  ];
+  const nextReceipt = buildDefaultPreflightReceipt(
+    root,
+    current,
+    stepPlan,
+    resolveTestStrategyExecutionContext(current),
+    [...new Set([...receipt.candidate_paths, ...requestedPaths])].sort(),
+  );
+  return {
+    status: 'pass',
+    operation_kind: 'execute-step-preflight-extension',
+    committed: committed.committed,
+    read_back_verified: true,
+    current_step: currentStepResult(stepPlan, resolveTestStrategyExecutionContext(current)),
+    context_projection: taskContextReferenceForCurrent(root, current, 'extend-preflight', 'default'),
+    receipt: { ...nextReceipt, ...(extendedTargets.length === 0 ? {} : { extended_targets: extendedTargets }) },
+    extended_targets: extendedTargets,
+    dynamic_review_required: true,
+  };
+}
+
+export function preflightStep(root: string, input: unknown): ExecuteStepPreflightResult {  const source = record(input, 'preflight-step input');
   exactKeys(source, ['candidate_paths'], 'preflight-step input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', true);
 
@@ -868,7 +1081,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   assertTestStrategyCandidatePaths(strategy, candidatePaths);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths');
+  assertPathsAdmitted(root, current, stepPlan, candidatePaths, 'candidate_paths');
   assertCommandPlansAdmitted(current, stepPlan);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
@@ -882,22 +1095,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     committed = registration.committed;
     current = readCanonicalCurrentTask(root);
   }
-  const receipt: ExecuteStepPreflightReceipt = {
-    kind: 'execute-step-preflight/v1',
-    attempt_id:nextStepAttemptId(current),
-    task_id: current.runtimeState.task_id,
-    document_id: current.sourceTuple.document_id,
-    source_revision: current.sourceTuple.revision,
-    step_id: stepPlan.step.id,
-    plan_revision: stepPlanRevision(stepPlan),
-    mode: 'default',
-    test_strategy_mode: strategy.mode,
-    execution_phase: strategy.phase,
-    candidate_paths: candidatePaths,
-    repair_fingerprint: null,
-    change_set_id: changeSetId(current, stepPlan.step.id),
-    review_base: captureReviewTarget(root, candidatePaths),
-  };
+  const receipt = buildDefaultPreflightReceipt(root, current, stepPlan, strategy, candidatePaths);
   return {
     status: 'pass',
     operation_kind: 'execute-step-preflight',
@@ -1048,14 +1246,14 @@ function assertObservedWithinExpected(command: PlannedCommand, observed: readonl
   }
 }
 
-function assertCommandResults(current: CanonicalCurrentTask, stepPlan: StepPlan, results: CommandResult[]): void {
+function assertCommandResults(root: string, current: CanonicalCurrentTask, stepPlan: StepPlan, results: CommandResult[]): void {
   assertExactResultSet(results.map(item => item.command), stepPlan.commands.map(item => item.command), 'command_results');
   const scope = parseMutationScope(current.body, current.sourceTuple.revision);
   for (const result of results) {
     const planned = stepPlan.commands.find(item => item.command === result.command)!;
     if (result.status === 'not-run') continue;
     assertObservedWithinExpected(planned, result.observed_repo_writes);
-    assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`);
+    assertPathsAdmitted(root, current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`);
     if (planned.expected_repo_writes === 'none') continue;
     const audit = auditCommandMutation(scope, {
       command: planned.command,
@@ -1242,9 +1440,9 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   assertTestStrategyCandidatePaths(strategy, receipt.candidate_paths);
-  assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths');
-  assertPathsAdmitted(current, stepPlan, actualChangedPaths, 'actual_changed_paths');
-  assertCommandResults(current, stepPlan, commandResults);
+  assertPathsAdmitted(root, current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths');
+  assertPathsAdmitted(root, current, stepPlan, actualChangedPaths, 'actual_changed_paths');
+  assertCommandResults(root, current, stepPlan, commandResults);
   assertValidationResults(stepPlan, validationResults);
   if (outcome === 'implemented' && commandResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure')) {
     fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned command to pass.');
@@ -1604,6 +1802,9 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
     switch (args.command) {
       case 'preflight-step':
         result = preflightStep(args.root, input);
+        break;
+      case 'extend-preflight':
+        result = extendPreflight(args.root, input);
         break;
       case 'artifact-checkpoints':
         exactKeys(record(input, 'artifact-checkpoints'), [], 'artifact-checkpoints');

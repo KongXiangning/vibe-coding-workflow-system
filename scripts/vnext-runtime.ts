@@ -9,6 +9,7 @@
  */
 
 export * from '../runtime/vnext/src/kernel';
+export * from '../runtime/vnext/src/mutation-authority';
 export * from '../runtime/vnext/src/bootstrap';
 export * from '../runtime/vnext/src/prepare-task-adapter';
 export * from '../runtime/vnext/src/execute-step-adapter';

@@ -561,7 +561,7 @@ function compactCurrent(current: TaskStoreCurrent): boolean {
 
 function stateSnapshotPayload(current: TaskStoreCurrent): Record<string, unknown> {
   const state = current.runtimeState;
-  const snapshot = copyWithout(state, ['execution_log', 'applied_proposals', 'claim_evidence']);
+  const snapshot = copyWithout(state, ['execution_log', 'applied_proposals', 'claim_evidence', 'mutation_authority', 'mutation_authority_admissions', 'mutation_dynamic_review']);
   snapshot.claim_evidence = Array.isArray(state.claim_evidence)
     ? state.claim_evidence.map(item => {
       if (!record(item)) return item;

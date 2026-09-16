@@ -7,7 +7,8 @@ export type RepoPatternField =
   | 'boundaries.non_executable_change_paths'
   | 'boundaries.generated_only_paths'
   | 'boundaries.workflow_owned_paths'
-  | 'governance.current_documents';
+  | 'governance.current_documents'
+  | 'mutation_authority.domains[].roots';
 
 export function normalizeRepoPattern(entry: string): string {
   return entry.trim().replace(/\\/g, '/').replace(/\/+/g, '/');
