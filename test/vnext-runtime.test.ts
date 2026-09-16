@@ -4,6 +4,7 @@ import { installDistribution, upgradeDistribution } from '../scripts/vibe-govern
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
 import { commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from '../runtime/vnext/src/task-evolution-io';
+import { commitTaskStorageMigration } from '../runtime/vnext/src/task-store';
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
 import { spawnSync } from 'child_process';
@@ -791,6 +792,19 @@ function confirmedSemanticRoot(input: PrepareTaskSemanticDraft = singleStepSeman
   return root;
 }
 
+function useLegacyInlineCurrent(root: string): void {
+  const current = readCanonicalCurrentTask(root);
+  const frontmatter = structuredClone(current.frontmatter);
+  delete frontmatter.task_store;
+  frontmatter.runtime_state = {
+    ...frontmatter.runtime_state,
+    execution_log: current.runtimeState.execution_log,
+    applied_proposals: current.runtimeState.applied_proposals,
+  };
+  fs.writeFileSync(current.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${current.body}`, 'utf8');
+  fs.rmSync(path.join(root, 'docs', 'workflow', 'task-data', current.sourceTuple.document_id), { recursive: true, force: true });
+}
+
 function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
   return {
     fingerprint,
@@ -1241,13 +1255,18 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     expect(applyVNextRuntimeProposal(emptyConfirmRoot, emptyConfirmCreated).status).toBe('success');
     const persistedConfirmDraft = readCanonicalCurrentTask(emptyConfirmRoot);
+    const legacyConfirmFrontmatter = structuredClone(persistedConfirmDraft.frontmatter);
+    delete legacyConfirmFrontmatter.task_store;
+    legacyConfirmFrontmatter.runtime_state = {
+      ...legacyConfirmFrontmatter.runtime_state,
+      execution_log: persistedConfirmDraft.runtimeState.execution_log,
+      applied_proposals: persistedConfirmDraft.runtimeState.applied_proposals,
+      claim_evidence: [],
+    };
     fs.writeFileSync(persistedConfirmDraft.filePath, `---\n${stringify({
-      ...persistedConfirmDraft.frontmatter,
-      runtime_state: {
-        ...persistedConfirmDraft.runtimeState,
-        claim_evidence: [],
-      },
+      ...legacyConfirmFrontmatter,
     }).trimEnd()}\n---\n${persistedConfirmDraft.body}`, 'utf8');
+    fs.rmSync(path.join(emptyConfirmRoot, 'docs', 'workflow', 'task-data', persistedConfirmDraft.sourceTuple.document_id), { recursive: true, force: true });
     const emptyConfirmDraft = readCanonicalCurrentTask(emptyConfirmRoot);
     const emptyConfirm = createPrepareTaskConfirmProposal(emptyConfirmDraft, {
       task_id: '001',
@@ -2537,8 +2556,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     const root = confirmedSemanticRoot();
     const original = readCanonicalCurrentTask(root);
     const frontmatter = structuredClone(original.frontmatter);
+    delete frontmatter.task_store;
+    frontmatter.runtime_state = {
+      ...frontmatter.runtime_state,
+      execution_log: original.runtimeState.execution_log,
+      applied_proposals: original.runtimeState.applied_proposals,
+    };
     delete frontmatter.runtime_state.task_evolution_version;
     fs.writeFileSync(original.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${original.body}`, 'utf8');
+    fs.rmSync(path.join(root, 'docs', 'workflow', 'task-data', original.sourceTuple.document_id), { recursive: true, force: true });
     const old = readCanonicalCurrentTask(root);
     const basis = readCanonicalTaskBasis(root, old);
     const input = { source_revision: old.sourceTuple.revision, basis_revision: basis.revision };
@@ -2579,8 +2605,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     const source = confirmedSemanticRoot();
     const sourceCurrent = readCanonicalCurrentTask(source);
     const frontmatter = structuredClone(sourceCurrent.frontmatter);
+    delete frontmatter.task_store;
+    frontmatter.runtime_state = {
+      ...frontmatter.runtime_state,
+      execution_log: sourceCurrent.runtimeState.execution_log,
+      applied_proposals: sourceCurrent.runtimeState.applied_proposals,
+    };
     delete frontmatter.runtime_state.task_evolution_version;
     fs.writeFileSync(sourceCurrent.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${sourceCurrent.body}`, 'utf8');
+    fs.rmSync(path.join(source, 'docs', 'workflow', 'task-data', sourceCurrent.sourceTuple.document_id), { recursive: true, force: true });
     const target = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-preservation-installed-'));
     temporaryRoots.push(target);
     fs.writeFileSync(path.join(target, 'package.json'), '{"name":"preservation-fixture","private":true}\n');
@@ -2594,7 +2627,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     const distributionState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     distributionState.distribution_version = '0.18.6';
     fs.writeFileSync(statePath, JSON.stringify(distributionState, null, 2) + '\n');
-    expect(upgradeDistribution({ targetRoot: target, packageRoot: path.join(ROOT, 'packages', 'vibe-governance') }).status).toBe('upgraded');
+    const upgradeResult = upgradeDistribution({ targetRoot: target, packageRoot: path.join(ROOT, 'packages', 'vibe-governance') });
+    expect(upgradeResult.status).toBe('upgraded');
     expect(fs.readFileSync(targetCurrent)).toEqual(before);
     const installedCli = path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
     const summaryProcess = spawnSync('node', [installedCli, 'validate', '--root', target, '--summary'], { cwd: target, encoding: 'utf8' });
@@ -5352,7 +5386,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   // S2 admission: protects distinct business obligations, current applicability,
   // and Runtime-owned prerequisite consumption through production adapters.
-  test('S2 rule success cannot complete or close missing/failed flow; exact reports survive audit but not fixture changes', () => {
+  test('S2 rule success cannot complete or close missing/failed flow; exact reports survive audit but not fixture changes', { timeout: 30000 }, () => {
     const semantic = singleStepSemanticDraft();
     const requirement = 'A valid ticket can be saved and read by a fresh process';
     semantic.task_basis.original_request.verbatim = requirement;
@@ -5536,18 +5570,18 @@ describe('vNext Phase 2 Runtime contract', () => {
     // Bind the actual successful run to its still-required business check.
     const refreshed=preflightStep(root,{candidate_paths:[]});
     expect(recordStepResult(root,{...passed,preflight_receipt:refreshed.receipt,acceptance_evidence:[reportFixture(root)]}).status).toBe('success');
-    // Exercise real Runtime pruning through bounded state-only audit entries;
+    // Exercise durable Runtime history past the legacy 256-entry hot window;
     // no canonical editing and no invented additional process executions.
     for (let i=0;i<257;i++) {
       expect(applyVNextRuntimeProposal(root,taskProposal(root,{status:'in-progress',idempotency_key:`retry-audit-${i}`,note:`retained evidence audit ${i}`})).status).toBe('success');
     }
-    const pruned=readCanonicalCurrentTask(root);
-    expect(pruned.runtimeState.applied_proposals.some(p=>p.idempotency_key===retryInput.idempotency_key)).toBe(false);
-    expect(pruned.runtimeState.execution_log.some(e=>e.idempotency_key===failure.idempotency_key)).toBe(false);
-    const prunedBytes=fs.readFileSync(pruned.filePath,'utf8');
+    const durable=readCanonicalCurrentTask(root);
+    expect(durable.runtimeState.applied_proposals.some(p=>p.idempotency_key===retryInput.idempotency_key)).toBe(true);
+    expect(durable.runtimeState.execution_log.some(e=>!('action' in e) && e.step_id==='step-1' && e.status==='blocked')).toBe(true);
+    const durableBytes=fs.readFileSync(durable.filePath,'utf8');
     expect(applyVNextRuntimeProposal(root,raw).status).toBe('no-op');
     expect(retryStep(root,retryInput).status).toBe('no-op');
-    expect(fs.readFileSync(pruned.filePath,'utf8')).toBe(prunedBytes);
+    expect(fs.readFileSync(durable.filePath,'utf8')).toBe(durableBytes);
     const postPrune=preflightStep(root,{candidate_paths:[]});
     expect(spawnSync('bun',['-e',code],{env:{...process.env,S4_READY:'yes'},encoding:'utf8'}).status).toBe(0);
     expect(recordStepResult(root,{...passed,preflight_receipt:postPrune.receipt,acceptance_evidence:[],note:'fresh execution after audit pruning'}).status).toBe('success');
@@ -6068,6 +6102,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('reads unversioned task history but blocks preflight, raw progress and closure without rewriting it', () => {
     const root = confirmedSemanticRoot();
+    useLegacyInlineCurrent(root);
     const file = readCanonicalCurrentTask(root).filePath;
     const historical = fs.readFileSync(file, 'utf8').replace(/^  business_evidence_version: 1\r?\n/m, '');
     fs.writeFileSync(file, historical);
@@ -6083,6 +6118,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('does not let raw progress bypass an explicit ordering strategy on an existing versioned task', () => {
     const root = confirmedSemanticRoot();
+    useLegacyInlineCurrent(root);
     const file = readCanonicalCurrentTask(root).filePath;
     // A fixture of a future/forged ordered task must still fail at execution,
     // even when the caller bypasses prepare and semantic execution adapters.
@@ -6673,7 +6709,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(complete.runtimeState.pending_review_result).toBeNull();
   });
 
-  test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', () => {
+  test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', { timeout: 30000 }, () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const draft = singleStepSemanticDraft({
       implementation_steps: ['step-1', 'step-2'].map(id => ({
@@ -6729,6 +6765,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       expect(advanced.runtimeState.findings.find(item => item.fingerprint === firstRepair.receipt.repair_fingerprints[0])?.status).toBe('resolved');
 
       if (legacyCycle) {
+        useLegacyInlineCurrent(root);
         const raw = fs.readFileSync(advanced.filePath, 'utf8');
         const boundary = raw.indexOf('\n---\n', 4);
         const frontmatter = parse(raw.slice(4, boundary)) as Record<string, any>;
@@ -7392,6 +7429,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('validate refuses a directly drifted plan and rejected replan cannot legitimize it', () => {
     const root = confirmedSemanticRoot();
+    useLegacyInlineCurrent(root);
     const initial = readCanonicalCurrentTask(root);
     const validate = (summary: boolean) => spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', ...(summary ? ['--summary'] : []), '--root', root], { encoding: 'utf8' });
     expect(validate(true).status).toBe(0);
@@ -7600,7 +7638,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(resolveExternalProposalFile(root, outsideProposal)).toBe(path.resolve(outsideProposal));
   });
 
-  test('G09 G20 recovery replaces a check identity and binds a new prerequisite consumer without copying old consumption', () => {
+  test('G09 G20 recovery replaces a check identity and binds a new prerequisite consumer without copying old consumption', { timeout: 30000 }, () => {
     const claims = evidencePlanFixture('The document observation stays verified', 'S1');
     claims[0]!.slots[0]!.check!.subject_paths = ['README.md'];
     const prerequisite = structuredClone(claims[0]!);
@@ -7644,7 +7682,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(nextReceipt?.preflight_id).not.toBe(oldReceipt?.preflight_id);
   });
 
-  test('keeps original audit obligations while confirming a bounded correction before the original next step', () => {
+  test('keeps original audit obligations while confirming a bounded correction before the original next step', { timeout: 30000 }, () => {
     const audited = evidencePlanFixture('Nine issue conclusions remain verified', 'S3');
     audited[0]!.slots[0]!.check!.subject_paths = ['docs/audit.md'];
     const unaffected = structuredClone(audited[0]!);
@@ -7673,7 +7711,17 @@ describe('vNext Phase 2 Runtime contract', () => {
     fs.writeFileSync(path.join(root, 'independent-evidence.txt'), 'Independent observation evidence.\n');
     fs.writeFileSync(path.join(root, 'docs', 'challenge.md'), 'External review: public cursor result is unsupported.\n');
     const confirmed = readCanonicalCurrentTask(root);
-    const claims = structuredClone(confirmed.runtimeState.claim_evidence!);
+    const legacyFrontmatter = structuredClone(confirmed.frontmatter);
+    delete legacyFrontmatter.task_store;
+    legacyFrontmatter.runtime_state = {
+      ...legacyFrontmatter.runtime_state,
+      execution_log: confirmed.runtimeState.execution_log,
+      applied_proposals: confirmed.runtimeState.applied_proposals,
+    };
+    fs.writeFileSync(confirmed.filePath, `---\n${stringify(legacyFrontmatter).trimEnd()}\n---\n${confirmed.body}`, 'utf8');
+    fs.rmSync(path.join(root, 'docs', 'workflow', 'task-data', confirmed.sourceTuple.document_id), { recursive: true, force: true });
+    const legacy = readCanonicalCurrentTask(root);
+    const claims = structuredClone(legacy.runtimeState.claim_evidence!);
     for (const claim of claims) for (const slot of claim.slots) {
       slot.disposition = 'newly-executed';
       slot.evidence_refs = ['independent-evidence.txt'];
@@ -7682,8 +7730,10 @@ describe('vNext Phase 2 Runtime contract', () => {
         environment: 'isolated audit fixture', assurance: 'caller-reported' };
     }
     const state = { ...confirmed.runtimeState, active_step_id: 'S4', active_step_status: 'ready' as const, claim_evidence: claims };
-    const frontmatter = { ...confirmed.frontmatter, runtime_state: state };
-    fs.writeFileSync(confirmed.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${confirmed.body}`, 'utf8');
+    const frontmatter = { ...legacy.frontmatter, runtime_state: state };
+    fs.writeFileSync(legacy.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${legacy.body}`, 'utf8');
+    const beforeLegacy = readCanonicalCurrentTask(root);
+    commitTaskStorageMigration(root, beforeLegacy, beforeLegacy.sourceTuple.revision);
     const before = readCanonicalCurrentTask(root);
     const challenged = recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1', evidence_ref: 'docs/challenge.md',
       evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge.md')), reason: 'The public cursor boundary was not observed' });

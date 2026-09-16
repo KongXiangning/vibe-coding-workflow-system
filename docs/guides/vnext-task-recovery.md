@@ -1,4 +1,4 @@
-# vNext 0.19.4：任务纠错、执行恢复与有界上下文
+# vNext 0.19.5：任务纠错、执行恢复与有界上下文
 
 ## 适用范围
 
@@ -61,7 +61,7 @@
 
 ## 安装、升级和兼容
 
-使用发行报告列出的固定 `vibe-governance-0.19.4.tgz`，先核对 SHA-256。可在独立安装目录执行：
+使用发行报告列出的固定 `vibe-governance-0.19.5.tgz`，先核对 SHA-256。可在独立安装目录执行：
 
 ```powershell
 npm install --ignore-scripts --no-audit --no-fund <固定tgz绝对路径>

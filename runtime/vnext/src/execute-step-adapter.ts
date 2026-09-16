@@ -65,6 +65,7 @@ import {
 } from './mutation-scope';
 import { resolveTaskStep, type TaskStepDefinition } from './task-steps';
 import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
+import { contextInput, integer } from './file-context';
 
 export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'preflight-step',
@@ -159,7 +160,7 @@ export type ExecuteStepRepairPreflightResult = Omit<ExecuteStepPreflightResult, 
 };
 
 export type ExecuteStepEvidenceContext = {
-  status: 'pass';
+  status: 'pass' | 'partial';
   operation_kind: 'execute-step-evidence-context';
   committed: false;
   task_id: string;
@@ -171,8 +172,21 @@ export type ExecuteStepEvidenceContext = {
     slot_id: string;
     check_id: string;
     subject_revision: string;
-    subject_snapshot: ReturnType<typeof captureReviewTarget>;
+    subject_snapshot: {
+      kind: string;
+      revision: string;
+      entry_count: number;
+      entries_omitted: true;
+    };
   }>;
+  returned_check_count: number;
+  total_check_count: number;
+  unexpanded_check_ids: string[];
+  unexpanded_check_count: number;
+  unexpanded_check_ids_truncated: boolean;
+  complete_for_operation: boolean;
+  continuation: { kind: 'execute-step-evidence-page/v1'; source_revision: string; evidence_plan_revision: string; offset: number } | null;
+  subject_snapshots_read: 'Use task-context/task-read for the exact frozen subject entries.';
   context_projection: TaskContextReference;
 };
 
@@ -182,6 +196,20 @@ const MAX_ITEMS = 256;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SAFE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+
+function subjectSnapshotSummary(snapshot: ReturnType<typeof captureReviewTarget>): {
+  kind: string;
+  revision: string;
+  entry_count: number;
+  entries_omitted: true;
+} {
+  return {
+    kind: snapshot.kind,
+    revision: snapshot.revision,
+    entry_count: snapshot.entries.length,
+    entries_omitted: true,
+  };
+}
 
 function fail(code: string, message: string): never {
   throw new VNextRuntimeError(code, message);
@@ -754,11 +782,11 @@ export function retryStep(root: string, input: unknown, options: RuntimeApplyOpt
 // Read current declared subjects after running a check, without refreshing any
 // stored report, prerequisite, review baseline or execution permission.
 export function evidenceContext(root: string, input: unknown): ExecuteStepEvidenceContext {
-  exactKeys(record(input, 'evidence-context input'), [], 'evidence-context input');
+  const source = contextInput(input, ['offset', 'limit', 'continuation']);
   const current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   assertBusinessEvidenceVersion(current);
-  const checks = (current.runtimeState.claim_evidence ?? []).flatMap(claim => claim.slots.map(slot => {
+  const allChecks = (current.runtimeState.claim_evidence ?? []).flatMap(claim => claim.slots.map(slot => {
     if (!slot.check) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen check is required.');
     const snapshot = captureReviewTarget(root, slot.check.subject_paths);
     return {
@@ -766,12 +794,39 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
       subject_revision: snapshot.revision,
-      subject_snapshot: snapshot,
+      subject_snapshot: subjectSnapshotSummary(snapshot),
     };
   }));
-  if (!current.runtimeState.evidence_plan_revision || !checks.length) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen evidence plan is required.');
+  if (!current.runtimeState.evidence_plan_revision || !allChecks.length) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen evidence plan is required.');
+  const continuationValue = source.continuation;
+  let continuation: { kind: 'execute-step-evidence-page/v1'; source_revision: string; evidence_plan_revision: string; offset: number } | null = null;
+  if (continuationValue !== undefined) {
+    let parsed: unknown = continuationValue;
+    if (typeof continuationValue === 'string') {
+      try { parsed = JSON.parse(continuationValue) as unknown; } catch { fail('EVIDENCE_CONTEXT_CONTINUATION_INVALID', 'continuation is not valid JSON.'); }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail('EVIDENCE_CONTEXT_CONTINUATION_INVALID', 'continuation must be an object.');
+    const cursor = parsed as Record<string, unknown>;
+    if (cursor.kind !== 'execute-step-evidence-page/v1' || cursor.source_revision !== current.sourceTuple.revision
+      || cursor.evidence_plan_revision !== current.runtimeState.evidence_plan_revision
+      || !Number.isSafeInteger(cursor.offset) || Number(cursor.offset) < 0) {
+      fail('EVIDENCE_CONTEXT_STALE', 'source or evidence-plan revision changed; start a fresh evidence-context read.');
+    }
+    continuation = {
+      kind: 'execute-step-evidence-page/v1',
+      source_revision: current.sourceTuple.revision,
+      evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+      offset: Number(cursor.offset),
+    };
+  }
+  const offset = continuation?.offset ?? integer(source.offset, 0, 0, allChecks.length);
+  const limit = integer(source.limit, 64, 1, 64);
+  if (offset > allChecks.length) fail('EVIDENCE_CONTEXT_CONTINUATION_INVALID', 'offset is outside the declared check set.');
+  const checks = allChecks.slice(offset, offset + limit);
+  const nextOffset = offset + checks.length;
+  const complete = nextOffset >= allChecks.length;
   return {
-    status: 'pass',
+    status: complete ? 'pass' : 'partial',
     operation_kind: 'execute-step-evidence-context',
     committed: false,
     task_id: current.runtimeState.task_id,
@@ -779,6 +834,19 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
     evidence_plan_revision: current.runtimeState.evidence_plan_revision,
     evidence_assurance: 'caller-reported',
     checks,
+    returned_check_count: checks.length,
+    total_check_count: allChecks.length,
+    unexpanded_check_ids: complete ? [] : allChecks.slice(nextOffset, nextOffset + 64).map(item => item.check_id),
+    unexpanded_check_count: Math.max(0, allChecks.length - nextOffset),
+    unexpanded_check_ids_truncated: allChecks.length - nextOffset > 64,
+    complete_for_operation: complete,
+    continuation: complete ? null : {
+      kind: 'execute-step-evidence-page/v1',
+      source_revision: current.sourceTuple.revision,
+      evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+      offset: nextOffset,
+    },
+    subject_snapshots_read: 'Use task-context/task-read for the exact frozen subject entries.',
     context_projection: taskContextReferenceForCurrent(root, current, 'evidence-context', 'default'),
   };
 }
@@ -831,6 +899,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     committed,
     read_back_verified: true,
     current_step: currentStepResult(stepPlan, strategy),
+    context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', 'default'),
     receipt,
   };
 }

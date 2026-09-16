@@ -11,9 +11,18 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 export const TASK_STORE_SCHEMA_VERSION = 1 as const;
+/**
+ * The envelope schema remains v1 for compatibility.  The format marker is
+ * separate so an old sidecar keeps its v1 definition-hash algorithm until an
+ * explicit storage migration opts it into the compact representation.
+ */
+export const TASK_STORE_FORMAT_VERSION = 2 as const;
+export const TASK_DEFINITION_REVISION_V1 = 'task-definition/v1' as const;
+export const TASK_DEFINITION_REVISION_V2 = 'task-definition/v2' as const;
+export const TASK_STATE_REVISION_V1 = 'task-state/v1' as const;
 export const TASK_STORE_KIND = 'vnext-task-store-manifest' as const;
 export const TASK_OBJECT_KIND = 'vnext-task-object' as const;
 export const TASK_EVENT_KIND = 'vnext-task-event' as const;
@@ -114,7 +123,7 @@ export type TaskStoreEvent = {
   document_id: string;
   sequence: number;
   event_id: string;
-  event_type: 'legacy-import' | 'transaction' | 'external-current-sync';
+  event_type: 'legacy-import' | 'transaction' | 'external-current-sync' | 'storage-migration';
   operation_kind: string;
   idempotency_key: string | null;
   proposal_digest: string | null;
@@ -125,16 +134,16 @@ export type TaskStoreEvent = {
   previous_event_hash: string | null;
   object_refs: Record<string, TaskStoreObjectReference | string | null>;
   /**
-   * A transaction is itself an immutable event fact.  Keeping this small
-   * changed payload in the event avoids one extra object file per commit;
-   * definitions, state snapshots, reports, and other reusable material still
-   * use content-addressed object references.
+   * A transaction points at its one authoritative proposal/result objects.
+   * Older v1 events may still contain inline payloads; new events never copy
+   * large semantic deltas into the event envelope.
    */
   transaction?: {
-    proposal: unknown;
-    result: unknown;
+    proposal?: unknown;
+    result?: unknown;
     semantic_delta?: unknown;
     execution_log_entries?: unknown[];
+    applied_proposals?: unknown[];
   };
   metadata: {
     committed: boolean;
@@ -192,6 +201,10 @@ export type TaskStoreManifest = {
     hot_window_is_cache: true;
     full_history_persistent: true;
   };
+  storage_format: 'vnext-task-store/v1' | 'vnext-task-store/v2';
+  definition_revision_algorithm: typeof TASK_DEFINITION_REVISION_V1 | typeof TASK_DEFINITION_REVISION_V2;
+  state_revision_algorithm: typeof TASK_STATE_REVISION_V1;
+  current_representation: 'legacy-inline' | 'compact-v2';
 };
 
 export type TaskStorePaths = {
@@ -237,6 +250,40 @@ type TaskStorePending = {
   resulting_source_revision: string;
   idempotency_key: string | null;
   proposal_digest: string | null;
+  phase?: 'prepared' | 'current-published' | 'store-published';
+  proposal?: unknown;
+  result?: unknown;
+  write_targets?: string[];
+  write_set?: TaskStorePendingWrite[];
+  /**
+   * Exact transient recovery material.  It is removed with the pending
+   * marker after publication; it is not part of the retained event history.
+   * Keeping the rendered bytes and state here lets a restart finish one
+   * already-approved commit without re-running the product operation.
+   */
+  before_raw?: string;
+  after_raw?: string;
+  before_runtime_state?: unknown;
+  after_runtime_state?: unknown;
+  execution_log_entries?: unknown[];
+  applied_proposals?: unknown[];
+  previous_manifest_head?: { source_revision: string; event_sequence: number; event_hash: string | null };
+};
+
+export type TaskStorePendingWrite = {
+  path: string;
+  before_content: string | null;
+  after_content: string | null;
+};
+
+export type TaskStoreCommitIntent = {
+  before: TaskStoreCurrent;
+  after_source_revision: string;
+  proposal: unknown;
+  result?: TaskStoreCommitInput['result'];
+  write_targets: string[];
+  after?: TaskStoreCurrent;
+  write_set?: TaskStorePendingWrite[];
 };
 
 export type TaskStoreValidationReport = {
@@ -434,34 +481,82 @@ function markdownSections(body: string): Array<{ title: string; text: string }> 
   });
 }
 
-function slotDefinition(slot: Record<string, unknown>): Record<string, unknown> {
+function slotDefinitionV1(slot: Record<string, unknown>): Record<string, unknown> {
   return copyWithout(slot, ['report', 'prerequisite_receipt']);
 }
 
-function definitionPayload(current: TaskStoreCurrent): Record<string, unknown> {
-  const sections = markdownSections(current.body)
-    .filter(section => !['任务信息', 'Task Information', '执行记录', 'Execution Log'].includes(section.title))
+function slotDefinitionV2(slot: Record<string, unknown>): Record<string, unknown> {
+  // disposition/evidence_refs are execution state.  Including either in the
+  // definition digest made a normal result write look like a replan and
+  // caused context reuse to miss the intended definition version.
+  return copyWithout(slot, ['disposition', 'evidence_refs', 'report', 'prerequisite_receipt']);
+}
+
+function definitionSections(current: TaskStoreCurrent, includeDynamicSections: boolean): Array<{ title: string; text: string }> {
+  const dynamicTitles = new Set([
+    '任务信息', 'Task Information',
+    '执行记录', 'Execution Log',
+    '审查问题队列', 'Review Queue',
+    '传播治理记录', 'Propagation Governance',
+  ]);
+  return markdownSections(current.body)
+    .filter(section => includeDynamicSections || !dynamicTitles.has(section.title))
     .map(section => ({ title: section.title, text: section.text }));
+}
+
+function claimDefinitionPayload(current: TaskStoreCurrent, version: 1 | 2): unknown[] {
   const state = current.runtimeState;
-  const claims = Array.isArray(state.claim_evidence)
+  return Array.isArray(state.claim_evidence)
     ? state.claim_evidence.map(item => {
       if (!record(item)) return item;
       return {
         ...copyWithout(item, ['slots']),
-        slots: Array.isArray(item.slots) ? item.slots.filter(record).map(slotDefinition) : [],
+        slots: Array.isArray(item.slots) ? item.slots.filter(record).map(slot => version === 1 ? slotDefinitionV1(slot) : slotDefinitionV2(slot)) : [],
       };
     })
     : [];
+}
+
+function definitionPayloadV1(current: TaskStoreCurrent): Record<string, unknown> {
+  const sections = markdownSections(current.body)
+    .filter(section => !['任务信息', 'Task Information', '执行记录', 'Execution Log'].includes(section.title))
+    .map(section => ({ title: section.title, text: section.text }));
+  const claims = claimDefinitionPayload(current, 1);
   return {
     schema_version: 1,
-    kind: 'task-definition/v1',
+    kind: TASK_DEFINITION_REVISION_V1,
     document_id: current.sourceTuple.document_id,
     task_id: current.sourceTuple.task_id,
     source_path: current.relativePath,
     sections,
     claim_evidence_plan: claims,
-    evidence_plan_revision: state.evidence_plan_revision ?? null,
+    evidence_plan_revision: current.runtimeState.evidence_plan_revision ?? null,
   };
+}
+
+function definitionPayloadV2(current: TaskStoreCurrent): Record<string, unknown> {
+  return {
+    schema_version: 2,
+    kind: TASK_DEFINITION_REVISION_V2,
+    revision_algorithm: TASK_DEFINITION_REVISION_V2,
+    document_id: current.sourceTuple.document_id,
+    task_id: current.sourceTuple.task_id,
+    source_path: current.relativePath,
+    // Only frozen definition sections participate.  Current status, audit,
+    // findings and propagation bookkeeping stay in the state/event views.
+    sections: definitionSections(current, false),
+    claim_evidence_plan: claimDefinitionPayload(current, 2),
+    evidence_plan_revision: current.runtimeState.evidence_plan_revision ?? null,
+  };
+}
+
+function definitionPayload(current: TaskStoreCurrent, algorithm: TaskStoreManifest['definition_revision_algorithm'] = TASK_DEFINITION_REVISION_V2): Record<string, unknown> {
+  return algorithm === TASK_DEFINITION_REVISION_V1 ? definitionPayloadV1(current) : definitionPayloadV2(current);
+}
+
+function compactCurrent(current: TaskStoreCurrent): boolean {
+  const binding = record(current.frontmatter?.task_store) ? current.frontmatter?.task_store : null;
+  return binding !== null && binding.format === 'compact-v2';
 }
 
 function stateSnapshotPayload(current: TaskStoreCurrent): Record<string, unknown> {
@@ -516,6 +611,32 @@ function refSha(value: TaskStoreObjectReference | string | null | undefined): st
   return value && SHA256.test(value.sha256) ? value.sha256 : null;
 }
 
+function isObjectReference(value: unknown): value is TaskStoreObjectReference {
+  return record(value)
+    && typeof value.sha256 === 'string'
+    && SHA256.test(value.sha256)
+    && typeof value.object_type === 'string'
+    && TASK_STORE_OBJECT_TYPES.has(value.object_type as TaskStoreObjectType);
+}
+
+function storedProposalPayload(
+  proposal: unknown,
+  claimEvidenceReference: TaskStoreObjectReference | undefined,
+  executionResultReference: TaskStoreObjectReference | undefined,
+): unknown {
+  if (!record(proposal) || !record(proposal.semantic_delta) || (claimEvidenceReference === undefined && executionResultReference === undefined)) {
+    return proposal;
+  }
+  return {
+    schema_version: 2,
+    kind: 'vnext-proposal/v2',
+    proposal: copyWithout(proposal, ['semantic_delta']),
+    semantic_delta: copyWithout(proposal.semantic_delta, ['claim_evidence', 'execution_result']),
+    ...(claimEvidenceReference === undefined ? {} : { claim_evidence_ref: claimEvidenceReference }),
+    ...(executionResultReference === undefined ? {} : { execution_result_ref: executionResultReference }),
+  };
+}
+
 type CommittedObjectCache = {
   eventSequence: number;
   eventHash: string | null;
@@ -526,6 +647,8 @@ type CommittedEventCache = {
   eventSequence: number;
   eventHash: string | null;
   events: TaskStoreEvent[];
+  fileSignatures: Map<number, string[]>;
+  directorySignature: string;
 };
 
 // Runtime applies construct a short-lived TaskStore around each canonical
@@ -536,9 +659,21 @@ type CommittedEventCache = {
 // source used to rebuild it.
 const committedObjectCaches = new Map<string, CommittedObjectCache>();
 const committedEventCaches = new Map<string, CommittedEventCache>();
+type ExecutionHistoryCache = {
+  events: TaskStoreEvent[];
+  history: unknown[];
+  lengths: number[];
+};
+const executionHistoryCaches = new Map<string, ExecutionHistoryCache>();
+type AppliedProposalCache = {
+  events: TaskStoreEvent[];
+  ledger: unknown[];
+};
+const appliedProposalCaches = new Map<string, AppliedProposalCache>();
 type IndexFileCache = {
   fileSize: number;
   modifiedAt: number;
+  changedAt: number;
   format: 'jsonl' | 'json';
   entries: TaskStoreIndexEntry[];
 };
@@ -711,6 +846,10 @@ function validateManifest(value: unknown, paths: TaskStorePaths): TaskStoreManif
     object_refs: objectRefs,
     counts: { events: counts.events as number, objects: counts.objects as number, idempotency_entries: counts.idempotency_entries as number },
     compatibility: { legacy_current_task: true, hot_window_is_cache: true, full_history_persistent: true },
+    storage_format: value.storage_format === 'vnext-task-store/v2' ? 'vnext-task-store/v2' : 'vnext-task-store/v1',
+    definition_revision_algorithm: value.definition_revision_algorithm === TASK_DEFINITION_REVISION_V2 ? TASK_DEFINITION_REVISION_V2 : TASK_DEFINITION_REVISION_V1,
+    state_revision_algorithm: TASK_STATE_REVISION_V1,
+    current_representation: value.current_representation === 'compact-v2' ? 'compact-v2' : 'legacy-inline',
   };
 }
 
@@ -729,7 +868,7 @@ function validateEvent(value: unknown, paths: TaskStorePaths, expectedPath?: str
   delete unsigned.event_hash;
   if (sha256(stableJson(unsigned)) !== value.event_hash) throw new TaskStoreError('TASK_STORE_EVENT_INVALID', `${expectedPath ?? 'event'} event_hash does not match its content.`);
   const eventType = value.event_type;
-  if (eventType !== 'legacy-import' && eventType !== 'transaction' && eventType !== 'external-current-sync') throw new TaskStoreEventError('TASK_STORE_EVENT_INVALID', `${expectedPath ?? 'event'} event_type is invalid.`);
+  if (eventType !== 'legacy-import' && eventType !== 'transaction' && eventType !== 'external-current-sync' && eventType !== 'storage-migration') throw new TaskStoreEventError('TASK_STORE_EVENT_INVALID', `${expectedPath ?? 'event'} event_type is invalid.`);
   if (!record(value.object_refs)) throw new TaskStoreError('TASK_STORE_EVENT_INVALID', `${expectedPath ?? 'event'}.object_refs is invalid.`);
   for (const [key, reference] of Object.entries(value.object_refs)) {
     if (reference !== null) assertObjectReference(reference, `${expectedPath ?? 'event'}.object_refs.${key}`);
@@ -765,32 +904,50 @@ function committedEventFiles(paths: TaskStorePaths, manifest: TaskStoreManifest,
   const headSequence = manifest.head.event_sequence;
   if (headSequence === 0) return [];
   const cacheKey = committedObjectCacheKey(paths);
-  if (useCache) {
-    const cached = committedEventCaches.get(cacheKey);
-    if (cached && cached.eventSequence === headSequence && cached.eventHash === manifest.head.event_hash) return cached.events;
-  }
   if (!fs.existsSync(paths.events)) throw new TaskStoreError('TASK_STORE_EVENT_MISSING', 'the committed event directory is missing.');
   assertNoSymlink(paths.root, relativePath(paths.root, paths.events));
-  const bySequence = new Map<number, string[]>();
+  const directoryStat = fs.statSync(paths.events);
+  const directorySignature = `${directoryStat.size}:${directoryStat.mtimeMs}:${directoryStat.ctimeMs}`;
+  const cached = useCache ? committedEventCaches.get(cacheKey) : undefined;
+  if (cached && cached.eventSequence === headSequence && cached.eventHash === manifest.head.event_hash
+    && cached.directorySignature === directorySignature) return cached.events;
+  const bySequence = new Map<number, Array<{ name: string; signature: string }>>();
   for (const entry of fs.readdirSync(paths.events, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
     const match = EVENT_FILE.exec(entry.name);
     if (!match) continue;
     const sequence = Number(match[1]);
     if (sequence > headSequence) continue;
+    const file = path.join(paths.events, entry.name);
+    assertNoSymlink(paths.root, relativePath(paths.root, file));
+    const stat = fs.statSync(file);
     const names = bySequence.get(sequence) ?? [];
-    names.push(entry.name);
+    names.push({ name: entry.name, signature: `${entry.name}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` });
     bySequence.set(sequence, names);
   }
-  const events: TaskStoreEvent[] = [];
-  let previous: string | null = null;
-  for (let sequence = 1; sequence <= headSequence; sequence += 1) {
+
+  const signatureFor = (sequence: number): string[] => (bySequence.get(sequence) ?? []).map(item => item.signature).sort();
+  const cachedPrefixMatches = cached !== undefined && cached.eventSequence <= headSequence
+    && [...cached.fileSignatures.keys()].every(sequence => {
+      if (sequence > headSequence) return false;
+      return JSON.stringify(cached.fileSignatures.get(sequence)) === JSON.stringify(signatureFor(sequence));
+    });
+
+  // A normal Runtime write appends exactly one event.  Reuse the previously
+  // verified prefix and validate only the new suffix, while still checking
+  // event file metadata so a changed/corrupt old file invalidates the cache.
+  // Full validators continue to call this function without useCache and
+  // rebuild the complete chain.
+  const events: TaskStoreEvent[] = cachedPrefixMatches ? [...cached!.events] : [];
+  let previous: string | null = cachedPrefixMatches ? cached!.eventHash : null;
+  const firstSequence = cachedPrefixMatches ? cached!.eventSequence + 1 : 1;
+  for (let sequence = firstSequence; sequence <= headSequence; sequence += 1) {
     const names = bySequence.get(sequence) ?? [];
     if (names.length === 0) throw new TaskStoreError('TASK_STORE_EVENT_MISSING', `committed event sequence ${sequence} is missing.`);
     const candidates: TaskStoreEvent[] = [];
     let firstError: unknown;
-    for (const name of names) {
-      try { candidates.push(readEventFile(paths, name)); }
+    for (const item of names) {
+      try { candidates.push(readEventFile(paths, item.name)); }
       catch (error) { firstError ??= error; }
     }
     const matching = candidates.filter(event => event.previous_event_hash === previous);
@@ -804,7 +961,11 @@ function committedEventFiles(paths: TaskStorePaths, manifest: TaskStoreManifest,
     previous = event.event_hash;
   }
   if (previous !== manifest.head.event_hash) throw new TaskStoreError('TASK_STORE_EVENT_INVALID', 'manifest head does not match the committed event chain.');
-  if (useCache) committedEventCaches.set(cacheKey, { eventSequence: headSequence, eventHash: manifest.head.event_hash, events });
+  if (useCache) {
+    const fileSignatures = new Map<number, string[]>();
+    for (let sequence = 1; sequence <= headSequence; sequence += 1) fileSignatures.set(sequence, signatureFor(sequence));
+    committedEventCaches.set(cacheKey, { eventSequence: headSequence, eventHash: manifest.head.event_hash, events, fileSignatures, directorySignature });
+  }
   return events;
 }
 
@@ -821,9 +982,18 @@ function validateObject(value: unknown, paths: TaskStorePaths, sha: string): Tas
 }
 
 function historyRawFromObject(object: TaskStoreObject, sourceRevision: string): string | null {
-  if (object.object_type !== 'history-material' || !record(object.payload)) return null;
+  if (!['history-material', 'legacy-current-task'].includes(object.object_type) || !record(object.payload)) return null;
   const payload = object.payload;
-  if (payload.source_revision !== sourceRevision || typeof payload.package_base64 !== 'string') return null;
+  if (payload.source_revision !== sourceRevision) return null;
+  if (typeof payload.raw_base64 === 'string') {
+    const rawBytes = Buffer.from(payload.raw_base64, 'base64');
+    const expectedDigest = typeof payload.raw_sha256 === 'string' ? payload.raw_sha256 : sourceRevision;
+    if (sha256(rawBytes) !== expectedDigest || expectedDigest !== sourceRevision) {
+      throw new TaskStoreError('TASK_STORE_OBJECT_INVALID', `retained history preimage digest does not match ${sourceRevision}.`);
+    }
+    return rawBytes.toString('utf8');
+  }
+  if (typeof payload.package_base64 !== 'string') return null;
   const packageBytes = Buffer.from(payload.package_base64, 'base64');
   if (typeof payload.package_sha256 === 'string' && sha256(packageBytes) !== payload.package_sha256) {
     throw new TaskStoreError('TASK_STORE_OBJECT_INVALID', `history material package digest does not match ${sourceRevision}.`);
@@ -857,6 +1027,23 @@ function legacyAppliedProposals(object: TaskStoreObject): unknown[] {
     return runtime && Array.isArray(runtime.applied_proposals) ? runtime.applied_proposals : [];
   } catch (error) {
     throw new TaskStoreError('TASK_STORE_OBJECT_INVALID', `legacy CURRENT_TASK preimage cannot be parsed for its idempotency ledger: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function legacyExecutionLog(object: TaskStoreObject): unknown[] {
+  if (object.object_type !== 'legacy-current-task' || !record(object.payload)) return [];
+  const payload = object.payload;
+  if (Array.isArray(payload.execution_log)) return payload.execution_log;
+  if (typeof payload.raw_base64 !== 'string') return [];
+  try {
+    const raw = Buffer.from(payload.raw_base64, 'base64').toString('utf8');
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(raw);
+    if (!match) return [];
+    const parsed = parse(match[1]) as unknown;
+    const runtime = record(parsed) && record(parsed.runtime_state) ? parsed.runtime_state : null;
+    return runtime && Array.isArray(runtime.execution_log) ? runtime.execution_log : [];
+  } catch (error) {
+    throw new TaskStoreError('TASK_STORE_OBJECT_INVALID', `legacy CURRENT_TASK preimage cannot be parsed for its execution history: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -957,6 +1144,37 @@ function claimSlotMap(current: TaskStoreCurrent | undefined): Map<string, Record
   return result;
 }
 
+function lineCount(raw: string): number {
+  return raw.split(/\r\n?|\n/u).length;
+}
+
+function legacyLineMap(raw: string, replacementSourceRevision: string | null = null): Record<string, unknown> {
+  const oldLineCount = lineCount(raw);
+  return {
+    kind: 'vnext-current-task-line-map/v1',
+    source_revision: sha256(raw),
+    old_line_count: oldLineCount,
+    replacement_source_revision: replacementSourceRevision,
+    replacement_line_count: null,
+    // Compact rendering intentionally has no one-to-one Markdown line map.
+    // The whole old range therefore resolves through its exact preimage.
+    ranges: [{ old_line_start: 1, old_line_end: oldLineCount, new_line_start: null, new_line_end: null, locator: 'history-material' }],
+  };
+}
+
+function legacyLocatorPayload(raw: string, sourceRevision: string, sourcePath: string, replacementSourceRevision: string | null): Record<string, unknown> {
+  return {
+    schema_version: 1,
+    kind: 'vnext-current-task-locator-alias/v1',
+    source_revision: sourceRevision,
+    source_path: sourcePath,
+    raw_base64: Buffer.from(raw, 'utf8').toString('base64'),
+    raw_sha256: sha256(raw),
+    raw_bytes: Buffer.byteLength(raw, 'utf8'),
+    line_map: legacyLineMap(raw, replacementSourceRevision),
+  };
+}
+
 function collectObjectPayloads(current: TaskStoreCurrent, includeExecutionLog = true, root?: string, compareTo?: TaskStoreCurrent): Array<{ object_type: TaskStoreObjectType; payload: unknown }> {
   const payloads: Array<{ object_type: TaskStoreObjectType; payload: unknown }> = [];
   const seen = new Set<string>();
@@ -1012,19 +1230,74 @@ function newlyAppendedExecutionEntries(before: TaskStoreCurrent, after: TaskStor
   const afterEntries = Array.isArray(after.runtimeState.execution_log) ? after.runtimeState.execution_log : [];
   if (afterEntries.length === 0) return [];
   if (beforeEntries.length === 0) return afterEntries;
-  // Runtime appends one audit entry per committed proposal and then applies
-  // a suffix window. Compare the serialized entries once (not a quadratic
-  // digest search) and fall back to the complete resulting log whenever a
-  // caller also rewrites an earlier entry, such as a cumulative review.
+  // A suffix-window rotation or an earlier-entry rewrite must never make the
+  // resulting 256-entry hot view look like a full transaction delta.  Audit
+  // records carry an idempotency identity; compare each identity's complete
+  // payload and emit only identities that are new or whose payload changed.
+  const beforeByKey = new Map<string, Set<string>>();
+  for (const entry of beforeEntries) {
+    if (!record(entry) || typeof entry.idempotency_key !== 'string') continue;
+    const values = beforeByKey.get(entry.idempotency_key) ?? new Set<string>();
+    values.add(stableJson(entry));
+    beforeByKey.set(entry.idempotency_key, values);
+  }
+  const delta = afterEntries.filter(entry => {
+    if (!record(entry) || typeof entry.idempotency_key !== 'string') return false;
+    return !beforeByKey.get(entry.idempotency_key)?.has(stableJson(entry));
+  });
+  if (delta.length > 0) return delta;
+  // Unkeyed records are not expected in a validated Runtime log.  Preserve a
+  // simple append-only suffix for compatibility, but never copy the whole
+  // resulting log when the relationship cannot be proven.
   const beforeJson = beforeEntries.map(stableJson);
-  const afterJson = afterEntries.map(stableJson);
-  if (afterEntries.length === beforeEntries.length + 1
-    && beforeJson.every((value, index) => value === afterJson[index])) return [afterEntries[afterEntries.length - 1]];
-  if (afterEntries.length === beforeEntries.length
-    && beforeJson.every((value, index) => value === afterJson[index])) return [];
-  if (afterEntries.length === beforeEntries.length && beforeEntries.length > 1
-    && beforeJson.slice(1).every((value, index) => value === afterJson[index])) return [afterEntries[afterEntries.length - 1]];
-  return afterEntries;
+  const prefix = beforeJson.reduce((count, value, index) => value === stableJson(afterEntries[index]) ? count + 1 : count, 0);
+  return afterEntries.length > prefix ? afterEntries.slice(prefix) : [];
+}
+
+function newlyAppendedAppliedProposals(before: TaskStoreCurrent, after: TaskStoreCurrent): unknown[] {
+  const beforeEntries = Array.isArray(before.runtimeState.applied_proposals) ? before.runtimeState.applied_proposals : [];
+  const afterEntries = Array.isArray(after.runtimeState.applied_proposals) ? after.runtimeState.applied_proposals : [];
+  if (afterEntries.length === 0) return [];
+  if (beforeEntries.length === 0) return afterEntries;
+  const beforeByKey = new Map<string, Set<string>>();
+  for (const entry of beforeEntries) {
+    if (!record(entry) || typeof entry.idempotency_key !== 'string') continue;
+    const values = beforeByKey.get(entry.idempotency_key) ?? new Set<string>();
+    values.add(stableJson(entry));
+    beforeByKey.set(entry.idempotency_key, values);
+  }
+  const delta = afterEntries.filter(entry => {
+    if (!record(entry) || typeof entry.idempotency_key !== 'string') return false;
+    return !beforeByKey.get(entry.idempotency_key)?.has(stableJson(entry));
+  });
+  if (delta.length > 0) return delta;
+  const beforeJson = beforeEntries.map(stableJson);
+  const prefix = beforeJson.reduce((count, value, index) => value === stableJson(afterEntries[index]) ? count + 1 : count, 0);
+  return afterEntries.length > prefix ? afterEntries.slice(prefix) : [];
+}
+
+function storedExecutionEntryPayload(
+  entry: unknown,
+  claimEvidenceReference: TaskStoreObjectReference | undefined,
+  executionResultReference: TaskStoreObjectReference | undefined,
+): Record<string, unknown> {
+  if (!record(entry)) {
+    return {
+      schema_version: 2,
+      kind: 'vnext-execution-log-entry/v2',
+      entry,
+    };
+  }
+  return {
+    schema_version: 2,
+    kind: 'vnext-execution-log-entry/v2',
+    // Large, unchanged claim evidence and execution results live in their own
+    // content-addressed objects.  Each event still owns an exact entry
+    // reference, so equal payloads are deduplicated without merging facts.
+    entry: copyWithout(entry, ['claim_evidence', 'execution_result']),
+    ...(claimEvidenceReference === undefined ? {} : { claim_evidence_ref: claimEvidenceReference }),
+    ...(executionResultReference === undefined ? {} : { execution_result_ref: executionResultReference }),
+  };
 }
 
 function directoryBytes(directory: string): { bytes: number; files: number } {
@@ -1060,6 +1333,15 @@ export class TaskStore {
 
   get exists(): boolean {
     return fs.existsSync(this.paths.manifest);
+  }
+
+  /** A pending marker is recovery state, never a committed task fact. */
+  get hasPendingCommit(): boolean {
+    return this.readPending() !== null;
+  }
+
+  get pendingCommit(): unknown | null {
+    return this.readPending();
   }
 
   get manifest(): TaskStoreManifest | null {
@@ -1098,7 +1380,7 @@ export class TaskStore {
     return objectRef(objectType, hash);
   }
 
-  readObject(reference: string | TaskStoreObjectReference): TaskStoreObject {
+  readObject(reference: string | TaskStoreObjectReference, expectedObjectType?: TaskStoreObjectType): TaskStoreObject {
     const hash = refSha(reference);
     if (!hash) throw new TaskStoreError('TASK_STORE_PATH_INVALID', 'object reference is invalid.');
     const manifest = this.manifest;
@@ -1108,7 +1390,11 @@ export class TaskStore {
     const file = objectFile(this.paths, hash);
     assertNoSymlink(this.paths.root, relativePath(this.paths.root, file));
     if (!fs.existsSync(file)) throw new TaskStoreError('TASK_STORE_OBJECT_MISSING', `object ${hash} is missing.`);
-    return validateObject(readJson(file), this.paths, hash);
+    const object = validateObject(readJson(file), this.paths, hash);
+    if (expectedObjectType !== undefined && object.object_type !== expectedObjectType) {
+      throw new TaskStoreError('TASK_STORE_OBJECT_INVALID', `object ${hash} has type ${object.object_type}; expected ${expectedObjectType}.`);
+    }
+    return object;
   }
 
   /** Read one exact historical CURRENT_TASK preimage from committed material. */
@@ -1118,7 +1404,7 @@ export class TaskStore {
     if (!manifest) return null;
     const references = new Map<string, TaskStoreObjectReference>();
     const add = (value: TaskStoreObjectReference | string | null | undefined): void => {
-      if (!value || typeof value === 'string' || value.object_type !== 'history-material') return;
+      if (!value || typeof value === 'string' || !['history-material', 'legacy-current-task'].includes(value.object_type)) return;
       references.set(value.sha256, value);
     };
     add(manifest.object_refs.legacy_source);
@@ -1132,12 +1418,187 @@ export class TaskStore {
     return null;
   }
 
+  /** Resolve an old line locator against the exact retained source preimage. */
+  readHistoryLocator(sourceRevision: string, oldLine: number): { source_revision: string; old_line: number; old_line_count: number; text: string; locator: 'exact-preimage' } | null {
+    if (!Number.isSafeInteger(oldLine) || oldLine < 1) throw new TaskStoreError('TASK_STORE_PATH_INVALID', 'history old_line must be a positive integer.');
+    const raw = this.readHistoryMaterial(sourceRevision);
+    if (raw === null) return null;
+    const lines = raw.split(/\r\n?|\n/u);
+    if (oldLine > lines.length) throw new TaskStoreError('TASK_STORE_PATH_INVALID', `history old_line ${oldLine} is outside the retained source preimage.`);
+    return { source_revision: sourceRevision, old_line: oldLine, old_line_count: lines.length, text: lines[oldLine - 1] ?? '', locator: 'exact-preimage' };
+  }
+
+  private restoreStoredExecutionEntry(object: TaskStoreObject): unknown {
+    const payload = object.payload;
+    if (!record(payload) || payload.kind !== 'vnext-execution-log-entry/v2' || !('entry' in payload)) return payload;
+    const entry = record(payload.entry) ? { ...payload.entry } : payload.entry;
+    if (!record(entry)) return entry;
+    if (payload.claim_evidence_ref !== undefined) {
+      const claimObject = this.readObject(payload.claim_evidence_ref as TaskStoreObjectReference, 'other');
+      const claimPayload = claimObject.payload;
+      entry.claim_evidence = record(claimPayload) && claimPayload.kind === 'vnext-execution-claim-evidence/v1'
+        ? claimPayload.claim_evidence
+        : claimPayload;
+    }
+    if (payload.execution_result_ref !== undefined) {
+      const resultObject = this.readObject(payload.execution_result_ref as TaskStoreObjectReference, 'result');
+      entry.execution_result = resultObject.payload;
+    }
+    return entry;
+  }
+
+  private restoreStoredProposal(object: TaskStoreObject): unknown {
+    const payload = object.payload;
+    if (!record(payload) || payload.kind !== 'vnext-proposal/v2' || !('proposal' in payload)) return payload;
+    if (!record(payload.proposal)) {
+      throw new TaskStoreError('TASK_STORE_OBJECT_INVALID', 'vnext-proposal/v2 is missing its proposal record.');
+    }
+    const proposal = { ...payload.proposal };
+    if (!('semantic_delta' in payload)) return proposal;
+    const semanticDelta = record(payload.semantic_delta) ? { ...payload.semantic_delta } : payload.semantic_delta;
+    if (record(semanticDelta)) {
+      if (payload.claim_evidence_ref !== undefined) {
+        const claimObject = this.readObject(payload.claim_evidence_ref as TaskStoreObjectReference, 'other');
+        const claimPayload = claimObject.payload;
+        semanticDelta.claim_evidence = record(claimPayload) && claimPayload.kind === 'vnext-execution-claim-evidence/v1'
+          ? claimPayload.claim_evidence
+          : claimPayload;
+      }
+      if (payload.execution_result_ref !== undefined) {
+        const resultObject = this.readObject(payload.execution_result_ref as TaskStoreObjectReference, 'result');
+        semanticDelta.execution_result = resultObject.payload;
+      }
+    }
+    proposal.semantic_delta = semanticDelta;
+    return proposal;
+  }
+
+  /** Read a committed transaction payload and restore its exact legacy shape. */
+  readTransactionPayload(reference: TaskStoreObjectReference, expected: 'proposal' | 'result'): unknown {
+    const object = this.readObject(reference, expected);
+    return expected === 'proposal' ? this.restoreStoredProposal(object) : object.payload;
+  }
+
+  /**
+   * Reconstruct the complete execution history from the committed chain.
+   * This is intentionally separate from latestEvents(): the latter is a
+   * display window, while this method is the Runtime's fact source.
+   */
+  readExecutionLog(): unknown[] {
+    return this.readExecutionLogThroughSourceRevision(null);
+  }
+
+  /**
+   * Reconstruct the execution history visible at one committed CURRENT_TASK
+   * source revision.  Compact historical preimages intentionally retain only
+   * the rendered definition/state and therefore need the event chain's
+   * before-boundary rather than the latest aggregate history.  This keeps
+   * recovery validation exact after a compact replan without treating later
+   * events as if they already existed in the old task version.
+   */
+  readExecutionLogAtSourceRevision(sourceRevision: string): unknown[] {
+    if (!SHA256.test(sourceRevision)) throw new TaskStoreError('TASK_STORE_PATH_INVALID', 'historical source revision is invalid.');
+    return this.readExecutionLogThroughSourceRevision(sourceRevision);
+  }
+
+  private readExecutionLogThroughSourceRevision(sourceRevision: string | null): unknown[] {
+    const manifest = this.manifest;
+    if (!manifest) return [];
+    const events = committedEventFiles(this.paths, manifest, true);
+    const cacheKey = committedObjectCacheKey(this.paths);
+    const cached = executionHistoryCaches.get(cacheKey);
+    const sharedPrefix = cached !== undefined
+      && cached.events.length <= events.length
+      && cached.events.every((event, index) => events[index] === event);
+    let history = sharedPrefix ? [...cached!.history] : [];
+    const lengths = sharedPrefix ? [...cached!.lengths] : [];
+    const firstSequence = sharedPrefix ? cached!.events.length : 0;
+    for (let index = firstSequence; index < events.length; index += 1) {
+      const event = events[index]!;
+      if (event.event_type === 'legacy-import') {
+        const legacyReference = Object.values(event.object_refs).find(reference =>
+          record(reference) && reference.object_type === 'legacy-current-task') as TaskStoreObjectReference | undefined;
+        const reference = legacyReference ?? this.manifest?.object_refs.legacy_source;
+        if (reference) history.push(...legacyExecutionLog(this.readObject(reference)));
+      } else {
+        const entries = event.transaction?.execution_log_entries;
+        if (Array.isArray(entries)) {
+          history.push(...entries);
+        } else {
+          for (const [key, reference] of Object.entries(event.object_refs)) {
+            if (!key.startsWith('execution-log-entry:') || !reference) continue;
+            history.push(this.restoreStoredExecutionEntry(this.readObject(reference as TaskStoreObjectReference)));
+          }
+        }
+      }
+      lengths[index] = history.length;
+    }
+    executionHistoryCaches.set(cacheKey, { events, history, lengths });
+    if (sourceRevision === null) return history.slice();
+    const boundary = events.findIndex(event => event.resulting_source_revision === sourceRevision);
+    if (boundary < 0) throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', `no committed event ends at source revision ${sourceRevision}.`);
+    return history.slice(0, lengths[boundary] ?? 0);
+  }
+
+  /** Reconstruct every persisted idempotency fact, including pre-window keys. */
+  readAppliedProposals(): unknown[] {
+    const manifest = this.manifest;
+    if (!manifest) return [];
+    const events = committedEventFiles(this.paths, manifest, true);
+    const cacheKey = committedObjectCacheKey(this.paths);
+    const cached = appliedProposalCaches.get(cacheKey);
+    const sharedPrefix = cached !== undefined
+      && cached.events.length <= events.length
+      && cached.events.every((event, index) => events[index] === event);
+    const ledger = sharedPrefix ? [...cached!.ledger] : [];
+    const firstSequence = sharedPrefix ? cached!.events.length : 0;
+    for (let index = firstSequence; index < events.length; index += 1) {
+      const event = events[index]!;
+      // Storage maintenance is not a Runtime proposal.  Keeping its event in
+      // the aggregate chain is necessary for recovery/audit, but exposing its
+      // idempotency key as a business ledger entry would change the task's
+      // historical Runtime state during a representation-only migration.
+      if (event.event_type === 'storage-migration') continue;
+      if (event.event_type === 'legacy-import') {
+        const legacyReference = Object.values(event.object_refs).find(reference =>
+          record(reference) && reference.object_type === 'legacy-current-task') as TaskStoreObjectReference | undefined;
+        const reference = legacyReference ?? this.manifest?.object_refs.legacy_source;
+        if (reference) ledger.push(...legacyAppliedProposals(this.readObject(reference)));
+        continue;
+      }
+      const explicit = event.transaction?.applied_proposals;
+      if (Array.isArray(explicit)) {
+        ledger.push(...explicit);
+        continue;
+      }
+      if (event.idempotency_key && event.proposal_digest) {
+        ledger.push({
+          idempotency_key: event.idempotency_key,
+          operation_kind: event.operation_kind,
+          proposal_digest: event.proposal_digest,
+          source_revision: event.source_revision,
+        });
+      }
+    }
+    appliedProposalCaches.set(cacheKey, { events, ledger });
+    return ledger.slice();
+  }
+
+  hydrateHistory(current: TaskStoreCurrent): {
+    execution_log: unknown[];
+    applied_proposals: unknown[];
+  } {
+    this.assertCurrentIdentity(current);
+    if (!this.manifest) throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', 'compact CURRENT_TASK requires a committed task-store manifest.');
+    return { execution_log: this.readExecutionLog(), applied_proposals: this.readAppliedProposals() };
+  }
+
   private readIndexFile(file: string): TaskStoreIndexEntry[] {
     if (!fs.existsSync(file)) return [];
     const stat = fs.statSync(file);
     const cached = indexFileCaches.get(file);
-    if (cached && cached.fileSize === stat.size && cached.modifiedAt === stat.mtimeMs) return cached.entries;
-    if (cached && cached.format === 'jsonl' && stat.size > cached.fileSize) {
+    if (cached && cached.fileSize === stat.size && cached.modifiedAt === stat.mtimeMs && cached.changedAt === stat.ctimeMs) return cached.entries;
+    if (cached && cached.format === 'jsonl' && stat.size > cached.fileSize && cached.changedAt === stat.ctimeMs) {
       const fd = fs.openSync(file, 'r');
       let suffix = '';
       try {
@@ -1155,7 +1616,7 @@ export class TaskStore {
         return value;
       });
       const entries = [...cached.entries, ...this.validateIndexEntries(additions, file, cached.entries.length)];
-      indexFileCaches.set(file, { fileSize: stat.size, modifiedAt: stat.mtimeMs, format: 'jsonl', entries });
+      indexFileCaches.set(file, { fileSize: stat.size, modifiedAt: stat.mtimeMs, changedAt: stat.ctimeMs, format: 'jsonl', entries });
       return entries;
     }
     const raw = fs.readFileSync(file, 'utf8').trim();
@@ -1181,7 +1642,7 @@ export class TaskStore {
       }
     }
     const entries = this.validateIndexEntries(values, file, 0);
-    indexFileCaches.set(file, { fileSize: stat.size, modifiedAt: stat.mtimeMs, format: raw.startsWith('[') ? 'json' : 'jsonl', entries });
+    indexFileCaches.set(file, { fileSize: stat.size, modifiedAt: stat.mtimeMs, changedAt: stat.ctimeMs, format: raw.startsWith('[') ? 'json' : 'jsonl', entries });
     return entries;
   }
 
@@ -1335,10 +1796,56 @@ export class TaskStore {
         || typeof value.source_revision !== 'string' || !SHA256.test(value.source_revision)
         || typeof value.resulting_source_revision !== 'string' || !SHA256.test(value.resulting_source_revision)
         || (value.idempotency_key !== null && typeof value.idempotency_key !== 'string')
-        || (value.proposal_digest !== null && (typeof value.proposal_digest !== 'string' || !SHA256.test(value.proposal_digest)))) return null;
+        || (value.proposal_digest !== null && (typeof value.proposal_digest !== 'string' || !SHA256.test(value.proposal_digest)))) {
+        throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending} has an invalid pending transaction marker.`);
+      }
+      if (value.phase !== undefined && !['prepared', 'current-published', 'store-published'].includes(value.phase as string)) {
+        throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.phase is invalid.`);
+      }
+      if (value.write_targets !== undefined && (!Array.isArray(value.write_targets) || value.write_targets.some(item => typeof item !== 'string'))) {
+        throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.write_targets is invalid.`);
+      }
+      if (value.write_set !== undefined) {
+        if (!Array.isArray(value.write_set) || value.write_set.length === 0) {
+          throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.write_set is invalid.`);
+        }
+        const paths = new Set<string>();
+        for (const [index, item] of value.write_set.entries()) {
+          if (!record(item) || typeof item.path !== 'string' || (item.before_content !== null && typeof item.before_content !== 'string') || (item.after_content !== null && typeof item.after_content !== 'string')) {
+            throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.write_set[${index}] is invalid.`);
+          }
+          const normalized = normalizeRelative(item.path, `${this.paths.pending}.write_set[${index}].path`);
+          if (paths.has(normalized)) throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.write_set contains duplicate path ${normalized}.`);
+          paths.add(normalized);
+        }
+      }
+      for (const key of ['before_raw', 'after_raw'] as const) {
+        if (value[key] !== undefined && typeof value[key] !== 'string') {
+          throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.${key} must be a string when present.`);
+        }
+      }
+      for (const key of ['before_runtime_state', 'after_runtime_state'] as const) {
+        if (value[key] !== undefined && !record(value[key])) {
+          throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.${key} must be an object when present.`);
+        }
+      }
+      for (const key of ['execution_log_entries', 'applied_proposals'] as const) {
+        if (value[key] !== undefined && !Array.isArray(value[key])) {
+          throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.${key} must be an array when present.`);
+        }
+      }
+      if (value.previous_manifest_head !== undefined) {
+        const head = record(value.previous_manifest_head) ? value.previous_manifest_head : null;
+        if (!head || typeof head.source_revision !== 'string' || !SHA256.test(head.source_revision)
+          || !Number.isSafeInteger(head.event_sequence) || (head.event_sequence as number) < 0
+          || (head.event_hash !== null && (typeof head.event_hash !== 'string' || !SHA256.test(head.event_hash)))) {
+          throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending}.previous_manifest_head is invalid.`);
+        }
+      }
       return value as unknown as TaskStorePending;
-    } catch {
-      return null;
+    } catch (error) {
+      if (error instanceof TaskStoreError) throw error;
+      throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', `${this.paths.pending} is not readable JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1347,14 +1854,116 @@ export class TaskStore {
     fs.mkdirSync(path.dirname(this.paths.pending), { recursive: true });
     // This marker only describes an in-flight precommit. It is never a
     // committed task fact and is removed after manifest publication.
-    fs.writeFileSync(this.paths.pending, `${stableJson(pending)}\n`, 'utf8');
+    writeJson(this.paths.pending, pending);
   }
 
   private clearPending(): void {
     try { fs.rmSync(this.paths.pending, { force: true }); } catch { /* recovery will clear a stale marker on the next read */ }
   }
 
-  private findOrphanTransaction(previous: TaskStoreManifest, after: TaskStoreCurrent, definition: TaskStoreObjectReference, state: TaskStoreObjectReference, idempotencyKey: string | null, proposalHash: string | null, proposal: unknown): TaskStoreEvent | null {
+  /**
+   * Persist the exact commit intent before a canonical file is published.
+   * The proposal/result and write set are recovery material, not merely a
+   * digest, so a restart can finish one known transaction without re-running
+   * the product operation.
+   */
+  stageCommit(input: TaskStoreCommitIntent): void {
+    this.assertCurrentIdentity(input.before);
+    if (!SHA256.test(input.after_source_revision)) throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'pending resulting source revision is invalid.');
+    const manifest = this.ensureInitialized(input.before);
+    const key = record(input.proposal) && typeof input.proposal.idempotency_key === 'string' ? input.proposal.idempotency_key : null;
+    const proposalHash = proposalDigest(input.proposal);
+    const normalizedTargets = input.write_targets.map(target => normalizeRelative(target, 'pending write target'));
+    const writeSet = input.write_set === undefined
+      ? input.after === undefined
+        ? undefined
+        : [{ path: input.before.relativePath, before_content: input.before.raw, after_content: input.after.raw }]
+      : input.write_set.map((item, index) => ({
+        path: normalizeRelative(item.path, `pending write set[${index}].path`),
+        before_content: item.before_content,
+        after_content: item.after_content,
+      }));
+    if (writeSet !== undefined) {
+      const paths = new Set<string>();
+      for (const item of writeSet) {
+        if (paths.has(item.path)) throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', `pending write set contains duplicate path ${item.path}.`);
+        paths.add(item.path);
+        const file = path.join(this.paths.root, ...item.path.split('/'));
+        assertNoSymlink(this.paths.root, item.path);
+        const actual = fs.existsSync(file)
+          ? (fs.statSync(file).isFile() ? fs.readFileSync(file, 'utf8') : (() => { throw new TaskStoreError('TASK_STORE_PATH_INVALID', `pending write target is not a regular file: ${item.path}`); })())
+          : null;
+        if (actual !== item.before_content) throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', `pending write target changed before staging: ${item.path}`);
+      }
+    }
+    const compactHistory = compactCurrent(input.before) || (input.after !== undefined && compactCurrent(input.after));
+    const beforeRuntimeState = compactHistory && input.after !== undefined
+      ? copyWithout(input.before.runtimeState, ['execution_log', 'applied_proposals'])
+      : input.before.runtimeState;
+    const afterRuntimeState = compactHistory && input.after !== undefined
+      ? copyWithout(input.after.runtimeState, ['execution_log', 'applied_proposals'])
+      : input.after?.runtimeState;
+    const executionLogEntries = compactHistory && input.after !== undefined
+      ? newlyAppendedExecutionEntries(input.before, input.after)
+      : undefined;
+    const appliedProposals = compactHistory && input.after !== undefined
+      ? newlyAppendedAppliedProposals(input.before, input.after)
+      : undefined;
+    const existing = this.readPending();
+    if (existing) {
+      if (existing.sequence !== manifest.head.event_sequence + 1
+        || existing.source_revision !== input.before.sourceTuple.revision
+        || existing.resulting_source_revision !== input.after_source_revision
+        || existing.idempotency_key !== key
+        || existing.proposal_digest !== proposalHash) {
+        throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'an unfinished task-store intent does not match the requested write.');
+      }
+      return;
+    }
+    this.writePending({
+      schema_version: 1,
+      kind: 'vnext-task-store-pending-commit',
+      document_id: input.before.sourceTuple.document_id,
+      sequence: manifest.head.event_sequence + 1,
+      source_revision: input.before.sourceTuple.revision,
+      resulting_source_revision: input.after_source_revision,
+      idempotency_key: key,
+      proposal_digest: proposalHash,
+      phase: 'prepared',
+      proposal: input.proposal,
+      ...(input.result === undefined ? {} : { result: input.result }),
+      write_targets: normalizedTargets,
+      ...(writeSet === undefined ? {} : { write_set: writeSet }),
+      ...(input.after === undefined ? {} : {
+        before_raw: input.before.raw,
+        after_raw: input.after.raw,
+        before_runtime_state: beforeRuntimeState,
+        after_runtime_state: afterRuntimeState,
+        ...(executionLogEntries === undefined ? {} : { execution_log_entries: executionLogEntries }),
+        ...(appliedProposals === undefined ? {} : { applied_proposals: appliedProposals }),
+      }),
+      previous_manifest_head: {
+        source_revision: manifest.head.source_revision,
+        event_sequence: manifest.head.event_sequence,
+        event_hash: manifest.head.event_hash,
+      },
+    });
+  }
+
+  markCurrentPublished(resultingSourceRevision: string): void {
+    if (!SHA256.test(resultingSourceRevision)) throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'published source revision is invalid.');
+    const pending = this.readPending();
+    if (!pending || pending.resulting_source_revision !== resultingSourceRevision) {
+      throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'cannot mark a task-store commit published without its exact pending intent.');
+    }
+    this.writePending({ ...pending, phase: 'current-published' });
+  }
+
+  clearPendingForNoCommit(): void {
+    this.clearPending();
+  }
+
+  private findOrphanTransaction(previous: TaskStoreManifest, after: TaskStoreCurrent, definition: TaskStoreObjectReference, state: TaskStoreObjectReference, idempotencyKey: string | null, proposalHash: string | null, proposal: unknown, proposalReference?: TaskStoreObjectReference, operationKind?: string): TaskStoreEvent | null {
     if (!idempotencyKey || !proposalHash || !fs.existsSync(this.paths.events)) return null;
     const sequence = previous.head.event_sequence + 1;
     for (const entry of fs.readdirSync(this.paths.events, { withFileTypes: true })) {
@@ -1363,7 +1972,11 @@ export class TaskStore {
       if (!match || Number(match[1]) !== sequence) continue;
       try {
         const event = readEventFile(this.paths, entry.name);
-        if (event.event_type !== 'transaction'
+        const eventProposal = event.transaction?.proposal;
+        const proposalMatches = proposalReference && isObjectReference(eventProposal)
+          ? eventProposal.object_type === 'proposal' && eventProposal.sha256 === proposalReference.sha256
+          : eventProposal !== undefined && digest(eventProposal) === digest(proposal);
+        if (event.event_type !== (operationKind === 'task-storage-migration' ? 'storage-migration' : 'transaction')
           || event.previous_event_hash !== previous.head.event_hash
           || event.idempotency_key !== idempotencyKey
           || event.proposal_digest !== proposalHash
@@ -1371,7 +1984,7 @@ export class TaskStore {
           || refSha(event.object_refs.definition) !== definition.sha256
           || refSha(event.object_refs.state) !== state.sha256
           || !event.transaction
-          || digest(event.transaction.proposal) !== digest(proposal)) continue;
+          || !proposalMatches) continue;
         return event;
       } catch {
         // Invalid/unreadable precommit files are not candidates for recovery.
@@ -1380,7 +1993,9 @@ export class TaskStore {
     return null;
   }
 
-  private buildManifest(current: TaskStoreCurrent, previous: TaskStoreManifest | null, refs: { definition: TaskStoreObjectReference; state: TaskStoreObjectReference; currentSnapshot: TaskStoreObjectReference; legacySource?: TaskStoreObjectReference }, event: TaskStoreEvent | null, objectCount: number, idempotencyCount: number, recordedAt?: string): TaskStoreManifest {
+  private buildManifest(current: TaskStoreCurrent, previous: TaskStoreManifest | null, refs: { definition: TaskStoreObjectReference; state: TaskStoreObjectReference; currentSnapshot: TaskStoreObjectReference; legacySource?: TaskStoreObjectReference }, event: TaskStoreEvent | null, objectCount: number, idempotencyCount: number, recordedAt?: string, algorithms?: { definition: TaskStoreManifest['definition_revision_algorithm']; representation: TaskStoreManifest['current_representation'] }): TaskStoreManifest {
+    const definitionAlgorithm = algorithms?.definition ?? previous?.definition_revision_algorithm ?? (compactCurrent(current) ? TASK_DEFINITION_REVISION_V2 : TASK_DEFINITION_REVISION_V1);
+    const representation = algorithms?.representation ?? previous?.current_representation ?? (compactCurrent(current) ? 'compact-v2' : 'legacy-inline');
     const first = event ? (previous?.head.event_range.first ?? event.sequence) : (previous?.head.event_range.first ?? null);
     return {
       schema_version: 1,
@@ -1396,7 +2011,7 @@ export class TaskStore {
         source_revision: current.sourceTuple.revision,
         // Revisions are business-level payload revisions; object references
         // remain wrapper hashes and therefore need not equal these values.
-        definition_revision: taskStoreDefinitionRevision(current),
+        definition_revision: taskStoreDefinitionRevision(current, definitionAlgorithm),
         state_revision: taskStoreStateRevision(current),
         event_sequence: event?.sequence ?? previous?.head.event_sequence ?? 0,
         event_id: event?.event_id ?? previous?.head.event_id ?? null,
@@ -1415,6 +2030,10 @@ export class TaskStore {
         idempotency_entries: idempotencyCount,
       },
       compatibility: { legacy_current_task: true, hot_window_is_cache: true, full_history_persistent: true },
+      storage_format: representation === 'compact-v2' ? 'vnext-task-store/v2' : 'vnext-task-store/v1',
+      definition_revision_algorithm: definitionAlgorithm,
+      state_revision_algorithm: TASK_STATE_REVISION_V1,
+      current_representation: representation,
     };
   }
 
@@ -1451,18 +2070,35 @@ export class TaskStore {
     fs.mkdirSync(this.paths.objects, { recursive: true });
     fs.mkdirSync(this.paths.events, { recursive: true });
     fs.mkdirSync(this.paths.indexes, { recursive: true });
-    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', definitionPayload(current), current.sourceTuple.revision, recordedAt);
+    // A store created by the v0.19.5 Runtime uses the v2 definition algorithm.
+    // Existing v0.19.4 manifests are read with their recorded v1 algorithm
+    // above and are never re-hashed until explicit migration.
+    const definitionAlgorithm = TASK_DEFINITION_REVISION_V2;
+    const representation = compactCurrent(current) ? 'compact-v2' : 'legacy-inline';
+    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', definitionPayload(current, definitionAlgorithm), current.sourceTuple.revision, recordedAt);
     const state = this.storeObject(current.sourceTuple.document_id, 'state', stateSnapshotPayload(current), current.sourceTuple.revision, recordedAt);
     const legacySource = this.storeObject(current.sourceTuple.document_id, 'legacy-current-task', {
       source_revision: current.sourceTuple.revision,
       source_path: current.relativePath,
       raw_base64: Buffer.from(current.raw, 'utf8').toString('base64'),
+      raw_sha256: current.sourceTuple.revision,
       raw_bytes: Buffer.byteLength(current.raw),
+      line_map: legacyLineMap(current.raw),
+      // A newly-created compact document has no inline history for the
+      // legacy preimage parser to recover. Keep the exact initial records in
+      // the one import object so the first committed aggregate is lossless.
+      ...(compactCurrent(current) ? {
+        execution_log: current.runtimeState.execution_log,
+        applied_proposals: current.runtimeState.applied_proposals,
+      } : {}),
     }, current.sourceTuple.revision, recordedAt);
     // The state object is also the current-state node.  The manifest keeps a
     // separately named current_snapshot reference for readers, but it points
     // to the same immutable payload instead of copying it once per event.
-    const empty: TaskStoreManifest = this.buildManifest(current, null, { definition, state, currentSnapshot: state, legacySource }, null, 0, 0, recordedAt);
+    const empty: TaskStoreManifest = this.buildManifest(current, null, { definition, state, currentSnapshot: state, legacySource }, null, 0, 0, recordedAt, {
+      definition: definitionAlgorithm,
+      representation,
+    });
     const initialPayloadRefs: Record<string, TaskStoreObjectReference> = {};
     for (const payload of collectObjectPayloads(current, true, this.paths.root)) {
       const reference = this.storeObject(current.sourceTuple.document_id, payload.object_type, payload.payload, current.sourceTuple.revision, recordedAt);
@@ -1494,7 +2130,10 @@ export class TaskStore {
       legacy: true,
     })).filter(item => item.idempotency_key.length > 0);
     this.writeIndexes([legacyEvent], index);
-    const manifest = this.buildManifest(current, empty, { definition, state, currentSnapshot: state, legacySource }, legacyEvent, this.newlyReferencedObjects.size, index.length, recordedAt);
+    const manifest = this.buildManifest(current, empty, { definition, state, currentSnapshot: state, legacySource }, legacyEvent, this.newlyReferencedObjects.size, index.length, recordedAt, {
+      definition: definitionAlgorithm,
+      representation,
+    });
     this.writeManifest(manifest);
     rememberCommittedObjectReferences(this.paths, manifest, Object.values(legacyEvent.object_refs));
     rememberIdempotencyMatches(this.paths, manifest, index.map(entry => ({ ...entry, event: legacyEvent })));
@@ -1504,15 +2143,19 @@ export class TaskStore {
   private reconcileExternalCurrent(current: TaskStoreCurrent, recordedAt?: string): TaskStoreManifest {
     const previous = this.manifest;
     if (!previous) return this.ensureInitialized(current, recordedAt);
+    if (previous.current_representation === 'compact-v2') {
+      throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact CURRENT_TASK changed without a matching governed task-store journal; recovery is required.');
+    }
     this.newlyReferencedObjects.clear();
-    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', definitionPayload(current), current.sourceTuple.revision, recordedAt);
+    const definitionAlgorithm = previous.definition_revision_algorithm;
+    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', definitionPayload(current, definitionAlgorithm), current.sourceTuple.revision, recordedAt);
     const state = this.storeObject(current.sourceTuple.document_id, 'state', stateSnapshotPayload(current), current.sourceTuple.revision, recordedAt);
     const stagedManifest: TaskStoreManifest = {
       ...previous,
       head: {
         ...previous.head,
         source_revision: current.sourceTuple.revision,
-        definition_revision: taskStoreDefinitionRevision(current),
+        definition_revision: taskStoreDefinitionRevision(current, definitionAlgorithm),
         state_revision: taskStoreStateRevision(current),
       },
     };
@@ -1567,6 +2210,9 @@ export class TaskStore {
         || pending.proposal_digest !== proposalHash) {
         throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'an unfinished task-store transaction does not match this commit request.');
       } else {
+        if (pending.proposal !== undefined && digest(pending.proposal) !== digest(input.proposal)) {
+          throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'pending task-store intent contains different proposal bytes.');
+        }
         recoveryPending = true;
       }
     }
@@ -1586,33 +2232,116 @@ export class TaskStore {
       resulting_source_revision: input.after.sourceTuple.revision,
       idempotency_key: key,
       proposal_digest: proposalHash,
+      phase: 'current-published',
+      proposal: input.proposal,
+      result: input.result,
+      write_targets: [input.after.relativePath],
+      ...(pending?.before_raw === undefined ? {} : { before_raw: pending.before_raw }),
+      ...(pending?.after_raw === undefined ? {} : { after_raw: pending.after_raw }),
+      ...(pending?.before_runtime_state === undefined ? {} : { before_runtime_state: pending.before_runtime_state }),
+      ...(pending?.after_runtime_state === undefined ? {} : { after_runtime_state: pending.after_runtime_state }),
+      ...(pending?.execution_log_entries === undefined ? {} : { execution_log_entries: pending.execution_log_entries }),
+      ...(pending?.applied_proposals === undefined ? {} : { applied_proposals: pending.applied_proposals }),
+      ...(pending?.write_set === undefined ? {} : { write_set: pending.write_set }),
+      previous_manifest_head: {
+        source_revision: previous.head.source_revision,
+        event_sequence: previous.head.event_sequence,
+        event_hash: previous.head.event_hash,
+      },
     });
-    const definition = this.storeObject(input.after.sourceTuple.document_id, 'definition', definitionPayload(input.after), input.after.sourceTuple.revision, input.recorded_at);
+    const definitionAlgorithm = compactCurrent(input.after) ? TASK_DEFINITION_REVISION_V2 : previous.definition_revision_algorithm;
+    const definition = this.storeObject(input.after.sourceTuple.document_id, 'definition', definitionPayload(input.after, definitionAlgorithm), input.after.sourceTuple.revision, input.recorded_at);
     const state = this.storeObject(input.after.sourceTuple.document_id, 'state', stateSnapshotPayload(input.after), input.after.sourceTuple.revision, input.recorded_at);
     const refs: Record<string, TaskStoreObjectReference | string | null> = {
       definition,
       state,
     };
+    const proposalRecord = record(input.proposal) ? input.proposal : null;
+    const proposalSemanticDelta = proposalRecord && record(proposalRecord.semantic_delta) ? proposalRecord.semantic_delta : null;
+    const proposalClaimEvidenceReference = proposalSemanticDelta && proposalSemanticDelta.claim_evidence !== undefined
+      ? this.storeObject(input.after.sourceTuple.document_id, 'other', {
+        schema_version: 1,
+        kind: 'vnext-execution-claim-evidence/v1',
+        claim_evidence: proposalSemanticDelta.claim_evidence,
+      }, input.after.sourceTuple.revision, input.recorded_at)
+      : undefined;
+    const proposalExecutionResultReference = proposalSemanticDelta && proposalSemanticDelta.execution_result !== undefined
+      ? this.storeObject(input.after.sourceTuple.document_id, 'result', proposalSemanticDelta.execution_result, input.after.sourceTuple.revision, input.recorded_at)
+      : undefined;
+    const proposalReference = this.storeObject(
+      input.after.sourceTuple.document_id,
+      'proposal',
+      storedProposalPayload(input.proposal, proposalClaimEvidenceReference, proposalExecutionResultReference),
+      input.after.sourceTuple.revision,
+      input.recorded_at,
+    );
+    const resultReference = this.storeObject(
+      input.after.sourceTuple.document_id,
+      'result',
+      input.result,
+      input.after.sourceTuple.revision,
+      input.recorded_at,
+    );
+    refs.proposal = proposalReference;
+    refs.result = resultReference;
+    if (proposalClaimEvidenceReference) refs['proposal-claim-evidence'] = proposalClaimEvidenceReference;
+    if (proposalExecutionResultReference) refs['proposal-execution-result'] = proposalExecutionResultReference;
+    if (previous.current_representation !== 'compact-v2' && compactCurrent(input.after)) {
+      const locatorAlias = this.storeObject(
+        input.after.sourceTuple.document_id,
+        'history-material',
+        legacyLocatorPayload(input.before.raw, input.before.sourceTuple.revision, input.before.relativePath, input.after.sourceTuple.revision),
+        input.after.sourceTuple.revision,
+        input.recorded_at,
+      );
+      refs['legacy-locator-alias'] = locatorAlias;
+    }
     for (const payload of collectObjectPayloads(input.after, false, this.paths.root, input.before)) {
       const reference = this.storeObject(input.after.sourceTuple.document_id, payload.object_type, payload.payload, input.after.sourceTuple.revision, input.recorded_at);
       const keyName = `${payload.object_type}:${reference.sha256}`;
       refs[keyName] = reference;
     }
     refs.current_snapshot = state;
+    const executionEntries = newlyAppendedExecutionEntries(input.before, input.after);
+    executionEntries.forEach((entry, index) => {
+      const entryRecord = record(entry) ? entry : null;
+      const claimEvidenceReference = entryRecord && entryRecord.claim_evidence !== undefined
+        ? this.storeObject(input.after.sourceTuple.document_id, 'other', {
+          schema_version: 1,
+          kind: 'vnext-execution-claim-evidence/v1',
+          claim_evidence: entryRecord.claim_evidence,
+        }, input.after.sourceTuple.revision, input.recorded_at)
+        : undefined;
+      const executionResultReference = entryRecord && entryRecord.execution_result !== undefined
+        ? this.storeObject(input.after.sourceTuple.document_id, 'result', entryRecord.execution_result, input.after.sourceTuple.revision, input.recorded_at)
+        : undefined;
+      const executionEntryReference = this.storeObject(
+        input.after.sourceTuple.document_id,
+        'execution-log-entry',
+        storedExecutionEntryPayload(entry, claimEvidenceReference, executionResultReference),
+        input.after.sourceTuple.revision,
+        input.recorded_at,
+      );
+      refs[`execution-log-entry:${String(index).padStart(6, '0')}:${executionEntryReference.sha256}`] = executionEntryReference;
+      if (claimEvidenceReference) refs[`execution-claim-evidence:${String(index).padStart(6, '0')}:${claimEvidenceReference.sha256}`] = claimEvidenceReference;
+      if (executionResultReference) refs[`execution-result:${String(index).padStart(6, '0')}:${executionResultReference.sha256}`] = executionResultReference;
+    });
     const stagedManifest: TaskStoreManifest = {
       ...previous,
       head: {
         ...previous.head,
         source_revision: input.before.sourceTuple.revision,
-        definition_revision: taskStoreDefinitionRevision(input.after),
+        definition_revision: taskStoreDefinitionRevision(input.after, definitionAlgorithm),
         state_revision: taskStoreStateRevision(input.after),
       },
     };
+    const operationKind = input.result.operation_kind ?? (proposalRecord && typeof proposalRecord.operation_kind === 'string' ? proposalRecord.operation_kind : 'unknown');
     const recoveredEvent = recoveryPending
-      ? this.findOrphanTransaction(previous, input.after, definition, state, key, proposalHash, input.proposal)
+      ? this.findOrphanTransaction(previous, input.after, definition, state, key, proposalHash, input.proposal, proposalReference, operationKind)
       : null;
-    const event = recoveredEvent ?? this.makeEvent('transaction', input.after, stagedManifest, refs, {
-        operationKind: input.result.operation_kind ?? (record(input.proposal) && typeof input.proposal.operation_kind === 'string' ? input.proposal.operation_kind : 'unknown'),
+    const eventType = input.result.operation_kind === 'task-storage-migration' ? 'storage-migration' : 'transaction';
+    const event = recoveredEvent ?? this.makeEvent(eventType, input.after, stagedManifest, refs, {
+        operationKind,
         idempotencyKey: key,
         proposalDigest: proposalHash,
         status: input.result.status,
@@ -1620,12 +2349,7 @@ export class TaskStore {
         message: input.result.message,
         code: input.result.code,
         recordedAt: input.recorded_at,
-        transaction: {
-          proposal: input.proposal,
-          result: input.result,
-          ...(record(input.proposal) && input.proposal.semantic_delta !== undefined ? { semantic_delta: input.proposal.semantic_delta } : {}),
-          execution_log_entries: newlyAppendedExecutionEntries(input.before, input.after),
-        },
+        transaction: { proposal: proposalReference, result: resultReference },
       });
     const eventPath = recoveredEvent
       ? relativePath(this.paths.root, eventFile(this.paths, recoveredEvent.sequence, recoveredEvent.event_hash))
@@ -1648,7 +2372,10 @@ export class TaskStore {
       state,
       currentSnapshot: state,
       ...(previous.object_refs.legacy_source ? { legacySource: previous.object_refs.legacy_source } : {}),
-    }, event, previous.counts.objects + this.newlyReferencedObjects.size, uniqueIndex.length, input.recorded_at);
+    }, event, previous.counts.objects + this.newlyReferencedObjects.size, uniqueIndex.length, input.recorded_at, {
+      definition: definitionAlgorithm,
+      representation: compactCurrent(input.after) ? 'compact-v2' : previous.current_representation,
+    });
     this.writeManifest(manifest);
     rememberCommittedObjectReferences(this.paths, manifest, Object.values(event.object_refs));
     if (key && proposalHash) {
@@ -1762,7 +2489,7 @@ export class TaskStore {
       if (manifest.current_task_path !== current.relativePath) errors.push('manifest current_task_path does not match CURRENT_TASK.');
       if (manifest.task_id !== current.sourceTuple.task_id || manifest.task_slug !== current.sourceTuple.task_slug) errors.push('manifest task identity does not match CURRENT_TASK.');
       if (manifest.head.source_revision !== current.sourceTuple.revision) errors.push('manifest head source_revision does not match CURRENT_TASK.');
-      const expectedDefinitionRevision = taskStoreDefinitionRevision(current);
+      const expectedDefinitionRevision = taskStoreDefinitionRevision(current, manifest.definition_revision_algorithm);
       const expectedStateRevision = taskStoreStateRevision(current);
       if (manifest.head.definition_revision !== expectedDefinitionRevision) errors.push('manifest definition revision does not match the governed CURRENT_TASK definition.');
       if (manifest.head.state_revision !== expectedStateRevision || manifest.object_refs.current_snapshot.sha256 !== manifest.object_refs.state.sha256) errors.push('manifest state revision does not match the governed CURRENT_TASK state.');
@@ -1883,16 +2610,20 @@ export function taskStoreForRoot(root: string, documentId: string): TaskStore {
   return new TaskStore(root, documentId);
 }
 
-export function taskStoreDefinitionPayload(current: TaskStoreCurrent): Record<string, unknown> {
-  return definitionPayload(current);
+export function taskStoreDefinitionPayload(current: TaskStoreCurrent, algorithm: TaskStoreManifest['definition_revision_algorithm'] = TASK_DEFINITION_REVISION_V2): Record<string, unknown> {
+  return definitionPayload(current, algorithm);
 }
 
 export function taskStoreStateSnapshotPayload(current: TaskStoreCurrent): Record<string, unknown> {
   return stateSnapshotPayload(current);
 }
 
-export function taskStoreDefinitionRevision(current: TaskStoreCurrent): string {
-  return digest(definitionPayload(current));
+export function taskStoreDefinitionRevision(current: TaskStoreCurrent, algorithm: TaskStoreManifest['definition_revision_algorithm'] = TASK_DEFINITION_REVISION_V2): string {
+  return digest(definitionPayload(current, algorithm));
+}
+
+export function taskStoreDefinitionRevisionForManifest(current: TaskStoreCurrent, manifest: TaskStoreManifest | null): string {
+  return taskStoreDefinitionRevision(current, manifest?.definition_revision_algorithm ?? TASK_DEFINITION_REVISION_V2);
 }
 
 export function taskStoreStateRevision(current: TaskStoreCurrent): string {
@@ -1923,13 +2654,93 @@ export type TaskStorageMigrationPreview = {
   planned_events: string[];
 };
 
+function compactHistoryBody(body: string, executionLog: readonly unknown[]): string {
+  const normalized = body.replace(/\r\n?/gu, '\n');
+  const headings = [...normalized.matchAll(/^##\s+(.+?)\s*$/gmu)];
+  const index = headings.findIndex(match => ['执行记录', 'Execution Log'].includes(match[1]!.trim()));
+  if (index < 0) throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', 'CURRENT_TASK is missing ## 执行记录 for compact migration.');
+  const heading = headings[index]!;
+  const contentStart = (heading.index ?? 0) + heading[0].length;
+  const nextHeading = headings.slice(index + 1).find(match => (match[0]!.match(/^#/u)?.[0].length ?? 2) <= 2);
+  const contentEnd = nextHeading?.index ?? normalized.length;
+  const previews = executionLog.filter(record).slice(-8).map(item => {
+    const action = typeof item.action === 'string' ? item.action : 'step-execution';
+    const key = typeof item.idempotency_key === 'string' ? item.idempotency_key : 'unknown';
+    const step = typeof item.step_id === 'string' ? ` | step=${item.step_id}` : '';
+    const status = typeof item.status === 'string' ? ` | status=${item.status}` : '';
+    return `- ${action} | key=${key}${step}${status}`;
+  });
+  let preview = [
+    '- Store-backed history is retained under task-data; use task-read for exact historical reads.',
+    '- This section is a bounded navigation preview and is not the Runtime fact source.',
+    ...(previews.length > 0 ? ['', ...previews] : []),
+  ].join('\n');
+  if (Buffer.byteLength(preview, 'utf8') > 8192) preview = Buffer.from(preview, 'utf8').subarray(0, 8192).toString('utf8');
+  return normalized.slice(0, contentStart) + `\n${preview}\n\n` + normalized.slice(contentEnd);
+}
+
+function compactCurrentRaw(current: TaskStoreCurrent, store: TaskStore): string {
+  const frontmatter = structuredClone(current.frontmatter ?? {}) as Record<string, unknown>;
+  const runtime = record(frontmatter.runtime_state) ? frontmatter.runtime_state : {};
+  delete runtime.execution_log;
+  delete runtime.applied_proposals;
+  frontmatter.runtime_state = runtime;
+  frontmatter.task_store = {
+    schema_version: 1,
+    kind: 'vnext-current-task-store-binding',
+    format: 'compact-v2',
+    manifest_path: `${store.paths.relativeRoot}/manifest.json`,
+    history: { execution_log: 'task-store', applied_proposals: 'task-store' },
+  };
+  const body = compactHistoryBody(current.body, Array.isArray(current.runtimeState.execution_log) ? current.runtimeState.execution_log : []);
+  return `---\n${stringify(frontmatter).trimEnd()}\n---\n${body}`;
+}
+
+function compactAfter(current: TaskStoreCurrent, raw: string): TaskStoreCurrent {
+  const frontmatter = structuredClone(current.frontmatter ?? {}) as Record<string, unknown>;
+  const runtimeState = structuredClone(current.runtimeState) as Record<string, unknown>;
+  delete (runtimeState as Record<string, unknown>).execution_log;
+  delete (runtimeState as Record<string, unknown>).applied_proposals;
+  frontmatter.runtime_state = runtimeState;
+  frontmatter.task_store = {
+    schema_version: 1,
+    kind: 'vnext-current-task-store-binding',
+    format: 'compact-v2',
+    manifest_path: `${path.posix.join(path.posix.dirname(current.relativePath), 'task-data', current.sourceTuple.document_id, 'manifest.json')}`,
+    history: { execution_log: 'task-store', applied_proposals: 'task-store' },
+  };
+  return {
+    ...current,
+    raw,
+    frontmatter,
+    runtimeState: current.runtimeState,
+    sourceTuple: { ...current.sourceTuple, revision: sha256(raw) },
+  };
+}
+
+function migrationSemanticModel(current: TaskStoreCurrent): unknown {
+  return {
+    identity: {
+      path: current.relativePath,
+      document_id: current.sourceTuple.document_id,
+      task_id: current.sourceTuple.task_id,
+      task_slug: current.sourceTuple.task_slug,
+    },
+    // The representation change removes only the two compatibility history
+    // arrays from the canonical file. All other runtime state must compare
+    // byte-for-byte at the normalized value level.
+    runtime_state: copyWithout(current.runtimeState, ['execution_log', 'applied_proposals']),
+    definition_sections: definitionSections(current, true).filter(section => !['执行记录', 'Execution Log'].includes(section.title)),
+  };
+}
+
 export function previewTaskStorageMigration(root: string, current: TaskStoreCurrent): TaskStorageMigrationPreview {
   const store = TaskStore.forCurrent(root, current);
   const manifest = store.manifest;
   const definitionRevision = taskStoreDefinitionRevision(current);
   const stateRevision = taskStoreStateRevision(current);
   return {
-    status: manifest ? 'already-migrated' : 'preview',
+    status: manifest?.current_representation === 'compact-v2' ? 'already-migrated' : 'preview',
     operation_kind: 'task-storage-migration',
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
@@ -1941,14 +2752,38 @@ export function previewTaskStorageMigration(root: string, current: TaskStoreCurr
     existing_store: manifest !== null,
     semantic_model_digest: digest({ task_id: current.sourceTuple.task_id, task_slug: current.sourceTuple.task_slug, workflow_status: current.sourceTuple.workflow_status, lifecycle_state: current.sourceTuple.lifecycle_state, active_step_id: current.sourceTuple.active_step_id, definition_revision: definitionRevision, state_revision: stateRevision }),
     planned_objects: ['definition', 'state', 'current-snapshot', 'legacy-current-task'],
-    planned_events: manifest ? [] : ['legacy-import'],
+    planned_events: manifest?.current_representation === 'compact-v2' ? [] : [manifest ? 'storage-migration' : 'legacy-import', 'storage-migration'],
   };
 }
 
 export function commitTaskStorageMigration(root: string, current: TaskStoreCurrent, sourceRevision: string): { status: 'committed' | 'no-op'; operation_kind: 'task-storage-migration'; source_revision: string; manifest: TaskStoreManifest } {
   if (sourceRevision !== current.sourceTuple.revision) throw new TaskStoreError('TASK_STORE_MIGRATION_SOURCE_STALE', 'migration source_revision does not match the exact current CURRENT_TASK bytes.');
   const store = TaskStore.forCurrent(root, current);
-  const existed = store.exists;
-  const manifest = store.ensureInitialized(current);
-  return { status: existed ? 'no-op' : 'committed', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest };
+  const existing = store.manifest;
+  if (existing?.current_representation === 'compact-v2') {
+    if (existing.head.source_revision !== current.sourceTuple.revision) throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact task-store manifest does not match the requested migration source.');
+    return { status: 'no-op', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest: existing };
+  }
+  const previous = store.ensureInitialized(current);
+  const compactRaw = compactCurrentRaw(current, store);
+  const after = compactAfter(current, compactRaw);
+  if (digest(migrationSemanticModel(current)) !== digest(migrationSemanticModel(after))) {
+    throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'storage migration changed the normalized task model outside its representation boundary.');
+  }
+  const proposal = {
+    schema_version: 1,
+    kind: 'vnext-storage-migration-proposal',
+    operation_kind: 'task-storage-migration',
+    idempotency_key: `task-storage-migration-${current.sourceTuple.document_id}`,
+    source_revision: sourceRevision,
+  };
+  const result = { status: 'success', committed: true, operation_kind: 'task-storage-migration', idempotency_key: proposal.idempotency_key } as const;
+  store.stageCommit({ before: current, after, after_source_revision: after.sourceTuple.revision, proposal, result, write_targets: [current.relativePath] });
+  atomicWrite(current.filePath, compactRaw);
+  store.markCurrentPublished(after.sourceTuple.revision);
+  const manifest = store.recordCommit({ before: current, after, proposal, result });
+  if (!manifest || manifest.current_representation !== 'compact-v2' || manifest.head.source_revision !== after.sourceTuple.revision) {
+    throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact migration did not publish a matching aggregate head.');
+  }
+  return { status: previous.current_representation === 'compact-v2' ? 'no-op' : 'committed', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest };
 }

@@ -42,6 +42,19 @@ entry_contract:
 
 # vNext Skill: prepare-task
 
+## Bounded task context protocol
+
+For an existing task, begin with `validate --summary`, then call the read-only
+`task-context` for the selected entry and mode. Follow every required
+continuation before deciding that the context is complete; use `task-read` for
+exact definitions, prior results, findings, receipts, and history. Use
+`file-context` or `review-read` for source files and diffs. A context/read
+receipt proves only the bound version and returned range, never authorization
+or model comprehension. Reuse a definition only in the same visible session
+with the exact task, document, and `definition_revision`; after compression,
+session change, or revision change, read it again. A compact/store error is a
+blocker, not permission to fall back to an unbounded CURRENT_TASK read.
+
 ## Prepare the task
 
 For preparation, refinement, and replan, follow **Project document navigation**

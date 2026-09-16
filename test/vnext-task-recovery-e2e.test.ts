@@ -26,7 +26,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     const packed = JSON.parse(execFileSync(npm, ['pack', '--json', '--pack-destination', workspace], { cwd: packageRoot, encoding: 'utf8' }));
     tgz = path.join(workspace, packed[0].filename);
   }
-  expect(path.basename(tgz)).toBe('vibe-governance-0.19.4.tgz');
+  expect(path.basename(tgz)).toBe('vibe-governance-0.19.5.tgz');
   fs.writeFileSync(path.join(npmHome, 'package.json'), '{"name":"isolated-recovery-installer","private":true}\n');
   execFileSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', tgz], { cwd: npmHome, encoding: 'utf8' });
   const bin = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');

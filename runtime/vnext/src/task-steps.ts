@@ -13,6 +13,8 @@ export type TaskStepCheckpointPolicy = 'required' | 'not-required';
 export type TaskStepDefinition = {
   id: string;
   description: string;
+  /** The exact top-level step block, including its nested requirements. */
+  plan_text: string | null;
   purpose: string | null;
   mutation_scope: string | null;
   required_evidence: string | null;
@@ -45,6 +47,7 @@ type StepMetadataKey = 'purpose' | 'mutation_scope' | 'required_evidence' | 'rev
 type ParsedStep = {
   id: string;
   description: string;
+  lines: string[];
   metadata: Partial<Record<StepMetadataKey, string>>;
 };
 
@@ -159,13 +162,14 @@ function parseRawSteps(lines: string[]): ParsedStep[] {
         if (parsed.some(step => step.id === candidate.id)) {
           throw new TaskStepDefinitionError('TASK_STEPS_INVALID', `implementation steps contain duplicate step ID ${candidate.id}.`);
         }
-        current = { id: candidate.id, description: candidate.description, metadata: {} };
+        current = { id: candidate.id, description: candidate.description, lines: [line], metadata: {} };
         parsed.push(current);
         continue;
       }
     }
 
     if (!current) continue;
+    current.lines.push(line);
     const metadata = metadataLine(line);
     if (!metadata) continue;
     if (current.metadata[metadata.key] !== undefined) {
@@ -197,6 +201,7 @@ function materializeStep(step: ParsedStep): TaskStepDefinition {
   return {
     id: step.id,
     description: step.description,
+    plan_text: step.lines.join('\n').trim() || null,
     purpose,
     mutation_scope: mutationScope,
     required_evidence: requiredEvidence,

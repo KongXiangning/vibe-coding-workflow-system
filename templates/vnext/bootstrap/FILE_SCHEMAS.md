@@ -353,8 +353,10 @@ and report, not merely a newly copied hash.
 
 ### Read-only source context
 
-`review-context` returns the complete cumulative file index and bounded text
-diff, not raw first-touch base64. `review-read` binds before/after/diff ranges to
+`review-context` returns the cumulative file index through a bounded summary and
+bounded text diff, not raw first-touch base64. If its `complete_for_operation`
+flag is false, follow `required_unexpanded` through `task-read`/`review-read`
+before making a review decision. `review-read` binds before/after/diff ranges to
 its existing context receipt. `file-context` searches existing project tests
 and reads current files without requiring a confirmed task; it never creates
 baselines, admissions or reports. `validate --summary` omits baseline bodies;
@@ -372,13 +374,14 @@ no selected sources. The normal prepare adapter writes affected contracts to the
 existing affected-contracts section. Confirmation binds both sections; subsequent
 reads expose the saved metadata without loading the referenced documents.
 
-## Task aggregate and bounded context (0.19.4)
+## Task aggregate and bounded context (0.19.5)
 
 CURRENT_TASK.md carries one aggregate submission head with exact source_revision,
 definition_revision, state_revision, and committed event range. The head is
 authoritative; a cache or index conflict cannot change execution facts. The
-current presentation retains the complete confirmed definition and workset,
-while complete event history is navigated through the sidecar store.
+current presentation retains the complete confirmed definition and workset;
+compact v2 retains only a bounded history navigation preview, while complete
+event history is navigated through the bound sidecar store.
 
 The profile-derived layout is:
 
@@ -400,6 +403,14 @@ bounds metadata and content in UTF-8 bytes and returns returned / total_bytes,
 continuation, and complete_for_operation; required content omitted by a page is
 incomplete. Continuations bind the source, definition, state, and exact
 reference. Receipts are read receipts only, not authority.
+Required content that does not fit one page must be continued; an incomplete
+required page is not complete. Definition reuse is limited to the same visible
+session and exact definition_revision.
+New transaction events expose proposal/result object references; task-read
+dereferences them by kind and restores large semantic-delta members without
+copying them into the event. A migrated old line locator is resolved by
+source_revision against retained history material, with optional old_line;
+compact CURRENT_TASK line numbers are not treated as old source coordinates.
 
 task-storage-migration is preview, exact-source confirmation, then commit.
 Migration preserves current bytes, linked basis and known historical

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { readCanonicalCurrentTask } from '../runtime/vnext/src/kernel';
 import { taskRead } from '../runtime/vnext/src/task-context';
-import { TaskStore, digest, sha256, stableJson } from '../runtime/vnext/src/task-store';
+import { TaskStore, commitTaskStorageMigration, digest, sha256, stableJson } from '../runtime/vnext/src/task-store';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -95,6 +95,66 @@ describe('vNext task aggregate store', () => {
       const repeated = store.listEvents()[1]!;
       expect(Object.keys(repeated.object_refs).some(key => key.startsWith('evidence-report:'))).toBe(false);
       expect(store.deepValidate().status).toBe('valid');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('stores one authoritative proposal/result payload and restores it through precise reads', () => {
+    const root = fixtureRoot();
+    try {
+      const current = readCanonicalCurrentTask(root);
+      const store = TaskStore.forCurrent(root, current as any);
+      store.ensureInitialized(current as any, '2026-01-01T00:00:00.000Z');
+      const proposal = {
+        schema_version: 1,
+        kind: 'test-large-proposal',
+        idempotency_key: 'normalized-proposal',
+        operation_kind: 'task-state-transaction',
+        semantic_delta: {
+          kind: 'task-state',
+          action: 'step-progress',
+          claim_evidence: [{ claim_id: 'large-claim', requirement: 'x'.repeat(12000) }],
+          execution_result: { outcome: 'passed', report: 'y'.repeat(12000) },
+        },
+      };
+      const result = { status: 'success', committed: true, operation_kind: 'task-state-transaction', idempotency_key: 'normalized-proposal', message: 'stored once' };
+      store.recordCommit({ before: current as any, after: current as any, proposal, result, recorded_at: '2026-01-01T00:00:00.000Z' });
+      const event = store.listEvents()[1]!;
+      const proposalReference = event.transaction?.proposal as any;
+      const resultReference = event.transaction?.result as any;
+      expect(proposalReference.object_type).toBe('proposal');
+      expect(resultReference.object_type).toBe('result');
+      expect(JSON.stringify(event)).not.toContain('large-claim');
+      expect(JSON.stringify(event)).not.toContain('x'.repeat(256));
+      expect(store.readTransactionPayload(proposalReference, 'proposal')).toEqual(proposal);
+      expect(store.readTransactionPayload(resultReference, 'result')).toEqual(result);
+      const eventPath = store.lookupIdempotency('normalized-proposal')!.event_path;
+      const read = taskRead(root, { kind: 'semantic-delta', event_path: eventPath, max_bytes: 65536 });
+      expect(read.complete_for_operation).toBe(true);
+      expect((read.value as any).claim_evidence[0].claim_id).toBe('large-claim');
+      expect((read.value as any).execution_result.report.length).toBe(12000);
+      expect(store.deepValidate().status).toBe('valid');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps an exact old line locator when migration compacts CURRENT_TASK', () => {
+    const root = fixtureRoot();
+    try {
+      const current = readCanonicalCurrentTask(root);
+      const sourceRevision = current.sourceTuple.revision;
+      commitTaskStorageMigration(root, current as any, sourceRevision);
+      const compact = readCanonicalCurrentTask(root);
+      const legacy = TaskStore.forCurrent(root, compact as any).readObject(TaskStore.forCurrent(root, compact as any).manifest!.object_refs.legacy_source);
+      expect((legacy.payload as any).line_map.kind).toBe('vnext-current-task-line-map/v1');
+      expect((legacy.payload as any).line_map.old_line_count).toBeGreaterThan(0);
+      const locator = taskRead(root, { kind: 'history-material', source_revision: sourceRevision, old_line: 1, max_bytes: 4096 });
+      expect(locator.complete_for_operation).toBe(true);
+      expect((locator.value as any).source_revision).toBe(sourceRevision);
+      expect((locator.value as any).old_line).toBe(1);
+      expect((locator.value as any).locator).toBe('exact-preimage');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

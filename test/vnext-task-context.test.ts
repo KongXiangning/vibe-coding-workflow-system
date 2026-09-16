@@ -128,7 +128,12 @@ describe('vNext task context projection', () => {
       expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-data'))).toBe(false);
       const committed = taskContextMigrationCommit(root, current.sourceTuple.revision);
       expect(committed.status).toBe('committed');
-      expect(fs.readFileSync(current.filePath, 'utf8')).toBe(currentBytes);
+      const compactBytes = fs.readFileSync(current.filePath, 'utf8');
+      expect(compactBytes).not.toBe(currentBytes);
+      expect(compactBytes).not.toMatch(/^  execution_log:/m);
+      expect(compactBytes).not.toMatch(/^  applied_proposals:/m);
+      expect(committed.manifest.current_representation).toBe('compact-v2');
+      expect(readCanonicalCurrentTask(root).runtimeState).toEqual(current.runtimeState);
       expect(taskStoreCurrentValidation(root).status).toBe('valid');
       expect(taskStoreValidation(root).status).toBe('valid');
       const material = taskRead(root, { kind: 'history-material', source_revision: current.sourceTuple.revision });

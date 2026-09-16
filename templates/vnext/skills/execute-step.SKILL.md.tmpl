@@ -66,13 +66,16 @@ Implement only the confirmed `CURRENT_TASK` step selected by Runtime. Do not red
 
 ## Operating rules
 
-Start with a fresh `validate --summary`, then follow **Bounded CURRENT_TASK
-reading** in `.workflow-system/runtime/support/CONTEXT_API.md`. Read the full
-definition range on first use. Reuse it only while it remains completely
-visible in this conversation and task ID, document ID, and
-non-null `evidence_plan_revision` still match the fresh summary; otherwise read it
-again. Use the latest summary for status. Do not load the entire canonical
-file just to recover its definition or treat earlier evidence as current.
+Start with a fresh `validate --summary`, then call the read-only
+`task-context(entry:"preflight-step", mode:"default")`. Follow every required
+continuation before treating the operation context as complete; use
+`task-read`/`file-context`/`review-read` for exact definitions, results,
+evidence, source files, and diffs. Reuse definition text only in the same
+visible session with the exact task/document and `definition_revision`; after
+compression, a new session, or a revision change, read it again. Use the latest
+summary for status. A receipt is not permission or proof of comprehension, and
+a compact/store error is a blocker rather than a reason to load unbounded
+CURRENT_TASK history.
 
 Before implementation, follow **Project document navigation** in
 `.workflow-system/runtime/support/CONTEXT_API.md` for the confirmed step's relevant

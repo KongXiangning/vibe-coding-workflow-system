@@ -1,6 +1,6 @@
 {
   "name": "vibe-coding-workflow-system",
-  "version": "0.19.4",
+  "version": "0.19.5",
   "type": "module",
   "private": true,
   "description": "Portable workflow-system for Vibe Coding project governance.",

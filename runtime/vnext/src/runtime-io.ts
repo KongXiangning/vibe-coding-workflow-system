@@ -14,6 +14,15 @@ export function assertGovernanceReadable(currentPath: string): void {
   if (fs.existsSync(lock) && !heldGovernanceLocks.has(lock)) throw new Error('GOVERNANCE_WRITE_LOCKED: publication is running or was interrupted; fail closed.');
 }
 
+/** Internal read-back distinction: the current commit owner may inspect its
+ * staged legacy representation before the pending marker is cleared. External
+ * readers still fail closed through assertGovernanceReadable/readCanonical. */
+export function governanceWriteLockIsHeld(root: string): boolean {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const lock = getWorkflowDocPath(root, profile, '.vnext-governance-write.lock');
+  return heldGovernanceLocks.has(lock);
+}
+
 export function withGovernanceWriteLock<T>(root: string, operation: () => T): T {
   const profile = loadProfile(getWorkflowProfilePath(root));
   const lock = getWorkflowDocPath(root, profile, '.vnext-governance-write.lock');

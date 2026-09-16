@@ -54,6 +54,18 @@ authority correctly, defines observable behavior deliberately, admits
 sufficient proof, and can be executed step by step. This entry is read-only and
 does not repair the draft.
 
+## Bounded task context protocol
+
+Start with `validate --summary`, then call the read-only
+`task-context(entry:"review-draft", mode:"default")` and follow required
+continuations. Read the exact Task Basis, definition, prior findings, and
+reports with `task-read`, and use `file-context` for cited project documents.
+Only the same visible session and exact `definition_revision` permit definition
+reuse. Receipts prove only version and returned range; they do not prove
+comprehension or grant write authority. On session compression, a revision
+change, an incomplete required page, or a compact/store error, reread or stop
+with a blocker rather than loading unbounded CURRENT_TASK history.
+
 ## Input boundary
 
 1. Resolve one exact `draft + active` `CURRENT_TASK` and record its task,

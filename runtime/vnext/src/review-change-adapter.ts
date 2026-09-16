@@ -49,6 +49,7 @@ import {
 import { resolveTaskStep } from './task-steps';
 import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
 import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
+import { TaskStore } from './task-store';
 
 export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'ingest-evidence', 'route-input'] as const;
 export type ReviewChangeAdapterCommand = (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number];
@@ -79,7 +80,10 @@ export type ReviewContextResult = {
     change_set_id: string;
     review_target_revision: string;
     evidence_refs: string[];
-    execution_result: StepExecutionResult | null;
+    evidence_ref_count: number;
+    evidence_refs_truncated: boolean;
+    execution_result: Record<string, unknown> | null;
+    event_reference: { kind: 'event'; event_path: string } | null;
   };
   current_step: {
     id: string;
@@ -98,9 +102,16 @@ export type ReviewContextResult = {
     forbidden: string[];
   };
   persistent_tests: string[] | null;
-  claim_evidence: ClaimEvidenceRecord[];
+  persistent_tests_count: number;
+  persistent_tests_truncated: boolean;
+  claim_evidence: Array<Record<string, unknown>>;
+  claim_evidence_count: number;
+  claim_evidence_truncated: boolean;
+  claim_evidence_read_reference: { command: 'task-read'; kind: 'claim-evidence'; required: true };
   text_diff: ReturnType<typeof reviewFilePage> | null;
   unexpanded_paths: string[];
+  unexpanded_path_count: number;
+  unexpanded_paths_truncated: boolean;
   admitted_findings: Array<{
     fingerprint: string;
     file: string;
@@ -109,6 +120,10 @@ export type ReviewContextResult = {
     repair_attempts: number;
     max_repair_attempts: number;
   }>;
+  admitted_finding_count: number;
+  admitted_findings_truncated: boolean;
+  complete_for_operation: boolean;
+  required_unexpanded: string[];
   context_projection: TaskContextReference;
   receipt: ReviewContextReceipt;
 };
@@ -297,35 +312,148 @@ function assertReviewableTask(current: CanonicalCurrentTask): void {
   if (current.runtimeState.resume_requires_review) fail('RESUME_REVIEW_REQUIRED', 'review-change is blocked by the current resume-review gate.');
 }
 
-function copyExecutionResult(value: StepExecutionResult | undefined): StepExecutionResult | null {
-  if (!value) return null;
+const MAX_CONTEXT_ENTRIES = 64;
+
+function boundedList(values: readonly string[], limit = MAX_CONTEXT_ENTRIES): { values: string[]; total: number; truncated: boolean } {
+  return { values: values.slice(0, limit), total: values.length, truncated: values.length > limit };
+}
+
+function boundedValues<T>(values: readonly T[], limit = MAX_CONTEXT_ENTRIES): { values: T[]; total: number; truncated: boolean } {
+  return { values: values.slice(0, limit), total: values.length, truncated: values.length > limit };
+}
+
+function containsTruncation(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsTruncation);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value as Record<string, unknown>).some(([key, item]) =>
+    (key.endsWith('_truncated') && item === true) || containsTruncation(item),
+  );
+}
+
+function reviewTargetSummary(value: { kind: string; revision: string; entries: Array<{ path: string; state: string; sha256: string | null }> }): Record<string, unknown> {
+  const entries = value.entries.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({ ...item }));
   return {
+    kind: value.kind,
+    revision: value.revision,
+    entries,
+    entry_count: value.entries.length,
+    entries_truncated: value.entries.length > MAX_CONTEXT_ENTRIES,
+  };
+}
+
+function evidenceReportSummary(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const report = value as Record<string, unknown>;
+  return {
+    result_id: report.result_id ?? null,
+    status: report.status ?? null,
+    evidence_plan_revision: report.evidence_plan_revision ?? null,
+    subject_revision: report.subject_revision ?? null,
+    actual_method: report.actual_method ?? null,
+    assurance: report.assurance ?? null,
+  };
+}
+
+function evidenceRefSummary(values: readonly string[]): Record<string, unknown> {
+  const refs = boundedList(values);
+  return { evidence_refs: refs.values, evidence_ref_count: refs.total, evidence_refs_truncated: refs.truncated };
+}
+
+function observedWritesSummary(values: readonly string[]): Record<string, unknown> {
+  const writes = boundedList(values);
+  return {
+    observed_repo_writes: writes.values,
+    observed_repo_write_count: writes.total,
+    observed_repo_writes_truncated: writes.truncated,
+  };
+}
+
+function claimEvidenceSummary(value: ClaimEvidenceRecord): Record<string, unknown> {
+  const slots = boundedValues(value.slots).values.map(slot => ({
+    slot_id: slot.slot_id,
+    minimum_type: slot.minimum_type,
+    disposition: slot.disposition,
+    applicability: slot.applicability ?? null,
+    due_step_id: slot.due_step_id ?? null,
+    before_step_id: slot.before_step_id ?? null,
+    check_id: slot.check?.check_id ?? null,
+    result_id: slot.report?.result_id ?? null,
+    report: evidenceReportSummary(slot.report),
+    ...evidenceRefSummary(slot.evidence_refs),
+  }));
+  return {
+    claim_id: value.claim_id,
+    claim_kind: value.claim_kind,
+    requirement: value.requirement,
+    source_ref: value.source_ref,
+    slots,
+    slot_count: value.slots.length,
+    slots_truncated: value.slots.length > MAX_CONTEXT_ENTRIES,
+  };
+}
+
+function eventReference(root: string, current: CanonicalCurrentTask, idempotencyKey: string): { kind: 'event'; event_path: string } | null {
+  const store = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
+  if (!store.manifest) return null;
+  const match = store.lookupIdempotency(idempotencyKey);
+  return match ? { kind: 'event', event_path: match.event_path } : null;
+}
+
+function copyExecutionResult(value: StepExecutionResult | undefined): Record<string, unknown> | null {
+  if (!value) return null;
+  const actualPaths = boundedList(value.actual_changed_paths);
+  const commandResults = value.command_results.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({
+    command: item.command,
+    status: item.status,
+    ...observedWritesSummary(item.observed_repo_writes),
+    ...evidenceRefSummary(item.evidence_refs),
+    ...(item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }),
+  }));
+  const validationResults = value.validation_results.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({
+    validation: item.validation,
+    status: item.status,
+    ...evidenceRefSummary(item.evidence_refs),
+    ...(item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }),
+  }));
+  const acceptanceEvidence = value.acceptance_evidence.slice(0, MAX_CONTEXT_ENTRIES).map(item => {
+    if ('acceptance' in item) return { acceptance: item.acceptance, ...evidenceRefSummary(item.evidence_refs) };
+    return {
+      claim_id: item.claim_id,
+      slot_id: item.slot_id,
+      check_id: item.check_id,
+      minimum_type: item.minimum_type,
+      disposition: item.disposition,
+      ...evidenceRefSummary(item.evidence_refs),
+      report: evidenceReportSummary(item.report),
+    };
+  });
+  return {
+    ...(value.attempt_id === undefined ? {} : { attempt_id: value.attempt_id }),
+    ...(value.blocker_kind === undefined ? {} : { blocker_kind: value.blocker_kind }),
     outcome: value.outcome,
     change_set_id: value.change_set_id,
-    review_base: {
-      kind: value.review_base.kind,
-      revision: value.review_base.revision,
-      entries: value.review_base.entries.map(item => ({ ...item })),
-    },
-    review_target: {
-      kind: value.review_target.kind,
-      revision: value.review_target.revision,
-      entries: value.review_target.entries.map(item => ({ ...item })),
-    },
+    review_base: reviewTargetSummary(value.review_base),
+    review_target: reviewTargetSummary(value.review_target),
     change_delta: {
       kind: value.change_delta.kind,
       base_revision: value.change_delta.base_revision,
       target_revision: value.change_delta.target_revision,
-      entries: value.change_delta.entries.map(item => ({ ...item })),
+      entries: value.change_delta.entries.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({ ...item })),
+      entry_count: value.change_delta.entries.length,
+      entries_truncated: value.change_delta.entries.length > MAX_CONTEXT_ENTRIES,
     },
-    actual_changed_paths: [...value.actual_changed_paths],
-    command_results: value.command_results.map(item => ({
-      ...item,
-      observed_repo_writes: [...item.observed_repo_writes],
-      evidence_refs: [...item.evidence_refs],
-    })),
-    validation_results: value.validation_results.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
-    acceptance_evidence: value.acceptance_evidence.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
+    actual_changed_paths: actualPaths.values,
+    actual_changed_path_count: actualPaths.total,
+    actual_changed_paths_truncated: actualPaths.truncated,
+    command_results: commandResults,
+    command_result_count: value.command_results.length,
+    command_results_truncated: value.command_results.length > MAX_CONTEXT_ENTRIES,
+    validation_results: validationResults,
+    validation_result_count: value.validation_results.length,
+    validation_results_truncated: value.validation_results.length > MAX_CONTEXT_ENTRIES,
+    acceptance_evidence: acceptanceEvidence,
+    acceptance_evidence_count: value.acceptance_evidence.length,
+    acceptance_evidence_truncated: value.acceptance_evidence.length > MAX_CONTEXT_ENTRIES,
     blocker: value.blocker,
   };
 }
@@ -365,6 +493,22 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     cycle_phase: phase,
     admitted_fingerprints: admitted.map(item => item.fingerprint),
   };
+  const executionEvidenceRefs = boundedList(execution.evidence_refs);
+  const unexpandedPaths = boundedList(execution.execution_result!.change_delta.entries.slice(1).map(item => item.path));
+  const persistentTests = scope.persistent_tests === null ? null : boundedList(scope.persistent_tests);
+  const claimEvidence = boundedValues(current.runtimeState.claim_evidence ?? []);
+  const claimSummaries = claimEvidence.values.map(claimEvidenceSummary);
+  const admittedFindings = boundedValues(admitted);
+  const nestedSlotsTruncated = claimEvidence.values.some(item => item.slots.length > MAX_CONTEXT_ENTRIES);
+  const executionResult = copyExecutionResult(execution.execution_result);
+  const executionResultTruncated = containsTruncation(executionResult);
+  const requiredUnexpanded = [
+    ...(unexpandedPaths.truncated ? ['cumulative-review-target'] : []),
+    ...(executionResultTruncated ? ['recorded-execution'] : []),
+    ...(persistentTests?.truncated ? ['persistent-tests'] : []),
+    ...(claimEvidence.truncated || nestedSlotsTruncated ? ['claim-evidence'] : []),
+    ...(admittedFindings.truncated ? ['admitted-findings'] : []),
+  ];
   return {
     status: 'pass',
     operation_kind: 'review-context',
@@ -376,8 +520,11 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       status: execution.status,
       change_set_id: execution.change_set_id!,
       review_target_revision: execution.execution_result!.review_target.revision,
-      evidence_refs: [...execution.evidence_refs],
-      execution_result: copyExecutionResult(execution.execution_result),
+      evidence_refs: executionEvidenceRefs.values,
+      evidence_ref_count: executionEvidenceRefs.total,
+      evidence_refs_truncated: executionEvidenceRefs.truncated,
+      execution_result: executionResult,
+      event_reference: eventReference(root, current, execution.idempotency_key),
     },
     current_step: {
       id: resolution.current.id,
@@ -397,13 +544,17 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     },
     text_diff: execution.execution_result!.change_delta.entries.length
       ? reviewFilePage(root, current, execution, execution.execution_result!.change_delta.entries[0]!.path, 'diff', {}) : null,
-    unexpanded_paths: execution.execution_result!.change_delta.entries.slice(1).map(item => item.path),
-    persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
-    claim_evidence: (current.runtimeState.claim_evidence ?? []).map(item => ({
-      ...item,
-      slots: item.slots.map(slot => ({ ...slot, evidence_refs: [...slot.evidence_refs] })),
-    })),
-    admitted_findings: admitted.map(item => ({
+    unexpanded_paths: unexpandedPaths.values,
+    unexpanded_path_count: unexpandedPaths.total,
+    unexpanded_paths_truncated: unexpandedPaths.truncated,
+    persistent_tests: persistentTests?.values ?? null,
+    persistent_tests_count: persistentTests?.total ?? 0,
+    persistent_tests_truncated: persistentTests?.truncated ?? false,
+    claim_evidence: claimSummaries,
+    claim_evidence_count: claimEvidence.total,
+    claim_evidence_truncated: claimEvidence.truncated || nestedSlotsTruncated,
+    claim_evidence_read_reference: { command: 'task-read', kind: 'claim-evidence', required: true },
+    admitted_findings: admittedFindings.values.map(item => ({
       fingerprint: item.fingerprint,
       file: item.file,
       failure_condition: item.failure_condition,
@@ -411,7 +562,14 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       repair_attempts: item.repair_attempts,
       max_repair_attempts: item.max_repair_attempts,
     })),
-    context_projection: taskContextReferenceForCurrent(root, current, 'review-context', phase === 'verification' ? 'review' : 'default'),
+    admitted_finding_count: admittedFindings.total,
+    admitted_findings_truncated: admittedFindings.truncated,
+    complete_for_operation: requiredUnexpanded.length === 0,
+    required_unexpanded: requiredUnexpanded,
+    // Discovery review also consumes the cumulative review target.  Keep the
+    // entry/mode binding identical for both review phases so callers cannot
+    // accidentally receive a projection that omits the accumulated target.
+    context_projection: taskContextReferenceForCurrent(root, current, 'review-context', 'review'),
     receipt,
   };
 }

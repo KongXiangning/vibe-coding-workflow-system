@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.19.4
+  package_version: 0.19.5
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -74,6 +74,8 @@ task_context:
 task_store:
   schema_version: 1
   kind: vnext-task-store-contract
+  # v2 compact CURRENT_TASK binds this same manifest head to the current
+  # presentation; v1 sidecars remain readable until explicit migration.
   root: <workflow_home>/task-data/<document_id>
   objects: objects/<sha256>.json
   events: events/<sequence>-<sha256>.json

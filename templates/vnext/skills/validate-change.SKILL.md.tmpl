@@ -67,6 +67,17 @@ target. This expert entry is callable by CI, a harness, or an expert user. It
 returns an ephemeral evidence result for its caller; it does not create a
 durable validation document or become a daily workflow step.
 
+## Bounded task context protocol
+
+When the validation target belongs to a current task, begin with
+`validate --summary`, then use `task-context(entry:"validate-change", mode)`
+and follow its required continuations. Resolve exact result, finding, receipt,
+and history references through `task-read`; use `file-context` for files. Do
+not treat a read receipt as authorization or proof that a check passed. Reuse
+definition text only in the same visible session with the exact
+`definition_revision`; after compression or a revision/store conflict, reread
+or report the evidence gap instead of using an unbounded Markdown fallback.
+
 ## Evidence Admission
 
 1. Resolve the supplied `validation_target` and its boundary. State the claim

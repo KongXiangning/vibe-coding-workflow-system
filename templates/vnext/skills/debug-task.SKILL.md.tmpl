@@ -74,6 +74,18 @@ through `suspend-recovery` when needed. Diagnosis is not product-write authoriza
 
 Establish a reproducible root cause and select one authorized recovery route. Investigation and resolution are modes of this single diagnostic intent; debugging never edits product code directly.
 
+## Bounded task context protocol
+
+For a current-task symptom, start with `validate --summary`, then call
+`task-context(entry:"debug-task", mode)` and consume its required continuation
+pages. Resolve exact failed attempts, results, findings, and recovery material
+with `task-read`; use `file-context` for source inspection. Definition reuse is
+valid only in the same visible session with the exact task/document and
+`definition_revision`. A receipt is not permission, execution proof, or proof
+that the model retained the text. On compression, a new session, a revision
+change, or a compact/store integrity error, reread or report a blocker instead
+of bypassing the store with the full CURRENT_TASK history.
+
 ## Operating rules
 
 1. Resolve the relevant project context and affected target before forming a repair hypothesis. Read/discovery may inspect broader callers, consumers, types, configuration, tests, and governance context, but it never grants write permission. For a current-task proposal or `resolve`, verify task identity, current workflow/lifecycle tuple, route owner, and authority. An ordinary execution or finding repair additionally requires an active owner, admitted scope, and a read-only Runtime `scope-check` for the exact repair target; a superseded task has no execution authority.

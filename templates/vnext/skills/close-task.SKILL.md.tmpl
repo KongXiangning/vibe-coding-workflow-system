@@ -75,6 +75,18 @@ the challenged report clean or silently defer its obligation to obtain closure.
 
 Prove closure eligibility and finish one task with a truthful delivery summary. Ordinary closure is the default entry intent; `preview` is the explicit terminal, non-mutating variant.
 
+## Bounded task context protocol
+
+Start with `validate --summary`, then use `task-context(entry:"close-task", mode)`
+and follow all required continuations. Read exact reports, findings, receipts,
+and history through `task-read`; use `file-context`/`review-read` for files and
+diffs. Reuse a definition only for the same visible session and exact
+`definition_revision`. Receipts are read-only version/range evidence, not
+authorization or proof of understanding. Compression, a new session, a
+revision change, a compact-store error, or an incomplete required page requires
+a fresh read or an explicit blocker; it must not trigger an unbounded Markdown
+fallback.
+
 ## Operating rules
 
 1. Verify immutable task identity, acceptance claims, claim-bound validation evidence, open findings, remaining risks, and the exact closure/archive target before preparing any proposal. A new/refined task must have a non-empty frozen `CURRENT_TASK.runtime_state.claim_evidence` plan with at least one acceptance claim; legacy CURRENT_TASK remains readable but requires prepare-task refinement/migration before terminal completion. Runtime derives `acceptance_satisfied` and `validation_complete` from that durable per-claim/per-slot state; every planned slot must be `existing`, `reused`, or `newly-executed` with `evidence_refs`. Missing, deferred, blocked, or aggregate command success cannot be summarized as complete, and the submitted closure booleans must match the durable derivation. Validation, reuse of an existing check, and creation of a persistent automated test remain separate decisions; the closure-side persistent-test disposition defaults to `persistent_test: false`, and closure does not infer a new test from missing evidence.

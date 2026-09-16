@@ -236,7 +236,7 @@ step_attempts. Retry never completes the step: a fresh preflight and execution
 are required. Unknown causes, changed plans, and open findings do not use this
 retry; no server restart or database reset is an implicit recovery action.
 
-## Current view, state, and complete history (0.19.4)
+## Current view, state, and complete history (0.19.5)
 
 This additive storage contract preserves task identity, goal, acceptance,
 authority, scope, test admission, review / repair budgets, and lifecycle
@@ -244,7 +244,10 @@ semantics. CURRENT_TASK.md remains the fixed human and Agent entrypoint. Its
 single submission head selects the current source, definition, state, and
 committed event range. The current body is a complete, governed presentation
 of the confirmed definition and current workset; execution and idempotency
-arrays are compatibility hot-cache data and do not define complete history.
+arrays are a compatibility hot-cache only. In compact v2 the current file
+keeps a bounded history navigation preview; complete history remains in the
+bound task-data aggregate and is never treated as empty when the preview is
+short.
 
 The aggregate is stored under
 <workflow_home>/task-data/<document_id>/ with a manifest, immutable
@@ -264,6 +267,13 @@ unbounded history by a recent-N heuristic. All metadata, lists, JSON, and text
 use the UTF-8 byte budget and continuation fields; incomplete required content
 is not complete. Receipts prove only version and returned range, never write
 authority or execution qualification.
+
+The normal sequence is `validate --summary` -> `task-context(entry, mode)` ->
+all required continuation pages -> exact `task-read`/`file-context`/
+`review-read` -> the existing preflight, execute, review, recovery, or lifecycle
+operation. A pending journal, missing object, or revision conflict is a
+recovery/error state and cannot be bypassed by reading the old full Markdown
+history.
 
 validate --summary checks the current aggregate and direct references;
 validate --deep is the explicit full-history diagnostic. Storage migration is

@@ -72,6 +72,17 @@ freeze, permission boundary, outstanding challenge or recovery publication lock.
 
 Perform one explicit, identity-safe task ownership or lifecycle transition. The lifecycle state and workflow status remain distinct facts, and this entry handles only the requested transition.
 
+## Bounded task context protocol
+
+Read `validate --summary` first, then request `task-context(entry:"task-lifecycle",
+mode)` and follow all required continuations. Use `task-read` for the exact
+current definition, recovery package references, prior lifecycle events, and
+receipts; use `file-context` only for bounded external files. Reuse a definition
+only within the same visible session and exact `definition_revision`. A read
+receipt does not authorize a transition. Any required-page omission, revision
+change, session compression, or compact/store conflict requires rereading or a
+blocker and never an unbounded Markdown fallback.
+
 ## Operating rules
 
 1. Verify the immutable task identity, active owner, current workflow status, current lifecycle tuple, requested mode, and the canonical task's explicit `Allowed / Conditional / Forbidden` scope buckets before proposing any transition. Any read/discovery context used to understand recovery remains separate from mutation authority.
