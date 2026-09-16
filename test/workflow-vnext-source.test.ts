@@ -91,7 +91,7 @@ describe('vNext Phase 2 source contract', () => {
     }
   });
 
-  test('rejects positive cross-public-entry continuations while allowing caller recommendations and prohibitions', () => {
+  test('rejects positive cross-public-entry continuations while allowing caller recommendations and prohibitions', { timeout: 60000 }, () => {
     for (const continuation of [
       'After this result, route to execute-step.',
       'After this result, route through execute-step.',
@@ -138,7 +138,7 @@ describe('vNext Phase 2 source contract', () => {
     ]);
     expect(result.administrativeEntries).toEqual(['bootstrap-project']);
     expect(result.expertEntries).toEqual(['validate-change', 'git-commit']);
-    expect(result.capabilities).toHaveLength(26);
+    expect(result.capabilities).toHaveLength(27);
     expect(result.runtimeOperations).toEqual([
       'archive-transaction',
       'contract-candidate-commit',

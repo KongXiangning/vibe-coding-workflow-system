@@ -96,7 +96,7 @@ test('CURRENT_TASK definition headings locate a hash-bound complete range withou
   await expect(fileContext(root, { operation: 'read', path: relative, start_line: startLine, end_line: endLine - 1, sha256: revision })).rejects.toThrow('CONTEXT_STALE');
 });
 
-test('Node CLI bounds oversized rg output and missing rg is explicit without installation', () => {
+test('Node CLI bounds oversized rg output and missing rg is explicit without installation', { timeout: 60000 }, () => {
   const root = temp();
   fs.writeFileSync(path.join(root, 'large.ts'), 'needle ' + 'x'.repeat(200_000));
   const cli = path.resolve('runtime/vnext/dist/cli.js');

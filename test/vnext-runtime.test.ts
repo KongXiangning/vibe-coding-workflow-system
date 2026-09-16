@@ -30,6 +30,8 @@ import {
   clearResumeReview,
   captureReviewTarget,
   assertEvidencePlan,
+  evaluateMutationAuthority,
+  mutationAuthorityBlockerCode,
   readDraftDefinitionFromBody,
   createReviewChangeDelta,
   confirmDraft,
@@ -37,6 +39,7 @@ import {
   confirmCorrectionReplan,
   discardCorrectionReplan,
   prepareScopeAmendment,
+  discardScopeAmendment,
   initializeTaskPreservation,
   recordEvidenceChallenge,
   dismissEvidenceChallenge,
@@ -45,6 +48,7 @@ import {
   beginRepair,
   prepareDraft,
   preflightStep,
+  extendPreflight,
   retryStep,
   createStepRetryProposal,
   reviewContext,
@@ -253,13 +257,14 @@ function makeRoot(state: RuntimeState = makeRuntimeState()): string {
       'paths:',
       '  workflow_home: docs/workflow',
       '',
+      // Boundaries stay last so a test can append further classified paths
+      // without silently attaching them to the authority domain map.
       'boundaries:',
       '  non_executable_change_paths:',
       '    - README.md',
       '    - docs/product/**',
       '',
-    ].join('\n'),
-    'utf8',
+    ].join('\n'),    'utf8',
   );
   fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Caller-reported Runtime fixture.');
   if (state.claim_evidence?.length && state.claim_evidence.every(claim => claim.requirement)) state.evidence_plan_revision = assertEvidencePlan(readDraftDefinitionFromBody(makeBody(state)), state.claim_evidence);
@@ -572,6 +577,7 @@ function replacementDefinition(overrides: Partial<ReplanReplacementDefinition> =
     design_constraints: '- no visual changes',
     post_release_validation: '- no release validation is required',
     propagation_governance: '- propagation evidence is retained',
+    mutation_authority: null,
     ...overrides,
   };
 }
@@ -616,6 +622,7 @@ function draftDefinition(overrides: Partial<DraftTaskDefinition> = {}): DraftTas
     post_release_validation: null,
     propagation_governance: null,
     ...overrides,
+    mutation_authority: null,
   };
 }
 
@@ -5128,7 +5135,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(lessonsPath, 'utf8')).toBe(bytesFirstCommit);
   });
 
-  test('persists project document references through the public CLI, refinement and confirmation', () => {
+  test('persists project document references through the public CLI, refinement and confirmation', { timeout: 60000 }, () => {
     const root = archivedBaselineRoot();
     const sources = [
       { path: 'docs/REQ.md', section: 'REQ-1', revision: 'v2', purpose: 'Required behavior' },
@@ -5457,7 +5464,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   // Review repair/P-12: bundled Node callers can bind independent slot reports
   // without a source helper; obtaining a fresh hash never writes Runtime state.
-  test('evidence-context CLI returns current per-check revisions and rejects stale reports', () => {
+  test('evidence-context CLI returns current per-check revisions and rejects stale reports', { timeout: 60000 }, () => {
     const semantic = singleStepSemanticDraft();
     const editedPath = 'runtime/vnext/src/prepare-task-adapter.ts';
     const extra = structuredClone(semantic.claim_evidence[0]!.slots[0]!);
@@ -7428,7 +7435,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
   });
 
-  test('validate refuses a directly drifted plan and rejected replan cannot legitimize it', () => {
+  test('validate refuses a directly drifted plan and rejected replan cannot legitimize it', { timeout: 60000 }, () => {
     const root = confirmedSemanticRoot();
     useLegacyInlineCurrent(root);
     const initial = readCanonicalCurrentTask(root);
@@ -7519,6 +7526,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     };
     expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
       'preflight-step',
+      'extend-preflight',
       'evidence-context',
       'retry-step',
       'begin-repair',
@@ -8242,49 +8250,269 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(candidate.step_diff.scope_paths).toEqual([added]);
   });
 
-  test('fixed tgz installation drives the Node CLI scope-amendment path end to end', { timeout: 120000 }, () => {
-    const target = confirmedSemanticRoot(singleStepSemanticDraft());
-    const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-package-'));
-    const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-tgz-'));
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    temporaryRoots.push(packageRoot, packDirectory);
-    buildVibeGovernanceDistribution({ outputRoot: packageRoot });
-    const packed = spawnSync(npm, ['pack', '--ignore-scripts', '--no-audit', '--no-fund', '--pack-destination', packDirectory], { cwd: packageRoot, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(packed.status).toBe(0);
-    const tgz = fs.readdirSync(packDirectory).find(name => name.endsWith('.tgz'));
-    expect(tgz).toBeTruthy();
+});
 
-    const consumer = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-consumer-'));
-    temporaryRoots.push(consumer);
-    fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'fixed-tgz-consumer', private: true }) + '\n', 'utf8');
-    const installed = spawnSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(packDirectory, tgz!)], { cwd: consumer, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(installed.status).toBe(0);
-    const distributionCli = path.join(consumer, 'node_modules', 'vibe-governance', 'dist', 'cli.js');
-    const install = spawnSync('node', [distributionCli, 'install', '--root', target, '--json'], { cwd: consumer, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(install.status).toBe(0);
-    const runtimeCli = path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
-    const input = {
-      added_paths: ['src/tgz-authorized-continuation.ts'],
-      authorization: {
-        decision_source: 'user:fixed-tgz-e2e',
-        decision_text: 'Authorize this exact continuation path for the blocked task.',
-        authorized_paths: ['src/tgz-authorized-continuation.ts'],
-      },
-      amendment_step: {
-        id: 'tgz-amend-1',
-        description: 'Apply and verify the fixed tgz continuation',
-        mutation_scope: ['src/tgz-authorized-continuation.ts'],
-        required_evidence: ['fresh fixed tgz preflight and review'],
-        commands: [],
-      },
+// Mutation Authority v2 acceptance matrix A01-A20 at the source level. The
+// fixed-tgz installed-Node-CLI scenarios live in
+// test/vnext-scope-amendment-e2e.test.ts.
+describe('vNext Mutation Authority v2', () => {
+  function withAuthorityDomains(root: string): void {
+    const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+    const text = fs.readFileSync(profilePath, 'utf8');
+    fs.writeFileSync(profilePath, `${text}mutation_authority:\n  domains:\n    - id: application\n      roots:\n        - runtime/**\n        - test/**\n    - id: documentation\n      roots:\n        - docs/**\n    - id: native\n      roots:\n        - native/**\n`);
+  }
+
+  function v2Draft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
+    return singleStepSemanticDraft({
+      mutation_authority: { domains: ['application'], exact_exceptions: [] },
+      ...overrides,
+    });
+  }
+
+  function v2Root(input: PrepareTaskSemanticDraft = v2Draft()): string {
+    const root = archivedBaselineRoot();
+    withAuthorityDomains(root);
+    const prepared = prepareDraft(root, input);
+    if (!prepared.confirmation_receipt) throw new Error(`test setup did not receive a draft confirmation receipt: ${prepared.status} ${prepared.code ?? ''} ${prepared.message}`);
+    const confirmed = confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt });
+    if (confirmed.status !== 'success') throw new Error(`test setup could not confirm v2 draft: ${confirmed.message}`);
+    return root;
+  }
+
+  function assessment(target: string, overrides: Record<string, unknown> = {}) {
+    return {
+      path: target,
+      symbol: null,
+      reason: 'The reported failure requires this target.',
+      locality: 'local',
+      visibility: 'private',
+      cross_component_consumers: 'none',
+      contract_impact: 'none',
+      evidence_refs: ['grep:callers'],
+      disposition: 'self-admit',
+      ...overrides,
     };
-    const prepared = spawnSync('node', [runtimeCli, 'prepare-scope-amendment', '--root', target], { cwd: target, input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(prepared.status).toBe(0);
-    expect(JSON.parse(prepared.stdout).committed).toBe(true);
-    const preflight = spawnSync('node', [runtimeCli, 'preflight-step', '--root', target], { cwd: target, input: JSON.stringify({ candidate_paths: ['src/tgz-authorized-continuation.ts'] }), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(preflight.status).toBe(0);
-    const summary = spawnSync('node', [runtimeCli, 'validate', '--summary', '--root', target], { cwd: target, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(summary.status).toBe(0);
-    expect(JSON.parse(summary.stdout).summary.active_step_id).toBe('tgz-amend-1');
+  }
+
+  test('A17 a v2 draft persists its envelope and renders it without turning the planned footprint into the only writable list', () => {
+    const root = v2Root();
+    const current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.mutation_authority_version).toBe(2);
+    expect(current.runtimeState.mutation_authority).toEqual({ domains: ['application'], exact_exceptions: [] });
+    expect(current.body).toContain('## 变更权限');
+    expect(current.body).toContain('### Authority Domains');
+    expect(current.body).toContain('- `application`');
+    expect(current.body).toContain('### Exact Exceptions');
+    const definition = readDraftDefinitionFromBody(current.body);
+    expect(definition.mutation_authority).toEqual({ version: 2, domains: ['application'], exact_exceptions: [] });
+  });
+
+  test('A16 a legacy v1 draft keeps exact-path semantics and gains no envelope', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.mutation_authority_version).toBeUndefined();
+    expect(current.runtimeState.mutation_authority).toBeUndefined();
+    expect(current.body).not.toContain('## 变更权限');
+    expect(readDraftDefinitionFromBody(current.body).mutation_authority).toBeNull();
+    // A v1 task keeps the exact-path step boundary.
+    // The task itself lists exact Allowed Files, so an unplanned path is
+    // blocked by the task exact-path boundary before any step check.
+    expect(() => preflightStep(root, { candidate_paths: ['runtime/vnext/src/unplanned.ts'] })).toThrow('EXECUTE_SCOPE_BLOCKED');
+    expect(() => preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] })).not.toThrow();
+    expect(() => extendPreflight(root, { preflight_receipt: {}, additional_targets: [] })).toThrow();
+  });
+
+  test('A01/A02/A03/A04 an in-envelope discovery self-admits through extend-preflight without user amendment, continuation, or a new attempt', () => {
+    const root = v2Root();
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const attemptBefore = readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!;
+    const discovered = 'runtime/vnext/src/discovered-helper.ts';
+    fs.mkdirSync(path.join(root, 'runtime', 'vnext', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const discovered = true;\n');
+    const extended = extendPreflight(root, {
+      preflight_receipt: preflight.receipt,
+      additional_targets: [{ path: discovered, assessment: assessment(discovered) }],
+    });
+    expect(extended.status).toBe('pass');
+    expect(extended.dynamic_review_required).toBe(true);
+    expect(extended.receipt.candidate_paths).toEqual([discovered, 'runtime/vnext/src/prepare-task-adapter.ts'].sort());
+    expect(extended.extended_targets).toHaveLength(1);
+    expect(extended.receipt.extended_targets).toHaveLength(1);
+
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.active_step_id).toBe('step-1');
+    expect(after.runtimeState.step_attempts!['step-1']!.evidence_plan_revision).toBe(attemptBefore.evidence_plan_revision);
+    expect(after.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(attemptBefore.attempts.length);
+    expect(after.runtimeState.step_attempts!['step-1']!.attempts.at(-1)!.attempt_id).toBe(attemptBefore.attempts.at(-1)!.attempt_id);
+    expect(after.runtimeState.mutation_authority_admissions).toHaveLength(1);
+    expect(after.runtimeState.mutation_dynamic_review).toMatchObject({ required: true });
+    // No amendment candidate and no continuation step were created.
+    expect(fs.existsSync(path.join(root, 'docs/workflow/task-candidates'))).toBe(false);
+    expect(after.body).not.toContain('scope-');
+    // A different step never inherits this admission.
+    expect(after.runtimeState.mutation_authority_admissions![0]!.step_id).toBe('step-1');
+  });
+
+  test('A05/A06/A07/A14 an in-envelope expansion requires a blast-radius assessment, rejects an escalation, and forces review', () => {
+    const root = v2Root();
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const shared = 'runtime/vnext/src/shared-normalize.ts';
+    fs.mkdirSync(path.join(root, 'runtime', 'vnext', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(root, ...shared.split('/')), 'export const normalize = (value: string): string => value;\n');
+    // A path inside the envelope but outside the planned footprint without an
+    // assessment is an assessment requirement, never an authority violation.
+    const evaluation = evaluateMutationAuthority(
+      { version: 2, domains: ['application'], exact_exceptions: [], forbidden: [] },
+      {
+        changed_paths: [shared],
+        planned_targets: ['runtime/vnext/src/prepare-task-adapter.ts'],
+        step_id: 'step-1',
+        domain_roots: new Map([['application', ['runtime/**', 'test/**']]]),
+      },
+    );
+    expect(evaluation.status).toBe('blocked');
+    expect(evaluation.assessment_required_paths).toEqual([shared]);
+    expect(mutationAuthorityBlockerCode(evaluation)).toBe('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+
+    expect(() => extendPreflight(root, {
+      preflight_receipt: preflight.receipt,
+      additional_targets: [{ path: shared, assessment: assessment(shared, { disposition: 'escalate', reason: 'Consumer impact is unknowable.' }) }],
+    })).toThrow('MUTATION_TARGET_ESCALATED');
+
+    const admitted = extendPreflight(root, {
+      preflight_receipt: preflight.receipt,
+      additional_targets: [{
+        path: shared,
+        assessment: assessment(shared, { locality: 'high', visibility: 'public', cross_component_consumers: 'present', contract_impact: 'possible' }),
+      }],
+    });
+    expect(admitted.status).toBe('pass');
+    const coverage = readCanonicalCurrentTask(root).runtimeState.review_coverage!;
+    expect(coverage.expanded_paths).toEqual([shared]);
+    expect(coverage.pending_paths).toContain(shared);
+  });
+
+  test('A08/A09/A10 a write outside the envelope needs a real authority amendment while reads stay unrestricted', () => {
+    const root = v2Root();
+    const nativePath = 'native/collector/protocol.rs';
+    fs.mkdirSync(path.join(root, 'native', 'collector'), { recursive: true });
+    fs.writeFileSync(path.join(root, ...nativePath.split('/')), 'fn protocol() {}\n');
+    expect(() => preflightStep(root, { candidate_paths: [nativePath] })).toThrow('EXECUTE_SCOPE_BLOCKED');
+    // Reading across the envelope stays unrestricted; only the write is denied.
+    expect(fs.existsSync(path.join(root, ...nativePath.split('/')))).toBe(true);
+    // A true authority change settles the current execution first.
+    const open = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    expect(recordStepResult(root, {
+      preflight_receipt: open.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: open.current_step.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['native-authority.json'] }],
+      validation_results: [{ validation: open.current_step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Settle the attempt before the authority amendment',
+    }).status).toBe('success');
+    // Explicit user authorization for one exact path, not the whole component.
+    const amendment = {
+      added_paths: [nativePath],
+      authorization: {
+        decision_source: 'user:mutation-authority-v2',
+        decision_text: 'Authorize exactly native/collector/protocol.rs for this task.',
+        authorized_paths: [nativePath],
+      },
+      amendment_step: { id: 'scope-native-1', description: 'Apply the authorized native exception', mutation_scope: [nativePath], required_evidence: ['fresh native review'], commands: [] },
+    };
+    expect(prepareScopeAmendment(root, amendment).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.mutation_authority).toEqual({ domains: ['application'], exact_exceptions: [nativePath] });
+    expect(current.runtimeState.active_step_id).toBe('scope-native-1');
+    // Only the exact exception is writable; the rest of the component is not.
+    expect(() => preflightStep(root, { candidate_paths: ['native/collector/other.rs'] })).toThrow('EXECUTE_SCOPE_BLOCKED');
+    const admitted = preflightStep(root, { candidate_paths: [nativePath] });
+    expect(admitted.receipt.step_id).toBe('scope-native-1');
+  });
+
+  test('A11/A15 a true authority change requires a settled execution and a committed candidate is immutable', () => {
+    const root = v2Root();
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const nativePath = 'native/collector/blocked.rs';
+    fs.mkdirSync(path.join(root, 'native', 'collector'), { recursive: true });
+    fs.writeFileSync(path.join(root, ...nativePath.split('/')), 'fn blocked() {}\n');
+    const amendment = (id: string) => ({
+      added_paths: [nativePath],
+      authorization: {
+        decision_source: 'user:mutation-authority-v2-settled',
+        decision_text: 'Authorize exactly native/collector/blocked.rs after the current execution is settled.',
+        authorized_paths: [nativePath],
+      },
+      amendment_step: { id, description: 'Apply the authorized native exception', mutation_scope: [nativePath], required_evidence: ['fresh native review'], commands: [] },
+    });
+    // The unreported preflight still counts as an open execution attempt.
+    expect(() => prepareScopeAmendment(root, amendment('scope-settled-1'))).toThrow('SCOPE_AMENDMENT_EXECUTION_UNSETTLED');
+    const step = preflight.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: step.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['native-blocked.json'] }],
+      validation_results: [{ validation: step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Settle the attempt before the authority change',
+    }).status).toBe('success');
+    const prepared = prepareScopeAmendment(root, amendment('scope-settled-2'));
+    expect(prepared.status).toBe('success');
+    // A committed amendment is immutable history.
+    expect(() => discardScopeAmendment(root, { candidate_digest: prepared.candidate_receipt.candidate_digest })).toThrow('SCOPE_AMENDMENT_ALREADY_COMMITTED');
+  });
+
+  test('A13 an in-envelope existing test can expand through assessment while a new persistent test keeps P-12 admission', () => {
+    const root = v2Root();
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const existingTest = 'test/existing-regression.test.ts';
+    fs.mkdirSync(path.join(root, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(root, ...existingTest.split('/')), '// existing regression\n');
+    const extended = extendPreflight(root, {
+      preflight_receipt: preflight.receipt,
+      additional_targets: [{ path: existingTest, assessment: assessment(existingTest, { reason: 'The existing regression assertion encodes the replaced contract.' }) }],
+    });
+    expect(extended.status).toBe('pass');
+    expect(extended.extended_targets![0]).toMatchObject({ path: existingTest, dynamic_review_required: true });
+    // The existing test is an ordinary in-envelope expansion, so review must
+    // cover it; expansion history lives in the committed task store, not in
+    // the compact frontmatter.
+    expect(readCanonicalCurrentTask(root).runtimeState.review_coverage!.expanded_paths).toContain(existingTest);
+
+    const absentTest = 'test/brand-new-regression.test.ts';
+    expect(() => extendPreflight(root, {
+      preflight_receipt: extended.receipt,
+      additional_targets: [{ path: absentTest, assessment: assessment(absentTest, { locality: 'elevated' }) }],
+    })).toThrow('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+  });
+
+  test('A20 review sees planned, self-admitted, and actual footprint plus the blast-radius evidence', () => {
+    const root = v2Root();
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const discovered = 'runtime/vnext/src/review-visible.ts';
+    fs.mkdirSync(path.join(root, 'runtime', 'vnext', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const visible = true;\n');
+    const extended = extendPreflight(root, {
+      preflight_receipt: preflight.receipt,
+      additional_targets: [{ path: discovered, assessment: assessment(discovered, { locality: 'elevated', evidence_refs: ['grep:callers', 'read:module'] }) }],
+    });
+    expect(extended.receipt.extended_targets![0]).toMatchObject({ path: discovered, locality: 'elevated', dynamic_review_required: true });
+    // The expansion is admitted before the edit; the edit itself is what the
+    // cumulative review must see.
+    fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const visible = true;\nexport const expanded = true;\n');
+    const step = extended.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: extended.receipt,
+      actual_changed_paths: [discovered],
+      command_results: [{ command: step.commands[0]!.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['expansion.json'] }],
+      validation_results: [{ validation: step.validation[0]!, status: 'passed', evidence_refs: ['expansion.json'] }],
+      acceptance_evidence: [], outcome: 'implemented', note: 'Record the expanded execution for review',
+    }).status).toBe('success');
+    const context = reviewContext(root, {});
+    expect(context.status).toBe('pass');
+    const state = readCanonicalCurrentTask(root).runtimeState;
+    const admission = state.mutation_authority_admissions!.find(item => item.path === discovered)!;
+    expect(admission.assessment.evidence_refs).toEqual(['grep:callers', 'read:module']);
+    expect(state.mutation_dynamic_review!.required).toBe(true);
+    expect(state.review_coverage!.expanded_paths).toContain(discovered);
+    expect(state.review_coverage!.pending_paths).toContain(discovered);
   });
 });

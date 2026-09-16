@@ -186,6 +186,7 @@ function runtimeDraftDefinition(): DraftTaskDefinition {
     design_constraints: '- no direct Markdown record append',
     post_release_validation: '- no release validation is required',
     propagation_governance: '- preserve Runtime provenance markers',
+    mutation_authority: null,
   };
 }
 
