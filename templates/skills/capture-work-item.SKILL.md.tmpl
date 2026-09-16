@@ -103,6 +103,10 @@ notes:
 
 将与当前任务无关的新事项记录到 `TASKS/inbox/**`，不切换当前 active task。
 
+## Unified task context protocol
+
+判断与当前任务的关系前先用 `validate --summary` 和只读 `task-context` 获取当前身份、定义、义务和门禁；若需核对旧事件、报告或历史正文，用 `task-read` 精确引用并完成分页。不得展开无界 RuntimeState、execution log 或 applied proposals，也不得用最近 N 条历史或读取收据推断关系、权限或写资格。
+
 ## Trigger
 
 当执行当前任务时冒出一个已判断与当前 live task 无关、但需要留档的新事项。

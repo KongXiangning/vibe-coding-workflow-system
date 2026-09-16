@@ -48,6 +48,7 @@ import {
 } from './mutation-scope';
 import { resolveTaskStep } from './task-steps';
 import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
+import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
 
 export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'ingest-evidence', 'route-input'] as const;
 export type ReviewChangeAdapterCommand = (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number];
@@ -108,6 +109,7 @@ export type ReviewContextResult = {
     repair_attempts: number;
     max_repair_attempts: number;
   }>;
+  context_projection: TaskContextReference;
   receipt: ReviewContextReceipt;
 };
 
@@ -409,6 +411,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       repair_attempts: item.repair_attempts,
       max_repair_attempts: item.max_repair_attempts,
     })),
+    context_projection: taskContextReferenceForCurrent(root, current, 'review-context', phase === 'verification' ? 'review' : 'default'),
     receipt,
   };
 }

@@ -371,3 +371,39 @@ Absence means unrecorded (legacy compatible); an empty sources array means expli
 no selected sources. The normal prepare adapter writes affected contracts to the
 existing affected-contracts section. Confirmation binds both sections; subsequent
 reads expose the saved metadata without loading the referenced documents.
+
+## Task aggregate and bounded context (0.19.4)
+
+CURRENT_TASK.md carries one aggregate submission head with exact source_revision,
+definition_revision, state_revision, and committed event range. The head is
+authoritative; a cache or index conflict cannot change execution facts. The
+current presentation retains the complete confirmed definition and workset,
+while complete event history is navigated through the sidecar store.
+
+The profile-derived layout is:
+
+    <workflow_home>/task-data/<document_id>/
+      manifest.json
+      objects/<sha256>.json
+      events/<sequence>-<sha256>.json
+      indexes/                 # rebuildable, non-authoritative
+
+Object hashes include schema, object type, document ID, and complete
+deterministic content. Events retain independent identity, sequence, time,
+cause, result references, and idempotency keys. Unacknowledged orphan material
+is not committed. v1 does not run GC; target-owned task data is preserved by
+distribution maintenance.
+
+task-context is the bounded DTO for overview and operation context. task-read
+takes an exact object, event, history revision, or file reference. Every page
+bounds metadata and content in UTF-8 bytes and returns returned / total_bytes,
+continuation, and complete_for_operation; required content omitted by a page is
+incomplete. Continuations bind the source, definition, state, and exact
+reference. Receipts are read receipts only, not authority.
+
+task-storage-migration is preview, exact-source confirmation, then commit.
+Migration preserves current bytes, linked basis and known historical
+execution/report/receipt/finding material, with explicit missing history and
+old locator aliases. It does not re-run tests, recover a task, or change its
+business meaning. Aggregate export includes the retained object closure and
+manifest, with paged output for large stores.

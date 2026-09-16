@@ -1,6 +1,71 @@
-# Runtime source context (0.18.7)
+# Runtime source context (0.19.4)
 
 Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
+
+## Current view, state, and history
+
+`CURRENT_TASK.md` is the fixed human/Agent entrypoint, not the complete event
+ledger. Its frontmatter and body show the current confirmed definition, current
+workset, obligations, gates, and exact references. The durable aggregate is
+stored under `paths.workflow_home/task-data/<document_id>/`:
+
+```text
+objects/<sha256>.json
+events/<sequence>-<sha256>.json
+indexes/                  # rebuildable lookup material only
+manifest.json             # aggregate head and committed object references
+```
+
+The manifest's single head selects the current source, definition, state, and
+committed event range. An object or event that is not acknowledged by that head
+is not an executed action. Objects are content-addressed by schema, object type,
+document ID, and complete payload. Equal content may be stored once, but every
+execution, review, authorization, and idempotency event remains separately
+identifiable and ordered. The hot arrays retained in the legacy file are only a
+compatibility cache; they do not determine whether older facts exist.
+
+For ordinary operations use the read-only `task-context` projection. It has
+three layers: a bounded overview; the operation context with the complete
+current definition (unless the exact definition revision is still visible in
+the same conversation), current-step requirements, unfinished obligations,
+recorded dependencies, explicit unknown-dependency warnings, global gates, the
+latest execution, and the cumulative review target; and on-demand history. It never returns raw
+`runtime_state`, an unbounded execution log, or an unbounded idempotency list.
+Unknown dependency data stays unknown: a missing dependency graph is not proof
+that a gate can be skipped.
+
+```powershell
+node .workflow-system/runtime/dist/cli.js validate --summary --root <project>
+'{"entry":"preflight-step","max_bytes":16384}' |
+  node .workflow-system/runtime/dist/cli.js task-context --root <project>
+'{"kind":"event","event_sequence":12,"event_hash":"<sha256>","max_bytes":8192}' |
+  node .workflow-system/runtime/dist/cli.js task-read --root <project>
+```
+
+`task-read` accepts only an exact object, event, history material, or bounded
+file reference. A response is UTF-8 byte bounded and includes its selection,
+returned bytes, total bytes, continuation, and `complete_for_operation`. Follow
+the exact continuation with the same source/definition/state revision and
+reference. A stale revision or changed exact reference requires a fresh read;
+never combine pages from different heads. Required content not fully returned
+means the operation context is incomplete. Context/read receipts prove only the
+version and returned range; they are read-only and do not authorize a write.
+Repeated reads do not append audit events.
+
+`validate --summary` checks the current aggregate and directly referenced
+objects. `validate --deep` is an explicit diagnostic that walks the full
+committed event chain and object references. The two scopes must not be reported
+as equivalent. `task-export` is an explicit aggregate export for backup or
+verification, not the default model input. It returns canonical export JSON as
+UTF-8 byte-bounded text pages with a continuation; concatenate all pages before
+parsing it, and measure the entrypoint, projection, and complete store separately.
+
+Storage migration is separate from task evolution. Run
+`task-storage-migration` with `mode:preview`, inspect the exact current
+`source_revision`, then commit with that revision. Migration preserves the old
+CURRENT_TASK bytes, known history and old locator information; an unavailable
+preimage remains an explicit missing fact. Distribution upgrade does not
+remove target-owned `task-data`.
 
 ## Bounded CURRENT_TASK reading
 

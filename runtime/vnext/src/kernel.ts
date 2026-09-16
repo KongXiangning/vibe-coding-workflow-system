@@ -26,6 +26,7 @@ import {
   loadProfile,
 } from './runtime-io';
 import { assertTaskHistoryForRevision, commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from './task-evolution-io';
+import { TaskStore, TaskStoreError } from './task-store';
 import {
   CURRENT_TASK_WORKFLOW_STATUSES,
   RESUME_REVIEW_REASON_ORDER,
@@ -95,7 +96,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.19.3';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.19.4';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -1237,6 +1238,13 @@ export type RuntimeResult = {
   planned_writes: string[];
   governed_mutation_count: number;
   read_back_verified: boolean;
+  task_store?: {
+    manifest_path: string;
+    source_revision: string;
+    definition_revision: string;
+    state_revision: string;
+    event_sequence: number;
+  };
   advancement?: StepAdvancementResult;
   state?: {
     task_id: string;
@@ -1743,6 +1751,36 @@ function validateRuntimeDistributionContract(value: unknown): RuntimeDistributio
   return result;
 }
 
+function validateTaskContextContract(value: unknown): void {
+  const context = expectRecord(value, 'Runtime contract.task_context');
+  expectExactKeys(context, ['schema_version', 'kind', 'commands', 'entry_points', 'views', 'projection', 'paging', 'receipts', 'read_only'], 'Runtime contract.task_context');
+  if (context.schema_version !== 1 || context.kind !== 'vnext-task-context-contract' || context.read_only !== true) fail('RUNTIME_CONTRACT_INVALID', 'task_context must be the read-only vNext projection contract.');
+  expectSetEqual(expectStringArray(context.commands, 'Runtime contract.task_context.commands'), ['task-context', 'task-read', 'task-storage-migration', 'task-export'], 'task context commands');
+  expectSetEqual(expectStringArray(context.entry_points, 'Runtime contract.task_context.entry_points'), ['validate --summary', 'task-context', 'task-read', 'review-context', 'review-read', 'preflight-step', 'evidence-context'], 'task context entry points');
+  expectSetEqual(expectStringArray(context.views, 'Runtime contract.task_context.views'), ['overview', 'operation-context', 'history-on-demand'], 'task context views');
+  const projection = expectRecord(context.projection, 'Runtime contract.task_context.projection');
+  expectExactKeys(projection, ['default', 'required_blocks', 'review_requires_cumulative_target', 'forbidden_expansions'], 'Runtime contract.task_context.projection');
+  if (projection.default !== 'task-context' || projection.review_requires_cumulative_target !== true) fail('RUNTIME_CONTRACT_INVALID', 'task_context projection must use the shared bounded projector and cumulative review target.');
+  expectSetEqual(expectStringArray(projection.required_blocks, 'Runtime contract.task_context.projection.required_blocks'), ['current-definition-or-visible-definition-revision', 'current-step', 'unfinished-obligations', 'required-dependencies', 'unknown-dependencies', 'global-gates', 'latest-execution'], 'task context required blocks');
+  expectSetEqual(expectStringArray(projection.forbidden_expansions, 'Runtime contract.task_context.projection.forbidden_expansions'), ['raw-runtime-state', 'unbounded-execution-log', 'unbounded-applied-proposals'], 'task context forbidden expansions');
+  const paging = expectRecord(context.paging, 'Runtime contract.task_context.paging');
+  expectExactKeys(paging, ['unit', 'default_bytes', 'min_bytes', 'max_bytes', 'required_fields', 'stale_binding'], 'Runtime contract.task_context.paging');
+  if (paging.unit !== 'utf8-bytes' || paging.default_bytes !== 16384 || paging.min_bytes !== 256 || paging.max_bytes !== 65536) fail('RUNTIME_CONTRACT_INVALID', 'task_context paging must retain the bounded UTF-8 byte budget.');
+  expectSetEqual(expectStringArray(paging.required_fields, 'Runtime contract.task_context.paging.required_fields'), ['returned', 'total_bytes', 'continuation', 'complete_for_operation'], 'task context paging fields');
+  expectSetEqual(expectStringArray(paging.stale_binding, 'Runtime contract.task_context.paging.stale_binding'), ['source_revision', 'definition_revision', 'state_revision', 'exact_reference'], 'task context stale binding');
+  const receipts = expectRecord(context.receipts, 'Runtime contract.task_context.receipts');
+  expectExactKeys(receipts, ['context', 'read', 'proves', 'not_authority'], 'Runtime contract.task_context.receipts');
+  if (receipts.context !== 'task-context-receipt/v1' || receipts.read !== 'task-read-receipt/v1' || receipts.proves !== 'version-and-return-range-only' || receipts.not_authority !== true) fail('RUNTIME_CONTRACT_INVALID', 'task context receipts must not be treated as execution authority.');
+}
+
+function validateTaskStoreContract(value: unknown): void {
+  const store = expectRecord(value, 'Runtime contract.task_store');
+  expectExactKeys(store, ['schema_version', 'kind', 'root', 'objects', 'events', 'indexes', 'commit_head', 'hot_window', 'full_history', 'dedup_key', 'event_identity', 'migration', 'garbage_collection', 'target_owned_data'], 'Runtime contract.task_store');
+  if (store.schema_version !== 1 || store.kind !== 'vnext-task-store-contract' || store.root !== '<workflow_home>/task-data/<document_id>' || store.objects !== 'objects/<sha256>.json' || store.events !== 'events/<sequence>-<sha256>.json' || store.indexes !== 'rebuildable-and-non-authoritative' || store.commit_head !== 'CURRENT_TASK-single-submission-head' || store.hot_window !== 'cache-only' || store.full_history !== 'persistent-and-queryable' || store.dedup_key !== 'schema-object-type-document-id-complete-content' || store.event_identity !== 'sequence-time-cause-and-idempotency-preserved' || store.migration !== 'preview-confirm-commit-with-source-revision' || store.garbage_collection !== 'disabled-in-v1' || store.target_owned_data !== 'task-data-is-never-removed-by-distribution-upgrade') {
+    fail('RUNTIME_CONTRACT_INVALID', 'task_store must retain the content-addressed, append-only aggregate contract.');
+  }
+}
+
 function validateBootstrapRuntimeContract(value: unknown): string[] {
   const bootstrap = expectRecord(value, 'vNext Runtime contract.bootstrap_project');
   expectExactKeys(
@@ -1827,12 +1865,14 @@ function validateBootstrapRuntimeContract(value: unknown): string[] {
 export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
   const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'proposal', 'mutation_scope', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
   if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
   }
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
+  validateTaskContextContract(contract.task_context);
+  validateTaskStoreContract(contract.task_store);
   const proposal = expectRecord(contract.proposal, 'Runtime contract.proposal');
   expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'task_state', 'execute_step', 'review_change', 'prepare_task', 'inbox_record', 'lifecycle', 'close_task', 'lesson_marker'], 'Runtime contract.proposal');
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime proposal contract has an invalid envelope marker.');
@@ -12007,6 +12047,7 @@ export class GovernanceTransactionKernel {
   private readonly readCurrentTask: CurrentTaskReader;
   private readonly readFile: TextFileReader;
   private readonly writeFiles: RuntimeWriter;
+  private lastApplyCurrent: CanonicalCurrentTask | undefined;
 
   constructor(
     root: string,
@@ -12480,7 +12521,46 @@ export class GovernanceTransactionKernel {
   }
 
   apply(rawProposal: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
-    return withGovernanceWriteLock(this.root, () => this.applyLocked(rawProposal, options));
+    return withGovernanceWriteLock(this.root, () => {
+      this.lastApplyCurrent = undefined;
+      const result = this.applyLocked(rawProposal, options);
+      const before = this.lastApplyCurrent;
+      if (!options.dryRun && result.committed && before) {
+        try {
+          const after = this.readCurrentTask(this.root);
+          const afterStore = TaskStore.forCurrent(this.root, after);
+          // Draft creation allocates a new document identity.  The new
+          // aggregate is initialized from the fully rendered read-back; it
+          // must not be forced through the previous task's document store.
+          const manifest = before.sourceTuple.document_id === after.sourceTuple.document_id
+            ? afterStore.recordCommit({ before, after, proposal: rawProposal, result })
+            : afterStore.ensureInitialized(after);
+          if (manifest) {
+            return {
+              ...result,
+              task_store: {
+                manifest_path: `${manifest.storage_root}/manifest.json`,
+                source_revision: manifest.head.source_revision,
+                definition_revision: manifest.head.definition_revision,
+                state_revision: manifest.head.state_revision,
+                event_sequence: manifest.head.event_sequence,
+              },
+            };
+          }
+        } catch (error) {
+          // The canonical write has already passed its own read-back. Keep the
+          // committed result visible, but make a sidecar failure actionable so
+          // the next governed write can reconcile the exact current revision.
+          return {
+            ...result,
+            code: 'TASK_STORE_COMMIT_FAILED',
+            message: `${result.message} Task-store publication needs reconciliation: ${error instanceof Error ? error.message : String(error)}`,
+            read_back_verified: false,
+          };
+        }
+      }
+      return result;
+    });
   }
 
   private applyLocked(rawProposal: unknown, options: RuntimeApplyOptions): RuntimeResult {
@@ -12525,6 +12605,16 @@ export class GovernanceTransactionKernel {
         governed_mutation_count: 0,
         read_back_verified: false,
       };
+    }
+    this.lastApplyCurrent = current;
+
+    let taskStore: TaskStore;
+    try {
+      taskStore = TaskStore.forCurrent(this.root, current);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_INIT_FAILED',
+      });
     }
 
     try {
@@ -12659,8 +12749,85 @@ export class GovernanceTransactionKernel {
         return buildResult('no-op',proposal,current,options,'This retry was already admitted; no budget or state changed.',{read_back_verified:true,resulting_revision:current.sourceTuple.revision});
       }
     }
+    try {
+      // Do not create or reconcile task-data for a proposal rejected by the
+      // path, authority, preflight, or retry gates above. A valid proposal
+      // gets the sidecar before the persistent idempotency lookup so an old
+      // entry can still authorize a replay after the hot window moved on.
+      if (!options.dryRun) taskStore.ensureInitialized(current);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_INIT_FAILED',
+      });
+    }
     const proposalDigest = digest(proposal);
     const prior = current.runtimeState.applied_proposals.find(item => item.idempotency_key === proposal.idempotency_key);
+    let persistentPrior: ReturnType<TaskStore['lookupIdempotency']> = null;
+    try {
+      persistentPrior = taskStore.lookupIdempotency(proposal.idempotency_key);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_INDEX_INVALID',
+      });
+    }
+    // Every proposal that reaches this shared admission path has already
+    // passed its specialized target inspection above (inbox/knowledge
+    // transactions return earlier). The sidecar therefore closes the old
+    // bounded-cache hole for every remaining operation kind. Close-task
+    // documents still need a read-only provenance check before a persistent
+    // replay is accepted: their idempotency entry proves that the operation
+    // was committed, not that a later manual edit left the visible target
+    // intact.
+    const persistentReplayEligible = true;
+    if (!prior && persistentPrior && persistentReplayEligible) {
+      if (persistentPrior.proposal_digest !== proposalDigest) {
+        return buildResult('conflict', proposal, current, options, 'persistent idempotency index binds this key to different proposal bytes.', {
+          code: 'IDEMPOTENCY_CONFLICT',
+          previous_revision: current.sourceTuple.revision,
+        });
+      }
+      try {
+        if (proposal.operation_kind === 'archive-transaction') {
+          const plan = prepareArchiveTransaction(this.root, current, proposal as ArchiveProposal, options.now?.() ?? new Date().toISOString());
+          if (plan !== null) {
+            return buildResult('blocked', proposal, current, options, 'persistent archive replay found a visible archive target that is not the committed replay state.', {
+              code: 'LIFECYCLE_REPLAY_INCOMPLETE',
+            });
+          }
+        } else if (proposal.operation_kind === 'project-status-transaction') {
+          const plan = prepareProjectStatusTransaction(this.root, current, proposal as ProjectStatusProposal);
+          if (plan !== null) {
+            return buildResult('blocked', proposal, current, options, 'persistent STATUS replay found a visible target that is not the committed reconciliation.', {
+              target_path: workflowDocPathForRoot(this.root, 'STATUS.md').relativePath,
+              code: 'RUNTIME_REPLAY_INCOMPLETE',
+            });
+          }
+        } else if (proposal.operation_kind === 'lesson-record-transaction') {
+          const plan = prepareLessonRecordTransaction(this.root, current, proposal as LessonRecordProposal);
+          if (plan !== null) {
+            return buildResult('blocked', proposal, current, options, 'persistent LESSONS replay found visible records that are not the committed lesson admission.', {
+              target_path: workflowDocPathForRoot(this.root, 'LESSONS.md').relativePath,
+              code: 'RUNTIME_REPLAY_INCOMPLETE',
+            });
+          }
+        }
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: proposal.operation_kind === 'project-status-transaction'
+            ? workflowDocPathForRoot(this.root, 'STATUS.md').relativePath
+            : proposal.operation_kind === 'lesson-record-transaction'
+              ? workflowDocPathForRoot(this.root, 'LESSONS.md').relativePath
+              : undefined,
+          code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_REPLAY_INCOMPLETE',
+        });
+      }
+      return buildResult('no-op', proposal, current, options, 'proposal replay was found in the persistent task store; no execution or state change was repeated.', {
+        planned_writes: [],
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: current.sourceTuple.revision,
+        read_back_verified: true,
+      });
+    }
     if (prior) {
       if (prior.proposal_digest !== proposalDigest) {
         return buildResult('conflict', proposal, current, options, 'idempotency key was already used by a different proposal.', { code: 'IDEMPOTENCY_CONFLICT', previous_revision: current.sourceTuple.revision });
@@ -13680,11 +13847,12 @@ export type VNextRuntimeCliArguments = {
   commandAuditFile?: string;
   commandAuditStdin: boolean;
   summary: boolean;
+  deep: boolean;
 };
 
 export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   const [command = 'validate', ...rest] = argv;
-  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--persistent-test-path <repo-relative>] [--persistent-test-paths-file <path>] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--dry-run]');
+  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--persistent-test-path <repo-relative>] [--persistent-test-paths-file <path>] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--summary] [--deep] [--dry-run]');
   let root = process.cwd();
   let proposalFile: string | undefined;
   let dryRun = false;
@@ -13698,6 +13866,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
   let commandAuditFile: string | undefined;
   let commandAuditStdin = false;
   let summary = false;
+  let deep = false;
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === '--root') root = rest[++index] ?? '';
@@ -13710,6 +13879,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--command-audit-file') commandAuditFile = rest[++index];
     else if (arg === '--command-audit-stdin') commandAuditStdin = true;
     else if (arg === '--summary' && command === 'validate') summary = true;
+    else if (arg === '--deep' && command === 'validate') deep = true;
     else if (arg === '--conditional-authorizations-file') conditionalAuthorizationsFile = rest[++index];
     else if (arg === '--transformation-kind') {
       const value = rest[++index];
@@ -13719,7 +13889,7 @@ export function parseCli(argv: string[]): VNextRuntimeCliArguments {
     else if (arg === '--dry-run') dryRun = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary, deep };
 }
 
 export function resolveExternalProposalFile(root: string, proposalFile: string): string {
@@ -13851,8 +14021,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         return section ? current.body.slice(section.contentStart, section.contentEnd).trim() : null;
       };
       const documentContext = { project_documents: readProjectDocuments(sectionText('background_context') ?? ''), affected_contracts: sectionText('affected_contracts') };
-      console.log(JSON.stringify(args.summary ? {
+      const taskStore = TaskStore.forCurrent(args.root, current);
+      const storageValidation = args.deep
+        ? taskStore.deepValidate()
+        : taskStore.validateCurrentAggregate(current as unknown as import('./task-store').TaskStoreCurrent);
+      const output = args.summary ? {
         status: 'success', source_tuple: current.sourceTuple, package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
+        validation_scope: args.deep ? 'aggregate-and-full-history' : 'current-aggregate',
+        storage_validation: storageValidation,
         summary: { ...documentContext, task_id: state.task_id, workflow_status: state.workflow_status, lifecycle_state: state.lifecycle_state,
           active_step_id: state.active_step_id, active_step_status: state.active_step_status,
           pending_review_verdict: state.pending_review_result?.verdict ?? null,
@@ -13864,7 +14040,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
           pending_replan_candidates: pendingCorrectionCandidates(current),
           carried_evidence_slots: (state.evidence_carry_forward ?? []).map(item => ({ claim_id: item.claim_id, slot_id: item.slot_id, old_result_id: item.result_id })),
           unresolved_evidence_challenges: (state.evidence_challenges ?? []).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id, claim_id: item.claim_id, slot_id: item.slot_id, result_id: item.result_id, correction_step_id: item.correction_step_id })) },
-      } : { status: 'success', source_tuple: current.sourceTuple, runtime_state: state, ...documentContext }, null, 2));
+      } : { status: 'success', source_tuple: current.sourceTuple, runtime_state: state, ...documentContext, ...(args.deep ? { validation_scope: 'aggregate-and-full-history', storage_validation: storageValidation } : {}) };
+      console.log(JSON.stringify(output, null, 2));
+      if (args.deep && storageValidation.status === 'invalid') return 2;
     } else if (args.command === 'scope-check') {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);

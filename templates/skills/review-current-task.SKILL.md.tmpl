@@ -128,6 +128,10 @@ release_review_rules:
 
 审查 CURRENT_TASK.md 初稿并收敛成可执行任务包。
 
+## Unified task context protocol
+
+审查现有任务时先用 `validate --summary` 获取当前身份和状态，再用只读 `task-context` 获取完整确认定义、步骤、义务、依赖、未知依赖提示与全局门禁。需要历史报告、事件或旧正文时用 `task-read` 的精确引用与完整分页；不以最近 N 条替代依赖，不以 hash 猜测模型已看到定义。读取收据只证明返回范围，不授予确认或写权限。
+
 ## Trigger
 
 当 CURRENT_TASK.md 初稿已经生成，进入实现前。

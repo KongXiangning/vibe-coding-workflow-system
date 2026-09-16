@@ -123,6 +123,10 @@ external_documentation_gate:
 
 先做根因定位，再提出最小修复建议。
 
+## Unified task context protocol
+
+根因调查前先用 `validate --summary` 和只读 `task-context` 固定当前状态、步骤、义务、依赖与门禁；用 `task-read` 按精确 execution/event/report/history 引用读取失败事实并跟完 continuation。不得展开无界 RuntimeState、用最近 N 条历史代替依赖，或把读取收据当作修复权限、执行证明或 clean 结论。
+
 ## Trigger
 
 当前任务的测试失败、验证失败或实现过程中出现异常时；不是新 bug 登记入口。

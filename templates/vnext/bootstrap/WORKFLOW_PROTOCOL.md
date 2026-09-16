@@ -235,3 +235,38 @@ retains failure evidence and permits at most three attempts in canonical
 step_attempts. Retry never completes the step: a fresh preflight and execution
 are required. Unknown causes, changed plans, and open findings do not use this
 retry; no server restart or database reset is an implicit recovery action.
+
+## Current view, state, and complete history (0.19.4)
+
+This additive storage contract preserves task identity, goal, acceptance,
+authority, scope, test admission, review / repair budgets, and lifecycle
+semantics. CURRENT_TASK.md remains the fixed human and Agent entrypoint. Its
+single submission head selects the current source, definition, state, and
+committed event range. The current body is a complete, governed presentation
+of the confirmed definition and current workset; execution and idempotency
+arrays are compatibility hot-cache data and do not define complete history.
+
+The aggregate is stored under
+<workflow_home>/task-data/<document_id>/ with a manifest, immutable
+content-addressed objects/<sha256>.json, immutable
+events/<sequence>-<sha256>.json, and rebuildable non-authoritative indexes.
+Only objects and events acknowledged by the manifest head are committed facts.
+Deduplication never merges independent execution, review, authorization,
+result, or idempotency events. v1 has no automatic garbage collection, and
+distribution upgrade / uninstall must not remove target-owned task-data.
+
+Daily callers use the read-only task-context projection and exact task-read
+references. Required projection content includes the current definition (or an
+exact same-visible-session revision), current-step requirements, unfinished
+obligations, recorded and unknown dependencies, global gates, latest execution,
+and cumulative review target. It must not expand raw runtime state or
+unbounded history by a recent-N heuristic. All metadata, lists, JSON, and text
+use the UTF-8 byte budget and continuation fields; incomplete required content
+is not complete. Receipts prove only version and returned range, never write
+authority or execution qualification.
+
+validate --summary checks the current aggregate and direct references;
+validate --deep is the explicit full-history diagnostic. Storage migration is
+a separate preview -> exact source_revision confirmation -> commit action. It
+preserves exact legacy bytes, known history, and old locator aliases; a missing
+preimage remains explicitly missing.

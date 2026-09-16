@@ -1312,3 +1312,70 @@ cases:
 10. `TASK_ARCHIVE.md`
 
 这样可以先建立稳定边界和长期演进框架，再补齐任务治理和经验沉淀。
+
+---
+
+## 13. vNext task aggregate and bounded context (0.19.4)
+
+本节只规定 Runtime 的物理表示和只读读取边界，不新增任务业务语义。任务
+identity、目标、验收、权限、Allowed / Conditional / Forbidden、测试准入、
+review / repair budget 及 lifecycle 仍以既有 vNext 契约为准。
+
+### 13.1 当前入口与提交头
+
+`CURRENT_TASK.md` 继续是人和 Agent 的固定入口。它必须展示完整的当前确认
+定义和当前工作集，并通过唯一提交头引用当前 `source_revision`、
+`definition_revision`、`state_revision` 以及已提交 event range。执行记录和幂等
+账本可以保留为有限兼容热缓存，但不得再决定完整历史是否存在。正文是受管
+展示；正文与提交头引用不一致时必须报告冲突，不能选择“较新的一份”。
+
+### 13.2 任务数据布局
+
+所有路径由 `.workflow-system/PROJECT_PROFILE.yaml` 的
+`paths.workflow_home` 与 `document_id` 推导：
+
+```text
+<workflow_home>/task-data/<document_id>/
+  manifest.json
+  objects/<sha256>.json
+  events/<sequence>-<sha256>.json
+  indexes/                         # 可重建、非权威
+```
+
+对象摘要覆盖 schema、object type、document ID 和完整内容；同内容可复用，
+独立事件的身份、顺序、时间、因果和幂等键必须保留。事件只引用定义、状态、
+报告、前像和其他对象，或承载本次改变的有限事务事实，不能复制整个任务历史。
+提交头未承认的孤立对象 / 事件不得当作已提交动作。v1 不执行自动 GC；分发
+升级、安装、卸载和备份策略不得删除目标项目拥有的 `task-data`。
+
+### 13.3 只读投影与分页
+
+日常默认读取使用 `task-context`，按 entry / mode 返回：总览、当前确认定义
+或精确复用声明、当前步骤、未完成义务、已记录依赖、未知依赖提示、全局门禁，
+并在 review entry 中包含累计 review target。`task-read` 仅接受精确对象、事件、
+历史 revision 或文件引用；不允许将完整 Runtime state、无界 execution log 或
+applied proposals 直接交给默认调用者。未记录的语义依赖保持 `unknown`，不能
+因此跳过 gate。
+
+所有列表、索引、元数据、JSON 和正文均受既有 UTF-8 字节预算约束。响应必须
+标注返回量、总量、continuation 与 `complete_for_operation`；required 内容未
+完整返回时不得声称上下文齐备。continuation 固定 source / definition / state
+revision 和精确 reference，变化时从头读取。上下文和读取 receipt 只证明版本及
+返回范围，不是模型理解、写权限或执行资格。普通读取不得追加 execution log。
+
+### 13.4 revision 和验证范围
+
+`source_revision` 是入口文件精确字节版本；`definition_revision` 只随当前确认
+定义及其适用依据改变；`state_revision` 表示当前状态、质疑、finding、attempt、
+review 与事件根变化。evidence plan / result / subject revision 保持原有业务
+含义，不因物理迁移改写历史报告。`validate --summary` 只验证当前聚合和直接
+依赖，`validate --deep` 才遍历完整提交事件链和对象引用；输出必须明确范围。
+
+### 13.5 受管迁移和历史定位
+
+`task-storage-migration` 必须走 `preview`、精确 `source_revision` 确认、`commit`。
+迁移保留旧 CURRENT_TASK 原字节、source revision、旧行号 / locator 映射、已知
+历史报告、执行、receipt、finding、attempt、幂等记录和可读取的历史前像。旧行号
+在瘦身后不得静默指向新正文；不可解析或已丢失的原文保持明确缺失。迁移必须逐
+字段比较有效任务模型，不重新执行测试、不恢复任务、不改变业务结论。聚合导出
+必须包含其声明 retained 的对象闭包和完整性 manifest。

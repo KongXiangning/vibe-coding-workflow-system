@@ -1,4 +1,4 @@
-# vNext 0.19.3：任务纠错与执行恢复
+# vNext 0.19.4：任务纠错、执行恢复与有界上下文
 
 ## 适用范围
 
@@ -16,6 +16,10 @@
 - 目标、验收或权限变化：明确交给用户，不转成恢复权限。
 
 分流关系和确认信息仍为 `caller-reported`，Runtime 校验绑定和权限，不认证真人身份或自动证明自然语言关系。
+
+日常读取使用统一的只读 `task-context` 投影：它返回当前总览、完整当前确认定义（同一可见会话可用精确 definition revision 复用）、当前步骤、未完成义务、已记录依赖、未知依赖提示和全局门禁；不直接展开 RuntimeState、完整 `execution_log` 或 `applied_proposals`。`task-read` 只按精确对象、事件、报告或历史 revision 读取，历史按需分页。`validate --summary` 只核验当前聚合，`validate --deep` 才遍历完整事件和对象历史；读取收据只证明版本与返回范围，不授予写权限。
+
+迁移是独立的存储维护动作：先执行 `task-storage-migration` 的 `preview`，再用仍匹配的 `source_revision` 明确提交。迁移保留旧 CURRENT_TASK 原字节、旧 locator 与已读到的历史材料；无法证明的缺口保持缺失，不补造结论。受管任务数据位于 `<workflow_home>/task-data/<document_id>/`，分发升级不会删除目标项目拥有的 `task-data`。
 
 粘贴文本可经 `ingest-evidence` 提交 `source_revision`、`source_locator` 和 `body`。Runtime 保存内容寻址正文及来源对象，返回引用和 SHA-256。禁止任意绝对路径读取。单对象上限 1 MiB，单次快照上限 8 MiB、128 个文件；旧正文通过有界 `file-context` 读取，不把整个历史包送入模型。
 
@@ -57,7 +61,7 @@
 
 ## 安装、升级和兼容
 
-使用发行报告列出的固定 `vibe-governance-0.19.3.tgz`，先核对 SHA-256。可在独立安装目录执行：
+使用发行报告列出的固定 `vibe-governance-0.19.4.tgz`，先核对 SHA-256。可在独立安装目录执行：
 
 ```powershell
 npm install --ignore-scripts --no-audit --no-fund <固定tgz绝对路径>

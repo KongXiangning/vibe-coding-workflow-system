@@ -109,6 +109,10 @@ required_interrupt_evidence:
 
 从一个明确的 interrupted suspended package 恢复 live `docs/workflow/CURRENT_TASK.md`，并把流程固定交回 `review-current-task`。
 
+## Unified task context protocol
+
+恢复前先用 `validate --summary` 和只读 `task-context` 固定当前身份、状态、完整定义、未完成义务、依赖、累计审查与恢复门禁，再用 `task-read` 精确读取指定 package、前像和历史事件并完成分页。不得用最新或相似 package、最近 N 条历史或缓存 hash 替代精确引用；收据不授予恢复写权限，Runtime 必须重新检查资格和读回。
+
 ## Trigger
 
 用户明确要求恢复一个 interrupted task，且目标 package 已显式给定或可无歧义解析时。

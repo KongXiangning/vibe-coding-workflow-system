@@ -89,6 +89,10 @@ orchestration_constraints:
 
 针对当前 bug 任务先调查根因，再执行最小修复并完成审查和回归验证。
 
+## Unified task context protocol
+
+调查前先用 `validate --summary` 和只读 `task-context` 固定当前身份、状态、步骤、未完成义务、依赖和门禁；具体失败 execution、report、finding 或历史原文用 `task-read` 精确引用并完成分页。不得用最近 N 条历史、缓存 hash 或无界 RuntimeState 替代缺失事实；读取收据不授予修复写权限。全历史完整性只在显式 `validate --deep` 诊断中声明。
+
 ## Orchestration Sequence
 
 ```text

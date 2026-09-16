@@ -2848,3 +2848,46 @@ Interpretation rule:
 - later extraction or adoption work may extend this protocol
 - later work must not be read as already implemented unless an execution-layer capability and its tests exist
 - when a future contract is only mentioned as a boundary here, that mention is descriptive, not a claim of implementation
+
+## 20. vNext current-view / state / history separation (0.19.4)
+
+This is an additive Runtime access and storage contract. It does not change task
+identity, goal, acceptance strength, authority, scope, test admission, review /
+repair budget, or lifecycle meaning. The source-repository implementation was
+based on the exact mainline baseline `070b91ed179b9b7e310d7c48e4fd96be679d69f2`;
+existing recovery lineage is preserved.
+
+`CURRENT_TASK.md` remains the fixed human and Agent entrypoint. Its single
+submission head selects the current source, definition, state, and committed
+event range. It contains the complete current confirmed definition and current
+workset, but not an unbounded execution log or idempotency ledger. Legacy log
+arrays retained in the file are bounded compatibility cache material only.
+
+The task aggregate is stored at
+`<workflow_home>/task-data/<document_id>/`, with content-addressed
+`objects/<sha256>.json`, immutable
+`events/<sequence>-<sha256>.json`, rebuildable non-authoritative indexes, and a
+manifest commit head. Object deduplication never merges independent execution,
+review, authorization, result, or idempotency facts. Only references admitted by
+the head are committed facts; orphan precommit material is not executable state.
+No v1 garbage collection is permitted, and distribution upgrade must preserve
+target-owned `task-data`.
+
+All daily read paths use the bounded `task-context` projection and exact
+`task-read` reads. The projection must carry the current definition or an exact
+same-visible-session definition revision, current step requirements, unfinished
+obligations, recorded dependencies, explicit unknown dependencies, global gates,
+and the cumulative review target when reviewing. It must not default to raw
+RuntimeState, unbounded execution / applied-proposal arrays, or a recent-N
+history heuristic. UTF-8 byte budgets cover metadata, lists, JSON and正文;
+continuations bind source, definition, state and exact reference. Required
+content not fully returned is incomplete. Receipts prove only version and return
+range and never grant write authority.
+
+`validate --summary` validates the current aggregate and direct references;
+`validate --deep` is the explicit full-history diagnostic. Both outputs must
+declare their validation scope. Storage migration is a separate
+preview -> source-revision confirmation -> commit action. It preserves legacy
+CURRENT_TASK bytes, known historical material and old locator aliases; missing
+preimages remain explicit missing facts and cannot be repaired by inventing
+business conclusions.

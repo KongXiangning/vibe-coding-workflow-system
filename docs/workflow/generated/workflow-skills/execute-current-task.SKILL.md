@@ -100,6 +100,10 @@ manual_confirmation_points:
 
 按标准顺序执行当前任务，从任务复核、范围锁定、决策分类、实现方案分析和步骤拆解进入实现与验证链。
 
+## Unified task context protocol
+
+涉及当前任务的每次判断先读取一次 `validate --summary`。日常操作上下文使用安装后的只读 `task-context`；它提供当前总览、完整当前确认定义（或同一可见会话中精确匹配的 definition revision）、当前步骤、未完成义务、已记录/未知依赖和全局门禁。用 `task-read` 按精确 revision、对象、事件、报告或历史材料读取，并跟完 UTF-8 字节分页；不得直接展开完整 RuntimeState、execution log 或 applied proposal，也不得用“最近 N 条”代替依赖选择。`review-context` / `review-read` / `preflight-step` 复用同一投影约定，审查必须保留累计 review target。`validate --deep` 仅用于明确的全历史诊断。读取收据只证明版本和返回范围，不是写权限或执行证明。
+
 ## Orchestration Sequence
 
 ```text

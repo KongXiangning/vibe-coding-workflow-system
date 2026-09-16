@@ -135,7 +135,7 @@ function copyDirectory(sourceRoot: string, targetRoot: string, relativePath: str
 
 function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> {
   const skillEntries = ['bootstrap-project', 'prepare-task', 'review-draft', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change', 'git-commit'];
-  const runtimeSources = ['project-documents.ts', 'file-context.ts', 'file-context-cli.ts', 'rg-tool.ts', 'install-tools.ts', 'install-tools-cli.ts', 'cli.ts', 'current-task.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'migration-provenance.ts', 'migration-preservation.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
+  const runtimeSources = ['project-documents.ts', 'file-context.ts', 'file-context-cli.ts', 'rg-tool.ts', 'install-tools.ts', 'install-tools-cli.ts', 'cli.ts', 'current-task.ts', 'task-context.ts', 'task-store.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'migration-provenance.ts', 'migration-preservation.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
   return [
     { source_path: 'runtime/vnext/dist/install-tools.js', target_path: RG_INSTALL_ENTRY, category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_API.md', target_path: '.workflow-system/runtime/support/CONTEXT_API.md', category: 'runtime' },

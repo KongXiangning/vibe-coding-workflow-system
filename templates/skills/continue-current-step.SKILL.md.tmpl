@@ -77,6 +77,10 @@ orchestration_constraints:
 
 执行已锁定范围内的当前实施步骤，并自动进入范围审查、实现质量审查、契约验证和回归验证。
 
+## Unified task context protocol
+
+先用 `validate --summary` 获取当前 source/state，再用安装后的只读 `task-context` 装配本步骤所需上下文。首次进入或上下文不可见时必须返回完整当前确认定义；只有同一可见会话且 definition revision 精确一致时才可复用。历史报告、事件和前序结果用 `task-read` 的精确引用与完整分页读取；不直接展开 RuntimeState、完整 execution log/applied proposals，不以最近事件窗口推断义务。`review-context` / `review-read` / `preflight-step` 应沿用该投影，累计 review target 不能缩成最近一次 diff。收据不授予写权限；全历史只在显式 `validate --deep` 诊断中读取。
+
 ## Orchestration Sequence
 
 ```text

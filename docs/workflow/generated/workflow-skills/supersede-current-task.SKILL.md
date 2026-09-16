@@ -106,6 +106,10 @@ replacement_rules:
 
 当未完成的当前任务因目标、范围锁或验收标准失效而不能继续时，用新任务包安全替代旧任务包。
 
+## Unified task context protocol
+
+替代前先用 `validate --summary` 和只读 `task-context` 固定旧任务身份、当前定义、未完成义务、累计审查和门禁；需要旧报告、事件、前像或历史正文时用 `task-read` 精确引用并完成分页。不得把缓存 hash 当正文、用最近 N 条历史替代依赖，或把读取收据当作 supersede 写权限；替代仍须保留原身份和完整历史引用。
+
 ## Trigger
 
 docs/workflow/CURRENT_TASK.md 尚未完成，但执行中发现原任务目标、范围锁或验收标准失效，必须替代当前任务包时。

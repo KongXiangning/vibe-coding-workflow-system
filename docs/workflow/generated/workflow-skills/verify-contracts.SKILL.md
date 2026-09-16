@@ -83,6 +83,10 @@ pass_criteria:
 
 专门核查接口契约和架构契约是否被破坏。
 
+## Unified task context protocol
+
+先读取 `validate --summary`，然后用只读 `task-context` 获取当前定义、状态、步骤边界、未完成义务、依赖和门禁；用精确 `task-read` 读取需要核对的对象、事件、报告和历史正文并跟完 continuation。不得把完整 RuntimeState 或无界日志作为默认模型输入，不得以最近 N 条替代结构化依赖。上下文收据不授予写权限；只有明确诊断才运行 `validate --deep` 全历史核验。
+
 ## Trigger
 
 diff 较大、涉及稳定边界，或 review-diff 发现潜在契约风险时。

@@ -84,6 +84,10 @@ optional_steps:
 
 在实现和验证完成后，按顺序同步任务、状态、契约、决策、宿主指引、经验、交付摘要和归档。
 
+## Unified task context protocol
+
+收尾前先执行 `validate --summary`，用只读 `task-context` 获取当前完整定义、所有未完成义务、依赖、累计 review target、finding 与恢复门禁。需要核对旧报告、执行/审查事件、归档前像或历史版本时，使用精确 `task-read` 分页读取；不可因摘要或 hash 缓存而跳过正文，也不可仅看最近 N 条历史。分页收据只绑定版本和返回范围，不是 closure、写权限或业务验收证明；全历史完整性另用显式 `validate --deep`。
+
 ## Orchestration Sequence
 
 ```text

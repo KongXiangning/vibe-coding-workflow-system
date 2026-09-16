@@ -11,8 +11,81 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.19.3
+  package_version: 0.19.4
   node_min_version: ">=20.0.0"
+
+task_context:
+  schema_version: 1
+  kind: vnext-task-context-contract
+  commands:
+    - task-context
+    - task-read
+    - task-storage-migration
+    - task-export
+  entry_points:
+    - validate --summary
+    - task-context
+    - task-read
+    - review-context
+    - review-read
+    - preflight-step
+    - evidence-context
+  views:
+    - overview
+    - operation-context
+    - history-on-demand
+  projection:
+    default: task-context
+    required_blocks:
+      - current-definition-or-visible-definition-revision
+      - current-step
+      - unfinished-obligations
+      - required-dependencies
+      - unknown-dependencies
+      - global-gates
+      - latest-execution
+    review_requires_cumulative_target: true
+    forbidden_expansions:
+      - raw-runtime-state
+      - unbounded-execution-log
+      - unbounded-applied-proposals
+  paging:
+    unit: utf8-bytes
+    default_bytes: 16384
+    min_bytes: 256
+    max_bytes: 65536
+    required_fields:
+      - returned
+      - total_bytes
+      - continuation
+      - complete_for_operation
+    stale_binding:
+      - source_revision
+      - definition_revision
+      - state_revision
+      - exact_reference
+  receipts:
+    context: task-context-receipt/v1
+    read: task-read-receipt/v1
+    proves: version-and-return-range-only
+    not_authority: true
+  read_only: true
+
+task_store:
+  schema_version: 1
+  kind: vnext-task-store-contract
+  root: <workflow_home>/task-data/<document_id>
+  objects: objects/<sha256>.json
+  events: events/<sequence>-<sha256>.json
+  indexes: rebuildable-and-non-authoritative
+  commit_head: CURRENT_TASK-single-submission-head
+  hot_window: cache-only
+  full_history: persistent-and-queryable
+  dedup_key: schema-object-type-document-id-complete-content
+  event_identity: sequence-time-cause-and-idempotency-preserved
+  migration: preview-confirm-commit-with-source-revision
+  garbage_collection: disabled-in-v1
+  target_owned_data: task-data-is-never-removed-by-distribution-upgrade
 
 proposal:
   schema_version: 1

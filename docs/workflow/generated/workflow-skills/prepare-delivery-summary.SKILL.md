@@ -91,6 +91,10 @@ post_release_fields:
 
 整理本轮任务摘要，形成可交付、可复核的结果记录。
 
+## Unified task context protocol
+
+准备摘要先读取 `validate --summary` 与只读 `task-context`，以当前定义、状态、义务、依赖、累计审查和门禁为准。历史结果、报告、事件和原文必须通过 `task-read` 的精确引用与完整 continuation 获取；不要把完整 RuntimeState、无界日志或“最近 N 条”当作默认上下文。若要声明全历史已核验，必须另行运行并标注 `validate --deep` 的范围；收据不等于执行或验收证明。
+
 ## Trigger
 
 一轮任务完成后，准备收尾或交付时。

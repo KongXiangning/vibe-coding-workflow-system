@@ -64,6 +64,7 @@ import {
   type MutationTransformationKind,
 } from './mutation-scope';
 import { resolveTaskStep, type TaskStepDefinition } from './task-steps';
+import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
 
 export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'preflight-step',
@@ -148,6 +149,7 @@ export type ExecuteStepPreflightResult = {
     required_outcome: TestStrategyExecutionContext['required_outcome'];
     persistent_tests: string[];
   };
+  context_projection: TaskContextReference;
   receipt: ExecuteStepPreflightReceipt;
 };
 
@@ -171,6 +173,7 @@ export type ExecuteStepEvidenceContext = {
     subject_revision: string;
     subject_snapshot: ReturnType<typeof captureReviewTarget>;
   }>;
+  context_projection: TaskContextReference;
 };
 
 export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult | ExecuteStepEvidenceContext;
@@ -729,6 +732,7 @@ export function beginRepair(
     committed: false,
     read_back_verified: true,
     current_step: currentStepResult(stepPlan, strategy),
+    context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', 'default'),
     receipt,
   };
 }
@@ -775,6 +779,7 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
     evidence_plan_revision: current.runtimeState.evidence_plan_revision,
     evidence_assurance: 'caller-reported',
     checks,
+    context_projection: taskContextReferenceForCurrent(root, current, 'evidence-context', 'default'),
   };
 }
 

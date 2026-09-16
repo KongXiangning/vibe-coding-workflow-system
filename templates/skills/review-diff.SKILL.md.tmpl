@@ -160,6 +160,10 @@ design_drift_review:
 
 审查当前 diff 是否越界、是否偏离任务意图。
 
+## Unified task context protocol
+
+审查前先执行 `validate --summary`，使用只读 `task-context` 获取当前确认定义、未完成义务、依赖、全局门禁和累计 review target。需要旧报告、事件、前序结果或未展开文件时，用精确 `task-read` / `review-read` 引用并跟完所有 continuation；不能从最近 N 条事件或缓存 hash 猜测缺失正文。分页页面必须绑定同一 source/definition/state revision，收据不是写权限或 clean 证明。`validate --deep` 只在明确要求全历史诊断时使用。
+
 ## Trigger
 
 每完成一个实现步骤后。

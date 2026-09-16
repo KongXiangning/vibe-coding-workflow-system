@@ -163,6 +163,10 @@ browser_session_policy:
 
 选择合适 QA 模式，运行已有测试或最小 smoke check，确认旧功能未被破坏。
 
+## Unified task context protocol
+
+回归前先用 `validate --summary` 和只读 `task-context` 获取当前步骤、义务、依赖、累计 review target 和门禁；需要历史执行或报告时用 `task-read` 精确读取并完成分页。不得把完整 RuntimeState、无界日志或最近 N 条历史作为默认输入，收据也不证明测试执行。全历史存储诊断必须显式使用 `validate --deep` 并标注其验证范围。
+
 ## Trigger
 
 通过范围复核后。
