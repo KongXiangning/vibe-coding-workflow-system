@@ -112,7 +112,12 @@ apply `draft-consistency-challenge` across these closed dimensions:
   planned command can produce its claimed evidence at that point;
 - cross-step repairability, treating step scopes as permissions rather than
   exclusive file ownership and checking that later validation has an in-scope
-  repair route for earlier code and configuration.
+  repair route for earlier code and configuration;
+- authority-envelope adequacy, checking that each declared domain exists in the
+  project map, that the planned targets stay inside the declared envelope, that
+  every planned cross-domain path has its own exact exception, and that the plan
+  neither predicts every implementation file as an authority requirement nor
+  leaves a required component outside the grant.
 
 Use existing authority, scope, and evidence capabilities only to classify what
 the review detects. The review does not become another authority source, decide

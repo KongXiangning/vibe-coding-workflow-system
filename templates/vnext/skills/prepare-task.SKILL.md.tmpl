@@ -154,6 +154,19 @@ empty, or a pattern is unknown, repository-wide, mixed with executable scope,
 or only partially overlaps the boundary, preserve the choice as an open
 question instead of submitting `not-applicable`; an unusable classification
 does not block `flexible`; explicit ordering remains subject to its prerequisite gate.
+**Mutation Authority v2 (recommended for new tasks).** Supply `mutation_authority`
+with the project authority `domains` this task may write plus any narrow
+`exact_exceptions` the user explicitly authorized across a domain boundary. Read
+the domain map from `.workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains`
+first; declare only domains that exist there. The envelope is a positive grant:
+components you do not declare are not writable, and you do not have to enumerate
+them as forbidden. Then name the planned targets you expect to touch.
+Your job is to choose the responsibility boundary and the initial footprint, not
+to predict every implementation file: a read or analysis dependency on another
+component is never a mutation grant, and an in-envelope file you did not plan is
+an implementation-discovery decision for `execute-step`, not a missing scope
+amendment. Never plan a target outside your own envelope; Runtime rejects that
+plan rather than granting it implicitly.
 Runtime creates `business_evidence_version: 1` for new semantic/raw drafts.
 Unversioned active tasks remain readable but cannot execute under these semantics;
 only an explicitly authorized replan can adopt them. Unknown versions are rejected.

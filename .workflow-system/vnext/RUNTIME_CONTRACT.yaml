@@ -141,6 +141,7 @@ proposal:
     actions:
       - retry-step
       - record-step-preflight
+      - extend-step-preflight
       - step-progress
       - consume-retained-review
       - clear-resume-review-gate
@@ -288,6 +289,7 @@ proposal:
         - design_constraints
         - post_release_validation
         - propagation_governance
+        - mutation_authority
       claim_evidence: required-and-non-empty-for-new-or-refined-drafts; must-include-an-acceptance-claim; legacy-documents-remain-readable-but-require-migration-before-terminal-completion
       task_basis:
         required:
@@ -341,6 +343,7 @@ proposal:
       input: stdin-json
       commands:
         - preflight-step
+        - extend-preflight
         - evidence-context
         - retry-step
         - begin-repair
@@ -382,6 +385,7 @@ proposal:
       - admit
       - retry-step
       - record-step-preflight
+      - extend-step-preflight
       - step-progress
       - record-repair-attempt
       - resolve
@@ -819,6 +823,10 @@ canonical_current_task:
       - evidence_challenges
       - evidence_carry_forward
       - artifact_checkpoint_ids
+      - mutation_authority_version
+      - mutation_authority
+      - mutation_authority_admissions
+      - mutation_dynamic_review
     review_cycle:
       fields:
         - id
@@ -833,6 +841,97 @@ canonical_current_task:
       verification_new_finding_wave_max: 1
   source_of_truth: same-canonical-CURRENT_TASK-document
   legacy_schema_behavior: migration-required
+
+mutation_authority:
+  versions:
+    legacy: absent-or-1
+    current: 2
+  version_field: runtime_state.mutation_authority_version
+  legacy_semantics: allowed-conditional-forbidden-plus-step-hard-scope
+  v2_semantics: authority-envelope-plus-planned-footprint-plus-self-admitted-expansion
+  silent_reinterpretation: forbidden
+  upgrade_route: explicit-replan-or-task-upgrade-only
+  envelope:
+    owner: runtime_state.mutation_authority
+    rendered_section: Mutation Authority
+    domains_field: mutation_authority.domains
+    exact_exceptions_field: mutation_authority.exact_exceptions
+    forbidden_precedence: highest
+    positive_grant: true
+    enumeration_of_forbidden_components: not-required
+    exact_exceptions_scope: narrow-user-authorized-cross-domain-paths-only
+  domains:
+    source: PROJECT_PROFILE.yaml#mutation_authority.domains
+    identity: stable-project-domain-id
+    roots_grammar: exact-repo-relative-path-or-literal-globstar-prefix
+    resolution: path-to-single-authority-domain
+    dependency_graph: out-of-scope
+    overlap_behavior: fail-closed
+    unclassified_behavior: fail-closed-self-admission-denied
+    undeclared_domain_behavior: blocked
+  planned_footprint:
+    owner: implementation-steps-mutation-scope-line
+    role: guidance-and-planned-vs-actual-evidence
+    independent_authority_boundary: false
+    outside-footprint_inside-envelope: requires-blast-radius-assessment-not-scope-amendment
+  expansion:
+    owner: execute-step
+    entrypoint: extend-preflight
+    admission_storage: runtime_state.mutation_authority_admissions
+    scope: same-task-same-step-same-plan-same-attempt
+    settlement_required: false
+    continuation_created: false
+    plan_revision_change: none
+    retry_budget_consumed: none
+    first_touch_before_state: captured-before-mutation
+    review_coverage: cumulative-and-mandatory
+    new_persistent_test: persistent-test-admission-required
+  assessment:
+    kind: mutation-blast-radius/v1
+    fields:
+      - path
+      - symbol
+      - reason
+      - locality
+      - visibility
+      - cross_component_consumers
+      - contract_impact
+      - evidence_refs
+      - disposition
+    localities:
+      - local
+      - elevated
+      - high
+    dispositions:
+      - self-admit
+      - escalate
+    runtime_validates: structure-and-binding
+    runtime_validates_semantic_truth: false
+    mechanical_scoring: forbidden
+    callers_threshold_policy: forbidden
+  dynamic_review:
+    required_field: runtime_state.mutation_dynamic_review.required
+    trigger: any-self-admitted-planned-footprint-external-mutation
+    review_must_expose:
+      - planned-footprint
+      - self-admitted-footprint
+      - blast-radius-assessment
+      - evidence-refs
+      - actual-diff
+  authority_amendment:
+    route: prepare-task:amend-scope
+    applies_to: true-task-authority-change
+    settlement_gate: current-execution-must-be-settled
+    settlement_gate_error: SCOPE_AMENDMENT_EXECUTION_UNSETTLED
+    committed_candidate: immutable
+    discard_committed_candidate: rejected
+    same_envelope_extra_file: not-an-amendment
+  error_codes:
+    authority_expansion: MUTATION_AUTHORITY_EXPANSION_REQUIRED
+    assessment_required: MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED
+    escalated: MUTATION_TARGET_ESCALATED
+    profile_invalid: MUTATION_AUTHORITY_PROFILE_INVALID
+    envelope_immutable: MUTATION_AUTHORITY_IMMUTABLE
 
 concurrency:
   model: single-authorized-writer

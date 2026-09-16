@@ -31,6 +31,58 @@ Skill.
 
 ## P-13 Mutation Scope and Command Side Effects
 
+P-13 has two explicit versions. A task declares
+`runtime_state.mutation_authority_version: 2` or it keeps the legacy semantics;
+nothing is reinterpreted implicitly and only an explicit replan or task upgrade
+adopts v2.
+
+**Legacy (missing or `1`).** Allowed / Conditional / Forbidden plus the
+step-level hard scope are the mutation boundary, with exact-path semantics.
+
+**Mutation Authority v2.** Three separate concepts replace that single boundary:
+
+1. **Task authority envelope (hard).** A positive grant over declared project
+   authority domains plus narrow exact exceptions. Components outside it are not
+   writable and do not have to be enumerated as forbidden. Reading, grepping,
+   tracing callers and consumers, and root-cause analysis stay unrestricted
+   across every component; only writing crosses the envelope.
+2. **Planned mutation footprint (guidance).** Each step's planned targets steer
+   the first implementation, expose planned-vs-actual drift, and give review
+   something to compare. They are not the only writable file list.
+3. **In-envelope footprint expansion (AI judgment plus Runtime audit).** When
+   implementation reveals an additional target inside the envelope, the Agent
+   assesses the blast radius and either self-admits or escalates. Runtime does
+   not judge whether a change is business-necessary: it verifies the target is
+   inside the hard envelope, that no explicit Forbidden or governance boundary is
+   touched, that the required assessment exists, that the first-touch
+   before-state is captured, what actually changed, and that review covers it.
+   Runtime owns structural authority; the Agent owns bounded engineering
+   judgment.
+
+Runtime reports the two situations with different codes, never as one generic
+scope failure: a target outside the envelope is
+`MUTATION_AUTHORITY_EXPANSION_REQUIRED` and needs explicit user authorization
+through the amendment route, while a target inside the envelope that this step
+has not admitted yet is `MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED` and is
+resolved by the Agent in the same execution attempt through `extend-preflight`.
+
+An in-envelope expansion never creates a continuation, never resets retry
+budget, and never changes the plan revision. In exchange, every such expansion
+sets a mandatory cumulative review requirement: the Agent may decide to expand
+its footprint, but it may not both expand it and declare the work finished. A
+new persistent test keeps its own admission; an already-existing test inside the
+envelope is an ordinary expansion whose oracle change the review must see.
+
+`prepare-task:amend-scope` becomes the route for real authority changes only:
+crossing into another component, granting a shared protocol surface, or adding
+a narrow cross-domain exact exception. The existing guarantees are unchanged —
+immutable old definition, continuation, preserved pending review, preserved
+findings, inherited attempt budget, additive semantics, and preserved explicit
+user authorization — and a committed candidate is immutable history. A true
+authority change is refused while the current execution attempt is still open,
+so the order is always: settle the execution, amend the authority, continue with
+a fresh preflight.
+
 P-13 also covers repo-local command side effects: tracked, untracked, ignored,
 generated, build, cache, temporary, and helper writes are all mutations, and
 `.gitignore` is not an exemption. A known write-capable command requires a

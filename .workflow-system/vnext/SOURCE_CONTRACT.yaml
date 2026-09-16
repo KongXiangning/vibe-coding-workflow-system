@@ -111,11 +111,15 @@ capabilities:
       - transformation kind, distinguishing localized from inherently-broad mutation
       - conditional authorizations with exact target, evidence references, and authority
       - separate Read / discovery context, which is allowed to be broader but is not write authority
+      - the declared Mutation Authority version, so no existing task is silently reinterpreted
+      - for Mutation Authority v2, the task authority envelope, the current step planned footprint, and the durable in-envelope admissions
     output_contract:
       - per-path mutation admission or blocker with Forbidden precedence and default-deny
       - separate read/discovery matches that never become write permission
       - exact admitted paths, excluded targets, and source revision
       - bounded widening requirement; changed goal, scope, or acceptance routes to supersede/replan
+      - for Mutation Authority v2, a decision that distinguishes an out-of-envelope target from an in-envelope unplanned target
+      - structural verification only; Runtime never judges whether a change is business-necessary
     stop_conditions:
       - required scope bucket is missing, malformed, duplicated, or ambiguous
       - target is outside admitted scope
@@ -125,6 +129,28 @@ capabilities:
       - the changed-path diff target is empty, duplicated, invalid, or not explicit
       - read/discovery context is treated as write authority
       - scope widening lacks authority or the goal, scope, or acceptance changed without supersede/replan
+      - a Mutation Authority v2 target is outside the task authority envelope, so the report is MUTATION_AUTHORITY_EXPANSION_REQUIRED rather than a generic scope failure
+      - a Mutation Authority v2 target is inside the envelope but outside the planned footprint with no blast-radius assessment
+      - a Mutation Authority v2 in-envelope path is owned by no declared authority domain (unclassified) or by more than one (ambiguous), so it fails closed
+
+  - id: authority-envelope-resolver
+    exposure: internal
+    trigger:
+      - a Mutation Authority v2 task declares or evaluates its write authority
+    input_contract:
+      - PROJECT_PROFILE.yaml mutation_authority.domains with stable domain ids and bounded roots
+      - the task authority envelope declared in CURRENT_TASK
+      - a candidate repository-relative path
+    output_contract:
+      - path-to-single-authority-domain resolution without any dependency graph
+      - explicit exact-exception matches recorded separately from domain grants
+      - fail-closed classification for unclassified, ambiguous, and undeclared-domain paths
+    stop_conditions:
+      - the project declares overlapping domain roots
+      - the task envelope names a domain the project does not declare
+      - the envelope section and the declared version disagree
+      - a path is unclassified or owned by more than one authority domain
+      - an exact exception carries a wildcard
 
   - id: decision-authority-gate
     exposure: internal

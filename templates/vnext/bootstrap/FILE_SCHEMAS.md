@@ -133,6 +133,85 @@ prerequisites remain `TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`.
 under PROJECT_PROFILE boundaries.non_executable_change_paths (exact paths or
 literal directory-prefix /** only); documentation inventory is not proof.
 
+## Mutation Authority v2
+
+A v2 task declares `runtime_state.mutation_authority_version: 2` plus the
+envelope itself, and renders that envelope as exactly one `## 变更权限 /
+Mutation Authority` section with `### Authority Domains` and
+`### Exact Exceptions`. Runtime derives the structured envelope from that single
+canonical section, so a replan, correction, or scope amendment re-renders the
+same grant instead of dropping or widening it.
+
+```yaml
+mutation_authority:
+  domains: [<project authority domain id>]      # positive write grant
+  exact_exceptions: [<exact repo-relative path>] # narrow cross-domain grants
+```
+
+```yaml
+runtime_state:
+  mutation_authority_version: 2
+  mutation_authority: {domains: [...], exact_exceptions: [...]}
+  mutation_authority_admissions:                # durable extend-preflight record
+    - admission_id: <stable id>
+      path: <exact path>
+      step_id: <admitted step>
+      plan_revision: <plan the admission was made under>
+      assessment: <mutation-blast-radius/v1>
+      assessment_digest: <sha256 of the assessment>
+      admitted_at_source_revision: <source revision>
+  mutation_dynamic_review:                      # mandatory-review banner
+    required: true
+    expansions:
+      - {admission_id, path, step_id, plan_revision, assessment_digest, reviewed}
+```
+
+The `Domains` entries are project authority domain ids and must exist in
+`.workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains`. Project
+domains are mutation-ownership boundaries, not a dependency graph: Runtime only
+resolves `path -> authority domain`, overlapping roots fail closed, and a path
+owned by no declared domain is `unclassified` and can never be self-admitted.
+`Exact Exceptions` holds only exact paths, never a wildcard, and is how a user
+authorizes one narrow cross-domain target without granting the whole component.
+A legacy task (missing or `1`) keeps its exact-path Allowed/Conditional/Forbidden
+semantics plus the step hard scope; it never gains a v2 envelope implicitly, and
+only an explicit replan or task upgrade can adopt v2.
+
+Each implementation step's `Mutation scope` line is the **planned footprint**
+for that step, not an independent authority boundary. A target outside that
+footprint but inside the envelope is an expansion candidate, not a violation:
+the Agent assesses its blast radius, records the assessment, and either
+self-admits it or escalates. A target outside the envelope is a true authority
+change and reports `MUTATION_AUTHORITY_EXPANSION_REQUIRED`; it requires explicit
+user authorization through the amendment route below.
+
+The blast-radius assessment is validated structurally, never for semantic truth:
+
+```yaml
+target: {path: <exact path>, symbol: <optional symbol>}
+reason: <why this task requires the target>
+blast_radius:
+  locality: local | elevated | high
+  visibility: private | shared | public | unknown
+  cross_component_consumers: none | present | unknown
+  contract_impact: none | possible | known
+evidence_refs: [<source, search, or reference evidence>]
+disposition: self-admit | escalate
+```
+
+`extend-preflight` admits in-envelope expansions inside the same execution
+attempt: the same step, the same plan revision, the same attempt identity, no
+retry-budget consumption, no continuation, and no plan revision change. Runtime
+re-checks the envelope and the explicit Forbidden targets, requires a
+`self-admit` assessment, captures the first-touch before-state, registers the
+expansion in the cumulative review coverage, and returns a replacement preflight
+receipt. That replacement receipt is the only valid input for
+`record-step-result`. An already-existing test file inside the envelope may use
+this route, but creating a new persistent test still requires full persistent
+test admission. Every self-admitted expansion sets
+`mutation_dynamic_review.required = true` and must pass the cumulative review;
+expansion never lets the same invocation declare itself done.
+
 An additive scope amendment is stored as an independent
 `scope-amendment-candidate/v1`. Runtime first requires an existing explicit
 authorization for every exact added path, then uses the candidate receipt only
@@ -144,6 +223,11 @@ uncompleted obligations, admitted/in-progress findings, pending review,
 cumulative review baseline, review cycle, and budget. It does not clear a
 pending review or reset the review cycle and does not alter the legacy
 `correction-replan/v2` `permission_change: none` semantics.
+
+A committed scope-amendment candidate is immutable history: Runtime rejects
+discarding it, and a true authority change is refused while the current
+execution attempt is still open (`SCOPE_AMENDMENT_EXECUTION_UNSETTLED`). Settle
+the execution, then amend, then continue with a fresh preflight.
 
 Runtime-owned `runtime_state.business_evidence_version` is optional for historical
 reading, but must equal 1 when present. New semantic/raw create-draft and explicitly

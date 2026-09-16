@@ -98,6 +98,32 @@ boundaries:
     - vibe-coding/vibe-coding-methodology.md
     - vibe-coding/vibe-coding-quality-system.md
 
+# Mutation Authority v2 project-level ownership map.
+# A domain is a mutation-ownership boundary, not a dependency graph. Runtime
+# only resolves `path -> authority domain`; undeclared paths are `unclassified`
+# and can never be self-admitted.
+mutation_authority:
+  domains:
+    - id: runtime
+      roots:
+        - runtime/**
+    - id: templates
+      roots:
+        - templates/**
+    - id: scripts
+      roots:
+        - scripts/**
+    - id: tests
+      roots:
+        - test/**
+    - id: governance
+      roots:
+        - docs/workflow/**
+        - .workflow-system/**
+    - id: distribution
+      roots:
+        - packages/vibe-governance/**
+
 architecture_rules:
   - Keep workflow-system automation and generators in scripts/.
   - Treat templates/skills/ as workflow skill template sources, not runtime outputs.
