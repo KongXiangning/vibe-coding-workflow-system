@@ -103,9 +103,10 @@ previous before-step receipt or clean review cannot be copied to the correction.
 
 If the user has already authorized exact additional paths for the current repair,
 return one concrete manual `prepare-task` call with mode `amend-scope`, those
-paths, and the caller-reported decision source/text. The Runtime adapter owns
-the internal `prepare-scope-amendment` and `confirm-scope-amendment` actions;
-the user does not construct an authority transition or receipt, and this
+paths, and the caller-reported decision source/text. Runtime consumes that
+existing explicit authorization through one `prepare-scope-amendment` route;
+its candidate digest is an internal drift guard, not a second approval object.
+The user does not construct an authority transition or receipt, and this
 `execute-step` invocation does not invoke `prepare-task` for them.
 If the amendment retains a clean pending review for the prior step, return
 `complete-reviewed-step` for that prior step as the next manual call; Runtime

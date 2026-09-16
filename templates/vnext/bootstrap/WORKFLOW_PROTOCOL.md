@@ -113,13 +113,14 @@ When an active or `blocked_by_replan` task has existing work, admitted findings,
 or pending review and the user has already explicitly authorized an exact
 additional path set, the caller may use the independent versioned
 `scope-amendment-candidate/v1` route. Runtime creates the candidate digest and
-receipt; the caller-reported source text is retained and is not treated as a
-prior approval of that digest. Confirmation installs a continuation step while
+receipt only after checking that the caller-reported authorization covers every
+exact path; the source text is retained and the digest is never a second user
+authorization object. Runtime commits a continuation step while
 preserving the old definition, failures, obligations, findings, review baseline,
 review cycle, pending review, and budget. It does not change the legacy
-`correction-replan/v2` `permission_change: none` route. Preparation, confirmation,
+`correction-replan/v2` `permission_change: none` route. Preparation/amendment,
 fresh preflight, real execution, revalidation, review, and closure remain
-separate caller invocations; a successful confirmation alone is not completion.
+separate caller invocations; a successful amendment alone is not completion.
 Implemented results require passed companions; an expected-failure result must
 bind the exact admitted before-step reproduction check and successful report. Expected-failure/test-red remain historical data types, never positive
 acceptance. New reproduction results must bind the admitted before-step check; they never satisfy positive acceptance.

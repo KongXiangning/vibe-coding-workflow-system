@@ -37,8 +37,6 @@ import {
   confirmCorrectionReplan,
   discardCorrectionReplan,
   prepareScopeAmendment,
-  confirmScopeAmendment,
-  discardScopeAmendment,
   initializeTaskPreservation,
   recordEvidenceChallenge,
   dismissEvidenceChallenge,
@@ -7944,29 +7942,21 @@ describe('vNext Phase 2 Runtime contract', () => {
         commands: [],
       },
     };
+    const beforeAmendment = readCanonicalCurrentTask(root);
+    const beforePendingReview = beforeAmendment.runtimeState.pending_review_result;
     const prepared = prepareScopeAmendment(root, amendmentInput);
     expect(prepared.candidate_receipt.kind).toBe('scope-amendment-candidate-receipt/v1');
     expect(prepared.candidate_receipt.permission_change).toBe('additive-scope');
     expect(prepared.evidence_assurance).toBe('caller-reported');
-    const beforeConfirm = readCanonicalCurrentTask(root);
-    const beforePendingReview = beforeConfirm.runtimeState.pending_review_result;
-    const confirmed = confirmScopeAmendment(root, {
-      candidate_receipt: prepared.candidate_receipt,
-      authorization: {
-        approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
-        authorization_kind: 'existing-explicit-decision',
-        decision_source: amendmentInput.authorization.decision_source,
-        decision_text: amendmentInput.authorization.decision_text,
-      },
-    });
-    expect(confirmed.status).toBe('success');
+    expect(prepared.status).toBe('success');
+    expect(prepared.committed).toBe(true);
     const after = readCanonicalCurrentTask(root);
     expect(after.runtimeState.workflow_status).toBe('active');
     expect(after.runtimeState.active_step_id).toBe('scope-amend-1');
     expect(after.runtimeState.active_step_status).toBe('ready');
     expect(after.runtimeState.pending_review_result?.review_id).toBe(pendingReviewId);
     expect(after.runtimeState.review_cycle).toEqual(reviewCycle);
-    expect(after.runtimeState.review_coverage?.last_clean_revision).toBe(beforeConfirm.runtimeState.review_coverage?.last_clean_revision ?? null);
+    expect(after.runtimeState.review_coverage?.last_clean_revision).toBe(beforeAmendment.runtimeState.review_coverage?.last_clean_revision ?? null);
     expect(after.runtimeState.findings[0]?.status).toBe('admitted');
     expect(after.body).toContain('src/authorized-continuation.ts');
     expect(after.body).toContain('test/scope-amendment-regression.test.ts');
@@ -7976,6 +7966,12 @@ describe('vNext Phase 2 Runtime contract', () => {
     const audit = after.runtimeState.execution_log.find(item => 'action' in item && item.action === 'commit-scope-amendment');
     expect(audit && 'candidate_digest' in audit ? audit.candidate_digest : null).toBe(prepared.candidate_receipt.candidate_digest);
     expect(audit && 'correction_reason' in audit ? audit.correction_reason : '').toContain('caller-reported scope amendment');
+    const committedBytes = fs.readFileSync(after.filePath, 'utf8');
+    const repeated = prepareScopeAmendment(root, amendmentInput);
+    expect(repeated.status).toBe('no-op');
+    expect(repeated.committed).toBe(false);
+    expect(repeated.candidate_receipt).toEqual(prepared.candidate_receipt);
+    expect(fs.readFileSync(after.filePath, 'utf8')).toBe(committedBytes);
     expect(beforePendingReview).not.toBeNull();
     const continuation = beginRepair(root, {
       candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
@@ -8004,28 +8000,19 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(recordReviewResult(root, { context_receipt: verification.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
     expect(completeReviewedStep(root, { step_id: 'scope-amend-1', note: 'Fresh amended-scope review passed' }).status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
-    expect(confirmScopeAmendment(root, {
-      candidate_receipt: prepared.candidate_receipt,
-      authorization: {
-        approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
-        authorization_kind: 'existing-explicit-decision',
-        decision_source: amendmentInput.authorization.decision_source,
-        decision_text: amendmentInput.authorization.decision_text,
-      },
-    }).status).toBe('no-op');
+    expect(after.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(true);
   });
 
-  test('scope amendment candidate can be discarded without changing CURRENT_TASK', () => {
+  test('scope amendment requires an existing explicit exact-path authorization and never creates a candidate without it', () => {
     const root = confirmedSemanticRoot(singleStepSemanticDraft());
     const before = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
-    const prepared = prepareScopeAmendment(root, {
-      added_paths: ['src/discarded-scope.ts'],
-      authorization: { decision_source: 'user:discard-test', decision_text: 'Authorize the exact discarded path for candidate review.', authorized_paths: ['src/discarded-scope.ts'] },
-      step: { id: 'scope-amend-discard', description: 'Review the discarded scope candidate', mutation_scope: ['src/discarded-scope.ts'], required_evidence: ['fresh review'], commands: [] },
-    });
-    expect(discardScopeAmendment(root, { candidate_digest: prepared.candidate_receipt.candidate_digest }).status).toBe('success');
+    expect(() => prepareScopeAmendment(root, {
+      added_paths: ['src/not-explicitly-authorized.ts'],
+      authorization: { decision_source: 'user:missing-path', decision_text: 'Authorize a different exact path.', authorized_paths: ['src/different-path.ts'] },
+      step: { id: 'scope-amend-missing-auth', description: 'This must not be admitted', mutation_scope: ['src/not-explicitly-authorized.ts'], required_evidence: ['fresh review'], commands: [] },
+    })).toThrow('SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED');
     expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(before);
-    expect(discardScopeAmendment(root, { candidate_digest: prepared.candidate_receipt.candidate_digest }).status).toBe('no-op');
+    expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-candidates'))).toBe(false);
   });
 
   test('scope amendment retains and then consumes a clean pending review before the continuation runs', () => {
@@ -8069,15 +8056,8 @@ describe('vNext Phase 2 Runtime contract', () => {
         commands: [],
       },
     });
-    expect(confirmScopeAmendment(root, {
-      candidate_receipt: prepared.candidate_receipt,
-      authorization: {
-        approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
-        authorization_kind: 'existing-explicit-decision',
-        decision_source: authorization.decision_source,
-        decision_text: authorization.decision_text,
-      },
-    }).status).toBe('success');
+    expect(prepared.status).toBe('success');
+    expect(prepared.committed).toBe(true);
     const amended = readCanonicalCurrentTask(root);
     expect(amended.runtimeState.active_step_id).toBe('scope-amend-clean-review');
     expect(amended.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
@@ -8090,7 +8070,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(continued.runtimeState.scope_amendment_pending_review_step_id).toBeUndefined();
   });
 
-  test('scope amendment records a step-only increment and shares the pending candidate slot with correction replan', () => {
+  test('scope amendment records a step-only increment without treating it as a new task-scope addition', () => {
     const stepOnlyPath = 'src/already-authorized.ts';
     const root = confirmedSemanticRoot(singleStepSemanticDraft({
       mutation_scope: {
@@ -8120,7 +8100,146 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(candidate.scope_diff.added_paths).toEqual([]);
     expect(candidate.step_diff.scope_paths).toEqual([stepOnlyPath]);
     expect(candidate.input.added_paths).toEqual([stepOnlyPath]);
-    expect(() => prepareCorrectionReplan(root, {})).toThrow('REPLAN_CANDIDATE_CONFLICT');
+    expect(prepared.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_id).toBe('scope-amend-step-only');
+  });
+
+  test('scope amendment carries attempt accounting through direct and unpreflighted continuations', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const firstPreflight = preflightStep(root, { candidate_paths: [] });
+    const firstStep = firstPreflight.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: firstPreflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: firstStep.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['lineage-failure.json'] }],
+      validation_results: [{ validation: firstStep.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'The first attempt is retained for the amendment lineage fixture',
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const failure = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    const resolutionPath = 'lineage-resolution.json';
+    fs.writeFileSync(path.join(root, resolutionPath), JSON.stringify({
+      kind: 'environment-restored/v1', task_id: blocked.runtimeState.task_id, document_id: blocked.sourceTuple.document_id,
+      step_id: 'step-1', blocked_attempt_id: failure.attempt_id, evidence_plan_revision: blocked.runtimeState.evidence_plan_revision,
+      subject_revision: failure.blocker!.subject_snapshot.revision, status: 'passed', diagnosis: 'fixture environment restored', resolution: 'The bounded retry fixture is available',
+    }));
+    expect(retryStep(root, { step_id: 'step-1', blocked_attempt_id: failure.attempt_id, blocker_resolution_refs: [resolutionPath], idempotency_key: 'scope-lineage-retry-1' }).status).toBe('success');
+    const usedBeforeAmendment = readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts;
+    expect(usedBeforeAmendment).toHaveLength(2);
+
+    const amendment = (file: string, id: string) => ({
+      added_paths: [file],
+      authorization: { decision_source: `user:lineage-${id}`, decision_text: `Authorize the exact lineage path ${file}.`, authorized_paths: [file] },
+      amendment_step: { id, description: `Continue through ${file}`, mutation_scope: [file], required_evidence: ['fresh lineage review'], commands: [] },
+    });
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/lineage-a.ts', 'scope-lineage-a')).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts).toEqual(usedBeforeAmendment);
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-lineage-a']).toBeUndefined();
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/lineage-b.ts', 'scope-lineage-b')).status).toBe('success');
+    const beforeFinalPreflight = readCanonicalCurrentTask(root);
+    expect(beforeFinalPreflight.runtimeState.active_step_id).toBe('scope-lineage-b');
+    expect(beforeFinalPreflight.runtimeState.step_attempts!['scope-lineage-b']).toBeUndefined();
+
+    const finalPreflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/lineage-b.ts'] });
+    expect(finalPreflight.receipt.step_id).toBe('scope-lineage-b');
+    const finalLedger = readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-lineage-b']!;
+    expect(finalLedger.max_attempts).toBe(3);
+    expect(finalLedger.attempts[0]).toEqual(usedBeforeAmendment[0]);
+    expect(finalLedger.attempts).toHaveLength(2);
+    expect(finalLedger.attempts[1]).toMatchObject({ attempt_id: usedBeforeAmendment[1]!.attempt_id, status: 'preflighted' });
+  });
+
+  test('scope amendment walks three continuation layers without resetting the inherited budget', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const step = preflight.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: step.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['three-layer-failure.json'] }],
+      validation_results: [{ validation: step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Retain one failed attempt before three amendments',
+    }).status).toBe('success');
+    const amendment = (file: string, id: string) => ({
+      added_paths: [file],
+      authorization: { decision_source: `user:three-layer-${id}`, decision_text: `Authorize the exact three-layer path ${file}.`, authorized_paths: [file] },
+      amendment_step: { id, description: `Continue through ${file}`, mutation_scope: [file], required_evidence: ['fresh three-layer review'], commands: [] },
+    });
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/ancestry-a.ts', 'scope-ancestry-a')).status).toBe('success');
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/ancestry-b.ts', 'scope-ancestry-b')).status).toBe('success');
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/ancestry-c.ts', 'scope-ancestry-c')).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-ancestry-c']).toBeUndefined();
+    preflightStep(root, { candidate_paths: ['runtime/vnext/src/ancestry-c.ts'] });
+    const inherited = readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-ancestry-c']!;
+    expect(inherited.max_attempts).toBe(3);
+    expect(inherited.attempts[0]!.status).toBe('blocked');
+    expect(inherited.attempts).toHaveLength(2);
+  });
+
+  test('scope amendment directly reuses the latest ready attempt without consuming another budget slot', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const firstPreflight = preflightStep(root, { candidate_paths: [] });
+    const firstStep = firstPreflight.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: firstPreflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: firstStep.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['direct-lineage-failure.json'] }],
+      validation_results: [{ validation: firstStep.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Create the retained failure before the direct amendment fixture',
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const failure = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    const resolutionPath = 'direct-lineage-resolution.json';
+    fs.writeFileSync(path.join(root, resolutionPath), JSON.stringify({
+      kind: 'environment-restored/v1', task_id: blocked.runtimeState.task_id, document_id: blocked.sourceTuple.document_id,
+      step_id: 'step-1', blocked_attempt_id: failure.attempt_id, evidence_plan_revision: blocked.runtimeState.evidence_plan_revision,
+      subject_revision: failure.blocker!.subject_snapshot.revision, status: 'passed', diagnosis: 'fixture environment restored', resolution: 'The direct lineage fixture is available',
+    }));
+    expect(retryStep(root, { step_id: 'step-1', blocked_attempt_id: failure.attempt_id, blocker_resolution_refs: [resolutionPath], idempotency_key: 'scope-direct-lineage-retry' }).status).toBe('success');
+    const prior = readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts;
+    expect(prior).toHaveLength(2);
+    const continuationPath = 'runtime/vnext/src/direct-lineage.ts';
+    expect(prepareScopeAmendment(root, {
+      added_paths: [continuationPath],
+      authorization: { decision_source: 'user:direct-lineage', decision_text: 'Authorize the exact direct lineage path.', authorized_paths: [continuationPath] },
+      amendment_step: { id: 'scope-direct-lineage', description: 'Continue through the directly inherited budget', mutation_scope: [continuationPath], required_evidence: ['fresh direct lineage review'], commands: [] },
+    }).status).toBe('success');
+    preflightStep(root, { candidate_paths: [continuationPath] });
+    const inherited = readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-direct-lineage']!;
+    expect(inherited.max_attempts).toBe(3);
+    expect(inherited.attempts).toHaveLength(2);
+    expect(inherited.attempts[0]).toEqual(prior[0]);
+    expect(inherited.attempts[1]).toMatchObject({ attempt_id: prior[1]!.attempt_id, status: 'preflighted' });
+  });
+
+  test('scope amendment preserves existing wildcard authority and adds only exact increments', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: ['src/**', 'packages/foo/**'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Implement the wildcard-scoped fixture', mutation_scope: ['src/**', 'packages/foo/**'],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }], validation: ['The wildcard-scoped fixture passes'],
+      }],
+    }));
+    const added = 'tests/wildcard-amendment.test.ts';
+    const alreadyCovered = 'src/already-covered.ts';
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: [added, alreadyCovered],
+      authorization: { decision_source: 'user:wildcard-amendment', decision_text: 'Authorize these two exact paths while retaining all existing wildcard authority.', authorized_paths: [added, alreadyCovered] },
+      amendment_step: { id: 'scope-wildcard-amend', description: 'Retain wildcard authority and add the exact regression path', mutation_scope: [added, alreadyCovered], required_evidence: ['fresh wildcard review'], commands: [] },
+    });
+    expect(prepared.status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const definition = readDraftDefinitionFromBody(current.body);
+    const continuation = definition.implementation_steps.match(/- scope-wildcard-amend:[\s\S]*?(?=\n- |$)/)?.[0] ?? '';
+    const continuationScope = continuation.split('\n').find(line => line.includes('mutation_scope:')) ?? '';
+    expect(continuationScope).toBe('  - mutation_scope: src/**, packages/foo/**, tests/wildcard-amendment.test.ts');
+    expect(continuationScope).not.toContain('src/already-covered.ts');
+    expect(current.body).toContain('- `src/**`');
+    expect(current.body).toContain('- `packages/foo/**`');
+    expect(current.body).toContain('- `tests/wildcard-amendment.test.ts`');
+    const candidatePath = path.join(root, ...prepared.candidate_path.split('/'));
+    const candidate = JSON.parse(fs.readFileSync(candidatePath, 'utf8')) as { step_diff: { scope_paths: string[] } };
+    expect(candidate.step_diff.scope_paths).toEqual([added]);
   });
 
   test('fixed tgz installation drives the Node CLI scope-amendment path end to end', { timeout: 120000 }, () => {
@@ -8161,14 +8280,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     };
     const prepared = spawnSync('node', [runtimeCli, 'prepare-scope-amendment', '--root', target], { cwd: target, input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     expect(prepared.status).toBe(0);
-    const receipt = JSON.parse(prepared.stdout).candidate_receipt;
-    const confirmed = spawnSync('node', [runtimeCli, 'confirm-scope-amendment', '--root', target], {
-      cwd: target,
-      input: JSON.stringify({ candidate_receipt: receipt, authorization: { approved_candidate_digest: receipt.candidate_digest, authorization_kind: 'existing-explicit-decision', decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } }),
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    expect(confirmed.status).toBe(0);
+    expect(JSON.parse(prepared.stdout).committed).toBe(true);
     const preflight = spawnSync('node', [runtimeCli, 'preflight-step', '--root', target], { cwd: target, input: JSON.stringify({ candidate_paths: ['src/tgz-authorized-continuation.ts'] }), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     expect(preflight.status).toBe(0);
     const summary = spawnSync('node', [runtimeCli, 'validate', '--summary', '--root', target], { cwd: target, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });

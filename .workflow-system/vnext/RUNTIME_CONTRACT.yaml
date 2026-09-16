@@ -417,7 +417,6 @@ proposal:
         - confirm-replan
         - discard-replan
         - prepare-scope-amendment
-        - confirm-scope-amendment
         - discard-scope-amendment
         - initialize-preservation
       draft_fields:
@@ -536,7 +535,7 @@ proposal:
       supersede_preimage: exact-current-task-and-linked-task-basis
       confirmed_replan_preimage: exact-current-task-and-linked-task-basis-before-publish
       correction_candidate: independent-revision-bound-candidate-with-full-old-obligations
-      scope_amendment_candidate: independent-versioned-additive-candidate-with-caller-reported-authorization-and-preserved-obligations
+      scope_amendment_candidate: independent-versioned-additive-candidate-with-existing-explicit-authorization-runtime-commit-and-preserved-obligations
       evidence_carry_forward: runtime-derived-old-report-and-subject-verified
       external_evidence: references-remain-references-explicit-bounded-content-ingestion
       interrupted_commit: fail-closed-lock-and-hash-recovery

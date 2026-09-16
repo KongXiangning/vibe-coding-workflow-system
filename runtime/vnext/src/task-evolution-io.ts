@@ -25,7 +25,7 @@ export type TaskEvolutionInput = {
   basisPath?: string;
   basisContent?: string;
   nextBasisContent?: string;
-  operation?: 'supersede' | 'confirm-replan' | 'confirm-scope-amendment' | 'initialize-preservation';
+  operation?: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation';
   evidencePlanRevision?: string | null;
   referencedEvidence?: string[];
 };
@@ -91,7 +91,7 @@ export function taskHistoryLocation(input: TaskEvolutionInput): TaskHistoryLocat
   };
 }
 
-export function assertTaskHistoryForRevision(currentPath: string, documentId: string, taskId: string, sourceRevision: string, operation: 'supersede' | 'confirm-replan' | 'confirm-scope-amendment' | 'initialize-preservation' = 'supersede'): void {
+export function assertTaskHistoryForRevision(currentPath: string, documentId: string, taskId: string, sourceRevision: string, operation: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation' = 'supersede'): void {
   if (!/^doc-[a-f0-9]+$/u.test(documentId) || !/^[a-f0-9]{64}$/u.test(sourceRevision)) {
     throw new Error('TASK_HISTORY_INVALID: replay identity or revision is invalid.');
   }

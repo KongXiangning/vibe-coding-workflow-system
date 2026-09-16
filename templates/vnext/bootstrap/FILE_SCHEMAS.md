@@ -134,10 +134,12 @@ under PROJECT_PROFILE boundaries.non_executable_change_paths (exact paths or
 literal directory-prefix /** only); documentation inventory is not proof.
 
 An additive scope amendment is stored as an independent
-`scope-amendment-candidate/v1` and confirmed only through its exact Runtime
-receipt. The candidate records caller-reported authorization source and
-verbatim text, exact added paths, and the old/new plan identity. Confirmation
-creates a continuation step and preserves prior definitions, failures,
+`scope-amendment-candidate/v1`. Runtime first requires an existing explicit
+authorization for every exact added path, then uses the candidate receipt only
+internally for drift/idempotency checks and commits the amendment in the same
+route. The candidate records caller-reported authorization source and verbatim
+text, exact added paths, and the old/new plan identity. The amendment creates a
+continuation step and preserves prior definitions, failures,
 uncompleted obligations, admitted/in-progress findings, pending review,
 cumulative review baseline, review cycle, and budget. It does not clear a
 pending review or reset the review cycle and does not alter the legacy

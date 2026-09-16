@@ -32,7 +32,7 @@
 1. 公共 skill 由用户调用。本次不增加 skill 自动串联、外层调度器或后台自动推进。
 2. AI 发现缺少范围时，可在当前入口整理具体增量；没有用户授权不得执行新增范围。
 3. 用户已经明确授权的具体增量，可以在后续 `prepare-task` 调用中消费原决定，不重复询问同一问题。普通“继续”“repair”“replan”本身不构成范围扩展授权。
-4. 授权记录与候选回执是两件事：原决定可早于候选存在；Runtime 提交仍须绑定刚生成的精确候选与版本。模型不能伪造用户当时批准了尚不存在的 digest。
+4. 授权记录与候选回执是两件事：原决定可早于候选存在；Runtime 在同一路由内把刚生成的精确候选与版本绑定后提交。模型不能伪造用户当时批准了尚不存在的 digest。
 5. 用户授权只覆盖指定增量；新增其他文件、命令写入、验收削弱或契约改变，必须单独展示差异并获得决定。
 6. 当前支持级别沿用 `caller-reported`。Runtime 校验结构、范围与版本绑定，不声称能认证真人或判断自然语言含义。语义对应关系由 skill 根据可见用户消息形成并公开说明。
 7. `docs/designs/trusted-authority-channel.md` 的冻结设计针对 administrative bootstrap realign。本次不编辑它、不开放 realign，也不将其真人认证前置要求扩展到普通任务范围修订。
@@ -51,13 +51,13 @@
 ### 已授权的本例
 
 1. 用户在 execute-step 中明确授权加入该测试文件。execute-step 识别并保留该决定，解释该入口不能修改计划；提供唯一、可直接复制的 `prepare-task amend-scope` 指令，包含精确文件、目的和原授权来源。不调用其他 skill。
-2. 用户调用 `prepare-task amend-scope`。它读取最新状态，生成完整候选，核验实际增量没有超出先前授权；使用该已有决定提交精确候选，不再要求用户同意相同内容。
+2. 用户调用 `prepare-task amend-scope`。它读取最新状态，核验实际增量没有超出先前 exact-path 授权，Runtime 在同一路由内生成候选并提交；不要求用户理解或确认 candidate digest。
 3. 返回“已加入的范围、保留的未完成义务、验证要求”，以及可直接复制的 `execute-step repair` 指令；该指令必须能消费新计划。
 4. 用户调用 execute-step，获取新的 repair preflight，修复测试、重跑完整相关回归、记录真实结果；之后按现有入口进行新审查。
 
 ### 尚未授权或候选超出授权
 
-prepare-task 先生成具体候选，展示实际增加的文件及行为影响，只询问缺失的决定；确认时复用候选回执。候选漂移后先重新准备，不能把旧回执改成当前版本。若增量仍完全在原授权内，可沿用原决定；若语义或范围超出，则仅询问新增差异。
+若没有新增路径的 exact-path 明确授权，Runtime 只返回缺失路径并停止，不创建要求用户批准 digest 的候选。skill 负责把具体差异和需要作出的决定交给用户；用户作出决定后，再由同一个 `amend-scope` 入口消费原文。候选漂移或状态变化时，Runtime 重新生成并在同一路由内校验提交，不能把旧 receipt 当作用户授权。
 
 ### 结果必须包含
 
@@ -70,10 +70,9 @@ prepare-task 先生成具体候选，展示实际增加的文件及行为影响�
 在现有 prepare-task adapter 下新增内部命令：
 
 - `prepare-scope-amendment`
-- `confirm-scope-amendment`
 - `discard-scope-amendment`
 
-公共 skill 使用已实现的 `amend-scope` 模式；上述命令是 Runtime 内部动作，仍由用户手动调用公共 skill 触发，skill 不互相自动调用。
+公共 skill 使用已实现的 `amend-scope` 模式；`prepare-scope-amendment` 在 Runtime 内部生成并校验候选后直接提交，`discard-scope-amendment` 只清理遗留未提交候选。用户手动调用公共 skill，skill 不互相自动调用。
 
 保留 correction-replan/v2 的 `permission_change:none` 语义。不得使旧 receipt 获得扩大权限的能力，不启用旧 raw `commit-replan` 绕过新路线。适当提取共享纯校验与存储代码，但不要让新路线继承旧 correction 的 finding 禁入条件。
 
@@ -87,29 +86,29 @@ prepare-task 先生成具体候选，展示实际增加的文件及行为影响�
 | 权限增量 | 精确新增总范围路径、步骤范围变化、Persistent Tests 与命令 footprint 差异；Runtime 从新旧定义计算，不能只相信 caller 声明 |
 | 新计划 | 新增延续步骤、全部未完成义务去向、受影响 check 及复验要求 |
 | 运行状态 | 原 blocked attempt、review/finding 身份、累计 review coverage、预算及待审路径的摘要 |
-| 工作区状态 | 已有受管改动与新增路径的准备时状态；确认前检测相关漂移，不遍历无关全仓库 |
+| 工作区状态 | 已有受管改动与新增路径的准备时状态；提交前检测相关漂移，不遍历无关全仓库 |
 | 授权关联 | 用户决定来源 locator、原文及显式结构化授权范围；标记为 caller-reported |
-| 提交绑定 | Runtime 生成 candidate digest；确认同时绑定 receipt 与授权记录摘要；禁止 caller 重建 receipt |
+| 提交绑定 | Runtime 生成 candidate digest；同一路由内部绑定 receipt 与授权记录摘要；禁止 caller 重建 receipt |
 
-授权关联须明确 `existing-explicit-decision` 与 `candidate-confirmation`：前者表示先前明确授权，后者表示看到候选后作出的决定。它们共享精确增量校验，不共用“用户批准了候选 digest”的叙述。
+授权关联只使用 `existing-explicit-decision`：它表示先前对 exact mutation scope 的明确授权。candidate digest 只用于 Runtime 内部防漂移和一致性校验，不是新的用户授权对象。
 
 路径必须是规范化仓库相对路径，不支持新增通配符；防止 `..`、绝对路径、符号链接逃逸、受管状态目录及 Runtime 安装文件借业务 scope 获权。沿用既有 frozen/project policy 检查，不通过产品 amendment 修改治理文件权限。
 
-准备只存候选及审计材料，不变更有效执行权限、CURRENT_TASK 活动位置或产品文件。与 correction 候选共用单一未确认变更槽，明确报候选冲突，可显式丢弃后再准备。丢弃保留审计标记。
+准备先存候选及审计材料，再在同一路由内完成 Runtime 提交；不把 digest 变成第二次用户批准对象。与 correction 候选共用单一未确认变更槽，明确报候选冲突，可显式丢弃后再准备。丢弃保留审计标记。
 
 ### 4.3 状态转换与历史承接
 
 采用**新的延续步骤 ID**，不重写已经执行/预检步骤的定义，不给旧执行结果套新定义。
 
-确认范围修订时：
+提交范围修订时：
 
 1. 保存原 task/Basis/definition 的不可变前像；保留 task/document ID 与原始请求，追加用户决定。
 2. 原 S1 的失败 attempt、执行日志、review、finding 与代码保持原样；新增延续步骤，例如 Runtime 分配的 `S1-R1`，在未完成后续步骤之前执行。
 3. 记录完整 continuation 关系：旧步骤/attempt、延续步骤、尚未完成义务、finding、review target、预算来源。旧步骤标记为存在延续关系，不能伪装为 completed；未完成义务只转交一次。
 4. 为仍有 finding 的任务建立可供 `begin-repair` 消费的当前 repair context，引用原 review 及 continuation。原 review result 不改写为新步骤审查结果，也不直接清除所有 pending review 来解锁。
-5. 累计 review coverage 的 first-touch base、未审路径、review/finding 身份保持；新增路径在 fresh preflight 登记 before-state。不能以确认时工作区或 Git HEAD 覆盖旧基线。
+5. 累计 review coverage 的 first-touch base、未审路径、review/finding 身份保持；新增路径在 fresh preflight 登记 before-state。不能以提交时工作区或 Git HEAD 覆盖旧基线。
 6. 保留同一问题的 repair/retry 已用预算；新步骤 ID 不获得一套全新预算。若预算已耗尽，报告真实原因，本次不以 scope amendment 解锁预算。
-7. 旧 receipt 失效，后续必须新 preflight；确认本身不完成修复、不产生测试通过或 clean review。
+7. 旧 receipt 失效，后续必须新 preflight；提交本身不完成修复、不产生测试通过或 clean review。
 8. 受影响的证据槽要求新报告；不受影响的历史证据仅在现有 carry-forward 条件满足时承接。保留 claim/slot 义务，改变检查定义时使用新 check ID 和 replacement 关联，不弱化 subject/boundary。
 9. 延续步骤经过执行与新审查后，按 continuation 关系推进原后续步骤；close/reconciliation 能区分历史失败步骤与当前未完成义务，不能永久被旧 blocked 状态卡住。
 
@@ -119,16 +118,16 @@ prepare-task 先生成具体候选，展示实际增加的文件及行为影响�
 
 | 当前状态 | 范围修订行为 |
 |---|---|
-| active + ready，无 finding | 可准备及确认；仍需明确范围授权 |
-| active + blocked，已有真实失败结果 | 可准备及确认，保留失败与预算 |
+| active + ready，无 finding | 可准备及提交；仍需明确范围授权 |
+| active + blocked，已有真实失败结果 | 可准备及提交，保留失败与预算 |
 | blocked + admitted/in-progress finding + 已有改动 | 必须支持；不能要求先收敛 finding 或先调用 suspend-recovery |
 | 待审 execution、尚未形成 finding | 可修订，但完整保留待审覆盖，不能把未审变更标为 clean |
-| 只有 preflight，尚未记录真实执行结果 | 可整理候选；确认前需如实记录该尝试结果/挂起状态，不虚构零写入或成功；提供可用的登记入口 |
+| 只有 preflight，尚未记录真实执行结果 | 可整理候选；提交后需如实记录该尝试结果/挂起状态，不虚构零写入或成功；提供可用的登记入口 |
 | active task 缺 task preservation | 经现有明确的 preservation 初始化保存原材料；不可手改标记 |
 | resume-review、未知语义版本、存储 journal 异常 | 指向确实可用的对应处理入口；没有入口则明确 unsupported，不伪造进展 |
 | superseded、closed 或 archived | 本版不受理，不原地重开 |
 
-确认必须原子更新 task/Basis/store/事件等受管状态，沿用现有 journal 与恢复机制。相同确认可幂等回读；不同来源、路径增量或候选不能复用。中断后不得出现“有效权限已扩大但历史/授权记录丢失”的可执行状态。
+提交必须原子更新 task/Basis/store/事件等受管状态，沿用现有 journal 与恢复机制。相同提交可幂等回读；不同来源、路径增量或候选不能复用。中断后不得出现“有效权限已扩大但历史/授权记录丢失”的可执行状态。
 
 ### 4.5 下一步路由
 
@@ -143,7 +142,7 @@ prepare-task 先生成具体候选，展示实际增加的文件及行为影响�
 | 切片 | 主要工作 | 主要落点 | 完成证据 |
 |---|---|---|---|
 | S0 复现与契约 | 隔离夹具重现真实死锁；固定上述新语义、状态与输入/输出 | 新增 `test/vnext-scope-amendment.test.ts`；`.workflow-system/vnext/{RUNTIME_CONTRACT,SOURCE_CONTRACT}.yaml`；`templates/vnext/bootstrap/{WORKFLOW_PROTOCOL,FILE_SCHEMAS}.md` | 修订前主线被旧规则阻塞；协议描述无真假授权混淆 |
-| S1 候选与提交 | 新类型、命令、版本绑定、授权关联、幂等与保存 | 建议新增 `runtime/vnext/src/scope-amendment.ts`；`kernel.ts`、`prepare-task-adapter.ts`、`cli.ts`、`task-evolution-io.ts`、`task-store.ts` | 候选不授予执行权；确认正确写入且历史可回读；漂移/越权被拒绝 |
+| S1 候选与提交 | 新类型、命令、版本绑定、授权关联、幂等与保存 | 建议新增 `runtime/vnext/src/scope-amendment.ts`；`kernel.ts`、`prepare-task-adapter.ts`、`cli.ts`、`task-evolution-io.ts`、`task-store.ts` | 候选只作内部绑定；同一路由正确写入且历史可回读；漂移/越权被拒绝 |
 | S2 延续修复 | continuation、finding/review/预算承接、旧 receipt 失效、完成推进 | `execute-step-adapter.ts`、`review-change-adapter.ts`、`kernel.ts`、`task-recovery.ts` 与关闭核对相关模块 | 主线走到 fresh repair、重验、新审查及推进；六项旧修复仍在累计审查内 |
 | S3 交互与上下文 | amend-scope 模式、既有授权复用、精确下一步与不支持说明 | `task-context.ts`；prepare-task / execute-step / debug-task skill 模板；`runtime/vnext/support/CONTEXT_API.md`；`docs/guides/vnext-task-recovery.md` | 用户无需理解 receipt 或内部 transition；跨 skill 仍由用户发起 |
 | S4 分发与验证 | 契约校验器、生成资产、隔离安装 Node CLI 全链路、兼容回归 | `scripts/vnext-source-contract.ts` 等相关校验器；生成/打包脚本；新 e2e 测试及 package scripts | 源码与安装包行为一致；全套必需检查通过 |
@@ -156,12 +155,12 @@ prepare-task 先生成具体候选，展示实际增加的文件及行为影响�
 
 | ID | 场景 | 预期 |
 |---|---|---|
-| A01 | 主例：blocked repair、六项 finding、新增测试文件、明确用户授权 | 候选与确认成功；保留改动/失败/finding；fresh repair 可运行并走到新审查 |
+| A01 | 主例：blocked repair、六项 finding、新增测试文件、明确用户授权 | 同一路由生成并提交候选；保留改动/失败/finding；fresh repair 可运行并走到新审查 |
 | A02 | 只说“继续 repair”，没有范围决定 | 不扩大权限；准备具体增量并提示唯一缺失决定 |
 | A03 | 原授权指定文件，后续候选完全匹配 | 接受已有决定，不再要求批准同一增量；不伪称原消息批准了 digest |
 | A04 | 候选多出文件、放宽通配符或增加命令写目标 | 不能消费旧授权提交；返回具体差异 |
 | A05 | 准备候选后源状态、Basis、相关文件或候选内容漂移 | 拒绝旧 receipt，原有效权限不变；重新准备而非手工刷新 receipt |
-| A06 | 重复确认、重复命令、中断与恢复 | 幂等；无重复 continuation/决定；无部分可执行权限提交 |
+| A06 | 重复 amendment 命令、中断与恢复 | 幂等；无重复 continuation/决定；无部分可执行权限提交 |
 | A07 | 旧 correction-replan/v2 与伪造旧 receipt | 原同范围纠错保持可用；不能获得扩权 |
 | A08 | finding 未收敛、pending review 与累计 dirty diff | 无清队列、伪 clean 或基线刷新；新增路径之外原未审差异仍被审查 |
 | A09 | 同一问题已消耗 retry/repair 预算 | continuation 沿用已用量；反复 amendment 无法刷新预算 |
@@ -207,3 +206,4 @@ git diff --check
 - 下游：[Luna Max 交接提示](HANDOFF.md)、新增 Runtime/安装链路测试及用户指南。
 - 2026-09-16：创建方案；选择独立 additive amendment、已有授权复用、延续步骤及 finding/预算保留，维持用户手动调用公共 skill。
 - 2026-09-16：完成 S0–S4；保留旧 correction-replan/v2 的 `permission_change:none`，新增 `scope-amendment-candidate/v1`，并通过 A01–A18、固定 tgz CLI 与仓库全套校验。
+- 2026-09-16：收窄 v1 为 existing-explicit-decision 单一路线；Runtime 在 `prepare-scope-amendment` 内部生成/校验候选并提交，删除候选二次批准入口。

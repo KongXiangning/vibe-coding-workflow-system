@@ -33,9 +33,9 @@
 
 ### 已授权的增量范围延续
 
-当 `execute-step` 发现确实需要新增文件，但用户已经明确授权了这一次精确增量，可由用户在后续独立调用公共 `prepare-task`，模式为 `amend-scope`。这条路线是独立版本化的 `scope-amendment-candidate/v1`，保留旧 `correction-replan/v2` 的 `permission_change: none` 语义。调用者提交精确的新增路径、可选的持久测试路径，以及原授权的来源和原文；Runtime 生成候选 digest 和 receipt，不能把用户原文伪装成对该 digest 的预先批准，也不要求用户重复同一增量的决定。
+当 `execute-step` 发现确实需要新增文件，但用户已经明确授权了这一次精确增量，可由用户在后续独立调用公共 `prepare-task`，模式为 `amend-scope`。这条路线是独立版本化的 `scope-amendment-candidate/v1`，保留旧 `correction-replan/v2` 的 `permission_change: none` 语义。调用者提交精确的新增路径、可选的持久测试路径，以及原授权的来源和原文；若缺少 exact-path 授权，Runtime 只返回缺失路径并停止；若授权已存在，Runtime 生成候选 digest/receipt 并在同一路由内完成提交，不把 digest 当成第二次用户批准对象。
 
-它可以消费 `blocked_by_replan`、已有代码改动、admitted/in-progress finding 和 pending review。确认后写入新的延续步骤，旧步骤定义、失败和未完成义务、finding、累计审查基线、review cycle 与预算都保留；不会清空 pending review 或重置 review cycle。用户随后仍须独立调用 `begin-repair`/fresh preflight、真实执行、重验、`review-change` 和后续步骤推进，直到 `close-task`；只有 confirm 成功不代表完成。若路径、授权来源或候选内容漂移，Runtime fail closed。
+它可以消费 `blocked_by_replan`、已有代码改动、admitted/in-progress finding 和 pending review。提交后写入新的延续步骤，旧步骤定义、失败和未完成义务、finding、累计审查基线、review cycle 与预算都保留；不会清空 pending review 或重置 review cycle。用户随后仍须独立调用 `begin-repair`/fresh preflight、真实执行、重验、`review-change` 和后续步骤推进，直到 `close-task`；只有 amendment 成功不代表完成。若路径、授权来源或候选内容漂移，Runtime fail closed。
 
 公共 Skill 只返回可受理的 `prepare-task`/`amend-scope` 下一步建议，不在当前调用中自动串联或要求用户手工构造 receipt/authority transition。
 若修订承接的是无 finding 的 clean pending review，用户随后调用 `complete-reviewed-step` 指向原步骤；Runtime 只消费这条已保存的 clean review，并把新延续步骤保持为 ready，仍须独立 fresh preflight、执行和新审查。
