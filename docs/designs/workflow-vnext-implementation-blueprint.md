@@ -400,6 +400,15 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 
 Runtime kernel 只负责 deterministic validation、conflict、idempotence、atomic commit 和 read-back；语义判断仍由 entry、用户和 capability policy 共同完成。不存在一个可以随意写任意治理文档的 generic editor。
 
+Mutation Authority v2 在同一写入矩阵内增加了四个 typed 面，而不是新增一个
+generic editor：`record-step-preflight` 仍冻结 planned footprint；新增
+`extend-step-preflight` 只追加 in-envelope admission、review coverage 与
+`mutation_dynamic_review`；`scope-amendment-candidate/v1` 只在真实 authority
+change 时增长 `runtime_state.mutation_authority.exact_exceptions`；
+`mutation_authority.domains` 只在 prepare-task 建 draft 时写入。Runtime 只校验
+结构、绑定、envelope 归属、first-touch before-state 与 review coverage，不判断
+业务必要性；语义判断仍在 Skill + reference evidence + review 一侧。
+
 本冻结后的实现必须把 `STEP-N completed`、required evidence、required review
 checkpoint、repair verification 和 `STEP-N+1 ready` 闭合在 typed Runtime state
 transaction 中；Skill 不直接修改 `CURRENT_TASK.md`。这项 ordinary step
@@ -537,6 +546,7 @@ package.json 只删除已识别的旧 workflow 命令，业务命令/依赖保�
 | Independent draft review（已实现） | `prepare-task` 在同一 draft 事务中写入 `CURRENT_TASK` 与 identity-derived `TASK_BASIS-<TASK_ID>.md`，后者只保留原始需求及后续显式用户决定的 verbatim 来源证据；`review-draft` 读取其 path/revision 后对一个 `draft + active` 候选返回 `clean | findings | needs-user` | review 本身不修改 Runtime/CURRENT_TASK，不写 review 结果、finding queue 或 receipt；历史 review 不是需求权威，也不自动调用 `prepare-task` 或确认草案 |
 | bootstrap-project（已实现） | 在上述 daily semantics 完成并通过 E2E gate 后实现正式 admin surface；已完成 source facade、target-local Bootstrap support、Runtime atomic boundary 与 component/disposable-project verification；只消费已安装 Distribution 并以只读方式验证，不重新生成/推广 Runtime、Protocol、Schema 或 Agent Skills | 不把未稳定的 prepare/execute/review 行为提前推广到新项目；不覆盖 `sync-state` internal surface；不把 Distribution software 写入 Bootstrap Receipt |
 | vNext implementation status | Target implementation boundaries resolved；八个 daily entry 已包含独立 `review-draft`；`sync-state` 为已由 caller-local orchestration 与 typed Runtime operations 覆盖的逻辑 internal role，无 standalone implementation required | 不新增独立 `sync-state` Runtime、Skill、facade、transaction 或 durable artifact，除非未来证明存在 genuine shared reconciliation/routing requirement |
+| Mutation Authority v2（已实现） | 在 P-13 之上引入三层模型：`mutation_authority_version: 2` + task authority envelope（`## 变更权限` 单一 canonical section）、step planned footprint（`Mutation scope` 行，仅 guidance）、以及 `extend-preflight` 驱动的 in-envelope footprint expansion；`extend-preflight` 保持同一 step/plan/attempt，不产生 continuation、不改 plan revision、不消耗 retry budget，并强制 `mutation_dynamic_review.required` | 不实现 OS 级文件系统 sandbox、多语言 AST dependency graph、Runtime 的业务必要性判断、caller 数量阈值策略、repo 任意文件自由写、自动跨 component 扩权、自动 Skill chaining、symbol 级硬约束、为每次 footprint expansion 建 continuation、或为每个新路径要求用户确认 |
 | next phase | system-level E2E validation and real-project dogfood | 不把验证阶段重新包装成 implementation boundary，不扩大 daily intent 或 Runtime surface |
 
 后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再补齐剩余 state-changing Runtime handlers”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。

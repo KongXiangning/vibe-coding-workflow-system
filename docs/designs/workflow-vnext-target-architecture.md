@@ -157,6 +157,53 @@ file. A final Git diff is evidence only, not the write oracle. Without an
 OS-level filesystem monitor, the Runtime does not claim complete proof of
 transient create/delete history.
 
+Mutation Authority v2 replaces the single boundary with three separate
+concepts, because conflating them forces a formal scope amendment for every
+ordinary implementation discovery:
+
+1. **Task authority envelope — hard.** A positive grant over declared project
+   authority domains plus narrow exact exceptions. Anything outside it is a true
+   ownership change. Components the task does not declare are not writable and
+   do not have to be enumerated as forbidden. Reading, grepping, tracing callers
+   and consumers, and root-cause analysis stay unrestricted across every
+   component.
+2. **Planned mutation footprint — guidance.** Each implementation step's planned
+   targets steer the first implementation, expose planned-vs-actual drift, and
+   give review something to compare. They are no longer the only writable file
+   list, so the field name never contradicts its semantics.
+3. **In-envelope footprint expansion — Agent judgment plus Runtime audit.** When
+   implementation reveals an additional target inside the envelope, the Agent
+   assesses its blast radius and either self-admits it or escalates. Runtime does
+   not judge whether a change is business-necessary; it verifies that the target
+   is inside the hard envelope, that no explicit Forbidden or governance
+   boundary is touched, that the required assessment exists, what the first-touch
+   before-state was, what actually changed, and that review covers it.
+
+The split follows one rule: **Runtime owns structural authority; the Agent owns
+bounded engineering judgment.** Runtime also reports the two situations
+differently instead of collapsing them into one scope failure. A target outside
+the envelope is `MUTATION_AUTHORITY_EXPANSION_REQUIRED` and needs explicit user
+authorization through the authority-amendment route; a target inside the
+envelope that the step has not admitted yet is
+`MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED` and is resolved by the Agent in the
+same execution attempt through `extend-preflight`.
+
+Because the Agent gains the right to expand its own footprint, one compensating
+control is mandatory: every footprint expansion outside the plan sets a
+cumulative review requirement. The Agent may decide to expand, but it may not
+both expand and declare the work finished. Review — not a repeated user
+permission prompt — controls same-authority blast-radius risk. `scope-amendment`
+keeps every existing guarantee and is reserved for real authority changes:
+crossing into another component, granting a shared protocol surface, or adding a
+narrow cross-domain exact exception. A committed candidate stays immutable, and a
+true authority change is only prepared after the current execution attempt is
+settled.
+
+Versioning stays explicit: a task declares
+`mutation_authority_version: 2` or it keeps the legacy exact-path semantics.
+Nothing is reinterpreted silently, and only an explicit replan or task upgrade
+adopts v2.
+
 ### P-14 — One task, admitted steps, and risk-based review checkpoints
 
 A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each step executes only after admission of its bounded mutation scope and required evidence. Review is placed at logical or risk boundaries rather than after every step; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
