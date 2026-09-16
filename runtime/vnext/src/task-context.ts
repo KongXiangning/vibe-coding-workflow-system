@@ -469,6 +469,17 @@ function pendingReplanCandidateCount(current: CanonicalCurrentTask): number {
   return entries.slice(lastReplan + 1).filter(item => item.action === 'prepare-replan').length;
 }
 
+function pendingScopeAmendmentCandidateCount(current: CanonicalCurrentTask): number {
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  if (!fs.existsSync(directory)) return 0;
+  const committed = new Set(current.runtimeState.execution_log
+    .filter(item => 'action' in item && item.action === 'commit-scope-amendment' && item.candidate_digest)
+    .map(item => `${item.candidate_digest}.scope.json`));
+  return fs.readdirSync(directory).filter(name => name.endsWith('.scope.json')
+    && !committed.has(name)
+    && !fs.existsSync(path.join(directory, `${name}.discarded`))).length;
+}
+
 function reviewTarget(current: CanonicalCurrentTask): AnyRecord | null {
   const coverage = record(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
   if (!coverage) return null;
@@ -517,6 +528,25 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const unresolvedChallengeCount = Array.isArray(state.evidence_challenges)
     ? state.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').length
     : 0;
+  const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
+  const retainedCleanReview = pendingReview?.verdict === 'clean' && state.scope_amendment_pending_review_step_id !== undefined;
+  const retainedFindingReview = pendingReview?.verdict === 'findings' && state.scope_amendment_pending_review_step_id !== undefined;
+  const nextEntry = state.resume_requires_review
+    ? 'prepare-task:clear-resume-review'
+    : retainedCleanReview
+      ? 'execute-step:complete-reviewed-step'
+      : retainedFindingReview
+        ? 'execute-step:repair'
+        : state.workflow_status === 'blocked_by_replan'
+          ? 'prepare-task:amend-scope'
+          : state.active_step_status === 'blocked'
+            ? 'debug-task'
+            : 'preflight-step';
+  const nextOptions = state.workflow_status === 'blocked_by_replan'
+    ? ['prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
+    : state.active_step_status === 'blocked'
+      ? ['debug-task', 'execute-step']
+      : [nextEntry];
   return {
     identity: {
       task_id: state.task_id,
@@ -535,7 +565,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       review_cycle_id: record(state.review_cycle) ? state.review_cycle.id ?? null : null,
       repair_round: record(state.review_cycle) ? state.review_cycle.repair_round ?? 0 : 0,
     },
-    next_entry: state.resume_requires_review ? 'prepare-task:clear-resume-review' : state.active_step_status === 'blocked' ? 'debug-task or prepare-task:prepare-replan' : 'preflight-step',
+    next_entry: nextEntry,
+    next_options: nextOptions,
     obligations: {
       unfinished_count: unfinishedCount,
       unfinished_block: { kind: 'task-context-block', reference: 'unfinished-obligations' },
@@ -554,6 +585,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       attempt_count: Array.isArray(ledger?.attempts) ? ledger!.attempts.length : 0,
       attempt_budget: ledger?.max_attempts ?? null,
       pending_replan_candidates: pendingReplanCandidateCount(current),
+      pending_scope_amendment_candidates: pendingScopeAmendmentCandidateCount(current),
     },
     latest_execution: latestIndex,
     storage: storeNavigation(root, current, manifest),

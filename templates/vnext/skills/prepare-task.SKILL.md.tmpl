@@ -7,6 +7,7 @@ entry_contract:
     - default
     - confirm
     - replan
+    - amend-scope
   intent: Prepare one bounded implementation task without implementing it.
   input_contract:
     required:
@@ -233,6 +234,26 @@ from `superseded` with `REPLACEMENT_OUTCOME_UNSUPPORTED`; it has no non-completi
 replacement transition. Supersede alone never approves a new plan or completes
 the old task. Do not edit the
 canonical task, Task Basis or candidate to bypass confirmation.
+
+When the user has already explicitly authorized an additive scope expansion for
+the current task, use the independent `amend-scope` route. This route is allowed
+while the task is `active` or `blocked_by_replan`, including when the current
+step has code changes, a pending review result, or admitted/in-progress findings.
+Pass the exact newly authorized paths, any newly admitted persistent-test paths,
+and the user's original decision source and verbatim text to Runtime
+`prepare-scope-amendment`. Runtime computes the exact candidate digest and returns
+the receipt; the caller must not invent it or claim that the user approved that
+digest in advance. Feed that receipt and the same caller-reported authorization
+to `confirm-scope-amendment` when the user has already authorized the same
+increment. Runtime creates a new continuation step, preserves the old definition,
+pending review, findings, obligations, cumulative review baseline, and budget,
+then requires fresh preflight, execution, and review. `discard-scope-amendment`
+only discards the candidate. These commands do not invoke another public Skill;
+the user chooses when to call each one. If the caller has only said “continue”
+or “repair” without an exact prior decision, stop with the concrete missing
+path/difference and ask for that decision; do not invent `authorized_paths`,
+widen a wildcard, or treat a generic continuation request as scope
+authorization.
 
 Do not implement business code. Once the user confirms the draft,
 `CURRENT_TASK` is the execution authority: later execution must not redesign the

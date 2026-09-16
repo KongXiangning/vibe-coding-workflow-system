@@ -101,6 +101,17 @@ original pending step. Unaffected old reports may satisfy the new plan only
 when Runtime supplies and rechecks an `evidence-carry-forward/v1` proof. A
 previous before-step receipt or clean review cannot be copied to the correction.
 
+If the user has already authorized exact additional paths for the current repair,
+return one concrete manual `prepare-task` call with mode `amend-scope`, those
+paths, and the caller-reported decision source/text. The Runtime adapter owns
+the internal `prepare-scope-amendment` and `confirm-scope-amendment` actions;
+the user does not construct an authority transition or receipt, and this
+`execute-step` invocation does not invoke `prepare-task` for them.
+If the amendment retains a clean pending review for the prior step, return
+`complete-reviewed-step` for that prior step as the next manual call; Runtime
+consumes only that retained review and leaves the new continuation ready. This
+does not claim that the new continuation has executed or passed review.
+
 ## Required result
 
 Return one structured `change-result` with the current step, Runtime-detected changed files, commands and validation run, evidence, Runtime result, and any blocker. A blocked `record-step-result` commit may be followed in this invocation only by bounded `retry-step`, fresh preflight, correction and rerun under the unchanged plan; no other public Skill is invoked. After an implemented/completed result, stop.

@@ -42,7 +42,7 @@ const PUBLIC_ENTRY_CONTINUATION_PATTERN = new RegExp(
 const PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN = new RegExp(PUBLIC_ENTRY_CONTINUATION_PATTERN.source, 'giu');
 
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
-  'prepare-task': ['default', 'confirm', 'replan'],
+  'prepare-task': ['default', 'confirm', 'replan', 'amend-scope'],
   'review-draft': [],
   'review-change': ['default'],
   'execute-step': ['default', 'repair'],
@@ -229,6 +229,7 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
 const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
   'task-state-transaction': [
     'execute-step:step-progress',
+    'execute-step:default:consume-retained-review',
     'review-change:default:record-review-result',
     'review-change:default:record-evidence-challenge',
     'review-change:default:dismiss-evidence-challenge',
@@ -239,6 +240,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'prepare-task:default:migrate-claim-evidence',
     'prepare-task:replan:mark-replan-blocked',
     'prepare-task:replan:clear-replan-block',
+    'prepare-task:amend-scope:commit-scope-amendment',
   ],
   'finding-queue-transaction': [
     'execute-step:repair:admit',

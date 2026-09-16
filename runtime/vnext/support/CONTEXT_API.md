@@ -365,6 +365,38 @@ For a superseded source, confirmation additionally requires
 a prior goal or scope invalidation cannot be repaired by this restricted route.
 Changing the goal, permission scope, claim/check method or an original step is
 outside this restricted route and remains blocked.
+
+### Independent scope amendment
+
+When the caller has already received an explicit user decision for an exact
+additive path set, return one manual public `prepare-task` call with mode
+`amend-scope`. It is
+available for an active or `blocked_by_replan` task even when code is already
+changed, a review result is pending, or findings are admitted/in-progress. The
+caller passes the exact paths, any new persistent-test paths, and the original
+decision source/text. Runtime writes a versioned
+`scope-amendment-candidate/v1`, computes its digest and receipt, and retains the
+source as `caller-reported`; the old decision is never described as approval of
+that not-yet-existing digest. `confirm-scope-amendment` may consume the same
+source/text without asking for the same increment again, or may bind a new
+candidate-confirmation decision. The Runtime adapter owns the internal
+prepare/confirm actions; the user does not construct receipts or authority
+transitions by hand.
+
+Confirmation creates a new continuation step and retains the previous step
+definition/history, failed and uncompleted obligations, findings, pending
+review, cumulative review baseline, review cycle and used attempt budget. It
+does not clear pending review or reset the review cycle. The user must then
+call a fresh `preflight-step`, execute/repair, `review-change`, and normal
+advancement/closure entries separately. `confirm-scope-amendment` alone is
+never completion, and public skills never invoke one another automatically.
+If the retained review is clean and has no finding, call
+`complete-reviewed-step` with the retained prior step; Runtime consumes that
+review handoff and leaves the new continuation ready before the fresh
+preflight.
+The legacy `prepare-task:prepare-replan` / `correction-replan/v2` route keeps
+`permission_change: none` and cannot consume a scope-amendment receipt.
+
 The current Runtime has no non-completion successor transition. A superseded
 task cannot create a new draft (`REPLACEMENT_OUTCOME_UNSUPPORTED`); keep its
 unfinished obligations visible instead of closing it as completed.

@@ -133,6 +133,16 @@ prerequisites remain `TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`.
 under PROJECT_PROFILE boundaries.non_executable_change_paths (exact paths or
 literal directory-prefix /** only); documentation inventory is not proof.
 
+An additive scope amendment is stored as an independent
+`scope-amendment-candidate/v1` and confirmed only through its exact Runtime
+receipt. The candidate records caller-reported authorization source and
+verbatim text, exact added paths, and the old/new plan identity. Confirmation
+creates a continuation step and preserves prior definitions, failures,
+uncompleted obligations, admitted/in-progress findings, pending review,
+cumulative review baseline, review cycle, and budget. It does not clear a
+pending review or reset the review cycle and does not alter the legacy
+`correction-replan/v2` `permission_change: none` semantics.
+
 Runtime-owned `runtime_state.business_evidence_version` is optional for historical
 reading, but must equal 1 when present. New semantic/raw create-draft and explicitly
 authorized commit-replan persist 1; update/confirm cannot silently upgrade an old

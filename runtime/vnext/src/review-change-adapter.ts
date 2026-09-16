@@ -771,7 +771,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   else {
     const raw = record(source.blocker, 'blocker');
     exactKeys(raw, ['code', 'summary', 'next_route'], 'blocker');
-    if (!['review-change', 'debug-task', 'prepare-task:replan', 'user'].includes(String(raw.next_route))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocker.next_route is invalid.');
+    if (!['review-change', 'debug-task', 'prepare-task:replan', 'prepare-task:amend-scope', 'user'].includes(String(raw.next_route))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocker.next_route is invalid.');
     blocker = { code: text(raw.code, 'blocker.code', 128), summary: text(raw.summary, 'blocker.summary'), next_route: raw.next_route as ReviewBlocker['next_route'] };
   }
   if (verdict === 'clean' && (findings.length > 0 || unresolved.length > 0 || blocker !== null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'clean must not contain findings or a blocker.');

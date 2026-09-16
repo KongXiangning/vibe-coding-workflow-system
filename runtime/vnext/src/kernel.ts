@@ -52,6 +52,7 @@ import {
   MutationScopeError,
   mutationScopePatternIsSubset,
   mutationScopePatternMatchesPath,
+  isLikelyPersistentTestPath,
   nonExecutableChangePatternIsBounded,
   parseMutationScope,
   type CommandMutationAuditInput,
@@ -176,7 +177,7 @@ export type RuntimeResultState = (typeof RUNTIME_RESULT_STATES)[number];
 
 export const VNEXT_EXECUTE_STEP_MODES = ['default', 'repair'] as const;
 export type VNextExecuteStepMode = (typeof VNEXT_EXECUTE_STEP_MODES)[number];
-export const PREPARE_TASK_MODES = ['default', 'confirm', 'replan'] as const;
+export const PREPARE_TASK_MODES = ['default', 'confirm', 'replan', 'amend-scope'] as const;
 export type PrepareTaskMode = (typeof PREPARE_TASK_MODES)[number];
 
 export const LIFECYCLE_MODES = ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'] as const;
@@ -223,6 +224,7 @@ export const REPLAN_AUDIT_ACTIONS = [
   'mark-replan-blocked',
   'clear-replan-block',
   'commit-replan',
+  'commit-scope-amendment',
 ] as const;
 export type ReplanAuditAction = (typeof REPLAN_AUDIT_ACTIONS)[number];
 
@@ -496,7 +498,7 @@ export type StepReviewReceipt = {
 export const REVIEW_RESULT_VERDICTS = ['clean', 'findings', 'blocked'] as const;
 export type ReviewResultVerdict = (typeof REVIEW_RESULT_VERDICTS)[number];
 
-export const REVIEW_BLOCKER_ROUTES = ['review-change', 'debug-task', 'prepare-task:replan', 'user'] as const;
+export const REVIEW_BLOCKER_ROUTES = ['review-change', 'debug-task', 'prepare-task:replan', 'prepare-task:amend-scope', 'user'] as const;
 export type ReviewBlockerRoute = (typeof REVIEW_BLOCKER_ROUTES)[number];
 
 export type ReviewFindingCandidate = {
@@ -634,6 +636,13 @@ export type TaskStepProgressDelta = {
 
 export type TaskStateDelta =
   | TaskStepProgressDelta
+  | {
+      kind: 'task-state';
+      action: 'consume-retained-review';
+      step_id: string;
+      review_receipt: StepReviewReceipt;
+      evidence_refs: string[];
+    }
   | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; repair_diagnosis?: StepRepairDiagnosis; evidence_refs: string[] }
   | { kind: 'task-state'; action: 'record-step-preflight'; step_id: string; candidate_paths: string[]; evidence_refs: string[] }
   | {
@@ -677,6 +686,15 @@ export type TaskStateDelta =
   | {
       kind: 'task-state';
       action: 'commit-replan';
+      task_basis: TaskBasis;
+      replacement_definition: ReplanReplacementDefinition;
+      active_step_id: string;
+      evidence_refs: string[];
+      claim_evidence?: ClaimEvidenceRecord[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'commit-scope-amendment';
       task_basis: TaskBasis;
       replacement_definition: ReplanReplacementDefinition;
       active_step_id: string;
@@ -1205,6 +1223,8 @@ export type RuntimeState = {
   claim_evidence_required?: boolean;
   claim_evidence?: ClaimEvidenceRecord[];
   pending_review_result: PendingReviewResult | null;
+  /** The original step for a pending review retained across a scope amendment. */
+  scope_amendment_pending_review_step_id?: string;
   review_coverage?: ReviewCoverage;
   step_attempts?: Record<string, StepAttemptLedger>;
   evidence_challenges?: EvidenceChallenge[];
@@ -1918,7 +1938,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectExactKeys(taskStateContract, ['actions', 'retry_step', 'step_progress', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
   expectSetEqual(
     expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
-    ['retry-step', 'record-step-preflight', 'step-progress', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS],
+    ['retry-step', 'record-step-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
     'Runtime contract task-state actions',
   );
   const retryContract = expectRecord(taskStateContract.retry_step, 'Runtime contract.proposal.task_state.retry_step');
@@ -2161,7 +2181,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(expectStringArray(reviewChangeAdapter.commands, 'Runtime contract review-change commands'), ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'], 'Runtime contract review-change commands');
   expectSetEqual(expectStringArray(reviewChangeContract.bound_actions, 'Runtime contract review-change actions'), ['record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'], 'Runtime contract review-change actions');
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
-  expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions', 'direct_replan_result', 'task_history'], 'Runtime contract.proposal.prepare_task');
+  expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions', 'scope_amendment_mode', 'scope_amendment_actions', 'direct_replan_result', 'task_history'], 'Runtime contract.proposal.prepare_task');
   const prepareTaskAdapter = expectRecord(prepareTaskContract.semantic_adapter, 'Runtime contract.proposal.prepare_task.semantic_adapter');
   expectExactKeys(
     prepareTaskAdapter,
@@ -2187,7 +2207,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (prepareTaskAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter input must remain stdin-json.');
   expectSetEqual(
     expectStringArray(prepareTaskAdapter.commands, 'Runtime contract.proposal.prepare_task.semantic_adapter.commands'),
-    ['prepare-draft', 'confirm-draft', 'clear-resume-review', 'replan', 'prepare-replan', 'confirm-replan', 'discard-replan', 'initialize-preservation'],
+    ['prepare-draft', 'confirm-draft', 'clear-resume-review', 'replan', 'prepare-replan', 'confirm-replan', 'discard-replan', 'prepare-scope-amendment', 'confirm-scope-amendment', 'discard-scope-amendment', 'initialize-preservation'],
     'Runtime contract prepare-task adapter commands',
   );
   expectSetEqual(
@@ -2312,7 +2332,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   expectSetEqual(
     expectStringArray(prepareTaskContract.bound_actions, 'Runtime contract.proposal.prepare_task.bound_actions'),
-    ['clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, 'mark-replan-blocked', 'clear-replan-block'],
+    ['clear-resume-review-gate', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, 'mark-replan-blocked', 'clear-replan-block', 'commit-scope-amendment'],
     'Runtime contract prepare-task bound actions',
   );
   if (prepareTaskContract.draft_mode !== 'default' || prepareTaskContract.confirm_mode !== 'confirm') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task draft/confirm modes are invalid.');
@@ -2326,16 +2346,19 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     [...REPLAN_TASK_STATE_ACTIONS],
     'Runtime contract prepare-task replan actions',
   );
+  if (prepareTaskContract.scope_amendment_mode !== 'amend-scope') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task scope_amendment_mode must be amend-scope.');
+  expectSetEqual(expectStringArray(prepareTaskContract.scope_amendment_actions, 'Runtime contract.proposal.prepare_task.scope_amendment_actions'), ['commit-scope-amendment'], 'Runtime contract prepare-task scope amendment actions');
   if (prepareTaskContract.direct_replan_result !== 'REPLAN_CONFIRMATION_REQUIRED') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must describe the disabled direct replan result.');
   }
   const taskHistory = expectRecord(prepareTaskContract.task_history, 'Runtime contract.proposal.prepare_task.task_history');
-  expectExactKeys(taskHistory, ['initialization_preimage', 'supersede_preimage', 'confirmed_replan_preimage', 'correction_candidate', 'evidence_carry_forward', 'external_evidence', 'interrupted_commit', 'recovery_protocol'], 'Runtime contract.proposal.prepare_task.task_history');
+  expectExactKeys(taskHistory, ['initialization_preimage', 'supersede_preimage', 'confirmed_replan_preimage', 'correction_candidate', 'scope_amendment_candidate', 'evidence_carry_forward', 'external_evidence', 'interrupted_commit', 'recovery_protocol'], 'Runtime contract.proposal.prepare_task.task_history');
   if (digest(taskHistory.recovery_protocol) !== digest(TASK_RECOVERY_PROTOCOL)) fail('RUNTIME_CONTRACT_INVALID', 'Recovery protocol must match the versioned Kernel semantics.');
   if (taskHistory.initialization_preimage !== 'exact-current-task-and-linked-task-basis-before-version-marker'
     || taskHistory.supersede_preimage !== 'exact-current-task-and-linked-task-basis'
     || taskHistory.confirmed_replan_preimage !== 'exact-current-task-and-linked-task-basis-before-publish'
     || taskHistory.correction_candidate !== 'independent-revision-bound-candidate-with-full-old-obligations'
+    || taskHistory.scope_amendment_candidate !== 'independent-versioned-additive-candidate-with-caller-reported-authorization-and-preserved-obligations'
     || taskHistory.evidence_carry_forward !== 'runtime-derived-old-report-and-subject-verified'
     || taskHistory.external_evidence !== 'references-remain-references-explicit-bounded-content-ingestion'
     || taskHistory.interrupted_commit !== 'fail-closed-lock-and-hash-recovery') {
@@ -4042,7 +4065,17 @@ export function assertReviewExecutionEligible(
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
-  const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'step-progress', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS], 'semantic_delta.action');
+  const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'], 'semantic_delta.action');
+  if (action === 'consume-retained-review') {
+    expectExactKeys(record, ['kind', 'action', 'step_id', 'review_receipt', 'evidence_refs'], 'consume-retained-review');
+    return {
+      kind,
+      action,
+      step_id: expectString(record.step_id, 'step_id', STEP_ID_PATTERN),
+      review_receipt: validateStepReviewReceipt(record.review_receipt, 'semantic_delta.review_receipt'),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+    };
+  }
   if (action === 'retry-step') {
     expectExactKeys(record, ['kind','action','step_id','blocked_attempt_id','blocker_resolution_refs',...(record.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),'evidence_refs'], 'retry-step');
     return {kind,action,step_id:expectString(record.step_id,'step_id',STEP_ID_PATTERN),blocked_attempt_id:expectString(record.blocked_attempt_id,'blocked_attempt_id',SAFE_KEY_PATTERN),blocker_resolution_refs:validateEvidenceRefs(record.blocker_resolution_refs,'blocker_resolution_refs'),...(record.repair_diagnosis === undefined ? {} : {repair_diagnosis:validateStepRepairDiagnosis(record.repair_diagnosis)}),evidence_refs:validateEvidenceRefs(record.evidence_refs,'evidence_refs')};
@@ -4138,10 +4171,10 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
     };
   }
-  if (action === 'commit-replan') {
+  if (action === 'commit-replan' || action === 'commit-scope-amendment') {
     const allowedKeys = ['kind', 'action', 'task_basis', 'replacement_definition', 'active_step_id', 'evidence_refs', 'claim_evidence'];
     if (Object.keys(record).some(key => !allowedKeys.includes(key))) fail('RUNTIME_SCHEMA_INVALID', 'replan task-state semantic_delta contains unsupported fields.');
-    const result: Extract<TaskStateDelta, { action: 'commit-replan' }> = {
+    const result: Extract<TaskStateDelta, { action: 'commit-replan' | 'commit-scope-amendment' }> = {
       kind,
       action,
       task_basis: validateTaskBasis(record.task_basis, 'semantic_delta.task_basis'),
@@ -4935,7 +4968,7 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
     .map((target, index) => normalizeRepoPath(target, `proposal.requested_write_targets[${index}]`));
   const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
   const writesTaskBasis = semanticDelta.kind === 'task-state'
-    && ['create-draft', 'update-draft', 'commit-replan'].includes(semanticDelta.action);
+    && ['create-draft', 'update-draft', 'commit-replan', 'commit-scope-amendment'].includes(semanticDelta.action);
   const targetCount = writesTaskBasis
     || (operationKind === 'lifecycle-transaction' && mode !== 'supersede')
     || operationKind === 'archive-transaction'
@@ -4971,8 +5004,12 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
         if (semanticDelta.kind !== 'task-state' || !REPLAN_TASK_STATE_ACTIONS.includes(semanticDelta.action as ReplanTaskStateAction)) {
           fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task replan mode is bound only to the closed replan task-state action set.');
         }
+      } else if (mode === 'amend-scope') {
+        if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'commit-scope-amendment') {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task amend-scope mode is bound only to commit-scope-amendment.');
+        }
       } else {
-        fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default, confirm, or replan mode.');
+        fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default, confirm, replan, or amend-scope mode.');
       }
     } else if (caller === 'review-change') {
       if (mode !== 'default') fail('RUNTIME_MODE_INVALID', 'review-change task-state proposals must use default mode.');
@@ -4981,7 +5018,7 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
       }
     } else if (caller === 'execute-step') {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
-      if (semanticDelta.kind !== 'task-state' || !['step-progress', 'record-step-preflight', 'retry-step'].includes(semanticDelta.action)) fail('RUNTIME_MODE_INVALID', 'execute-step requires an execution task-state delta.');
+      if (semanticDelta.kind !== 'task-state' || !['step-progress', 'consume-retained-review', 'record-step-preflight', 'retry-step'].includes(semanticDelta.action)) fail('RUNTIME_MODE_INVALID', 'execute-step requires an execution task-state delta.');
     } else {
       fail('RUNTIME_CALLER_NOT_BOUND', 'task-state-transaction is not bound to task-lifecycle.');
     }
@@ -5459,14 +5496,16 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
       };
     }
 
-    if (operationKind !== 'task-state-transaction' || caller !== 'prepare-task' || mode !== 'replan') {
-      fail('RUNTIME_STATE_CONFLICT', `${location} replan audit has an invalid operation binding.`);
+    const scopeAmendment = action === 'commit-scope-amendment';
+    if (operationKind !== 'task-state-transaction' || caller !== 'prepare-task' || mode !== (scopeAmendment ? 'amend-scope' : 'replan')) {
+      fail('RUNTIME_STATE_CONFLICT', `${location} ${scopeAmendment ? 'scope-amendment' : 'replan'} audit has an invalid operation binding.`);
     }
     if (record.partial_diff_disposition !== undefined || record.invalidation_kind !== undefined || record.invalidation_reason !== undefined) {
       fail('RUNTIME_SCHEMA_INVALID', `${location} non-supersede audit must not carry supersede-only evidence.`);
     }
     const candidateDigest = record.candidate_digest === undefined ? undefined : expectString(record.candidate_digest, `${location}.candidate_digest`, /^[a-f0-9]{64}$/);
-    if (action !== 'commit-replan' && candidateDigest !== undefined) fail('RUNTIME_SCHEMA_INVALID', `${location} candidate digest belongs only to confirmed replans.`);
+    if (!['commit-replan', 'commit-scope-amendment'].includes(action) && candidateDigest !== undefined) fail('RUNTIME_SCHEMA_INVALID', `${location} candidate digest belongs only to confirmed replans.`);
+    if (action === 'commit-scope-amendment' && candidateDigest === undefined) fail('RUNTIME_SCHEMA_INVALID', `${location} scope amendment audit must bind a confirmed candidate digest.`);
     const correctionReason = record.correction_reason === undefined ? undefined : expectText(record.correction_reason, `${location}.correction_reason`, 1024);
     if ((candidateDigest === undefined) !== (correctionReason === undefined)) fail('RUNTIME_SCHEMA_INVALID', `${location} correction reason must bind an exact candidate digest.`);
     const expectedTransition = action === 'mark-replan-blocked'
@@ -5474,7 +5513,7 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
       : action === 'clear-replan-block'
         ? ['blocked_by_replan', 'active', 'active', 'active']
         : ['superseded', 'active', 'active', 'active'];
-    const activeCorrection = action === 'commit-replan' && candidateDigest !== undefined
+    const activeCorrection = ['commit-replan', 'commit-scope-amendment'].includes(action) && candidateDigest !== undefined
       && ['active', 'blocked_by_replan'].includes(fromWorkflowStatus) && fromLifecycleState === 'active' && toWorkflowStatus === 'active' && toLifecycleState === 'active';
     if (!activeCorrection && (fromWorkflowStatus !== expectedTransition[0] || fromLifecycleState !== expectedTransition[1] || toWorkflowStatus !== expectedTransition[2] || toLifecycleState !== expectedTransition[3])) {
       fail('RUNTIME_STATE_CONFLICT', `${location} replan audit has an invalid transition.`);
@@ -5484,7 +5523,7 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
       idempotency_key: expectString(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
       operation_kind: operationKind,
       caller,
-      mode: 'replan',
+      mode: scopeAmendment ? 'amend-scope' : 'replan',
       task_id: entryTaskId,
       task_slug: entryTaskSlug,
       document_id: documentId,
@@ -5634,7 +5673,7 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     'finding_queue_revision', 'review_cycle', 'findings',
   ];
   if (!options.storeBackedHistory) requiredRuntimeStateFields.push('execution_log', 'applied_proposals');
-  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids'];
+  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids'];
   if (options.storeBackedHistory) optionalRuntimeStateFields.push('execution_log', 'applied_proposals');
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter(field => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter(field => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
@@ -5733,13 +5772,21 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
   const pendingReviewResult = runtime.pending_review_result === undefined || runtime.pending_review_result === null
     ? null
     : validatePendingReviewResult(runtime.pending_review_result, 'runtime_state.pending_review_result', true) as PendingReviewResult;
+  const scopeAmendmentPendingReviewStepId = runtime.scope_amendment_pending_review_step_id === undefined
+    ? undefined
+    : expectString(runtime.scope_amendment_pending_review_step_id, 'runtime_state.scope_amendment_pending_review_step_id', STEP_ID_PATTERN);
   if (pendingReviewResult !== null) {
-    if (pendingReviewResult.step_id !== activeStepId) {
+    if (pendingReviewResult.step_id !== activeStepId && scopeAmendmentPendingReviewStepId !== pendingReviewResult.step_id) {
       fail('RUNTIME_STATE_CONFLICT', 'runtime_state.pending_review_result must belong to the active step.');
+    }
+    if (scopeAmendmentPendingReviewStepId !== undefined && scopeAmendmentPendingReviewStepId !== pendingReviewResult.step_id) {
+      fail('RUNTIME_STATE_CONFLICT', 'scope_amendment_pending_review_step_id must identify the retained review step.');
     }
     if (pendingReviewResult.cycle_id !== reviewCycle.id) {
       fail('RUNTIME_STATE_CONFLICT', 'runtime_state.pending_review_result must belong to the current review cycle.');
     }
+  } else if (scopeAmendmentPendingReviewStepId !== undefined) {
+    fail('RUNTIME_STATE_CONFLICT', 'scope_amendment_pending_review_step_id requires a retained pending review.');
   }
   return {
     schema_version: 1,
@@ -5763,6 +5810,7 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     applied_proposals: appliedProposals,
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: claimEvidence,
+    ...(scopeAmendmentPendingReviewStepId === undefined ? {} : { scope_amendment_pending_review_step_id: scopeAmendmentPendingReviewStepId }),
     ...(runtime.evidence_challenges === undefined ? {} : { evidence_challenges: evidenceChallenges }),
     ...(runtime.evidence_carry_forward === undefined ? {} : { evidence_carry_forward: evidenceCarryForward }),
     ...(runtime.artifact_checkpoint_ids === undefined ? {} : { artifact_checkpoint_ids: expectStringArray(runtime.artifact_checkpoint_ids, 'artifact_checkpoint_ids', true, 256).map(id => expectString(id, 'checkpoint ID', /^[a-f0-9]{64}$/)) }),
@@ -9484,6 +9532,7 @@ type CorrectionCandidate = {
   old_obligations: unknown;
   old_obligations_digest: string;
   scope_diff: { added_paths: string[]; removed_paths: string[] };
+  command_footprint: Array<{ command: string; expected_repo_writes: 'none' | string[] }>;
   step_diff: { inserted_step_id: string; inserted_before: string; retained_step_ids: string[] };
   challenge_digest: string;
   input: CorrectionCandidateInput;
@@ -9651,6 +9700,36 @@ function pendingCorrectionCandidates(current: CanonicalCurrentTask): Array<{ can
   });
 }
 
+function unconfirmedCorrectionCandidatePaths(current: CanonicalCurrentTask): string[] {
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  if (!fs.existsSync(directory)) return [];
+  const committed = new Set(current.runtimeState.execution_log.flatMap(entry => 'action' in entry && entry.action === 'commit-replan' && entry.candidate_digest ? [`${entry.candidate_digest}.json`] : []));
+  return fs.readdirSync(directory)
+    .filter(name => /^[a-f0-9]{64}\.json$/u.test(name) && !name.endsWith('.scope.json'))
+    .filter(name => !committed.has(name) && !fs.existsSync(path.join(directory, `${name}.discarded`)))
+    .map(name => path.posix.join(path.posix.dirname(current.relativePath), 'task-candidates', current.sourceTuple.document_id, name));
+}
+
+function pendingScopeAmendmentCandidates(current: CanonicalCurrentTask): Array<{ candidate_digest: string; candidate_path: string; valid: boolean }> {
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  if (!fs.existsSync(directory)) return [];
+  const names = fs.readdirSync(directory).filter(item => /^[a-f0-9]{64}\.scope\.json$/u.test(item));
+  if (names.length > 64) fail('SCOPE_AMENDMENT_CANDIDATE_BUDGET_EXHAUSTED', 'Task has too many retained scope-amendment candidates to summarize safely.');
+  const committed = new Set(current.runtimeState.execution_log.flatMap(entry => 'action' in entry && entry.action === 'commit-scope-amendment' && entry.candidate_digest ? [`${entry.candidate_digest}.scope.json`] : []));
+  return names.flatMap(name => {
+    if (committed.has(name) || fs.existsSync(path.join(directory, `${name}.discarded`))) return [];
+    const candidateDigest = name.slice(0, -'.scope.json'.length);
+    const location = scopeAmendmentCandidateLocation(current, candidateDigest);
+    try {
+      const value = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as ScopeAmendmentCandidate & { candidate_digest: string };
+      const { candidate_digest: _marker, ...payload } = value;
+      return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath, valid: value.candidate_digest === candidateDigest && digest(payload) === candidateDigest }];
+    } catch {
+      return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath, valid: false }];
+    }
+  });
+}
+
 function correctionObligations(current: CanonicalCurrentTask): unknown {
   const definition = readDraftDefinitionFromBody(current.body);
   const steps = parseImplementationSteps(definition.implementation_steps);
@@ -9699,6 +9778,520 @@ function insertCorrectionStep(definition: DraftTaskDefinition, activeStepId: str
   const next = { ...definition, implementation_steps: lines.join('\n'), implementation_plan: planLines.join('\n') };
   assertReplacementActiveStep(step.id, next.implementation_steps);
   return next;
+}
+
+type ScopeAmendmentAuthorization = {
+  decision_source: string;
+  decision_text: string;
+  authorized_paths: string[];
+};
+
+type ScopeAmendmentCandidateInput = {
+  added_paths: string[];
+  persistent_test_paths: string[];
+  authorization: ScopeAmendmentAuthorization;
+  amendment_step: CorrectionStepInput;
+};
+
+type ScopeAmendmentCandidate = {
+  kind: 'scope-amendment-candidate/v1';
+  source_tuple: RuntimeSourceTuple;
+  task_id: string;
+  document_id: string;
+  source_revision: string;
+  basis_revision: string;
+  old_plan_revision: string;
+  old_obligations: unknown;
+  old_obligations_digest: string;
+  retained_budget: { review_cycle: ReviewCycleState; step_attempts: RuntimeState['step_attempts'] };
+  scope_diff: { added_paths: string[]; removed_paths: string[] };
+  step_diff: { inserted_step_id: string; inserted_before: string; retained_step_ids: string[]; scope_paths: string[] };
+  command_footprint: Array<{ command: string; expected_repo_writes: 'none' | string[] }>;
+  continuation: {
+    prior_step_id: string;
+    pending_review_id: string | null;
+    finding_fingerprints: string[];
+    pending_review_preserved: boolean;
+  };
+  workspace_target: ReviewTarget;
+  authorization: ScopeAmendmentAuthorization & { kind: 'caller-reported-existing-decision'; digest: string };
+  input: ScopeAmendmentCandidateInput;
+  definition: DraftTaskDefinition;
+  claim_evidence: ClaimEvidenceRecord[];
+  new_plan_revision: string;
+  permission_change: 'additive-scope';
+};
+
+export type ScopeAmendmentCandidateReceipt = {
+  kind: 'scope-amendment-candidate-receipt/v1';
+  candidate_digest: string;
+  source_revision: string;
+  basis_revision: string;
+  old_plan_revision: string;
+  new_plan_revision: string;
+  obligations_digest: string;
+  authorization_digest: string;
+  added_paths: string[];
+  permission_change: 'additive-scope';
+};
+
+function normalizeScopeAmendmentInput(input: unknown): ScopeAmendmentCandidateInput {
+  const value = expectRecord(input, 'prepare-scope-amendment input');
+  const stepKey = value.amendment_step !== undefined ? 'amendment_step' : value.step !== undefined ? 'step' : null;
+  expectExactKeys(value, ['added_paths', ...(value.persistent_test_paths === undefined ? [] : ['persistent_test_paths']), 'authorization', ...(stepKey ? [stepKey] : [])], 'prepare-scope-amendment input');
+  if (!stepKey) fail('SCOPE_AMENDMENT_STEP_REQUIRED', 'prepare-scope-amendment requires an amendment step definition.');
+  const addedPaths = expectStringArray(value.added_paths, 'added_paths', false, 64).map(item => normalizeRepoPath(item, 'added_paths'));
+  if (new Set(addedPaths).size !== addedPaths.length) fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'added_paths must contain unique exact paths.');
+  const persistentTestPaths = expectStringArray(value.persistent_test_paths ?? [], 'persistent_test_paths', true, 64).map(item => normalizeRepoPath(item, 'persistent_test_paths'));
+  if (persistentTestPaths.some(item => !addedPaths.includes(item))) fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'persistent_test_paths must be a subset of added_paths.');
+  const authorization = expectRecord(value.authorization, 'authorization');
+  expectExactKeys(authorization, ['decision_source', 'decision_text', 'authorized_paths'], 'authorization');
+  const authorizedPaths = expectStringArray(authorization.authorized_paths, 'authorization.authorized_paths', false, 128).map(item => normalizeRepoPath(item, 'authorization.authorized_paths'));
+  if (new Set(authorizedPaths).size !== authorizedPaths.length || addedPaths.some(item => !authorizedPaths.includes(item))) {
+    fail('SCOPE_AMENDMENT_AUTHORIZATION_INVALID', 'authorization.authorized_paths must contain every added path exactly.');
+  }
+  const decisionSource = expectText(authorization.decision_source, 'authorization.decision_source', 512);
+  if (/[\r\n]/u.test(decisionSource)) fail('SCOPE_AMENDMENT_AUTHORIZATION_INVALID', 'authorization.decision_source must be one line.');
+  const decisionText = expectVerbatim(authorization.decision_text, 'authorization.decision_text', 4096);
+  return {
+    added_paths: [...addedPaths].sort(),
+    persistent_test_paths: [...new Set(persistentTestPaths)].sort(),
+    authorization: { decision_source: decisionSource, decision_text: decisionText, authorized_paths: [...authorizedPaths].sort() },
+    amendment_step: normalizeCorrectionStep(value[stepKey]),
+  };
+}
+
+function scopeAmendmentCandidateLocation(current: CanonicalCurrentTask, candidateDigest: string): { filePath: string; relativePath: string } {
+  if (!SHA256_PATTERN.test(candidateDigest)) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Scope amendment candidate digest must be SHA-256.');
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  const filePath = path.join(directory, `${candidateDigest}.scope.json`);
+  return { filePath, relativePath: path.posix.join(path.posix.dirname(current.relativePath), 'task-candidates', current.sourceTuple.document_id, `${candidateDigest}.scope.json`) };
+}
+
+function appendExactScopePaths(value: string, paths: readonly string[]): string {
+  const existing = value.replace(/\r\n?/gu, '\n').trim();
+  const existingPaths = new Set<string>();
+  for (const line of existing.split('\n')) {
+    const match = /^\s*[-*]\s+`?([^`]+?)`?\s*$/u.exec(line);
+    if (match && match[1] !== 'none') existingPaths.add(match[1].trim());
+  }
+  const additions = paths.filter(item => !existingPaths.has(item)).map(item => `- \`${item}\``);
+  if (additions.length === 0) return existing;
+  if (!existing || /^none\s*$/iu.test(existing)) return additions.join('\n');
+  return `${existing}\n${additions.join('\n')}`;
+}
+
+function appendPersistentTestPaths(regressionChecks: string, paths: readonly string[], claimIds: readonly string[] = ['A1']): string {
+  if (paths.length === 0) return regressionChecks;
+  const normalized = regressionChecks.replace(/\r\n?/gu, '\n');
+  const heading = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
+  const proof = claimIds[0] ?? 'A1';
+  const additions = paths.flatMap(item => [
+    `- \`${item}\``,
+    `  - proves: ${proof}`,
+    '  - owner: workflow-system',
+    '  - owner_source: task-basis',
+    '  - source_ref: task-basis',
+    '  - basis: regression',
+    '  - existing_evidence_insufficiency: The existing review did not cover the explicitly authorized path.',
+    '  - assertion_boundary: The new path is covered by the amended step and its fresh review.',
+    '  - failure_disposition: block',
+  ]);
+  if (!heading || heading.index === undefined) return `${normalized.trimEnd()}\n\n### Persistent Tests\n\n${additions.join('\n')}\n`;
+  const start = heading.index + heading[0].length;
+  const nextHeading = /\n###\s+/gu.exec(normalized.slice(start));
+  const end = nextHeading ? start + nextHeading.index! : normalized.length;
+  const section = normalized.slice(start, end).trim();
+  const existing = new Set<string>();
+  for (const line of section.split('\n')) {
+    const match = /^\s*[-*]\s+`?([^`]+?)`?\s*$/u.exec(line);
+    if (match && match[1] !== 'none') existing.add(match[1].trim());
+  }
+  const newPaths = paths.filter(item => !existing.has(item));
+  if (newPaths.length === 0) return normalized;
+  const retained = section.replace(/^\s*-\s+none\s*$/imu, '').trim();
+  const blocks = newPaths.flatMap(item => [
+    `- \`${item}\``,
+    `  - proves: ${proof}`,
+    '  - owner: workflow-system',
+    '  - owner_source: task-basis',
+    '  - source_ref: task-basis',
+    '  - basis: regression',
+    '  - existing_evidence_insufficiency: The existing review did not cover the explicitly authorized path.',
+    '  - assertion_boundary: The new path is covered by the amended step and its fresh review.',
+    '  - failure_disposition: block',
+  ]);
+  const replacement = `\n\n${[retained, ...blocks].filter(Boolean).join('\n')}\n`;
+  return normalized.slice(0, start) + replacement + normalized.slice(end);
+}
+
+function replaceScopeAmendmentStep(definition: DraftTaskDefinition, previousStepId: string, step: CorrectionStepInput): DraftTaskDefinition {
+  const oldSteps = parseImplementationSteps(definition.implementation_steps);
+  if (oldSteps.some(item => item.id === step.id)) fail('SCOPE_AMENDMENT_STEP_INVALID', 'Scope amendment step ID already exists.');
+  const lines = definition.implementation_steps.replace(/\r\n?/gu, '\n').split('\n');
+  const topLevel = new RegExp(`^-\\s*${previousStepId.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\s*[:：]`);
+  const start = lines.findIndex(line => topLevel.test(line));
+  if (start < 0) fail('SCOPE_AMENDMENT_STEP_INVALID', 'The previous active step must have an explicit top-level definition line.');
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^-\s*[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\s*[:：]/u.test(lines[index]!)) { end = index; break; }
+  }
+  const rendered = [
+    `- ${step.id}: ${step.description}`,
+    `  - purpose: Continue the explicitly authorized scope amendment ${step.description}`,
+    `  - mutation_scope: ${step.mutation_scope.join(', ')}`,
+    `  - required_evidence: ${step.required_evidence.join('; ')}`,
+    '  - review_checkpoint: required: fresh review of the amended scope and retained findings',
+    ...step.commands.flatMap(item => [
+      `  - planned_command: ${item.command}`,
+      `    - expected_repo_writes: ${item.expected_repo_writes === 'none' ? 'none' : item.expected_repo_writes.join(', ')}`,
+      '    - transformation_kind: localized',
+    ]),
+  ];
+  // Keep the old step definition byte-for-byte in the new plan. The
+  // continuation is a new step that follows the retained historical step;
+  // Runtime selects it as active while the old execution/review remains an
+  // immutable predecessor rather than being relabelled as completed.
+  lines.splice(end, 0, ...rendered);
+  const planLines = definition.implementation_plan.replace(/\r\n?/gu, '\n').split('\n');
+  const planIndex = planLines.findIndex(line => line.startsWith(`- ${previousStepId}:`));
+  if (planIndex < 0) fail('SCOPE_AMENDMENT_STEP_INVALID', 'The previous active step must be present in the implementation plan.');
+  planLines.splice(planIndex + 1, 0, `- ${step.id}: ${step.description}`);
+  const next = { ...definition, implementation_steps: lines.join('\n'), implementation_plan: planLines.join('\n') };
+  assertReplacementActiveStep(step.id, next.implementation_steps);
+  return next;
+}
+
+function assertScopeAmendmentPathSafe(root: string, current: CanonicalCurrentTask, paths: readonly string[]): void {
+  const scope = parseMutationScope(current.body);
+  for (const file of paths) {
+    if (file === current.relativePath || file.startsWith('.workflow-system/') || file.startsWith('.git/')
+      || file.startsWith('.agents/') || file.startsWith('.claude/') || file.startsWith('.codex/')
+      || file.startsWith('runtime/vnext/dist/') || file.startsWith('packages/vibe-governance/')
+      || file.startsWith('node_modules/') || file.includes('/task-history/') || file.includes('/task-candidates/') || file.includes('/task-data/')) {
+      fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment cannot authorize governance/runtime path ${file}.`);
+    }
+    if (scope.forbidden.some(entry => mutationScopePatternMatchesPath(file, entry.pattern))) {
+      fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path ${file} is already forbidden.`);
+    }
+    const absolute = path.resolve(root, ...file.split('/'));
+    const relative = path.relative(path.resolve(root), absolute).replace(/\\/g, '/');
+    if (relative !== file || relative.startsWith('../') || path.isAbsolute(relative)) fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path escapes the repository: ${file}.`);
+    if (fs.existsSync(absolute)) {
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink() || !stat.isFile()) fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path must be a regular file: ${file}.`);
+      const header = fs.readFileSync(absolute, 'utf8').slice(0, 4096);
+      if (/@frozen|DO NOT MODIFY/iu.test(header)) fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path is frozen: ${file}.`);
+    }
+  }
+}
+
+function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTask, input: ScopeAmendmentCandidateInput): ScopeAmendmentCandidate {
+  if (!['active', 'blocked_by_replan'].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== 'active') {
+    fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment requires an active or blocked_by_replan task with an active lifecycle.');
+  }
+  if (current.runtimeState.task_evolution_version !== 2) {
+    fail('TASK_EVOLUTION_INITIALIZATION_REQUIRED', 'Initialize v2 task preservation before preparing a scope amendment.');
+  }
+  if (current.runtimeState.resume_requires_review) fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment cannot consume a task with an uncleared resume-review gate.');
+  if (!['ready', 'in-progress', 'completed', 'blocked'].includes(current.runtimeState.active_step_status)) fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment requires a usable current step.');
+  assertBusinessEvidenceVersion(current);
+  assertTestStrategySequenceReady(current);
+  assertScopeAmendmentPathSafe(root, current, input.added_paths);
+  if (input.persistent_test_paths.some(item => !isLikelyPersistentTestPath(item))) fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'persistent_test_paths must identify test-like paths.');
+  const pendingFindingPaths = current.runtimeState.findings
+    .filter(item => ['admitted', 'in-progress'].includes(item.status))
+    .map(item => item.file);
+  const pendingReviewFindingPaths = current.runtimeState.pending_review_result?.findings.map(item => item.file) ?? [];
+  const requiredPaths = [...new Set([...input.added_paths, ...pendingFindingPaths, ...pendingReviewFindingPaths])];
+  assertScopeAmendmentPathSafe(root, current, requiredPaths);
+  const activeStep = resolveCanonicalTaskStep(current).current;
+  const currentStepScope = (activeStep.mutation_scope ?? '').split(',').map(value => value.trim().replace(/^`|`$/g, '')).filter(Boolean);
+  const taskScope = parseMutationScope(current.body);
+  const taskScopeAddedPaths = input.added_paths.filter(file => !taskScope.allowed.some(entry => mutationScopePatternMatchesPath(file, entry.pattern)));
+  const amendmentStep = {
+    ...input.amendment_step,
+    mutation_scope: [...new Set([...currentStepScope.filter(item => !item.includes('*')), ...requiredPaths])],
+  };
+  if (amendmentStep.mutation_scope.length === 0) fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'The amendment step must declare exact mutation paths.');
+  if (amendmentStep.commands.some(command => command.expected_repo_writes !== 'none'
+    && command.expected_repo_writes.some(item => !amendmentStep.mutation_scope.includes(item)))) {
+    fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'Amendment command writes must be exact members of the amended step scope.');
+  }
+  const basis = readCanonicalTaskBasis(root, current);
+  const oldObligations = correctionObligations(current);
+  const oldDefinition = readDraftDefinitionFromBody(current.body);
+  const retainedStepIds = parseImplementationSteps(oldDefinition.implementation_steps).map(item => item.id);
+  const digestSeed = digest({ task: current.runtimeState.task_id, source: current.sourceTuple.revision, paths: input.added_paths, step: amendmentStep.id });
+  if (!STEP_ID_PATTERN.test(amendmentStep.id)) fail('SCOPE_AMENDMENT_STEP_INVALID', 'Amendment step ID is invalid.');
+  if (retainedStepIds.includes(amendmentStep.id)) fail('SCOPE_AMENDMENT_STEP_INVALID', 'Amendment step ID must be new and must not reuse an old step.');
+  // Keep the caller's exact authorization, while making the Runtime-derived
+  // continuation deterministic when a caller omits a bespoke command list.
+  const normalizedStep: CorrectionStepInput = amendmentStep.commands.length > 0 ? amendmentStep : {
+    ...amendmentStep,
+    description: amendmentStep.description || `Apply the authorized scope amendment ${digestSeed.slice(0, 8)}`,
+    required_evidence: amendmentStep.required_evidence.length > 0 ? amendmentStep.required_evidence : ['fresh execution result', 'fresh review of the amended scope'],
+    commands: [{ command: `scope-amendment: repair and verify ${input.added_paths.join(', ')}`, expected_repo_writes: requiredPaths }],
+  };
+  const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
+  const definition = replaceScopeAmendmentStep(oldDefinition, current.runtimeState.active_step_id, normalizedStep);
+  const amendedDefinitionDraft: DraftTaskDefinition = {
+    ...definition,
+    allowed_scope: appendExactScopePaths(definition.allowed_scope, input.added_paths),
+    regression_checks: appendPersistentTestPaths(definition.regression_checks, input.persistent_test_paths, claims.filter(item => item.claim_kind === 'acceptance').map(item => item.claim_id)),
+  };
+  // Definition replacement normalizes section boundaries and trailing bytes;
+  // hash the exact definition that will be read back from CURRENT_TASK.
+  const amendedDefinition = readDraftDefinitionFromBody(replaceReplanDefinitionSections(current.body, amendedDefinitionDraft));
+  assertPreparedTestStrategy(root, amendedDefinition, basis.basis);
+  for (const record of claims) for (const slot of record.slots) {
+    if (slot.due_step_id === current.runtimeState.active_step_id) {
+      slot.due_step_id = normalizedStep.id;
+      slot.disposition = 'missing';
+      slot.evidence_refs = [];
+      slot.report = null;
+      delete slot.prerequisite_receipt;
+    }
+    if (slot.before_step_id === current.runtimeState.active_step_id) {
+      slot.before_step_id = normalizedStep.id;
+      delete slot.prerequisite_receipt;
+    }
+  }
+  const newPlanRevision = assertEvidencePlan(amendedDefinition, claims);
+  const findingFingerprints = current.runtimeState.findings.filter(item => ['admitted', 'in-progress'].includes(item.status)).map(item => item.fingerprint).sort();
+  const authorization = {
+    ...input.authorization,
+    kind: 'caller-reported-existing-decision' as const,
+    digest: digest(input.authorization),
+  };
+  return {
+    kind: 'scope-amendment-candidate/v1',
+    source_tuple: current.sourceTuple,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    basis_revision: basis.revision,
+    old_plan_revision: current.runtimeState.evidence_plan_revision ?? digest(oldDefinition),
+    old_obligations: oldObligations,
+    old_obligations_digest: digest(oldObligations),
+    retained_budget: { review_cycle: structuredClone(current.runtimeState.review_cycle), step_attempts: structuredClone(current.runtimeState.step_attempts ?? {}) },
+    scope_diff: { added_paths: [...taskScopeAddedPaths], removed_paths: [] },
+    command_footprint: normalizedStep.commands.map(command => ({ command: command.command, expected_repo_writes: command.expected_repo_writes === 'none' ? 'none' : [...command.expected_repo_writes] })),
+    step_diff: {
+      inserted_step_id: normalizedStep.id,
+      inserted_before: current.runtimeState.active_step_id,
+      retained_step_ids: retainedStepIds,
+      scope_paths: requiredPaths.filter(item => !currentStepScope.includes(item)),
+    },
+    continuation: {
+      prior_step_id: current.runtimeState.active_step_id,
+      pending_review_id: current.runtimeState.pending_review_result?.review_id ?? null,
+      finding_fingerprints: findingFingerprints,
+      pending_review_preserved: current.runtimeState.pending_review_result !== null,
+    },
+    workspace_target: captureReviewTarget(root, [...new Set([...amendmentStep.mutation_scope, ...requiredPaths])]),
+    authorization,
+    input: { ...input, amendment_step: normalizedStep },
+    definition: amendedDefinition,
+    claim_evidence: claims,
+    new_plan_revision: newPlanRevision,
+    permission_change: 'additive-scope',
+  };
+}
+
+export function prepareScopeAmendment(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult & { candidate_receipt: ScopeAmendmentCandidateReceipt; candidate_path: string } {
+  return withGovernanceWriteLock(root, () => {
+    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    const pendingCorrection = unconfirmedCorrectionCandidatePaths(current);
+    if (pendingCorrection.length > 0) {
+      fail('SCOPE_AMENDMENT_CANDIDATE_CONFLICT', `An unconfirmed correction candidate is already in flight (${pendingCorrection[0]!}); discard it before preparing a scope amendment.`);
+    }
+    const input = normalizeScopeAmendmentInput(rawInput);
+    const candidate = buildScopeAmendmentCandidate(root, current, input);
+    const candidateDigest = digest(candidate);
+    const location = scopeAmendmentCandidateLocation(current, candidateDigest);
+    const content = JSON.stringify({ ...candidate, candidate_digest: candidateDigest }, null, 2) + '\n';
+    const existed = fs.existsSync(location.filePath);
+    const directory = path.dirname(location.filePath);
+    if (fs.existsSync(directory)) {
+      const prior = fs.readdirSync(directory).filter(name => name.endsWith('.scope.json'));
+      if (prior.length > 64) fail('SCOPE_AMENDMENT_CANDIDATE_BUDGET_EXHAUSTED', 'Too many retained scope-amendment candidates.');
+      const committed = new Set(current.runtimeState.execution_log.flatMap(entry => 'action' in entry && entry.action === 'commit-scope-amendment' && entry.candidate_digest ? [`${entry.candidate_digest}.scope.json`] : []));
+      for (const name of prior) {
+        if (name === path.basename(location.filePath) || fs.existsSync(path.join(directory, `${name}.discarded`)) || committed.has(name)) continue;
+        fail('SCOPE_AMENDMENT_CANDIDATE_CONFLICT', 'Discard the existing unconfirmed scope-amendment candidate before preparing another.');
+      }
+    }
+    if (!options.dryRun) {
+      fs.mkdirSync(directory, { recursive: true });
+      if (existed) {
+        if (fs.readFileSync(location.filePath, 'utf8') !== content) fail('SCOPE_AMENDMENT_CANDIDATE_CONFLICT', 'Existing scope-amendment candidate bytes differ.');
+      } else {
+        const descriptor = fs.openSync(location.filePath, 'wx');
+        try { fs.writeFileSync(descriptor, content, 'utf8'); fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); }
+      }
+      if (fs.readFileSync(location.filePath, 'utf8') !== content) fail('SCOPE_AMENDMENT_CANDIDATE_READ_BACK_FAILED', 'Scope-amendment candidate read-back failed.');
+    }
+    const receipt: ScopeAmendmentCandidateReceipt = {
+      kind: 'scope-amendment-candidate-receipt/v1', candidate_digest: candidateDigest,
+      source_revision: candidate.source_revision, basis_revision: candidate.basis_revision,
+      old_plan_revision: candidate.old_plan_revision, new_plan_revision: candidate.new_plan_revision,
+      obligations_digest: candidate.old_obligations_digest, authorization_digest: candidate.authorization.digest,
+      added_paths: [...candidate.input.added_paths], permission_change: 'additive-scope',
+    };
+    return {
+      status: existed ? 'no-op' : 'success', operation_kind: 'task-state-transaction', idempotency_key: `prepare-scope-amendment-${candidateDigest.slice(0, 40)}`,
+      target_path: location.relativePath, dry_run: options.dryRun === true, committed: !options.dryRun && !existed,
+      message: 'Scope-amendment candidate prepared; CURRENT_TASK is unchanged.', planned_writes: [location.relativePath],
+      governed_mutation_count: options.dryRun || existed ? 0 : 1, read_back_verified: options.dryRun !== true,
+      evidence_assurance: 'caller-reported', candidate_path: location.relativePath, candidate_receipt: receipt,
+    };
+  });
+}
+
+export function confirmScopeAmendment(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  return withGovernanceWriteLock(root, () => {
+    const source = expectRecord(rawInput, 'confirm-scope-amendment input');
+    expectExactKeys(source, ['candidate_receipt', 'authorization'], 'confirm-scope-amendment input');
+    const receipt = expectRecord(source.candidate_receipt, 'candidate_receipt');
+    expectExactKeys(receipt, ['kind', 'candidate_digest', 'source_revision', 'basis_revision', 'old_plan_revision', 'new_plan_revision', 'obligations_digest', 'authorization_digest', 'added_paths', 'permission_change'], 'candidate_receipt');
+    if (receipt.kind !== 'scope-amendment-candidate-receipt/v1' || receipt.permission_change !== 'additive-scope') fail('SCOPE_AMENDMENT_CONFIRMATION_INVALID', 'Receipt kind or permission change is invalid.');
+    const candidateDigest = expectString(receipt.candidate_digest, 'candidate_receipt.candidate_digest', SHA256_PATTERN);
+    const sourceRevision = expectString(receipt.source_revision, 'candidate_receipt.source_revision', SHA256_PATTERN);
+    const basisRevision = expectString(receipt.basis_revision, 'candidate_receipt.basis_revision', SHA256_PATTERN);
+    const oldPlanRevision = expectString(receipt.old_plan_revision, 'candidate_receipt.old_plan_revision', SHA256_PATTERN);
+    const newPlanRevision = expectString(receipt.new_plan_revision, 'candidate_receipt.new_plan_revision', SHA256_PATTERN);
+    const obligationsDigest = expectString(receipt.obligations_digest, 'candidate_receipt.obligations_digest', SHA256_PATTERN);
+    const authorizationDigest = expectString(receipt.authorization_digest, 'candidate_receipt.authorization_digest', SHA256_PATTERN);
+    const addedPaths = expectStringArray(receipt.added_paths, 'candidate_receipt.added_paths', false, 64).map(item => normalizeRepoPath(item, 'candidate_receipt.added_paths'));
+    const approval = expectRecord(source.authorization, 'authorization');
+    expectExactKeys(approval, ['approved_candidate_digest', 'authorization_kind', 'decision_source', 'decision_text'], 'authorization');
+    if (approval.approved_candidate_digest !== candidateDigest) fail('SCOPE_AMENDMENT_CONFIRMATION_INVALID', 'Authorization must name the exact Runtime-generated candidate digest.');
+    const authorizationKind = expectEnum(approval.authorization_kind, ['existing-explicit-decision', 'candidate-confirmation'], 'authorization.authorization_kind');
+    const decisionSource = expectText(approval.decision_source, 'authorization.decision_source', 512);
+    const decisionText = expectVerbatim(approval.decision_text, 'authorization.decision_text', 4096);
+    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    const location = scopeAmendmentCandidateLocation(current, candidateDigest);
+    const idempotencyKey = `confirm-scope-amendment-${digest({ receipt, authorization: { ...approval, authorization_kind: authorizationKind } }).slice(0, 40)}`;
+    const previousCommit = current.runtimeState.execution_log.find((item): item is ReplanAuditLogEntry => 'action' in item && item.action === 'commit-scope-amendment' && item.candidate_digest === candidateDigest);
+    if (previousCommit) {
+      if (previousCommit.idempotency_key !== idempotencyKey) fail('SCOPE_AMENDMENT_ALREADY_COMMITTED', 'This candidate was already confirmed with different authorization semantics.');
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, previousCommit.source_revision, 'confirm-scope-amendment');
+      return { status: 'no-op', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: options.dryRun === true, committed: false, message: 'Exact scope-amendment confirmation was already committed.', planned_writes: [], governed_mutation_count: 0, read_back_verified: true, evidence_assurance: 'caller-reported', state: resultState(current.runtimeState) };
+    }
+    if (!['active', 'blocked_by_replan'].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== 'active') fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment confirmation requires active or blocked_by_replan + active.');
+    if (current.runtimeState.resume_requires_review) fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment confirmation cannot clear a resume-review gate.');
+    if (current.sourceTuple.revision !== sourceRevision) fail('SCOPE_AMENDMENT_SOURCE_STALE', 'CURRENT_TASK changed after scope-amendment preparation.');
+    const basis = readCanonicalTaskBasis(root, current);
+    if (basis.revision !== basisRevision || (current.runtimeState.evidence_plan_revision ?? oldPlanRevision) !== oldPlanRevision || digest(correctionObligations(current)) !== obligationsDigest) fail('SCOPE_AMENDMENT_OBLIGATIONS_STALE', 'Task Basis, plan revision, or old obligations changed after candidate preparation.');
+    if (!fs.existsSync(location.filePath) || fs.existsSync(`${location.filePath}.discarded`)) fail('SCOPE_AMENDMENT_CANDIDATE_MISSING', 'Scope-amendment candidate is absent or discarded.');
+    const saved = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as ScopeAmendmentCandidate & { candidate_digest: string };
+    if (saved.candidate_digest !== candidateDigest) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Candidate digest marker differs.');
+    const { candidate_digest: _marker, ...storedCandidate } = saved;
+    if (digest(storedCandidate) !== candidateDigest) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Candidate content changed after preparation.');
+    const rebuilt = buildScopeAmendmentCandidate(root, current, normalizeScopeAmendmentInput(saved.input));
+    if (digest(rebuilt) !== candidateDigest || rebuilt.new_plan_revision !== newPlanRevision || rebuilt.old_plan_revision !== oldPlanRevision || rebuilt.basis_revision !== basisRevision || rebuilt.authorization.digest !== authorizationDigest || digest(rebuilt.input.added_paths) !== digest(addedPaths)) {
+      fail('SCOPE_AMENDMENT_CANDIDATE_STALE', 'Candidate no longer matches the Runtime-computed source, scope, obligations, and plan.');
+    }
+    if (authorizationKind === 'existing-explicit-decision'
+      && (decisionSource !== rebuilt.authorization.decision_source || decisionText !== rebuilt.authorization.decision_text)) {
+      fail('SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT', 'Existing explicit authorization must preserve its caller-reported source and verbatim text.');
+    }
+    const nextBasis: TaskBasis = {
+      original_request: basis.basis.original_request,
+      user_decisions: basis.basis.user_decisions.some(item => item.source === decisionSource && item.verbatim === decisionText)
+        ? [...basis.basis.user_decisions]
+        : [...basis.basis.user_decisions, { source: decisionSource, verbatim: decisionText }],
+    };
+    const nextBasisArtifact = materializeTaskBasis(root, current, { task_id: current.runtimeState.task_id, task_slug: current.runtimeState.task_slug, task_title: extractTaskIdentityFromCurrentTask(current.body).title, document_id: current.sourceTuple.document_id }, nextBasis);
+    const evidenceRefs = [location.relativePath, `caller-reported-scope-authorization:${digest({ decisionSource, decisionText })}`];
+    const authorityEvidence: AuthorityEvidence[] = (['active-task-owner', 'scope-admission', 'evidence-admission', 'authorized-caller'] as const).map(kind => ({ kind, source: decisionSource, subject: candidateDigest, task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id, source_revision: current.sourceTuple.revision }));
+    const proposal = createPrepareTaskScopeAmendmentProposal(current, {
+      delta: { kind: 'task-state', action: 'commit-scope-amendment', task_basis: nextBasis, replacement_definition: rebuilt.definition, active_step_id: rebuilt.input.amendment_step.id, claim_evidence: rebuilt.claim_evidence, evidence_refs: evidenceRefs },
+      idempotency_key: idempotencyKey, authority_evidence: authorityEvidence, evidence_refs: evidenceRefs,
+    });
+    const oldState = current.runtimeState;
+    const amendmentReviewPaths = [...new Set([
+      ...rebuilt.input.added_paths,
+      ...rebuilt.continuation.finding_fingerprints
+        .map(fingerprint => oldState.findings.find(item => item.fingerprint === fingerprint)?.file)
+        .filter((item): item is string => Boolean(item)),
+      ...((oldState.pending_review_result?.findings ?? []).map(item => item.file)),
+    ])].sort();
+    const amendedReviewCoverage = oldState.review_coverage
+      ? registerReviewCoverage(root, current, amendmentReviewPaths)
+      : undefined;
+    const retainedPendingPaths = amendedReviewCoverage
+      ? [...new Set([...amendedReviewCoverage.pending_paths, ...amendmentReviewPaths])].sort()
+      : undefined;
+    const nextWithoutAudit: RuntimeState = {
+      ...oldState,
+      workflow_status: 'active',
+      lifecycle_state: 'active',
+      active_step_id: rebuilt.input.amendment_step.id,
+      active_step_status: 'ready',
+      evidence_plan_revision: rebuilt.new_plan_revision,
+      claim_evidence_required: true,
+      claim_evidence: rebuilt.claim_evidence,
+      ...(oldState.pending_review_result
+        ? { scope_amendment_pending_review_step_id: oldState.pending_review_result.step_id }
+        : {}),
+      // The pending review, review cycle, attempts, findings and cumulative
+      // baseline are deliberately carried forward. The new repair/review run
+      // will update only the paths it actually revalidates.
+      ...(amendedReviewCoverage && retainedPendingPaths ? { review_coverage: { ...amendedReviewCoverage, pending_paths: retainedPendingPaths } } : {}),
+      applied_proposals: appendAppliedProposal(oldState, proposal, current.sourceTuple.revision),
+    };
+    const audit: ReplanAuditLogEntry = { ...makeReplanAudit(current, proposal, nextWithoutAudit, options.now?.() ?? new Date().toISOString()), candidate_digest: candidateDigest, correction_reason: `caller-reported scope amendment: ${decisionText}` };
+    const nextState = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
+    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState, { replacementDefinition: rebuilt.definition, taskBasisReference: { path: basis.path, revision: nextBasisArtifact.revision }, audit });
+    const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
+    if (preview.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || preview.runtimeState.active_step_id !== rebuilt.input.amendment_step.id || preview.runtimeState.pending_review_result?.review_id !== oldState.pending_review_result?.review_id) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Rendered scope amendment does not preserve the pending review or admitted plan.');
+    const history = taskHistoryLocation({ currentPath: current.filePath, previousContent: current.raw, nextContent, documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id, basisPath: basis.filePath, basisContent: basis.content, nextBasisContent: nextBasisArtifact.content, operation: 'confirm-scope-amendment', evidencePlanRevision: current.runtimeState.evidence_plan_revision, referencedEvidence: [location.relativePath] });
+    const plannedWrites = [path.posix.join(path.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
+    if (options.dryRun) return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: true, committed: false, message: 'Scope-amendment confirmation dry run passed; no live task was changed.', planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
+    let stagedAfter: CanonicalCurrentTask;
+    try {
+      stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, [{ path: history.path, content: history.content }, { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content }, { path: current.filePath, content: nextContent }]);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, { code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED' });
+    }
+    try {
+      commitTaskEvolutionWithHistory({ currentPath: current.filePath, previousContent: current.raw, nextContent, documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id, basisPath: basis.filePath, basisContent: basis.content, nextBasisContent: nextBasisArtifact.content, operation: 'confirm-scope-amendment', evidencePlanRevision: current.runtimeState.evidence_plan_revision, referencedEvidence: [location.relativePath] }, content => {
+        const parsed = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
+        if (parsed.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || parsed.runtimeState.active_step_id !== rebuilt.input.amendment_step.id || parsed.runtimeState.pending_review_result?.review_id !== oldState.pending_review_result?.review_id) fail('SCOPE_AMENDMENT_READ_BACK_FAILED', 'Scope-amendment task/Basis read-back is inconsistent.');
+      });
+    } catch (error) {
+      if (fs.existsSync(current.filePath) && sha256(fs.readFileSync(current.filePath, 'utf8')) === current.sourceTuple.revision) clearPendingTaskStoreAfterRollback(root, current);
+      throw error;
+    }
+    const storeResult = { status: 'success', committed: true, operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey, message: 'Scope amendment confirmed; prior review, findings, obligations, and budget were retained.' };
+    try {
+      const manifest = completeTaskEvolutionStoreCommit(root, current, stagedAfter, proposal, storeResult);
+      const readBack = readCanonicalCurrentTask(root);
+      return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: false, committed: true, message: storeResult.message, planned_writes: plannedWrites, governed_mutation_count: 3, read_back_verified: readBack.raw === nextContent, previous_revision: current.sourceTuple.revision, resulting_revision: readBack.sourceTuple.revision, evidence_assurance: 'caller-reported', state: resultState(readBack.runtimeState), task_store: { manifest_path: `${manifest.storage_root}/manifest.json`, source_revision: manifest.head.source_revision, definition_revision: manifest.head.definition_revision, state_revision: manifest.head.state_revision, event_sequence: manifest.head.event_sequence } };
+    } catch (error) {
+      return { status: 'blocked', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: false, committed: true, message: `Scope amendment committed but task-store publication needs recovery: ${error instanceof Error ? error.message : String(error)}`, planned_writes: plannedWrites, governed_mutation_count: 3, read_back_verified: false, previous_revision: current.sourceTuple.revision, resulting_revision: stagedAfter.sourceTuple.revision, evidence_assurance: 'caller-reported', code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED', state: resultState(stagedAfter.runtimeState) };
+    }
+  });
+}
+
+export function discardScopeAmendment(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  return withGovernanceWriteLock(root, () => {
+    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
+    const input = expectRecord(rawInput, 'discard-scope-amendment input');
+    expectExactKeys(input, ['candidate_digest'], 'discard-scope-amendment input');
+    const current = readCanonicalCurrentTask(root);
+    const candidateDigest = expectString(input.candidate_digest, 'candidate_digest', SHA256_PATTERN);
+    const location = scopeAmendmentCandidateLocation(current, candidateDigest);
+    if (!fs.existsSync(location.filePath)) fail('SCOPE_AMENDMENT_CANDIDATE_MISSING', 'Scope-amendment candidate does not exist.');
+    const marker = `${location.filePath}.discarded`;
+    const existed = fs.existsSync(marker);
+    if (!options.dryRun && !existed) fs.writeFileSync(marker, `${candidateDigest}\n`, { flag: 'wx' });
+    return { status: existed ? 'no-op' : 'success', operation_kind: 'task-state-transaction', idempotency_key: `discard-scope-amendment-${candidateDigest.slice(0, 40)}`, target_path: location.relativePath, dry_run: options.dryRun === true, committed: !options.dryRun && !existed, message: 'Scope-amendment candidate discarded; CURRENT_TASK was not changed.', planned_writes: [`${location.relativePath}.discarded`], governed_mutation_count: options.dryRun || existed ? 0 : 1, read_back_verified: options.dryRun !== true, evidence_assurance: 'caller-reported' };
+  });
 }
 
 function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, input: CorrectionCandidateInput): CorrectionCandidate {
@@ -9860,6 +10453,10 @@ export function prepareCorrectionReplan(root: string, rawInput: unknown, options
 function prepareCorrectionReplanLocked(root: string, rawInput: unknown, options: RuntimeApplyOptions): RuntimeResult & { candidate_receipt: CorrectionCandidateReceipt; candidate_path: string } {
   if (!options.dryRun) recoverPendingTaskStoreCommit(root);
   const current = readCanonicalCurrentTask(root);
+  const pendingScope = pendingScopeAmendmentCandidates(current);
+  if (pendingScope.length > 0) {
+    fail('REPLAN_CANDIDATE_CONFLICT', `An unconfirmed scope-amendment candidate is already in flight (${pendingScope[0]!.candidate_path}); discard it before preparing restricted correction.`);
+  }
   const input = normalizeCorrectionInput(rawInput);
   const candidate = buildCorrectionCandidate(root, current, input);
   const candidateDigest = digest(candidate);
@@ -9939,7 +10536,7 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
   const candidateDigest = receipt.candidate_digest as string;
   const location = correctionCandidateLocation(current, candidateDigest);
   const idempotencyKey = `confirm-replan-${digest({ receipt, approval }).slice(0, 40)}`;
-  const previousCommit = current.runtimeState.execution_log.find(item => 'action' in item && item.action === 'commit-replan' && item.evidence_refs.includes(location.relativePath));
+  const previousCommit = current.runtimeState.execution_log.find((item): item is ReplanAuditLogEntry => 'action' in item && item.action === 'commit-replan' && item.evidence_refs.includes(location.relativePath));
   if (previousCommit) {
     if (previousCommit.idempotency_key !== idempotencyKey) fail('REPLAN_ALREADY_COMMITTED', 'This candidate was confirmed with different authorization semantics.');
     assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, previousCommit.source_revision, 'confirm-replan');
@@ -10205,8 +10802,16 @@ export function listArtifactCheckpoints(root: string) {
 
 export function currentDefinitionExecutionLog(current: CanonicalCurrentTask): ExecutionLogEntry[] {
   const log = current.runtimeState.execution_log;
-  const lastReplan = log.findLastIndex(item => 'action' in item && item.action === 'commit-replan');
-  return log.slice(lastReplan + 1);
+  const lastCorrection = log.findLastIndex(item => 'action' in item && item.action === 'commit-replan');
+  const lastScopeAmendment = log.findLastIndex(item => 'action' in item && item.action === 'commit-scope-amendment');
+  // A confirmed scope amendment deliberately retains a pending review from
+  // the prior step. Keep that prior execution visible until the continuation
+  // consumes the review; ordinary post-amendment reads then use the new
+  // definition boundary just like correction-replan did.
+  if (current.runtimeState.scope_amendment_pending_review_step_id !== undefined && lastScopeAmendment > lastCorrection) {
+    return log.slice(lastCorrection + 1);
+  }
+  return log.slice(Math.max(lastCorrection, lastScopeAmendment) + 1);
 }
 
 function implementationStepBlock(definition: DraftTaskDefinition, stepId: string): string | undefined {
@@ -10322,9 +10927,36 @@ function recoveryProblemBudget(current: CanonicalCurrentTask): { failedAttempts:
   return { failedAttempts, repairWaves };
 }
 
+function inheritedScopeAmendmentAttemptLedger(root: string, current: CanonicalCurrentTask, stepId: string): { prior_step_id: string; ledger: StepAttemptLedger } | null {
+  const audit = [...current.runtimeState.execution_log].reverse().find(item =>
+    'action' in item && item.action === 'commit-scope-amendment' && item.candidate_digest,
+  );
+  if (!audit || !('candidate_digest' in audit) || !audit.candidate_digest) return null;
+  const location = scopeAmendmentCandidateLocation(current, audit.candidate_digest);
+  if (!fs.existsSync(location.filePath)) fail('SCOPE_AMENDMENT_HISTORY_CORRUPT', 'Confirmed scope-amendment candidate is missing while inheriting an attempt budget.');
+  let candidate: ScopeAmendmentCandidate & { candidate_digest: string };
+  try {
+    candidate = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as ScopeAmendmentCandidate & { candidate_digest: string };
+  } catch (error) {
+    fail('SCOPE_AMENDMENT_HISTORY_CORRUPT', `Confirmed scope-amendment candidate cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (candidate.candidate_digest !== audit.candidate_digest || candidate.step_diff.inserted_step_id !== stepId) return null;
+  const priorStepId = candidate.continuation.prior_step_id;
+  const ledger = current.runtimeState.step_attempts?.[priorStepId];
+  return ledger ? { prior_step_id: priorStepId, ledger } : null;
+}
+
 function assertRecoveryHistory(root: string, current: CanonicalCurrentTask): void {
   for (const entry of current.runtimeState.execution_log) {
-    if (!('action' in entry) || entry.action !== 'commit-replan' || !('candidate_digest' in entry) || !entry.candidate_digest) continue;
+    if (!('action' in entry) || !['commit-replan', 'commit-scope-amendment'].includes(entry.action) || !('candidate_digest' in entry) || !entry.candidate_digest) continue;
+    if (entry.action === 'commit-scope-amendment') {
+      const location = scopeAmendmentCandidateLocation(current, entry.candidate_digest);
+      if (!fs.existsSync(location.filePath)) fail('SCOPE_AMENDMENT_HISTORY_CORRUPT', 'Confirmed scope-amendment candidate is missing.');
+      const { candidate_digest: marker, ...candidate } = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as ScopeAmendmentCandidate & { candidate_digest: string };
+      if (digest(candidate) !== marker || marker !== entry.candidate_digest || candidate.task_id !== current.runtimeState.task_id || candidate.document_id !== current.sourceTuple.document_id) fail('SCOPE_AMENDMENT_HISTORY_CORRUPT', 'Confirmed scope-amendment candidate changed or belongs to another task.');
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, entry.source_revision, 'confirm-scope-amendment');
+      continue;
+    }
     const location = correctionCandidateLocation(current, entry.candidate_digest);
     const { candidate_digest: marker, ...candidate } = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as CorrectionCandidate & { candidate_digest: string };
     if (digest(candidate) !== marker || marker !== entry.candidate_digest || candidate.task_id !== current.runtimeState.task_id
@@ -10363,7 +10995,7 @@ function makeReplanAudit(
   const delta = proposal.semantic_delta;
   let action: ReplanAuditAction;
   if (delta.kind === 'lifecycle' && delta.action === 'supersede') action = 'supersede';
-  else if (delta.kind === 'task-state' && REPLAN_TASK_STATE_ACTIONS.includes(delta.action as ReplanTaskStateAction)) action = delta.action as ReplanTaskStateAction;
+  else if (delta.kind === 'task-state' && (REPLAN_TASK_STATE_ACTIONS.includes(delta.action as ReplanTaskStateAction) || delta.action === 'commit-scope-amendment')) action = delta.action as ReplanAuditAction;
   else fail('RUNTIME_SCHEMA_INVALID', 'Only Slice B transitions may create a replan audit record.');
   if (delta.kind !== 'task-state' && delta.kind !== 'lifecycle') {
     fail('RUNTIME_SCHEMA_INVALID', 'Only task-state and lifecycle deltas may create a replan audit record.');
@@ -10375,7 +11007,7 @@ function makeReplanAudit(
     idempotency_key: proposal.idempotency_key,
     operation_kind: proposal.operation_kind as Extract<RuntimeOperationKind, 'task-state-transaction' | 'lifecycle-transaction'>,
     caller: proposal.caller as Extract<RuntimeProposal['caller'], 'prepare-task' | 'task-lifecycle'>,
-    mode: action === 'supersede' ? 'supersede' as const : 'replan' as const,
+    mode: action === 'supersede' ? 'supersede' as const : action === 'commit-scope-amendment' ? 'amend-scope' as const : 'replan' as const,
     task_id: current.runtimeState.task_id,
     task_slug: current.runtimeState.task_slug,
     document_id: current.sourceTuple.document_id,
@@ -10695,6 +11327,23 @@ function assertStepProgressReplay(current: CanonicalCurrentTask, proposal: Runti
   }
 }
 
+function assertRetainedReviewReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.semantic_delta.kind !== 'task-state' || proposal.semantic_delta.action !== 'consume-retained-review') return;
+  const delta = proposal.semantic_delta;
+  const entry = expectedStepExecutionLog(current, proposal);
+  if (entry.step_id !== delta.step_id
+    || entry.status !== 'completed'
+    || entry.mode !== 'default'
+    || digest(entry.review_receipt) !== digest(delta.review_receipt)
+    || entry.advancement !== 'advanced'
+    || entry.next_step_id !== current.runtimeState.active_step_id
+    || current.runtimeState.pending_review_result !== null
+    || current.runtimeState.scope_amendment_pending_review_step_id !== undefined
+    || current.runtimeState.active_step_status !== 'ready') {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'retained review replay does not match the consumed review and continuation state.');
+  }
+}
+
 function assertReviewResultReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
   if (proposal.semantic_delta.kind !== 'task-state' || proposal.semantic_delta.action !== 'record-review-result') return;
   const pending = current.runtimeState.pending_review_result;
@@ -10716,6 +11365,10 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
     assertStepProgressReplay(current, proposal);
     return;
   }
+  if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'consume-retained-review') {
+    assertRetainedReviewReplay(current, proposal);
+    return;
+  }
   if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'migrate-claim-evidence') {
     assertClaimEvidenceMigrationReplay(root, current, proposal);
     return;
@@ -10724,8 +11377,8 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
     assertReviewResultReplay(current, proposal);
     return;
   }
-  if (proposal.semantic_delta.kind !== 'task-state' || !REPLAN_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as ReplanTaskStateAction)) return;
-  const delta = proposal.semantic_delta as Extract<TaskStateDelta, { action: ReplanTaskStateAction }>;
+  if (proposal.semantic_delta.kind !== 'task-state' || (!REPLAN_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as ReplanTaskStateAction) && proposal.semantic_delta.action !== 'commit-scope-amendment')) return;
+  const delta = proposal.semantic_delta as Extract<TaskStateDelta, { action: ReplanTaskStateAction | 'commit-scope-amendment' }>;
   const audit = expectedReplanReplayAudit(current, proposal);
   assertExecutionAudit(root, current, audit);
   assertNoLaterReplanAudit(current, audit);
@@ -10734,7 +11387,7 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
   } else if (delta.action === 'clear-replan-block') {
     if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') fail('RUNTIME_REPLAY_INCOMPLETE', 'clear-replan-block replay no longer has the active + active tuple.');
   } else {
-    const commitDelta = delta as Extract<TaskStateDelta, { action: 'commit-replan' }>;
+    const commitDelta = delta as Extract<TaskStateDelta, { action: 'commit-replan' | 'commit-scope-amendment' }>;
     if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') fail('RUNTIME_REPLAY_INCOMPLETE', 'commit-replan replay no longer has the active + active tuple.');
     assertReplacementActiveStep(commitDelta.active_step_id, commitDelta.replacement_definition.implementation_steps);
     if (current.runtimeState.active_step_id !== commitDelta.active_step_id || current.runtimeState.active_step_status !== 'ready') fail('RUNTIME_REPLAY_INCOMPLETE', 'commit-replan replay no longer has the replacement active step ready.');
@@ -10806,6 +11459,63 @@ function applyTaskStateDelta(
       next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
       audit,
     };
+  }
+  if (delta.action === 'consume-retained-review') {
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
+    if (proposal.mode !== 'default' || current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('RETAINED_REVIEW_STATE_INVALID', 'Retained review consumption requires an active + active task and default execute-step mode.');
+    }
+    const pending = current.runtimeState.pending_review_result;
+    if (!pending || pending.verdict !== 'clean' || current.runtimeState.scope_amendment_pending_review_step_id !== delta.step_id || pending.step_id !== delta.step_id) {
+      fail('RETAINED_REVIEW_STATE_INVALID', 'The exact clean review retained by a scope amendment is required.');
+    }
+    const receipt = delta.review_receipt;
+    if (receipt.cycle_id !== pending.cycle_id
+      || receipt.cycle_phase !== pending.cycle_phase
+      || receipt.change_set_id !== pending.change_set_id
+      || receipt.review_target_revision !== pending.review_target_revision
+      || digest(receipt.evidence_refs) !== digest(pending.evidence_refs)
+      || receipt.verdict !== 'clean') {
+      fail('RETAINED_REVIEW_RECEIPT_CONFLICT', 'Retained review consumption must bind the exact pending clean review receipt.');
+    }
+    const reviewedExecution = currentDefinitionExecutionLog(current).map(item => 'action' in item
+      ? item
+      : current.runtimeState.scope_amendment_pending_review_step_id === pending.step_id && item.idempotency_key === pending.execution_id
+        ? item
+        : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+      !('action' in item) && item.idempotency_key === pending.execution_id,
+    );
+    if (!reviewedExecution?.execution_result
+      || reviewedExecution.change_set_id !== pending.change_set_id
+      || reviewedExecution.execution_result.review_target.revision !== pending.review_target_revision) {
+      fail('RETAINED_REVIEW_TARGET_CONFLICT', 'The retained clean review no longer binds its Runtime-recorded execution target.');
+    }
+    if (captureReviewTarget(root, reviewedExecution.execution_result.review_target.entries.map(item => item.path)).revision !== pending.review_target_revision) {
+      fail('RETAINED_REVIEW_TARGET_STALE', 'Product files changed after the retained clean review was recorded.');
+    }
+    const openFindings = current.runtimeState.findings.filter(item => ['admitted', 'in-progress'].includes(item.status));
+    if (openFindings.some(item => !receipt.admitted_fingerprints.includes(item.fingerprint))) {
+      fail('REVIEW_CONVERGENCE_REQUIRED', 'A retained clean review cannot bypass an open finding.');
+    }
+    const { scope_amendment_pending_review_step_id: _retainedReviewStepId, ...stateWithoutRetainedReview } = current.runtimeState;
+    const next: RuntimeState = {
+      ...stateWithoutRetainedReview,
+      pending_review_result: null,
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+      execution_log: appendExecutionLogEntry(current.runtimeState, {
+        idempotency_key: proposal.idempotency_key,
+        mode: 'default',
+        step_id: delta.step_id,
+        status: 'completed',
+        evidence_refs: [...delta.evidence_refs],
+        checkpoint: 'required',
+        advancement: 'advanced',
+        next_step_id: current.runtimeState.active_step_id,
+        review_receipt: receipt,
+        recorded_at: now,
+      }),
+    };
+    return { next };
   }
   if (delta.action === 'create-draft') {
     ensureAuthorityKinds(proposal, ['scope-admission', 'evidence-admission']);
@@ -11113,6 +11823,9 @@ function applyTaskStateDelta(
   if (delta.action === 'commit-replan') {
     fail('REPLAN_CONFIRMATION_REQUIRED', 'Direct commit-replan is disabled until a revision-bound candidate, complete prior-obligation disposition, and explicit confirmation are available. CURRENT_TASK was not changed.');
   }
+  if (delta.action === 'commit-scope-amendment') {
+    fail('SCOPE_AMENDMENT_CONFIRMATION_REQUIRED', 'Direct commit-scope-amendment is disabled until a revision-bound scope-amendment candidate and explicit confirmation are available. CURRENT_TASK was not changed.');
+  }
   if (delta.action === 'record-evidence-challenge') {
     ensureAuthorityKinds(proposal, ['active-task-owner', 'evidence-admission']);
     if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') fail('EVIDENCE_CHALLENGE_STATE_INVALID', 'Evidence challenges require the active task.');
@@ -11181,13 +11894,24 @@ function applyTaskStateDelta(
     }
     const coverage = registerReviewCoverage(root, current, delta.candidate_paths);
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+    const inherited = ledger === undefined ? inheritedScopeAmendmentAttemptLedger(root, current, delta.step_id) : null;
     const recovery = ledger?.attempts.at(-1)?.recovery;
     if (recovery && delta.candidate_paths.some(p=>!recovery.repair_paths.includes(p))) fail('RETRY_SCOPE_BLOCKED','Recovered preflight candidates must stay within the admitted diagnosis paths.');
     const initialLedger: StepAttemptLedger = { evidence_plan_revision: current.runtimeState.evidence_plan_revision!, max_attempts: 3,
       attempts: [{ attempt_id: nextStepAttemptId(current), idempotency_key: proposal.idempotency_key, request_digest: null,
         status: 'preflighted', blocker: null, evidence_refs: [...delta.evidence_refs] }] };
     let stepAttempts = current.runtimeState.step_attempts;
-    if (!ledger) {
+    if (!ledger && inherited) {
+      if (inherited.ledger.attempts.length >= inherited.ledger.max_attempts) fail('RETRY_BUDGET_EXHAUSTED', 'The scope-amendment continuation has exhausted the retained attempt budget.');
+      stepAttempts = {
+        ...stepAttempts,
+        [delta.step_id]: {
+          evidence_plan_revision: current.runtimeState.evidence_plan_revision!,
+          max_attempts: inherited.ledger.max_attempts,
+          attempts: [...inherited.ledger.attempts, initialLedger.attempts[0]!],
+        },
+      };
+    } else if (!ledger) {
       stepAttempts = { ...stepAttempts, [delta.step_id]: initialLedger };
     } else if (ledger.attempts.at(-1)?.status === 'ready') {
       stepAttempts = { ...stepAttempts, [delta.step_id]: { ...ledger, attempts: ledger.attempts.map((attempt, index) =>
@@ -11517,8 +12241,9 @@ function applyTaskStateDelta(
       ...(delta.execution_result === undefined ? {} : { execution_result: delta.execution_result }),
       recorded_at: now,
     });
+  const { scope_amendment_pending_review_step_id: _scopeAmendmentPendingReviewStepId, ...stateWithoutScopeAmendmentReviewMarker } = current.runtimeState;
   const next: RuntimeState = {
-    ...current.runtimeState,
+    ...stateWithoutScopeAmendmentReviewMarker,
     active_step_id: advancement.outcome === 'advanced' ? advancement.to_step_id! : current.runtimeState.active_step_id,
     active_step_status: advancement.outcome === 'advanced' ? 'ready' : newStatus,
     ...(advancement.outcome === 'advanced'
@@ -11650,7 +12375,7 @@ function applyFindingQueueDelta(
         ...historical,
         review_cycle_id: finding.review_cycle_id,
         status: 'admitted',
-        repair_attempts: current.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-replan') ? historical.repair_attempts : 0,
+        repair_attempts: current.runtimeState.execution_log.some(item => 'action' in item && (item.action === 'commit-replan' || item.action === 'commit-scope-amendment')) ? historical.repair_attempts : 0,
         last_repair_wave_id: null,
         admitted_at: now,
         updated_at: now,
@@ -13801,6 +14526,38 @@ export function createTaskStateProposal(
   });
 }
 
+export function createRetainedReviewConsumptionProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    step_id: string;
+    review_receipt: StepReviewReceipt;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'execute-step',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'consume-retained-review',
+      step_id: input.step_id,
+      review_receipt: input.review_receipt,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-active', 'retained-scope-amendment-review', 'fresh-review-receipt'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
 export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: string): void {
   const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter(item => item.status !== 'resolved');
   const correctionBatch = unresolvedChallenges.some(item => item.status === 'invalidated' && item.correction_step_id === current.runtimeState.active_step_id);
@@ -14149,6 +14906,37 @@ export function createPrepareTaskReplanProposal(
     requested_write_targets: input.delta.action === 'commit-replan'
       ? [current.relativePath, taskBasisRelativePath(current.relativePath, current.runtimeState.task_id)]
       : [current.relativePath],
+  });
+}
+
+export function createPrepareTaskScopeAmendmentProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    delta: Extract<TaskStateDelta, { action: 'commit-scope-amendment' }>;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): RuntimeProposal {
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...('claim_evidence' in input.delta && input.delta.claim_evidence !== undefined
+      ? claimEvidenceRefs(input.delta.claim_evidence)
+      : []),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'amend-scope',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ['active-or-blocked-task', 'explicit-scope-authorization', 'revision-bound-candidate', 'preserve-review-baseline'],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath, taskBasisRelativePath(current.relativePath, current.runtimeState.task_id)],
   });
 }
 

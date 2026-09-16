@@ -36,6 +36,7 @@ import {
   reviewCycleForNextStep,
   cumulativeReviewExecution,
   createTaskStateProposal,
+  createRetainedReviewConsumptionProposal,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
   resolveTestStrategyExecutionContext,
@@ -647,7 +648,11 @@ export function beginRepair(
   if (!pending || pending.verdict !== 'findings') {
     fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires the current durable review result to contain findings.');
   }
-  const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+  const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item
+    ? item
+    : current.runtimeState.scope_amendment_pending_review_step_id !== undefined && item.idempotency_key === pending.execution_id
+      ? item
+      : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
     !('action' in item) && item.idempotency_key === pending.execution_id,
   );
   if (!reviewedExecution?.execution_result
@@ -1272,7 +1277,11 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
 
   if (receipt.kind === 'execute-step-repair-preflight/v1') {
     const pending = current.runtimeState.pending_review_result;
-    const priorExecution = pending && current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+    const priorExecution = pending && current.runtimeState.execution_log.map(item => 'action' in item
+      ? item
+      : current.runtimeState.scope_amendment_pending_review_step_id !== undefined && item.idempotency_key === pending.execution_id
+        ? item
+        : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
     );
     if (!pending || !priorExecution?.execution_result
@@ -1414,7 +1423,11 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     if (pending.verdict !== 'clean') {
       fail('CLEAN_REVIEW_REQUIRED', `complete-reviewed-step requires clean; current review verdict is ${pending.verdict}.`);
     }
-    const reviewedExecution = currentDefinitionExecutionLog(current).map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+    const reviewedExecution = currentDefinitionExecutionLog(current).map(item => 'action' in item
+      ? item
+      : current.runtimeState.scope_amendment_pending_review_step_id === pending.step_id && item.idempotency_key === pending.execution_id
+        ? item
+        : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
     );
     if (!reviewedExecution?.execution_result
@@ -1450,16 +1463,29 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     return semanticNoOp(current, resultKey, 'This exact reviewed-step completion was already committed.', options);
   }
   assertExecutableTask(current);
-  if (current.runtimeState.active_step_id !== stepId) {
-    fail('ACTIVE_STEP_CONFLICT', `complete-reviewed-step targets ${stepId}, but the current active step is ${current.runtimeState.active_step_id}.`);
-  }
-  const stepPlan = currentStepPlan(current);
   const priorExecution = currentDefinitionExecutionLog(current).some(item =>
     !('action' in item)
     && item.step_id === stepId
     && item.idempotency_key.startsWith('execute-step-result-'),
   );
   if (!priorExecution) fail('EXECUTE_RESULT_REQUIRED', 'complete-reviewed-step requires a prior semantic record-step-result for this step.');
+  const retainedReview = current.runtimeState.active_step_id !== stepId
+    && current.runtimeState.scope_amendment_pending_review_step_id === stepId;
+  if (current.runtimeState.active_step_id !== stepId && !retainedReview) {
+    fail('ACTIVE_STEP_CONFLICT', `complete-reviewed-step targets ${stepId}, but the current active step is ${current.runtimeState.active_step_id}.`);
+  }
+  if (retainedReview) {
+    assertExecutableTask(current);
+    const proposal = createRetainedReviewConsumptionProposal(current, {
+      step_id: stepId,
+      review_receipt: reviewReceipt,
+      evidence_refs: [...reviewReceipt.evidence_refs],
+      idempotency_key: resultKey,
+      authority_evidence: authority(current, ['active-task-owner', 'scope-admission', 'evidence-admission']),
+    });
+    return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+  }
+  const stepPlan = currentStepPlan(current);
   if (reviewReceipt.cycle_id !== current.runtimeState.review_cycle.id) {
     fail('REVIEW_CYCLE_CONFLICT', 'review receipt does not belong to the current Runtime review cycle.');
   }

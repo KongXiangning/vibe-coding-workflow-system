@@ -31,6 +31,15 @@
 4. 用 `confirm-replan` 提交精确 receipt 和 caller-reported 决定。任何来源、候选、证据或写入计划漂移使确认失效；不需要的候选用 `discard-replan` 丢弃。同一时刻仅一个未确认批次。
 5. 通过普通 `preflight-step`、执行、`record-step-result`、`review-context`、`record-review-result` 和 `complete-reviewed-step` 完成恢复。全部步骤已完成而尚未结项时，可以尾部追加恢复。
 
+### 已授权的增量范围延续
+
+当 `execute-step` 发现确实需要新增文件，但用户已经明确授权了这一次精确增量，可由用户在后续独立调用公共 `prepare-task`，模式为 `amend-scope`。这条路线是独立版本化的 `scope-amendment-candidate/v1`，保留旧 `correction-replan/v2` 的 `permission_change: none` 语义。调用者提交精确的新增路径、可选的持久测试路径，以及原授权的来源和原文；Runtime 生成候选 digest 和 receipt，不能把用户原文伪装成对该 digest 的预先批准，也不要求用户重复同一增量的决定。
+
+它可以消费 `blocked_by_replan`、已有代码改动、admitted/in-progress finding 和 pending review。确认后写入新的延续步骤，旧步骤定义、失败和未完成义务、finding、累计审查基线、review cycle 与预算都保留；不会清空 pending review 或重置 review cycle。用户随后仍须独立调用 `begin-repair`/fresh preflight、真实执行、重验、`review-change` 和后续步骤推进，直到 `close-task`；只有 confirm 成功不代表完成。若路径、授权来源或候选内容漂移，Runtime fail closed。
+
+公共 Skill 只返回可受理的 `prepare-task`/`amend-scope` 下一步建议，不在当前调用中自动串联或要求用户手工构造 receipt/authority transition。
+若修订承接的是无 finding 的 clean pending review，用户随后调用 `complete-reviewed-step` 指向原步骤；Runtime 只消费这条已保存的 clean review，并把新延续步骤保持为 ready，仍须独立 fresh preflight、执行和新审查。
+
 结论模式必须同时满足原任务 mutation scope 和项目声明的非可执行边界；`docs/`、扩展名或阅读清单本身不授权写入。执行模式也不能扩大原任务写集。
 
 `pending_step_changes` 只替换从未执行且未 preflight 的后续定义；挂起的已预检步骤保留旧定义，以新 ID 映射其未完成义务。每个旧 claim/slot 和被替换步骤必须有具体去向。改检查方法时用新 check ID 和 `replaces_check_id`，保留原需求、subject paths 和 required boundaries。新 before-step 消费者需要新的前置验证与消费关系。

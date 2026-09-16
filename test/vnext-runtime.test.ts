@@ -36,6 +36,9 @@ import {
   prepareCorrectionReplan,
   confirmCorrectionReplan,
   discardCorrectionReplan,
+  prepareScopeAmendment,
+  confirmScopeAmendment,
+  discardScopeAmendment,
   initializeTaskPreservation,
   recordEvidenceChallenge,
   dismissEvidenceChallenge,
@@ -7858,5 +7861,318 @@ describe('vNext Phase 2 Runtime contract', () => {
     const preserved = fs.readFileSync(resumed.filePath);
     expect(() => prepareCorrectionReplan(root, { ...thirdInput, correction_step: { ...thirdInput.correction_step, id: 'S3-C3-again' } })).toThrow('REPLAN_CANDIDATE_BUDGET_EXHAUSTED');
     expect(fs.readFileSync(resumed.filePath)).toEqual(preserved);
+  });
+
+  test('scope amendment consumes prior authorization across blocked pending review and findings while legacy replan stays closed', () => {
+    const input = singleStepSemanticDraft({
+      claim_evidence: evidencePlanFixture('The authorized continuation preserves the acceptance check', 'step-1'),
+      mutation_scope: { allowed: ['runtime/vnext/src/prepare-task-adapter.ts'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the bounded Runtime fixture',
+        mutation_scope: ['runtime/vnext/src/prepare-task-adapter.ts'],
+        commands: [],
+        validation: ['The bounded Runtime fixture is verified'],
+        review_checkpoint: { policy: 'required', reason: 'Retain a pending review while testing the scope amendment route' },
+      }],
+    });
+    const root = confirmedSemanticRoot(input);
+
+    let current = readCanonicalCurrentTask(root);
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const changed = path.join(root, 'runtime', 'vnext', 'src', 'prepare-task-adapter.ts');
+    fs.mkdirSync(path.dirname(changed), { recursive: true });
+    fs.writeFileSync(changed, 'caller-reported existing implementation change\n', 'utf8');
+    const validation = preflight.current_step.validation[0]!;
+    const result = recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
+      command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes, evidence_refs: ['evidence-report.txt'] })),
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Retain the existing implementation change for later review',
+    });
+    expect(result.status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: review.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness',
+        file: 'runtime/vnext/src/prepare-task-adapter.ts',
+        failure_condition: 'the retained implementation still violates the bounded contract',
+        required_behavior: 'repair and revalidate the bounded contract',
+        root_cause_status: 'confirmed',
+        evidence_refs: ['evidence-report.txt'],
+      }],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+    }).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.pending_review_result?.verdict).toBe('findings');
+    const findingPath = 'runtime/vnext/src/prepare-task-adapter.ts';
+    expect(beginRepair(root, { candidate_paths: [findingPath] }).receipt.kind).toBe('execute-step-repair-preflight/v1');
+    current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.findings[0]?.status).toBe('admitted');
+
+    const oldReplanInput = {
+      challenge_id: 'challenge-not-present',
+      correction_step: { id: 'legacy-correction', description: 'Legacy route must remain closed', mutation_scope: ['runtime/vnext/src/prepare-task-adapter.ts'], required_evidence: ['fresh review'], commands: [] },
+    };
+    expect(() => prepareCorrectionReplan(root, oldReplanInput)).toThrow('REPLAN_CANDIDATE_STATE_INVALID');
+
+    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'mark-replan-blocked', 'scope-amendment-mark-blocked')).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    const pendingReviewId = current.runtimeState.pending_review_result?.review_id;
+    const reviewCycle = structuredClone(current.runtimeState.review_cycle);
+    const amendmentInput = {
+      added_paths: ['src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+      persistent_test_paths: ['test/scope-amendment-regression.test.ts'],
+      authorization: {
+        decision_source: 'user:scope-amendment-request',
+        decision_text: 'Add the two exact paths so the blocked repair can continue; keep the original task and review obligations.',
+        authorized_paths: ['src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+      },
+      amendment_step: {
+        id: 'scope-amend-1',
+        description: 'Apply the explicitly authorized continuation and revalidate it',
+        mutation_scope: ['src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+        required_evidence: ['fresh execution result', 'fresh review of the amended scope'],
+        commands: [],
+      },
+    };
+    const prepared = prepareScopeAmendment(root, amendmentInput);
+    expect(prepared.candidate_receipt.kind).toBe('scope-amendment-candidate-receipt/v1');
+    expect(prepared.candidate_receipt.permission_change).toBe('additive-scope');
+    expect(prepared.evidence_assurance).toBe('caller-reported');
+    const beforeConfirm = readCanonicalCurrentTask(root);
+    const beforePendingReview = beforeConfirm.runtimeState.pending_review_result;
+    const confirmed = confirmScopeAmendment(root, {
+      candidate_receipt: prepared.candidate_receipt,
+      authorization: {
+        approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
+        authorization_kind: 'existing-explicit-decision',
+        decision_source: amendmentInput.authorization.decision_source,
+        decision_text: amendmentInput.authorization.decision_text,
+      },
+    });
+    expect(confirmed.status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.workflow_status).toBe('active');
+    expect(after.runtimeState.active_step_id).toBe('scope-amend-1');
+    expect(after.runtimeState.active_step_status).toBe('ready');
+    expect(after.runtimeState.pending_review_result?.review_id).toBe(pendingReviewId);
+    expect(after.runtimeState.review_cycle).toEqual(reviewCycle);
+    expect(after.runtimeState.review_coverage?.last_clean_revision).toBe(beforeConfirm.runtimeState.review_coverage?.last_clean_revision ?? null);
+    expect(after.runtimeState.findings[0]?.status).toBe('admitted');
+    expect(after.body).toContain('src/authorized-continuation.ts');
+    expect(after.body).toContain('test/scope-amendment-regression.test.ts');
+    expect(after.body).toContain('- step-1: Implement the bounded Runtime fixture');
+    expect(after.body).toContain('- scope-amend-1: Apply the explicitly authorized continuation and revalidate it');
+    expect(readCanonicalTaskBasis(root, after).basis.user_decisions.at(-1)).toEqual({ source: amendmentInput.authorization.decision_source, verbatim: amendmentInput.authorization.decision_text });
+    const audit = after.runtimeState.execution_log.find(item => 'action' in item && item.action === 'commit-scope-amendment');
+    expect(audit && 'candidate_digest' in audit ? audit.candidate_digest : null).toBe(prepared.candidate_receipt.candidate_digest);
+    expect(audit && 'correction_reason' in audit ? audit.correction_reason : '').toContain('caller-reported scope amendment');
+    expect(beforePendingReview).not.toBeNull();
+    const continuation = beginRepair(root, {
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+    });
+    expect(continuation.receipt).toMatchObject({ kind: 'execute-step-repair-preflight/v1', step_id: 'scope-amend-1' });
+    for (const file of ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts']) {
+      const target = path.join(root, ...file.split('/'));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, `scope amendment repair: ${file}\n`, 'utf8');
+    }
+    const repairCommand = continuation.current_step.commands[0]!;
+    expect(recordStepResult(root, {
+      preflight_receipt: continuation.receipt,
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+      command_results: [{ command: repairCommand.command, status: 'passed', observed_repo_writes: ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: continuation.current_step.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Repaired the authorized scope and ran a fresh validation',
+    }).status).toBe('success');
+    const repaired = readCanonicalCurrentTask(root);
+    expect(repaired.runtimeState.scope_amendment_pending_review_step_id).toBeUndefined();
+    expect(repaired.runtimeState.pending_review_result).toBeNull();
+    expect(repaired.runtimeState.findings[0]?.status).toBe('in-progress');
+    const verification = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: verification.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'scope-amend-1', note: 'Fresh amended-scope review passed' }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    expect(confirmScopeAmendment(root, {
+      candidate_receipt: prepared.candidate_receipt,
+      authorization: {
+        approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
+        authorization_kind: 'existing-explicit-decision',
+        decision_source: amendmentInput.authorization.decision_source,
+        decision_text: amendmentInput.authorization.decision_text,
+      },
+    }).status).toBe('no-op');
+  });
+
+  test('scope amendment candidate can be discarded without changing CURRENT_TASK', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const before = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: ['src/discarded-scope.ts'],
+      authorization: { decision_source: 'user:discard-test', decision_text: 'Authorize the exact discarded path for candidate review.', authorized_paths: ['src/discarded-scope.ts'] },
+      step: { id: 'scope-amend-discard', description: 'Review the discarded scope candidate', mutation_scope: ['src/discarded-scope.ts'], required_evidence: ['fresh review'], commands: [] },
+    });
+    expect(discardScopeAmendment(root, { candidate_digest: prepared.candidate_receipt.candidate_digest }).status).toBe('success');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(before);
+    expect(discardScopeAmendment(root, { candidate_digest: prepared.candidate_receipt.candidate_digest }).status).toBe('no-op');
+  });
+
+  test('scope amendment retains and then consumes a clean pending review before the continuation runs', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const oldPath = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const preflight = preflightStep(root, { candidate_paths: [oldPath] });
+    fs.mkdirSync(path.dirname(path.join(root, oldPath)), { recursive: true });
+    fs.writeFileSync(path.join(root, oldPath), 'existing implementation change\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: [oldPath],
+      command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes, evidence_refs: ['evidence-report.txt'] })),
+      validation_results: [{ validation: preflight.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Retain the old step for its pending clean review',
+    }).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: review.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+    }).status).toBe('success');
+    const pending = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const authorization = {
+      decision_source: 'user:clean-review-amendment',
+      decision_text: 'Authorize the exact continuation path while retaining the clean review for the existing change.',
+      authorized_paths: ['src/clean-review-continuation.ts'],
+    };
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: authorization.authorized_paths,
+      authorization,
+      amendment_step: {
+        id: 'scope-amend-clean-review',
+        description: 'Run the newly authorized continuation after the retained review',
+        mutation_scope: authorization.authorized_paths,
+        required_evidence: ['fresh continuation review'],
+        commands: [],
+      },
+    });
+    expect(confirmScopeAmendment(root, {
+      candidate_receipt: prepared.candidate_receipt,
+      authorization: {
+        approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
+        authorization_kind: 'existing-explicit-decision',
+        decision_source: authorization.decision_source,
+        decision_text: authorization.decision_text,
+      },
+    }).status).toBe('success');
+    const amended = readCanonicalCurrentTask(root);
+    expect(amended.runtimeState.active_step_id).toBe('scope-amend-clean-review');
+    expect(amended.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
+    expect(amended.runtimeState.scope_amendment_pending_review_step_id).toBe('step-1');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Consume the retained clean review before continuation' }).status).toBe('success');
+    const continued = readCanonicalCurrentTask(root);
+    expect(continued.runtimeState.active_step_id).toBe('scope-amend-clean-review');
+    expect(continued.runtimeState.active_step_status).toBe('ready');
+    expect(continued.runtimeState.pending_review_result).toBeNull();
+    expect(continued.runtimeState.scope_amendment_pending_review_step_id).toBeUndefined();
+  });
+
+  test('scope amendment records a step-only increment and shares the pending candidate slot with correction replan', () => {
+    const stepOnlyPath = 'src/already-authorized.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: {
+        allowed: ['runtime/vnext/src/prepare-task-adapter.ts', stepOnlyPath],
+        conditional: [],
+        forbidden: ['.git/**'],
+      },
+    }));
+    const authorization = {
+      decision_source: 'user:step-only-amendment',
+      decision_text: 'Authorize the exact step-only path that is already in the task boundary.',
+      authorized_paths: [stepOnlyPath],
+    };
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: [stepOnlyPath],
+      authorization,
+      amendment_step: {
+        id: 'scope-amend-step-only',
+        description: 'Use the already-authorized path in the continuation step',
+        mutation_scope: [stepOnlyPath],
+        required_evidence: ['fresh step-only review'],
+        commands: [],
+      },
+    });
+    const candidatePath = path.join(root, ...prepared.candidate_path.split('/'));
+    const candidate = JSON.parse(fs.readFileSync(candidatePath, 'utf8')) as { scope_diff: { added_paths: string[] }; step_diff: { scope_paths: string[] }; input: { added_paths: string[] } };
+    expect(candidate.scope_diff.added_paths).toEqual([]);
+    expect(candidate.step_diff.scope_paths).toEqual([stepOnlyPath]);
+    expect(candidate.input.added_paths).toEqual([stepOnlyPath]);
+    expect(() => prepareCorrectionReplan(root, {})).toThrow('REPLAN_CANDIDATE_CONFLICT');
+  });
+
+  test('fixed tgz installation drives the Node CLI scope-amendment path end to end', { timeout: 120000 }, () => {
+    const target = confirmedSemanticRoot(singleStepSemanticDraft());
+    const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-package-'));
+    const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-tgz-'));
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    temporaryRoots.push(packageRoot, packDirectory);
+    buildVibeGovernanceDistribution({ outputRoot: packageRoot });
+    const packed = spawnSync(npm, ['pack', '--ignore-scripts', '--no-audit', '--no-fund', '--pack-destination', packDirectory], { cwd: packageRoot, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(packed.status).toBe(0);
+    const tgz = fs.readdirSync(packDirectory).find(name => name.endsWith('.tgz'));
+    expect(tgz).toBeTruthy();
+
+    const consumer = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-consumer-'));
+    temporaryRoots.push(consumer);
+    fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'fixed-tgz-consumer', private: true }) + '\n', 'utf8');
+    const installed = spawnSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(packDirectory, tgz!)], { cwd: consumer, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(installed.status).toBe(0);
+    const distributionCli = path.join(consumer, 'node_modules', 'vibe-governance', 'dist', 'cli.js');
+    const install = spawnSync('node', [distributionCli, 'install', '--root', target, '--json'], { cwd: consumer, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(install.status).toBe(0);
+    const runtimeCli = path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
+    const input = {
+      added_paths: ['src/tgz-authorized-continuation.ts'],
+      authorization: {
+        decision_source: 'user:fixed-tgz-e2e',
+        decision_text: 'Authorize this exact continuation path for the blocked task.',
+        authorized_paths: ['src/tgz-authorized-continuation.ts'],
+      },
+      amendment_step: {
+        id: 'tgz-amend-1',
+        description: 'Apply and verify the fixed tgz continuation',
+        mutation_scope: ['src/tgz-authorized-continuation.ts'],
+        required_evidence: ['fresh fixed tgz preflight and review'],
+        commands: [],
+      },
+    };
+    const prepared = spawnSync('node', [runtimeCli, 'prepare-scope-amendment', '--root', target], { cwd: target, input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(prepared.status).toBe(0);
+    const receipt = JSON.parse(prepared.stdout).candidate_receipt;
+    const confirmed = spawnSync('node', [runtimeCli, 'confirm-scope-amendment', '--root', target], {
+      cwd: target,
+      input: JSON.stringify({ candidate_receipt: receipt, authorization: { approved_candidate_digest: receipt.candidate_digest, authorization_kind: 'existing-explicit-decision', decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } }),
+      encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    expect(confirmed.status).toBe(0);
+    const preflight = spawnSync('node', [runtimeCli, 'preflight-step', '--root', target], { cwd: target, input: JSON.stringify({ candidate_paths: ['src/tgz-authorized-continuation.ts'] }), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(preflight.status).toBe(0);
+    const summary = spawnSync('node', [runtimeCli, 'validate', '--summary', '--root', target], { cwd: target, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    expect(summary.status).toBe(0);
+    expect(JSON.parse(summary.stdout).summary.active_step_id).toBe('tgz-amend-1');
   });
 });

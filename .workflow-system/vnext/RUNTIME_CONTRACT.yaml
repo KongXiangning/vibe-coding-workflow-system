@@ -142,6 +142,7 @@ proposal:
       - retry-step
       - record-step-preflight
       - step-progress
+      - consume-retained-review
       - clear-resume-review-gate
       - create-draft
       - update-draft
@@ -153,6 +154,7 @@ proposal:
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
+      - commit-scope-amendment
     retry_step:
       max_attempts: 3
       environment_report: environment-restored/v1
@@ -414,6 +416,9 @@ proposal:
         - prepare-replan
         - confirm-replan
         - discard-replan
+        - prepare-scope-amendment
+        - confirm-scope-amendment
+        - discard-scope-amendment
         - initialize-preservation
       draft_fields:
         - task_basis
@@ -506,6 +511,7 @@ proposal:
       - migrate-claim-evidence
       - mark-replan-blocked
       - clear-replan-block
+      - commit-scope-amendment
     draft_mode: default
     draft_actions:
       - create-draft
@@ -521,12 +527,16 @@ proposal:
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
+    scope_amendment_mode: amend-scope
+    scope_amendment_actions:
+      - commit-scope-amendment
     direct_replan_result: REPLAN_CONFIRMATION_REQUIRED
     task_history:
       initialization_preimage: exact-current-task-and-linked-task-basis-before-version-marker
       supersede_preimage: exact-current-task-and-linked-task-basis
       confirmed_replan_preimage: exact-current-task-and-linked-task-basis-before-publish
       correction_candidate: independent-revision-bound-candidate-with-full-old-obligations
+      scope_amendment_candidate: independent-versioned-additive-candidate-with-caller-reported-authorization-and-preserved-obligations
       evidence_carry_forward: runtime-derived-old-report-and-subject-verified
       external_evidence: references-remain-references-explicit-bounded-content-ingestion
       interrupted_commit: fail-closed-lock-and-hash-recovery

@@ -280,6 +280,7 @@ capabilities:
       - 'counterevidence binds an existing claim/slot/result and a retained file hash; contested conclusions block dependent execution and closure without rewriting historical reports'
       - 'a contested challenge may be dismissed only with a bound, hashed review assessment; dismissal retains the challenge and original report'
       - 'correction-replan-candidate/v2 supports conclusion-correction and execution-recovery with bounded targets, forward-fix/artifact-restore/mixed, complete obligation mapping, immutable executed definitions, new check identities, and revision-bound pending-step changes'
+      - 'scope-amendment-candidate/v1 is an independent additive route: it consumes caller-reported explicit authorization for exact new paths, preserves pending review/findings/obligations/review baseline/budget, and never changes the legacy correction-replan/v2 permission_change:none semantics'
       - 'confirmation preserves task identity, original request, acceptance and total authority; binds source, Basis, candidate, evidence admission, restore plan and all old obligations; authorization remains caller-reported'
       - 'partial correction of multiple challenges against one report retains the original result references; later batches traverse bounded confirmed correction relationships backed by verified source preimages, real results and clean completion snapshots, retaining both selected challenge origins and the reports actually replaced and require fresh evidence and review'
       - 'recovery problem budgets inherit through confirmed execution targets and replacement step identities, including historical v2 candidates; a new step ID cannot reset retained failures; raw step-progress also requires the durable current admitted attempt'
@@ -519,6 +520,7 @@ runtime_operations:
       - review-change
     bound_actions:
       - execute-step:step-progress
+      - execute-step:default:consume-retained-review
       - review-change:default:record-review-result
       - review-change:default:record-evidence-challenge
       - review-change:default:dismiss-evidence-challenge
@@ -529,6 +531,7 @@ runtime_operations:
       - prepare-task:default:migrate-claim-evidence
       - prepare-task:replan:mark-replan-blocked
       - prepare-task:replan:clear-replan-block
+      - prepare-task:amend-scope:commit-scope-amendment
 
   - id: finding-queue-transaction
     status: bound

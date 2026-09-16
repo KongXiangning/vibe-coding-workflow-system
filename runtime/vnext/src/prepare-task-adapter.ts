@@ -29,6 +29,9 @@ import {
   prepareCorrectionReplan,
   confirmCorrectionReplan,
   discardCorrectionReplan,
+  prepareScopeAmendment,
+  confirmScopeAmendment,
+  discardScopeAmendment,
   initializeTaskPreservation,
   readCanonicalCurrentTask,
   readCanonicalTaskBasis,
@@ -64,6 +67,9 @@ export const PREPARE_TASK_ADAPTER_COMMANDS = [
   'discard-replan',
   'initialize-preservation',
   'suspend-recovery',
+  'prepare-scope-amendment',
+  'confirm-scope-amendment',
+  'discard-scope-amendment',
 ] as const;
 
 export type PrepareTaskAdapterCommand = (typeof PREPARE_TASK_ADAPTER_COMMANDS)[number];
@@ -1043,6 +1049,15 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
         break;
       case 'discard-replan':
         result = discardCorrectionReplan(args.root, input, options);
+        break;
+      case 'prepare-scope-amendment':
+        result = prepareScopeAmendment(args.root, input, options);
+        break;
+      case 'confirm-scope-amendment':
+        result = confirmScopeAmendment(args.root, input, options);
+        break;
+      case 'discard-scope-amendment':
+        result = discardScopeAmendment(args.root, input, options);
         break;
       case 'initialize-preservation':
         result = initializeTaskPreservation(args.root, input, options);
