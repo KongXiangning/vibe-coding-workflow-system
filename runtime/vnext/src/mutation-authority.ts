@@ -366,8 +366,8 @@ export function evaluateMutationAuthority(input: {
     }
     const planned = input.planned_targets.some(pattern => mutationScopePatternMatchesPath(target, pattern));
     const assessment = byPath.get(target);
-    const persistentTest = isLikelyPersistentTestPath(target);
     const persistentAllowed = (input.persistent_test_paths ?? []).includes(target);
+    const persistentTest = persistentAllowed || isLikelyPersistentTestPath(target);
     if (persistentTest && touch === 'absent' && !persistentAllowed) {
       decisions.push({ path: target, status: 'blocked', domain, reason: 'new persistent test lacks P-12 admission', first_touch_state: touch });
       blockers.push(`PERSISTENT_TEST_UNADMITTED: ${target}`);

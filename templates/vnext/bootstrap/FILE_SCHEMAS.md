@@ -230,11 +230,15 @@ prepare-task default. If no mode can be selected reliably, prepare-task must
 resolve it as a user-owned open question before committing the draft. A
 behavior-changing task cannot use `not-applicable` merely to avoid tests.
 Executable inferred-default uses `flexible`; no tests-only first step or
-mandatory Red follows from step index. For an explicitly authorized
-`test-first` flow, a test-only candidate set may be represented by Runtime as
-the per-execution admission phase `red`; this is not a task-wide rule and is
-not inferred from step position. Replacement preflight keeps that phase, so a
-product target discovered during Red is rejected before Runtime state changes.
+mandatory Red follows from step index alone. For an explicitly authorized
+`test-first` flow, Runtime may represent the per-execution admission phase as
+`red` only when the current step has a frozen, unconsumed before-step
+expected-failure obligation. Candidate filenames and candidate composition do
+not select the phase. Red admits only exact paths in the frozen Persistent
+Tests section, including non-typical test paths; its `required_outcome` remains
+`implemented`, because expected-failure evidence is the reproduction proof.
+Replacement preflight preserves that phase and rejects a product target before
+Runtime state changes.
 Explicit test-first/implementation-first must retain its source and rationale
 and bind approved before-step slots; absent prerequisites remain
 `TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`.
@@ -266,7 +270,9 @@ never synthesizes the marker. S2 additionally requires the frozen evidence plan 
 reports or prerequisite receipts for old records.
 
 Preflight exposes `execution_phase: flexible` and `required_outcome: implemented`
-for ordinary tasks. Newly admitted tests may pass immediately. All planned command
+for ordinary tasks. A test-first reproduction preflight may expose
+`execution_phase: red`, but still exposes `required_outcome: implemented`.
+Newly admitted tests may pass immediately. All planned command
 and validation results must pass or match an admitted reproduction for implemented; expected-failure cannot satisfy
 positive acceptance. Historical test-red/expected-failure structures remain readable;
 new expected-failure results require the exact admitted before-step reproduction

@@ -157,8 +157,8 @@ function strategyAdmission(input: ExecutionAdmissionInput, target: string): Exec
       return blocked(target, 'blocked-non-executable-policy', 'not-applicable execution may mutate only the project non-executable boundary.');
     }
   }
-  if (input.phase === 'red' && !isLikelyPersistentTestPath(target)) {
-    return blocked(target, 'blocked-test-strategy', 'test-first Red execution admits test targets only; product targets require the later Green phase.');
+  if (input.phase === 'red' && !(input.persistent_test_paths ?? []).includes(target)) {
+    return blocked(target, 'blocked-test-strategy', 'test-first Red execution admits only frozen Persistent Tests; product targets require the later execution phase.');
   }
   return null;
 }
@@ -200,9 +200,8 @@ function evaluateV2(input: ExecutionAdmissionInput, target: string): ExecutionTa
   if (result.status !== 'pass' || !decision || decision.status === 'blocked') {
     return blockerForDecision(target, decision, result.blockers);
   }
-  const isNewPersistentTest = isLikelyPersistentTestPath(target)
-    && decision.first_touch_state === 'absent'
-    && (input.persistent_test_paths ?? []).includes(target);
+  const isNewPersistentTest = (input.persistent_test_paths ?? []).includes(target)
+    && decision.first_touch_state === 'absent';
   const classification = decision.status === 'self-admitted'
     ? 'dynamic-self-admitted'
     : isNewPersistentTest
@@ -260,17 +259,4 @@ export function evaluateExecutionTargetAdmissions(input: ExecutionAdmissionBatch
     dynamic_review_required: decisions.some(decision => decision.dynamic_review_required),
     blockers,
   };
-}
-
-/**
- * Resolve the phase for a new preflight without trusting a caller-provided
- * phase.  A test-first candidate set consisting only of test targets enters
- * Red; extensions reuse the phase stored by the active preflight identity.
- */
-export function executionPhaseForCandidatePaths(
-  mode: ExecutionAdmissionPhase,
-  candidatePaths: readonly string[],
-): ExecutionAdmissionPhase {
-  if (mode === 'test-first' && candidatePaths.length > 0 && candidatePaths.every(isLikelyPersistentTestPath)) return 'red';
-  return mode;
 }

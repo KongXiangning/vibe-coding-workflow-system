@@ -231,11 +231,15 @@ step, mode, execution identity, and receipt token. Admission failures are
 validated before the extension transaction can change Runtime state.
 
 Test-strategy phase restrictions apply to initial and replacement preflights
-equally. In a `test-first` Red execution, a test-only candidate may be
-admitted, while a newly discovered product target is rejected before the
-extension commit. A `not-applicable` task remains closed under discovery: every
-later target must still match the project profile's bounded
-`non_executable_change_paths`, not merely the original planned targets.
+equally. Runtime derives a `test-first` Red admission constraint only from the
+current step's frozen, unconsumed before-step expected-failure obligation;
+candidate filenames and mixed candidate composition cannot change that phase.
+Red admits only exact frozen Persistent Tests, including non-typical test
+paths, while the receipt's required outcome remains `implemented` and the
+expected-failure evidence carries the reproduction proof. A `not-applicable`
+task remains closed under discovery: every later target must still match the
+project profile's bounded `non_executable_change_paths`, not merely the
+original planned targets.
 
 Legacy tasks with a missing or version-1 authority marker retain the existing
 `Allowed` / `Conditional` / `Forbidden` plus step-hard-scope semantics. v1 is

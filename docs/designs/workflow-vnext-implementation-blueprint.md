@@ -357,11 +357,16 @@ preflight in the same state shape, and repair discovery uses the same
 validated before coverage, preimage, expansion, or proposal state is mutated.
 
 The evaluator applies test-strategy and non-executable policy on every target,
-not only on the initial planned set. Thus a test-first Red receipt cannot add a
-product target in a replacement preflight, and a not-applicable task cannot
-discover executable code merely because its domain is authorized. Existing
-same-envelope test files use ordinary assessed admission; only an absent new
-persistent test needs the existing P-12 admission record.
+not only on the initial planned set. Runtime derives a test-first Red
+constraint from the current step's frozen, unconsumed before-step
+expected-failure obligation, never from candidate filenames or composition.
+Thus a mixed or replacement preflight cannot add a product target while that
+obligation is pending. Red admits exact frozen Persistent Tests, including
+non-typical paths, but its receipt still requires `implemented`; the
+expected-failure evidence carries reproduction proof. A not-applicable task
+cannot discover executable code merely because its domain is authorized.
+Existing same-envelope test files use ordinary assessed admission; only an
+absent new persistent test needs the existing P-12 admission record.
 
 ### 3.7 Trusted Authority Channel architecture freeze
 

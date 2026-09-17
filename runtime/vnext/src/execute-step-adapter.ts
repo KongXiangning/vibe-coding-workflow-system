@@ -42,7 +42,7 @@ import {
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
   resolveTestStrategyExecutionContext,
-  executionPhaseForCandidatePaths,
+  executionPhaseForCurrentStep,
   validateRuntimeEnvironment,
   validateRuntimeReviewTarget,
   validateVNextRuntimeContract,
@@ -665,7 +665,7 @@ function assertCurrentReceipt(current: CanonicalCurrentTask, stepPlan: StepPlan,
   const activePreflight = current.runtimeState.execution_preflight;
   const expectedPhase = activePreflight?.step_id === receipt.step_id
     ? activePreflight.execution_phase
-    : executionPhaseForCandidatePaths(strategy.phase, receipt.candidate_paths);
+    : executionPhaseForCurrentStep(current, strategy);
   if (receipt.test_strategy_mode !== strategy.mode || receipt.execution_phase !== expectedPhase) {
     fail('EXECUTE_PREFLIGHT_STALE', 'the frozen test strategy or current execution phase changed after preflight.');
   }
@@ -767,7 +767,7 @@ export function beginRepair(
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
-  const phase = executionPhaseForCandidatePaths(strategy.phase, candidatePaths);
+  const phase = executionPhaseForCurrentStep(current, strategy);
   assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'repair', phase);
   assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'repair');
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
@@ -884,7 +884,7 @@ export function beginRepair(
     operation_kind: 'execute-step-repair-preflight',
     committed: preflightResult.committed,
     read_back_verified: options.dryRun ? true : preflightResult.read_back_verified,
-    current_step: currentStepResult(stepPlan, { ...strategy, phase: receipt.execution_phase, required_outcome: receipt.execution_phase === 'red' ? 'test-red' : 'implemented' }),
+    current_step: currentStepResult(stepPlan, { ...strategy, phase: receipt.execution_phase }),
     context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', 'repair'),
     receipt,
   };
@@ -996,7 +996,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
-  const phase = executionPhaseForCandidatePaths(strategy.phase, candidatePaths);
+  const phase = executionPhaseForCurrentStep(current, strategy);
   assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'default', phase);
   assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'default');
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
@@ -1033,8 +1033,8 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   if (!preflightId) preflightId = current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.idempotency_key;
   const executionPreflight = current.runtimeState.execution_preflight;
   const activeStrategy = executionPreflight?.step_id === stepPlan.step.id
-    ? { ...strategy, phase: executionPreflight.execution_phase, required_outcome: executionPreflight.execution_phase === 'red' ? 'test-red' as const : 'implemented' as const }
-    : { ...strategy, phase, required_outcome: phase === 'red' ? 'test-red' as const : 'implemented' as const };
+    ? { ...strategy, phase: executionPreflight.execution_phase }
+    : { ...strategy, phase };
   const receipt: ExecuteStepPreflightReceipt = {
     kind: 'execute-step-preflight/v1',
     ...(preflightId ? { preflight_id: preflightId } : {}),
@@ -1119,8 +1119,8 @@ export function extendPreflight(
   const active = next.runtimeState.execution_preflight;
   const nextStrategy = resolveTestStrategyExecutionContext(next);
   const activeStrategy = active
-    ? { ...nextStrategy, phase: active.execution_phase, required_outcome: active.execution_phase === 'red' ? 'test-red' as const : 'implemented' as const }
-    : { ...nextStrategy, phase: receipt.execution_phase, required_outcome: receipt.execution_phase === 'red' ? 'test-red' as const : 'implemented' as const };
+    ? { ...nextStrategy, phase: active.execution_phase }
+    : { ...nextStrategy, phase: receipt.execution_phase };
   if (receipt.mode === 'repair') {
     const repairReceipt: ExecuteStepRepairPreflightReceipt = {
       kind: 'execute-step-repair-preflight/v1',
@@ -1552,9 +1552,6 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     if (acceptanceEvidence.length > 0) {
       fail('TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', 'test-red evidence cannot satisfy final acceptance claims before implementation reaches Green.');
     }
-  }
-  if (strategy.phase === 'red' && outcome === 'implemented') {
-    fail('TEST_STRATEGY_SEQUENCE_INVALID', 'the first test-first step cannot report implemented; it must establish test-red or report a truthful blocker.');
   }
   if (outcome === 'blocked' && note === null) {
     fail('EXECUTE_RESULT_BLOCKED', 'blocked requires a concise blocker in note.');

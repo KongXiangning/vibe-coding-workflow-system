@@ -155,12 +155,14 @@ capabilities:
     input_contract:
       - project domain map, task authority envelope, exact exceptions, and forbidden targets
       - planned mutation footprint and actual changed target
+      - Runtime-derived execution phase from the frozen Test Strategy and current-step evidence obligation; candidate-path composition cannot select the phase
       - blast-radius evidence covering locality, visibility, consumers, contract impact, and regression coverage
       - read/discovery findings across domains, kept separate from write authority
     output_contract:
       - bounded self-admit or escalate disposition for an in-envelope unplanned target
       - smallest-correct-local-change decision with evidence for any broader shared change
       - explicit authority-amendment blocker for cross-domain or unclassified writes
+      - distinct runtime errors for missing blast-radius assessment, escalated assessment, and true authority expansion
       - planned, expanded, and actual footprint material for cumulative review
     stop_conditions:
       - authority ownership cannot be resolved from the project domain map

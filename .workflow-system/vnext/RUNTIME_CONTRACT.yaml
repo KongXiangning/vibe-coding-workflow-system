@@ -182,6 +182,10 @@ proposal:
         - test-strategy-and-non-executable-policy
         - v1-or-v2-authority
         - assessment-and-persistent-test-admission
+      error_mapping:
+        blocked_assessment: MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED
+        blocked_escalation: MUTATION_BLAST_RADIUS_ESCALATION_REQUIRED
+        blocked_authority: MUTATION_AUTHORITY_EXPANSION_REQUIRED
       semantic_boundary: runtime-owns-structural-checks-agent-owns-blast-radius-judgment
     retry_step:
       max_attempts: 3
@@ -410,7 +414,7 @@ proposal:
       command_plan_source: confirmed-current-step
       persistent_tests_enforcement: frozen-section-plus-authority-evaluator-existing-test-distinction
       test_strategy_execution:
-        phase_source: versioned-frozen-test-strategy
+        phase_source: versioned-frozen-test-strategy-and-current-step-evidence-obligation
         legacy_behavior: read-history-block-unversioned-execution
         test_first:
           first_step_phase: test-first
@@ -876,7 +880,7 @@ mutation_authority:
   extension_action: execute-step:extend-preflight
   extension_identity: stable-execution-id-with-current-receipt-token
   repair_extension: same-execution-admission-evaluator-and-repair-wave
-  test_strategy_dynamic_policy: every-preflight-and-extension-uses-current-phase-before-state-mutation
+  test_strategy_dynamic_policy: every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation
   non_executable_dynamic_policy: not-applicable-remains-closed-under-all-target-discovery
   authority_amendment: prepare-task:amend-scope-with-explicit-user-authorization
   existing_test_behavior: existing-in-envelope-test-is-ordinary-expansion-with-review

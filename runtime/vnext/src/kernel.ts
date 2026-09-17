@@ -84,7 +84,6 @@ import {
 import {
   EXECUTION_ADMISSION_CLASSIFICATIONS,
   evaluateExecutionTargetAdmissions,
-  executionPhaseForCandidatePaths,
   type ExecutionAdmissionEvaluation,
   type ExecutionAdmissionMode,
   type ExecutionAdmissionPhase,
@@ -386,7 +385,7 @@ export type TestStrategyExecutionPhase = 'flexible' | 'test-first' | 'red' | 'gr
 export type TestStrategyExecutionContext = {
   mode: TestStrategyMode | 'legacy';
   phase: TestStrategyExecutionPhase;
-  required_outcome: 'test-red' | 'implemented';
+  required_outcome: 'implemented';
   persistent_tests: string[];
   step_index: number;
   first_step_id: string;
@@ -1838,9 +1837,13 @@ function executionAdmissionErrorCode(
   if (decision.classification === 'blocked-test-strategy') return 'TEST_STRATEGY_SEQUENCE_INVALID';
   if (decision.classification === 'blocked-persistent-test') return current.mutationAuthority ? 'PERSISTENT_TEST_UNADMITTED' : 'EXECUTE_SCOPE_BLOCKED';
   if (decision.classification === 'blocked-non-executable-policy') return 'TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION';
-  if (decision.classification === 'blocked-assessment') return 'MUTATION_AUTHORITY_EXPANSION_REQUIRED';
+  if (decision.classification === 'blocked-assessment') {
+    return decision.assessment?.disposition === 'escalate'
+      ? 'MUTATION_BLAST_RADIUS_ESCALATION_REQUIRED'
+      : 'MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED';
+  }
   if (current.mutationAuthority && evaluation.blockers.some(item => item.startsWith('blocked-authority:') && item.includes('requires blast-radius assessment'))) {
-    return 'MUTATION_AUTHORITY_EXPANSION_REQUIRED';
+    return 'MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED';
   }
   if (current.mutationAuthority && evaluation.blockers.some(item => item.includes('MUTATION_AUTHORITY_EXPANSION_REQUIRED'))) {
     return 'MUTATION_AUTHORITY_EXPANSION_REQUIRED';
@@ -1855,11 +1858,11 @@ function executionAdmissionErrorCode(
 }
 
 function resolveNewExecutionPhase(
+  current: CanonicalCurrentTask,
   strategy: TestStrategyExecutionContext,
-  candidatePaths: readonly string[],
   declaredPhase?: TestStrategyExecutionPhase,
 ): TestStrategyExecutionPhase {
-  const phase = executionPhaseForCandidatePaths(strategy.phase, candidatePaths);
+  const phase = executionPhaseForCurrentStep(current, strategy);
   if (declaredPhase !== undefined && declaredPhase !== phase) {
     fail('EXECUTE_PREFLIGHT_STALE', `preflight execution phase ${declaredPhase} does not match the Runtime-derived phase ${phase}.`);
   }
@@ -1879,7 +1882,10 @@ export function evaluateCurrentExecutionTargetAdmissions(
 ): ExecutionAdmissionEvaluation {
   const strategy = resolveTestStrategyExecutionContext(current);
   const mode = input.mode ?? 'default';
-  const phase = input.phase ?? executionPhaseForCandidatePaths(strategy.phase, input.target_paths);
+  const phase = executionPhaseForCurrentStep(current, strategy);
+  if (input.phase !== undefined && input.phase !== phase) {
+    fail('EXECUTE_PREFLIGHT_STALE', `execution phase ${input.phase} does not match the Runtime-derived phase ${phase}.`);
+  }
   const stepScope = input.step_mutation_scope ?? (() => {
     const step = resolveCanonicalTaskStep(current).current;
     return (step.mutation_scope ?? '').split(',').map(value => value.trim().replace(/^`|`$/gu, '')).filter(Boolean);
@@ -2310,7 +2316,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime contract task-state actions',
   );
   const executionAdmissionContract = expectRecord(taskStateContract.execution_admission, 'Runtime contract.proposal.task_state.execution_admission');
-  expectExactKeys(executionAdmissionContract, ['evaluator', 'question', 'shared_by', 'classifications', 'mutation_order', 'semantic_boundary'], 'Runtime contract.proposal.task_state.execution_admission');
+  expectExactKeys(executionAdmissionContract, ['evaluator', 'question', 'shared_by', 'classifications', 'mutation_order', 'error_mapping', 'semantic_boundary'], 'Runtime contract.proposal.task_state.execution_admission');
   if (
     executionAdmissionContract.evaluator !== 'runtime-owned-exact-target-admission/v1'
     || executionAdmissionContract.question !== 'current-task-step-phase-target-assessment-may-enter-this-execution'
@@ -2333,6 +2339,13 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['explicit-forbidden-and-governance', 'test-strategy-and-non-executable-policy', 'v1-or-v2-authority', 'assessment-and-persistent-test-admission'],
     'Runtime execution admission mutation order',
   );
+  const executionAdmissionErrors = expectRecord(executionAdmissionContract.error_mapping, 'Runtime contract.proposal.task_state.execution_admission.error_mapping');
+  expectExactKeys(executionAdmissionErrors, ['blocked_assessment', 'blocked_escalation', 'blocked_authority'], 'Runtime contract.proposal.task_state.execution_admission.error_mapping');
+  if (executionAdmissionErrors.blocked_assessment !== 'MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED'
+    || executionAdmissionErrors.blocked_escalation !== 'MUTATION_BLAST_RADIUS_ESCALATION_REQUIRED'
+    || executionAdmissionErrors.blocked_authority !== 'MUTATION_AUTHORITY_EXPANSION_REQUIRED') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime execution admission error mapping is invalid.');
+  }
   const retryContract = expectRecord(taskStateContract.retry_step, 'Runtime contract.proposal.task_state.retry_step');
   expectExactKeys(retryContract, ['max_attempts','environment_report','same_plan_repair_diagnosis','repair_paths','failure_preservation','result_required'], 'Runtime contract.proposal.task_state.retry_step');
   if (retryContract.max_attempts !== 3 || retryContract.environment_report !== 'environment-restored/v1' || retryContract.same_plan_repair_diagnosis !== 'same-plan-repair/v1' || retryContract.repair_paths !== 'failed-preflight-subset' || retryContract.failure_preservation !== 'durable-step-attempts' || retryContract.result_required !== 'fresh-preflight-and-execution') fail('RUNTIME_CONTRACT_INVALID','Runtime retry contract must retain bounded same-plan recovery and fresh execution.');
@@ -2571,7 +2584,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || executeStepAdapter.advancement_owner !== 'runtime'
     || executeStepAdapter.post_completion_commit_owner !== 'user-or-explicit-outer-orchestrator'
     || executeStepAdapter.post_completion_route !== 'git-commit'
-    || testStrategyExecution.phase_source !== 'versioned-frozen-test-strategy'
+    || testStrategyExecution.phase_source !== 'versioned-frozen-test-strategy-and-current-step-evidence-obligation'
     || testStrategyExecution.legacy_behavior !== 'read-history-block-unversioned-execution'
     || testStrategyExecution.non_red_outcome !== 'implemented-with-passed-results-or-bound-reproduction'
     || testFirstExecution.first_step_phase !== 'test-first'
@@ -3006,7 +3019,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || mutationAuthorityContract.extension_action !== 'execute-step:extend-preflight'
     || mutationAuthorityContract.extension_identity !== 'stable-execution-id-with-current-receipt-token'
     || mutationAuthorityContract.repair_extension !== 'same-execution-admission-evaluator-and-repair-wave'
-    || mutationAuthorityContract.test_strategy_dynamic_policy !== 'every-preflight-and-extension-uses-current-phase-before-state-mutation'
+    || mutationAuthorityContract.test_strategy_dynamic_policy !== 'every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation'
     || mutationAuthorityContract.non_executable_dynamic_policy !== 'not-applicable-remains-closed-under-all-target-discovery'
     || mutationAuthorityContract.authority_amendment !== 'prepare-task:amend-scope-with-explicit-user-authorization'
     || mutationAuthorityContract.existing_test_behavior !== 'existing-in-envelope-test-is-ordinary-expansion-with-review'
@@ -4410,6 +4423,32 @@ function executionPhaseForStrategy(strategy: TestStrategyDefinition): TestStrate
   return strategy.mode;
 }
 
+/**
+ * Derive the current execution restriction from the frozen strategy and its
+ * frozen evidence obligation. Candidate path composition is deliberately not
+ * an input: callers cannot opt out of test-first ordering by mixing a product
+ * path into the candidate set.
+ */
+export function executionPhaseForCurrentStep(
+  current: CanonicalCurrentTask,
+  strategy = resolveTestStrategyExecutionContext(current),
+): TestStrategyExecutionPhase {
+  if (strategy.mode !== 'test-first') return strategy.phase;
+  const resolution = resolveCanonicalTaskStep(current);
+  const currentStepId = resolution.current.id;
+  const currentStepIndex = resolution.index;
+  const hasPendingReproduction = (current.runtimeState.claim_evidence ?? []).some(record => record.slots.some(slot => {
+    if (slot.due_step_id !== currentStepId
+      || slot.applicability !== 'before-step'
+      || slot.prerequisite_receipt
+      || slot.check?.expected_result !== 'expected-failure'
+      || !slot.before_step_id) return false;
+    const beforeStepIndex = resolution.steps.findIndex(step => step.id === slot.before_step_id);
+    return beforeStepIndex > currentStepIndex;
+  }));
+  return hasPendingReproduction ? 'red' : strategy.phase;
+}
+
 export function resolveTestStrategyExecutionContext(current: CanonicalCurrentTask): TestStrategyExecutionContext {
   assertBusinessEvidenceVersion(current);
   const resolution = resolveCanonicalTaskStep(current);
@@ -4426,7 +4465,7 @@ export function resolveTestStrategyExecutionContext(current: CanonicalCurrentTas
   return {
     mode: strategy.mode,
     phase,
-    required_outcome: phase === 'red' ? 'test-red' : 'implemented',
+    required_outcome: 'implemented',
     persistent_tests: readPersistentTestPaths(definition),
     step_index: resolution.index,
     first_step_id: resolution.steps[0]!.id,
@@ -12780,7 +12819,7 @@ function applyTaskStateDelta(
     assertTestStrategySequenceReady(current);
     const step = resolveCanonicalTaskStep(current).steps.find(step => step.id === delta.step_id)!;
     const strategy = resolveTestStrategyExecutionContext(current);
-    const executionPhase = resolveNewExecutionPhase(strategy, delta.candidate_paths, delta.execution_phase);
+    const executionPhase = resolveNewExecutionPhase(current, strategy, delta.execution_phase);
     const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
       target_paths: delta.candidate_paths,
       planned_targets: current.mutationAuthority ? v2StepPlannedTargets(current) : undefined,
@@ -12925,7 +12964,7 @@ function applyTaskStateDelta(
     const strategy = resolveTestStrategyExecutionContext(current);
     const executionPhase = activePreflight?.execution_phase
       ?? delta.execution_phase
-      ?? executionPhaseForCandidatePaths(strategy.phase, [...existingPaths, ...delta.additional_targets]);
+      ?? executionPhaseForCurrentStep(current, strategy);
     const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
       target_paths: [...existingPaths, ...delta.additional_targets],
       planned_targets: v2StepPlannedTargets(current),
@@ -13087,7 +13126,7 @@ function applyTaskStateDelta(
       const executionTargetPaths = [...new Set([...targetPaths, ...observedWritePaths])];
       const executionPhase = current.runtimeState.execution_preflight?.step_id === delta.step_id
         ? current.runtimeState.execution_preflight.execution_phase
-        : executionPhaseForCandidatePaths(strategy.phase, executionTargetPaths);
+        : executionPhaseForCurrentStep(current, strategy);
       const executionEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
         target_paths: executionTargetPaths,
         planned_targets: current.mutationAuthority ? v2StepPlannedTargets(current) : undefined,
@@ -15711,7 +15750,7 @@ export function createStepPreflightProposal(
 ): RuntimeProposal {
   const mode = input.mode ?? 'default';
   const strategy = resolveTestStrategyExecutionContext(current);
-  const executionPhase = input.execution_phase ?? executionPhaseForCandidatePaths(strategy.phase, candidatePaths);
+  const executionPhase = input.execution_phase ?? executionPhaseForCurrentStep(current, strategy);
   const planRevision = input.plan_revision ?? digest({ step_id: current.runtimeState.active_step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
   const executionId = input.execution_id ?? `execution-${digest({
     task: current.sourceTuple.document_id,

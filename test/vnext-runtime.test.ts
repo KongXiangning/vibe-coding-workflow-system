@@ -7661,7 +7661,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(contract.proposal.execute_step.semantic_adapter.post_completion_commit_owner).toBe('user-or-explicit-outer-orchestrator');
     expect(contract.proposal.execute_step.semantic_adapter.post_completion_route).toBe('git-commit');
     expect(contract.proposal.execute_step.semantic_adapter.test_strategy_execution).toEqual({
-      phase_source: 'versioned-frozen-test-strategy',
+      phase_source: 'versioned-frozen-test-strategy-and-current-step-evidence-obligation',
       legacy_behavior: 'read-history-block-unversioned-execution',
       test_first: {
         first_step_phase: 'test-first',
@@ -8444,6 +8444,41 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
+  test('same-domain discovery without assessment has a distinct admission error', () => {
+    const planned = 'packages/node-rollout/src/session.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the Node rollout behavior',
+        planned_mutation_targets: [planned],
+        commands: [],
+        validation: ['The Node rollout behavior is verified'],
+        review_checkpoint: { policy: 'required', reason: 'Review the implementation diff' },
+      }],
+    });
+    try {
+      const plannedPath = path.join(root, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedPath), { recursive: true });
+      fs.writeFileSync(plannedPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(root);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+      const after = readCanonicalCurrentTask(root);
+      expect(fs.readFileSync(after.filePath, 'utf8')).toBe(beforeBytes);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(after.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('E2 repair same-envelope discovery stays in one repair wave and execution identity', () => {
     const target = 'packages/node-rollout/src/session.ts';
     const discovered = 'packages/node-rollout/internal/state.ts';
@@ -8497,7 +8532,6 @@ describe('vNext Phase 2 Runtime contract', () => {
       const beforeExtension = readCanonicalCurrentTask(root);
       const attemptsBefore = structuredClone(beforeExtension.runtimeState.step_attempts);
       fs.writeFileSync(targetPath, 'export const session = "repaired";\n', 'utf8');
-      fs.writeFileSync(discoveredPath, 'export const normalizeState = (value) => value;\n', 'utf8');
 
       const extension = extendPreflight(root, {
         current_preflight_receipt: repair.receipt,
@@ -8527,6 +8561,7 @@ describe('vNext Phase 2 Runtime contract', () => {
           mode: 'repair',
           execution_id: repair.receipt.execution_id,
           step_id: 'step-1',
+          first_touch_state: 'absent',
         }),
       ]);
       expect(afterExtension.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(false);
@@ -8560,7 +8595,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('E3 rejects a test-first Red product expansion before changing Runtime state', () => {
-    const testPath = 'packages/node-rollout-tests/existing-regression.test.ts';
+    const testPath = 'packages/node-rollout-tests/qa/check.ts';
     const productPath = 'packages/node-rollout/src/foo.ts';
     const semantic = v2MutationAuthoritySemanticDraft({
       test_strategy: {
@@ -8621,8 +8656,23 @@ describe('vNext Phase 2 Runtime contract', () => {
       const testFile = path.join(root, ...testPath.split('/'));
       fs.mkdirSync(path.dirname(testFile), { recursive: true });
       fs.writeFileSync(testFile, 'test("existing regression", () => {});\n', 'utf8');
+      const mixedBefore = readCanonicalCurrentTask(root);
+      const mixedBeforeBytes = fs.readFileSync(mixedBefore.filePath, 'utf8');
+      expect(() => preflightStep(root, {
+        candidate_paths: [testPath, productPath],
+        blast_radius_assessments: [{
+          target: { path: productPath, symbol: 'foo' },
+          reason: 'The product implementation is the likely local fix after the Red reproduction.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+      })).toThrow('TEST_STRATEGY_SEQUENCE_INVALID');
+      expect(fs.readFileSync(mixedBefore.filePath, 'utf8')).toBe(mixedBeforeBytes);
+      expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(mixedBefore.sourceTuple.revision);
       const initial = preflightStep(root, { candidate_paths: [testPath] });
       expect(initial.receipt.execution_phase).toBe('red');
+      expect(initial.current_step.required_outcome).toBe('implemented');
       const before = readCanonicalCurrentTask(root);
       const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
       const beforeRuntime = JSON.stringify(before.runtimeState);
