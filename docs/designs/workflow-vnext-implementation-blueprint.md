@@ -368,6 +368,18 @@ cannot discover executable code merely because its domain is authorized.
 Existing same-envelope test files use ordinary assessed admission; only an
 absent new persistent test needs the existing P-12 admission record.
 
+Dynamic expansion records are execution-scoped rather than task-global grants:
+each new record binds `step_id`, `plan_revision`, `change_set_id`,
+`execution_id`, `preflight_id`, and `mode` in addition to its path, assessment,
+and first-touch state. Admission reads only the records matching the current
+active execution identity; records from an earlier step, plan revision, or
+repair wave remain audit history and do not satisfy a later missing assessment.
+The compatibility `dynamic_review_required` projection is derived from
+unconsumed current-execution expansions, and clean review records the exact
+review id against only those expansions. Cumulative review coverage remains
+task-level and may retain earlier paths, but it is never passed back as the
+current execution authority candidate set.
+
 ### 3.7 Trusted Authority Channel architecture freeze
 
 The Trusted Authority Channel is frozen as an architecture constraint, but its

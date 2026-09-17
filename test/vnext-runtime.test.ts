@@ -797,6 +797,30 @@ function v2ConfirmedRoot(input: Partial<PrepareTaskSemanticDraft> = {}): string 
   return root;
 }
 
+function v2TwoStepConfirmedRoot(firstCheckpoint: 'required' | 'not-required' = 'required'): string {
+  const stepTwoTargets = firstCheckpoint === 'not-required'
+    ? ['packages/node-rollout/src/session.ts', 'packages/node-rollout/src/reconnect.ts']
+    : ['packages/node-rollout/src/reconnect.ts'];
+  return v2ConfirmedRoot({
+    claim_evidence: evidencePlanFixture('Complete the first Node rollout step', 'step-1'),
+    implementation_steps: [{
+      id: 'step-1',
+      description: 'Implement the first Node rollout step',
+      planned_mutation_targets: ['packages/node-rollout/src/session.ts'],
+      commands: [],
+      validation: ['The first Node rollout step is recorded'],
+      review_checkpoint: { policy: firstCheckpoint, reason: firstCheckpoint === 'required' ? 'Review the first step' : 'The first step is low risk and needs no ordinary checkpoint' },
+    }, {
+      id: 'step-2',
+      description: 'Implement the second Node rollout step',
+      planned_mutation_targets: stepTwoTargets,
+      commands: [],
+      validation: ['The second Node rollout step is recorded'],
+      review_checkpoint: { policy: 'required', reason: 'Review the second step' },
+    }],
+  });
+}
+
 function installFixedTgzRuntime(target: string, label: string): string {
   const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-package-`));
   const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-tgz-`));
@@ -8820,6 +8844,181 @@ describe('vNext Phase 2 Runtime contract', () => {
       }).status).toBe('success');
       expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The existing regression oracle and cumulative diff are reviewed.' }).status).toBe('success');
       expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E6/E7/E9 binds dynamic authority and review consumption to the current execution identity', () => {
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2TwoStepConfirmedRoot();
+    const assessment = (reason: string) => ({
+      target: { path: discovered, symbol: 'normalizeState' },
+      reason,
+      blast_radius: { locality: 'local' as const, visibility: 'private' as const, cross_component_consumers: 'none' as const, contract_impact: 'none' as const },
+      evidence_refs: ['evidence-report.txt'],
+      disposition: 'self-admit' as const,
+    });
+    try {
+      for (const file of [plannedA, plannedB, discovered]) {
+        const absolute = path.join(root, ...file.split('/'));
+        fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      }
+      fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "before";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...plannedB.split('/')), 'export const reconnect = "before";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value;\n', 'utf8');
+
+      const first = preflightStep(root, { candidate_paths: [plannedA] });
+      fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "first";\n', 'utf8');
+      const firstExtension = extendPreflight(root, {
+        current_preflight_receipt: first.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [assessment('S1 needs the private helper as the smallest correct local implementation.')],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(firstExtension.receipt.execution_id).toBe(first.receipt.execution_id);
+      expect(firstExtension.receipt.plan_revision).toBe(first.receipt.plan_revision);
+      expect(firstExtension.receipt.candidate_paths).toEqual([plannedA, discovered]);
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+      const firstEvidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: firstExtension.receipt,
+        actual_changed_paths: [plannedA, discovered],
+        command_results: [],
+        validation_results: [{ validation: firstExtension.current_step.validation[0]!, status: 'passed', evidence_refs: firstEvidence.evidence_refs }],
+        acceptance_evidence: [firstEvidence],
+        outcome: 'implemented',
+        note: 'Record S1 with its same-envelope discovery.',
+      }).status).toBe('success');
+      const firstReviewContext = reviewContext(root, {});
+      expect(firstReviewContext.expanded_mutation_targets).toEqual([
+        expect.objectContaining({ path: discovered, step_id: 'step-1', execution_id: first.receipt.execution_id }),
+      ]);
+      expect(recordReviewResult(root, {
+        context_receipt: firstReviewContext.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      const afterFirstReview = readCanonicalCurrentTask(root);
+      const firstReviewId = afterFirstReview.runtimeState.dynamic_expansions!.find(item => item.path === discovered && item.step_id === 'step-1')!.reviewed_by_review_id;
+      expect(firstReviewId).toBeDefined();
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'S1 dynamic expansion is reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_id).toBe('step-2');
+
+      const second = preflightStep(root, { candidate_paths: [plannedB] });
+      const beforeRejectedExtension = readCanonicalCurrentTask(root);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: second.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+      const afterRejectedExtension = readCanonicalCurrentTask(root);
+      expect(afterRejectedExtension.sourceTuple.revision).toBe(beforeRejectedExtension.sourceTuple.revision);
+      expect(JSON.stringify(afterRejectedExtension.runtimeState)).toBe(JSON.stringify(beforeRejectedExtension.runtimeState));
+
+      const secondExtension = extendPreflight(root, {
+        current_preflight_receipt: second.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [assessment('S2 has a different local reason to revisit the helper after reconnect changes.')],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(secondExtension.receipt.execution_id).not.toBe(first.receipt.execution_id);
+      expect(secondExtension.receipt.step_id).toBe('step-2');
+      expect(secondExtension.receipt.plan_revision).not.toBe(first.receipt.plan_revision);
+      expect(secondExtension.receipt.candidate_paths).toEqual([plannedB, discovered]);
+      const afterSecondAdmission = readCanonicalCurrentTask(root);
+      const discoveredExpansions = afterSecondAdmission.runtimeState.dynamic_expansions!.filter(item => item.path === discovered);
+      expect(discoveredExpansions).toHaveLength(2);
+      expect(discoveredExpansions[0]).toMatchObject({ step_id: 'step-1', execution_id: first.receipt.execution_id, reviewed_by_review_id: firstReviewId });
+      expect(discoveredExpansions[1]).toMatchObject({ step_id: 'step-2', execution_id: second.receipt.execution_id });
+      expect(discoveredExpansions[1]!.reviewed_by_review_id).toBeUndefined();
+      expect(discoveredExpansions[0]!.assessment.reason).not.toBe(discoveredExpansions[1]!.assessment.reason);
+
+      fs.writeFileSync(path.join(root, ...plannedB.split('/')), 'export const reconnect = "second";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim().toLowerCase();\n', 'utf8');
+      const secondResult = recordStepResult(root, {
+        preflight_receipt: secondExtension.receipt,
+        actual_changed_paths: [plannedB, discovered],
+        command_results: [],
+        validation_results: [{ validation: secondExtension.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [],
+        outcome: 'implemented',
+        note: 'Record S2 with a new assessment for the same path.',
+      });
+      expect(secondResult.status, JSON.stringify(secondResult)).toBe('success');
+      const secondReviewContext = reviewContext(root, {});
+      expect(secondReviewContext.expanded_mutation_targets).toEqual([
+        expect.objectContaining({ path: discovered, step_id: 'step-2', execution_id: second.receipt.execution_id }),
+      ]);
+      expect(recordReviewResult(root, {
+        context_receipt: secondReviewContext.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      const afterSecondReview = readCanonicalCurrentTask(root);
+      const secondReviewId = afterSecondReview.runtimeState.dynamic_expansions!.find(item => item.path === discovered && item.step_id === 'step-2')!.reviewed_by_review_id;
+      expect(secondReviewId).toBeDefined();
+      expect(secondReviewId).not.toBe(firstReviewId);
+      expect(afterSecondReview.runtimeState.dynamic_expansions!.find(item => item.path === discovered && item.step_id === 'step-1')!.reviewed_by_review_id).toBe(firstReviewId);
+      expect(afterSecondReview.runtimeState.dynamic_review_required).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E8 keeps cumulative review coverage separate from current-step dynamic authority', () => {
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2TwoStepConfirmedRoot('not-required');
+    try {
+      for (const file of [plannedA, plannedB, discovered]) {
+        const absolute = path.join(root, ...file.split('/'));
+        fs.mkdirSync(path.dirname(absolute), { recursive: true });
+        fs.writeFileSync(absolute, `export const ${path.basename(file, path.extname(file))} = "before";\n`, 'utf8');
+      }
+      const first = preflightStep(root, { candidate_paths: [plannedA] });
+      fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "after";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: first.receipt,
+        actual_changed_paths: [plannedA],
+        command_results: [],
+        validation_results: [{ validation: first.current_step.validation[0]!, status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Complete the exempt first step and retain its cumulative review target.',
+      }).status).toBe('success');
+      const afterFirst = readCanonicalCurrentTask(root);
+      expect(afterFirst.runtimeState.active_step_id).toBe('step-2');
+      expect(afterFirst.runtimeState.review_coverage?.target.entries.map(entry => entry.path)).toContain(plannedA);
+
+      const second = preflightStep(root, { candidate_paths: [plannedB] });
+      const extension = extendPreflight(root, {
+        current_preflight_receipt: second.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'normalizeState' },
+          reason: 'The S2 helper is a private same-domain implementation detail.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(extension.receipt.candidate_paths).toEqual([plannedB, discovered]);
+      expect(readCanonicalCurrentTask(root).runtimeState.dynamic_expansions).toEqual([
+        expect.objectContaining({ path: discovered, step_id: 'step-2', execution_id: second.receipt.execution_id }),
+      ]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

@@ -211,6 +211,17 @@ expansion but require oracle/reuse/boundary assessment. An absent new
 persistent test still requires the full P-12 owner/claim/basis/insufficiency/
 assertion-boundary/failure-disposition admission.
 
+Each durable dynamic expansion also records its `step_id`, `plan_revision`,
+`change_set_id`, stable `execution_id`, admitting `preflight_id`, and execution
+mode. The authority evaluator consumes only expansions matching the current
+active step, plan revision, change set, and execution identity. A historical
+expansion remains available to audit and review context but cannot authorize a
+later step, continuation, or repair wave; the same path therefore receives a
+new assessment when it is discovered by a new execution. The persisted
+`dynamic_review_required` value is a compatibility projection of the current
+execution's unconsumed expansions. A clean review marks only the expansions
+bound to that reviewed execution and retains the review id on those records.
+
 All execution entry points use one Runtime-owned exact-target admission
 evaluator. `preflight-step`, `extend-preflight`, `begin-repair`, repair
 extension, command-footprint preflight, and the result re-check pass the same

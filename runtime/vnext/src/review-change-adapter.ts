@@ -23,7 +23,9 @@ import {
   createEvidenceChallengeProposal,
   createReviewResultProposal,
   currentDefinitionExecutionLog,
+  currentExecutionDynamicExpansions,
   cumulativeReviewExecution,
+  dynamicReviewRequiredForCurrentExecution,
   validateTestAssessment,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
@@ -518,7 +520,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
   const executionEvidenceRefs = boundedList(execution.evidence_refs);
   const unexpandedPaths = boundedList(execution.execution_result!.change_delta.entries.slice(1).map(item => item.path));
   const persistentTests = scope.persistent_tests === null ? null : boundedList(scope.persistent_tests);
-  const expandedMutationTargets = boundedValues(current.runtimeState.dynamic_expansions ?? []);
+  const expandedMutationTargets = boundedValues(currentExecutionDynamicExpansions(current));
   const claimEvidence = boundedValues(current.runtimeState.claim_evidence ?? []);
   const claimSummaries = claimEvidence.values.map(claimEvidenceSummary);
   const admittedFindings = boundedValues(admitted);
@@ -575,7 +577,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     },
     planned_mutation_targets: plannedMutationTargets,
     expanded_mutation_targets: expandedMutationTargets.values,
-    dynamic_review_required: current.runtimeState.dynamic_review_required === true,
+    dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     text_diff: execution.execution_result!.change_delta.entries.length
       ? reviewFilePage(root, current, execution, execution.execution_result!.change_delta.entries[0]!.path, 'diff', {}) : null,
     unexpanded_paths: unexpandedPaths.values,
@@ -722,7 +724,7 @@ function normalizeFinding(value: unknown, index: number, current: CanonicalCurre
       task: current.mutationAuthority,
       candidate_paths: [candidate.file],
       planned_targets: stepScope(step.planned_mutation_targets ?? step.mutation_scope, `step ${step.id} planned_mutation_targets`),
-      assessments: (current.runtimeState.dynamic_expansions ?? []).map(item => item.assessment),
+      assessments: currentExecutionDynamicExpansions(current).map(item => item.assessment),
       persistent_test_paths: resolveTestStrategyExecutionContext(current).persistent_tests,
     });
     if (authorityDecision.status !== 'pass') {

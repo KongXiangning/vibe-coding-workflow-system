@@ -882,6 +882,26 @@ mutation_authority:
   repair_extension: same-execution-admission-evaluator-and-repair-wave
   test_strategy_dynamic_policy: every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation
   non_executable_dynamic_policy: not-applicable-remains-closed-under-all-target-discovery
+  dynamic_expansion_identity:
+    required:
+      - step_id
+      - plan_revision
+      - change_set_id
+      - execution_id
+      - preflight_id
+      - mode
+      - path
+      - domain
+      - assessment
+      - first_touch_state
+      - admitted_at
+    active_view: current-active-step-plan-revision-execution-only
+    historical_records: readable-for-audit-but-never-a-current-write-grant
+    repeated_path_policy: same-path-requires-new-assessment-for-a-new-execution-identity
+  dynamic_review_consumption:
+    binding: expansion-execution-identity-and-clean-review-id
+    required: current-execution-expansions-only
+    historical_records: retain-consumed-review-association
   authority_amendment: prepare-task:amend-scope-with-explicit-user-authorization
   existing_test_behavior: existing-in-envelope-test-is-ordinary-expansion-with-review
   new_persistent_test_behavior: absent-test-requires-p-12-admission

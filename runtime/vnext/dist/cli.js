@@ -5194,6 +5194,29 @@ function createReviewCycleZero() {
     verification_new_finding_wave_id: null
   };
 }
+function hasModernDynamicExpansionIdentity(expansion) {
+  return expansion.execution_id !== undefined && expansion.preflight_id !== undefined && expansion.step_id !== undefined && expansion.plan_revision !== undefined && expansion.change_set_id !== undefined && expansion.mode !== undefined;
+}
+function dynamicExpansionMatchesExecution(expansion, identity) {
+  return hasModernDynamicExpansionIdentity(expansion) && expansion.execution_id === identity.execution_id && expansion.step_id === identity.step_id && expansion.plan_revision === identity.plan_revision && expansion.change_set_id === identity.change_set_id && expansion.mode === identity.mode;
+}
+function currentExecutionDynamicExpansions(current, mode) {
+  const active = current.runtimeState.execution_preflight;
+  if (!active || active.step_id !== current.runtimeState.active_step_id || mode !== undefined && active.mode !== mode)
+    return [];
+  return (current.runtimeState.dynamic_expansions ?? []).filter((item) => dynamicExpansionMatchesExecution(item, active));
+}
+function dynamicReviewRequiredForCurrentExecution(current) {
+  const active = current.runtimeState.execution_preflight;
+  if (!active || active.step_id !== current.runtimeState.active_step_id) {
+    return current.runtimeState.dynamic_review_required === true;
+  }
+  const currentExpansions = currentExecutionDynamicExpansions(current);
+  if (currentExpansions.length > 0)
+    return currentExpansions.some((item) => item.reviewed_by_review_id === undefined);
+  const legacyCurrentExpansion = (current.runtimeState.dynamic_expansions ?? []).some((item) => item.execution_id === active.execution_id && item.step_id === active.step_id && item.mode === active.mode);
+  return legacyCurrentExpansion ? current.runtimeState.dynamic_review_required === true : false;
+}
 
 class VNextRuntimeError extends Error {
   code;
@@ -5330,6 +5353,9 @@ function captureReviewTarget(root, paths) {
 function manifest(entries) {
   const sorted = [...entries].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   return { kind: "runtime-file-manifest/v1", entries: sorted, revision: digest3({ kind: "runtime-file-manifest/v1", entries: sorted }) };
+}
+function createReviewTargetManifest(entries) {
+  return manifest(entries);
 }
 function nextStepAttemptId(current) {
   const attempts = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts;
@@ -5468,8 +5494,10 @@ function validateDynamicExpansions(value) {
     fail3("RUNTIME_SCHEMA_INVALID", "dynamic_expansions must be a bounded array.");
   const expansions = value.map((raw, index) => {
     const item = expectRecord2(raw, `dynamic_expansions[${index}]`);
-    const identityKeys = ["execution_id", "preflight_id", "step_id", "mode"];
-    expectExactKeys2(item, ["path", "domain", "assessment", "first_touch_state", "admitted_at", ...identityKeys.filter((key) => (key in item))], `dynamic_expansions[${index}]`);
+    const legacyIdentityKeys = ["execution_id", "preflight_id", "step_id", "mode"];
+    const modernIdentityKeys = [...legacyIdentityKeys, "plan_revision", "change_set_id"];
+    const reviewKeys = ["reviewed_by_review_id", "reviewed_at"];
+    expectExactKeys2(item, ["path", "domain", "assessment", "first_touch_state", "admitted_at", ...modernIdentityKeys.filter((key) => (key in item)), ...reviewKeys.filter((key) => (key in item))], `dynamic_expansions[${index}]`);
     let assessment;
     try {
       assessment = normalizeBlastRadiusAssessments([item.assessment])[0];
@@ -5479,9 +5507,17 @@ function validateDynamicExpansions(value) {
     const target = normalizeAuthorityPath(item.path, `dynamic_expansions[${index}].path`);
     if (assessment.target.path !== target)
       fail3("RUNTIME_SCHEMA_INVALID", `dynamic_expansions[${index}] assessment target must match path.`);
-    const hasIdentity = identityKeys.some((key) => (key in item));
-    if (hasIdentity && identityKeys.some((key) => !(key in item))) {
-      fail3("RUNTIME_SCHEMA_INVALID", `dynamic_expansions[${index}] execution identity must be complete.`);
+    const hasLegacyIdentity = legacyIdentityKeys.some((key) => (key in item));
+    const hasModernIdentity = modernIdentityKeys.some((key) => (key in item));
+    if (hasModernIdentity && modernIdentityKeys.some((key) => !(key in item))) {
+      fail3("RUNTIME_SCHEMA_INVALID", `dynamic_expansions[${index}] modern execution identity must be complete.`);
+    }
+    if (!hasModernIdentity && hasLegacyIdentity && legacyIdentityKeys.some((key) => !(key in item))) {
+      fail3("RUNTIME_SCHEMA_INVALID", `dynamic_expansions[${index}] historical execution identity must be complete.`);
+    }
+    const hasReview = reviewKeys.some((key) => (key in item));
+    if (hasReview && (!hasModernIdentity || reviewKeys.some((key) => !(key in item)))) {
+      fail3("RUNTIME_SCHEMA_INVALID", `dynamic_expansions[${index}] review consumption identity must be complete and modern.`);
     }
     return {
       path: target,
@@ -5489,16 +5525,25 @@ function validateDynamicExpansions(value) {
       assessment,
       first_touch_state: expectEnum(item.first_touch_state, ["file", "absent"], `dynamic_expansions[${index}].first_touch_state`),
       admitted_at: expectString2(item.admitted_at, `dynamic_expansions[${index}].admitted_at`),
-      ...hasIdentity ? {
+      ...hasLegacyIdentity ? {
         execution_id: expectString2(item.execution_id, `dynamic_expansions[${index}].execution_id`, SAFE_KEY_PATTERN2),
         preflight_id: expectString2(item.preflight_id, `dynamic_expansions[${index}].preflight_id`, SAFE_KEY_PATTERN2),
         step_id: expectString2(item.step_id, `dynamic_expansions[${index}].step_id`, STEP_ID_PATTERN2),
         mode: expectEnum(item.mode, VNEXT_EXECUTE_STEP_MODES, `dynamic_expansions[${index}].mode`)
+      } : {},
+      ...hasModernIdentity ? {
+        plan_revision: expectString2(item.plan_revision, `dynamic_expansions[${index}].plan_revision`, SHA256_PATTERN2),
+        change_set_id: expectString2(item.change_set_id, `dynamic_expansions[${index}].change_set_id`, SAFE_KEY_PATTERN2)
+      } : {},
+      ...hasReview ? {
+        reviewed_by_review_id: expectString2(item.reviewed_by_review_id, `dynamic_expansions[${index}].reviewed_by_review_id`, SAFE_KEY_PATTERN2),
+        reviewed_at: expectString2(item.reviewed_at, `dynamic_expansions[${index}].reviewed_at`)
       } : {}
     };
   });
-  if (new Set(expansions.map((item) => item.path)).size !== expansions.length)
-    fail3("RUNTIME_SCHEMA_INVALID", "dynamic_expansions paths must be unique.");
+  const identities = expansions.map((item) => hasModernDynamicExpansionIdentity(item) ? `modern:${digest3({ path: item.path, execution_id: item.execution_id, step_id: item.step_id, plan_revision: item.plan_revision, change_set_id: item.change_set_id, mode: item.mode })}` : `historical:${digest3({ path: item.path, execution_id: item.execution_id ?? null, step_id: item.step_id ?? null, mode: item.mode ?? null })}`);
+  if (new Set(identities).size !== identities.length)
+    fail3("RUNTIME_SCHEMA_INVALID", "dynamic_expansions must not duplicate a path within one execution identity.");
   return expansions;
 }
 function validateExecutionPreflight(value, location = "runtime_state.execution_preflight") {
@@ -5637,7 +5682,8 @@ function evaluateCurrentExecutionTargetAdmissions(root, current, input) {
     return (step.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/gu, "")).filter(Boolean);
   })();
   const plannedTargets = input.planned_targets ?? (current.mutationAuthority ? v2StepPlannedTargets(current) : stepScope);
-  const storedAssessments = current.runtimeState.dynamic_expansions?.map((item) => item.assessment) ?? [];
+  const activeExecution = current.runtimeState.execution_preflight?.step_id === current.runtimeState.active_step_id && current.runtimeState.execution_preflight.mode === mode ? current.runtimeState.execution_preflight : undefined;
+  const storedAssessments = activeExecution ? currentExecutionDynamicExpansions(current, mode).map((item) => item.assessment) : [];
   const assessments = [...storedAssessments, ...input.assessments ?? []].filter((item, index, values) => values.findIndex((other) => other.target.path === item.target.path) === index);
   let project = null;
   if (current.mutationAuthority) {
@@ -6379,13 +6425,24 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   }
   expectSetEqual(expectStringArray2(commandWriteFootprint.observation_limitations, "Runtime contract.mutation_scope.command_write_footprint.observation_limitations"), ["no-os-level-transient-write-history-proof"], "Runtime command write observation limitations");
   const mutationAuthorityContract = expectRecord2(contract.mutation_authority, "Runtime contract.mutation_authority");
-  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "authority_amendment", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
+  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
   if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "mandatory-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-user-authorization" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime Mutation Authority v2 contract semantics are invalid.");
   }
   expectSetEqual(expectStringArray2(mutationAuthorityContract.project_domain_fields, "Runtime mutation authority project domain fields"), ["id", "roots"], "Runtime mutation authority project domain fields");
   expectSetEqual(expectStringArray2(mutationAuthorityContract.task_fields, "Runtime mutation authority task fields"), ["mutation_authority_version", "domains", "exact_exceptions", "forbidden"], "Runtime mutation authority task fields");
   expectSetEqual(expectStringArray2(mutationAuthorityContract.assessment_fields, "Runtime mutation authority assessment fields"), ["target", "reason", "blast_radius", "evidence_refs", "disposition"], "Runtime mutation authority assessment fields");
+  const dynamicExpansionIdentity = expectRecord2(mutationAuthorityContract.dynamic_expansion_identity, "Runtime mutation authority dynamic expansion identity");
+  expectExactKeys2(dynamicExpansionIdentity, ["required", "active_view", "historical_records", "repeated_path_policy"], "Runtime mutation authority dynamic expansion identity");
+  expectSetEqual(expectStringArray2(dynamicExpansionIdentity.required, "Runtime mutation authority dynamic expansion identity required fields"), ["step_id", "plan_revision", "change_set_id", "execution_id", "preflight_id", "mode", "path", "domain", "assessment", "first_touch_state", "admitted_at"], "Runtime mutation authority dynamic expansion identity required fields");
+  if (dynamicExpansionIdentity.active_view !== "current-active-step-plan-revision-execution-only" || dynamicExpansionIdentity.historical_records !== "readable-for-audit-but-never-a-current-write-grant" || dynamicExpansionIdentity.repeated_path_policy !== "same-path-requires-new-assessment-for-a-new-execution-identity") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime dynamic expansion identity semantics are invalid.");
+  }
+  const dynamicReviewConsumption = expectRecord2(mutationAuthorityContract.dynamic_review_consumption, "Runtime mutation authority dynamic review consumption");
+  expectExactKeys2(dynamicReviewConsumption, ["binding", "required", "historical_records"], "Runtime mutation authority dynamic review consumption");
+  if (dynamicReviewConsumption.binding !== "expansion-execution-identity-and-clean-review-id" || dynamicReviewConsumption.required !== "current-execution-expansions-only" || dynamicReviewConsumption.historical_records !== "retain-consumed-review-association") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime dynamic review consumption semantics are invalid.");
+  }
   const canonical = expectRecord2(contract.canonical_current_task, "Runtime contract.canonical_current_task");
   expectExactKeys2(canonical, ["frontmatter", "runtime_state", "source_of_truth", "legacy_schema_behavior"], "Runtime contract.canonical_current_task");
   const frontmatter = expectRecord2(canonical.frontmatter, "Runtime contract.canonical_current_task.frontmatter");
@@ -7840,7 +7897,7 @@ function assertReviewExecutionEligible(current, execution) {
   }
   const checkpoint = effectiveCheckpointPolicy(resolveCanonicalTaskStep(current));
   if (execution.mode === "default") {
-    const dynamicReview = current.runtimeState.dynamic_review_required === true;
+    const dynamicReview = dynamicReviewRequiredForCurrentExecution(current);
     if (checkpoint !== "required" && !dynamicReview) {
       fail3("REVIEW_CHECKPOINT_NOT_REQUIRED", "the current step does not admit a review checkpoint.");
     }
@@ -13649,7 +13706,7 @@ function assertV2AuthorityAmendmentExecutionSettled(current) {
     return;
   const ledger = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id];
   const latestAttempt = ledger?.attempts.at(-1);
-  const executionOpen = current.runtimeState.pending_review_result !== null || current.runtimeState.dynamic_review_required === true || ["in-progress", "blocked"].includes(current.runtimeState.active_step_status) || latestAttempt !== undefined && ["ready", "preflighted", "blocked"].includes(latestAttempt.status);
+  const executionOpen = current.runtimeState.pending_review_result !== null || dynamicReviewRequiredForCurrentExecution(current) || ["in-progress", "blocked"].includes(current.runtimeState.active_step_status) || latestAttempt !== undefined && ["ready", "preflighted", "blocked"].includes(latestAttempt.status);
   if (executionOpen) {
     fail3("SCOPE_AMENDMENT_EXECUTION_GATE", "A v2 authority amendment requires the current execution to be settled before changing the task authority envelope. Record/resolve the current result and review first.");
   }
@@ -15712,11 +15769,23 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (![...nestedEvidence, ...review.evidence_refs].every((ref) => delta.evidence_refs.includes(ref))) {
       fail3("RUNTIME_EVIDENCE_INVALID", "record-review-result evidence_refs must cover the review result and every finding.");
     }
+    const reviewedExecutionId = execution.execution_result?.execution_id;
+    const consumedDynamicExpansions = review.verdict === "clean" && reviewedExecutionId ? (current.runtimeState.dynamic_expansions ?? []).map((item) => {
+      const belongsToReviewedExecution = item.execution_id === reviewedExecutionId && item.step_id === review.step_id && item.mode === execution.mode && (item.change_set_id === undefined || item.change_set_id === review.change_set_id);
+      return belongsToReviewedExecution ? { ...item, reviewed_by_review_id: review.review_id, reviewed_at: now } : item;
+    }) : current.runtimeState.dynamic_expansions;
+    const stateAfterDynamicReview = {
+      ...current.runtimeState,
+      ...consumedDynamicExpansions === undefined ? {} : { dynamic_expansions: consumedDynamicExpansions },
+      dynamic_review_required: false
+    };
+    const dynamicReviewRequired = review.verdict === "clean" ? dynamicReviewRequiredForCurrentExecution({ ...current, runtimeState: stateAfterDynamicReview }) : current.runtimeState.dynamic_review_required === true;
     return {
       next: {
         ...current.runtimeState,
         pending_review_result: { ...review, recorded_at: now },
-        ...review.verdict === "clean" ? { dynamic_review_required: false } : {},
+        ...consumedDynamicExpansions === undefined ? {} : { dynamic_expansions: consumedDynamicExpansions },
+        ...review.verdict === "clean" ? { dynamic_review_required: dynamicReviewRequired } : {},
         applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
       }
     };
@@ -15939,27 +16008,31 @@ function applyTaskStateDelta(root, current, proposal, now) {
     }
     const dynamicDecisions = authorityEvaluation?.decisions.filter((item) => item.classification === "dynamic-self-admitted") ?? [];
     const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
-    const newExpansions = dynamicDecisions.filter((item) => !existingExpansions.some((existing) => existing.path === item.path)).map((item) => ({
+    const executionId = delta.execution_id ?? `execution-${digest3({ proposal: proposal.idempotency_key, step: delta.step_id, mode: executionMode2 })}`;
+    const planRevision = delta.plan_revision ?? digest3({ step_id: delta.step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
+    const changeSetId = delta.change_set_id ?? coverage2.change_set_id;
+    const newExpansions = dynamicDecisions.filter((item) => !existingExpansions.some((existing) => existing.path === item.path && existing.execution_id === executionId && existing.step_id === delta.step_id && existing.plan_revision === planRevision && existing.change_set_id === changeSetId)).map((item) => ({
       path: item.path,
       domain: item.domain,
       assessment: item.assessment,
       first_touch_state: item.first_touch_state === "absent" ? "absent" : "file",
       admitted_at: now,
-      execution_id: delta.execution_id ?? `execution-${digest3({ proposal: proposal.idempotency_key, step: delta.step_id, mode: executionMode2 })}`,
+      execution_id: executionId,
       preflight_id: proposal.idempotency_key,
       step_id: delta.step_id,
+      plan_revision: planRevision,
+      change_set_id: changeSetId,
       mode: executionMode2
     }));
-    const executionId = delta.execution_id ?? `execution-${digest3({ proposal: proposal.idempotency_key, step: delta.step_id, mode: executionMode2 })}`;
     const executionPreflight = current.mutationAuthority || executionMode2 === "repair" ? {
       execution_id: executionId,
       preflight_id: proposal.idempotency_key,
       mode: executionMode2,
       step_id: delta.step_id,
-      plan_revision: delta.plan_revision ?? digest3({ step_id: delta.step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision }),
+      plan_revision: planRevision,
       execution_phase: executionPhase,
       candidate_paths: [...delta.candidate_paths],
-      change_set_id: delta.change_set_id ?? coverage2.change_set_id,
+      change_set_id: changeSetId,
       repair_fingerprints: executionMode2 === "repair" ? [...delta.repair_fingerprints ?? []] : null,
       repair_wave_id: executionMode2 === "repair" ? delta.repair_wave_id : null,
       review_id: executionMode2 === "repair" ? delta.review_id : null,
@@ -16034,28 +16107,32 @@ function applyTaskStateDelta(root, current, proposal, now) {
     assertExecutionAdmissionEvaluation(current, authorityEvaluation, `${executionMode2} preflight extension`);
     const coverage2 = extendReviewCoverage(root, current, delta.additional_targets);
     const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
-    const newExpansions = authorityEvaluation.decisions.filter((item) => item.classification === "dynamic-self-admitted" && !existingExpansions.some((existing) => existing.path === item.path)).map((item) => ({
+    const executionId = activePreflight?.execution_id ?? delta.execution_id ?? `execution-${digest3({ proposal: current.runtimeState.execution_preflight?.preflight_id ?? delta.current_preflight_id, step: delta.step_id, mode: executionMode2 })}`;
+    const planRevision = activePreflight?.plan_revision ?? digest3({ step_id: delta.step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
+    const changeSetId = activePreflight?.change_set_id ?? coverage2.change_set_id;
+    const newExpansions = authorityEvaluation.decisions.filter((item) => item.classification === "dynamic-self-admitted" && !existingExpansions.some((existing) => existing.path === item.path && existing.execution_id === executionId && existing.step_id === delta.step_id && existing.plan_revision === planRevision && existing.change_set_id === changeSetId)).map((item) => ({
       path: item.path,
       domain: item.domain,
       assessment: item.assessment,
       first_touch_state: item.first_touch_state === "absent" ? "absent" : "file",
       admitted_at: now,
-      execution_id: activePreflight?.execution_id ?? delta.execution_id ?? `execution-${digest3({ proposal: proposal.idempotency_key, step: delta.step_id, mode: executionMode2 })}`,
+      execution_id: executionId,
       preflight_id: proposal.idempotency_key,
       step_id: delta.step_id,
+      plan_revision: planRevision,
+      change_set_id: changeSetId,
       mode: executionMode2
     }));
     const updatedAttempts = stepLedger?.attempts.map((attempt, index) => index === stepLedger.attempts.length - 1 ? { ...attempt, idempotency_key: proposal.idempotency_key, evidence_refs: [...new Set([...attempt.evidence_refs, ...delta.evidence_refs])] } : attempt);
-    const executionId = activePreflight?.execution_id ?? delta.execution_id ?? `execution-${digest3({ proposal: current.runtimeState.execution_preflight?.preflight_id ?? delta.current_preflight_id, step: delta.step_id, mode: executionMode2 })}`;
     const executionPreflight = {
       execution_id: executionId,
       preflight_id: proposal.idempotency_key,
       mode: executionMode2,
       step_id: delta.step_id,
-      plan_revision: activePreflight?.plan_revision ?? digest3({ step_id: delta.step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision }),
+      plan_revision: planRevision,
       execution_phase: executionPhase,
       candidate_paths: [...existingPaths, ...delta.additional_targets],
-      change_set_id: activePreflight?.change_set_id ?? coverage2.change_set_id,
+      change_set_id: changeSetId,
       repair_fingerprints: activePreflight?.repair_fingerprints ?? null,
       repair_wave_id: activePreflight?.repair_wave_id ?? null,
       review_id: activePreflight?.review_id ?? null,
@@ -16145,7 +16222,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
   const executionChangeSetId = delta.change_set_id ?? delta.review_receipt?.change_set_id;
   const oldStatus = current.runtimeState.active_step_status;
   const newStatus = delta.status;
-  if (newStatus === "completed" && executionMode !== "repair" && current.runtimeState.dynamic_review_required === true) {
+  if (newStatus === "completed" && executionMode !== "repair" && dynamicReviewRequiredForCurrentExecution(current)) {
     fail3("DYNAMIC_REVIEW_REQUIRED", "An in-envelope mutation footprint expansion requires a clean cumulative review before step completion.");
   }
   if (delta.review_receipt !== undefined && delta.execution_result !== undefined) {
@@ -18441,7 +18518,7 @@ function assertOrdinaryPreflight(current, root) {
   if (current.runtimeState.findings.some((item) => ["admitted", "in-progress"].includes(item.status))) {
     fail3("REVIEW_CONVERGENCE_REQUIRED", "Open findings require admitted repair; ordinary execution cannot consume them.");
   }
-  if (current.runtimeState.dynamic_review_required === true && current.runtimeState.active_step_status === "in-progress") {
+  if (dynamicReviewRequiredForCurrentExecution(current) && current.runtimeState.active_step_status === "in-progress") {
     fail3("DYNAMIC_REVIEW_REQUIRED", "A self-admitted footprint expansion requires fresh cumulative review before another ordinary execution.");
   }
   if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active" || current.runtimeState.resume_requires_review || current.runtimeState.active_step_status === "blocked") {
@@ -22860,7 +22937,7 @@ function contextOverview(root, current, manifest2) {
   const pendingReview = record4(state.pending_review_result) ? state.pending_review_result : null;
   const retainedCleanReview = pendingReview?.verdict === "clean" && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === "findings" && state.scope_amendment_pending_review_step_id !== undefined;
-  const dynamicReviewReady = state.dynamic_review_required === true && state.active_step_status === "in-progress" && latest?.execution_result_status !== null && latest?.execution_result_status !== undefined;
+  const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current) && state.active_step_status === "in-progress" && latest?.execution_result_status !== null && latest?.execution_result_status !== undefined;
   const nextEntry = state.resume_requires_review ? "prepare-task:clear-resume-review" : retainedCleanReview ? "execute-step:complete-reviewed-step" : retainedFindingReview ? "execute-step:repair" : state.workflow_status === "blocked_by_replan" ? "prepare-task:amend-scope" : state.active_step_status === "blocked" ? "debug-task" : dynamicReviewReady ? "review-change" : "preflight-step";
   const nextOptions = state.workflow_status === "blocked_by_replan" ? ["prepare-task:amend-scope", "prepare-task:prepare-replan", "debug-task"] : state.active_step_status === "blocked" ? ["debug-task", "execute-step"] : [nextEntry];
   return {
@@ -22888,7 +22965,7 @@ function contextOverview(root, current, manifest2) {
       forbidden: [...current.mutationAuthority.forbidden]
     },
     dynamic_mutation: {
-      review_required: state.dynamic_review_required === true,
+      review_required: dynamicReviewRequiredForCurrentExecution(current),
       expansions: (state.dynamic_expansions ?? []).slice(0, 64).map((item) => ({
         path: item.path,
         domain: item.domain,
@@ -22899,7 +22976,13 @@ function contextOverview(root, current, manifest2) {
           execution_id: item.execution_id,
           preflight_id: item.preflight_id,
           step_id: item.step_id,
+          plan_revision: item.plan_revision,
+          change_set_id: item.change_set_id,
           mode: item.mode
+        },
+        ...item.reviewed_by_review_id === undefined ? {} : {
+          reviewed_by_review_id: item.reviewed_by_review_id,
+          reviewed_at: item.reviewed_at
         }
       })),
       expansion_count: state.dynamic_expansions?.length ?? 0,
@@ -22926,7 +23009,7 @@ function contextOverview(root, current, manifest2) {
       attempt_budget: ledger?.max_attempts ?? null,
       pending_replan_candidates: pendingReplanCandidateCount(current),
       pending_scope_amendment_candidates: pendingScopeAmendmentCandidateCount(current),
-      dynamic_review_required: state.dynamic_review_required === true,
+      dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
       dynamic_expansion_count: state.dynamic_expansions?.length ?? 0
     },
     latest_execution: latestIndex,
@@ -22972,7 +23055,7 @@ function operationBlocks(root, current, entry, mode, definitionReused, manifest2
     unresolved_findings: unresolvedFindings(current),
     unresolved_evidence_challenges: Array.isArray(current.runtimeState.evidence_challenges) ? current.runtimeState.evidence_challenges.filter(record4).filter((item) => item.status !== "resolved").map((item) => ({ challenge_id: item.challenge_id ?? null, status: item.status ?? null, claim_id: item.claim_id ?? null, slot_id: item.slot_id ?? null, result_id: item.result_id ?? null })) : [],
     active_attempt: record4(current.runtimeState.step_attempts) && record4(current.runtimeState.step_attempts[current.runtimeState.active_step_id]) ? current.runtimeState.step_attempts[current.runtimeState.active_step_id] : null,
-    dynamic_review_required: current.runtimeState.dynamic_review_required === true,
+    dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     dynamic_expansions: current.runtimeState.dynamic_expansions ?? []
   });
   add("latest-execution", true, latestExecution(current));
@@ -24417,6 +24500,10 @@ function extendPreflight(root, input, options = {}) {
     ...receipt.execution_id === undefined ? {} : { execution_id: receipt.execution_id },
     execution_phase: receipt.execution_phase
   });
+  const extensionReviewBase = createReviewTargetManifest([
+    ...receipt.review_base.entries,
+    ...captureReviewTarget(root, additionalTargets).entries
+  ]);
   const result = applyVNextRuntimeProposal(root, proposal, options);
   if (!["success", "no-op"].includes(result.status))
     fail7("PREFLIGHT_BLOCKED", result.message);
@@ -24480,7 +24567,7 @@ function extendPreflight(root, input, options = {}) {
       candidate_paths: active?.candidate_paths ?? candidatePaths,
       repair_fingerprint: null,
       change_set_id: active?.change_set_id ?? coverage?.change_set_id ?? changeSetId(next, stepPlan.step.id),
-      review_base: coverage?.base ?? nextBase,
+      review_base: extensionReviewBase,
       mutation_authority_version: 2
     }
   };
@@ -24850,7 +24937,7 @@ function recordStepResult(root, input, options = {}) {
   let status;
   if (outcome === "blocked")
     status = "blocked";
-  else if (receipt.mode === "repair" || stepPlan.step.review_checkpoint === "not-required" && current.runtimeState.dynamic_review_required !== true)
+  else if (receipt.mode === "repair" || stepPlan.step.review_checkpoint === "not-required" && !dynamicReviewRequiredForCurrentExecution(current))
     status = "completed";
   else
     status = "in-progress";
@@ -25504,7 +25591,7 @@ function reviewContext(root, input) {
   const executionEvidenceRefs = boundedList(execution.evidence_refs);
   const unexpandedPaths = boundedList(execution.execution_result.change_delta.entries.slice(1).map((item) => item.path));
   const persistentTests = scope.persistent_tests === null ? null : boundedList(scope.persistent_tests);
-  const expandedMutationTargets = boundedValues(current.runtimeState.dynamic_expansions ?? []);
+  const expandedMutationTargets = boundedValues(currentExecutionDynamicExpansions(current));
   const claimEvidence2 = boundedValues(current.runtimeState.claim_evidence ?? []);
   const claimSummaries = claimEvidence2.values.map(claimEvidenceSummary);
   const admittedFindings = boundedValues(admitted2);
@@ -25561,7 +25648,7 @@ function reviewContext(root, input) {
     },
     planned_mutation_targets: plannedMutationTargets,
     expanded_mutation_targets: expandedMutationTargets.values,
-    dynamic_review_required: current.runtimeState.dynamic_review_required === true,
+    dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     text_diff: execution.execution_result.change_delta.entries.length ? reviewFilePage(root, current, execution, execution.execution_result.change_delta.entries[0].path, "diff", {}) : null,
     unexpanded_paths: unexpandedPaths.values,
     unexpanded_path_count: unexpandedPaths.total,
@@ -25721,7 +25808,7 @@ function normalizeFinding(value, index, current, root) {
       task: current.mutationAuthority,
       candidate_paths: [candidate.file],
       planned_targets: stepScope(step.planned_mutation_targets ?? step.mutation_scope, `step ${step.id} planned_mutation_targets`),
-      assessments: (current.runtimeState.dynamic_expansions ?? []).map((item) => item.assessment),
+      assessments: currentExecutionDynamicExpansions(current).map((item) => item.assessment),
       persistent_test_paths: resolveTestStrategyExecutionContext(current).persistent_tests
     });
     if (authorityDecision.status !== "pass") {

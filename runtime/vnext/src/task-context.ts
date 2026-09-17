@@ -17,6 +17,7 @@ import {
 } from './file-context';
 import {
   evaluateEvidenceSlotForContext,
+  dynamicReviewRequiredForCurrentExecution,
   readCanonicalCurrentTask,
   type CanonicalCurrentTask,
 } from './kernel';
@@ -532,7 +533,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
   const retainedCleanReview = pendingReview?.verdict === 'clean' && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === 'findings' && state.scope_amendment_pending_review_step_id !== undefined;
-  const dynamicReviewReady = state.dynamic_review_required === true
+  const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current)
     && state.active_step_status === 'in-progress'
     && latest?.execution_result_status !== null
     && latest?.execution_result_status !== undefined;
@@ -581,7 +582,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         forbidden: [...current.mutationAuthority.forbidden],
       },
     dynamic_mutation: {
-      review_required: state.dynamic_review_required === true,
+      review_required: dynamicReviewRequiredForCurrentExecution(current),
       expansions: (state.dynamic_expansions ?? []).slice(0, 64).map(item => ({
         path: item.path,
         domain: item.domain,
@@ -592,7 +593,13 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
           execution_id: item.execution_id,
           preflight_id: item.preflight_id,
           step_id: item.step_id,
+          plan_revision: item.plan_revision,
+          change_set_id: item.change_set_id,
           mode: item.mode,
+        }),
+        ...(item.reviewed_by_review_id === undefined ? {} : {
+          reviewed_by_review_id: item.reviewed_by_review_id,
+          reviewed_at: item.reviewed_at,
         }),
       })),
       expansion_count: state.dynamic_expansions?.length ?? 0,
@@ -619,7 +626,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       attempt_budget: ledger?.max_attempts ?? null,
       pending_replan_candidates: pendingReplanCandidateCount(current),
       pending_scope_amendment_candidates: pendingScopeAmendmentCandidateCount(current),
-      dynamic_review_required: state.dynamic_review_required === true,
+      dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
       dynamic_expansion_count: state.dynamic_expansions?.length ?? 0,
     },
     latest_execution: latestIndex,
@@ -667,7 +674,7 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     unresolved_findings: unresolvedFindings(current),
     unresolved_evidence_challenges: Array.isArray(current.runtimeState.evidence_challenges) ? current.runtimeState.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id ?? null, status: item.status ?? null, claim_id: item.claim_id ?? null, slot_id: item.slot_id ?? null, result_id: item.result_id ?? null })) : [],
     active_attempt: record(current.runtimeState.step_attempts) && record(current.runtimeState.step_attempts[current.runtimeState.active_step_id]) ? current.runtimeState.step_attempts[current.runtimeState.active_step_id] : null,
-    dynamic_review_required: current.runtimeState.dynamic_review_required === true,
+    dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     dynamic_expansions: current.runtimeState.dynamic_expansions ?? [],
   });
   add('latest-execution', true, latestExecution(current));

@@ -164,6 +164,8 @@ capabilities:
       - explicit authority-amendment blocker for cross-domain or unclassified writes
       - distinct runtime errors for missing blast-radius assessment, escalated assessment, and true authority expansion
       - planned, expanded, and actual footprint material for cumulative review
+      - execution-identity-bound dynamic admissions; historical expansions never become a current-step write grant
+      - clean-review consumption bound to the reviewed execution identity and retained per expansion
     stop_conditions:
       - authority ownership cannot be resolved from the project domain map
       - a target is outside the task envelope, explicitly forbidden, or on a governance boundary

@@ -32,6 +32,7 @@ import {
   validateStepAcceptanceEvidence,
   type StepAcceptanceEvidence,
   captureReviewTarget,
+  createReviewTargetManifest,
   createFindingQueueProposal,
   createReviewChangeDelta,
   currentDefinitionExecutionLog,
@@ -43,6 +44,8 @@ import {
   readDraftDefinitionFromBody,
   resolveTestStrategyExecutionContext,
   executionPhaseForCurrentStep,
+  currentExecutionDynamicExpansions,
+  dynamicReviewRequiredForCurrentExecution,
   validateRuntimeEnvironment,
   validateRuntimeReviewTarget,
   validateVNextRuntimeContract,
@@ -413,7 +416,7 @@ function stepAdmitsFootprintTarget(target: string, stepScope: readonly string[])
 }
 
 function authorityAssessments(current: CanonicalCurrentTask): BlastRadiusAssessment[] {
-  return (current.runtimeState.dynamic_expansions ?? []).map(item => item.assessment);
+  return currentExecutionDynamicExpansions(current).map(item => item.assessment);
 }
 
 function assertPathsAdmitted(
@@ -1111,6 +1114,13 @@ export function extendPreflight(
     ...(receipt.execution_id === undefined ? {} : { execution_id: receipt.execution_id }),
     execution_phase: receipt.execution_phase,
   });
+  // The execution receipt carries a baseline for this execution's candidate
+  // set.  Preserve the prior receipt baseline and capture only newly admitted
+  // paths now; cumulative review coverage remains a separate projection.
+  const extensionReviewBase = createReviewTargetManifest([
+    ...receipt.review_base.entries,
+    ...captureReviewTarget(root, additionalTargets).entries,
+  ]);
   const result = applyVNextRuntimeProposal(root, proposal, options);
   if (!['success', 'no-op'].includes(result.status)) fail('PREFLIGHT_BLOCKED', result.message);
   const next = options.dryRun ? current : readCanonicalCurrentTask(root);
@@ -1175,7 +1185,7 @@ export function extendPreflight(
       candidate_paths: active?.candidate_paths ?? candidatePaths,
       repair_fingerprint: null,
       change_set_id: active?.change_set_id ?? coverage?.change_set_id ?? changeSetId(next, stepPlan.step.id),
-      review_base: coverage?.base ?? nextBase,
+      review_base: extensionReviewBase,
       mutation_authority_version: 2,
     },
   };
@@ -1618,7 +1628,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
 
   let status: 'blocked' | 'completed' | 'in-progress';
   if (outcome === 'blocked') status = 'blocked';
-  else if (receipt.mode === 'repair' || (stepPlan.step.review_checkpoint === 'not-required' && current.runtimeState.dynamic_review_required !== true)) status = 'completed';
+  else if (receipt.mode === 'repair' || (stepPlan.step.review_checkpoint === 'not-required' && !dynamicReviewRequiredForCurrentExecution(current))) status = 'completed';
   else status = 'in-progress';
   const proposal = createTaskStateProposal(current, {
     mode: receipt.mode,
