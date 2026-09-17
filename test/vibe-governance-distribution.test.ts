@@ -398,6 +398,37 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(false);
   });
 
+  test('explicit completion decision accepts a legacy completed current task format', { timeout: 45000 }, () => {
+    const target = makeLegacyTarget();
+    const currentPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+    const original = fs.readFileSync(currentPath, 'utf8')
+      .replace('任务 ID：010', '任务 ID：TASK-20260918-003')
+      .replace('当前状态：archived', '当前状态：completed（已完成，剩余观察项延期）')
+      .replace(/^- 生命周期状态：archived\r?\n/m, '');
+    fs.writeFileSync(currentPath, original, 'utf8');
+    const before = fs.readFileSync(currentPath);
+    const strict = migrateDistribution({ targetRoot: target, packageRoot, dryRun: true });
+    expect(strict.status).toBe('rejected');
+    const decisions = {
+      schema_version: 1,
+      target_root: strict.migration_target?.target_root,
+      target_identity: strict.migration_target?.target_identity,
+      current_task: {
+        path: 'docs/workflow/CURRENT_TASK.md',
+        sha256: crypto.createHash('sha256').update(before).digest('hex'),
+        original_task_id: 'TASK-20260918-003',
+      },
+      current_task_disposition: 'completed-by-user-confirmation',
+      preserved_paused: [],
+      user_decision: { source: 'test user', verbatim: 'The legacy current task is completed.' },
+    };
+    const input = path.join(tempRoot('legacy-completed-decision-'), 'decisions.json');
+    fs.writeFileSync(input, JSON.stringify(decisions), 'utf8');
+    const accepted = migrateDistribution({ targetRoot: target, packageRoot, decisionsFile: input, dryRun: true });
+    expect(accepted.status).toBe('ready');
+    expect(accepted.blockers).toEqual([]);
+  });
+
   test('valid idle legacy migrate invokes the Pack and promotes canonical .agents skills', { timeout: 45000 }, () => {
     const target = makeLegacyTarget();
     addUnmanagedBusinessSymlink(target);

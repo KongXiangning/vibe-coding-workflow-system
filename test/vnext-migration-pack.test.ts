@@ -436,7 +436,8 @@ describe('one-time vNext Migration Pack', () => {
     fs.writeFileSync(guide, fs.readFileSync(guide, 'utf8').replaceAll('`docs/workflow/', '`'));
     const baseline = path.join(target, 'docs/workflow/BASELINES.md');
     const examples = '\nExamples: `/api/sessions*`, `E:\\project\\TermLink`, `node --test tests\\old.test.js`, `PLEASE IMPLEMENT THIS PLAN:\\n...`.\n';
-    const original = fs.readFileSync(baseline, 'utf8') + examples;
+    const siblingReference = '\n[Sibling guide](../workflow/WORKFLOW_GUIDE.md)\n';
+    const original = fs.readFileSync(baseline, 'utf8') + examples + siblingReference;
     fs.writeFileSync(baseline, original);
     const packDir = tempRoot('migration-reference-pack-');
     const pack = createMigrationPack({ sourceRoot: ROOT, targetRoot: target, outDir: packDir });
@@ -444,8 +445,22 @@ describe('one-time vNext Migration Pack', () => {
     expect(fs.readFileSync(path.join(packDir, artifact.original_content_path), 'utf8')).toBe(original);
     expect(fs.readFileSync(path.join(packDir, artifact.content_path), 'utf8')).toContain(examples);
     expect(artifact.path_references.find(ref => ref.raw === '/api/sessions*')?.kind).toBe('unclassified');
-    fs.appendFileSync(baseline, '\n[unsafe](../../outside.md)\n');
+    expect(artifact.path_references.find(ref => ref.raw === '../workflow/WORKFLOW_GUIDE.md')?.kind).toBe('repo-relative');
+    fs.appendFileSync(baseline, '\n[unsafe](../../../outside.md)\n');
     expect(() => createMigrationPack({ sourceRoot: ROOT, targetRoot: target, outDir: tempRoot('migration-unsafe-pack-') })).toThrow('UNSAFE_PATH');
+  });
+
+  test('accepts a legacy DECISIONS.md with concrete superseded records', () => {
+    const target = copyFixtureTarget();
+    const decisionsPath = path.join(target, 'docs/workflow/DECISIONS.md');
+    const decisions = fs.readFileSync(decisionsPath, 'utf8').replace(
+      /### SUPERSEDED-001:[\s\S]*?(?=## ❌ 已否决)/,
+      '- AD-001 已被后续架构决策替代，但其兼容约束继续有效。\n\n',
+    );
+    fs.writeFileSync(decisionsPath, decisions, 'utf8');
+
+    const pack = createMigrationPack({ sourceRoot: ROOT, targetRoot: target, outDir: tempRoot('migration-legacy-decisions-pack-') });
+    expect(pack.status).toBe('validated');
   });
 
   test('preflight rejects an active CURRENT_TASK without mutation', () => {
