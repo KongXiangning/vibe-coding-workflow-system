@@ -211,6 +211,32 @@ expansion but require oracle/reuse/boundary assessment. An absent new
 persistent test still requires the full P-12 owner/claim/basis/insufficiency/
 assertion-boundary/failure-disposition admission.
 
+All execution entry points use one Runtime-owned exact-target admission
+evaluator. `preflight-step`, `extend-preflight`, `begin-repair`, repair
+extension, command-footprint preflight, and the result re-check pass the same
+task authority envelope, current step, execution phase, persistent-test state,
+and governance boundaries to that evaluator. Its result distinguishes planned,
+dynamic self-admitted, persistent-test-admitted, authority, assessment,
+test-strategy, non-executable-policy, persistent-test, and governance blocks;
+an adapter may not substitute a second path policy after state mutation begins.
+The evaluator checks structure only: blast-radius truth remains a bounded
+coding-model judgment and is retained as evidence.
+
+Every new v2 execution has a stable `execution_id`; an extension changes only
+the current receipt token and appends new target preimages. Repair uses the
+same execution identity and repair wave, so a same-envelope helper discovered
+after the first repair edit can use the same extension without a continuation
+or retry-budget consumption. Dynamic-expansion records bind the target to the
+step, mode, execution identity, and receipt token. Admission failures are
+validated before the extension transaction can change Runtime state.
+
+Test-strategy phase restrictions apply to initial and replacement preflights
+equally. In a `test-first` Red execution, a test-only candidate may be
+admitted, while a newly discovered product target is rejected before the
+extension commit. A `not-applicable` task remains closed under discovery: every
+later target must still match the project profile's bounded
+`non_executable_change_paths`, not merely the original planned targets.
+
 Legacy tasks with a missing or version-1 authority marker retain the existing
 `Allowed` / `Conditional` / `Forbidden` plus step-hard-scope semantics. v1 is
 not silently converted into a domain map. True authority changes (for example

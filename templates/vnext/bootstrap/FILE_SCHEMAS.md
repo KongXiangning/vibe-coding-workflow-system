@@ -230,9 +230,14 @@ prepare-task default. If no mode can be selected reliably, prepare-task must
 resolve it as a user-owned open question before committing the draft. A
 behavior-changing task cannot use `not-applicable` merely to avoid tests.
 Executable inferred-default uses `flexible`; no tests-only first step or
-mandatory Red follows from step index. Explicit test-first/implementation-first
-must retain its source and rationale and bind approved before-step slots; absent
-prerequisites remain `TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`.
+mandatory Red follows from step index. For an explicitly authorized
+`test-first` flow, a test-only candidate set may be represented by Runtime as
+the per-execution admission phase `red`; this is not a task-wide rule and is
+not inferred from step position. Replacement preflight keeps that phase, so a
+product target discovered during Red is rejected before Runtime state changes.
+Explicit test-first/implementation-first must retain its source and rationale
+and bind approved before-step slots; absent prerequisites remain
+`TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`.
 `not-applicable` requires Persistent Tests=none and proven non-executable scope
 under PROJECT_PROFILE boundaries.non_executable_change_paths (exact paths or
 literal directory-prefix /** only); documentation inventory is not proof.

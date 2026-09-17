@@ -84,7 +84,7 @@ const MAX_FORBIDDEN = 256;
  * execute-step mutation targets; their typed owners remain the only write
  * boundary.  The list intentionally mirrors the existing amendment guard.
  */
-function isGovernanceBoundaryPath(target: string): boolean {
+export function isMutationAuthorityGovernanceBoundary(target: string): boolean {
   return target === '.git'
     || target.startsWith('.git/')
     || target === '.workflow-system'
@@ -346,7 +346,7 @@ export function evaluateMutationAuthority(input: {
       blockers.push(`MUTATION_AUTHORITY_FORBIDDEN: ${target}`);
       continue;
     }
-    if (isGovernanceBoundaryPath(target)) {
+    if (isMutationAuthorityGovernanceBoundary(target)) {
       decisions.push({ path: target, status: 'blocked', domain: null, reason: 'target is a Runtime/governance boundary', first_touch_state: touch });
       blockers.push(`MUTATION_AUTHORITY_GOVERNANCE_BOUNDARY: ${target}`);
       continue;

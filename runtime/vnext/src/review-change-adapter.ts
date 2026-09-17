@@ -445,6 +445,7 @@ function copyExecutionResult(value: StepExecutionResult | undefined): Record<str
     };
   });
   return {
+    ...(value.execution_id === undefined ? {} : { execution_id: value.execution_id }),
     ...(value.attempt_id === undefined ? {} : { attempt_id: value.attempt_id }),
     ...(value.blocker_kind === undefined ? {} : { blocker_kind: value.blocker_kind }),
     outcome: value.outcome,

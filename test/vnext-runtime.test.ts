@@ -8444,6 +8444,337 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
+  test('E2 repair same-envelope discovery stays in one repair wave and execution identity', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement and repair the Node rollout behavior',
+        planned_mutation_targets: [target],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+        review_checkpoint: { policy: 'required', reason: 'Review the cumulative implementation and repair diff' },
+      }],
+    });
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      const discoveredPath = path.join(root, ...discovered.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.mkdirSync(path.dirname(discoveredPath), { recursive: true });
+      fs.writeFileSync(targetPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [target] });
+      fs.writeFileSync(targetPath, 'export const session = "implemented";\n', 'utf8');
+      const acceptance = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: initial.receipt,
+        actual_changed_paths: [target],
+        command_results: [{ command: initial.current_step.commands[0]!.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: initial.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [acceptance],
+        outcome: 'implemented',
+        note: 'Record the initial Node implementation before review repair.',
+      }).status).toBe('success');
+
+      const discovery = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: discovery.receipt,
+        verdict: 'findings',
+        findings: [{
+          category: 'correctness',
+          file: target,
+          failure_condition: 'the session state is not normalized before reconnect',
+          required_behavior: 'normalize session state before reconnect',
+          root_cause_status: 'confirmed',
+          evidence_refs: ['evidence-report.txt'],
+        }],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+
+      const repair = beginRepair(root, { candidate_paths: [target] });
+      const beforeExtension = readCanonicalCurrentTask(root);
+      const attemptsBefore = structuredClone(beforeExtension.runtimeState.step_attempts);
+      fs.writeFileSync(targetPath, 'export const session = "repaired";\n', 'utf8');
+      fs.writeFileSync(discoveredPath, 'export const normalizeState = (value) => value;\n', 'utf8');
+
+      const extension = extendPreflight(root, {
+        current_preflight_receipt: repair.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'normalizeState' },
+          reason: 'The private helper is the smallest correct repair; changing the shared protocol would broaden the fix without evidence.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(extension.receipt).toMatchObject({
+        mode: 'repair',
+        execution_id: repair.receipt.execution_id,
+        repair_wave_id: repair.receipt.repair_wave_id,
+        repair_fingerprints: repair.receipt.repair_fingerprints,
+      });
+      const afterExtension = readCanonicalCurrentTask(root);
+      expect(afterExtension.runtimeState.step_attempts).toEqual(attemptsBefore);
+      expect(afterExtension.runtimeState.evidence_plan_revision).toBe(beforeExtension.runtimeState.evidence_plan_revision);
+      expect(afterExtension.runtimeState.active_step_id).toBe('step-1');
+      expect(afterExtension.runtimeState.dynamic_expansions).toEqual([
+        expect.objectContaining({
+          path: discovered,
+          mode: 'repair',
+          execution_id: repair.receipt.execution_id,
+          step_id: 'step-1',
+        }),
+      ]);
+      expect(afterExtension.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(false);
+
+      fs.writeFileSync(targetPath, 'export const session = "fixed";\n', 'utf8');
+      fs.writeFileSync(discoveredPath, 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+      expect(recordStepResult(root, {
+        preflight_receipt: extension.receipt,
+        actual_changed_paths: [target, discovered],
+        command_results: [{ command: extension.current_step.commands[0]!.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: extension.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [],
+        outcome: 'implemented',
+        note: 'Repair the finding and its locally discovered helper in one wave.',
+      }).status).toBe('success');
+      const verification = reviewContext(root, {});
+      expect(verification.receipt.cycle_phase).toBe('verification');
+      expect(verification.recorded_execution.execution_result?.execution_id).toBe(repair.receipt.execution_id);
+      expect(recordReviewResult(root, {
+        context_receipt: verification.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The repair wave and local expansion are verified.' }).status).toBe('success');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E3 rejects a test-first Red product expansion before changing Runtime state', () => {
+    const testPath = 'packages/node-rollout-tests/existing-regression.test.ts';
+    const productPath = 'packages/node-rollout/src/foo.ts';
+    const semantic = v2MutationAuthoritySemanticDraft({
+      test_strategy: {
+        mode: 'test-first',
+        source: 'explicit-user',
+        source_ref: 'test:original-request',
+        task_classification: 'contract-clear-behavior',
+        rationale: 'The regression must be reproduced before product implementation.',
+      },
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Record the existing regression in Red',
+        planned_mutation_targets: [testPath],
+        commands: [],
+        validation: ['The regression test reproduces the defect'],
+        review_checkpoint: { policy: 'required', reason: 'Review the Red reproduction' },
+      }, {
+        id: 'step-2',
+        description: 'Implement the product fix after Red',
+        planned_mutation_targets: [productPath],
+        commands: [],
+        validation: ['The product fix passes the regression'],
+        review_checkpoint: { policy: 'required', reason: 'Review the product fix' },
+      }],
+      persistent_tests: [{
+        path: testPath,
+        proves: ['A1'],
+        owner: 'workflow-system',
+        owner_source: 'task-basis',
+        source_ref: 'test:original-request',
+        basis: 'regression',
+        existing_evidence_insufficiency: 'The existing checks do not reproduce this regression.',
+        assertion_boundary: 'The test asserts the requested Node rollout behavior only.',
+        failure_disposition: 'block',
+      }],
+    });
+    const prerequisite = structuredClone(semantic.claim_evidence[0]!);
+    prerequisite.claim_id = 'red-reproduction';
+    prerequisite.claim_kind = 'invariant';
+    prerequisite.requirement = 'Observe the regression before product implementation';
+    const slot = prerequisite.slots[0]!;
+    slot.slot_id = 'red-reproduction';
+    slot.due_step_id = 'step-1';
+    slot.applicability = 'before-step';
+    slot.before_step_id = 'step-2';
+    slot.prerequisite_receipt = null;
+    slot.check!.check_id = 'red-reproduction';
+    slot.check!.entry = 'bun test packages/node-rollout-tests/existing-regression.test.ts';
+    slot.check!.expected_result = 'expected-failure';
+    semantic.claim_evidence.push(prerequisite);
+
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    const prepared = prepareDraft(root, semantic);
+    if (!prepared.confirmation_receipt) throw new Error('E3 setup did not receive a confirmation receipt');
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    try {
+      const testFile = path.join(root, ...testPath.split('/'));
+      fs.mkdirSync(path.dirname(testFile), { recursive: true });
+      fs.writeFileSync(testFile, 'test("existing regression", () => {});\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [testPath] });
+      expect(initial.receipt.execution_phase).toBe('red');
+      const before = readCanonicalCurrentTask(root);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      const beforeRuntime = JSON.stringify(before.runtimeState);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [productPath],
+        blast_radius_assessments: [{
+          target: { path: productPath, symbol: 'foo' },
+          reason: 'The product implementation is the likely local fix after the Red reproduction.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('TEST_STRATEGY_SEQUENCE_INVALID');
+      const after = readCanonicalCurrentTask(root);
+      expect(fs.readFileSync(after.filePath, 'utf8')).toBe(beforeBytes);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(after.runtimeState)).toBe(beforeRuntime);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E4 keeps not-applicable execution closed under dynamic executable discovery', () => {
+    const planned = 'packages/node-rollout/README.md';
+    const discovered = 'packages/node-rollout/src/app.ts';
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+    const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, any>;
+    profile.boundaries.non_executable_change_paths.push(planned);
+    fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+    const prepared = prepareDraft(root, v2MutationAuthoritySemanticDraft({
+      test_strategy: notApplicableSemanticDraft().test_strategy,
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Update the non-executable Node rollout documentation',
+        planned_mutation_targets: [planned],
+        commands: [],
+        validation: ['Review the rendered documentation content'],
+        review_checkpoint: { policy: 'required', reason: 'Review the documentation change' },
+      }],
+    }));
+    if (!prepared.confirmation_receipt) throw new Error('E4 setup did not receive a confirmation receipt');
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    try {
+      const plannedFile = path.join(root, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedFile), { recursive: true });
+      fs.writeFileSync(plannedFile, '# Node rollout notes\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(root);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'app' },
+          reason: 'The discovered executable target would be a broader implementation change.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION');
+      const after = readCanonicalCurrentTask(root);
+      expect(fs.readFileSync(after.filePath, 'utf8')).toBe(beforeBytes);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(after.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E5 admits an existing same-envelope regression test as ordinary dynamic expansion', () => {
+    const product = 'packages/node-rollout/src/session.ts';
+    const existingTest = 'packages/node-rollout-tests/existing-regression.test.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the Node rollout behavior and its existing regression test',
+        planned_mutation_targets: [product],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+        review_checkpoint: { policy: 'required', reason: 'Review the cumulative implementation and regression oracle' },
+      }],
+    });
+    try {
+      const productPath = path.join(root, ...product.split('/'));
+      const testPath = path.join(root, ...existingTest.split('/'));
+      fs.mkdirSync(path.dirname(productPath), { recursive: true });
+      fs.mkdirSync(path.dirname(testPath), { recursive: true });
+      fs.writeFileSync(productPath, 'export const session = "before";\n', 'utf8');
+      fs.writeFileSync(testPath, 'test("existing regression", () => expect(true).toBe(true));\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [product] });
+      fs.writeFileSync(productPath, 'export const session = "after";\n', 'utf8');
+      const extended = extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [existingTest],
+        blast_radius_assessments: [{
+          target: { path: existingTest, symbol: 'existing regression oracle' },
+          reason: 'The existing regression test is the smallest correct local oracle; reuse its boundary instead of creating a new persistent test.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(extended.receipt.candidate_paths).toEqual([product, existingTest]);
+      expect(readCanonicalCurrentTask(root).runtimeState.dynamic_review_required).toBe(true);
+      fs.writeFileSync(testPath, 'test("existing regression", () => expect(session()).toBe("after"));\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: extended.receipt,
+        actual_changed_paths: [product, existingTest],
+        command_results: [{ command: extended.current_step.commands[0]!.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: extended.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Update the existing regression oracle inside the authorized test domain.',
+      }).status).toBe('success');
+      const context = reviewContext(root, {});
+      expect(context.dynamic_review_required).toBe(true);
+      expect(context.recorded_execution.execution_result?.actual_changed_paths).toEqual([existingTest, product].sort());
+      expect(context.expanded_mutation_targets).toEqual([
+        expect.objectContaining({ path: existingTest, assessment: expect.objectContaining({ disposition: 'self-admit' }) }),
+      ]);
+      expect(recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+        test_assessment: {
+          applicable: true,
+          reason: 'The existing regression oracle remains applicable to the same Node behavior.',
+          evidence_refs: ['evidence-report.txt'],
+          necessity: 'The existing regression test protects the discovered behavior.',
+          oracle: 'The existing assertion remains the oracle for the requested Node behavior.',
+          boundary: 'The regression test remains inside the authorized Node test domain.',
+          reuse: 'The existing regression test is updated rather than replaced by a new persistent test.',
+          applicability: 'The recorded cumulative diff includes the product and existing test changes.',
+        },
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The existing regression oracle and cumulative diff are reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('v2 authority amendment waits for the current execution to settle', () => {
     const root = v2ConfirmedRoot();
     const planned = 'packages/node-rollout/src/session.ts';

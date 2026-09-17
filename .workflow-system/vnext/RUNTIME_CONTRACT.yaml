@@ -157,6 +157,32 @@ proposal:
       - clear-replan-block
       - commit-replan
       - commit-scope-amendment
+    execution_admission:
+      evaluator: runtime-owned-exact-target-admission/v1
+      question: current-task-step-phase-target-assessment-may-enter-this-execution
+      shared_by:
+        - record-step-preflight
+        - extend-preflight
+        - begin-repair
+        - repair-extension
+        - record-step-result
+        - command-footprint-preflight
+      classifications:
+        - planned-admitted
+        - dynamic-self-admitted
+        - persistent-test-admitted
+        - blocked-authority
+        - blocked-assessment
+        - blocked-test-strategy
+        - blocked-persistent-test
+        - blocked-non-executable-policy
+        - blocked-governance
+      mutation_order:
+        - explicit-forbidden-and-governance
+        - test-strategy-and-non-executable-policy
+        - v1-or-v2-authority
+        - assessment-and-persistent-test-admission
+      semantic_boundary: runtime-owns-structural-checks-agent-owns-blast-radius-judgment
     retry_step:
       max_attempts: 3
       environment_report: environment-restored/v1
@@ -185,6 +211,8 @@ proposal:
         in_envelope_unplanned: blast-radius-assessment-and-self-admit
         outside_envelope: MUTATION_AUTHORITY_EXPANSION_REQUIRED
         first_touch: runtime-captured-before-state
+        evaluator: execution-admission
+        execution_identity: stable-per-execution-with-replacement-receipt
       extension:
         action: extend-preflight
         required:
@@ -192,12 +220,20 @@ proposal:
           - additional_targets
           - blast_radius_assessments
           - evidence_refs
+        optional:
+          - mode
+          - execution_id
+          - execution_phase
+          - repair_wave_id
+          - review_id
         same_attempt: true
         plan_revision_change: forbidden
         retry_budget_change: forbidden
         continuation: forbidden
         replacement_receipt: required
         review: cumulative-review-required-for-self-admitted-expansion
+        repair: same-evaluator-same-wave-no-retry-consumption
+        first_touch: append-only-for-new-targets
     claim_evidence:
       stored_in: canonical CURRENT_TASK.runtime_state
       record_fields:
@@ -838,6 +874,10 @@ mutation_authority:
   dynamic_review: mandatory-cumulative-review-for-self-admitted-expansion
   cross_envelope_error: MUTATION_AUTHORITY_EXPANSION_REQUIRED
   extension_action: execute-step:extend-preflight
+  extension_identity: stable-execution-id-with-current-receipt-token
+  repair_extension: same-execution-admission-evaluator-and-repair-wave
+  test_strategy_dynamic_policy: every-preflight-and-extension-uses-current-phase-before-state-mutation
+  non_executable_dynamic_policy: not-applicable-remains-closed-under-all-target-discovery
   authority_amendment: prepare-task:amend-scope-with-explicit-user-authorization
   existing_test_behavior: existing-in-envelope-test-is-ordinary-expansion-with-review
   new_persistent_test_behavior: absent-test-requires-p-12-admission
@@ -884,6 +924,7 @@ canonical_current_task:
       - artifact_checkpoint_ids
       - dynamic_review_required
       - dynamic_expansions
+      - execution_preflight
     review_cycle:
       fields:
         - id

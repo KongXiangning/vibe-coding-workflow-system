@@ -167,6 +167,29 @@ capabilities:
       - a target is outside the task envelope, explicitly forbidden, or on a governance boundary
       - the expansion assessment is incomplete, uncertain, or escalated
       - a broader shared change lacks evidence that the local alternative is incorrect, duplicative, or contract-breaking
+    execution_admission_binding:
+      evaluator: runtime-owned-exact-target-admission/v1
+      applies_to:
+        - ordinary-preflight
+        - same-attempt-extension
+        - repair-preflight
+        - repair-same-attempt-extension
+        - command-footprint-preflight
+        - result-recording-recheck
+      classifications:
+        - planned-admitted
+        - dynamic-self-admitted
+        - persistent-test-admitted
+        - blocked-authority
+        - blocked-assessment
+        - blocked-test-strategy
+        - blocked-persistent-test
+        - blocked-non-executable-policy
+        - blocked-governance
+      identity:
+        stable_execution_id: required_for_new_v2_execution_and_expansion
+        replacement_receipt: required_after_extension
+        retry_budget_effect: none_for_same_attempt_or_repair_wave
 
   - id: adaptive-depth-policy
     exposure: internal

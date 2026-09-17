@@ -335,6 +335,34 @@ admission. A clean cumulative review is required before completion. This
 behavior is distinct from `prepare-task:amend-scope`, which is reserved for
 cross-envelope authority changes.
 
+#### Step 1 design closure — unified execution admission
+
+The Runtime exposes one internal exact-target evaluator for every point at
+which a product target could enter an execution attempt: ordinary preflight,
+same-attempt `extend-preflight`, repair preflight, repair extension, command
+write-footprint preflight, and the result-recording re-check. The evaluator
+receives the v1/v2 authority source, current step planned footprint, execution
+phase, persistent-test state, project non-executable boundary, explicit
+Forbidden and governance boundaries, and optional blast-radius assessment. It
+returns a closed classification rather than a generic scope error. Structural
+authority and before-state are Runtime facts; the model's locality/shared/
+consumer/contract judgment is retained as assessment evidence.
+
+The v2 preflight state stores a stable `execution_id`, the current replacement
+receipt token, mode, step, plan, phase, and cumulative candidates. Each dynamic
+record also carries that execution identity. Repair does not create a second
+authority evaluator or a new retry attempt: `begin-repair` registers a repair
+preflight in the same state shape, and repair discovery uses the same
+`extend-preflight` action with the same repair wave. A rejected extension is
+validated before coverage, preimage, expansion, or proposal state is mutated.
+
+The evaluator applies test-strategy and non-executable policy on every target,
+not only on the initial planned set. Thus a test-first Red receipt cannot add a
+product target in a replacement preflight, and a not-applicable task cannot
+discover executable code merely because its domain is authorized. Existing
+same-envelope test files use ordinary assessed admission; only an absent new
+persistent test needs the existing P-12 admission record.
+
 ### 3.7 Trusted Authority Channel architecture freeze
 
 The Trusted Authority Channel is frozen as an architecture constraint, but its

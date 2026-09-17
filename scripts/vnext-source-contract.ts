@@ -513,12 +513,12 @@ function validateCapabilityCatalog(contract: UnknownRecord): Set<string> {
   const ids = new Set<string>();
   for (const [index, rawCapability] of rawCapabilities.entries()) {
     const capability = expectRecord(rawCapability, `contract.capabilities[${index}]`);
+    const id = expectString(capability.id, `contract.capabilities[${index}].id`);
     expectExactKeys(
       capability,
-      ['id', 'exposure', 'trigger', 'input_contract', 'output_contract', 'stop_conditions'],
+      ['id', 'exposure', 'trigger', 'input_contract', 'output_contract', 'stop_conditions', ...(id === 'mutation-authority-policy' ? ['execution_admission_binding'] : [])],
       `contract.capabilities[${index}]`,
     );
-    const id = expectString(capability.id, `contract.capabilities[${index}].id`);
     if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(id)) fail(`invalid capability id "${id}"`);
     if (ids.has(id)) fail(`duplicate capability id "${id}"`);
     ids.add(id);
@@ -527,6 +527,24 @@ function validateCapabilityCatalog(contract: UnknownRecord): Set<string> {
     expectStringArray(capability.input_contract, `capability "${id}".input_contract`);
     expectStringArray(capability.output_contract, `capability "${id}".output_contract`);
     expectStringArray(capability.stop_conditions, `capability "${id}".stop_conditions`);
+    if (id === 'mutation-authority-policy') {
+      const binding = expectRecord(capability.execution_admission_binding, 'capability "mutation-authority-policy".execution_admission_binding');
+      expectExactKeys(binding, ['evaluator', 'applies_to', 'classifications', 'identity'], 'capability "mutation-authority-policy".execution_admission_binding');
+      if (binding.evaluator !== 'runtime-owned-exact-target-admission/v1') fail('mutation-authority-policy execution admission evaluator must be runtime-owned-exact-target-admission/v1');
+      expectStringArray(binding.applies_to, 'mutation-authority-policy execution admission applies_to');
+      expectSetEqual(
+        expectStringArray(binding.classifications, 'mutation-authority-policy execution admission classifications'),
+        ['planned-admitted', 'dynamic-self-admitted', 'persistent-test-admitted', 'blocked-authority', 'blocked-assessment', 'blocked-test-strategy', 'blocked-persistent-test', 'blocked-non-executable-policy', 'blocked-governance'],
+        'mutation-authority-policy execution admission classifications',
+      );
+      const identity = expectRecord(binding.identity, 'mutation-authority-policy execution admission identity');
+      expectExactKeys(identity, ['stable_execution_id', 'replacement_receipt', 'retry_budget_effect'], 'mutation-authority-policy execution admission identity');
+      if (identity.stable_execution_id !== 'required_for_new_v2_execution_and_expansion'
+        || identity.replacement_receipt !== 'required_after_extension'
+        || identity.retry_budget_effect !== 'none_for_same_attempt_or_repair_wave') {
+        fail('mutation-authority-policy execution admission identity contract is invalid');
+      }
+    }
   }
   for (const required of REQUIRED_CAPABILITIES) {
     if (!ids.has(required)) fail(`capability catalog is missing required "${required}"`);

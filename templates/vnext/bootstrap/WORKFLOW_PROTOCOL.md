@@ -177,7 +177,12 @@ source_ref binds an exact Task Basis coordinate, existing policy file, or
 Explicit ordering retains its reason and relevant target through approved before-step
 slots; absent prerequisite definitions remain TEST_STRATEGY_PREREQUISITE_UNSUPPORTED.
 It must never be silently downgraded. No first-step Red, global tests-only split,
-new-test obligation, or failed-first-run obligation is inferred.
+new-test obligation, or failed-first-run obligation is inferred from step
+position. In an explicitly authorized `test-first` flow, Runtime may represent
+a test-only candidate set as the per-execution admission phase `red`; this
+does not create a task-wide tests-only rule. Replacement preflight preserves
+that phase and rejects any discovered product target before Runtime state
+changes.
 `not-applicable` still requires non-executable-change, Persistent Tests=none,
 and exact/subset admission under the project-owned
 `PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths` policy. Missing,

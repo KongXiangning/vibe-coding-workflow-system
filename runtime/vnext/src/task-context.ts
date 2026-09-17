@@ -588,6 +588,12 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         assessment: item.assessment,
         first_touch_state: item.first_touch_state,
         admitted_at: item.admitted_at,
+        ...(item.execution_id === undefined ? {} : {
+          execution_id: item.execution_id,
+          preflight_id: item.preflight_id,
+          step_id: item.step_id,
+          mode: item.mode,
+        }),
       })),
       expansion_count: state.dynamic_expansions?.length ?? 0,
       expansions_truncated: (state.dynamic_expansions?.length ?? 0) > 64,
