@@ -4720,6 +4720,24 @@ describe('vNext Phase 2 Runtime contract', () => {
     // Contract missing previous_close_reconciliation fails closed
     const contractPath = path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml');
     const originalContract = fs.readFileSync(contractPath, 'utf8');
+    const parsedContract = parse(originalContract) as {
+      proposal: {
+        task_state: {
+          draft: {
+            previous_close_reconciliation: {
+              archive: string;
+              status: string;
+              admitted_lesson: string;
+            };
+          };
+        };
+      };
+    };
+    expect(parsedContract.proposal.task_state.draft.previous_close_reconciliation).toEqual({
+      archive: 'required',
+      status: 'non-blocking',
+      admitted_lesson: 'required-or-durable-reuse-proof',
+    });
     try {
       const missingRecon = originalContract.replace(/previous_close_reconciliation:[\s\S]*?step_admission:/, 'step_admission:');
       fs.writeFileSync(contractPath, missingRecon, 'utf8');
@@ -4735,6 +4753,10 @@ describe('vNext Phase 2 Runtime contract', () => {
 
       const unsafeReplan = originalContract.replace('direct_replan_result: REPLAN_CONFIRMATION_REQUIRED', 'direct_replan_result: success');
       fs.writeFileSync(contractPath, unsafeReplan, 'utf8');
+      expect(() => validateVNextRuntimeContract(ROOT)).toThrow('RUNTIME_CONTRACT_INVALID');
+
+      const blockingStatus = originalContract.replace('status: non-blocking', 'status: required');
+      fs.writeFileSync(contractPath, blockingStatus, 'utf8');
       expect(() => validateVNextRuntimeContract(ROOT)).toThrow('RUNTIME_CONTRACT_INVALID');
     } finally {
       fs.writeFileSync(contractPath, originalContract, 'utf8');

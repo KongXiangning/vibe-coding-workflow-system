@@ -129,7 +129,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.0';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.1';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -2643,7 +2643,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   const draftReconciliation = expectRecord(draftContract.previous_close_reconciliation, 'Runtime contract.proposal.task_state.draft.previous_close_reconciliation');
   expectExactKeys(draftReconciliation, ['archive', 'status', 'admitted_lesson'], 'Runtime contract.proposal.task_state.draft.previous_close_reconciliation');
-  if (draftReconciliation.archive !== 'required' || draftReconciliation.status !== 'required' || draftReconciliation.admitted_lesson !== 'required-or-durable-reuse-proof') {
+  if (draftReconciliation.archive !== 'required' || draftReconciliation.status !== 'non-blocking' || draftReconciliation.admitted_lesson !== 'required-or-durable-reuse-proof') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft previous_close_reconciliation requirements are invalid.');
   }
   const draftStepAdmission = expectRecord(draftContract.step_admission, 'Runtime contract.proposal.task_state.draft.step_admission');
