@@ -9375,6 +9375,54 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
+  test('explicit typed P-12 admission accepts an unconventional same-domain test path', () => {
+    const unconventional = 'packages/node-rollout-tests/qa/check.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const prepared = prepareScopeAmendment(root, {
+        added_paths: [unconventional],
+        authorization: null,
+        persistent_test_admissions: [{
+          path: unconventional,
+          proves: ['A1'],
+          owner: 'node-rollout-tests',
+          owner_source: 'test:step-3-unconventional-owner',
+          source_ref: 'test:step-3-unconventional-p12',
+          basis: 'regression',
+          existing_evidence_insufficiency: 'Existing evidence does not exercise the unconventional regression boundary.',
+          assertion_boundary: 'The explicit QA test covers only the Node rollout behavior in its authorized domain.',
+          failure_disposition: 'block',
+        }],
+        amendment_step: {
+          id: 'unconventional-persistent-test-admission',
+          description: 'Add the explicitly admitted QA regression test',
+          mutation_scope: [unconventional],
+          required_evidence: ['fresh unconventional regression execution and review'],
+          commands: [],
+        },
+      });
+      expect(prepared.status).toBe('success');
+      expect(prepared.candidate_receipt.authority_diff).toEqual({ added_exact_exceptions: [], added_domains: [] });
+      expect(prepared.candidate_receipt.persistent_test_admission).toEqual({ added_paths: [unconventional] });
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toEqual([]);
+
+      const fresh = preflightStep(root, { candidate_paths: [unconventional] });
+      const testPath = path.join(root, ...unconventional.split('/'));
+      fs.mkdirSync(path.dirname(testPath), { recursive: true });
+      fs.writeFileSync(testPath, 'test("unconventional regression", () => expect(true).toBe(true));\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: fresh.receipt,
+        actual_changed_paths: [unconventional],
+        command_results: fresh.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [unconventional], evidence_refs: evidence.evidence_refs })),
+        validation_results: fresh.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Create the explicitly admitted unconventional regression test.',
+      }).status).toBe('success');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('fixed tgz installed Node CLI supports same-envelope discovery without amendment or retry reset', { timeout: 120000 }, () => {
     const target = v2ConfirmedRoot();
     const plannedA = 'packages/node-rollout/src/session.ts';

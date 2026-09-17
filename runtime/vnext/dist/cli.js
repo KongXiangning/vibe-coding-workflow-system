@@ -13891,9 +13891,6 @@ function buildScopeAmendmentCandidate(root, current, input) {
       return !current.mutationAuthority.exact_exceptions.includes(target) && (domain === null || !current.mutationAuthority.domains.includes(domain));
     });
     const admissionPaths = persistentTestAdmissions.map((item) => item.path);
-    if (persistentTestAdmissions.some((item) => !isLikelyPersistentTestPath(item.path))) {
-      persistentTestAdmissionError("persistent_test_admissions", "every path must identify a test-like target.");
-    }
     for (const admission of persistentTestAdmissions) {
       const absolute = path9.resolve(root, ...admission.path.split("/"));
       if (fs8.existsSync(absolute)) {

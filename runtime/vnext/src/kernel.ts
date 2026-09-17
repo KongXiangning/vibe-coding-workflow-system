@@ -11132,9 +11132,6 @@ function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTas
         && (domain === null || !current.mutationAuthority!.domains.includes(domain));
     });
     const admissionPaths = persistentTestAdmissions.map(item => item.path);
-    if (persistentTestAdmissions.some(item => !isLikelyPersistentTestPath(item.path))) {
-      persistentTestAdmissionError('persistent_test_admissions', 'every path must identify a test-like target.');
-    }
     for (const admission of persistentTestAdmissions) {
       const absolute = path.resolve(root, ...admission.path.split('/'));
       if (fs.existsSync(absolute)) {
