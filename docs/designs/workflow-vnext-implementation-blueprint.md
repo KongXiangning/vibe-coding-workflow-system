@@ -380,6 +380,35 @@ review id against only those expansions. Cumulative review coverage remains
 task-level and may retain earlier paths, but it is never passed back as the
 current execution authority candidate set.
 
+#### Step 3 design closure — separate authority transition from P-12 admission
+
+The v2 authority-amendment gate is an execution-settlement gate, not a broad
+task-status gate. It rejects only the latest attempt whose preflight was
+recorded and whose matching ordinary or repair execution result is absent.
+`ready` retry attempts, recorded blocked results, recorded repair results, and
+pending review/findings are amendable; the existing candidate/continuation
+preservation contract carries those obligations forward. Repair settlement is
+bound to the active repair preflight's execution identity and its result log.
+
+The committed scope-amendment candidate is immutable. A discard request first
+checks the committed candidate audit and returns
+`SCOPE_AMENDMENT_ALREADY_COMMITTED` without writing a marker. This keeps
+candidate history usable for later preparation and recovery.
+
+Persistent-test creation is a distinct transition. When an absent target is a
+new persistent test inside the current authority envelope, ordinary
+`extend-preflight` returns `PERSISTENT_TEST_UNADMITTED`. The caller then uses
+the existing prepare-task scope-amendment infrastructure with a complete
+typed `persistent_test_admission` record and `authority_diff: none`; no
+component authorization is requested or synthesized. The record includes
+`path`, `proves`, `owner`, `owner_source`, `source_ref`, `basis`,
+`existing_evidence_insufficiency`, `assertion_boundary`, and
+`failure_disposition`. Runtime validates and binds the caller's facts, does
+not invent defaults, commits the amended definition, and the next execution
+uses a fresh preflight. Existing in-envelope tests remain ordinary assessed
+expansions. Focused fixtures E10–E15 cover settlement, immutable candidates,
+typed admission, and the no-default failure path.
+
 ### 3.7 Trusted Authority Channel architecture freeze
 
 The Trusted Authority Channel is frozen as an architecture constraint, but its

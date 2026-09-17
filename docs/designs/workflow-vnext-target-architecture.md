@@ -252,6 +252,33 @@ task remains closed under discovery: every later target must still match the
 project profile's bounded `non_executable_change_paths`, not merely the
 original planned targets.
 
+#### Step 3 design closure — authority transition and persistent-test admission
+
+Task authority expansion and persistent-test creation are separate typed
+decisions. The authority amendment gate blocks only an execution that has
+already been admitted by preflight but has not yet recorded the matching
+execution result. A `ready` retry, a blocked result, a settled repair result,
+and pending review or findings may proceed through amendment; preservation of
+those obligations remains part of the existing immutable continuation
+contract. Repair uses the real repair execution identity and its matching
+result record, not `active_step_status` or the mere presence of pending review
+as a proxy for an outstanding execution.
+
+The existing scope-amendment candidate remains immutable after its
+`commit-scope-amendment` audit. Discard checks the committed candidate digest
+before creating a discard marker, so history and recovery remain usable.
+
+An absent new persistent test inside an already authorized domain does not
+expand authority, but it is not an ordinary dynamic file admission and is not
+a no-op. It takes the explicit prepare-task amendment infrastructure with
+`authority_diff: none` and a complete caller-provided P-12 record: path,
+stable claim IDs, owner and owner source, source reference, closed basis,
+existing-evidence insufficiency, assertion boundary, and failure disposition.
+Runtime validates, binds, and persists these facts; it never fills defaults.
+Ordinary dynamic admission stays blocked until this transition succeeds.
+Existing test files continue through ordinary assessed expansion, with review
+of oracle, reuse, and boundary impact.
+
 Legacy tasks with a missing or version-1 authority marker retain the existing
 `Allowed` / `Conditional` / `Forbidden` plus step-hard-scope semantics. v1 is
 not silently converted into a domain map. True authority changes (for example

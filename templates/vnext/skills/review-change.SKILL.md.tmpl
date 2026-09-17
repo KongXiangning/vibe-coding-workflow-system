@@ -82,6 +82,10 @@ exports, references, consumers, contract/DTO/schema role, persistence,
 concurrency and security boundaries. Caller count is evidence, never a policy
 threshold. An uncertain or escalated expansion is not clean. Read/discovery
 outside the envelope is allowed and is not itself a finding.
+For a newly admitted persistent test, also consume only the current change-set
+admission and verify every P-12 field, including oracle boundary, reuse and
+the reason existing evidence was insufficient; do not treat `authority_diff:
+none` as permission to skip that review.
 
 Classify each new input using `route-input` with the exact current source revision,
 input reference/hash, relation, requested operation and reason. Return the binding

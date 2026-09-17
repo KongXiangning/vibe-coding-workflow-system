@@ -277,13 +277,20 @@ for the current task, use the independent `amend-scope` route. It is reserved
 for paths outside the task envelope, such as Node → Rust/shared protocol; an
 omitted same-domain helper or existing test uses `execute-step`'s internal
 `extend-preflight` instead. Before a v2 authority amendment, settle the
-current execution gate (including an outstanding preflight, execution result,
-dynamic review, or pending review); the amendment then creates the continuation
-and fresh preflight. Pass exact paths, any newly admitted persistent-test paths,
-and the user's original decision source and verbatim text to Runtime
-`prepare-scope-amendment`. Runtime computes and verifies its immutable
+current execution gate: only a preflighted attempt without its matching
+recorded execution result is outstanding. A ready retry, a recorded blocked or
+repair result, and pending review/findings may be preserved by the amendment;
+the amendment then creates the continuation and fresh preflight. Pass exact
+paths and, for any absent new persistent test, a complete caller-provided
+`persistent_test_admissions` record containing `path`, `proves`, `owner`,
+`owner_source`, `source_ref`, `basis`, `existing_evidence_insufficiency`,
+`assertion_boundary`, and `failure_disposition`; pass the user's original
+decision source and verbatim text only when authority actually expands to
+another domain or exact exception. Runtime computes and verifies its immutable
 candidate internally, preserves old definitions/findings/obligations and
-budget, and retains the existing v1 pending-review preservation behavior. The
+budget, and retains the existing v1 pending-review preservation behavior. An
+in-envelope P-12-only transition has `authority_diff: none`; it is a real
+admission, not `SCOPE_AMENDMENT_NOT_REQUIRED` or an invented default. The
 candidate digest is only a drift/idempotency guard; the user never constructs a
 receipt. `discard-scope-amendment` cannot discard a committed candidate. If the
 caller has only said “continue” or “repair” without an exact authority decision,

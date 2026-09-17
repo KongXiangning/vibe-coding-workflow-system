@@ -118,7 +118,12 @@ If a target is outside the task envelope, Runtime returns
 scope amendment. A true cross-domain expansion is handled by the existing
 additive scope-amendment route: explicit user authorization, immutable
 candidate/old definition, preserved findings/review/budget lineage, then a
-fresh continuation preflight. Discarding a committed candidate is forbidden.
+fresh continuation preflight. An absent new persistent test inside the
+envelope is a separate typed P-12 admission through the same infrastructure
+with `authority_diff: none`; Runtime validates and persists all supplied
+fields and never invents defaults. Discarding a committed candidate is
+forbidden, and an amendment is blocked only by a preflighted execution that
+has not recorded its matching result.
 
 The legacy `mutation_scope` step field and v1 Allowed / Conditional / Forbidden
 sections remain readable for v1 tasks and may be retained as a compatibility
@@ -246,20 +251,24 @@ and bind approved before-step slots; absent prerequisites remain
 under PROJECT_PROFILE boundaries.non_executable_change_paths (exact paths or
 literal directory-prefix /** only); documentation inventory is not proof.
 
-An additive authority amendment is stored as an independent
+An additive authority amendment or typed persistent-test admission is stored as an independent
 `scope-amendment-candidate/v1`. Runtime uses it only when a v2 target is
 outside the task authority envelope (or when a v1 task requests a true scope
-addition). It requires explicit authorization for every exact added path, then
-uses the candidate receipt only internally for drift/idempotency checks and
-commits the amendment in the same route. The candidate records
-caller-reported authorization source and verbatim text, exact added paths, and
-the old/new plan identity. The amendment creates a continuation step and
-preserves prior definitions, failures, uncompleted obligations,
-admitted/in-progress findings, pending review, cumulative review baseline,
-review cycle, and budget. It does not clear a pending review or reset the
-review cycle and does not alter the legacy `correction-replan/v2`
-`permission_change: none` semantics. Same-envelope omitted helpers and
-existing tests use `extend-preflight` instead and never create a continuation.
+addition). It requires explicit authorization only for actual authority
+expansion; a same-domain absent persistent test instead requires the complete
+P-12 record (`path`, `proves`, `owner`, `owner_source`, `source_ref`, `basis`,
+`existing_evidence_insufficiency`, `assertion_boundary`,
+`failure_disposition`) and records `authority_diff: none`. It then uses the
+candidate receipt only internally for drift/idempotency checks and commits the
+definition change in the same route. The candidate records the old/new plan
+identity and, when present, caller-reported authorization. The amendment
+creates a continuation step and preserves prior definitions, failures,
+uncompleted obligations, admitted/in-progress findings, pending review,
+cumulative review baseline, review cycle, and budget. It does not clear a
+pending review or reset the review cycle and does not alter the legacy
+`correction-replan/v2` `permission_change: none` semantics. Same-envelope
+omitted helpers and existing tests use `extend-preflight` instead and never
+create a continuation.
 
 Runtime-owned `runtime_state.business_evidence_version` is optional for historical
 reading, but must equal 1 when present. New semantic/raw create-draft and explicitly

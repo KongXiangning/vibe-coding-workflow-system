@@ -121,6 +121,8 @@ capabilities:
       - exact admitted paths, excluded targets, and source revision
       - v2 dynamic expansion record with first-touch before-state and mandatory cumulative review flag
       - bounded widening requirement; changed goal, scope, or total authority routes to authority amendment, while same-envelope implementation discovery uses extend-preflight
+      - separate persistent-test admission for an absent new test, including a typed P-12 decision even when no authority domain changes
+      - authority-amendment settlement gate that blocks only an admitted preflight without its matching recorded execution result
     stop_conditions:
       - v1 required scope bucket is missing, malformed, duplicated, or ambiguous
       - v1 target is outside admitted scope
@@ -129,6 +131,7 @@ capabilities:
       - forbidden or governance target is requested
       - v1 Conditional target lacks an exact authorization with evidence and authority
       - v2 in-envelope unplanned target lacks a complete blast-radius assessment or is escalated
+      - an absent new persistent test lacks a complete typed P-12 admission; Runtime must not invent owner, basis, insufficiency, boundary, or failure facts
       - a broad glob is used without an inherently-broad transformation
       - the changed-path diff target is empty, duplicated, invalid, or not explicit
       - read/discovery context is treated as write authority
@@ -162,6 +165,7 @@ capabilities:
       - bounded self-admit or escalate disposition for an in-envelope unplanned target
       - smallest-correct-local-change decision with evidence for any broader shared change
       - explicit authority-amendment blocker for cross-domain or unclassified writes
+      - 'distinct persistent-test admission transition with authority_diff: none for an in-envelope absent test'
       - distinct runtime errors for missing blast-radius assessment, escalated assessment, and true authority expansion
       - planned, expanded, and actual footprint material for cumulative review
       - execution-identity-bound dynamic admissions; historical expansions never become a current-step write grant
@@ -171,6 +175,7 @@ capabilities:
       - a target is outside the task envelope, explicitly forbidden, or on a governance boundary
       - the expansion assessment is incomplete, uncertain, or escalated
       - a broader shared change lacks evidence that the local alternative is incorrect, duplicative, or contract-breaking
+      - a persistent-test admission is incomplete or attempts to use Runtime-generated defaults
     execution_admission_binding:
       evaluator: runtime-owned-exact-target-admission/v1
       applies_to:
@@ -335,7 +340,7 @@ capabilities:
       - 'counterevidence binds an existing claim/slot/result and a retained file hash; contested conclusions block dependent execution and closure without rewriting historical reports'
       - 'a contested challenge may be dismissed only with a bound, hashed review assessment; dismissal retains the challenge and original report'
       - 'correction-replan-candidate/v2 supports conclusion-correction and execution-recovery with bounded targets, forward-fix/artifact-restore/mixed, complete obligation mapping, immutable executed definitions, new check identities, and revision-bound pending-step changes'
-      - 'scope-amendment-candidate/v1 is an independent additive route: it consumes caller-reported explicit authorization for exact new paths, preserves pending review/findings/obligations/review baseline/budget, and never changes the legacy correction-replan/v2 permission_change:none semantics'
+      - 'scope-amendment-candidate/v1 is an independent additive route: authority expansion consumes caller-reported explicit authorization for exact new paths, while an in-envelope absent persistent test uses the same infrastructure with a complete typed P-12 admission and authority_diff:none; both preserve pending review/findings/obligations/review baseline/budget and never change the legacy correction-replan/v2 permission_change:none semantics'
       - 'Mutation Authority v2: the task authority envelope is the only hard mutation boundary; planned step targets are guidance, same-envelope expansion requires a bounded blast-radius assessment and review, and cross-domain authority changes require explicit amendment'
       - 'Mutation Authority v2 distinguishes an existing in-envelope test file from an absent new persistent test; only the latter requires the existing P-12 admission record before creation'
       - 'confirmation preserves task identity, original request, acceptance and total authority; binds source, Basis, candidate, evidence admission, restore plan and all old obligations; authorization remains caller-reported'

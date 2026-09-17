@@ -601,7 +601,7 @@ proposal:
       supersede_preimage: exact-current-task-and-linked-task-basis
       confirmed_replan_preimage: exact-current-task-and-linked-task-basis-before-publish
       correction_candidate: independent-revision-bound-candidate-with-full-old-obligations
-      scope_amendment_candidate: independent-versioned-additive-candidate-with-existing-explicit-authorization-runtime-commit-and-preserved-obligations
+      scope_amendment_candidate: independent-versioned-additive-candidate-with-authority-or-typed-persistent-test-admission-runtime-commit-and-preserved-obligations
       evidence_carry_forward: runtime-derived-old-report-and-subject-verified
       external_evidence: references-remain-references-explicit-bounded-content-ingestion
       interrupted_commit: fail-closed-lock-and-hash-recovery
@@ -902,7 +902,30 @@ mutation_authority:
     binding: expansion-execution-identity-and-clean-review-id
     required: current-execution-expansions-only
     historical_records: retain-consumed-review-association
-  authority_amendment: prepare-task:amend-scope-with-explicit-user-authorization
+  authority_amendment: prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission
+  authority_amendment_execution_gate:
+    blocks: latest-preflighted-attempt-without-recorded-execution-result
+    allows:
+      - ready-attempt
+      - settled-blocked-result
+      - settled-repair-result
+      - pending-review-or-findings-preserved
+    repair_binding: current-execution-preflight-and-matching-execution-result
+  persistent_test_admission:
+    route: prepare-task:amend-scope
+    authority_diff: none-when-target-is-in-envelope
+    ordinary_dynamic_behavior: blocked-before-state-mutation
+    required_fields:
+      - path
+      - proves
+      - owner
+      - owner_source
+      - source_ref
+      - basis
+      - existing_evidence_insufficiency
+      - assertion_boundary
+      - failure_disposition
+    runtime_role: validate-bind-persist-no-defaults
   existing_test_behavior: existing-in-envelope-test-is-ordinary-expansion-with-review
   new_persistent_test_behavior: absent-test-requires-p-12-admission
   legacy_behavior: missing-or-version-1-retains-v1-exact-step-scope-semantics

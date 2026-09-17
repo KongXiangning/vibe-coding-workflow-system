@@ -6316,7 +6316,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(taskHistory, ["initialization_preimage", "supersede_preimage", "confirmed_replan_preimage", "correction_candidate", "scope_amendment_candidate", "evidence_carry_forward", "external_evidence", "interrupted_commit", "recovery_protocol"], "Runtime contract.proposal.prepare_task.task_history");
   if (digest3(taskHistory.recovery_protocol) !== digest3(TASK_RECOVERY_PROTOCOL))
     fail3("RUNTIME_CONTRACT_INVALID", "Recovery protocol must match the versioned Kernel semantics.");
-  if (taskHistory.initialization_preimage !== "exact-current-task-and-linked-task-basis-before-version-marker" || taskHistory.supersede_preimage !== "exact-current-task-and-linked-task-basis" || taskHistory.confirmed_replan_preimage !== "exact-current-task-and-linked-task-basis-before-publish" || taskHistory.correction_candidate !== "independent-revision-bound-candidate-with-full-old-obligations" || taskHistory.scope_amendment_candidate !== "independent-versioned-additive-candidate-with-existing-explicit-authorization-runtime-commit-and-preserved-obligations" || taskHistory.evidence_carry_forward !== "runtime-derived-old-report-and-subject-verified" || taskHistory.external_evidence !== "references-remain-references-explicit-bounded-content-ingestion" || taskHistory.interrupted_commit !== "fail-closed-lock-and-hash-recovery") {
+  if (taskHistory.initialization_preimage !== "exact-current-task-and-linked-task-basis-before-version-marker" || taskHistory.supersede_preimage !== "exact-current-task-and-linked-task-basis" || taskHistory.confirmed_replan_preimage !== "exact-current-task-and-linked-task-basis-before-publish" || taskHistory.correction_candidate !== "independent-revision-bound-candidate-with-full-old-obligations" || taskHistory.scope_amendment_candidate !== "independent-versioned-additive-candidate-with-authority-or-typed-persistent-test-admission-runtime-commit-and-preserved-obligations" || taskHistory.evidence_carry_forward !== "runtime-derived-old-report-and-subject-verified" || taskHistory.external_evidence !== "references-remain-references-explicit-bounded-content-ingestion" || taskHistory.interrupted_commit !== "fail-closed-lock-and-hash-recovery") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime task history contract is invalid.");
   }
   const inboxRecordContract = expectRecord2(proposal.inbox_record, "Runtime contract.proposal.inbox_record");
@@ -6425,8 +6425,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   }
   expectSetEqual(expectStringArray2(commandWriteFootprint.observation_limitations, "Runtime contract.mutation_scope.command_write_footprint.observation_limitations"), ["no-os-level-transient-write-history-proof"], "Runtime command write observation limitations");
   const mutationAuthorityContract = expectRecord2(contract.mutation_authority, "Runtime contract.mutation_authority");
-  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
-  if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "mandatory-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-user-authorization" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
+  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "authority_amendment_execution_gate", "persistent_test_admission", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
+  if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "mandatory-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime Mutation Authority v2 contract semantics are invalid.");
   }
   expectSetEqual(expectStringArray2(mutationAuthorityContract.project_domain_fields, "Runtime mutation authority project domain fields"), ["id", "roots"], "Runtime mutation authority project domain fields");
@@ -6442,6 +6442,18 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(dynamicReviewConsumption, ["binding", "required", "historical_records"], "Runtime mutation authority dynamic review consumption");
   if (dynamicReviewConsumption.binding !== "expansion-execution-identity-and-clean-review-id" || dynamicReviewConsumption.required !== "current-execution-expansions-only" || dynamicReviewConsumption.historical_records !== "retain-consumed-review-association") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime dynamic review consumption semantics are invalid.");
+  }
+  const authorityAmendmentGate = expectRecord2(mutationAuthorityContract.authority_amendment_execution_gate, "Runtime mutation authority authority amendment execution gate");
+  expectExactKeys2(authorityAmendmentGate, ["blocks", "allows", "repair_binding"], "Runtime mutation authority authority amendment execution gate");
+  expectSetEqual(expectStringArray2(authorityAmendmentGate.allows, "Runtime mutation authority authority amendment execution gate allows"), ["ready-attempt", "settled-blocked-result", "settled-repair-result", "pending-review-or-findings-preserved"], "Runtime authority amendment execution gate allowed states");
+  if (authorityAmendmentGate.blocks !== "latest-preflighted-attempt-without-recorded-execution-result" || authorityAmendmentGate.repair_binding !== "current-execution-preflight-and-matching-execution-result") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime authority amendment settlement gate semantics are invalid.");
+  }
+  const persistentTestAdmission = expectRecord2(mutationAuthorityContract.persistent_test_admission, "Runtime mutation authority persistent test admission");
+  expectExactKeys2(persistentTestAdmission, ["route", "authority_diff", "ordinary_dynamic_behavior", "required_fields", "runtime_role"], "Runtime mutation authority persistent test admission");
+  expectSetEqual(expectStringArray2(persistentTestAdmission.required_fields, "Runtime mutation authority persistent test admission required fields"), ["path", "proves", "owner", "owner_source", "source_ref", "basis", "existing_evidence_insufficiency", "assertion_boundary", "failure_disposition"], "Runtime persistent test admission fields");
+  if (persistentTestAdmission.route !== "prepare-task:amend-scope" || persistentTestAdmission.authority_diff !== "none-when-target-is-in-envelope" || persistentTestAdmission.ordinary_dynamic_behavior !== "blocked-before-state-mutation" || persistentTestAdmission.runtime_role !== "validate-bind-persist-no-defaults") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime persistent test admission semantics are invalid.");
   }
   const canonical = expectRecord2(contract.canonical_current_task, "Runtime contract.canonical_current_task");
   expectExactKeys2(canonical, ["frontmatter", "runtime_state", "source_of_truth", "legacy_schema_behavior"], "Runtime contract.canonical_current_task");
@@ -13476,36 +13488,62 @@ function insertCorrectionStep(definition, activeStepId, step, append = false) {
 function normalizeScopeAmendmentInput(input, options = {}) {
   const value = expectRecord2(input, "prepare-scope-amendment input");
   const stepKey = value.amendment_step !== undefined ? "amendment_step" : value.step !== undefined ? "step" : null;
-  expectExactKeys2(value, ["added_paths", ...value.persistent_test_paths === undefined ? [] : ["persistent_test_paths"], "authorization", ...stepKey ? [stepKey] : []], "prepare-scope-amendment input");
+  expectExactKeys2(value, [
+    "added_paths",
+    ...value.persistent_test_paths === undefined ? [] : ["persistent_test_paths"],
+    ...value.persistent_test_admissions === undefined ? [] : ["persistent_test_admissions"],
+    ...value.authorization === undefined ? [] : ["authorization"],
+    ...stepKey ? [stepKey] : []
+  ], "prepare-scope-amendment input");
   if (!stepKey)
     fail3("SCOPE_AMENDMENT_STEP_REQUIRED", "prepare-scope-amendment requires an amendment step definition.");
   const addedPaths = expectStringArray2(value.added_paths, "added_paths", false, 64).map((item) => normalizeRepoPath2(item, "added_paths"));
   if (new Set(addedPaths).size !== addedPaths.length || addedPaths.some((item) => item.includes("*")))
     fail3("SCOPE_AMENDMENT_SCOPE_INVALID", "added_paths must contain unique exact paths and cannot introduce wildcards.");
-  const persistentTestPaths = expectStringArray2(value.persistent_test_paths ?? [], "persistent_test_paths", true, 64).map((item) => normalizeRepoPath2(item, "persistent_test_paths"));
-  if (persistentTestPaths.some((item) => item.includes("*") || !addedPaths.includes(item)))
+  const persistentTestPaths = value.persistent_test_paths !== undefined ? expectStringArray2(value.persistent_test_paths, "persistent_test_paths", true, 64).map((item) => normalizeRepoPath2(item, "persistent_test_paths")) : undefined;
+  if ((persistentTestPaths ?? []).some((item) => item.includes("*") || !addedPaths.includes(item)))
     fail3("SCOPE_AMENDMENT_SCOPE_INVALID", "persistent_test_paths must be exact paths contained in added_paths.");
-  if (!isRecord2(value.authorization)) {
-    fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", `Existing explicit user authorization is required for exact path(s): ${addedPaths.join(", ")}.`);
+  const hasPersistentTestAdmissions = value.persistent_test_admissions !== undefined;
+  let persistentTestAdmissions;
+  if (hasPersistentTestAdmissions) {
+    if (!Array.isArray(value.persistent_test_admissions) || value.persistent_test_admissions.length > 64) {
+      persistentTestAdmissionError("persistent_test_admissions", "must be a bounded array.");
+    }
+    persistentTestAdmissions = value.persistent_test_admissions.map((item, index) => normalizePersistentTestAdmission(item, index));
+    if (new Set(persistentTestAdmissions.map((item) => item.path)).size !== persistentTestAdmissions.length) {
+      persistentTestAdmissionError("persistent_test_admissions", "must contain one admission per exact path.");
+    }
+    const missingAdmissionPaths = persistentTestAdmissions.map((item) => item.path).filter((item) => !addedPaths.includes(item));
+    if (missingAdmissionPaths.length > 0) {
+      persistentTestAdmissionError("persistent_test_admissions", `path(s) must be contained in added_paths: ${missingAdmissionPaths.join(", ")}.`);
+    }
   }
-  const authorization = expectRecord2(value.authorization, "authorization");
-  expectExactKeys2(authorization, ["decision_source", "decision_text", "authorized_paths"], "authorization");
-  if (!Array.isArray(authorization.authorized_paths)) {
-    fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", `Existing explicit user authorization is required for exact path(s): ${addedPaths.join(", ")}.`);
+  if (persistentTestPaths && persistentTestPaths.length > 0 && persistentTestAdmissions && digest3([...persistentTestPaths].sort()) !== digest3(persistentTestAdmissions.map((item) => item.path).sort())) {
+    fail3("PERSISTENT_TEST_ADMISSION_INVALID", "persistent_test_paths must exactly match persistent_test_admissions paths when both are supplied.");
   }
-  const authorizedPaths = expectStringArray2(authorization.authorized_paths, "authorization.authorized_paths", false, 128).map((item) => normalizeRepoPath2(item, "authorization.authorized_paths"));
-  const missingAuthorizedPaths = addedPaths.filter((item) => !authorizedPaths.includes(item));
-  if (new Set(authorizedPaths).size !== authorizedPaths.length || authorizedPaths.some((item) => item.includes("*")) || missingAuthorizedPaths.length > 0) {
-    fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", `Existing explicit user authorization is missing for exact path(s): ${missingAuthorizedPaths.join(", ") || addedPaths.join(", ")}.`);
+  let authorization = null;
+  if (value.authorization !== undefined && value.authorization !== null) {
+    const authorizationValue = expectRecord2(value.authorization, "authorization");
+    expectExactKeys2(authorizationValue, ["decision_source", "decision_text", "authorized_paths"], "authorization");
+    if (!Array.isArray(authorizationValue.authorized_paths)) {
+      fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", `Existing explicit user authorization is required for exact path(s): ${addedPaths.join(", ")}.`);
+    }
+    const authorizedPaths = expectStringArray2(authorizationValue.authorized_paths, "authorization.authorized_paths", false, 128).map((item) => normalizeRepoPath2(item, "authorization.authorized_paths"));
+    const missingAuthorizedPaths = addedPaths.filter((item) => !authorizedPaths.includes(item));
+    if (new Set(authorizedPaths).size !== authorizedPaths.length || authorizedPaths.some((item) => item.includes("*")) || missingAuthorizedPaths.length > 0) {
+      fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", `Existing explicit user authorization is missing for exact path(s): ${missingAuthorizedPaths.join(", ") || addedPaths.join(", ")}.`);
+    }
+    const decisionSource = expectText(authorizationValue.decision_source, "authorization.decision_source", 512);
+    if (/[\r\n]/u.test(decisionSource))
+      fail3("SCOPE_AMENDMENT_AUTHORIZATION_INVALID", "authorization.decision_source must be one line.");
+    const decisionText = expectVerbatim(authorizationValue.decision_text, "authorization.decision_text", 4096);
+    authorization = { decision_source: decisionSource, decision_text: decisionText, authorized_paths: [...authorizedPaths].sort() };
   }
-  const decisionSource = expectText(authorization.decision_source, "authorization.decision_source", 512);
-  if (/[\r\n]/u.test(decisionSource))
-    fail3("SCOPE_AMENDMENT_AUTHORIZATION_INVALID", "authorization.decision_source must be one line.");
-  const decisionText = expectVerbatim(authorization.decision_text, "authorization.decision_text", 4096);
   return {
     added_paths: [...addedPaths].sort(),
-    persistent_test_paths: [...new Set(persistentTestPaths)].sort(),
-    authorization: { decision_source: decisionSource, decision_text: decisionText, authorized_paths: [...authorizedPaths].sort() },
+    ...persistentTestPaths === undefined ? {} : { persistent_test_paths: [...new Set(persistentTestPaths)].sort() },
+    ...persistentTestAdmissions === undefined ? {} : { persistent_test_admissions: persistentTestAdmissions.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0) },
+    authorization,
     amendment_step: normalizeCorrectionStep(value[stepKey], options)
   };
 }
@@ -13536,9 +13574,11 @@ function scopeAmendmentCandidateReceipt(candidate, candidateDigest) {
     old_plan_revision: candidate.old_plan_revision,
     new_plan_revision: candidate.new_plan_revision,
     obligations_digest: candidate.old_obligations_digest,
-    authorization_digest: candidate.authorization.digest,
+    authorization_digest: candidate.authorization?.digest ?? digest3(null),
     added_paths: [...candidate.input.added_paths],
-    permission_change: "additive-scope"
+    permission_change: "additive-scope",
+    ...candidate.authority_diff ? { authority_diff: structuredClone(candidate.authority_diff) } : {},
+    ...candidate.persistent_test_admission ? { persistent_test_admission: { added_paths: candidate.persistent_test_admission.added.map((item) => item.path) } } : {}
   };
 }
 function scopeAmendmentRequestMatchesCandidate(input, candidate) {
@@ -13546,11 +13586,13 @@ function scopeAmendmentRequestMatchesCandidate(input, candidate) {
   const committedStep = candidate.input.amendment_step;
   return digest3({
     added_paths: input.added_paths,
-    persistent_test_paths: input.persistent_test_paths,
+    persistent_test_paths: input.persistent_test_paths ?? null,
+    persistent_test_admissions: input.persistent_test_admissions ?? null,
     authorization: input.authorization
   }) === digest3({
     added_paths: candidate.input.added_paths,
-    persistent_test_paths: candidate.input.persistent_test_paths,
+    persistent_test_paths: candidate.input.persistent_test_paths ?? null,
+    persistent_test_admissions: candidate.input.persistent_test_admissions ?? null,
     authorization: candidate.input.authorization
   }) && requestedStep.id === committedStep.id && requestedStep.description === committedStep.description && (requestedStep.required_evidence.length === 0 || digest3(requestedStep.required_evidence) === digest3(committedStep.required_evidence)) && (requestedStep.commands.length === 0 || digest3(requestedStep.commands) === digest3(committedStep.commands)) && requestedStep.mutation_scope.every((item) => committedStep.mutation_scope.includes(item));
 }
@@ -13574,24 +13616,75 @@ function appendExactScopePaths(value, paths) {
 ${additions.join(`
 `)}`;
 }
-function appendPersistentTestPaths(regressionChecks, paths, claimIds = ["A1"]) {
-  if (paths.length === 0)
+function persistentTestAdmissionError(location, message) {
+  fail3("PERSISTENT_TEST_ADMISSION_INVALID", `${location} ${message}`);
+}
+function persistentTestAdmissionText(value, location, maxLength = 4096) {
+  try {
+    return expectText(value, location, maxLength);
+  } catch (error) {
+    persistentTestAdmissionError(location, error instanceof Error ? error.message : "must be explicit and non-empty.");
+  }
+}
+function persistentTestAdmissionStringArray(value, location) {
+  try {
+    return expectStringArray2(value, location, false, 64);
+  } catch (error) {
+    persistentTestAdmissionError(location, error instanceof Error ? error.message : "must be a non-empty bounded array.");
+  }
+}
+function normalizePersistentTestAdmission(value, index) {
+  const location = `persistent_test_admissions[${index}]`;
+  const source = expectRecord2(value, location);
+  const required = ["path", "proves", "owner", "owner_source", "source_ref", "basis", "existing_evidence_insufficiency", "assertion_boundary", "failure_disposition"];
+  const missing = required.filter((key) => !(key in source));
+  const extra = Object.keys(source).filter((key) => !required.includes(key));
+  if (missing.length > 0 || extra.length > 0) {
+    persistentTestAdmissionError(location, `keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
+  }
+  let targetPath;
+  try {
+    targetPath = normalizeRepoPath2(source.path, `${location}.path`);
+  } catch (error) {
+    persistentTestAdmissionError(`${location}.path`, error instanceof Error ? error.message : "must be an exact repository-relative path.");
+  }
+  if (targetPath.includes("*"))
+    persistentTestAdmissionError(`${location}.path`, "must be an exact path.");
+  const proves = persistentTestAdmissionStringArray(source.proves, `${location}.proves`);
+  const basis = source.basis;
+  if (!["acceptance", "regression", "critical-invariant", "critical-risk"].includes(String(basis))) {
+    persistentTestAdmissionError(`${location}.basis`, "must be acceptance, regression, critical-invariant, or critical-risk.");
+  }
+  return {
+    path: targetPath,
+    proves,
+    owner: persistentTestAdmissionText(source.owner, `${location}.owner`),
+    owner_source: persistentTestAdmissionText(source.owner_source, `${location}.owner_source`),
+    source_ref: persistentTestAdmissionText(source.source_ref, `${location}.source_ref`),
+    basis,
+    existing_evidence_insufficiency: persistentTestAdmissionText(source.existing_evidence_insufficiency, `${location}.existing_evidence_insufficiency`),
+    assertion_boundary: persistentTestAdmissionText(source.assertion_boundary, `${location}.assertion_boundary`),
+    failure_disposition: persistentTestAdmissionText(source.failure_disposition, `${location}.failure_disposition`)
+  };
+}
+function appendPersistentTestAdmissions(regressionChecks, admissions) {
+  if (admissions.length === 0)
     return regressionChecks;
   const normalized = regressionChecks.replace(/\r\n?/gu, `
 `);
   const heading2 = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
-  const proof = claimIds[0] ?? "A1";
-  const additions = paths.flatMap((item) => [
-    `- \`${item}\``,
-    `  - proves: ${proof}`,
-    "  - owner: workflow-system",
-    "  - owner_source: task-basis",
-    "  - source_ref: task-basis",
-    "  - basis: regression",
-    "  - existing_evidence_insufficiency: The existing review did not cover the explicitly authorized path.",
-    "  - assertion_boundary: The new path is covered by the amended step and its fresh review.",
-    "  - failure_disposition: block"
-  ]);
+  const render = (item) => [
+    `- \`${item.path}\``,
+    ...item.proves.map((proof) => `  - proves: ${proof}`),
+    `  - owner: ${item.owner}`,
+    `  - owner_source: ${item.owner_source}`,
+    `  - source_ref: ${item.source_ref}`,
+    `  - basis: ${item.basis}`,
+    `  - existing_evidence_insufficiency: ${item.existing_evidence_insufficiency}`,
+    `  - assertion_boundary: ${item.assertion_boundary}`,
+    `  - failure_disposition: ${item.failure_disposition}`
+  ];
+  const additions = admissions.flatMap(render);
   if (!heading2 || heading2.index === undefined)
     return `${normalized.trimEnd()}
 
@@ -13611,11 +13704,26 @@ ${additions.join(`
     if (match && match[1] !== "none")
       existing.add(match[1].trim());
   }
-  const newPaths = paths.filter((item) => !existing.has(item));
-  if (newPaths.length === 0)
+  const newAdmissions = admissions.filter((item) => !existing.has(item.path));
+  if (newAdmissions.length === 0)
     return normalized;
   const retained = section.replace(/^\s*-\s+none\s*$/imu, "").trim();
-  const blocks = newPaths.flatMap((item) => [
+  const blocks = newAdmissions.flatMap(render);
+  const replacement = `
+
+${[retained, ...blocks].filter(Boolean).join(`
+`)}
+`;
+  return normalized.slice(0, start) + replacement + normalized.slice(end);
+}
+function appendLegacyPersistentTestPaths(regressionChecks, paths, claimIds = ["A1"]) {
+  if (paths.length === 0)
+    return regressionChecks;
+  const normalized = regressionChecks.replace(/\r\n?/gu, `
+`);
+  const heading2 = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
+  const proof = claimIds[0] ?? "A1";
+  const render = (item) => [
     `- \`${item}\``,
     `  - proves: ${proof}`,
     "  - owner: workflow-system",
@@ -13625,10 +13733,34 @@ ${additions.join(`
     "  - existing_evidence_insufficiency: The existing review did not cover the explicitly authorized path.",
     "  - assertion_boundary: The new path is covered by the amended step and its fresh review.",
     "  - failure_disposition: block"
-  ]);
+  ];
+  const append = (items) => items.flatMap(render);
+  if (!heading2 || heading2.index === undefined)
+    return `${normalized.trimEnd()}
+
+### Persistent Tests
+
+${append(paths).join(`
+`)}
+`;
+  const start = heading2.index + heading2[0].length;
+  const nextHeading = /\n###\s+/gu.exec(normalized.slice(start));
+  const end = nextHeading ? start + nextHeading.index : normalized.length;
+  const section = normalized.slice(start, end).trim();
+  const existing = new Set;
+  for (const line of section.split(`
+`)) {
+    const match = /^\s*[-*]\s+`?([^`]+?)`?\s*$/u.exec(line);
+    if (match && match[1] !== "none")
+      existing.add(match[1].trim());
+  }
+  const newPaths = paths.filter((item) => !existing.has(item));
+  if (newPaths.length === 0)
+    return normalized;
+  const retained = section.replace(/^\s*-\s+none\s*$/imu, "").trim();
   const replacement = `
 
-${[retained, ...blocks].filter(Boolean).join(`
+${[retained, ...append(newPaths)].filter(Boolean).join(`
 `)}
 `;
   return normalized.slice(0, start) + replacement + normalized.slice(end);
@@ -13701,14 +13833,28 @@ function assertScopeAmendmentPathSafe(root, current, paths) {
     }
   }
 }
+function executionResultRecordedForPreflight(current, preflight, attemptId) {
+  return current.runtimeState.execution_log.some((item) => {
+    if ("action" in item || item.step_id !== preflight.step_id || item.mode !== preflight.mode)
+      return false;
+    const result = item.execution_result;
+    return result !== undefined && result.execution_id === preflight.execution_id && result.change_set_id === preflight.change_set_id && (attemptId === undefined || result.attempt_id === attemptId);
+  });
+}
 function assertV2AuthorityAmendmentExecutionSettled(current) {
   if (!current.mutationAuthority)
     return;
+  const activePreflight = current.runtimeState.execution_preflight;
+  if (activePreflight && activePreflight.step_id === current.runtimeState.active_step_id && !executionResultRecordedForPreflight(current, activePreflight, activePreflight.mode === "default" ? current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts.at(-1)?.attempt_id : undefined)) {
+    fail3("SCOPE_AMENDMENT_EXECUTION_GATE", "A v2 authority amendment requires the current preflighted execution to have a matching recorded result first.");
+  }
   const ledger = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id];
   const latestAttempt = ledger?.attempts.at(-1);
-  const executionOpen = current.runtimeState.pending_review_result !== null || dynamicReviewRequiredForCurrentExecution(current) || ["in-progress", "blocked"].includes(current.runtimeState.active_step_status) || latestAttempt !== undefined && ["ready", "preflighted", "blocked"].includes(latestAttempt.status);
-  if (executionOpen) {
-    fail3("SCOPE_AMENDMENT_EXECUTION_GATE", "A v2 authority amendment requires the current execution to be settled before changing the task authority envelope. Record/resolve the current result and review first.");
+  if (latestAttempt?.status !== "preflighted")
+    return;
+  const recorded = activePreflight && activePreflight.step_id === current.runtimeState.active_step_id && activePreflight.mode === "default" && executionResultRecordedForPreflight(current, activePreflight, latestAttempt.attempt_id);
+  if (!recorded) {
+    fail3("SCOPE_AMENDMENT_EXECUTION_GATE", "A v2 authority amendment requires the latest preflighted attempt to have a matching recorded result first.");
   }
 }
 function buildScopeAmendmentCandidate(root, current, input) {
@@ -13722,10 +13868,14 @@ function buildScopeAmendmentCandidate(root, current, input) {
     fail3("SCOPE_AMENDMENT_STATE_INVALID", "Scope amendment cannot consume a task with an uncleared resume-review gate.");
   if (!["ready", "in-progress", "completed", "blocked"].includes(current.runtimeState.active_step_status))
     fail3("SCOPE_AMENDMENT_STATE_INVALID", "Scope amendment requires a usable current step.");
-  assertV2AuthorityAmendmentExecutionSettled(current);
   assertBusinessEvidenceVersion(current);
   assertTestStrategySequenceReady(current);
   assertScopeAmendmentPathSafe(root, current, input.added_paths);
+  const legacyPersistentTestPaths = input.persistent_test_paths ?? [];
+  const persistentTestAdmissions = input.persistent_test_admissions ?? [];
+  if (legacyPersistentTestPaths.some((item) => !isLikelyPersistentTestPath(item))) {
+    fail3("SCOPE_AMENDMENT_SCOPE_INVALID", "persistent_test_paths must identify test-like paths.");
+  }
   let authorityExpansionPaths = [];
   if (current.mutationAuthority) {
     let projectAuthority;
@@ -13740,12 +13890,47 @@ function buildScopeAmendmentCandidate(root, current, input) {
       const domain = authorityDomainForPath(projectAuthority, target);
       return !current.mutationAuthority.exact_exceptions.includes(target) && (domain === null || !current.mutationAuthority.domains.includes(domain));
     });
-    if (authorityExpansionPaths.length === 0) {
-      fail3("SCOPE_AMENDMENT_NOT_REQUIRED", "All requested paths are already inside the task authority envelope; use execute-step extend-preflight with a blast-radius assessment.");
+    const admissionPaths = persistentTestAdmissions.map((item) => item.path);
+    if (persistentTestAdmissions.some((item) => !isLikelyPersistentTestPath(item.path))) {
+      persistentTestAdmissionError("persistent_test_admissions", "every path must identify a test-like target.");
     }
+    for (const admission of persistentTestAdmissions) {
+      const absolute = path9.resolve(root, ...admission.path.split("/"));
+      if (fs8.existsSync(absolute)) {
+        fail3("PERSISTENT_TEST_ADMISSION_INVALID", `persistent test ${admission.path} already exists; only an absent new persistent test needs P-12 admission.`);
+      }
+    }
+    const missingPersistentAdmissions = input.added_paths.filter((target) => {
+      if (!isLikelyPersistentTestPath(target) || admissionPaths.includes(target))
+        return false;
+      return !fs8.existsSync(path9.resolve(root, ...target.split("/")));
+    });
+    if (missingPersistentAdmissions.length > 0) {
+      fail3("PERSISTENT_TEST_ADMISSION_REQUIRED", `absent new persistent test path(s) require complete persistent_test_admissions records: ${missingPersistentAdmissions.join(", ")}.`);
+    }
+    if (legacyPersistentTestPaths.length > 0 && persistentTestAdmissions.length === 0) {
+      fail3("PERSISTENT_TEST_ADMISSION_REQUIRED", "v2 persistent-test additions require complete persistent_test_admissions records; Runtime will not invent P-12 facts.");
+    }
+    if (authorityExpansionPaths.length === 0) {
+      if (persistentTestAdmissions.length === 0) {
+        fail3("SCOPE_AMENDMENT_NOT_REQUIRED", "All requested paths are already inside the task authority envelope; use execute-step extend-preflight with a blast-radius assessment or submit a typed P-12 admission for an absent persistent test.");
+      }
+      const ordinaryPaths = input.added_paths.filter((item) => !admissionPaths.includes(item));
+      if (ordinaryPaths.length > 0) {
+        fail3("SCOPE_AMENDMENT_NOT_REQUIRED", `Same-envelope ordinary target(s) do not need an authority amendment: ${ordinaryPaths.join(", ")}. Use execute-step extend-preflight with a blast-radius assessment.`);
+      }
+      if (input.authorization !== null) {
+        fail3("SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT", "A same-envelope persistent-test admission has authority_diff: none and must not carry a cross-envelope authorization decision.");
+      }
+    } else {
+      if (input.authorization === null) {
+        fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", `Explicit authority authorization is required for exact path(s): ${authorityExpansionPaths.join(", ")}.`);
+      }
+      assertV2AuthorityAmendmentExecutionSettled(current);
+    }
+  } else if (input.authorization === null) {
+    fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", "Legacy/v1 scope amendments require the caller-reported existing authorization decision.");
   }
-  if (input.persistent_test_paths.some((item) => !isLikelyPersistentTestPath(item)))
-    fail3("SCOPE_AMENDMENT_SCOPE_INVALID", "persistent_test_paths must identify test-like paths.");
   const pendingFindingPaths = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status)).map((item) => item.file);
   const pendingReviewFindingPaths = current.runtimeState.pending_review_result?.findings.map((item) => item.file) ?? [];
   const requiredPaths = [...new Set([...input.added_paths, ...pendingFindingPaths, ...pendingReviewFindingPaths])];
@@ -13780,15 +13965,23 @@ function buildScopeAmendmentCandidate(root, current, input) {
     commands: [{ command: `scope-amendment: repair and verify ${input.added_paths.join(", ")}`, expected_repo_writes: requiredPaths }]
   };
   const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
+  if (current.mutationAuthority && persistentTestAdmissions.length > 0) {
+    const claimIds = new Set(claims.map((item) => item.claim_id));
+    const unknownClaims = [...new Set(persistentTestAdmissions.flatMap((item) => item.proves.filter((claimId) => !claimIds.has(claimId))))];
+    if (unknownClaims.length > 0) {
+      persistentTestAdmissionError("persistent_test_admissions.proves", `claim id(s) are not present in the current evidence plan: ${unknownClaims.join(", ")}.`);
+    }
+  }
   const definition = replaceScopeAmendmentStep(oldDefinition, current.runtimeState.active_step_id, normalizedStep, current.mutationAuthority !== null);
   const amendedAuthority = current.mutationAuthority ? {
     ...current.mutationAuthority,
     exact_exceptions: [...new Set([...current.mutationAuthority.exact_exceptions, ...authorityExpansionPaths])]
   } : undefined;
+  const persistentTestRegressionChecks = current.mutationAuthority ? appendPersistentTestAdmissions(definition.regression_checks, persistentTestAdmissions) : persistentTestAdmissions.length > 0 ? appendPersistentTestAdmissions(definition.regression_checks, persistentTestAdmissions) : appendLegacyPersistentTestPaths(definition.regression_checks, legacyPersistentTestPaths, claims.filter((item) => item.claim_kind === "acceptance").map((item) => item.claim_id));
   const amendedDefinitionDraft = {
     ...definition,
     allowed_scope: appendExactScopePaths(definition.allowed_scope, input.added_paths),
-    regression_checks: appendPersistentTestPaths(definition.regression_checks, input.persistent_test_paths, claims.filter((item) => item.claim_kind === "acceptance").map((item) => item.claim_id)),
+    regression_checks: persistentTestRegressionChecks,
     ...amendedAuthority ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: amendedAuthority } : {}
   };
   const amendedDefinition = {
@@ -13812,7 +14005,7 @@ function buildScopeAmendmentCandidate(root, current, input) {
     }
   const newPlanRevision = assertEvidencePlan(amendedDefinition, claims);
   const findingFingerprints = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status)).map((item) => item.fingerprint).sort();
-  const authorization = {
+  const authorization = input.authorization === null ? null : {
     ...input.authorization,
     kind: "caller-reported-existing-decision",
     digest: digest3(input.authorization)
@@ -13852,6 +14045,7 @@ function buildScopeAmendmentCandidate(root, current, input) {
     claim_evidence: claims,
     new_plan_revision: newPlanRevision,
     ...amendedAuthority ? { authority_diff: { added_exact_exceptions: [...authorityExpansionPaths], added_domains: [] } } : {},
+    ...persistentTestAdmissions.length > 0 ? { persistent_test_admission: { added: structuredClone(persistentTestAdmissions) } } : {},
     permission_change: "additive-scope"
   };
 }
@@ -13884,7 +14078,7 @@ function prepareScopeAmendment(root, rawInput, options = {}) {
       }
       if (scopeAmendmentRequestMatchesCandidate(input, priorCandidate)) {
         const receipt2 = scopeAmendmentCandidateReceipt(priorCandidate, entry.candidate_digest);
-        const idempotencyKey = `scope-amendment-${digest3({ receipt: receipt2, authorization: { decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } }).slice(0, 40)}`;
+        const idempotencyKey = `scope-amendment-${digest3({ receipt: receipt2, authorization: input.authorization ? { decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } : null }).slice(0, 40)}`;
         return {
           status: "no-op",
           operation_kind: "task-state-transaction",
@@ -13958,10 +14152,7 @@ function prepareScopeAmendment(root, rawInput, options = {}) {
     }
     const committed = commitScopeAmendmentLocked(root, {
       candidate_receipt: receipt,
-      authorization: {
-        decision_source: input.authorization.decision_source,
-        decision_text: input.authorization.decision_text
-      }
+      authorization: input.authorization ? { decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } : null
     }, options);
     return {
       ...committed,
@@ -13969,7 +14160,7 @@ function prepareScopeAmendment(root, rawInput, options = {}) {
       candidate_receipt: receipt,
       planned_writes: [location.relativePath, ...committed.planned_writes],
       governed_mutation_count: committed.governed_mutation_count + (existed ? 0 : 1),
-      message: committed.status === "success" || committed.status === "no-op" ? "Scope amendment prepared and committed from the existing explicit user authorization." : committed.message
+      message: committed.status === "success" || committed.status === "no-op" ? input.authorization ? "Scope amendment prepared and committed from the existing explicit user authorization." : "Persistent-test admission prepared and committed from the complete caller-supplied P-12 decision." : committed.message
     };
   });
 }
@@ -13977,7 +14168,20 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
   const source = expectRecord2(rawInput, "internal scope-amendment commit input");
   expectExactKeys2(source, ["candidate_receipt", "authorization"], "internal scope-amendment commit input");
   const receipt = expectRecord2(source.candidate_receipt, "candidate_receipt");
-  expectExactKeys2(receipt, ["kind", "candidate_digest", "source_revision", "basis_revision", "old_plan_revision", "new_plan_revision", "obligations_digest", "authorization_digest", "added_paths", "permission_change"], "candidate_receipt");
+  expectExactKeys2(receipt, [
+    "kind",
+    "candidate_digest",
+    "source_revision",
+    "basis_revision",
+    "old_plan_revision",
+    "new_plan_revision",
+    "obligations_digest",
+    "authorization_digest",
+    "added_paths",
+    "permission_change",
+    ...receipt.authority_diff === undefined ? [] : ["authority_diff"],
+    ...receipt.persistent_test_admission === undefined ? [] : ["persistent_test_admission"]
+  ], "candidate_receipt");
   if (receipt.kind !== "scope-amendment-candidate-receipt/v1" || receipt.permission_change !== "additive-scope")
     fail3("SCOPE_AMENDMENT_CONFIRMATION_INVALID", "Receipt kind or permission change is invalid.");
   const candidateDigest = expectString2(receipt.candidate_digest, "candidate_receipt.candidate_digest", SHA256_PATTERN2);
@@ -13988,15 +14192,27 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
   const obligationsDigest = expectString2(receipt.obligations_digest, "candidate_receipt.obligations_digest", SHA256_PATTERN2);
   const authorizationDigest = expectString2(receipt.authorization_digest, "candidate_receipt.authorization_digest", SHA256_PATTERN2);
   const addedPaths = expectStringArray2(receipt.added_paths, "candidate_receipt.added_paths", false, 64).map((item) => normalizeRepoPath2(item, "candidate_receipt.added_paths"));
-  const approval = expectRecord2(source.authorization, "authorization");
-  expectExactKeys2(approval, ["decision_source", "decision_text"], "authorization");
-  const decisionSource = expectText(approval.decision_source, "authorization.decision_source", 512);
-  const decisionText = expectVerbatim(approval.decision_text, "authorization.decision_text", 4096);
+  if (receipt.authority_diff !== undefined) {
+    const authorityDiff = expectRecord2(receipt.authority_diff, "candidate_receipt.authority_diff");
+    expectExactKeys2(authorityDiff, ["added_exact_exceptions", "added_domains"], "candidate_receipt.authority_diff");
+    expectStringArray2(authorityDiff.added_exact_exceptions, "candidate_receipt.authority_diff.added_exact_exceptions", true, 64).forEach((item) => normalizeRepoPath2(item, "candidate_receipt.authority_diff.added_exact_exceptions"));
+    expectStringArray2(authorityDiff.added_domains, "candidate_receipt.authority_diff.added_domains", true, 64).forEach((item) => expectText(item, "candidate_receipt.authority_diff.added_domains", 128));
+  }
+  if (receipt.persistent_test_admission !== undefined) {
+    const persistentAdmission = expectRecord2(receipt.persistent_test_admission, "candidate_receipt.persistent_test_admission");
+    expectExactKeys2(persistentAdmission, ["added_paths"], "candidate_receipt.persistent_test_admission");
+    expectStringArray2(persistentAdmission.added_paths, "candidate_receipt.persistent_test_admission.added_paths", false, 64).forEach((item) => normalizeRepoPath2(item, "candidate_receipt.persistent_test_admission.added_paths"));
+  }
+  const approval = source.authorization === null ? null : expectRecord2(source.authorization, "authorization");
+  const decisionSource = approval ? expectText(approval.decision_source, "authorization.decision_source", 512) : null;
+  const decisionText = approval ? expectVerbatim(approval.decision_text, "authorization.decision_text", 4096) : null;
+  if (approval)
+    expectExactKeys2(approval, ["decision_source", "decision_text"], "authorization");
   if (!options.dryRun)
     recoverPendingTaskStoreCommit(root);
   const current = readCanonicalCurrentTask(root);
   const location = scopeAmendmentCandidateLocation(current, candidateDigest);
-  const idempotencyKey = `scope-amendment-${digest3({ receipt, authorization: { decision_source: decisionSource, decision_text: decisionText } }).slice(0, 40)}`;
+  const idempotencyKey = `scope-amendment-${digest3({ receipt, authorization: approval ? { decision_source: decisionSource, decision_text: decisionText } : null }).slice(0, 40)}`;
   const previousCommit = current.runtimeState.execution_log.find((item) => ("action" in item) && item.action === "commit-scope-amendment" && item.candidate_digest === candidateDigest);
   if (previousCommit) {
     if (previousCommit.idempotency_key !== idempotencyKey)
@@ -14022,19 +14238,34 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
   if (digest3(storedCandidate) !== candidateDigest)
     fail3("SCOPE_AMENDMENT_CANDIDATE_INVALID", "Candidate content changed after preparation.");
   const rebuilt = buildScopeAmendmentCandidate(root, current, normalizeScopeAmendmentInput(saved.input, { allowExistingWildcardScope: true }));
-  if (digest3(rebuilt) !== candidateDigest || rebuilt.new_plan_revision !== newPlanRevision || rebuilt.old_plan_revision !== oldPlanRevision || rebuilt.basis_revision !== basisRevision || rebuilt.authorization.digest !== authorizationDigest || digest3(rebuilt.input.added_paths) !== digest3(addedPaths)) {
+  const rebuiltAuthorityDiff = rebuilt.authority_diff ?? null;
+  const rebuiltPersistentAdmissionPaths = rebuilt.persistent_test_admission ? { added_paths: rebuilt.persistent_test_admission.added.map((item) => item.path) } : null;
+  if (digest3(rebuilt) !== candidateDigest || rebuilt.new_plan_revision !== newPlanRevision || rebuilt.old_plan_revision !== oldPlanRevision || rebuilt.basis_revision !== basisRevision || (rebuilt.authorization?.digest ?? digest3(null)) !== authorizationDigest || digest3(rebuilt.input.added_paths) !== digest3(addedPaths) || receipt.authority_diff !== undefined && digest3(receipt.authority_diff) !== digest3(rebuiltAuthorityDiff) || receipt.persistent_test_admission !== undefined && digest3(receipt.persistent_test_admission) !== digest3(rebuiltPersistentAdmissionPaths)) {
     fail3("SCOPE_AMENDMENT_CANDIDATE_STALE", "Candidate no longer matches the Runtime-computed source, scope, obligations, and plan.");
   }
-  if (decisionSource !== rebuilt.authorization.decision_source || decisionText !== rebuilt.authorization.decision_text) {
-    fail3("SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT", "Existing explicit authorization must preserve its caller-reported source and verbatim text.");
+  const authorityExpansion = Boolean(rebuilt.authority_diff && (rebuilt.authority_diff.added_exact_exceptions.length > 0 || rebuilt.authority_diff.added_domains.length > 0));
+  if (authorityExpansion && !approval) {
+    fail3("SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED", "A true authority amendment must carry the explicit authorization decision bound to every added path.");
+  }
+  if (rebuilt.authorization) {
+    if (!approval || decisionSource !== rebuilt.authorization.decision_source || decisionText !== rebuilt.authorization.decision_text) {
+      fail3("SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT", "Existing explicit authorization must preserve its caller-reported source and verbatim text.");
+    }
+  } else if (approval) {
+    fail3("SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT", "A persistent-test-only admission has authority_diff: none and must not carry an authority authorization decision.");
   }
   const nextBasis = {
     original_request: basis.basis.original_request,
-    user_decisions: basis.basis.user_decisions.some((item) => item.source === decisionSource && item.verbatim === decisionText) ? [...basis.basis.user_decisions] : [...basis.basis.user_decisions, { source: decisionSource, verbatim: decisionText }]
+    user_decisions: !approval || basis.basis.user_decisions.some((item) => item.source === decisionSource && item.verbatim === decisionText) ? [...basis.basis.user_decisions] : [...basis.basis.user_decisions, { source: decisionSource, verbatim: decisionText }]
   };
   const nextBasisArtifact = materializeTaskBasis(root, current, { task_id: current.runtimeState.task_id, task_slug: current.runtimeState.task_slug, task_title: extractTaskIdentityFromCurrentTask(current.body).title, document_id: current.sourceTuple.document_id }, nextBasis);
-  const evidenceRefs = [location.relativePath, `caller-reported-scope-authorization:${digest3({ decisionSource, decisionText })}`];
-  const authorityEvidence = ["active-task-owner", "scope-admission", "evidence-admission", "authorized-caller"].map((kind) => ({ kind, source: decisionSource, subject: candidateDigest, task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id, source_revision: current.sourceTuple.revision }));
+  const evidenceRefs = [
+    location.relativePath,
+    ...approval ? [`caller-reported-scope-authorization:${digest3({ decisionSource, decisionText })}`] : [],
+    ...rebuilt.persistent_test_admission ? [`persistent-test-admission:${digest3(rebuilt.persistent_test_admission.added)}`] : []
+  ];
+  const authorityEvidenceKinds = approval ? ["active-task-owner", "scope-admission", "evidence-admission", "authorized-caller"] : ["active-task-owner", "scope-admission", "evidence-admission"];
+  const authorityEvidence = authorityEvidenceKinds.map((kind) => ({ kind, source: approval ? decisionSource : evidenceRefs.at(-1), subject: candidateDigest, task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id, source_revision: current.sourceTuple.revision }));
   const proposal = createPrepareTaskScopeAmendmentProposal(current, {
     delta: { kind: "task-state", action: "commit-scope-amendment", task_basis: nextBasis, replacement_definition: rebuilt.definition, active_step_id: rebuilt.input.amendment_step.id, claim_evidence: rebuilt.claim_evidence, evidence_refs: evidenceRefs },
     idempotency_key: idempotencyKey,
@@ -14049,8 +14280,9 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
   ])].sort();
   const amendedReviewCoverage = oldState.review_coverage ? registerReviewCoverage(root, current, amendmentReviewPaths) : undefined;
   const retainedPendingPaths = amendedReviewCoverage ? [...new Set([...amendedReviewCoverage.pending_paths, ...amendmentReviewPaths])].sort() : undefined;
+  const { execution_preflight: _amendmentExecutionPreflight, ...stateWithoutExecutionPreflight } = oldState;
   const nextWithoutAudit = {
-    ...oldState,
+    ...stateWithoutExecutionPreflight,
     workflow_status: "active",
     lifecycle_state: "active",
     active_step_id: rebuilt.input.amendment_step.id,
@@ -14062,7 +14294,8 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
     ...amendedReviewCoverage && retainedPendingPaths ? { review_coverage: { ...amendedReviewCoverage, pending_paths: retainedPendingPaths } } : {},
     applied_proposals: appendAppliedProposal(oldState, proposal, current.sourceTuple.revision)
   };
-  const audit = { ...makeReplanAudit(current, proposal, nextWithoutAudit, options.now?.() ?? new Date().toISOString()), candidate_digest: candidateDigest, correction_reason: `caller-reported scope amendment: ${decisionText}` };
+  const correctionReason = rebuilt.authorization ? `caller-reported scope amendment: ${decisionText}` : `persistent-test admission: ${rebuilt.persistent_test_admission.added.map((item) => item.path).join(", ")}`;
+  const audit = { ...makeReplanAudit(current, proposal, nextWithoutAudit, options.now?.() ?? new Date().toISOString()), candidate_digest: candidateDigest, correction_reason: correctionReason };
   const nextState = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
   const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState, { replacementDefinition: rebuilt.definition, taskBasisReference: { path: basis.path, revision: nextBasisArtifact.revision }, audit });
   const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
@@ -14107,6 +14340,10 @@ function discardScopeAmendment(root, rawInput, options = {}) {
     const current = readCanonicalCurrentTask(root);
     const candidateDigest = expectString2(input.candidate_digest, "candidate_digest", SHA256_PATTERN2);
     const location = scopeAmendmentCandidateLocation(current, candidateDigest);
+    const committed = current.runtimeState.execution_log.some((item) => ("action" in item) && item.action === "commit-scope-amendment" && item.candidate_digest === candidateDigest);
+    if (committed) {
+      fail3("SCOPE_AMENDMENT_ALREADY_COMMITTED", "A committed scope-amendment candidate is immutable and cannot be discarded.");
+    }
     if (!fs8.existsSync(location.filePath))
       fail3("SCOPE_AMENDMENT_CANDIDATE_MISSING", "Scope-amendment candidate does not exist.");
     const marker = `${location.filePath}.discarded`;
@@ -18811,7 +19048,7 @@ function createPrepareTaskScopeAmendmentProposal(current, input) {
     source_tuple: current.sourceTuple,
     authority_evidence: input.authority_evidence,
     semantic_delta: input.delta,
-    preconditions: ["active-or-blocked-task", "explicit-scope-authorization", "revision-bound-candidate", "preserve-review-baseline"],
+    preconditions: ["active-or-blocked-task", "authority-or-persistent-test-admission", "revision-bound-candidate", "preserve-review-baseline"],
     evidence_refs: proposalEvidenceRefs,
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath, taskBasisRelativePath(current.relativePath, current.runtimeState.task_id)]

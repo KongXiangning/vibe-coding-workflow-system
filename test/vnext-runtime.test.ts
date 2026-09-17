@@ -36,6 +36,7 @@ import {
   prepareCorrectionReplan,
   confirmCorrectionReplan,
   discardCorrectionReplan,
+  discardScopeAmendment,
   prepareScopeAmendment,
   initializeTaskPreservation,
   recordEvidenceChallenge,
@@ -9069,6 +9070,308 @@ describe('vNext Phase 2 Runtime contract', () => {
       expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toContain(crossDomain);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E10/E11 authority amendment gates only an unsettled preflight and preserves ready retry lineage', () => {
+    const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
+    const amendment = (pathToAdd: string, id: string) => ({
+      added_paths: [pathToAdd],
+      authorization: {
+        decision_source: `user:step-3-${id}`,
+        decision_text: `Authorize the exact cross-domain path ${pathToAdd} after the current execution is settled.`,
+        authorized_paths: [pathToAdd],
+      },
+      amendment_step: {
+        id,
+        description: `Continue through the authorized path ${pathToAdd}`,
+        mutation_scope: [pathToAdd],
+        required_evidence: ['fresh authority-amendment execution and review'],
+        commands: [],
+      },
+    });
+
+    const blockedRoot = v2ConfirmedRoot();
+    try {
+      const planned = 'packages/node-rollout/src/session.ts';
+      const preflight = preflightStep(blockedRoot, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(blockedRoot);
+      expect(() => prepareScopeAmendment(blockedRoot, amendment(crossDomain, 'after-blocked'))).toThrow('SCOPE_AMENDMENT_EXECUTION_GATE');
+      const afterRejected = readCanonicalCurrentTask(blockedRoot);
+      expect(afterRejected.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(afterRejected.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+
+      fs.writeFileSync(path.join(blockedRoot, 'blocked-result.txt'), 'the current execution was blocked before implementation\n', 'utf8');
+      expect(recordStepResult(blockedRoot, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'blocked' as const, observed_repo_writes: [], evidence_refs: ['blocked-result.txt'] })),
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'not-run' as const, evidence_refs: [] })),
+        acceptance_evidence: [],
+        outcome: 'blocked',
+        blocker_kind: 'environment',
+        note: 'The current execution is settled as an environment blocker.',
+      }).status).toBe('success');
+      expect(prepareScopeAmendment(blockedRoot, amendment(crossDomain, 'after-blocked')).status).toBe('success');
+      expect(readCanonicalCurrentTask(blockedRoot).mutationAuthority?.exact_exceptions).toContain(crossDomain);
+    } finally {
+      fs.rmSync(blockedRoot, { recursive: true, force: true });
+    }
+
+    const readyRoot = v2ConfirmedRoot();
+    try {
+      const preflight = preflightStep(readyRoot, { candidate_paths: ['packages/node-rollout/src/session.ts'] });
+      fs.writeFileSync(path.join(readyRoot, 'retry-blocked.txt'), 'retry blocker\n', 'utf8');
+      expect(recordStepResult(readyRoot, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: [{ command: preflight.current_step.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['retry-blocked.txt'] }],
+        validation_results: [{ validation: preflight.current_step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+        acceptance_evidence: [],
+        outcome: 'blocked',
+        blocker_kind: 'environment',
+        note: 'Create a settled failed attempt before retrying.',
+      }).status).toBe('success');
+      const blocked = readCanonicalCurrentTask(readyRoot);
+      const failedAttempt = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+      fs.writeFileSync(path.join(readyRoot, 'retry-resolution.json'), JSON.stringify({
+        kind: 'environment-restored/v1', task_id: blocked.runtimeState.task_id, document_id: blocked.sourceTuple.document_id,
+        step_id: 'step-1', blocked_attempt_id: failedAttempt.attempt_id, evidence_plan_revision: blocked.runtimeState.evidence_plan_revision,
+        subject_revision: failedAttempt.blocker!.subject_snapshot.revision, status: 'passed',
+        diagnosis: 'The fixture environment was unavailable.', resolution: 'The fixture environment is available for the next attempt.',
+      }), 'utf8');
+      expect(retryStep(readyRoot, {
+        step_id: 'step-1', blocked_attempt_id: failedAttempt.attempt_id,
+        blocker_resolution_refs: ['retry-resolution.json'], idempotency_key: 'step-3-ready-retry',
+      }).status).toBe('success');
+      const ready = readCanonicalCurrentTask(readyRoot);
+      expect(ready.runtimeState.step_attempts!['step-1']!.attempts.at(-1)?.status).toBe('ready');
+      expect(prepareScopeAmendment(readyRoot, amendment(crossDomain, 'after-ready-retry')).status).toBe('success');
+      const amended = readCanonicalCurrentTask(readyRoot);
+      expect(amended.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
+      expect(amended.runtimeState.step_attempts!['step-1']!.attempts[0]?.status).toBe('blocked');
+      expect(amended.runtimeState.step_attempts!['step-1']!.attempts[1]?.status).toBe('ready');
+    } finally {
+      fs.rmSync(readyRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('E12 settled repair permits authority amendment while retaining findings and review state', () => {
+    const product = 'packages/node-rollout/src/session.ts';
+    const crossDomain = 'native/codex-rollout-collector/src/repair-protocol.rs';
+    const root = v2ConfirmedRoot();
+    try {
+      const productPath = path.join(root, ...product.split('/'));
+      fs.mkdirSync(path.dirname(productPath), { recursive: true });
+      fs.writeFileSync(productPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [product] });
+      fs.writeFileSync(productPath, 'export const session = "initial";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: initial.receipt,
+        actual_changed_paths: [product],
+        command_results: initial.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: [{ validation: initial.current_step.validation[0]!, status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Record the implementation before the repair wave.',
+      }).status).toBe('success');
+      const discovery = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: discovery.receipt,
+        verdict: 'findings',
+        findings: [{
+          category: 'correctness', file: product,
+          failure_condition: 'the Node session behavior still violates the requested contract',
+          required_behavior: 'repair the Node session behavior', root_cause_status: 'confirmed',
+          evidence_refs: ['evidence-report.txt'],
+        }],
+        unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null,
+      }).status).toBe('success');
+      const repair = beginRepair(root, { candidate_paths: [product] });
+      fs.writeFileSync(productPath, 'export const session = "repaired";\n', 'utf8');
+      expect(recordStepResult(root, {
+        preflight_receipt: repair.receipt,
+        actual_changed_paths: [product],
+        command_results: repair.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+        validation_results: repair.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: ['evidence-report.txt'] })),
+        acceptance_evidence: [], outcome: 'implemented', note: 'Settle the repair execution before changing authority.',
+      }).status).toBe('success');
+      const settled = readCanonicalCurrentTask(root);
+      const cycle = structuredClone(settled.runtimeState.review_cycle);
+      expect(settled.runtimeState.findings[0]?.status).toBe('in-progress');
+      expect(settled.runtimeState.execution_preflight?.mode).toBe('repair');
+      expect(prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: {
+          decision_source: 'user:settled-repair-authority',
+          decision_text: 'Authorize the exact Rust repair protocol path after the repair result is recorded.',
+          authorized_paths: [crossDomain],
+        },
+        amendment_step: {
+          id: 'settled-repair-authority-amendment',
+          description: 'Continue the settled repair through the authorized Rust path',
+          mutation_scope: [crossDomain],
+          required_evidence: ['fresh cross-domain repair review'],
+          commands: [],
+        },
+      }).status).toBe('success');
+      const amended = readCanonicalCurrentTask(root);
+      expect(amended.runtimeState.findings[0]?.status).toBe('in-progress');
+      expect(amended.runtimeState.review_cycle).toEqual(cycle);
+      expect(amended.runtimeState.review_coverage?.pending_paths).toEqual(expect.arrayContaining([product, crossDomain]));
+      expect(amended.mutationAuthority?.exact_exceptions).toContain(crossDomain);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E13 committed scope-amendment candidates are immutable and do not corrupt later history', () => {
+    const firstPath = 'native/codex-rollout-collector/src/first-protocol.rs';
+    const secondPath = 'native/codex-rollout-collector/src/second-protocol.rs';
+    const root = v2ConfirmedRoot();
+    try {
+      const amendment = (pathToAdd: string, id: string) => ({
+        added_paths: [pathToAdd],
+        authorization: {
+          decision_source: `user:immutable-${id}`,
+          decision_text: `Authorize the exact immutable-history path ${pathToAdd}.`,
+          authorized_paths: [pathToAdd],
+        },
+        amendment_step: { id, description: `Continue through ${pathToAdd}`, mutation_scope: [pathToAdd], required_evidence: ['fresh review'], commands: [] },
+      });
+      const first = prepareScopeAmendment(root, amendment(firstPath, 'immutable-first'));
+      const candidatePath = path.join(root, ...first.candidate_path.split('/'));
+      expect(fs.existsSync(candidatePath)).toBe(true);
+      expect(() => discardScopeAmendment(root, { candidate_digest: first.candidate_receipt.candidate_digest })).toThrow('SCOPE_AMENDMENT_ALREADY_COMMITTED');
+      expect(fs.existsSync(`${candidatePath}.discarded`)).toBe(false);
+      expect(prepareScopeAmendment(root, amendment(secondPath, 'immutable-second')).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toEqual(expect.arrayContaining([firstPath, secondPath]));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E14 same-domain absent persistent tests use an explicit P-12 admission route', () => {
+    const newTest = 'packages/node-rollout-tests/new-regression.test.ts';
+    const admission = {
+      path: newTest,
+      proves: ['A1'],
+      owner: 'node-rollout-tests',
+      owner_source: 'test:step-3-owner',
+      source_ref: 'test:step-3-p12',
+      basis: 'regression',
+      existing_evidence_insufficiency: 'The existing implementation check does not exercise the newly discovered regression boundary.',
+      assertion_boundary: 'The new regression assertion covers the Node rollout behavior within the node-rollout-tests domain.',
+      failure_disposition: 'block',
+    };
+    const root = v2ConfirmedRoot();
+    try {
+      const initial = preflightStep(root, { candidate_paths: ['packages/node-rollout/src/session.ts'] });
+      const before = readCanonicalCurrentTask(root);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [newTest],
+        blast_radius_assessments: [{
+          target: { path: newTest, symbol: 'new regression oracle' },
+          reason: 'The new test is a local test-domain oracle for the discovered behavior.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'], disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('PERSISTENT_TEST_UNADMITTED');
+      const afterRejected = readCanonicalCurrentTask(root);
+      expect(afterRejected.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(afterRejected.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+
+      expect(() => prepareScopeAmendment(root, {
+        added_paths: [newTest],
+        authorization: null,
+        amendment_step: {
+          id: 'persistent-test-admission-missing',
+          description: 'A new persistent test must not fall through to a no-op amendment',
+          mutation_scope: [newTest],
+          required_evidence: ['fresh regression execution and review'],
+          commands: [],
+        },
+      })).toThrow('PERSISTENT_TEST_ADMISSION_REQUIRED');
+
+      const amended = prepareScopeAmendment(root, {
+        added_paths: [newTest],
+        authorization: null,
+        persistent_test_admissions: [admission],
+        amendment_step: {
+          id: 'persistent-test-admission-amendment',
+          description: 'Add and verify the explicitly admitted regression test',
+          mutation_scope: [newTest],
+          required_evidence: ['fresh regression execution and review'],
+          commands: [],
+        },
+      });
+      expect(amended.status).toBe('success');
+      expect(amended.committed).toBe(true);
+      const afterAmendment = readCanonicalCurrentTask(root);
+      expect(afterAmendment.mutationAuthority?.exact_exceptions).toEqual([]);
+      expect(afterAmendment.body).toContain('owner: node-rollout-tests');
+      expect(afterAmendment.body).toContain('existing_evidence_insufficiency: The existing implementation check does not exercise the newly discovered regression boundary.');
+      expect(afterAmendment.body).not.toContain('owner: workflow-system');
+
+      const fresh = preflightStep(root, { candidate_paths: [newTest] });
+      const testPath = path.join(root, ...newTest.split('/'));
+      fs.mkdirSync(path.dirname(testPath), { recursive: true });
+      fs.writeFileSync(testPath, 'test("new regression", () => expect(true).toBe(true));\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: fresh.receipt,
+        actual_changed_paths: [newTest],
+        command_results: fresh.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes, evidence_refs: evidence.evidence_refs })),
+        validation_results: fresh.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Execute the newly admitted persistent regression test.',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'], blocker: null,
+        test_assessment: {
+          applicable: true,
+          reason: 'The newly admitted persistent test is reviewed as the current regression oracle.',
+          evidence_refs: ['evidence-report.txt'],
+          necessity: 'The discovered regression boundary was not covered by existing evidence.',
+          oracle: 'The new assertion is the explicit regression oracle for the Node behavior.',
+          boundary: 'The test remains inside the node-rollout-tests authority domain.',
+          reuse: 'No existing test covered this boundary, so the admitted test is newly created.',
+          applicability: 'The current execution and cumulative diff cover the admitted test.',
+        },
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'persistent-test-admission-amendment', note: 'The explicit P-12 regression admission and test are reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E15 persistent-test admission rejects every missing P-12 field without Runtime defaults', () => {
+    const fields = ['owner', 'proves', 'basis', 'existing_evidence_insufficiency', 'assertion_boundary'] as const;
+    for (const field of fields) {
+      const newTest = `packages/node-rollout-tests/missing-${field}.test.ts`;
+      const root = v2ConfirmedRoot();
+      try {
+        const admission: Record<string, unknown> = {
+          path: newTest, proves: ['A1'], owner: 'node-rollout-tests', owner_source: 'test:step-3-owner',
+          source_ref: 'test:step-3-p12', basis: 'regression',
+          existing_evidence_insufficiency: 'Existing evidence does not cover this new regression boundary.',
+          assertion_boundary: 'The new test asserts the bounded Node behavior.', failure_disposition: 'block',
+        };
+        delete admission[field];
+        const current = readCanonicalCurrentTask(root);
+        const before = fs.readFileSync(current.filePath, 'utf8');
+        expect(() => prepareScopeAmendment(root, {
+          added_paths: [newTest], authorization: null, persistent_test_admissions: [admission],
+          amendment_step: { id: `missing-p12-${field}`, description: 'This admission is incomplete', mutation_scope: [newTest], required_evidence: ['fresh review'], commands: [] },
+        })).toThrow('PERSISTENT_TEST_ADMISSION_INVALID');
+        expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+        expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-candidates'))).toBe(false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
     }
   });
 

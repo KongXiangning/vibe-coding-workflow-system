@@ -109,12 +109,18 @@ persistent test whose first-touch state is absent still requires the full P-12
 admission record. This preserves `new persistent test != ordinary file`.
 
 Only a real authority change—such as Node to Rust/shared-protocol or a new
-cross-domain exact exception—uses `prepare-task:amend-scope`. That route keeps
-the old immutable candidate, history/findings/review/budget lineage and
-continuation semantics, and requires explicit user authorization. A committed
-candidate cannot be discarded. Same-envelope discovery never enters that
-route. Tasks without the v2 marker, or with version 1, retain legacy exact
-step-scope semantics and are not silently reinterpreted.
+cross-domain exact exception—uses `prepare-task:amend-scope` with explicit
+user authorization. An absent new persistent test inside an already
+authorized domain uses the same infrastructure with a complete typed P-12
+record and `authority_diff: none`; it is a real admission, not a no-op.
+Same-envelope implementation discovery still uses `extend-preflight`. The
+authority amendment settlement gate blocks only a preflighted attempt without
+its matching recorded result; ready retries, settled blocked/repair results,
+and pending review/findings may be preserved. The route keeps the old
+immutable candidate, history/findings/review/budget lineage and continuation
+semantics, and a committed candidate cannot be discarded. Tasks without the
+v2 marker, or with version 1, retain legacy exact step-scope semantics and are
+not silently reinterpreted.
 
 ## Public entry invocation terminal boundary
 
