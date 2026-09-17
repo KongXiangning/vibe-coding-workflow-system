@@ -80,6 +80,9 @@ import {
   type InboxRecordDelta,
   type LifecycleDelta,
   type LessonRecordDelta,
+  type KnowledgeAdmissionBundle,
+  type KnowledgeAdmissionRecord,
+  type KnowledgeCandidate,
   type ReplanReplacementDefinition,
   type ReplanTaskStateAction,
   type RuntimeProposal,
@@ -88,6 +91,7 @@ import {
   type ProjectStatusDelta,
   type PrepareTaskSemanticDraft,
 } from '../scripts/vnext-runtime';
+import { fingerprintKnowledgeStatement } from '../scripts/project-context-resolver';
 import { validateCurrentTaskStatusTuple as validatePureVNextStatusTuple } from '../runtime/vnext/src/task-identity';
 
 // Existing adapter lifecycle fixtures provide explicit caller assessment; S3
@@ -107,6 +111,7 @@ function recordReviewResult(root: string, input: any, options = {}) {
 }
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const STATUS_RECONCILIATION_BEGIN = '<!-- BEGIN vNext close-task STATUS reconciliation -->';
 const temporaryRoots: string[] = [];
 
 function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
@@ -1149,6 +1154,44 @@ function statusDelta(overrides: Partial<ProjectStatusDelta> = {}): ProjectStatus
   };
 }
 
+function pendingKnowledgeAdmission(kind: 'contract' | 'decision'): KnowledgeAdmissionRecord {
+  const candidateId = `pending-${kind}-predecessor`;
+  const statement = `pending ${kind} predecessor admission`;
+  const applicability = {
+    projectTypes: ['test'],
+    pathsSymbolsOrSurfaces: ['runtime fixture'],
+    triggerConditions: ['the predecessor task closes'],
+  };
+  const candidate: KnowledgeCandidate = {
+    candidateId,
+    kind,
+    fingerprint: fingerprintKnowledgeStatement(kind, statement, applicability),
+    statement,
+    sourceRefs: [{ locator: 'runtime/vnext/src/kernel.ts#project-status', revision: 'fixture-source-r1' }],
+    applicability,
+    authoritySource: kind === 'decision' ? 'user' : 'verified-evidence',
+    stability: 'stable',
+    evidenceRefs: [`test:evidence:pending-${kind}`],
+    noveltyAgainst: [],
+    conflictSet: [],
+    supersedes: null,
+    reviewOrExpiryTrigger: null,
+    expectedConsumers: ['close-task successor gate'],
+    ...(kind === 'decision' ? {
+      decisionContext: {
+        alternatives: ['leave the predecessor admission unresolved'],
+        constraints: ['preserve the predecessor hard gate'],
+      },
+    } : {}),
+  };
+  return {
+    candidate,
+    disposition: 'admit',
+    matched_knowledge_id: null,
+    reasons: [`${kind} admission remains pending in this predecessor fixture`],
+  };
+}
+
 function lessonDelta(): LessonRecordDelta {
   return {
     kind: 'lesson-record',
@@ -2100,26 +2143,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
     const prematureResult = applyVNextRuntimeProposal(root, prematureSecondCreate);
-    expect(prematureResult.status).toBe('blocked');
-    expect(prematureResult.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
-
-    const statusResult = applyVNextRuntimeProposal(root, statusProposal(root));
-    expect(statusResult.status).toBe('success');
-
-    const secondCreate = createPrepareTaskDraftProposal(closedTask, {
-      action: 'create-draft',
-      task_id: '002',
-      task_slug: 'second-task',
-      document_id: 'doc-222222222222222222222222',
-      task_title: 'Second task',
-      draft_definition: draftDefinition(),
-      active_step_id: 'step-1',
-      claim_evidence: completeClaimEvidence(),
-      evidence_refs: ['test:evidence:second-create'],
-      idempotency_key: 'draft-create-002',
-      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
-    });
-    expect(applyVNextRuntimeProposal(root, secondCreate).status).toBe('success');
+    expect(prematureResult.status).toBe('success');
+    expect(prematureResult.committed).toBe(true);
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeNextDraft);
     const secondDraft = readCanonicalCurrentTask(root);
     expect(secondDraft.runtimeState.task_id).toBe('002');
@@ -3541,7 +3566,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeStatus);
   });
 
-  test('projects completed status items into the fixed STATUS sections and fails on ambiguous in-progress records', () => {
+  test('projects completed status items while preserving unrelated STATUS content and repairs projection drift', () => {
     const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
     const statusBeforeArchive = fs.readFileSync(statusPath, 'utf8').replace(
@@ -3558,8 +3583,14 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(projected).toContain('## 🔨 正在开发\n\n## 📋 待开发');
     fs.writeFileSync(statusPath, projected.replace('- runtime fixture task\n\n## 🔨 正在开发', '- drifted completed item\n\n## 🔨 正在开发'), 'utf8');
     const statusReplay = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-projection'));
-    expect(statusReplay.status).toBe('blocked');
-    expect(statusReplay.code).toBe('STATUS_PROVENANCE_MISMATCH');
+    expect(statusReplay.status).toBe('success');
+    expect(statusReplay.committed).toBe(true);
+    const repaired = fs.readFileSync(statusPath, 'utf8');
+    expect(repaired).toContain('- drifted completed item');
+    expect(repaired).toContain('- runtime fixture task');
+    expect(repaired.split(STATUS_RECONCILIATION_BEGIN).length - 1).toBe(1);
+    const statusReplayAgain = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-projection'));
+    expect(statusReplayAgain.status).toBe('no-op');
 
     const ambiguousRoot = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const ambiguousStatusPath = path.join(ambiguousRoot, 'docs', 'workflow', 'STATUS.md');
@@ -3574,6 +3605,82 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(ambiguousResult.status).toBe('blocked');
     expect(ambiguousResult.code).toBe('STATUS_RECONCILIATION_CONFLICT');
     expect(fs.readFileSync(ambiguousStatusPath, 'utf8')).toBe(ambiguousBefore);
+  });
+
+  test('reconciles the TermLink Bootstrap STATUS baseline with unrelated records', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    let status = fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      '## 🔨 正在开发\n\n- 旧 Bootstrap 说明',
+    );
+    status = status.replace(
+      '## 🔜 下一检查点\n\n- baseline',
+      '## 🔜 下一检查点\n\n- checkpoint A\n- checkpoint B',
+    );
+    fs.writeFileSync(statusPath, status, 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-termlink-baseline')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-termlink-baseline'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain('- 旧 Bootstrap 说明');
+    expect(reconciled).toContain('- checkpoint A');
+    expect(reconciled).toContain('- checkpoint B');
+    expect(reconciled).toContain('- runtime fixture task');
+    expect(reconciled).toContain('- observe the next project checkpoint');
+  });
+
+  test('adds a completed item without an exact in-progress mapping', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    fs.writeFileSync(statusPath, fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      '## 🔨 正在开发\n\n- unrelated item',
+    ), 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-unrelated-development')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-unrelated-development'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain('## 🔨 正在开发\n\n- unrelated item');
+    expect(reconciled).toContain('- runtime fixture task');
+  });
+
+  test('preserves ordinary in-progress text during STATUS reconciliation', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    const ordinaryText = '当前处于 Bootstrap 迁移后的观察阶段。';
+    fs.writeFileSync(statusPath, fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      `## 🔨 正在开发\n\n${ordinaryText}\n\n- unrelated item`,
+    ), 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-ordinary-text')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-ordinary-text'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain(ordinaryText);
+    expect(reconciled).toContain('- unrelated item');
+    expect(reconciled).toContain('- runtime fixture task');
+  });
+
+  test('appends the new checkpoint while preserving multiple existing checkpoints and text', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    fs.writeFileSync(statusPath, fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔜 下一检查点\n\n- baseline',
+      '## 🔜 下一检查点\n\n- checkpoint A\n保留的迁移说明\n- checkpoint B',
+    ), 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-multiple-checkpoints')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-multiple-checkpoints'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain('- checkpoint A');
+    expect(reconciled).toContain('保留的迁移说明');
+    expect(reconciled).toContain('- checkpoint B');
+    expect(reconciled).toContain('- observe the next project checkpoint');
   });
 
   test('fails Lesson replay when the provenance marker survives but its visible record drifts', () => {
@@ -3901,7 +4008,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(result.code).toBe('RUNTIME_SCHEMA_INVALID');
   });
 
-  test('blocks new draft creation when previous task close reconciliation is incomplete', () => {
+  test('allows new draft creation when previous STATUS reconciliation is incomplete', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3959,19 +4066,50 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
 
-    const blockedBeforeStatus = applyVNextRuntimeProposal(root, draft002Proposal);
-    expect(blockedBeforeStatus.status).toBe('blocked');
-    expect(blockedBeforeStatus.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
-    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
-    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
-
-    const statusResult = applyVNextRuntimeProposal(root, statusProposal(root));
-    expect(statusResult.status).toBe('success');
-
     const create002Success = applyVNextRuntimeProposal(root, draft002Proposal);
     expect(create002Success.status).toBe('success');
+    expect(create002Success.committed).toBe(true);
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
+  });
+
+  test('keeps Contract and Decision predecessor gates hard while ignoring STATUS reconciliation', () => {
+    for (const kind of ['contract', 'decision'] as const) {
+      const root = makeRoot(makeRuntimeState({
+        task_id: '001',
+        task_slug: 'first-task',
+        active_step_status: 'completed',
+        claim_evidence_required: true,
+        claim_evidence: completeClaimEvidence(),
+      }));
+      const admission = pendingKnowledgeAdmission(kind);
+      const knowledgeAdmissions: KnowledgeAdmissionBundle = {
+        contracts: kind === 'contract' ? [admission] : [],
+        decisions: kind === 'decision' ? [admission] : [],
+      };
+      const closeDelta = archiveDelta({
+        knowledge_admissions: knowledgeAdmissions,
+        evidence_refs: ['test:evidence:closure', `test:evidence:pending-${kind}`],
+      });
+      expect(applyVNextRuntimeProposal(root, archiveProposal(root, closeDelta, `archive-pending-${kind}`)).status).toBe('success');
+
+      const successor = createPrepareTaskDraftProposal(readCanonicalCurrentTask(root), {
+        action: 'create-draft',
+        task_id: '002',
+        task_slug: 'second-task',
+        document_id: kind === 'contract' ? 'doc-222222222222222222222222' : 'doc-333333333333333333333333',
+        task_title: 'Second task',
+        draft_definition: draftDefinition(),
+        active_step_id: 'step-1',
+        claim_evidence: completeClaimEvidence(),
+        evidence_refs: [`test:evidence:create-after-${kind}`],
+        idempotency_key: `draft-create-after-${kind}`,
+        authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+      });
+      const result = applyVNextRuntimeProposal(root, successor);
+      expect(result.status).toBe('blocked');
+      expect(result.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
+    }
   });
 
   test('blocks new draft creation when admitted Lesson reconciliation is incomplete', () => {
@@ -4497,7 +4635,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('003');
   });
 
-  test('blocks new draft creation when previous STATUS receipt visible projection has drifted', () => {
+  test('allows new draft creation when previous STATUS receipt visible projection has drifted', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -4568,18 +4706,10 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
 
-    // Blocked with STATUS_PROVENANCE_MISMATCH!
-    const blockedDrift = applyVNextRuntimeProposal(root, draft002Proposal);
-    expect(blockedDrift.status).toBe('blocked');
-    expect(blockedDrift.code).toBe('STATUS_PROVENANCE_MISMATCH');
-
-    // Restore STATUS.md
-    fs.writeFileSync(statusPath, statusValidContent, 'utf8');
-
-    // Now create draft succeeds!
     const createSuccess = applyVNextRuntimeProposal(root, draft002Proposal);
     expect(createSuccess.status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
+    expect(fs.readFileSync(statusPath, 'utf8')).toContain('tampered visible item');
   });
 
   test('validateVNextRuntimeContract machine-readably enforces reconciliation, step admission, and authority coordinates', () => {

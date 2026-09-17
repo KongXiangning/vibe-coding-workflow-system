@@ -12372,11 +12372,6 @@ function projectStatusOverview(content, delta, location) {
 function projectStatusCompletedItems(content, delta, location) {
   const completedLines = readStatusSectionLines(content, "completed", location);
   const developmentLines = readStatusSectionLines(content, "inProgress", location);
-  const unsupportedDevelopmentLines = developmentLines.filter((line) => line.trim().length > 0 && statusItemText(line) === null && !isStatusPlaceholderLine(line));
-  if (unsupportedDevelopmentLines.length > 0) {
-    fail3("STATUS_RECONCILIATION_CONFLICT", `${location} contains unsupported content in the in-progress section; the old record cannot be identified deterministically.`);
-  }
-  const meaningfulDevelopment = developmentLines.map(statusItemText).filter((item) => item !== null);
   const removeDevelopmentIndexes = new Set;
   const appendCompleted = [];
   for (const rawItem of delta.completed_items) {
@@ -12387,9 +12382,6 @@ function projectStatusCompletedItems(content, delta, location) {
     const developmentMatches = developmentLines.map((line, index) => ({ line, index })).filter((entry) => statusItemText(entry.line) === item);
     if (developmentMatches.length > 1) {
       fail3("STATUS_RECONCILIATION_CONFLICT", `${location} cannot determine which in-progress record to remove for "${item}".`);
-    }
-    if (developmentMatches.length === 0 && completedMatches === 0 && meaningfulDevelopment.length > 0) {
-      fail3("STATUS_RECONCILIATION_CONFLICT", `${location} cannot deterministically map completed item "${item}" to the existing in-progress records.`);
     }
     if (developmentMatches.length === 1)
       removeDevelopmentIndexes.add(developmentMatches[0].index);
@@ -12429,14 +12421,12 @@ function projectStatusRemainingRisks(content, delta, location) {
 function projectStatusCheckpoint(content, delta, location) {
   const checkpoint = validateStatusProjectionText(delta.next_checkpoint, `${location}.next_checkpoint`);
   const lines = readStatusSectionLines(content, "nextCheckpoint", location);
-  const nonEmpty = lines.filter((line) => line.trim().length > 0);
-  if (nonEmpty.some((line) => statusItemText(line) === null && !isStatusPlaceholderLine(line))) {
-    fail3("STATUS_RECONCILIATION_CONFLICT", `${location} next checkpoint section contains unsupported non-list content.`);
-  }
-  if (nonEmpty.filter((line) => statusItemText(line) !== null).length > 1) {
-    fail3("STATUS_RECONCILIATION_CONFLICT", `${location} contains multiple next checkpoint records.`);
-  }
-  return replaceStatusSectionBody(content, "nextCheckpoint", [`- ${checkpoint}`], location);
+  const matchingIndexSet = new Set(lines.map((line, index) => ({ line, index })).filter((entry) => statusItemText(entry.line) === checkpoint).map((entry) => entry.index));
+  if (matchingIndexSet.size === 1)
+    return content;
+  const nextLines = lines.filter((_, index) => !matchingIndexSet.has(index));
+  nextLines.push(`- ${checkpoint}`);
+  return replaceStatusSectionBody(content, "nextCheckpoint", nextLines, location);
 }
 function projectStatusDelta(content, delta, location) {
   let next = projectStatusOverview(content, delta, location);
@@ -12466,7 +12456,7 @@ function assertStatusProjection(content, delta, location) {
     }
   }
   const checkpointLines = readStatusSectionLines(content, "nextCheckpoint", location);
-  if (checkpointLines.filter((line) => statusItemText(line) !== null).length !== 1 || statusItemText(checkpointLines.find((line) => statusItemText(line) !== null) ?? "") !== delta.next_checkpoint) {
+  if (statusItemMatchCount(checkpointLines, delta.next_checkpoint) !== 1) {
     fail3("STATUS_PROVENANCE_MISMATCH", `${location} next checkpoint projection no longer matches the typed status delta.`);
   }
 }
@@ -12502,8 +12492,23 @@ function prepareProjectStatusTransaction(root, current, proposal) {
     if (digest3(statusDeltaFromReceipt(existingReceipt)) !== deltaDigest) {
       fail3("STATUS_RECONCILIATION_CONFLICT", "STATUS reconciliation receipt no longer matches its typed status delta.");
     }
-    assertStatusProjection(originalStatusContent, proposal.semantic_delta, target.relativePath);
-    return null;
+    try {
+      assertStatusProjection(originalStatusContent, proposal.semantic_delta, target.relativePath);
+      return null;
+    } catch (error) {
+      if (!(error instanceof VNextRuntimeError) || error.code !== "STATUS_PROVENANCE_MISMATCH")
+        throw error;
+    }
+    const nextStatusContent2 = projectStatusDelta(originalStatusContent, proposal.semantic_delta, target.relativePath);
+    assertStatusProjection(nextStatusContent2, proposal.semantic_delta, target.relativePath);
+    return {
+      statusFilePath: target.filePath,
+      statusRelativePath: target.relativePath,
+      nextStatusContent: nextStatusContent2,
+      originalStatusContent,
+      statusRevision: sha2565(nextStatusContent2),
+      archive: receipt
+    };
   }
   const marker = renderStatusReconciliation(proposal, proposal.semantic_delta, receipt);
   const projectedStatusContent = projectStatusDelta(originalStatusContent, proposal.semantic_delta, target.relativePath);
@@ -13454,19 +13459,6 @@ function assertPreviousTaskReconciliationComplete(root, current, receipt) {
       }
     }
   }
-  const statusTarget = workflowDocPathForRoot(root, "STATUS.md");
-  if (!fs9.existsSync(statusTarget.filePath)) {
-    fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete: STATUS.md does not exist.`);
-  }
-  const statusContent = fs9.readFileSync(statusTarget.filePath, "utf8");
-  const statusReceipt = matchingStatusReceipt(statusContent, statusTarget.relativePath, receipt);
-  if (!statusReceipt) {
-    fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation is incomplete.`);
-  }
-  if (statusReceipt.taskId !== receipt.taskId || statusReceipt.taskSlug !== receipt.taskSlug || statusReceipt.documentId !== receipt.documentId || statusReceipt.archivePath !== receipt.relativePath || statusReceipt.archiveRevision !== receipt.revision || statusReceipt.sourceRevision !== receipt.sourceRevision) {
-    fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} STATUS reconciliation provenance does not match the canonical archive.`);
-  }
-  assertStatusProjection(statusContent, statusDeltaFromReceipt(statusReceipt), statusTarget.relativePath);
   if (receipt.lessonAdmission.decision === "admit") {
     const lessonsTarget = workflowDocPathForRoot(root, "LESSONS.md");
     if (!fs9.existsSync(lessonsTarget.filePath)) {
@@ -18921,10 +18913,7 @@ class GovernanceTransactionKernel {
         } else if (proposal.operation_kind === "project-status-transaction") {
           const plan = prepareProjectStatusTransaction(this.root, current, proposal);
           if (plan !== null) {
-            return buildResult("blocked", proposal, current, options, "persistent STATUS replay found a visible target that is not the committed reconciliation.", {
-              target_path: workflowDocPathForRoot(this.root, "STATUS.md").relativePath,
-              code: "RUNTIME_REPLAY_INCOMPLETE"
-            });
+            return this.commitProjectStatusTransaction(current, proposal, plan, options);
           }
         } else if (proposal.operation_kind === "lesson-record-transaction") {
           const plan = prepareLessonRecordTransaction(this.root, current, proposal);
@@ -18974,6 +18963,16 @@ class GovernanceTransactionKernel {
         } catch (error) {
           return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
             code: error instanceof VNextRuntimeError ? error.code : "LIFECYCLE_REPLAY_INCOMPLETE"
+          });
+        }
+      } else if (proposal.operation_kind === "project-status-transaction") {
+        try {
+          const plan = prepareProjectStatusTransaction(this.root, current, proposal);
+          return this.commitProjectStatusTransaction(current, proposal, plan, options);
+        } catch (error) {
+          return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+            target_path: workflowDocPathForRoot(this.root, "STATUS.md").relativePath,
+            code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_REPLAY_INCOMPLETE"
           });
         }
       }

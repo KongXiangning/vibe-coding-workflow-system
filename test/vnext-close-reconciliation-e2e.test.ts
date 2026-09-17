@@ -611,7 +611,7 @@ describe('vNext close-task post-archive reconciliation recovery E2E', () => {
     expect(readDurableLessonRecords(fileBytes(root, LESSONS_RELATIVE_PATH), LESSONS_RELATIVE_PATH)).toHaveLength(1);
   });
 
-  test('Scenario D: contradictory STATUS projection fails closed without repair or second archive', () => {
+  test('Scenario D: valid STATUS receipt repairs visible projection drift without a second receipt or archive', () => {
     const root = createVirtualProject();
     const delta = archiveDelta();
     const first = applyArchive(root, delta);
@@ -631,17 +631,23 @@ describe('vNext close-task post-archive reconciliation recovery E2E', () => {
     expect(restartedPreview.status).toBe('reconciliation');
     const archiveReplay = applyVNextRuntimeProposal(root, JSON.parse(first.proposalJson));
     assertNoOp(archiveReplay);
-    const conflictingStatus = reconcileStatusFromDisk(root, statusDelta());
-    expect(conflictingStatus.status).toBe('blocked');
-    expect(conflictingStatus.code).toBe('STATUS_PROVENANCE_MISMATCH');
-    expect(conflictingStatus.committed).toBe(false);
-    expect(conflictingStatus.governed_mutation_count).toBe(0);
-    expect(conflictingStatus.read_back_verified).toBe(false);
+    const repairedStatus = reconcileStatusFromDisk(root, statusDelta());
+    expect(repairedStatus.status).toBe('success');
+    expect(repairedStatus.committed).toBe(true);
+    expect(repairedStatus.governed_mutation_count).toBe(1);
+    expect(repairedStatus.read_back_verified).toBe(true);
 
-    expect(canonicalStateSnapshot(root)).toEqual(beforeReentry);
-    expect(fileBytes(root, STATUS_RELATIVE_PATH)).toContain('contradictory completed item');
+    const repaired = fileBytes(root, STATUS_RELATIVE_PATH);
+    expect(repaired).toContain('contradictory completed item');
+    expect(repaired).toContain(STATUS_ITEM);
+    expect(countOccurrences(repaired, STATUS_RECONCILIATION_BEGIN)).toBe(1);
+    expect(canonicalStateSnapshot(root).current).toBe(beforeReentry.current);
+    expect(canonicalStateSnapshot(root).archive).toBe(beforeReentry.archive);
     expect(archiveFileCount(root)).toBe(archiveCountBeforeRestart);
     expect(archiveAuditCount(root)).toBe(1);
     expect(readLessonMarkers(fileBytes(root, LESSONS_RELATIVE_PATH), LESSONS_RELATIVE_PATH)).toHaveLength(0);
+
+    const replay = reconcileStatusFromDisk(root, statusDelta());
+    assertNoOp(replay, []);
   });
 });
