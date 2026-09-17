@@ -12,6 +12,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse, stringify } from 'yaml';
+import { persistLegacyReviewPreimages } from './review-preimage-store';
 
 export const TASK_STORE_SCHEMA_VERSION = 1 as const;
 /**
@@ -471,6 +472,20 @@ function copyWithout<T extends Record<string, unknown>>(value: T, keys: readonly
   return Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)));
 }
 
+/**
+ * Review baselines are immutable raw blobs, not canonical task-state data.
+ * Keep this normalization local to the storage boundary so legacy inline
+ * tasks remain readable while every new state/snapshot projection is compact.
+ */
+function withoutInlineReviewPreimageContent(value: Record<string, unknown>): Record<string, unknown> {
+  const normalized = structuredClone(value) as Record<string, unknown>;
+  const coverage = record(normalized.review_coverage) ? normalized.review_coverage : null;
+  if (coverage && Array.isArray(coverage.preimages)) {
+    coverage.preimages = coverage.preimages.map(item => record(item) ? copyWithout(item, ['content_base64']) : item);
+  }
+  return normalized;
+}
+
 function markdownSections(body: string): Array<{ title: string; text: string }> {
   const normalized = body.replace(/\r\n?/gu, '\n');
   const headings = [...normalized.matchAll(/^##\s+(.+?)\s*$/gmu)];
@@ -567,7 +582,7 @@ function compactCurrent(current: TaskStoreCurrent): boolean {
 }
 
 function stateSnapshotPayload(current: TaskStoreCurrent): Record<string, unknown> {
-  const state = current.runtimeState;
+  const state = withoutInlineReviewPreimageContent(current.runtimeState);
   const snapshot = copyWithout(state, ['execution_log', 'applied_proposals', 'claim_evidence']);
   snapshot.claim_evidence = Array.isArray(state.claim_evidence)
     ? state.claim_evidence.map(item => {
@@ -1905,11 +1920,11 @@ export class TaskStore {
     }
     const compactHistory = compactCurrent(input.before) || (input.after !== undefined && compactCurrent(input.after));
     const beforeRuntimeState = compactHistory && input.after !== undefined
-      ? copyWithout(input.before.runtimeState, ['execution_log', 'applied_proposals'])
-      : input.before.runtimeState;
+      ? copyWithout(withoutInlineReviewPreimageContent(input.before.runtimeState), ['execution_log', 'applied_proposals'])
+      : withoutInlineReviewPreimageContent(input.before.runtimeState);
     const afterRuntimeState = compactHistory && input.after !== undefined
-      ? copyWithout(input.after.runtimeState, ['execution_log', 'applied_proposals'])
-      : input.after?.runtimeState;
+      ? copyWithout(withoutInlineReviewPreimageContent(input.after.runtimeState), ['execution_log', 'applied_proposals'])
+      : input.after === undefined ? undefined : withoutInlineReviewPreimageContent(input.after.runtimeState);
     const executionLogEntries = compactHistory && input.after !== undefined
       ? newlyAppendedExecutionEntries(input.before, input.after)
       : undefined;
@@ -2688,7 +2703,7 @@ function compactHistoryBody(body: string, executionLog: readonly unknown[]): str
 
 function compactCurrentRaw(current: TaskStoreCurrent, store: TaskStore): string {
   const frontmatter = structuredClone(current.frontmatter ?? {}) as Record<string, unknown>;
-  const runtime = record(frontmatter.runtime_state) ? frontmatter.runtime_state : {};
+  const runtime = record(frontmatter.runtime_state) ? withoutInlineReviewPreimageContent(frontmatter.runtime_state) : {};
   delete runtime.execution_log;
   delete runtime.applied_proposals;
   frontmatter.runtime_state = runtime;
@@ -2705,10 +2720,8 @@ function compactCurrentRaw(current: TaskStoreCurrent, store: TaskStore): string 
 
 function compactAfter(current: TaskStoreCurrent, raw: string): TaskStoreCurrent {
   const frontmatter = structuredClone(current.frontmatter ?? {}) as Record<string, unknown>;
-  const runtimeState = structuredClone(current.runtimeState) as Record<string, unknown>;
-  delete (runtimeState as Record<string, unknown>).execution_log;
-  delete (runtimeState as Record<string, unknown>).applied_proposals;
-  frontmatter.runtime_state = runtimeState;
+  const runtimeState = withoutInlineReviewPreimageContent(current.runtimeState);
+  frontmatter.runtime_state = copyWithout(runtimeState, ['execution_log', 'applied_proposals']);
   frontmatter.task_store = {
     schema_version: 1,
     kind: 'vnext-current-task-store-binding',
@@ -2720,7 +2733,7 @@ function compactAfter(current: TaskStoreCurrent, raw: string): TaskStoreCurrent 
     ...current,
     raw,
     frontmatter,
-    runtimeState: current.runtimeState,
+    runtimeState,
     sourceTuple: { ...current.sourceTuple, revision: sha256(raw) },
   };
 }
@@ -2736,18 +2749,25 @@ function migrationSemanticModel(current: TaskStoreCurrent): unknown {
     // The representation change removes only the two compatibility history
     // arrays from the canonical file. All other runtime state must compare
     // byte-for-byte at the normalized value level.
-    runtime_state: copyWithout(current.runtimeState, ['execution_log', 'applied_proposals']),
+    runtime_state: copyWithout(withoutInlineReviewPreimageContent(current.runtimeState), ['execution_log', 'applied_proposals']),
     definition_sections: definitionSections(current, true).filter(section => !['执行记录', 'Execution Log'].includes(section.title)),
   };
+}
+
+function hasLegacyInlineReviewPreimages(current: TaskStoreCurrent): boolean {
+  const coverage = record(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
+  return Array.isArray(coverage?.preimages)
+    && coverage.preimages.some(item => record(item) && Object.prototype.hasOwnProperty.call(item, 'content_base64'));
 }
 
 export function previewTaskStorageMigration(root: string, current: TaskStoreCurrent): TaskStorageMigrationPreview {
   const store = TaskStore.forCurrent(root, current);
   const manifest = store.manifest;
+  const legacyInlineReviewPreimages = hasLegacyInlineReviewPreimages(current);
   const definitionRevision = taskStoreDefinitionRevision(current);
   const stateRevision = taskStoreStateRevision(current);
   return {
-    status: manifest?.current_representation === 'compact-v2' ? 'already-migrated' : 'preview',
+    status: manifest?.current_representation === 'compact-v2' && !legacyInlineReviewPreimages ? 'already-migrated' : 'preview',
     operation_kind: 'task-storage-migration',
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
@@ -2759,7 +2779,7 @@ export function previewTaskStorageMigration(root: string, current: TaskStoreCurr
     existing_store: manifest !== null,
     semantic_model_digest: digest({ task_id: current.sourceTuple.task_id, task_slug: current.sourceTuple.task_slug, workflow_status: current.sourceTuple.workflow_status, lifecycle_state: current.sourceTuple.lifecycle_state, active_step_id: current.sourceTuple.active_step_id, definition_revision: definitionRevision, state_revision: stateRevision }),
     planned_objects: ['definition', 'state', 'current-snapshot', 'legacy-current-task'],
-    planned_events: manifest?.current_representation === 'compact-v2' ? [] : [manifest ? 'storage-migration' : 'legacy-import', 'storage-migration'],
+    planned_events: manifest?.current_representation === 'compact-v2' && !legacyInlineReviewPreimages ? [] : [manifest ? 'storage-migration' : 'legacy-import', 'storage-migration'],
   };
 }
 
@@ -2767,10 +2787,17 @@ export function commitTaskStorageMigration(root: string, current: TaskStoreCurre
   if (sourceRevision !== current.sourceTuple.revision) throw new TaskStoreError('TASK_STORE_MIGRATION_SOURCE_STALE', 'migration source_revision does not match the exact current CURRENT_TASK bytes.');
   const store = TaskStore.forCurrent(root, current);
   const existing = store.manifest;
-  if (existing?.current_representation === 'compact-v2') {
+  const legacyInlineReviewPreimages = hasLegacyInlineReviewPreimages(current);
+  if (existing?.current_representation === 'compact-v2' && !legacyInlineReviewPreimages) {
     if (existing.head.source_revision !== current.sourceTuple.revision) throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact task-store manifest does not match the requested migration source.');
     return { status: 'no-op', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest: existing };
   }
+  // Decode and publish legacy review baselines before the canonical compact
+  // representation can refer to their digest-only identities. A failed
+  // decode or blob write leaves CURRENT_TASK untouched and therefore still
+  // readable through its legacy inline baseline.
+  const coverage = record(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
+  if (coverage && Array.isArray(coverage.preimages)) persistLegacyReviewPreimages(root, coverage.preimages);
   const previous = store.ensureInitialized(current);
   const compactRaw = compactCurrentRaw(current, store);
   const after = compactAfter(current, compactRaw);
@@ -2792,5 +2819,5 @@ export function commitTaskStorageMigration(root: string, current: TaskStoreCurre
   if (!manifest || manifest.current_representation !== 'compact-v2' || manifest.head.source_revision !== after.sourceTuple.revision) {
     throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact migration did not publish a matching aggregate head.');
   }
-  return { status: previous.current_representation === 'compact-v2' ? 'no-op' : 'committed', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest };
+  return { status: previous.current_representation === 'compact-v2' && !legacyInlineReviewPreimages ? 'no-op' : 'committed', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest };
 }

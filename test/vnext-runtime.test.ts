@@ -5,6 +5,7 @@ import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governanc
 import { semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
 import { commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from '../runtime/vnext/src/task-evolution-io';
 import { commitTaskStorageMigration } from '../runtime/vnext/src/task-store';
+import { reviewPreimageBlobPath } from '../runtime/vnext/src/review-preimage-store';
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
 import { spawnSync } from 'child_process';
@@ -5923,7 +5924,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const before = fs.readFileSync(canonicalPath);
     const raw = spawnSync('node', [path.join(root, '.workflow-system/runtime/dist/cli.js'), 'validate', '--root', root], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     expect(raw.status).toBe(0);
-    expect(Buffer.byteLength(raw.stdout)).toBeGreaterThan(1024 * 1024);
+    expect(Buffer.byteLength(raw.stdout)).toBeLessThan(512 * 1024);
     const identityPath = path.join(root, '.workflow-system/runtime/tools/rg/identity.json');
     fs.unlinkSync(identityPath);
     expect(upgradeDistribution({ targetRoot: root, packageRoot, dryRun: true }).status).toBe('ready');
@@ -5955,7 +5956,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(recordStepResult(root,{preflight_receipt:first.receipt,actual_changed_paths:[a],command_results:[],validation_results:[{validation:semantic.implementation_steps[0]!.validation[0]!,status:'passed',evidence_refs:['evidence-report.txt']}],acceptance_evidence:[],outcome:'implemented',note:'defer review to integration'})).toMatchObject({status:'success',advancement:{to_step_id:'step-2'}});
     const aState = readCanonicalCurrentTask(root).runtimeState.review_coverage!;
     expect(aState.pending_paths).toEqual([a]);
-    expect(Buffer.from(aState.preimages.find(p => p.path===a)!.content_base64!,'base64').toString()).toBe(dirtyBase);
+    const preimage = aState.preimages.find(p => p.path === a)!;
+    expect(Object.keys(preimage).sort()).toEqual(['path', 'sha256', 'state']);
+    expect(preimage.sha256).toBe(crypto.createHash('sha256').update(dirtyBase).digest('hex'));
+    expect(fs.readFileSync(reviewPreimageBlobPath(root, preimage.sha256!)).toString()).toBe(dirtyBase);
     const second = preflightStep(root,{candidate_paths:[b]});
     fs.mkdirSync(path.dirname(path.join(root,b)),{recursive:true});
     fs.writeFileSync(path.join(root,b),'export const PRODUCTION_LIMIT = 99;\n');
@@ -5981,7 +5985,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(summaryCli.stdout).not.toContain('content_base64');
     const rawCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--root', root], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     expect(rawCli.status).toBe(0);
-    expect(JSON.parse(rawCli.stdout).runtime_state.review_coverage.preimages.find((item: any) => item.path === a).content_base64).toBe(Buffer.from(dirtyBase).toString('base64'));
+    expect(JSON.parse(rawCli.stdout).runtime_state.review_coverage.preimages.find((item: any) => item.path === a).content_base64).toBeUndefined();
     const beforeReview = fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8');
     const contextCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'review-context', '--root', root], { encoding: 'utf8', input: '{}' });
     expect(contextCli.status).toBe(0);
@@ -9009,7 +9013,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       }
       fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "before";\n', 'utf8');
       fs.writeFileSync(path.join(root, ...plannedB.split('/')), 'export const reconnect = "before";\n', 'utf8');
-      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value;\n', 'utf8');
+      const discoveredBefore = 'export const normalizeState = (value) => value;\n';
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), discoveredBefore, 'utf8');
 
       const first = preflightStep(root, { candidate_paths: [plannedA] });
       fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "first";\n', 'utf8');
@@ -9022,6 +9027,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       expect(firstExtension.receipt.execution_id).toBe(first.receipt.execution_id);
       expect(firstExtension.receipt.plan_revision).toBe(first.receipt.plan_revision);
       expect(firstExtension.receipt.candidate_paths).toEqual([plannedA, discovered]);
+      const discoveredPreimage = readCanonicalCurrentTask(root).runtimeState.review_coverage!.preimages.find(item => item.path === discovered)!;
+      expect(Object.keys(discoveredPreimage).sort()).toEqual(['path', 'sha256', 'state']);
+      expect(fs.readFileSync(reviewPreimageBlobPath(root, discoveredPreimage.sha256!)).toString()).toBe(discoveredBefore);
       fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
       const firstEvidence = reportFixture(root);
       expect(recordStepResult(root, {
@@ -9684,6 +9692,111 @@ describe('vNext Phase 2 Runtime contract', () => {
         validation_results: fresh.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
         acceptance_evidence: [evidence], outcome: 'implemented', note: 'Create the explicitly admitted unconventional regression test.',
       }).status).toBe('success');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('review-read resolves new raw preimage blobs and fails closed when storage is missing or corrupt', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      const baseline = 'export const session = "baseline";\n';
+      fs.writeFileSync(targetPath, baseline, 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [target] });
+      const currentAfterPreflight = readCanonicalCurrentTask(root);
+      const preimage = currentAfterPreflight.runtimeState.review_coverage!.preimages.find(item => item.path === target)!;
+      expect(Object.keys(preimage).sort()).toEqual(['path', 'sha256', 'state']);
+      const blob = reviewPreimageBlobPath(root, preimage.sha256!);
+      expect(fs.readFileSync(blob)).toEqual(Buffer.from(baseline));
+      fs.writeFileSync(targetPath, 'export const session = "changed";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [target],
+        command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Review the raw first-touch baseline.',
+      }).status).toBe('success');
+      const context = reviewContext(root, {});
+      expect(reviewRead(root, { context_receipt: context.receipt, path: target, view: 'before' }).text).toBe(baseline);
+      expect(reviewRead(root, { context_receipt: context.receipt, path: target, view: 'after' }).text).toContain('changed');
+      expect(reviewRead(root, { context_receipt: context.receipt, path: target, view: 'diff' }).text).toContain('+export const session = "changed";');
+
+      fs.unlinkSync(blob);
+      expect(() => reviewRead(root, { context_receipt: context.receipt, path: target, view: 'before' })).toThrow('REVIEW_BASELINE_MISSING');
+      fs.writeFileSync(blob, 'corrupt baseline', 'utf8');
+      expect(() => reviewRead(root, { context_receipt: context.receipt, path: target, view: 'diff' })).toThrow('REVIEW_BASELINE_HASH_MISMATCH');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('large review first-touch bytes stay outside canonical CURRENT_TASK', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      const baseline = 'x'.repeat(500 * 1024) + '\n';
+      fs.writeFileSync(targetPath, baseline, 'utf8');
+      const currentPath = readCanonicalCurrentTask(root).filePath;
+      const beforeBytes = fs.statSync(currentPath).size;
+      preflightStep(root, { candidate_paths: [target] });
+      const after = readCanonicalCurrentTask(root);
+      const preimage = after.runtimeState.review_coverage!.preimages.find(item => item.path === target)!;
+      const blob = reviewPreimageBlobPath(root, preimage.sha256!);
+      expect(fs.statSync(blob).size).toBe(Buffer.byteLength(baseline));
+      expect(fs.statSync(currentPath).size - beforeBytes).toBeLessThan(64 * 1024);
+      expect(fs.readFileSync(currentPath, 'utf8')).not.toContain('content_base64');
+      expect(Object.keys(preimage).sort()).toEqual(['path', 'sha256', 'state']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('legacy inline review preimages remain readable and migrate to verified raw blobs', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      const baseline = 'export const session = "legacy baseline";\n';
+      fs.writeFileSync(targetPath, baseline, 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [target] });
+      fs.writeFileSync(targetPath, 'export const session = "legacy after";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [target],
+        command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Create a legacy inline review fixture.',
+      }).status).toBe('success');
+
+      useLegacyInlineCurrent(root);
+      const current = readCanonicalCurrentTask(root);
+      const frontmatter = structuredClone(current.frontmatter);
+      const runtimeState = frontmatter.runtime_state as Record<string, any>;
+      const coverage = runtimeState.review_coverage as Record<string, any>;
+      coverage.preimages = coverage.preimages.map((item: Record<string, any>) => item.path === target
+        ? { ...item, content_base64: Buffer.from(baseline).toString('base64') }
+        : item);
+      fs.writeFileSync(current.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${current.body}`, 'utf8');
+      const legacy = readCanonicalCurrentTask(root);
+      const legacyContext = reviewContext(root, {});
+      fs.unlinkSync(reviewPreimageBlobPath(root, legacy.runtimeState.review_coverage!.preimages.find(item => item.path === target)!.sha256!));
+      expect(reviewRead(root, { context_receipt: legacyContext.receipt, path: target, view: 'before' }).text).toBe(baseline);
+
+      const migrated = commitTaskStorageMigration(root, legacy, legacy.sourceTuple.revision);
+      expect(migrated.status).toBe('committed');
+      const after = readCanonicalCurrentTask(root);
+      const migratedPreimage = after.runtimeState.review_coverage!.preimages.find(item => item.path === target)!;
+      expect(Object.keys(migratedPreimage).sort()).toEqual(['path', 'sha256', 'state']);
+      expect(fs.readFileSync(reviewPreimageBlobPath(root, migratedPreimage.sha256!))).toEqual(Buffer.from(baseline));
+      expect(fs.readFileSync(after.filePath, 'utf8')).not.toContain('content_base64');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

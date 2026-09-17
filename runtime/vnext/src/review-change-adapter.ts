@@ -59,6 +59,7 @@ import { resolveTaskStep } from './task-steps';
 import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
 import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
 import { TaskStore } from './task-store';
+import { decodeLegacyReviewPreimage, readReviewPreimageBlob, ReviewPreimageStoreError } from './review-preimage-store';
 
 export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'ingest-evidence', 'route-input'] as const;
 export type ReviewChangeAdapterCommand = (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number];
@@ -618,7 +619,18 @@ function reviewFilePage(root: string, current: CanonicalCurrentTask, execution: 
   const base = { path: file, view, target_revision: execution.execution_result!.review_target.revision };
   if (!preimage && view !== 'after') return { ...base, content_status: 'baseline-unavailable' as const };
   if (target.state === 'symlink' || preimage?.state === 'symlink') return { ...base, content_status: 'symlink-not-followed' as const };
-  const before = preimage?.state === 'file' ? Buffer.from(preimage.content_base64!, 'base64') : Buffer.alloc(0);
+  let before = Buffer.alloc(0);
+  if (preimage?.state === 'file') {
+    try {
+      const legacy = Object.prototype.hasOwnProperty.call(preimage, 'content_base64')
+        ? decodeLegacyReviewPreimage(preimage)
+        : null;
+      before = legacy?.content ?? readReviewPreimageBlob(root, preimage.sha256!);
+    } catch (error) {
+      if (error instanceof ReviewPreimageStoreError) fail(error.code, error.message);
+      throw error;
+    }
+  }
   const after = target.state === 'file' ? fs.readFileSync(contextPath(root, file).absolute) : Buffer.alloc(0);
   if (target.state === 'file' && sha256(after) !== target.sha256) fail('REVIEW_TARGET_STALE', 'file changed while reading review context.');
   if (preimage?.state === 'file' && sha256(before) !== preimage.sha256) fail('REVIEW_BASE_INVALID', 'first-touch baseline hash mismatch.');

@@ -234,7 +234,7 @@ S1 后续审查：两个 P2 均非进入 S2 的阻塞；没有执行绕过或产
 
 ### 正常读取接口与最小读写地图
 
-- `review-context {}`：沿用既有累计 target、receipt、审查义务；完整路径/状态/hash 索引仍在 `recorded_execution.execution_result`，首个变更文件给出 `text_diff`，其它路径在 `unexpanded_paths`。**不再默认返回 review_preimages/content_base64**；完整首触正文仍在 canonical，不更换 dirty 起点或使用 Git HEAD 补造。
+- `review-context {}`：沿用既有累计 target、receipt、审查义务；完整路径/状态/hash 索引仍在 `recorded_execution.execution_result`，首个变更文件给出 `text_diff`，其它路径在 `unexpanded_paths`。**不再默认返回 review_preimages/content_base64**；完整首触正文由 `<workflow_home>/review-preimages/<sha256>.blob` 保存并由 `review-read` 按 hash 读取，不更换 dirty 起点或使用 Git HEAD 补造。
 - `review-read`：stdin `{context_receipt,path,view?,start_line?,end_line?,offset?,max_bytes?}`；view=`diff/before/after`。复用已有 source/step/cycle/execution/cumulative-target 校验，范围从 Runtime 首触内容和已记录目标读取；陈旧 receipt/对象拒绝。二进制、链接、缺历史基线、diff 计算超限均明确返回 content_status，不视作 clean。
 - `file-context`：stdin `operation=search` 接受 roots、globs、字面量 query、include_hidden、limit、max_bytes；`operation=read` 接受 path、sha256、行范围、offset、max_bytes。无需已确认任务。真实 rg 返回有限候选；默认 ignore，显式 glob 遵循 rg 原生覆盖优先级。无匹配、部分结果、超时和错误有区别；不把候选当作完整测试目录或通过报告。
 - 文本默认 16 KiB、最大 64 KiB，完整文件索引另列；UTF-8 字节续读不拆字符，非首个文件页绑定 sha256。行范围 1-based inclusive；offset/total_bytes 相对所选范围。搜索默认 50 条、最多 200 条、10 秒超时；raw stdout/超长单行也受限。完整输入定义随包放在 `.workflow-system/runtime/support/CONTEXT_API.md`。

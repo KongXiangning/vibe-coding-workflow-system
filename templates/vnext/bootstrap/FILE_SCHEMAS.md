@@ -463,15 +463,21 @@ project policy or repair verification.
 
 Runtime owns `review_coverage: {change_set_id, base, target, preimages,
 pending_paths, last_clean_revision}`. Base and target use the file manifest;
-preimages contain `{path,state,sha256,content_base64}` (null for absent), captured
-at first admitted touch, not reconstructed from Git HEAD. The manifest remains
-bounded by the existing 256 exact-path limit. Content has no fixed byte cutoff:
-canonical size scales with the admitted first-touch files, including large files.
-Every preimage still validates canonical base64 and its content hash.
+new preimages contain only `{path,state,sha256}`, captured at first admitted
+touch and not reconstructed from Git HEAD. File and symlink baseline bytes are
+stored as immutable raw blobs at `<workflow_home>/review-preimages/<sha256>.blob`;
+the digest is the deterministic lookup key and identical content is naturally
+deduplicated. The blob is persisted and hash-verified before CURRENT_TASK can
+reference it. Review-read resolves and verifies the blob and fails closed when
+it is missing or corrupt. Existing legacy `content_base64` preimages remain
+readable and are decoded, verified, persisted, and stripped during storage
+migration. The manifest remains bounded by the existing 256 exact-path limit;
+canonical task size is no longer proportional to the reviewed file bytes.
 Unrecorded changes cannot refresh the baseline. Repeated paths retain their
 original content; add/delete paths retain absent states. Ordinary execution logs
 retain each invocation's actual writes; the review context projects one cumulative
-delta and supplies review_preimages. Pure audit changes do not change its target.
+delta and supplies review-readable baseline identities. Pure audit changes do not
+change its target.
 
 `test_assessment: {applicable,reason,evidence_refs,necessity,oracle,boundary,reuse,
 applicability}` accompanies cumulative review results, bound by the enclosing

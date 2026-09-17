@@ -92,6 +92,12 @@ import {
   type ExecutionAdmissionPhase,
 } from './execution-admission';
 import {
+  decodeLegacyReviewPreimage,
+  persistReviewPreimageWrites,
+  type ReviewPreimageWrite,
+  ReviewPreimageStoreError,
+} from './review-preimage-store';
+import {
   BOOTSTRAP_MODES,
   BOOTSTRAP_OPERATION_KINDS,
   type BootstrapMode,
@@ -554,7 +560,8 @@ export type TestAssessment = {
 };
 export type ReviewCoverage = {
   change_set_id: string; base: ReviewTarget; target: ReviewTarget;
-  preimages: Array<ReviewTargetEntry & { content_base64: string | null }>;
+  /** New writes contain only identity; content_base64 remains readable legacy input. */
+  preimages: Array<ReviewTargetEntry & { content_base64?: string | null }>;
   pending_paths: string[]; last_clean_revision: string | null;
 };
 
@@ -1731,18 +1738,23 @@ function validateReviewCoverage(value: unknown): ReviewCoverage {
   if (!Array.isArray(source.preimages) || source.preimages.length !== base.entries.length) fail('REVIEW_COVERAGE_INVALID', 'preimages must cover the initial manifest.');
   const preimages = source.preimages.map((value, index) => {
     const item = expectRecord(value, 'preimage');
-    expectExactKeys(item, ['path', 'state', 'sha256', 'content_base64'], 'preimage');
+    const hasLegacyContent = Object.prototype.hasOwnProperty.call(item, 'content_base64');
+    expectExactKeys(item, hasLegacyContent ? ['path', 'state', 'sha256', 'content_base64'] : ['path', 'state', 'sha256'], 'preimage');
     const entry = base.entries[index];
     if (digest({path:item.path,state:item.state,sha256:item.sha256}) !== digest(entry)) fail('REVIEW_COVERAGE_INVALID', 'preimage identity differs from base.');
-    const content = item.content_base64;
-    if (entry.state === 'absent') {
-      if (content !== null) fail('REVIEW_COVERAGE_INVALID', 'absent preimage has content.');
-    } else {
-      if (typeof content !== 'string') fail('REVIEW_COVERAGE_INVALID', 'preimage content is required.');
-      const buffer = Buffer.from(content, 'base64');
-      if (buffer.toString('base64') !== content || sha256(buffer) !== entry.sha256) fail('REVIEW_COVERAGE_INVALID', 'preimage content hash is invalid.');
+    if (entry.state === 'absent' && entry.sha256 !== null) fail('REVIEW_COVERAGE_INVALID', 'absent preimage must have a null hash.');
+    if (entry.state !== 'absent' && entry.sha256 === null) fail('REVIEW_COVERAGE_INVALID', 'file or symlink preimage must have a hash.');
+    if (hasLegacyContent) {
+      const content = item.content_base64;
+      if (entry.state === 'absent') {
+        if (content !== null) fail('REVIEW_COVERAGE_INVALID', 'absent preimage has content.');
+      } else {
+        if (typeof content !== 'string') fail('REVIEW_COVERAGE_INVALID', 'legacy preimage content is required.');
+        const buffer = Buffer.from(content, 'base64');
+        if (buffer.toString('base64') !== content || sha256(buffer) !== entry.sha256) fail('REVIEW_COVERAGE_INVALID', 'legacy preimage content hash is invalid.');
+      }
     }
-    return {...entry, content_base64: content as string | null};
+    return hasLegacyContent ? { ...entry, content_base64: item.content_base64 as string | null } : { ...entry };
   });
   const pending = expectStringArray(source.pending_paths, 'review_coverage.pending_paths', true);
   if (new Set(pending).size !== pending.length || pending.some(p => !base.entries.some(e => e.path === p))) fail('REVIEW_COVERAGE_INVALID', 'pending paths must be covered.');
@@ -1853,16 +1865,40 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
   };
 }
 
-function registerReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverage {
+type ReviewCoverageAdmission = {
+  coverage: ReviewCoverage;
+  preimageWrites: ReviewPreimageWrite[];
+};
+
+function normalizeReviewPreimages(preimages: readonly (ReviewTargetEntry & { content_base64?: string | null })[]): { entries: ReviewTargetEntry[]; writes: ReviewPreimageWrite[] } {
+  const writes: ReviewPreimageWrite[] = [];
+  const entries = preimages.map(preimage => {
+    if (Object.prototype.hasOwnProperty.call(preimage, 'content_base64')) {
+      const write = decodeLegacyReviewPreimage(preimage);
+      if (write) writes.push(write);
+    }
+    return { path: preimage.path, state: preimage.state, sha256: preimage.sha256 };
+  });
+  return { entries, writes };
+}
+
+function reviewPreimageWrite(root: string, entry: ReviewTargetEntry): ReviewPreimageWrite | null {
+  if (entry.state === 'absent') return null;
+  const absolute = path.resolve(root, entry.path);
+  const content = entry.state === 'symlink' ? Buffer.from(fs.readlinkSync(absolute)) : fs.readFileSync(absolute);
+  if (!entry.sha256 || sha256(content) !== entry.sha256) fail('REVIEW_BASE_INVALID', `first-touch baseline hash changed while capturing ${entry.path}.`);
+  return { sha256: entry.sha256, content };
+}
+
+function registerReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverageAdmission {
   const old = current.runtimeState.review_coverage;
   if (old && captureReviewTarget(root, old.target.entries.map(e => e.path)).revision !== old.target.revision) fail('REVIEW_TARGET_STALE', 'Unrecorded changes cannot refresh the cumulative review target.');
   const added = captureReviewTarget(root, paths.filter(p => !old?.base.entries.some(e => e.path === p)));
-  const preimages = [...(old?.preimages ?? []), ...added.entries.map(entry => {
-    const absolute = path.resolve(root, entry.path);
-    const content = entry.state === 'absent' ? null : entry.state === 'symlink' ? Buffer.from(fs.readlinkSync(absolute)) : fs.readFileSync(absolute);
-    return {...entry,content_base64:content?.toString('base64') ?? null};
-  })].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  return validateReviewCoverage({change_set_id:old?.change_set_id ?? `change-set-${digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision}).slice(0,32)}`,base:manifest(preimages.map(({content_base64,...entry}) => entry)),target:manifest([...(old?.target.entries ?? []),...added.entries]),preimages,pending_paths:old?.pending_paths ?? [],last_clean_revision:old?.last_clean_revision ?? null});
+  const additions = added.entries.map(entry => ({ entry, write: reviewPreimageWrite(root, entry) }));
+  const normalizedOld = normalizeReviewPreimages(old?.preimages ?? []);
+  const preimages = [...normalizedOld.entries, ...additions.map(({ entry }) => ({ ...entry }))].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const coverage = validateReviewCoverage({change_set_id:old?.change_set_id ?? `change-set-${digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision}).slice(0,32)}`,base:manifest(preimages.map(entry => ({ path: entry.path, state: entry.state, sha256: entry.sha256 }))),target:manifest([...(old?.target.entries ?? []),...added.entries]),preimages,pending_paths:old?.pending_paths ?? [],last_clean_revision:old?.last_clean_revision ?? null});
+  return { coverage, preimageWrites: [...normalizedOld.writes, ...additions.flatMap(({ write }) => write ? [write] : [])] };
 }
 
 /**
@@ -1872,30 +1908,29 @@ function registerReviewCoverage(root: string, current: CanonicalCurrentTask, pat
  * registration path intentionally remains strict about stale in-flight
  * changes.
  */
-function extendReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverage {
+function extendReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverageAdmission {
   const old = current.runtimeState.review_coverage;
   if (!old) fail('EXECUTE_PREFLIGHT_REQUIRED', 'extend-preflight requires an existing recorded preflight.');
   const newPaths = paths.filter(p => !old.base.entries.some(entry => entry.path === p));
   const added = captureReviewTarget(root, newPaths);
-  const preimages = [...old.preimages, ...added.entries.map(entry => {
-    const absolute = path.resolve(root, entry.path);
-    const content = entry.state === 'absent' ? null : entry.state === 'symlink' ? Buffer.from(fs.readlinkSync(absolute)) : fs.readFileSync(absolute);
-    return { ...entry, content_base64: content?.toString('base64') ?? null };
-  })].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const additions = added.entries.map(entry => ({ entry, write: reviewPreimageWrite(root, entry) }));
+  const normalizedOld = normalizeReviewPreimages(old.preimages);
+  const preimages = [...normalizedOld.entries, ...additions.map(({ entry }) => ({ ...entry }))].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   // Existing target entries are the before-state registered by the original
   // preflight.  They must remain immutable even when the model has already
   // edited one of those files before discovering the new path.  Only the
   // newly discovered paths are captured at extension time, before their first
   // mutation.
   const target = manifest([...old.target.entries, ...added.entries]);
-  return validateReviewCoverage({
+  const coverage = validateReviewCoverage({
     change_set_id: old.change_set_id,
-    base: manifest(preimages.map(({ content_base64: _content, ...entry }) => entry)),
+    base: manifest(preimages.map(entry => ({ path: entry.path, state: entry.state, sha256: entry.sha256 }))),
     target,
     preimages,
     pending_paths: old.pending_paths,
     last_clean_revision: null,
   });
+  return { coverage, preimageWrites: [...normalizedOld.writes, ...additions.flatMap(({ write }) => write ? [write] : [])] };
 }
 
 function v2StepPlannedTargets(current: CanonicalCurrentTask): string[] {
@@ -2380,7 +2415,7 @@ function validateBootstrapRuntimeContract(value: unknown): string[] {
 export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
   const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'mutation_authority', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'mutation_authority', 'review_coverage_preimages', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
   if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
   }
@@ -3156,6 +3191,24 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || commandGlobProof.synthetic_probe !== 'prohibited'
     || commandGlobProof.exact_exception !== 'cannot-authorize-directory-glob') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime command glob subset proof semantics are invalid.');
+  }
+  const reviewPreimageContract = expectRecord(contract.review_coverage_preimages, 'Runtime contract.review_coverage_preimages');
+  expectExactKeys(reviewPreimageContract, ['canonical_fields', 'inline_content', 'baseline_storage', 'review_read', 'legacy_inline_compatibility'], 'Runtime contract.review_coverage_preimages');
+  expectSetEqual(expectStringArray(reviewPreimageContract.canonical_fields, 'Runtime review preimage canonical fields'), ['path', 'state', 'sha256'], 'Runtime review preimage canonical fields');
+  if (reviewPreimageContract.inline_content !== 'forbidden-for-new-writes'
+    || reviewPreimageContract.review_read !== 'resolve-by-sha256-read-and-verify; missing-or-corrupt-fails-closed'
+    || reviewPreimageContract.legacy_inline_compatibility !== 'readable-and-migrated-by-decode-verify-persist-strip') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime review preimage inline/storage semantics are invalid.');
+  }
+  const baselineStorage = expectRecord(reviewPreimageContract.baseline_storage, 'Runtime contract.review_coverage_preimages.baseline_storage');
+  expectExactKeys(baselineStorage, ['kind', 'relative_directory', 'filename', 'lookup', 'write_order', 'deduplication'], 'Runtime review preimage baseline storage');
+  if (baselineStorage.kind !== 'immutable-content-addressed-raw-blob'
+    || baselineStorage.relative_directory !== '<workflow_home>/review-preimages'
+    || baselineStorage.filename !== '<sha256>.blob'
+    || baselineStorage.lookup !== 'sha256'
+    || baselineStorage.write_order !== 'persist-and-verify-blob-before-current-task-state-commit'
+    || baselineStorage.deduplication !== 'identical-sha256-reuses-existing-verified-blob') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime review preimage baseline storage semantics are invalid.');
   }
   const domainMapLifecycle = expectRecord(mutationAuthorityContract.domain_map_lifecycle, 'Runtime mutation authority domain_map_lifecycle');
   expectExactKeys(domainMapLifecycle, ['proposal', 'confirmation', 'canonical', 'task_selection'], 'Runtime mutation authority domain_map_lifecycle');
@@ -11649,9 +11702,10 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
       .filter((item): item is string => Boolean(item)),
     ...((oldState.pending_review_result?.findings ?? []).map(item => item.file)),
   ])].sort();
-  const amendedReviewCoverage = oldState.review_coverage
+  const amendedReviewAdmission = oldState.review_coverage
     ? registerReviewCoverage(root, current, amendmentReviewPaths)
     : undefined;
+  const amendedReviewCoverage = amendedReviewAdmission?.coverage;
   const retainedPendingPaths = amendedReviewCoverage
     ? [...new Set([...amendedReviewCoverage.pending_paths, ...amendmentReviewPaths])].sort()
     : undefined;
@@ -11690,6 +11744,13 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
   const history = taskHistoryLocation({ currentPath: current.filePath, previousContent: current.raw, nextContent, documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id, basisPath: basis.filePath, basisContent: basis.content, nextBasisContent: nextBasisArtifact.content, operation: 'commit-scope-amendment', evidencePlanRevision: current.runtimeState.evidence_plan_revision, referencedEvidence: [location.relativePath] });
   const plannedWrites = [path.posix.join(path.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
   if (options.dryRun) return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: true, committed: false, message: 'Scope-amendment commit dry run passed; no live task was changed.', planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
+  try {
+    persistReviewPreimageWrites(root, amendedReviewAdmission?.preimageWrites ?? []);
+  } catch (error) {
+    return buildResult('blocked', proposal, current, options, `review baseline persistence failed: ${error instanceof Error ? error.message : String(error)}`, {
+      code: error instanceof ReviewPreimageStoreError ? error.code : 'REVIEW_BASELINE_PERSISTENCE_FAILED',
+    });
+  }
   let stagedAfter: CanonicalCurrentTask;
   try {
     stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, [{ path: history.path, content: history.content }, { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content }, { path: current.filePath, content: nextContent }]);
@@ -12901,6 +12962,7 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
 
 type StateTransition = {
   next: RuntimeState;
+  reviewPreimageWrites?: ReviewPreimageWrite[];
   findingStatus?: FindingStatus;
   replacementDefinition?: ReplanReplacementDefinition;
   draftDefinition?: DraftTaskDefinition;
@@ -13442,7 +13504,8 @@ function applyTaskStateDelta(
       assertEvidenceSlotSatisfied(root, current, record, slot, false);
       slot.prerequisite_receipt = { step_id: delta.step_id, preflight_id: proposal.idempotency_key, result_id: slot.report!.result_id, subject_snapshot: captureReviewTarget(root, slot.check!.subject_paths) };
     }
-    const coverage = registerReviewCoverage(root, current, delta.candidate_paths);
+    const coverageAdmission = registerReviewCoverage(root, current, delta.candidate_paths);
+    const coverage = coverageAdmission.coverage;
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
     let stepAttempts = current.runtimeState.step_attempts;
     if (executionMode === 'default') {
@@ -13527,7 +13590,7 @@ function applyTaskStateDelta(
       } : {}),
       ...(executionPreflight === undefined ? {} : { execution_preflight: executionPreflight }),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
-    } };
+    }, reviewPreimageWrites: coverageAdmission.preimageWrites };
   }
   if (delta.action === 'extend-preflight') {
     if (!current.mutationAuthority) fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'extend-preflight requires a Mutation Authority v2 task.');
@@ -13575,7 +13638,8 @@ function applyTaskStateDelta(
       location: `${executionMode} preflight extension`,
     });
     assertExecutionAdmissionEvaluation(current, authorityEvaluation, `${executionMode} preflight extension`);
-    const coverage = extendReviewCoverage(root, current, delta.additional_targets);
+    const coverageAdmission = extendReviewCoverage(root, current, delta.additional_targets);
+    const coverage = coverageAdmission.coverage;
     const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
     const executionId = activePreflight?.execution_id ?? delta.execution_id ?? `execution-${digest({ proposal: current.runtimeState.execution_preflight?.preflight_id ?? delta.current_preflight_id, step: delta.step_id, mode: executionMode })}`;
     const planRevision = activePreflight?.plan_revision ?? digest({ step_id: delta.step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
@@ -13628,7 +13692,7 @@ function applyTaskStateDelta(
       ...(executionMode === 'default' && stepLedger && updatedAttempts ? { step_attempts: { ...current.runtimeState.step_attempts, [delta.step_id]: { ...stepLedger, attempts: updatedAttempts } } } : {}),
       execution_preflight: executionPreflight,
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
-    } };
+    }, reviewPreimageWrites: coverageAdmission.preimageWrites };
   }
   if (delta.action !== 'step-progress') fail('RUNTIME_SCHEMA_INVALID', 'Only step-progress reaches the execute-step state handler.');
   ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
@@ -16109,6 +16173,18 @@ export class GovernanceTransactionKernel {
         resulting_revision: nextRevision,
         state: resultState(transition.next, transition.findingStatus),
         ...(transition.advancement ? { advancement: transition.advancement } : {}),
+      });
+    }
+
+    // A first-touch review baseline is a prerequisite for the state that
+    // references it. Publish raw content-addressed bytes before staging or
+    // writing CURRENT_TASK so a failed blob admission cannot leave a new
+    // review-coverage grant pointing at storage that does not exist.
+    try {
+      persistReviewPreimageWrites(this.root, transition.reviewPreimageWrites ?? []);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, `review baseline persistence failed: ${error instanceof Error ? error.message : String(error)}`, {
+        code: error instanceof ReviewPreimageStoreError ? error.code : 'REVIEW_BASELINE_PERSISTENCE_FAILED',
       });
     }
 

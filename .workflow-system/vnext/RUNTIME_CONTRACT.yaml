@@ -953,6 +953,22 @@ mutation_authority:
   new_persistent_test_behavior: absent-test-requires-p-12-admission
   legacy_behavior: missing-or-version-1-retains-v1-exact-step-scope-semantics
 
+review_coverage_preimages:
+  canonical_fields:
+    - path
+    - state
+    - sha256
+  inline_content: forbidden-for-new-writes
+  baseline_storage:
+    kind: immutable-content-addressed-raw-blob
+    relative_directory: <workflow_home>/review-preimages
+    filename: <sha256>.blob
+    lookup: sha256
+    write_order: persist-and-verify-blob-before-current-task-state-commit
+    deduplication: identical-sha256-reuses-existing-verified-blob
+  review_read: resolve-by-sha256-read-and-verify; missing-or-corrupt-fails-closed
+  legacy_inline_compatibility: readable-and-migrated-by-decode-verify-persist-strip
+
 canonical_current_task:
   frontmatter:
     schema_version: 1
