@@ -903,7 +903,7 @@ mutation_authority:
     task_selection: select-existing-map-without-rebuild
   domain_map_revision:
     binding: v2-confirmed-task-runtime-state-authority_domain_revision
-    mismatch: fail-closed-require-explicit-task-authority-revalidation-or-replan
+    mismatch: fail-closed-require-explicit-task-authority-domain-revalidation
     grant: never-inherit-changed-project-map
   dynamic_expansion_identity:
     required:

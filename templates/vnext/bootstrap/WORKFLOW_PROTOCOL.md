@@ -83,7 +83,9 @@ domain, but it still follows the same admission route.
 Every confirmed v2 task records the stable revision/digest of the canonical
 domain map in Runtime state. If the profile map changes, the active task fails
 closed before execution admission and requires explicit authority
-revalidation/replan; it never inherits a newly widened project grant.
+task authority-domain revalidation; ordinary correction-replan, P-12
+admission, and exact-path amendment do not rebind it. It never inherits a
+newly widened project grant.
 
 Read/discovery is intentionally wider: the Agent may read, grep, trace callers,
 inspect consumers, and establish root cause in another domain. None of that

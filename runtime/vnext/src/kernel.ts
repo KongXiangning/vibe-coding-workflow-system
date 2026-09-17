@@ -3168,7 +3168,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const domainMapRevision = expectRecord(mutationAuthorityContract.domain_map_revision, 'Runtime mutation authority domain_map_revision');
   expectExactKeys(domainMapRevision, ['binding', 'mismatch', 'grant'], 'Runtime mutation authority domain_map_revision');
   if (domainMapRevision.binding !== 'v2-confirmed-task-runtime-state-authority_domain_revision'
-    || domainMapRevision.mismatch !== 'fail-closed-require-explicit-task-authority-revalidation-or-replan'
+    || domainMapRevision.mismatch !== 'fail-closed-require-explicit-task-authority-domain-revalidation'
     || domainMapRevision.grant !== 'never-inherit-changed-project-map') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime project domain-map revision semantics are invalid.');
   }
@@ -4513,6 +4513,18 @@ function currentAuthorityDomainRevision(root: string, current: CanonicalCurrentT
   catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
   if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 task state requires PROJECT_PROFILE.yaml.mutation_authority.domains.');
   return projectMutationAuthorityRevision(project);
+}
+
+function assertV2AuthorityDomainRevisionFreshForTransition(root: string, current: CanonicalCurrentTask, transition: string): void {
+  if (!current.mutationAuthority) return;
+  const boundRevision = current.runtimeState.authority_domain_revision;
+  const projectRevision = currentAuthorityDomainRevision(root, current);
+  if (!boundRevision) {
+    fail('MUTATION_AUTHORITY_DOMAIN_REVISION_REQUIRED', `${transition} cannot proceed without the task-bound project authority domain-map revision.`);
+  }
+  if (boundRevision !== projectRevision) {
+    fail('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE', `${transition} cannot rebind a stale task authority revision to the current project map; explicit task authority-domain revalidation is required.`);
+  }
 }
 
 function strategyStepScopes(definition: DraftTaskDefinition): string[][] {
@@ -11234,6 +11246,7 @@ function assertV2AuthorityAmendmentExecutionSettled(current: CanonicalCurrentTas
 }
 
 function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTask, input: ScopeAmendmentCandidateInput): ScopeAmendmentCandidate {
+  assertV2AuthorityDomainRevisionFreshForTransition(root, current, 'Scope amendment');
   if (!['active', 'blocked_by_replan'].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== 'active') {
     fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment requires an active or blocked_by_replan task with an active lifecycle.');
   }
@@ -11643,7 +11656,10 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
     ? [...new Set([...amendedReviewCoverage.pending_paths, ...amendmentReviewPaths])].sort()
     : undefined;
   const { execution_preflight: _amendmentExecutionPreflight, ...stateWithoutExecutionPreflight } = oldState;
-  const domainRevision = currentAuthorityDomainRevision(root, current);
+  // Candidate admission has already proved that the task-bound revision is
+  // current. Preserve that bound value; never rebind it from the Profile while
+  // committing an amendment.
+  const domainRevision = current.mutationAuthority ? current.runtimeState.authority_domain_revision : undefined;
   const nextWithoutAudit: RuntimeState = {
     ...stateWithoutExecutionPreflight,
     workflow_status: 'active',
@@ -11722,6 +11738,7 @@ export function discardScopeAmendment(root: string, rawInput: unknown, options: 
 }
 
 function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, input: CorrectionCandidateInput): CorrectionCandidate {
+  assertV2AuthorityDomainRevisionFreshForTransition(root, current, 'Correction replan');
   const suspended = current.runtimeState.workflow_status === 'blocked_by_replan';
   if (!['active', 'superseded', 'blocked_by_replan'].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== 'active'
     || current.runtimeState.resume_requires_review || (!suspended && !['ready', 'completed'].includes(current.runtimeState.active_step_status))
@@ -12019,7 +12036,9 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
     idempotency_key: idempotencyKey, authority_evidence: authorityEvidence, evidence_refs: [location.relativePath, ...challengeRefs],
   });
   const oldState = current.runtimeState;
-  const domainRevision = currentAuthorityDomainRevision(root, current);
+  // Restricted correction keeps the task's existing authority binding. It is
+  // not a project-map revalidation route.
+  const domainRevision = current.mutationAuthority ? current.runtimeState.authority_domain_revision : undefined;
   const nextWithoutAudit: RuntimeState = {
     ...oldState, workflow_status: 'active', lifecycle_state: 'active', active_step_id: rebuilt.input.correction_step.id,
     ...(oldState.review_coverage ? { review_coverage: { ...oldState.review_coverage, last_clean_revision: null } } : {}),

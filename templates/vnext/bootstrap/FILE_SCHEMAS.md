@@ -81,8 +81,9 @@ authority_domain_confirmation:
 
 Every confirmed v2 task binds the canonical domain map revision into Runtime
 state. If the profile map is edited later, execution fails closed with a stale
-revision result and requires explicit task authority revalidation/replan; the
-task never inherits a widened project grant.
+revision result and requires explicit task authority-domain revalidation;
+ordinary correction-replan, P-12 admission, and exact-path amendment do not
+rebind it. The task never inherits a widened project grant.
 
 A v2 task carries only positive mutation authority:
 

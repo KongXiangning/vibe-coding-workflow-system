@@ -763,6 +763,13 @@ function enableV2MutationAuthority(root: string): void {
   fs.writeFileSync(profilePath, stringify(profile), 'utf8');
 }
 
+function rewriteV2MutationAuthorityProfile(root: string, domains: Array<{ id: string; roots: string[] }>): void {
+  const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+  const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+  profile.mutation_authority = { domains };
+  fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+}
+
 function v2MutationAuthoritySemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
   const base = singleStepSemanticDraft({
     implementation_steps: [{
@@ -9502,6 +9509,117 @@ describe('vNext Phase 2 Runtime contract', () => {
       const after = readCanonicalCurrentTask(root);
       expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
       expect(after.runtimeState).toEqual(before.runtimeState);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('stale domain-map revision blocks correction-replan without rebinding the task', () => {
+    const root = v2TwoStepConfirmedRoot();
+    const planned = 'packages/node-rollout/src/session.ts';
+    try {
+      const plannedPath = path.join(root, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedPath), { recursive: true });
+      fs.writeFileSync(plannedPath, 'export const session = "before";\n', 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [planned] });
+      const acceptance = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: [],
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: ['evidence-report.txt'] })),
+        acceptance_evidence: [acceptance],
+        outcome: 'implemented',
+        note: 'Settle the first step before challenging its evidence.',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: review.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The first step is settled.' }).status).toBe('success');
+
+      const current = readCanonicalCurrentTask(root);
+      const result = current.runtimeState.claim_evidence![0]!.slots[0]!.report!;
+      fs.writeFileSync(path.join(root, 'correction-counterexample.txt'), 'The first observation needs a bounded correction.\n', 'utf8');
+      expect(recordEvidenceChallenge(root, {
+        claim_id: 'A1',
+        slot_id: 'a1',
+        result_id: result.result_id,
+        evidence_ref: 'correction-counterexample.txt',
+        evidence_sha256: fileRevision(path.join(root, 'correction-counterexample.txt')),
+        reason: 'The original observation requires a bounded correction.',
+      }).status).toBe('success');
+      const challenge = readCanonicalCurrentTask(root).runtimeState.evidence_challenges![0]!;
+      const correction = prepareCorrectionReplan(root, {
+        challenge_id: challenge.challenge_id,
+        correction_step: {
+          id: 'stale-domain-correction',
+          description: 'Apply the bounded correction inside the existing Node domain',
+          mutation_scope: ['packages/node-rollout/src/foo.ts'],
+          commands: [],
+          required_evidence: ['Verify the bounded correction'],
+        },
+        mode: 'execution-recovery',
+        obligation_map: [{ claim_id: 'A1', slot_id: 'a1', due_step_id: 'stale-domain-correction' }],
+      });
+      const beforeDrift = readCanonicalCurrentTask(root);
+      rewriteV2MutationAuthorityProfile(root, [
+        { id: 'node-rollout', roots: ['packages/**'] },
+        { id: 'node-rollout-tests', roots: ['node-test-surface/**'] },
+        { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+      ]);
+      expect(() => confirmCorrectionReplan(root, {
+        candidate_receipt: correction.candidate_receipt,
+        authorization: {
+          approved_candidate_digest: correction.candidate_receipt.candidate_digest,
+          decision_source: 'test:stale-domain-replan',
+          decision_text: 'Approve the bounded correction without changing task authority.',
+          invalidation_reason: 'The challenged observation requires a bounded correction.',
+        },
+      })).toThrow('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE');
+      const afterRejected = readCanonicalCurrentTask(root);
+      expect(afterRejected.runtimeState.authority_domain_revision).toBe(beforeDrift.runtimeState.authority_domain_revision);
+      expect(afterRejected.sourceTuple.revision).toBe(beforeDrift.sourceTuple.revision);
+      expect(fs.existsSync(path.join(root, ...correction.candidate_path.split('/')))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('stale domain-map revision blocks exact-path authority amendment without rebinding other domains', () => {
+    const root = v2ConfirmedRoot();
+    const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
+    try {
+      const before = readCanonicalCurrentTask(root);
+      rewriteV2MutationAuthorityProfile(root, [
+        { id: 'node-rollout', roots: ['packages/**'] },
+        { id: 'node-rollout-tests', roots: ['node-test-surface/**'] },
+        { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+      ]);
+      expect(() => prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: {
+          decision_source: 'test:stale-domain-amendment',
+          decision_text: 'Authorize only this exact Rust protocol path.',
+          authorized_paths: [crossDomain],
+        },
+        amendment_step: {
+          id: 'stale-domain-exact-amendment',
+          description: 'Continue through the explicitly authorized Rust protocol path',
+          mutation_scope: [crossDomain],
+          required_evidence: ['Verify the exact authorized path'],
+          commands: [],
+        },
+      })).toThrow('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE');
+      const afterRejected = readCanonicalCurrentTask(root);
+      expect(afterRejected.runtimeState.authority_domain_revision).toBe(before.runtimeState.authority_domain_revision);
+      expect(afterRejected.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(afterRejected.mutationAuthority?.exact_exceptions).toEqual(before.mutationAuthority?.exact_exceptions);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

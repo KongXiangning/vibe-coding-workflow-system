@@ -310,8 +310,9 @@ confirmed maps are preserved.
 The canonical map has a stable revision/digest. A confirmed v2 task stores that
 revision in Runtime state; every execution admission compares it with the
 current profile. A missing or changed revision fails closed and requires
-explicit task-authority revalidation or replan. The active task never inherits
-a newly widened project grant. The resulting planning/lifecycle acceptance
+explicit task authority-domain revalidation. Ordinary correction-replan,
+P-12 admission, and exact-path amendment do not rebind the task revision. The
+active task never inherits a newly widened project grant. The resulting planning/lifecycle acceptance
 cases are: E16–E18 for definition and command proof, E19 for candidate then
 owner confirmation, and E20 for stale-map rejection.
 
@@ -1322,7 +1323,7 @@ The following cases define the target behavior:
 | `TA-44` | A v2 draft declares a planned target outside its selected domain | `prepare-draft`/`update-draft`/replan/confirm definition admission fails before Runtime state mutation with a planning-authority blocker |
 | `TA-45` | A planned command declares an over-broad or unprovable glob | definition admission uses deterministic pattern-subset proof and blocks before commit; an exact exception cannot authorize a directory glob |
 | `TA-46` | Inventory observes ownership boundaries | `bootstrap-project` emits non-authorizing domain candidates; only explicit project-owner confirmation promotes the selected map to `PROJECT_PROFILE.yaml` |
-| `TA-47` | An active v2 task encounters a changed project domain map | the bound domain-map revision mismatch fails closed and requires explicit task authority revalidation/replan; no widened grant is inherited |
+| `TA-47` | An active v2 task encounters a changed project domain map | the bound domain-map revision mismatch fails closed and requires explicit task authority-domain revalidation; ordinary correction-replan, P-12 admission, and exact-path amendment do not rebind it |
 | `TA-48` | A bounded command glob is a strict subset of its selected domain root | planning-time proof succeeds and the v2 definition can be confirmed |
 
 ## 15. Success measures

@@ -437,7 +437,9 @@ project-owner confirmation and write the selected domains to
 the Runtime and task planner never infer ownership or reconstruct a domain map
 per task. The canonical map's revision/digest is stored when a v2 task is
 confirmed. Every later execution compares the bound revision with the profile
-and fails closed on mismatch until explicit authority revalidation/replan.
+and fails closed on mismatch until explicit task authority-domain
+revalidation. Ordinary correction-replan, P-12 admission, and exact-path
+amendment do not rebind the task to the changed map.
 
 The focused Step 4 acceptance set is E16 (planned target outside the envelope),
 E17 (over-broad command glob), E18 (strict-subset command glob), E19

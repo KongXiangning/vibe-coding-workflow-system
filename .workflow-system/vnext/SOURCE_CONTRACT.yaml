@@ -143,7 +143,7 @@ capabilities:
       - the changed-path diff target is empty, duplicated, invalid, or not explicit
       - read/discovery context is treated as write authority
       - true authority widening lacks explicit user authorization or the goal, acceptance, or task authority changed without the authority-amendment route
-      - a confirmed v2 task observes a changed or missing project authority-domain revision without explicit revalidation/replan
+      - a confirmed v2 task observes a changed or missing project authority-domain revision without explicit task authority-domain revalidation
 
   - id: decision-authority-gate
     exposure: internal
@@ -183,7 +183,7 @@ capabilities:
       - clean-review consumption bound to the reviewed execution identity and retained per expansion
     stop_conditions:
       - authority ownership cannot be resolved from the project domain map
-      - project domain candidates are treated as a grant without owner confirmation, or a confirmed task's domain-map revision is stale
+      - project domain candidates are treated as a grant without owner confirmation, or a confirmed task's domain-map revision is stale; ordinary correction-replan, P-12 admission, and exact-path amendment must not rebind it
       - a target is outside the task envelope, explicitly forbidden, or on a governance boundary
       - the expansion assessment is incomplete, uncertain, or escalated
       - a broader shared change lacks evidence that the local alternative is incorrect, duplicative, or contract-breaking
