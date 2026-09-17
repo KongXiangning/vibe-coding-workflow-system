@@ -27,11 +27,13 @@ import {
   validateTestAssessment,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
+  resolveTestStrategyExecutionContext,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
   type CanonicalCurrentTask,
   type ClaimEvidenceRecord,
+  type MutationAuthorityExpansion,
   type PendingReviewResult,
   type ReviewBlocker,
   type ReviewFindingCandidate,
@@ -46,6 +48,11 @@ import {
   mutationScopePatternMatchesPath,
   parseMutationScope,
 } from './mutation-scope';
+import {
+  MutationAuthorityError,
+  evaluateMutationAuthority,
+  readProjectMutationAuthority,
+} from './mutation-authority';
 import { resolveTaskStep } from './task-steps';
 import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
 import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
@@ -89,6 +96,7 @@ export type ReviewContextResult = {
     id: string;
     description: string;
     purpose: string;
+    planned_mutation_targets: string[];
     mutation_scope: string[];
     validation: string[];
   };
@@ -101,6 +109,15 @@ export type ReviewContextResult = {
     conditional: string[];
     forbidden: string[];
   };
+  mutation_authority: {
+    version: 2;
+    domains: string[];
+    exact_exceptions: string[];
+    forbidden: string[];
+  } | null;
+  planned_mutation_targets: string[];
+  expanded_mutation_targets: MutationAuthorityExpansion[];
+  dynamic_review_required: boolean;
   persistent_tests: string[] | null;
   persistent_tests_count: number;
   persistent_tests_truncated: boolean;
@@ -482,6 +499,10 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     ? current.runtimeState.findings.filter(item => item.review_cycle_id === current.runtimeState.review_cycle.id && ['admitted', 'in-progress'].includes(item.status))
     : [];
   const definition = readDraftDefinitionFromBody(current.body);
+  const plannedMutationTargets = stepScope(
+    resolution.current.planned_mutation_targets ?? resolution.current.mutation_scope,
+    `step ${resolution.current.id} planned_mutation_targets`,
+  );
   const receipt: ReviewContextReceipt = {
     kind: 'review-context/v1',
     task_id: current.runtimeState.task_id,
@@ -496,6 +517,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
   const executionEvidenceRefs = boundedList(execution.evidence_refs);
   const unexpandedPaths = boundedList(execution.execution_result!.change_delta.entries.slice(1).map(item => item.path));
   const persistentTests = scope.persistent_tests === null ? null : boundedList(scope.persistent_tests);
+  const expandedMutationTargets = boundedValues(current.runtimeState.dynamic_expansions ?? []);
   const claimEvidence = boundedValues(current.runtimeState.claim_evidence ?? []);
   const claimSummaries = claimEvidence.values.map(claimEvidenceSummary);
   const admittedFindings = boundedValues(admitted);
@@ -508,6 +530,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     ...(persistentTests?.truncated ? ['persistent-tests'] : []),
     ...(claimEvidence.truncated || nestedSlotsTruncated ? ['claim-evidence'] : []),
     ...(admittedFindings.truncated ? ['admitted-findings'] : []),
+    ...(expandedMutationTargets.truncated ? ['dynamic-expansions'] : []),
   ];
   return {
     status: 'pass',
@@ -530,6 +553,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       id: resolution.current.id,
       description: resolution.current.description,
       purpose: resolution.current.purpose,
+      planned_mutation_targets: plannedMutationTargets,
       mutation_scope: stepScope(resolution.current.mutation_scope, `step ${resolution.current.id} mutation_scope`),
       validation: validationList(resolution.current.required_evidence, `step ${resolution.current.id} required_evidence`),
     },
@@ -542,6 +566,15 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       conditional: scope.conditional.map(item => item.pattern),
       forbidden: scope.forbidden.map(item => item.pattern),
     },
+    mutation_authority: current.mutationAuthority === null ? null : {
+      version: 2,
+      domains: [...current.mutationAuthority.domains],
+      exact_exceptions: [...current.mutationAuthority.exact_exceptions],
+      forbidden: [...current.mutationAuthority.forbidden],
+    },
+    planned_mutation_targets: plannedMutationTargets,
+    expanded_mutation_targets: expandedMutationTargets.values,
+    dynamic_review_required: current.runtimeState.dynamic_review_required === true,
     text_diff: execution.execution_result!.change_delta.entries.length
       ? reviewFilePage(root, current, execution, execution.execution_result!.change_delta.entries[0]!.path, 'diff', {}) : null,
     unexpanded_paths: unexpandedPaths.values,
@@ -664,7 +697,7 @@ function assertRecordedTargetCurrent(root: string, current: CanonicalCurrentTask
   return execution;
 }
 
-function normalizeFinding(value: unknown, index: number, current: CanonicalCurrentTask): ReviewFindingCandidate {
+function normalizeFinding(value: unknown, index: number, current: CanonicalCurrentTask, root: string): ReviewFindingCandidate {
   const source = record(value, `findings[${index}]`);
   exactKeys(source, ['category', 'file', 'failure_condition', 'required_behavior', 'root_cause_status', 'evidence_refs'], `findings[${index}]`);
   if (source.root_cause_status !== 'confirmed' && source.root_cause_status !== 'bounded') fail('REVIEW_ADAPTER_INPUT_INVALID', `findings[${index}].root_cause_status is invalid.`);
@@ -676,12 +709,31 @@ function normalizeFinding(value: unknown, index: number, current: CanonicalCurre
     root_cause_status: source.root_cause_status as ReviewFindingCandidate['root_cause_status'],
     evidence_refs: textList(source.evidence_refs, `findings[${index}].evidence_refs`, false),
   };
-  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
-  const decision = evaluateMutationScope(scope, { changed_paths: [candidate.file] });
   const step = resolveTaskStep(current.body, current.runtimeState.active_step_id).current;
-  const admittedByStep = stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some(pattern => mutationScopePatternMatchesPath(candidate.file, pattern));
-  if (decision.status !== 'pass' || !admittedByStep) {
-    fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the confirmed current-step scope.`);
+  if (current.mutationAuthority) {
+    let project;
+    try { project = readProjectMutationAuthority(root); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+    if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 review requires PROJECT_PROFILE.yaml.mutation_authority.domains.');
+    const authorityDecision = evaluateMutationAuthority({
+      root,
+      project,
+      task: current.mutationAuthority,
+      candidate_paths: [candidate.file],
+      planned_targets: stepScope(step.planned_mutation_targets ?? step.mutation_scope, `step ${step.id} planned_mutation_targets`),
+      assessments: (current.runtimeState.dynamic_expansions ?? []).map(item => item.assessment),
+      persistent_test_paths: resolveTestStrategyExecutionContext(current).persistent_tests,
+    });
+    if (authorityDecision.status !== 'pass') {
+      fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the v2 task authority: ${authorityDecision.blockers.join(' ')}`);
+    }
+  } else {
+    const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+    const decision = evaluateMutationScope(scope, { changed_paths: [candidate.file] });
+    const admittedByStep = stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some(pattern => mutationScopePatternMatchesPath(candidate.file, pattern));
+    if (decision.status !== 'pass' || !admittedByStep) {
+      fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the confirmed current-step scope.`);
+    }
   }
   return {
     fingerprint: `finding-${digest({
@@ -761,7 +813,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   assertReviewableTask(current);
   const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must be a bounded array.');
-  const findings = source.findings.map((item, index) => normalizeFinding(item, index, current));
+  const findings = source.findings.map((item, index) => normalizeFinding(item, index, current, root));
   if (new Set(findings.map(item => item.fingerprint)).size !== findings.length) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must not contain duplicates.');
   const unresolved = textList(source.unresolved_fingerprints, 'unresolved_fingerprints', true);
   if (unresolved.some(item => !receipt.admitted_fingerprints.includes(item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'unresolved_fingerprints must be drawn from the Runtime review context.');

@@ -16,6 +16,9 @@ export type TaskStepDefinition = {
   /** The exact top-level step block, including its nested requirements. */
   plan_text: string | null;
   purpose: string | null;
+  /** v2 guidance: the expected initial implementation footprint. */
+  planned_mutation_targets: string | null;
+  /** v1 compatibility alias; v2 Runtime authority is task-level. */
   mutation_scope: string | null;
   required_evidence: string | null;
   review_checkpoint: TaskStepCheckpointPolicy | null;
@@ -42,7 +45,7 @@ export class TaskStepDefinitionError extends Error {
   }
 }
 
-type StepMetadataKey = 'purpose' | 'mutation_scope' | 'required_evidence' | 'review_checkpoint';
+type StepMetadataKey = 'purpose' | 'planned_mutation_targets' | 'mutation_scope' | 'required_evidence' | 'review_checkpoint';
 
 type ParsedStep = {
   id: string;
@@ -57,6 +60,11 @@ const METADATA_ALIASES = new Map<string, StepMetadataKey>([
   ['purpose', 'purpose'],
   ['目标', 'purpose'],
   ['目的', 'purpose'],
+  ['planned mutation targets', 'planned_mutation_targets'],
+  ['planned_mutation_targets', 'planned_mutation_targets'],
+  ['planned targets', 'planned_mutation_targets'],
+  ['计划修改目标', 'planned_mutation_targets'],
+  ['计划变更目标', 'planned_mutation_targets'],
   ['mutation scope', 'mutation_scope'],
   ['mutation_scope', 'mutation_scope'],
   ['mutation boundary', 'mutation_scope'],
@@ -186,14 +194,15 @@ function parseRawSteps(lines: string[]): ParsedStep[] {
 
 function materializeStep(step: ParsedStep): TaskStepDefinition {
   const purpose = step.metadata.purpose || null;
-  const mutationScope = step.metadata.mutation_scope || null;
+  const plannedMutationTargets = step.metadata.planned_mutation_targets || step.metadata.mutation_scope || null;
+  const mutationScope = step.metadata.mutation_scope || plannedMutationTargets;
   const requiredEvidence = step.metadata.required_evidence || null;
   const checkpoint = step.metadata.review_checkpoint === undefined
     ? { policy: null, boundary: null }
     : parseCheckpoint(step.metadata.review_checkpoint);
   const metadataComplete = Boolean(
     purpose
-    && mutationScope
+    && plannedMutationTargets
     && requiredEvidence
     && checkpoint.policy
     && (checkpoint.policy === 'not-required' || checkpoint.boundary),
@@ -203,6 +212,7 @@ function materializeStep(step: ParsedStep): TaskStepDefinition {
     description: step.description,
     plan_text: step.lines.join('\n').trim() || null,
     purpose,
+    planned_mutation_targets: plannedMutationTargets,
     mutation_scope: mutationScope,
     required_evidence: requiredEvidence,
     review_checkpoint: checkpoint.policy,

@@ -45,6 +45,7 @@ import {
   beginRepair,
   prepareDraft,
   preflightStep,
+  extendPreflight,
   retryStep,
   createStepRetryProposal,
   reviewContext,
@@ -746,6 +747,133 @@ function singleStepSemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = 
     persistent_tests: 'none',
     ...overrides,
   });
+}
+
+function enableV2MutationAuthority(root: string): void {
+  const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+  const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+  profile.mutation_authority = {
+    domains: [
+      { id: 'node-rollout', roots: ['packages/node-rollout/**'] },
+      { id: 'node-rollout-tests', roots: ['packages/node-rollout-tests/**'] },
+      { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+    ],
+  };
+  fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+}
+
+function v2MutationAuthoritySemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
+  const base = singleStepSemanticDraft({
+    implementation_steps: [{
+      id: 'step-1',
+      description: 'Implement the Node rollout behavior',
+      planned_mutation_targets: [
+        'packages/node-rollout/src/session.ts',
+        'packages/node-rollout/src/reconnect.ts',
+      ],
+      commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+      validation: ['bun test test/vnext-runtime.test.ts passes'],
+      review_checkpoint: { policy: 'required', reason: 'Review the cumulative implementation diff' },
+    }],
+    ...overrides,
+    mutation_authority_version: 2,
+    mutation_authority: {
+      domains: ['node-rollout', 'node-rollout-tests'],
+      exact_exceptions: [],
+      forbidden: [],
+    },
+  });
+  delete base.mutation_scope;
+  return base;
+}
+
+function v2ConfirmedRoot(input: Partial<PrepareTaskSemanticDraft> = {}): string {
+  const root = archivedBaselineRoot();
+  enableV2MutationAuthority(root);
+  const prepared = prepareDraft(root, v2MutationAuthoritySemanticDraft(input));
+  if (!prepared.confirmation_receipt) throw new Error('v2 test setup did not receive a draft confirmation receipt');
+  const confirmed = confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt });
+  if (confirmed.status !== 'success') throw new Error(`v2 test setup could not confirm draft: ${confirmed.message}`);
+  return root;
+}
+
+function installFixedTgzRuntime(target: string, label: string): string {
+  const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-package-`));
+  const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-tgz-`));
+  const consumer = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-consumer-`));
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  temporaryRoots.push(packageRoot, packDirectory, consumer);
+  buildVibeGovernanceDistribution({ outputRoot: packageRoot });
+  const packed = spawnSync(npm, ['pack', '--ignore-scripts', '--no-audit', '--no-fund', '--pack-destination', packDirectory], {
+    cwd: packageRoot,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (packed.status !== 0) throw new Error(`fixed tgz pack failed: ${packed.stderr}`);
+  const tgz = fs.readdirSync(packDirectory).find(name => name.endsWith('.tgz'));
+  if (!tgz) throw new Error('fixed tgz pack did not produce an archive.');
+  fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: `${label}-consumer`, private: true }) + '\n', 'utf8');
+  const installed = spawnSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(packDirectory, tgz)], {
+    cwd: consumer,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (installed.status !== 0) throw new Error(`fixed tgz install failed: ${installed.stderr}`);
+  const distributionCli = path.join(consumer, 'node_modules', 'vibe-governance', 'dist', 'cli.js');
+  const install = spawnSync('node', [distributionCli, 'install', '--root', target, '--json'], {
+    cwd: consumer,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (install.status !== 0) throw new Error(`fixed tgz Runtime install failed: ${install.stderr}`);
+  return path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
+}
+
+function runInstalledRuntimeCli(runtimeCli: string, root: string, command: string, input?: unknown) {
+  const result = spawnSync('node', [runtimeCli, command, '--root', root], {
+    cwd: root,
+    input: input === undefined ? undefined : JSON.stringify(input),
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return {
+    ...result,
+    json: result.stdout.trim() ? JSON.parse(result.stdout) as Record<string, any> : null,
+  };
+}
+
+function installedAcceptanceEvidence(context: Record<string, any>): Record<string, any>[] {
+  const check = context.checks[0];
+  return [{
+    claim_id: check.claim_id,
+    slot_id: check.slot_id,
+    check_id: check.check_id,
+    minimum_type: check.minimum_type,
+    disposition: 'newly-executed',
+    evidence_refs: ['evidence-report.txt'],
+    report: {
+      result_id: `result-${check.check_id}`,
+      status: 'passed',
+      evidence_plan_revision: context.evidence_plan_revision,
+      subject_revision: check.subject_revision,
+      actual_method: 'execution',
+      environment: 'installed fixed tgz Node CLI fixture',
+      assurance: 'caller-reported',
+    },
+  }];
+}
+
+function installedReviewAssessment(): Record<string, any> {
+  return {
+    applicable: true,
+    reason: 'The installed CLI review covers the cumulative Runtime file manifest.',
+    evidence_refs: ['evidence-report.txt'],
+    necessity: 'Dynamic footprint expansion requires a fresh cumulative review.',
+    oracle: 'The review oracle is the Runtime-recorded before/after file delta and the frozen acceptance check.',
+    boundary: 'The fixed tgz CLI is exercised in an isolated target project.',
+    reuse: 'Reuse the same installed CLI review context and claim evidence.',
+    applicability: 'The current task has an implementation result and an explicit review checkpoint.',
+  };
 }
 
 function notApplicableSemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
@@ -5473,7 +5601,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const before = fs.readFileSync(canonical.filePath, 'utf8');
     function context() {
       const result = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'evidence-context', '--root', root], {input: '{}', encoding: 'utf8'});
-      expect(result.status, result.stderr).toBe(0);
+      expect(result.status).toBe(0);
       const value = JSON.parse(result.stdout);
       expect(value).toMatchObject({status: 'pass', committed: false, evidence_assurance: 'caller-reported'});
       expect(fs.readFileSync(canonical.filePath, 'utf8')).toBe(before);
@@ -7517,15 +7645,16 @@ describe('vNext Phase 2 Runtime contract', () => {
          } };
       };
     };
-    expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
-      'preflight-step',
-      'evidence-context',
+      expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
+        'preflight-step',
+        'extend-preflight',
+        'evidence-context',
       'retry-step',
       'begin-repair',
       'record-step-result',
       'complete-reviewed-step',
     ]);
-    expect(contract.proposal.execute_step.semantic_adapter.scope_enforcement).toBe('task-and-current-step');
+    expect(contract.proposal.execute_step.semantic_adapter.scope_enforcement).toBe('task-authority-envelope-with-v1-step-compatibility');
     expect(contract.proposal.execute_step.semantic_adapter.completion_evidence_source).toBe('recorded-step-result-only');
     expect(contract.proposal.execute_step.semantic_adapter.change_detection).toBe('runtime-preflight-candidate-before-after-delta');
     expect(contract.proposal.execute_step.semantic_adapter.advancement_owner).toBe('runtime');
@@ -7552,7 +7681,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       },
       non_red_outcome: 'implemented-with-passed-results-or-bound-reproduction',
     });
-    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification');
+    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification');
     expect(contract.proposal.review_change.semantic_adapter.review_target).toBe('runtime-cumulative-before-after-file-delta');
     expect(contract.proposal.prepare_task.semantic_adapter.decision_partition).toEqual({
       decided: 'confirmed_decisions',
@@ -7561,7 +7690,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight).toEqual({
       source: 'implementation_steps[].commands',
       fields: ['command', 'expected_repo_writes'],
-      evaluator: 'shared-mutation-scope-evaluator',
+      evaluator: 'shared-mutation-scope-evaluator-and-v2-authority-evaluator',
       timing: 'before-draft-commit',
     });
     expect(contract.proposal.prepare_task.semantic_adapter.test_strategy).toEqual({
@@ -7624,7 +7753,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       input: JSON.stringify(semanticDraft()),
       encoding: 'utf8',
     });
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       status: 'success',
       committed: true,
@@ -8242,49 +8371,274 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(candidate.step_diff.scope_paths).toEqual([added]);
   });
 
-  test('fixed tgz installation drives the Node CLI scope-amendment path end to end', { timeout: 120000 }, () => {
-    const target = confirmedSemanticRoot(singleStepSemanticDraft());
-    const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-package-'));
-    const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-tgz-'));
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    temporaryRoots.push(packageRoot, packDirectory);
-    buildVibeGovernanceDistribution({ outputRoot: packageRoot });
-    const packed = spawnSync(npm, ['pack', '--ignore-scripts', '--no-audit', '--no-fund', '--pack-destination', packDirectory], { cwd: packageRoot, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(packed.status).toBe(0);
-    const tgz = fs.readdirSync(packDirectory).find(name => name.endsWith('.tgz'));
-    expect(tgz).toBeTruthy();
+  test('v2 dynamic review remains mandatory when the ordinary step checkpoint is not required', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement a low-risk Node rollout change',
+        planned_mutation_targets: [target],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+        review_checkpoint: { policy: 'not-required', reason: 'final-exemption: isolated fixture defers only the ordinary checkpoint; dynamic expansions remain reviewable' },
+      }],
+    });
+    try {
+      fs.mkdirSync(path.dirname(path.join(root, ...target.split('/'))), { recursive: true });
+      fs.mkdirSync(path.dirname(path.join(root, ...discovered.split('/'))), { recursive: true });
+      fs.writeFileSync(path.join(root, ...target.split('/')), 'export const session = "before";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value;\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [target] });
+      fs.writeFileSync(path.join(root, ...target.split('/')), 'export const session = "after";\n', 'utf8');
+      fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Dynamic review evidence.\n', 'utf8');
+      const extended = extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'normalizeState' },
+          reason: 'The local helper is the smallest correct fix and does not require a shared change.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(() => recordStepResult(root, {
+        preflight_receipt: initial.receipt,
+        actual_changed_paths: [target],
+        command_results: [{ command: initial.current_step.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: initial.current_step.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [reportFixture(root)],
+        outcome: 'implemented',
+        note: 'The old receipt must be stale after extension.',
+      })).toThrow('EXECUTE_PREFLIGHT_STALE');
 
-    const consumer = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-scope-amendment-consumer-'));
-    temporaryRoots.push(consumer);
-    fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: 'fixed-tgz-consumer', private: true }) + '\n', 'utf8');
-    const installed = spawnSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(packDirectory, tgz!)], { cwd: consumer, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(installed.status).toBe(0);
-    const distributionCli = path.join(consumer, 'node_modules', 'vibe-governance', 'dist', 'cli.js');
-    const install = spawnSync('node', [distributionCli, 'install', '--root', target, '--json'], { cwd: consumer, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(install.status).toBe(0);
-    const runtimeCli = path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
-    const input = {
-      added_paths: ['src/tgz-authorized-continuation.ts'],
+      const result = recordStepResult(root, {
+        preflight_receipt: extended.receipt,
+        actual_changed_paths: [target],
+        command_results: [{ command: extended.current_step.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: extended.current_step.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [reportFixture(root)],
+        outcome: 'implemented',
+        note: 'The same-envelope expansion needs cumulative review even for a not-required ordinary checkpoint.',
+      });
+      expect(result.status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('in-progress');
+      const context = reviewContext(root, {});
+      expect(context.status).toBe('pass');
+      expect(context.dynamic_review_required).toBe(true);
+      const review = recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      });
+      expect(review.status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The dynamic cumulative review is clean.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('v2 authority amendment waits for the current execution to settle', () => {
+    const root = v2ConfirmedRoot();
+    const planned = 'packages/node-rollout/src/session.ts';
+    const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
+    try {
+      fs.mkdirSync(path.dirname(path.join(root, ...planned.split('/'))), { recursive: true });
+      fs.writeFileSync(path.join(root, ...planned.split('/')), 'export const session = "stable";\n', 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [planned] });
+      expect(() => prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: { decision_source: 'user:gate', decision_text: 'Authorize the exact Rust protocol path after the Node execution settles.', authorized_paths: [crossDomain] },
+        amendment_step: { id: 'cross-domain-after-settlement', description: 'Continue through the authorized Rust protocol path', mutation_scope: [crossDomain], required_evidence: ['fresh cross-domain review'], commands: [] },
+      })).toThrow('SCOPE_AMENDMENT_EXECUTION_GATE');
+
+      const evidence = reportFixture(root);
+      const step = preflight.current_step;
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: [{ command: step.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: evidence.evidence_refs }],
+        validation_results: [{ validation: step.validation[0], status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Settle the current Node execution before changing authority.',
+      }).status).toBe('success');
+      const context = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: evidence.evidence_refs,
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The original Node execution is settled.' }).status).toBe('success');
+
+      const amended = prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: { decision_source: 'user:gate', decision_text: 'Authorize the exact Rust protocol path after the Node execution settles.', authorized_paths: [crossDomain] },
+        amendment_step: { id: 'cross-domain-after-settlement', description: 'Continue through the authorized Rust protocol path', mutation_scope: [crossDomain], required_evidence: ['fresh cross-domain review'], commands: [] },
+      });
+      expect(amended.status).toBe('success');
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toContain(crossDomain);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fixed tgz installed Node CLI supports same-envelope discovery without amendment or retry reset', { timeout: 120000 }, () => {
+    const target = v2ConfirmedRoot();
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    fs.mkdirSync(path.join(target, 'packages', 'node-rollout', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(target, 'packages', 'node-rollout', 'internal'), { recursive: true });
+    fs.writeFileSync(path.join(target, ...plannedA.split('/')), 'export const session = "before";\n', 'utf8');
+    fs.writeFileSync(path.join(target, ...plannedB.split('/')), 'export const reconnect = "before";\n', 'utf8');
+    fs.writeFileSync(path.join(target, ...discovered.split('/')), 'export const normalizeState = (value) => value;\n', 'utf8');
+    const runtimeCli = installFixedTgzRuntime(target, 'same-envelope');
+    const before = readCanonicalCurrentTask(target);
+    const initial = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [plannedA, plannedB] });
+    expect(initial.status, initial.stderr).toBe(0);
+    expect(initial.json).toMatchObject({ status: 'pass', receipt: { mutation_authority_version: 2, candidate_paths: [plannedA, plannedB] } });
+    const initialAttempt = readCanonicalCurrentTask(target).runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    fs.writeFileSync(path.join(target, ...plannedA.split('/')), 'export const session = "after";\n', 'utf8');
+
+    const extension = runInstalledRuntimeCli(runtimeCli, target, 'extend-preflight', {
+      current_preflight_receipt: initial.json.receipt,
+      additional_targets: [discovered],
+      blast_radius_assessments: [{
+        target: { path: discovered, symbol: 'normalizeState' },
+        reason: 'The local helper owns the normalization bug; changing the shared protocol would be broader and is not needed.',
+        blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+        evidence_refs: ['packages/node-rollout/src/session.ts', 'evidence-report.txt'],
+        disposition: 'self-admit',
+      }],
+      evidence_refs: ['evidence-report.txt'],
+    });
+    expect(extension.status).toBe(0);
+    expect(extension.json).toMatchObject({ status: 'pass', operation_kind: 'execute-step-preflight-extension', receipt: { mutation_authority_version: 2, candidate_paths: [plannedA, plannedB, discovered] } });
+    const afterExtension = readCanonicalCurrentTask(target);
+    const extendedAttempt = afterExtension.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    expect(extendedAttempt.attempt_id).toBe(initialAttempt.attempt_id);
+    expect(afterExtension.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(1);
+    expect(afterExtension.runtimeState.evidence_plan_revision).toBe(before.runtimeState.evidence_plan_revision);
+    expect(afterExtension.runtimeState.dynamic_review_required).toBe(true);
+    expect(afterExtension.runtimeState.dynamic_expansions).toEqual([expect.objectContaining({ path: discovered, domain: 'node-rollout', first_touch_state: 'file' })]);
+    expect(afterExtension.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(false);
+
+    const evidenceContext = runInstalledRuntimeCli(runtimeCli, target, 'evidence-context', {});
+    expect(evidenceContext.status).toBe(0);
+    const currentStep = extension.json.current_step;
+    const result = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: extension.json.receipt,
+      actual_changed_paths: [plannedA],
+      command_results: [{ command: currentStep.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: currentStep.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: installedAcceptanceEvidence(evidenceContext.json),
+      outcome: 'implemented',
+      note: 'The installed CLI recorded the implementation after same-envelope discovery.',
+    });
+    if (result.status !== 0) throw new Error(`same-envelope result failed: ${result.stderr}\n${result.stdout}`);
+    const afterResult = readCanonicalCurrentTask(target);
+    expect(afterResult.runtimeState.dynamic_review_required).toBe(true);
+    expect(afterResult.runtimeState.active_step_status).toBe('in-progress');
+    const reviewContextResult = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(reviewContextResult.status).toBe(0);
+    expect(reviewContextResult.json).toMatchObject({
+      planned_mutation_targets: [plannedA, plannedB],
+      expanded_mutation_targets: [expect.objectContaining({ path: discovered, assessment: expect.objectContaining({ disposition: 'self-admit' }) })],
+    });
+    const prematureCompletion = runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'step-1', note: 'review is still required' });
+    expect(prematureCompletion.status).not.toBe(0);
+    expect(prematureCompletion.stderr).toContain('CLEAN_REVIEW_REQUIRED');
+    const review = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: reviewContextResult.json.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: installedReviewAssessment(),
+    });
+    expect(review.status).toBe(0);
+    expect(readCanonicalCurrentTask(target).runtimeState.dynamic_review_required).toBe(false);
+    const completed = runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'step-1', note: 'The cumulative dynamic review is clean.' });
+    expect(completed.status).toBe(0);
+    const final = readCanonicalCurrentTask(target);
+    expect(final.runtimeState.active_step_status).toBe('completed');
+    expect(final.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(1);
+  });
+
+  test('fixed tgz installed Node CLI blocks cross-envelope writes until explicit authority amendment', { timeout: 120000 }, () => {
+    const target = v2ConfirmedRoot();
+    const rustTarget = 'native/codex-rollout-collector/src/protocol.rs';
+    const runtimeCli = installFixedTgzRuntime(target, 'cross-envelope');
+    const before = readCanonicalCurrentTask(target);
+    const blocked = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [rustTarget] });
+    expect(blocked.status).not.toBe(0);
+    expect(blocked.stderr).toContain('MUTATION_AUTHORITY_EXPANSION_REQUIRED');
+    expect(readCanonicalCurrentTask(target).sourceTuple.revision).toBe(before.sourceTuple.revision);
+
+    const amended = runInstalledRuntimeCli(runtimeCli, target, 'prepare-scope-amendment', {
+      added_paths: [rustTarget],
       authorization: {
-        decision_source: 'user:fixed-tgz-e2e',
-        decision_text: 'Authorize this exact continuation path for the blocked task.',
-        authorized_paths: ['src/tgz-authorized-continuation.ts'],
+        decision_source: 'user:fixed-tgz-cross-envelope',
+        decision_text: 'Authorize this exact Rust protocol path as a cross-domain continuation for the current task.',
+        authorized_paths: [rustTarget],
       },
       amendment_step: {
-        id: 'tgz-amend-1',
-        description: 'Apply and verify the fixed tgz continuation',
-        mutation_scope: ['src/tgz-authorized-continuation.ts'],
-        required_evidence: ['fresh fixed tgz preflight and review'],
+        id: 'cross-envelope-continuation',
+        description: 'Apply and verify the explicitly authorized Rust protocol continuation',
+        mutation_scope: [rustTarget],
+        required_evidence: ['fresh installed cross-domain execution and review'],
         commands: [],
       },
-    };
-    const prepared = spawnSync('node', [runtimeCli, 'prepare-scope-amendment', '--root', target], { cwd: target, input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(prepared.status).toBe(0);
-    expect(JSON.parse(prepared.stdout).committed).toBe(true);
-    const preflight = spawnSync('node', [runtimeCli, 'preflight-step', '--root', target], { cwd: target, input: JSON.stringify({ candidate_paths: ['src/tgz-authorized-continuation.ts'] }), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(preflight.status).toBe(0);
-    const summary = spawnSync('node', [runtimeCli, 'validate', '--summary', '--root', target], { cwd: target, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-    expect(summary.status).toBe(0);
-    expect(JSON.parse(summary.stdout).summary.active_step_id).toBe('tgz-amend-1');
+    });
+    expect(amended.status).toBe(0);
+    expect(amended.json).toMatchObject({ status: 'success', committed: true });
+    const afterAmendment = readCanonicalCurrentTask(target);
+    expect(afterAmendment.runtimeState.active_step_id).toBe('cross-envelope-continuation');
+    expect(afterAmendment.mutationAuthority?.exact_exceptions).toContain(rustTarget);
+    expect(afterAmendment.sourceTuple.revision).not.toBe(before.sourceTuple.revision);
+
+    const preflight = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [rustTarget] });
+    if (preflight.status !== 0) throw new Error(`cross-envelope preflight failed: ${preflight.stderr}\n${preflight.stdout}`);
+    expect(preflight.json.receipt.candidate_paths).toEqual([rustTarget]);
+    fs.mkdirSync(path.dirname(path.join(target, ...rustTarget.split('/'))), { recursive: true });
+    fs.writeFileSync(path.join(target, ...rustTarget.split('/')), 'pub fn protocol() {}\n', 'utf8');
+    const evidenceContext = runInstalledRuntimeCli(runtimeCli, target, 'evidence-context', {});
+    expect(evidenceContext.status).toBe(0);
+    const currentStep = preflight.json.current_step;
+    const result = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: preflight.json.receipt,
+      actual_changed_paths: [rustTarget],
+      command_results: [{ command: currentStep.commands[0].command, status: 'passed', observed_repo_writes: [rustTarget], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: currentStep.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: installedAcceptanceEvidence(evidenceContext.json),
+      outcome: 'implemented',
+      note: 'The amended task executed the exact cross-domain exception.',
+    });
+    expect(result.status).toBe(0);
+    const reviewContextResult = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(reviewContextResult.status).toBe(0);
+    const review = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: reviewContextResult.json.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: installedReviewAssessment(),
+    });
+    expect(review.status).toBe(0);
+    expect(runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'cross-envelope-continuation', note: 'The amended cross-domain change is reviewed.' }).status).toBe(0);
+    expect(readCanonicalCurrentTask(target).runtimeState.active_step_status).toBe('completed');
   });
 });

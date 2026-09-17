@@ -535,6 +535,7 @@ function definitionPayloadV1(current: TaskStoreCurrent): Record<string, unknown>
 }
 
 function definitionPayloadV2(current: TaskStoreCurrent): Record<string, unknown> {
+  const frontmatter = current.frontmatter ?? {};
   return {
     schema_version: 2,
     kind: TASK_DEFINITION_REVISION_V2,
@@ -542,6 +543,12 @@ function definitionPayloadV2(current: TaskStoreCurrent): Record<string, unknown>
     document_id: current.sourceTuple.document_id,
     task_id: current.sourceTuple.task_id,
     source_path: current.relativePath,
+    ...(frontmatter.mutation_authority_version === 2 && frontmatter.mutation_authority !== undefined
+      ? {
+        mutation_authority_version: 2,
+        mutation_authority: frontmatter.mutation_authority,
+      }
+      : {}),
     // Only frozen definition sections participate.  Current status, audit,
     // findings and propagation bookkeeping stay in the state/event views.
     sections: definitionSections(current, false),

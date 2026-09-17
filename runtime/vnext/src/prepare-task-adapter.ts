@@ -47,6 +47,13 @@ import {
   type TestStrategyDefinition,
 } from './kernel';
 import {
+  MUTATION_AUTHORITY_VERSION,
+  MutationAuthorityError,
+  normalizeTaskMutationAuthority,
+  validateTaskMutationAuthority,
+  type TaskMutationAuthority,
+} from './mutation-authority';
+import {
   evaluateCommandWriteFootprint,
   evaluateMutationScope,
   isLikelyPersistentTestPath,
@@ -80,6 +87,9 @@ export type PrepareTaskStepCommand = {
 export type PrepareTaskTestStrategy = TestStrategyDefinition;
 
 export type PrepareTaskSemanticDraft = {
+  /** Omitted with mutation_scope means the legacy/v1 semantic draft shape. */
+  mutation_authority_version?: 1 | 2;
+  mutation_authority?: TaskMutationAuthority;
   project_documents?: ProjectDocument[];
   affected_contracts?: string[];
   task_basis: TaskBasis;
@@ -90,7 +100,7 @@ export type PrepareTaskSemanticDraft = {
     decided: string[];
     unresolved: string[];
   };
-  mutation_scope: {
+  mutation_scope?: {
     allowed: string[];
     conditional: Array<{ path: string; condition: string }>;
     forbidden: string[];
@@ -99,7 +109,8 @@ export type PrepareTaskSemanticDraft = {
   implementation_steps: Array<{
     id: string;
     description: string;
-    mutation_scope: string[];
+    mutation_scope?: string[];
+    planned_mutation_targets?: string[];
     commands: PrepareTaskStepCommand[];
     validation: string[];
     review_checkpoint?: { policy: 'required' | 'not-required'; reason: string };
@@ -156,6 +167,8 @@ const SEMANTIC_DRAFT_FIELDS = [
   'out_of_scope',
   'design_decisions',
   'mutation_scope',
+  'mutation_authority_version',
+  'mutation_authority',
   'test_strategy',
   'implementation_steps',
   'validation_plan',
@@ -347,7 +360,12 @@ function stepScopeAdmitsCommandTarget(target: string, stepScope: readonly string
 
 function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   const source = record(input, 'prepare-task semantic draft');
-  exactKeys(source, [...SEMANTIC_DRAFT_FIELDS, ...['project_documents', 'affected_contracts'].filter(key => key in source)], 'prepare-task semantic draft');
+  const v2 = source.mutation_authority !== undefined || source.mutation_authority_version === MUTATION_AUTHORITY_VERSION;
+  const allowedDraftFields = SEMANTIC_DRAFT_FIELDS.filter(key => key !== 'mutation_scope' && key !== 'mutation_authority_version' && key !== 'mutation_authority');
+  const scopeFields = v2
+    ? ['mutation_authority_version', 'mutation_authority']
+    : ['mutation_scope', ...(source.mutation_authority_version === undefined ? [] : ['mutation_authority_version'])];
+  exactKeys(source, [...allowedDraftFields, ...scopeFields, ...['project_documents', 'affected_contracts'].filter(key => key in source)], 'prepare-task semantic draft');
 
   if (('project_documents' in source) !== ('affected_contracts' in source)) {
     fail('PROJECT_DOCUMENTS_INVALID', 'Supply project_documents and affected_contracts together, using [] where applicable.');
@@ -362,24 +380,40 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     fail('PREPARE_ADAPTER_INPUT_INVALID', 'a design decision cannot be both decided and unresolved.');
   }
 
-  const mutationScope = record(source.mutation_scope, 'mutation_scope');
-  exactKeys(mutationScope, ['allowed', 'conditional', 'forbidden'], 'mutation_scope');
-  const allowed = normalizeScopePathList(mutationScope.allowed, 'mutation_scope.allowed');
-  if (allowed.length === 0) fail('PREPARE_ADAPTER_INPUT_INVALID', 'mutation_scope.allowed must contain at least one executable target.');
-  const forbidden = normalizeScopePathList(mutationScope.forbidden, 'mutation_scope.forbidden');
-  if (!Array.isArray(mutationScope.conditional) || mutationScope.conditional.length > MAX_ITEMS) {
-    fail('PREPARE_ADAPTER_INPUT_INVALID', 'mutation_scope.conditional must be a bounded array.');
-  }
-  const conditional = mutationScope.conditional.map((item, index) => {
-    const candidate = record(item, `mutation_scope.conditional[${index}]`);
-    exactKeys(candidate, ['path', 'condition'], `mutation_scope.conditional[${index}]`);
-    return {
-      path: normalizeScopePath(candidate.path, `mutation_scope.conditional[${index}].path`, true),
-      condition: text(candidate.condition, `mutation_scope.conditional[${index}].condition`),
-    };
-  });
-  if (new Set(conditional.map(item => item.path)).size !== conditional.length) {
-    fail('PREPARE_ADAPTER_INPUT_INVALID', 'mutation_scope.conditional must not contain duplicate paths.');
+  let authority: TaskMutationAuthority | undefined;
+  let allowed: string[] = [];
+  let conditional: Array<{ path: string; condition: string }> = [];
+  let forbidden: string[] = [];
+  if (v2) {
+    if (source.mutation_authority_version !== MUTATION_AUTHORITY_VERSION || source.mutation_authority === undefined) {
+      fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'v2 semantic drafts must declare mutation_authority_version=2 together with mutation_authority.');
+    }
+    try { authority = normalizeTaskMutationAuthority(source.mutation_authority ?? { domains: [], exact_exceptions: [], forbidden: [] }); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_SCHEMA_INVALID', error instanceof Error ? error.message : String(error)); }
+    forbidden = authority.forbidden;
+  } else {
+    if (source.mutation_authority_version !== undefined && source.mutation_authority_version !== 1) {
+      fail('MUTATION_AUTHORITY_VERSION_UNSUPPORTED', 'legacy semantic drafts may declare only mutation_authority_version=1.');
+    }
+    const mutationScope = record(source.mutation_scope, 'mutation_scope');
+    exactKeys(mutationScope, ['allowed', 'conditional', 'forbidden'], 'mutation_scope');
+    allowed = normalizeScopePathList(mutationScope.allowed, 'mutation_scope.allowed');
+    if (allowed.length === 0) fail('PREPARE_ADAPTER_INPUT_INVALID', 'mutation_scope.allowed must contain at least one executable target.');
+    forbidden = normalizeScopePathList(mutationScope.forbidden, 'mutation_scope.forbidden');
+    if (!Array.isArray(mutationScope.conditional) || mutationScope.conditional.length > MAX_ITEMS) {
+      fail('PREPARE_ADAPTER_INPUT_INVALID', 'mutation_scope.conditional must be a bounded array.');
+    }
+    conditional = mutationScope.conditional.map((item, index) => {
+      const candidate = record(item, `mutation_scope.conditional[${index}]`);
+      exactKeys(candidate, ['path', 'condition'], `mutation_scope.conditional[${index}]`);
+      return {
+        path: normalizeScopePath(candidate.path, `mutation_scope.conditional[${index}].path`, true),
+        condition: text(candidate.condition, `mutation_scope.conditional[${index}].condition`),
+      };
+    });
+    if (new Set(conditional.map(item => item.path)).size !== conditional.length) {
+      fail('PREPARE_ADAPTER_INPUT_INVALID', 'mutation_scope.conditional must not contain duplicate paths.');
+    }
   }
 
   const testStrategySource = record(source.test_strategy, 'test_strategy');
@@ -406,7 +440,8 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
   }
   const implementationSteps = source.implementation_steps.map((item, index) => {
     const step = record(item, `implementation_steps[${index}]`);
-    exactKeys(step, ['id', 'description', 'mutation_scope', 'commands', 'validation', ...(step.review_checkpoint === undefined ? [] : ['review_checkpoint'])], `implementation_steps[${index}]`);
+    const stepTargetKey = v2 ? 'planned_mutation_targets' : 'mutation_scope';
+    exactKeys(step, ['id', 'description', stepTargetKey, 'commands', 'validation', ...(step.review_checkpoint === undefined ? [] : ['review_checkpoint'])], `implementation_steps[${index}]`);
     const checkpoint = step.review_checkpoint === undefined ? { policy: 'required', reason: 'Review this logical boundary against the confirmed task' } : record(step.review_checkpoint, 'review_checkpoint');
     exactKeys(checkpoint, ['policy', 'reason'], 'review_checkpoint');
     if (!['required', 'not-required'].includes(String(checkpoint.policy))) fail('PREPARE_ADAPTER_INPUT_INVALID', 'review_checkpoint.policy is invalid.');
@@ -416,7 +451,8 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
       id,
       review_checkpoint: { policy: checkpoint.policy as 'required' | 'not-required', reason: text(checkpoint.reason, 'review_checkpoint.reason') },
       description: text(step.description, `implementation_steps[${index}].description`),
-      mutation_scope: normalizeScopePathList(step.mutation_scope, `implementation_steps[${index}].mutation_scope`),
+      mutation_scope: normalizeScopePathList(step[stepTargetKey], `implementation_steps[${index}].${stepTargetKey}`),
+      ...(v2 ? { planned_mutation_targets: normalizeScopePathList(step.planned_mutation_targets, `implementation_steps[${index}].planned_mutation_targets`) } : {}),
       commands: normalizeStepCommands(step.commands, `implementation_steps[${index}].commands`),
       validation: textList(step.validation, `implementation_steps[${index}].validation`, false),
     };
@@ -463,7 +499,15 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     claim_evidence: validateClaimEvidence(source.claim_evidence, 'claim_evidence'),
     out_of_scope: textList(source.out_of_scope, 'out_of_scope', true),
     design_decisions: { decided, unresolved },
-    mutation_scope: { allowed, conditional, forbidden },
+    mutation_scope: {
+      // Keep a deterministic compatibility projection for the existing
+      // evidence/test-strategy machinery.  v2 Runtime authority comes from
+      // mutation_authority, not from this planned projection.
+      allowed: v2 ? [...new Set(implementationSteps.flatMap(step => step.mutation_scope ?? []))] : allowed,
+      conditional,
+      forbidden,
+    },
+    ...(v2 ? { mutation_authority_version: 2 as const, mutation_authority: authority } : {}),
     test_strategy: testStrategy,
     implementation_steps: implementationSteps,
     validation_plan: textList(source.validation_plan, 'validation_plan', false),
@@ -479,7 +523,17 @@ function markdownBullets(items: readonly string[], checklist = false): string {
   return items.map(item => checklist ? `- [ ] ${item}` : `- ${item}`).join('\n');
 }
 
+function semanticMutationScope(input: PrepareTaskSemanticDraft): NonNullable<PrepareTaskSemanticDraft['mutation_scope']> {
+  if (!input.mutation_scope) fail('PREPARE_ADAPTER_INPUT_INVALID', 'the compatibility mutation_scope projection is missing.');
+  return input.mutation_scope;
+}
+
+function semanticStepTargets(step: PrepareTaskSemanticDraft['implementation_steps'][number]): string[] {
+  return [...(step.planned_mutation_targets ?? step.mutation_scope ?? [])];
+}
+
 function scopeBody(input: PrepareTaskSemanticDraft): string {
+  const mutationScope = semanticMutationScope(input);
   const persistentTests = input.persistent_tests === 'none'
     ? ['- none']
     : input.persistent_tests.map(test => `- \`${test.path}\``);
@@ -488,17 +542,17 @@ function scopeBody(input: PrepareTaskSemanticDraft): string {
     '',
     '### Allowed Files',
     '',
-    markdownBullets(input.mutation_scope.allowed.map(item => `\`${item}\``)),
+    markdownBullets(mutationScope.allowed.map(item => `\`${item}\``)),
     '',
     '### Conditional Files',
     '',
-    markdownBullets(input.mutation_scope.conditional.map(item => `\`${item.path}\` when ${item.condition}`)),
+    markdownBullets(mutationScope.conditional.map(item => `\`${item.path}\` when ${item.condition}`)),
     '',
     '## 禁止修改范围',
     '',
     '### Forbidden Files',
     '',
-    markdownBullets(input.mutation_scope.forbidden.map(item => `\`${item}\``)),
+    markdownBullets(mutationScope.forbidden.map(item => `\`${item}\``)),
     '',
     '## 回归检查项',
     '',
@@ -510,18 +564,19 @@ function scopeBody(input: PrepareTaskSemanticDraft): string {
 }
 
 function assertSemanticScopeIsExecutable(input: PrepareTaskSemanticDraft): void {
+  const mutationScope = semanticMutationScope(input);
   const scope = parseMutationScope(scopeBody(input));
   const persistentTests = input.persistent_tests === 'none' ? [] : input.persistent_tests;
   const persistentTestPaths = new Set(persistentTests.map(test => test.path));
-  const allowedExact = new Set(input.mutation_scope.allowed.filter(item => !item.includes('*')));
+  const allowedExact = new Set(mutationScope.allowed.filter(item => !item.includes('*')));
   for (const test of persistentTests) {
     if (!allowedExact.has(test.path)) {
       fail('PERSISTENT_TEST_SCOPE_INVALID', `persistent test ${test.path} must also appear as an exact mutation_scope.allowed entry.`);
     }
   }
   const testLikeScopeEntries = [
-    ...input.mutation_scope.allowed,
-    ...input.mutation_scope.conditional.map(item => item.path),
+    ...mutationScope.allowed,
+    ...mutationScope.conditional.map(item => item.path),
   ].filter(isLikelyPersistentTestPath);
   for (const entry of testLikeScopeEntries) {
     if (entry.includes('*') || !persistentTestPaths.has(entry)) {
@@ -536,11 +591,11 @@ function assertSemanticScopeIsExecutable(input: PrepareTaskSemanticDraft): void 
   }
 
   for (const step of input.implementation_steps) {
-    for (const target of step.mutation_scope) {
-      const forbidden = input.mutation_scope.forbidden.some(pattern => target === pattern || (!target.includes('*') && mutationScopePatternMatchesPath(target, pattern)));
+    for (const target of semanticStepTargets(step)) {
+      const forbidden = mutationScope.forbidden.some(pattern => target === pattern || (!target.includes('*') && mutationScopePatternMatchesPath(target, pattern)));
       if (forbidden) fail('STEP_SCOPE_INVALID', `step ${step.id} target ${target} is forbidden.`);
-      const allowed = input.mutation_scope.allowed.includes(target);
-      const conditional = input.mutation_scope.conditional.some(item => target === item.path || (!target.includes('*') && mutationScopePatternMatchesPath(target, item.path)));
+      const allowed = mutationScope.allowed.includes(target);
+      const conditional = mutationScope.conditional.some(item => target === item.path || (!target.includes('*') && mutationScopePatternMatchesPath(target, item.path)));
       if (!allowed && !conditional) {
         fail('STEP_SCOPE_INVALID', `step ${step.id} target ${target} is outside Mutation scope.`);
       }
@@ -550,7 +605,7 @@ function assertSemanticScopeIsExecutable(input: PrepareTaskSemanticDraft): void 
     }
     for (const [commandIndex, command] of step.commands.entries()) {
       if (command.expected_repo_writes === 'none') continue;
-      const outsideStepScope = command.expected_repo_writes.filter(target => !stepScopeAdmitsCommandTarget(target, step.mutation_scope));
+      const outsideStepScope = command.expected_repo_writes.filter(target => !stepScopeAdmitsCommandTarget(target, semanticStepTargets(step)));
       if (outsideStepScope.length > 0) {
         fail(
           'COMMAND_FOOTPRINT_BLOCKED',
@@ -604,7 +659,14 @@ function claimEvidence(input: PrepareTaskSemanticDraft): ClaimEvidenceRecord[] {
   return structuredClone(input.claim_evidence);
 }
 
+function assertSemanticAuthority(root: string, input: PrepareTaskSemanticDraft): void {
+  if (input.mutation_authority_version !== MUTATION_AUTHORITY_VERSION || !input.mutation_authority) return;
+  try { validateTaskMutationAuthority(root, input.mutation_authority); }
+  catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+}
+
 export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftTaskDefinition {
+  const mutationScope = semanticMutationScope(input);
   const persistentTests = input.persistent_tests === 'none'
     ? ['- none']
     : input.persistent_tests.flatMap(test => [
@@ -630,9 +692,9 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
       markdownBullets(input.out_of_scope),
     ].join('\n') + renderProjectDocuments(input.project_documents),
     acceptance: markdownBullets(input.claim_evidence.filter(claim => claim.claim_kind === 'acceptance').map(claim => claim.requirement!), true),
-    allowed_scope: markdownBullets(input.mutation_scope.allowed.map(item => `\`${item}\``)),
-    conditional_scope: markdownBullets(input.mutation_scope.conditional.map(item => `\`${item.path}\` when ${item.condition}`)),
-    forbidden_scope: markdownBullets(input.mutation_scope.forbidden.map(item => `\`${item}\``)),
+    allowed_scope: markdownBullets(mutationScope.allowed.map(item => `\`${item}\``)),
+    conditional_scope: markdownBullets(mutationScope.conditional.map(item => `\`${item.path}\` when ${item.condition}`)),
+    forbidden_scope: markdownBullets(mutationScope.forbidden.map(item => `\`${item}\``)),
     affected_contracts: markdownBullets(input.affected_contracts ?? []),
     confirmed_decisions: markdownBullets(input.design_decisions.decided),
     open_questions: markdownBullets(input.design_decisions.unresolved),
@@ -640,7 +702,7 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
     implementation_steps: input.implementation_steps.flatMap(step => [
       `- ${step.id}: ${step.description}`,
       `  - purpose: ${step.description}`,
-      `  - mutation_scope: ${step.mutation_scope.join(', ')}`,
+      `  - ${input.mutation_authority_version === MUTATION_AUTHORITY_VERSION ? 'planned_mutation_targets' : 'mutation_scope'}: ${semanticStepTargets(step).join(', ')}`,
       `  - required_evidence: ${step.validation.join('; ')}`,
       `  - review_checkpoint: ${step.review_checkpoint?.policy ?? 'required'}: ${step.review_checkpoint?.reason ?? 'Review this logical boundary against the confirmed task'}`,
       ...step.commands.flatMap(item => [
@@ -670,6 +732,9 @@ export function semanticDraftDefinition(input: PrepareTaskSemanticDraft): DraftT
     design_constraints: null,
     post_release_validation: null,
     propagation_governance: null,
+    ...(input.mutation_authority_version === MUTATION_AUTHORITY_VERSION && input.mutation_authority
+      ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: input.mutation_authority }
+      : {}),
   };
 }
 
@@ -790,6 +855,7 @@ function assertDocumentReferencesResubmitted(current: ReturnType<typeof readCano
 
 export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
   const semantic = normalizeSemanticDraft(input);
+  assertSemanticAuthority(root, semantic);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);
@@ -935,6 +1001,7 @@ export function clearResumeReview(root: string, input: unknown, options: Runtime
 export function replan(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   fail('REPLAN_CONFIRMATION_REQUIRED', 'The legacy replan command commits immediately and is disabled. A revision-bound candidate and explicit confirmation are required before replacement.');
   const semantic = normalizeSemanticDraft(input);
+  assertSemanticAuthority(root, semantic);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);

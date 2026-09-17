@@ -129,10 +129,10 @@ export const EXPECTED_EXPERT_RUNTIME_OPERATIONS: Record<ExpertEntry, readonly st
 };
 
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
-  'prepare-task': ['scope-guard', 'adaptive-depth-policy', 'evidence-admission-policy', 'resume-review-gate'],
-  'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
-  'review-change': ['project-context-resolver', 'scope-guard', 'diff-target-resolver', 'read-only-review-guard'],
-  'execute-step': ['scope-guard', 'task-identity-guard', 'resume-review-gate'],
+  'prepare-task': ['scope-guard', 'mutation-authority-policy', 'adaptive-depth-policy', 'evidence-admission-policy', 'resume-review-gate'],
+  'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'mutation-authority-policy', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
+  'review-change': ['project-context-resolver', 'scope-guard', 'mutation-authority-policy', 'diff-target-resolver', 'read-only-review-guard'],
+  'execute-step': ['scope-guard', 'mutation-authority-policy', 'task-identity-guard', 'resume-review-gate'],
   'debug-task': ['scope-guard', 'review-convergence-policy', 'evidence-admission-policy'],
   'task-lifecycle': ['scope-guard'],
   'capture-work-item': ['scope-guard'],
@@ -176,6 +176,7 @@ const REQUIRED_CAPABILITIES = [
   'source-authority-policy',
   'task-identity-guard',
   'scope-guard',
+  'mutation-authority-policy',
   'decision-authority-gate',
   'adaptive-depth-policy',
   'draft-consistency-challenge',
@@ -229,6 +230,7 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
 const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
   'task-state-transaction': [
     'execute-step:step-progress',
+    'execute-step:extend-preflight',
     'execute-step:default:consume-retained-review',
     'review-change:default:record-review-result',
     'review-change:default:record-evidence-challenge',

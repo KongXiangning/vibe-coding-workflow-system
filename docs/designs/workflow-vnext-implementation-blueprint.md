@@ -34,9 +34,9 @@
 
 | vNext entry | 合并哪些旧 Skill / 责任片段 | 必须保留的治理语义 | Internal capabilities | Runtime 写入 |
 |---|---|---|---|---|
-| `prepare-task` | `create-current-task`、`review-current-task`、`lock-scope`、`classify-decisions`、`plan-implementation`、`decompose-task`；`execute-current-task` 的准备/转换边界 | task identity；一个 coherent business goal 与 acceptance claims；足够宽的 read/discovery context；尽可能精确的 `Allowed / Conditional / Forbidden` mutation scope；authority 与 decision 分类；按 claim 规划 minimum-sufficient evidence；persistent test 默认不准入；少量可独立验证 steps；只在 risk/logical boundary 设置 review checkpoint；planning、替代方案、风险/rollback、validation；UI/release 条件；新任务先形成 durable `draft + active`，同草案可 refinement，只有显式 `confirm` 才能进入 `active + active`；不写产品代码、不覆盖 Profile/Contracts | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`decision-authority-gate`；`adaptive-depth-policy`；`evidence-admission-policy`；条件性的 `propagation-evidence-validator`、`design-evidence-gate`、`release-evidence-gate`、`external-documentation-gate`；恢复/重规划时的 `resume-review-gate` | `task-state-transaction`：`create-draft`、`update-draft`、`confirm-draft`、resume gate、replan 等 typed task-state actions |
-| `execute-step` | `implement-current-step`；`continue-current-step` 的有效状态转换；`debug-and-fix-current-task` 的 admitted repair 分支；`execute-current-task` 的执行分支 | 只能执行当前已准备且 admitted 的一个 step；可读取更宽的 context 追踪数据流/root cause，但只能写 admitted mutation scope；使用 claim-bound minimum-sufficient evidence；共享且明确的 diff target；scope default-deny；dangerous operation 授权；design/decision gate；External Documentation Gate；persistent test 不得自行准入；repair 必须是 current-owner、in-scope、mechanical 且已准入；普通 step 不自动触发 full review；修复后必须进入 bounded review convergence，并按证据推进下一 step | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`adaptive-depth-policy`；`dangerous-operation-gate`；`decision-authority-gate`；`diff-target-resolver`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；条件性的 `design-evidence-gate`、`external-documentation-gate` | `task-state-transaction`；admitted repair 时条件性写 `finding-queue-transaction`；不直接写 Contracts/Decisions/LESSONS；ordinary step advancement 的 typed Runtime enforcement 属于本冻结之后的 implementation slice |
-| `review-change` | `review-current-diff`、`review-diff`、`review-implementation`、`verify-contracts` | 只在 required risk/logical checkpoint、final review 或 repair verification 时执行；一个明确 diff target；统一的 scope、goal/acceptance、implementation、contract/propagation、evidence verdict；严格 read-only；`discovery / verification` 是 review cycle phase，不是 public handoff；finding 先 admission 再 repair；`report-only` 是终态；repair verification 必须保留，即使普通 step 跳过 full review | `project-context-resolver`；`read-only-review-guard`；`diff-target-resolver`；`scope-guard`；`source-authority-policy`；`propagation-evidence-validator`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；按触发条件启用 `external-documentation-gate` | **无**。可返回结构化 finding/evidence gap，但不直接写 queue、CURRENT_TASK、代码或 knowledge |
+| `prepare-task` | `create-current-task`、`review-current-task`、`lock-scope`、`classify-decisions`、`plan-implementation`、`decompose-task`；`execute-current-task` 的准备/转换边界 | task identity；一个 coherent business goal 与 acceptance claims；足够宽的 read/discovery context；v1 的 `Allowed / Conditional / Forbidden` scope 或 v2 的 task authority envelope；authority 与 decision 分类；按 claim 规划 minimum-sufficient evidence；persistent test 默认不准入；少量可独立验证 steps；v2 steps 的 planned footprint 只作 guidance；只在 risk/logical boundary 设置 review checkpoint；planning、替代方案、风险/rollback、validation；UI/release 条件；新任务先形成 durable `draft + active`，同草案可 refinement，只有显式 `confirm` 才能进入 `active + active`；不写产品代码、不覆盖 Profile/Contracts | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`decision-authority-gate`；`adaptive-depth-policy`；`evidence-admission-policy`；条件性的 `propagation-evidence-validator`、`design-evidence-gate`、`release-evidence-gate`、`external-documentation-gate`；恢复/重规划时的 `resume-review-gate` | `task-state-transaction`：`create-draft`、`update-draft`、`confirm-draft`、resume gate、replan 等 typed task-state actions |
+| `execute-step` | `implement-current-step`；`continue-current-step` 的有效状态转换；`debug-and-fix-current-task` 的 admitted repair 分支；`execute-current-task` 的执行分支 | 只能执行当前已准备且 admitted 的一个 step；可读取更宽的 context 追踪数据流/root cause，但 v1 只能写 step scope，v2 可在 task authority envelope 内发现并 assessment/self-admit 额外 footprint；使用 claim-bound minimum-sufficient evidence；共享且明确的 diff target；scope default-deny；dangerous operation 授权；design/decision gate；External Documentation Gate；新的 persistent test 仍需 P-12；repair 必须是 current-owner、in-scope、mechanical 且已准入；普通 step 不自动触发 full review，但 dynamic expansion 必须触发 cumulative review；修复后必须进入 bounded review convergence，并按证据推进下一 step | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`adaptive-depth-policy`；`dangerous-operation-gate`；`decision-authority-gate`；`diff-target-resolver`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；`mutation-authority-policy`；条件性的 `design-evidence-gate`、`external-documentation-gate` | `task-state-transaction`；admitted repair 时条件性写 `finding-queue-transaction`；不直接写 Contracts/Decisions/LESSONS；ordinary step advancement 的 typed Runtime enforcement 属于本冻结之后的 implementation slice |
+| `review-change` | `review-current-diff`、`review-diff`、`review-implementation`、`verify-contracts` | 只在 required risk/logical checkpoint、v2 dynamic footprint review、final review 或 repair verification 时执行；一个明确 diff target；统一的 authority/planned-vs-actual、goal/acceptance、implementation、contract/propagation、evidence verdict；严格 read-only；`discovery / verification` 是 review cycle phase，不是 public handoff；finding 先 admission 再 repair；`report-only` 是终态；repair verification 必须保留，即使普通 step 跳过 full review | `project-context-resolver`；`read-only-review-guard`；`diff-target-resolver`；`scope-guard`；`mutation-authority-policy`；`source-authority-policy`；`propagation-evidence-validator`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；按触发条件启用 `external-documentation-gate` | **无**。可返回结构化 finding/evidence gap，但不直接写 queue、CURRENT_TASK、代码或 knowledge |
 | `debug-task` | `investigate-root-cause`；`debug-and-fix-current-task` 的 investigation、root-cause 和 repair-decision 分支 | 区分新 bug、report-only investigation、current-task debugging；先 reproduce 再提出 hypothesis；current-task debugging 或需要写 task-state/resolve 时确认 owner 与 active task，新 bug 的普通 investigate-only 可无 current task；最多有限次不收敛尝试后 stop；外部行为影响正确性时查当前文档；debug 不直接写产品代码；`resolve` 只负责确认修复路线，修复交给 `execute-step:repair` | `project-context-resolver`；`root-cause-loop`；`owner-route-resolver`；`source-authority-policy`；`scope-guard`；`decision-authority-gate`；`evidence-admission-policy`；条件性的 `external-documentation-gate`、`review-convergence-policy` | current task 调试证据/风险/检查点可写 `task-state-transaction`；新 bug 或 report-only 默认无写入；不由该入口直接提交产品修复 |
 | `task-lifecycle` | `pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task`、`supersede-current-task` | workflow status 与 lifecycle state 分离；pause 与 interrupt 不混淆；保存完整 snapshot、checkpoint、dirty attribution、environment、recovery strategy；各 mode 只要求其所选 transition 的必要 evidence；resume 必须指定唯一包并先过 review gate；supersede 只用于 goal/scope/acceptance 已失效且保留原历史；不从“latest package”猜恢复对象 | `project-context-resolver`；`lifecycle-transition-guard`；`task-identity-guard`；`owner-route-resolver`；`resume-review-gate`；`source-authority-policy`；`decision-authority-gate`；`scope-guard` | `lifecycle-transaction`；supersede/replan 的任务事实条件性写 `task-state-transaction`；不承担旧项目 paused/interrupted 热迁移 |
 | `capture-work-item` | `capture-work-item` | 仅记录已证明与当前任务无关的工作；`TASKS/inbox/**` record-only；scope widening、uncertainty、duplicate suspicion fail closed；绝不创建/切换/修改 CURRENT_TASK、lifecycle、identity、catalog | `record-only-intake-guard`；`owner-route-resolver`；`scope-guard`；必要时使用 `project-context-resolver` 确认当前 owner | `inbox-record-transaction`：最多创建一个 inbox record，不触碰 active task |
@@ -287,13 +287,23 @@ daily-execution slice:
    `acceptance` / `regression` / `critical-invariant` / `critical-risk`. An
    explicit user `test_write_policy: deny` forbids new persistent tests while
    leaving existing validation available.
-2. **Mutation-oriented Scope** — `project-context-resolver` may read broadly
+2. **Mutation Authority v2** — `project-context-resolver` may read broadly
    enough to understand callers, consumers, types, configuration, tests, and
-   root cause. `Allowed / Conditional / Forbidden` remains a write boundary.
-   Ordinary `Allowed` scope is exact-file or file-plus-symbol/responsibility
-   where known; broad globs require an inherently broad transformation.
-   Conditional expansion requires its stated evidence / authority. A changed
-   goal, scope, or acceptance is replan work.
+   root cause, including other responsibility domains. A v2 task explicitly
+   declares `mutation_authority_version: 2` and a positive task authority
+   envelope of project domain IDs, exact cross-domain exceptions, and forbidden
+   targets. Project profile domains use unique IDs and bounded
+   repository-relative exact or literal `/**` roots; ambiguous or unclassified
+   paths fail closed for writes. `Allowed / Conditional / Forbidden` remains
+   the v1 compatibility model, not a second v2 ACL. v2
+   `planned_mutation_targets` are guidance for initial direction and
+   planned-vs-actual review. A same-envelope target outside that footprint
+   requires a blast-radius assessment and `self-admit`/`escalate` disposition;
+   Runtime checks only structural authority, before-state and audit binding.
+   Prefer the smallest correct local change, while an evidence-backed shared
+   change may be self-admitted. Uncertain ownership or contract impact routes
+   to the user. A true cross-domain authority change uses the existing
+   immutable scope-amendment/continuation route.
 3. **Task / Step / Review Checkpoint / Repair** — one coherent business goal
    remains one TASK; it is split into a small number of independently verifiable
    admitted steps. `execute-step` handles only the current step. Minimum evidence
@@ -305,13 +315,25 @@ daily-execution slice:
 
 The canonical task sections remain the only representation: acceptance /
 regression sections carry claims and evidence; scope sections separate read
-context from mutation targets; and implementation steps carry step identity,
-purpose, bounded scope, required evidence, and checkpoint policy. No new public
-Skill, review BPM stage, test registry, test state machine, or ACL subsystem is
-introduced. The current Runtime makes the ordinary draft/confirm boundary
+context from mutation targets; the v2 authority envelope is a task-level hard
+boundary; and implementation steps carry step identity, purpose, planned
+targets, required evidence, and checkpoint policy. No new public Skill, review
+BPM stage, test registry, test state machine, or ACL subsystem is introduced.
+The current Runtime makes the ordinary draft/confirm boundary
 durable through typed `create-draft`, `update-draft`, and `confirm-draft`
 actions; ordinary `STEP-N → STEP-N+1` advancement remains the later execution
 slice described below.
+
+For v2 execution, an in-envelope expansion is assessed before first touch. A
+preflight discovered after an earlier path has changed uses the internal
+`extend-preflight` action: it captures the new before-state, replaces the
+receipt, preserves the same attempt and plan revision, consumes no retry slot,
+and creates no continuation. The expansion sets a cumulative review gate.
+Existing test files inside the envelope follow this rule with explicit oracle
+and reuse assessment; an absent new persistent test still follows P-12
+admission. A clean cumulative review is required before completion. This
+behavior is distinct from `prepare-task:amend-scope`, which is reserved for
+cross-envelope authority changes.
 
 ### 3.7 Trusted Authority Channel architecture freeze
 
@@ -352,8 +374,8 @@ prepare-task
     ↓ one goal + claims + precise scope + admitted steps/evidence/checkpoints
 execute-step STEP-N
     ↓ minimum-sufficient evidence
-    ├─ no required checkpoint → durable advancement → execute-step STEP-N+1
-    └─ required checkpoint / final review → review-change (discovery)
+    ├─ no required checkpoint and no v2 dynamic expansion → durable advancement → execute-step STEP-N+1
+    └─ required checkpoint / final review / v2 dynamic expansion → review-change (discovery)
          ├─ clean → durable advancement → execute-step STEP-N+1
          ├─ admitted mechanical finding → execute-step:repair
          │                                  ↓
@@ -559,7 +581,7 @@ legacy compatibility layer。
 - 每个 entry 都能写出 input、authority、mutation boundary、capabilities、Runtime operations、stop conditions 和 output；
 - `project-context-resolver`、`knowledge-admission-policy`、Review Convergence、Evidence Admission 均作为内部 policy 使用，而不是新增 public stage；
 - review/validation 的零写入边界、finding admission、owner/handoff 分离、scope/dangerous gate 和 External Documentation Gate 都保留；
-- Evidence-first、persistent-test 默认不准入、read/discovery 与 mutation scope 分离、精确 write scope、risk-based review checkpoint、repair verification 和 durable step advancement 语义均已冻结；
+- Evidence-first、persistent-test 默认不准入、read/discovery 与 mutation authority 分离、v1 精确 write scope、v2 planned footprint guidance + in-envelope assessment/self-admission、risk-based review checkpoint、dynamic expansion 的 mandatory cumulative review、repair verification 和 durable step advancement 语义均已冻结；
 - 每一项治理持久化写入都映射到一个 exact Runtime handler，且没有 generic document editor；
 - 普通任务的 Contract / Decision final knowledge admission 在 `close-task` 中完成；archive 保存 admission provenance，Implementation Anchors 仅作为可选的 observed navigation hints，由未来消费者按当前代码实时验证和扩散；
 - Migration Pack 与 vNext runtime 完全分离，旧 schema 在 vNext 中只能得到 `migration-required → stop`；

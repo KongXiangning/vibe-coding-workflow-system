@@ -20,6 +20,7 @@ import { checkTargetRoot, normalizeAbsoluteRootPath } from './guard-target-root'
 import {
   getWorkflowHome,
   resolveRoot,
+  validateMutationAuthorityDomains,
   type JsonObject,
 } from './workflow-core';
 import {
@@ -750,6 +751,13 @@ export function getTargetSnapshot(targetRoot: string): TargetSnapshot {
 }
 
 function getProjectIdentity(profile: JsonObject, targetRoot: string): TargetIdentity {
+  try {
+    // Migration keeps a pre-existing optional v2 map target-owned, but it
+    // must reject malformed/ambiguous domain roots before producing a pack.
+    validateMutationAuthorityDomains(profile, 'PROJECT_PROFILE.yaml');
+  } catch (error) {
+    throw new MigrationPackError('PROFILE_INVALID', error instanceof Error ? error.message : String(error));
+  }
   const project = expectRecord(profile.project, 'PROJECT_PROFILE.yaml.project');
   const projectName = expectString(project.name, 'PROJECT_PROFILE.yaml.project.name');
   const projectSlug = expectString(project.slug, 'PROJECT_PROFILE.yaml.project.slug');

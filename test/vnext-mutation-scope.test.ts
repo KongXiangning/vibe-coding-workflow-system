@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   auditCommandMutation,
   assertMutationScope,
@@ -10,6 +13,14 @@ import {
   parseMutationScope,
   type CommandWriteFootprint,
 } from '../runtime/vnext/src/mutation-scope';
+import {
+  authorityDomainForPath,
+  evaluateMutationAuthority,
+  MutationAuthorityError,
+  type BlastRadiusAssessment,
+  type ProjectMutationAuthority,
+  type TaskMutationAuthority,
+} from '../runtime/vnext/src/mutation-authority';
 import { parseCli } from '../runtime/vnext/src/kernel';
 
 // P-12 admission for this persistent mutation-scope guard:
@@ -83,6 +94,36 @@ function commandFootprint(targets: string[], overrides: Partial<CommandWriteFoot
     targets,
     evidence_refs: ['config:known-command-output'],
     ...overrides,
+  };
+}
+
+const AUTHORITY_PROJECT: ProjectMutationAuthority = {
+  domains: [
+    { id: 'node-rollout', roots: ['packages/node-rollout/**'] },
+    { id: 'node-rollout-tests', roots: ['packages/node-rollout-tests/**'] },
+    { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+  ],
+};
+
+const NODE_AUTHORITY: TaskMutationAuthority = {
+  domains: ['node-rollout', 'node-rollout-tests'],
+  exact_exceptions: [],
+  forbidden: [],
+};
+
+function blastRadiusAssessment(target: string, disposition: BlastRadiusAssessment['disposition'] = 'self-admit', overrides: Partial<BlastRadiusAssessment['blast_radius']> = {}): BlastRadiusAssessment {
+  return {
+    target: { path: target, symbol: 'implementationDetail' },
+    reason: 'The local implementation is the smallest correct change for the discovered behavior.',
+    blast_radius: {
+      locality: 'local',
+      visibility: 'private',
+      cross_component_consumers: 'none',
+      contract_impact: 'none',
+      ...overrides,
+    },
+    evidence_refs: ['src/caller.ts:42', 'test/regression.test.ts:18'],
+    disposition,
   };
 }
 
@@ -451,5 +492,154 @@ describe('vNext Mutation-oriented Scope', () => {
       command: 'scope-check',
       commandAuditStdin: true,
     });
+  });
+
+  test('Mutation Authority v2 lets a task discover an unplanned private file inside its authorized domain', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-authority-'));
+    const target = 'packages/node-rollout/internal/state.ts';
+    try {
+      fs.mkdirSync(path.join(root, 'packages', 'node-rollout', 'internal'), { recursive: true });
+      fs.writeFileSync(path.join(root, ...target.split('/')), 'export const state = 1;\n', 'utf8');
+      const result = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task: NODE_AUTHORITY,
+        candidate_paths: [target],
+        planned_targets: ['packages/node-rollout/src/session.ts', 'packages/node-rollout/src/reconnect.ts'],
+        assessments: [blastRadiusAssessment(target)],
+      });
+
+      expect(result).toMatchObject({ status: 'pass', dynamic_review_required: true });
+      expect(result.decisions[0]).toMatchObject({
+        path: target,
+        status: 'self-admitted',
+        domain: 'node-rollout',
+        first_touch_state: 'file',
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('Mutation Authority v2 blocks an in-envelope discovery without assessment and escalates uncertain shared changes', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-authority-assessment-'));
+    const target = 'packages/node-rollout/internal/state.ts';
+    try {
+      fs.mkdirSync(path.join(root, 'packages', 'node-rollout', 'internal'), { recursive: true });
+      fs.writeFileSync(path.join(root, ...target.split('/')), 'export const state = 1;\n', 'utf8');
+      const missingAssessment = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task: NODE_AUTHORITY,
+        candidate_paths: [target],
+        planned_targets: ['packages/node-rollout/src/session.ts'],
+      });
+      const escalated = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task: NODE_AUTHORITY,
+        candidate_paths: [target],
+        planned_targets: ['packages/node-rollout/src/session.ts'],
+        assessments: [blastRadiusAssessment(target, 'escalate', {
+          locality: 'high',
+          visibility: 'shared',
+          cross_component_consumers: 'unknown',
+          contract_impact: 'possible',
+        })],
+      });
+
+      expect(missingAssessment.status).toBe('blocked');
+      expect(missingAssessment.blockers[0]).toContain('MUTATION_AUTHORITY_EXPANSION_REQUIRED');
+      expect(escalated.status).toBe('blocked');
+      expect(escalated.blockers[0]).toContain('was escalated');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('Mutation Authority v2 hard-blocks cross-domain, unclassified, forbidden, and governance targets', () => {
+    const result = evaluateMutationAuthority({
+      project: AUTHORITY_PROJECT,
+      task: { ...NODE_AUTHORITY, exact_exceptions: ['native/codex-rollout-collector/tests/stage4_target_protocol.rs'], forbidden: ['packages/node-rollout/internal/secret.ts'] },
+      candidate_paths: [
+        'native/codex-rollout-collector/src/protocol.rs',
+        'unclassified/notes.txt',
+        'packages/node-rollout/internal/secret.ts',
+        'docs/workflow/CURRENT_TASK.md',
+      ],
+      planned_targets: [],
+      assessments: [],
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.blockers).toEqual([
+      expect.stringContaining('MUTATION_AUTHORITY_EXPANSION_REQUIRED: native/codex-rollout-collector/src/protocol.rs'),
+      expect.stringContaining('MUTATION_AUTHORITY_EXPANSION_REQUIRED: unclassified/notes.txt'),
+      expect.stringContaining('MUTATION_AUTHORITY_FORBIDDEN: packages/node-rollout/internal/secret.ts'),
+      expect.stringContaining('MUTATION_AUTHORITY_GOVERNANCE_BOUNDARY: docs/workflow/CURRENT_TASK.md'),
+    ]);
+  });
+
+  test('Mutation Authority v2 distinguishes existing tests from new persistent tests', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-authority-tests-'));
+    const existing = 'packages/node-rollout-tests/existing-regression.test.ts';
+    const absent = 'packages/node-rollout-tests/new-regression.test.ts';
+    try {
+      fs.mkdirSync(path.join(root, 'packages', 'node-rollout-tests'), { recursive: true });
+      fs.writeFileSync(path.join(root, ...existing.split('/')), 'test(\'existing\', () => {});\n', 'utf8');
+      const existingResult = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task: NODE_AUTHORITY,
+        candidate_paths: [existing],
+        planned_targets: ['packages/node-rollout/src/session.ts'],
+        assessments: [blastRadiusAssessment(existing)],
+      });
+      const absentBlocked = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task: NODE_AUTHORITY,
+        candidate_paths: [absent],
+        planned_targets: ['packages/node-rollout/src/session.ts'],
+        assessments: [blastRadiusAssessment(absent)],
+      });
+      const absentAdmitted = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task: NODE_AUTHORITY,
+        candidate_paths: [absent],
+        planned_targets: ['packages/node-rollout/src/session.ts'],
+        assessments: [blastRadiusAssessment(absent)],
+        persistent_test_paths: [absent],
+      });
+
+      expect(existingResult.status).toBe('pass');
+      expect(existingResult.decisions[0]?.status).toBe('self-admitted');
+      expect(absentBlocked.status).toBe('blocked');
+      expect(absentBlocked.blockers[0]).toContain('PERSISTENT_TEST_UNADMITTED');
+      expect(absentAdmitted.status).toBe('pass');
+      expect(absentAdmitted.decisions[0]).toMatchObject({ status: 'self-admitted', first_touch_state: 'absent' });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('Mutation Authority v2 rejects ambiguous project domains before admitting a path', () => {
+    expect(() => authorityDomainForPath({
+      domains: [
+        { id: 'node', roots: ['packages/**'] },
+        { id: 'shared', roots: ['packages/protocol/**'] },
+      ],
+    }, 'packages/protocol/schema.ts')).toThrow(MutationAuthorityError);
+    try {
+      authorityDomainForPath({
+        domains: [
+          { id: 'node', roots: ['packages/**'] },
+          { id: 'shared', roots: ['packages/protocol/**'] },
+        ],
+      }, 'packages/protocol/schema.ts');
+    } catch (error) {
+      expect((error as MutationAuthorityError).code).toBe('MUTATION_AUTHORITY_DOMAIN_AMBIGUOUS');
+    }
   });
 });

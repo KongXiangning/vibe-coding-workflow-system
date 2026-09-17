@@ -48,6 +48,7 @@ import {
   MigrationProvenanceError,
   type CompletedMigrationProvenance,
 } from './migration-provenance';
+import { readProjectMutationAuthority, MutationAuthorityError } from './mutation-authority';
 
 export const BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH = '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl' as const;
 export const BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH = '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' as const;
@@ -272,7 +273,17 @@ function fileHash(filePath: string): string {
 function existingProfile(root: string): Record<string, unknown> | null {
   const filePath = targetPath(root, PROJECT_PROFILE_RELATIVE_PATH);
   if (!fs.existsSync(filePath)) return null;
-  return readYamlObject(filePath, PROJECT_PROFILE_RELATIVE_PATH);
+  const profile = readYamlObject(filePath, PROJECT_PROFILE_RELATIVE_PATH);
+  if (profile.mutation_authority !== undefined) {
+    try {
+      // Bootstrap/adoption preserves the target-owned map, but must not carry
+      // a malformed ownership boundary into a governed v2 installation.
+      readProjectMutationAuthority(root);
+    } catch (error) {
+      fail('BOOTSTRAP_SUPPORT_PROFILE_INVALID', error instanceof MutationAuthorityError ? error.message : String(error));
+    }
+  }
+  return profile;
 }
 
 function profileProject(profile: Record<string, unknown> | null): { name: string; slug: string } | null {

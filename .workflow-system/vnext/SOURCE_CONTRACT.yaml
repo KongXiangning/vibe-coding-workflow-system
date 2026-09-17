@@ -106,25 +106,33 @@ capabilities:
     trigger:
       - product or governance mutation is proposed
     input_contract:
-      - canonical CURRENT_TASK Allowed Files, Conditional Files, and Forbidden Files buckets
+      - mutation_authority_version, when the task explicitly opts into v2
+      - v1 canonical CURRENT_TASK Allowed Files, Conditional Files, and Forbidden Files buckets
+      - v2 task authority envelope of authorized project domains, exact exceptions, and task forbidden targets
       - explicit changed paths or one verified diff target
       - transformation kind, distinguishing localized from inherently-broad mutation
-      - conditional authorizations with exact target, evidence references, and authority
+      - v1 conditional authorizations with exact target, evidence references, and authority
+      - v2 blast-radius assessments for planned-footprint expansions, including evidence refs and self-admit/escalate disposition
       - separate Read / discovery context, which is allowed to be broader but is not write authority
     output_contract:
-      - per-path mutation admission or blocker with Forbidden precedence and default-deny
+      - v1 per-path mutation admission or blocker with Forbidden precedence and default-deny
+      - v2 structural admission that resolves path to exactly one authority domain, applies task forbidden/governance boundaries, and distinguishes planned from self-admitted targets
       - separate read/discovery matches that never become write permission
       - exact admitted paths, excluded targets, and source revision
-      - bounded widening requirement; changed goal, scope, or acceptance routes to supersede/replan
+      - v2 dynamic expansion record with first-touch before-state and mandatory cumulative review flag
+      - bounded widening requirement; changed goal, scope, or total authority routes to authority amendment, while same-envelope implementation discovery uses extend-preflight
     stop_conditions:
-      - required scope bucket is missing, malformed, duplicated, or ambiguous
-      - target is outside admitted scope
-      - forbidden target is requested
-      - Conditional target lacks an exact authorization with evidence and authority
+      - v1 required scope bucket is missing, malformed, duplicated, or ambiguous
+      - v1 target is outside admitted scope
+      - v2 target is outside the task authority envelope or is unclassified without an exact exception
+      - v2 path-to-domain resolution is ambiguous
+      - forbidden or governance target is requested
+      - v1 Conditional target lacks an exact authorization with evidence and authority
+      - v2 in-envelope unplanned target lacks a complete blast-radius assessment or is escalated
       - a broad glob is used without an inherently-broad transformation
       - the changed-path diff target is empty, duplicated, invalid, or not explicit
       - read/discovery context is treated as write authority
-      - scope widening lacks authority or the goal, scope, or acceptance changed without supersede/replan
+      - true authority widening lacks explicit user authorization or the goal, acceptance, or task authority changed without the authority-amendment route
 
   - id: decision-authority-gate
     exposure: internal
@@ -139,6 +147,26 @@ capabilities:
     stop_conditions:
       - user-owned choice is unresolved
       - proposed choice conflicts with a confirmed Contract or Decision
+
+  - id: mutation-authority-policy
+    exposure: internal
+    trigger:
+      - a v2 task selects an authority envelope or evaluates an implementation-footprint expansion
+    input_contract:
+      - project domain map, task authority envelope, exact exceptions, and forbidden targets
+      - planned mutation footprint and actual changed target
+      - blast-radius evidence covering locality, visibility, consumers, contract impact, and regression coverage
+      - read/discovery findings across domains, kept separate from write authority
+    output_contract:
+      - bounded self-admit or escalate disposition for an in-envelope unplanned target
+      - smallest-correct-local-change decision with evidence for any broader shared change
+      - explicit authority-amendment blocker for cross-domain or unclassified writes
+      - planned, expanded, and actual footprint material for cumulative review
+    stop_conditions:
+      - authority ownership cannot be resolved from the project domain map
+      - a target is outside the task envelope, explicitly forbidden, or on a governance boundary
+      - the expansion assessment is incomplete, uncertain, or escalated
+      - a broader shared change lacks evidence that the local alternative is incorrect, duplicative, or contract-breaking
 
   - id: adaptive-depth-policy
     exposure: internal
@@ -281,6 +309,8 @@ capabilities:
       - 'a contested challenge may be dismissed only with a bound, hashed review assessment; dismissal retains the challenge and original report'
       - 'correction-replan-candidate/v2 supports conclusion-correction and execution-recovery with bounded targets, forward-fix/artifact-restore/mixed, complete obligation mapping, immutable executed definitions, new check identities, and revision-bound pending-step changes'
       - 'scope-amendment-candidate/v1 is an independent additive route: it consumes caller-reported explicit authorization for exact new paths, preserves pending review/findings/obligations/review baseline/budget, and never changes the legacy correction-replan/v2 permission_change:none semantics'
+      - 'Mutation Authority v2: the task authority envelope is the only hard mutation boundary; planned step targets are guidance, same-envelope expansion requires a bounded blast-radius assessment and review, and cross-domain authority changes require explicit amendment'
+      - 'Mutation Authority v2 distinguishes an existing in-envelope test file from an absent new persistent test; only the latter requires the existing P-12 admission record before creation'
       - 'confirmation preserves task identity, original request, acceptance and total authority; binds source, Basis, candidate, evidence admission, restore plan and all old obligations; authorization remains caller-reported'
       - 'partial correction of multiple challenges against one report retains the original result references; later batches traverse bounded confirmed correction relationships backed by verified source preimages, real results and clean completion snapshots, retaining both selected challenge origins and the reports actually replaced and require fresh evidence and review'
       - 'recovery problem budgets inherit through confirmed execution targets and replacement step identities, including historical v2 candidates; a new step ID cannot reset retained failures; raw step-progress also requires the durable current admitted attempt'
@@ -520,6 +550,7 @@ runtime_operations:
       - review-change
     bound_actions:
       - execute-step:step-progress
+      - execute-step:extend-preflight
       - execute-step:default:consume-retained-review
       - review-change:default:record-review-result
       - review-change:default:record-evidence-challenge

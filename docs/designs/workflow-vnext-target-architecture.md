@@ -142,24 +142,96 @@ If a vNext entry detects an old or otherwise unsupported protocol/schema, it ret
 
 Validation of a business claim, reuse or execution of an existing test/check, and creation of a new persistent automated test are separate decisions. A claim that needs validation does not automatically require a new test; the claim selects the minimum-sufficient evidence. Persistent tests are not admitted by default. A new persistent test requires an explicit owner, a claim it proves, a reason existing evidence is insufficient, and one closed admission basis: `acceptance`, `regression`, `critical-invariant`, or `critical-risk`. This principle refines P-03, P-05, P-06, and P-09 without introducing a Test Skill, registry, or state machine.
 
-### P-13 — Mutation scope controls writes, not understanding
+### P-13 — Mutation authority controls writes, not understanding
 
-`Allowed`, `Conditional`, and `Forbidden` scope describe the mutation boundary. Read / discovery context may be broader when needed to understand the problem, trace callers and consumers, or establish root cause. Ordinary write scope is as narrow as evidence permits—normally an exact file and, when known, symbol / responsibility. A directory glob is reserved for inherently broad transformations. Scope expands only through a satisfied Conditional condition or evidence-proven bounded propagation; a changed goal, scope, or acceptance is a supersede / replan decision.
+Mutation Authority v2 separates the hard task boundary from implementation
+planning. A v2 task explicitly carries `mutation_authority_version: 2` and a
+positive `authority_envelope` represented by authorized project domains,
+`exact_exceptions`, and task-specific `forbidden` targets. Project domains are
+stable mutation-ownership boundaries, not a dependency graph:
 
-P-13 covers every repo-local write, including tracked, untracked, ignored,
-generated, build, cache, temporary, and helper output. `.gitignore` is not a
-scope exemption. Before a known write-capable command executes, its bounded
-`expected_write_footprint` is admitted through the canonical mutation-scope
+```yaml
+mutation_authority:
+  domains:
+    - id: node-rollout
+      roots:
+        - packages/node-rollout/**
+        - packages/node-rollout-tests/**
+    - id: rust-rollout
+      roots:
+        - native/codex-rollout-collector/**
+```
+
+Domain IDs are unique. Roots are bounded repository-relative exact paths or
+literal `/**` prefixes; cross-domain overlap, traversal, arbitrary globs,
+absolute roots, and ambiguous path resolution fail closed. A path that maps
+to no domain is `unclassified`; it is not ordinary self-admission material.
+Read/discovery may cross any domain to inspect callers, consumers, contracts,
+or root cause, but read access never becomes write authority. A write outside
+the task envelope is a hard `MUTATION_AUTHORITY_EXPANSION_REQUIRED` decision,
+not a generic v1 scope failure.
+
+Each v2 implementation step carries `planned_mutation_targets`. These targets
+are guidance for initial direction and planned-vs-actual review; they are not a
+second hard writable-file allowlist. A target outside that planned footprint
+but inside the task envelope may be admitted when the coding model first
+records a blast-radius assessment containing:
+
+```yaml
+target: {path: src/internal/state.ts, symbol: normalizeState}
+reason: <why the target is needed>
+blast_radius:
+  locality: local | elevated | high
+  visibility: private | shared | public | unknown
+  cross_component_consumers: none | present | unknown
+  contract_impact: none | possible | known
+evidence_refs: [<evidence>]
+disposition: self-admit | escalate
+```
+
+The Agent owns the semantic judgment; Runtime owns path/domain resolution,
+explicit Forbidden and governance boundaries, assessment structure and
+binding, first-touch before-state, cumulative audit and review coverage. The
+Runtime does not claim to decide whether a shared function is business-correct
+and does not use caller-count thresholds. Prefer the smallest correct local
+change. A broader shared implementation change needs evidence that the local
+alternative would be incorrect, duplicative, or contract-breaking, plus
+consumer/regression validation. Uncertain or multiply plausible directions
+escalate to the user; a high-risk change can still be self-admitted when the
+evidence is sufficient.
+
+Every unplanned self-admission sets `dynamic_review_required` and requires a
+fresh cumulative review before completion. If discovery occurs after another
+path in the same attempt has been touched, `execute-step:extend-preflight`
+captures the new target's before-state and returns a replacement receipt. It
+keeps task, step, attempt and plan identity; it does not consume retry budget,
+create a continuation, or revise the plan. The latest receipt must feed
+`record-step-result`. Existing test files inside the envelope follow ordinary
+expansion but require oracle/reuse/boundary assessment. An absent new
+persistent test still requires the full P-12 owner/claim/basis/insufficiency/
+assertion-boundary/failure-disposition admission.
+
+Legacy tasks with a missing or version-1 authority marker retain the existing
+`Allowed` / `Conditional` / `Forbidden` plus step-hard-scope semantics. v1 is
+not silently converted into a domain map. True authority changes (for example
+Node → Rust or a new cross-domain exact exception) use the existing immutable
+scope-amendment candidate and continuation route; same-domain implementation
+discovery does not.
+
+P-13 still covers every repo-local write, including tracked, untracked,
+ignored, generated, build, cache, temporary, and helper output. `.gitignore`
+is not a scope exemption. Before a known write-capable command executes, its
+bounded `expected_write_footprint` is admitted through the canonical v1/v2
 evaluator; an unbounded footprint is blocked before execution. Afterward,
-caller-supplied `observed_write_paths` are evaluated by that same evaluator,
-and an unauthorized observation remains blocked even if cleanup removes the
-file. A final Git diff is evidence only, not the write oracle. Without an
+caller-supplied `observed_write_paths` are evaluated by the same structural
+guard, and an unauthorized observation remains blocked even if cleanup removes
+the file. A final Git diff is evidence only, not the write oracle. Without an
 OS-level filesystem monitor, the Runtime does not claim complete proof of
 transient create/delete history.
 
 ### P-14 — One task, admitted steps, and risk-based review checkpoints
 
-A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each step executes only after admission of its bounded mutation scope and required evidence. Review is placed at logical or risk boundaries rather than after every step; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
+A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each v1 step executes only after admission of its bounded mutation scope; each v2 step executes inside the task authority envelope with its planned footprint as guidance, and both require the declared evidence. Review is placed at logical or risk boundaries rather than after every step; any v2 self-admitted footprint expansion adds a mandatory cumulative review even when the ordinary checkpoint is `not-required`; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / dynamic review / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
 
 ## 4. Recommended exposure model
 
@@ -416,8 +488,8 @@ prepare-task
 execute-step(current admitted step)
   → read wider context when needed, write only admitted scope
   → minimum-sufficient evidence
-      ├─ no checkpoint → durable advancement to the next admitted step
-      └─ checkpoint / final review → review-change
+      ├─ no required checkpoint and no dynamic expansion → durable advancement to the next admitted step
+      └─ required checkpoint / final review / v2 dynamic expansion → review-change
           ├─ clean → durable advancement
           └─ admitted finding → execute-step:repair
                                 → review-change verification
@@ -495,13 +567,15 @@ Review never writes code or governance state. `governed_mutation_count` covers p
 
 ### 7.4 Review checkpoint policy
 
-`review-change` is invoked at a required review checkpoint, at final review when
-the task policy requires it, or for repair verification. It is not invoked merely
-because a step exists. Checkpoints are favored for contract / API, data model /
-schema, IPC / protocol, lifecycle / ownership / state-machine, security /
-permission, destructive or high-risk, release / rollback, major UI behavior,
-broad propagation, and task-specific critical-invariant boundaries. Low-risk
-mechanical steps may continue after minimum evidence without a full review.
+`review-change` is invoked at a required review checkpoint, for a v2 dynamic
+footprint expansion, at final review when the task policy requires it, or for
+repair verification. It is not invoked merely because a step exists. Checkpoints
+are favored for contract / API, data model / schema, IPC / protocol, lifecycle /
+ownership / state-machine, security / permission, destructive or high-risk,
+release / rollback, major UI behavior, broad propagation, and task-specific
+critical-invariant boundaries. Low-risk mechanical steps may continue after
+minimum evidence without a full review only when no dynamic expansion is
+pending.
 
 This policy changes review timing, not the read-only boundary or the existing
 `discovery` / `verification` cycle phases. In particular, repair verification

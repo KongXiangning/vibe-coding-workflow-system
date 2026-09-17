@@ -69,6 +69,19 @@ import {
   type TaskStepResolution,
 } from './task-steps';
 import {
+  MUTATION_AUTHORITY_VERSION,
+  MutationAuthorityError,
+  authorityDomainForPath,
+  evaluateMutationAuthority,
+  normalizeBlastRadiusAssessments,
+  normalizeAuthorityPath,
+  normalizeTaskMutationAuthority,
+  readProjectMutationAuthority,
+  validateTaskMutationAuthority,
+  type BlastRadiusAssessment,
+  type TaskMutationAuthority,
+} from './mutation-authority';
+import {
   BOOTSTRAP_MODES,
   BOOTSTRAP_OPERATION_KINDS,
   type BootstrapMode,
@@ -85,6 +98,7 @@ import type {
 } from '../../../scripts/project-context-resolver';
 
 export * from './mutation-scope';
+export * from './mutation-authority';
 export * from './status-schema';
 
 export const VNEXT_RUNTIME_SCHEMA_VERSION = 1 as const;
@@ -161,6 +175,8 @@ const RUNTIME_STATE_FIELDS = [
   'evidence_challenges',
   'evidence_carry_forward',
   'artifact_checkpoint_ids',
+  'dynamic_review_required',
+  'dynamic_expansions',
 ] as const;
 const REVIEW_CYCLE_FIELDS = [
   'id',
@@ -319,6 +335,8 @@ export type ReplanReplacementDefinition = {
   design_constraints: string | null;
   post_release_validation: string | null;
   propagation_governance: string | null;
+  mutation_authority_version?: typeof MUTATION_AUTHORITY_VERSION;
+  mutation_authority?: TaskMutationAuthority;
 };
 
 export type DraftTaskDefinition = ReplanReplacementDefinition;
@@ -527,6 +545,14 @@ export type ReviewCoverage = {
   pending_paths: string[]; last_clean_revision: string | null;
 };
 
+export type MutationAuthorityExpansion = {
+  path: string;
+  domain: string | null;
+  assessment: BlastRadiusAssessment;
+  first_touch_state: 'file' | 'absent';
+  admitted_at: string;
+};
+
 export type PendingReviewResult = {
   test_assessment?: TestAssessment;
   kind: 'review-result/v1';
@@ -644,7 +670,23 @@ export type TaskStateDelta =
       evidence_refs: string[];
     }
   | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; repair_diagnosis?: StepRepairDiagnosis; evidence_refs: string[] }
-  | { kind: 'task-state'; action: 'record-step-preflight'; step_id: string; candidate_paths: string[]; evidence_refs: string[] }
+  | {
+      kind: 'task-state';
+      action: 'record-step-preflight';
+      step_id: string;
+      candidate_paths: string[];
+      evidence_refs: string[];
+      blast_radius_assessments?: BlastRadiusAssessment[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'extend-preflight';
+      step_id: string;
+      current_preflight_id: string;
+      additional_targets: string[];
+      blast_radius_assessments: BlastRadiusAssessment[];
+      evidence_refs: string[];
+    }
   | {
       kind: 'task-state';
       action: 'create-draft' | 'update-draft';
@@ -1230,6 +1272,9 @@ export type RuntimeState = {
   evidence_challenges?: EvidenceChallenge[];
   evidence_carry_forward?: EvidenceCarryForward[];
   artifact_checkpoint_ids?: string[];
+  /** True while an in-envelope footprint expansion still needs clean review. */
+  dynamic_review_required?: boolean;
+  dynamic_expansions?: MutationAuthorityExpansion[];
 };
 
 export type CurrentTaskStoreBinding = {
@@ -1250,6 +1295,7 @@ export type CanonicalCurrentTask = {
   frontmatter: AnyRecord;
   body: string;
   runtimeState: RuntimeState;
+  mutationAuthority: TaskMutationAuthority | null;
   sourceTuple: RuntimeSourceTuple;
 };
 
@@ -1584,6 +1630,31 @@ function validateReviewCoverage(value: unknown): ReviewCoverage {
   return {change_set_id:expectString(source.change_set_id, 'review_coverage.change_set_id', SAFE_KEY_PATTERN),base,target,preimages,pending_paths:pending,last_clean_revision:source.last_clean_revision === null ? null : expectString(source.last_clean_revision, 'last_clean_revision', /^[a-f0-9]{64}$/u)};
 }
 
+function validateDynamicExpansions(value: unknown): MutationAuthorityExpansion[] {
+  if (!Array.isArray(value) || value.length > 256) fail('RUNTIME_SCHEMA_INVALID', 'dynamic_expansions must be a bounded array.');
+  const expansions = value.map((raw, index) => {
+    const item = expectRecord(raw, `dynamic_expansions[${index}]`);
+    expectExactKeys(item, ['path', 'domain', 'assessment', 'first_touch_state', 'admitted_at'], `dynamic_expansions[${index}]`);
+    let assessment: BlastRadiusAssessment;
+    try {
+      assessment = normalizeBlastRadiusAssessments([item.assessment])[0]!;
+    } catch (error) {
+      fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error));
+    }
+    const target = normalizeAuthorityPath(item.path, `dynamic_expansions[${index}].path`);
+    if (assessment.target.path !== target) fail('RUNTIME_SCHEMA_INVALID', `dynamic_expansions[${index}] assessment target must match path.`);
+    return {
+      path: target,
+      domain: item.domain === null ? null : expectString(item.domain, `dynamic_expansions[${index}].domain`, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
+      assessment,
+      first_touch_state: expectEnum(item.first_touch_state, ['file', 'absent'], `dynamic_expansions[${index}].first_touch_state`),
+      admitted_at: expectString(item.admitted_at, `dynamic_expansions[${index}].admitted_at`),
+    };
+  });
+  if (new Set(expansions.map(item => item.path)).size !== expansions.length) fail('RUNTIME_SCHEMA_INVALID', 'dynamic_expansions paths must be unique.');
+  return expansions;
+}
+
 function registerReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverage {
   const old = current.runtimeState.review_coverage;
   if (old && captureReviewTarget(root, old.target.entries.map(e => e.path)).revision !== old.target.revision) fail('REVIEW_TARGET_STALE', 'Unrecorded changes cannot refresh the cumulative review target.');
@@ -1594,6 +1665,80 @@ function registerReviewCoverage(root: string, current: CanonicalCurrentTask, pat
     return {...entry,content_base64:content?.toString('base64') ?? null};
   })].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   return validateReviewCoverage({change_set_id:old?.change_set_id ?? `change-set-${digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision}).slice(0,32)}`,base:manifest(preimages.map(({content_base64,...entry}) => entry)),target:manifest([...(old?.target.entries ?? []),...added.entries]),preimages,pending_paths:old?.pending_paths ?? [],last_clean_revision:old?.last_clean_revision ?? null});
+}
+
+/**
+ * Extension is an explicit same-attempt operation.  It may observe an
+ * already-modified initial target, but it captures the newly discovered
+ * target before that target is allowed to be touched.  The ordinary
+ * registration path intentionally remains strict about stale in-flight
+ * changes.
+ */
+function extendReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverage {
+  const old = current.runtimeState.review_coverage;
+  if (!old) fail('EXECUTE_PREFLIGHT_REQUIRED', 'extend-preflight requires an existing recorded preflight.');
+  const newPaths = paths.filter(p => !old.base.entries.some(entry => entry.path === p));
+  const added = captureReviewTarget(root, newPaths);
+  const preimages = [...old.preimages, ...added.entries.map(entry => {
+    const absolute = path.resolve(root, entry.path);
+    const content = entry.state === 'absent' ? null : entry.state === 'symlink' ? Buffer.from(fs.readlinkSync(absolute)) : fs.readFileSync(absolute);
+    return { ...entry, content_base64: content?.toString('base64') ?? null };
+  })].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  // Existing target entries are the before-state registered by the original
+  // preflight.  They must remain immutable even when the model has already
+  // edited one of those files before discovering the new path.  Only the
+  // newly discovered paths are captured at extension time, before their first
+  // mutation.
+  const target = manifest([...old.target.entries, ...added.entries]);
+  return validateReviewCoverage({
+    change_set_id: old.change_set_id,
+    base: manifest(preimages.map(({ content_base64: _content, ...entry }) => entry)),
+    target,
+    preimages,
+    pending_paths: old.pending_paths,
+    last_clean_revision: null,
+  });
+}
+
+function v2StepPlannedTargets(current: CanonicalCurrentTask): string[] {
+  const step = resolveCanonicalTaskStep(current).current;
+  const raw = step.planned_mutation_targets ?? step.mutation_scope;
+  if (!raw) fail('TASK_STEP_METADATA_INCOMPLETE', `step ${step.id} is missing planned_mutation_targets.`);
+  return raw.split(',').map((value, index) => {
+    const cleaned = value.trim().replace(/^`|`$/gu, '');
+    try {
+      return normalizeAuthorityPath(cleaned, `step ${step.id}.planned_mutation_targets[${index}]`, true);
+    } catch (error) {
+      if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+      throw error;
+    }
+  }).filter(Boolean);
+}
+
+function evaluateTaskAuthorityPaths(
+  root: string,
+  current: CanonicalCurrentTask,
+  paths: readonly string[],
+  assessments: readonly BlastRadiusAssessment[] = [],
+): ReturnType<typeof evaluateMutationAuthority> | null {
+  if (!current.mutationAuthority) return null;
+  let project: ReturnType<typeof readProjectMutationAuthority>;
+  try { project = readProjectMutationAuthority(root); }
+  catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+  if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 tasks require PROJECT_PROFILE.yaml.mutation_authority.domains.');
+  const stored = current.runtimeState.dynamic_expansions?.map(item => item.assessment) ?? [];
+  const mergedAssessments = [...stored, ...assessments].filter((item, index, values) => values.findIndex(other => other.target.path === item.target.path) === index);
+  let persistentTests: string[] = [];
+  try { persistentTests = readPersistentTestPaths(readDraftDefinitionFromBody(current.body)); } catch { /* schema validation reports the canonical error elsewhere */ }
+  return evaluateMutationAuthority({
+    root,
+    project,
+    task: current.mutationAuthority,
+    candidate_paths: paths,
+    planned_targets: v2StepPlannedTargets(current),
+    assessments: mergedAssessments,
+    persistent_test_paths: persistentTests,
+  });
 }
 
 export function cumulativeReviewExecution(current: CanonicalCurrentTask, execution: StepExecutionLogEntry): StepExecutionLogEntry {
@@ -1793,7 +1938,7 @@ function validateTaskContextContract(value: unknown): void {
   const projection = expectRecord(context.projection, 'Runtime contract.task_context.projection');
   expectExactKeys(projection, ['default', 'required_blocks', 'review_requires_cumulative_target', 'forbidden_expansions'], 'Runtime contract.task_context.projection');
   if (projection.default !== 'task-context' || projection.review_requires_cumulative_target !== true) fail('RUNTIME_CONTRACT_INVALID', 'task_context projection must use the shared bounded projector and cumulative review target.');
-  expectSetEqual(expectStringArray(projection.required_blocks, 'Runtime contract.task_context.projection.required_blocks'), ['current-definition-or-visible-definition-revision', 'current-step', 'unfinished-obligations', 'required-dependencies', 'unknown-dependencies', 'global-gates', 'latest-execution'], 'task context required blocks');
+  expectSetEqual(expectStringArray(projection.required_blocks, 'Runtime contract.task_context.projection.required_blocks'), ['current-definition-or-visible-definition-revision', 'current-step', 'mutation-authority', 'unfinished-obligations', 'required-dependencies', 'unknown-dependencies', 'global-gates', 'latest-execution'], 'task context required blocks');
   expectSetEqual(expectStringArray(projection.forbidden_expansions, 'Runtime contract.task_context.projection.forbidden_expansions'), ['raw-runtime-state', 'unbounded-execution-log', 'unbounded-applied-proposals'], 'task context forbidden expansions');
   const paging = expectRecord(context.paging, 'Runtime contract.task_context.paging');
   expectExactKeys(paging, ['unit', 'default_bytes', 'min_bytes', 'max_bytes', 'required_fields', 'stale_binding'], 'Runtime contract.task_context.paging');
@@ -1897,7 +2042,7 @@ function validateBootstrapRuntimeContract(value: unknown): string[] {
 export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
   const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'mutation_authority', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
   if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
   }
@@ -1935,10 +2080,10 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime contract finding-queue admission fields',
   );
   const taskStateContract = expectRecord(proposal.task_state, 'Runtime contract.proposal.task_state');
-  expectExactKeys(taskStateContract, ['actions', 'retry_step', 'step_progress', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
+  expectExactKeys(taskStateContract, ['actions', 'retry_step', 'step_progress', 'preflight', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
   expectSetEqual(
     expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
-    ['retry-step', 'record-step-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
+    ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
     'Runtime contract task-state actions',
   );
   const retryContract = expectRecord(taskStateContract.retry_step, 'Runtime contract.proposal.task_state.retry_step');
@@ -1956,6 +2101,33 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'change_set_id', 'review_receipt', 'claim_evidence', 'execution_result'],
     'Runtime contract task-state optional fields',
   );
+  const preflightContract = expectRecord(taskStateContract.preflight, 'Runtime contract.proposal.task_state.preflight');
+  expectExactKeys(preflightContract, ['initial', 'extension'], 'Runtime contract.proposal.task_state.preflight');
+  const initialPreflight = expectRecord(preflightContract.initial, 'Runtime contract.proposal.task_state.preflight.initial');
+  expectExactKeys(initialPreflight, ['action', 'planned_footprint', 'in_envelope_unplanned', 'outside_envelope', 'first_touch'], 'Runtime contract.proposal.task_state.preflight.initial');
+  if (initialPreflight.action !== 'record-step-preflight'
+    || initialPreflight.planned_footprint !== 'normal-admission'
+    || initialPreflight.in_envelope_unplanned !== 'blast-radius-assessment-and-self-admit'
+    || initialPreflight.outside_envelope !== 'MUTATION_AUTHORITY_EXPANSION_REQUIRED'
+    || initialPreflight.first_touch !== 'runtime-captured-before-state') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime initial preflight authority semantics are invalid.');
+  }
+  const extensionPreflight = expectRecord(preflightContract.extension, 'Runtime contract.proposal.task_state.preflight.extension');
+  expectExactKeys(extensionPreflight, ['action', 'required', 'same_attempt', 'plan_revision_change', 'retry_budget_change', 'continuation', 'replacement_receipt', 'review'], 'Runtime contract.proposal.task_state.preflight.extension');
+  expectSetEqual(
+    expectStringArray(extensionPreflight.required, 'Runtime contract.proposal.task_state.preflight.extension.required'),
+    ['current_preflight_id', 'additional_targets', 'blast_radius_assessments', 'evidence_refs'],
+    'Runtime extend-preflight required fields',
+  );
+  if (extensionPreflight.action !== 'extend-preflight'
+    || extensionPreflight.same_attempt !== true
+    || extensionPreflight.plan_revision_change !== 'forbidden'
+    || extensionPreflight.retry_budget_change !== 'forbidden'
+    || extensionPreflight.continuation !== 'forbidden'
+    || extensionPreflight.replacement_receipt !== 'required'
+    || extensionPreflight.review !== 'cumulative-review-required-for-self-admitted-expansion') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime extend-preflight semantics are invalid.');
+  }
   const claimEvidenceContract = expectRecord(taskStateContract.claim_evidence, 'Runtime contract.proposal.task_state.claim_evidence');
   expectExactKeys(claimEvidenceContract, ['stored_in', 'record_fields', 'slot_fields', 'complete_dispositions', 'incomplete_dispositions', 'completion_rule'], 'Runtime contract.proposal.task_state.claim_evidence');
   if (claimEvidenceContract.stored_in !== 'canonical CURRENT_TASK.runtime_state') {
@@ -2106,7 +2278,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (executeStepAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter input must remain stdin-json.');
   expectSetEqual(
     expectStringArray(executeStepAdapter.commands, 'Runtime contract.proposal.execute_step.semantic_adapter.commands'),
-    ['preflight-step', 'evidence-context', 'retry-step', 'begin-repair', 'record-step-result', 'complete-reviewed-step'],
+    ['preflight-step', 'extend-preflight', 'evidence-context', 'retry-step', 'begin-repair', 'record-step-result', 'complete-reviewed-step'],
     'Runtime contract execute-step adapter commands',
   );
   const testStrategyExecution = expectRecord(
@@ -2134,9 +2306,9 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(expectStringArray(redEvidence.forbidden_statuses, 'Runtime contract execute-step red forbidden statuses'), ['failed', 'blocked', 'not-run'], 'Runtime contract execute-step red forbidden statuses');
   if (
     executeStepAdapter.step_source !== 'confirmed-current-task'
-    || executeStepAdapter.scope_enforcement !== 'task-and-current-step'
+    || executeStepAdapter.scope_enforcement !== 'task-authority-envelope-with-v1-step-compatibility'
     || executeStepAdapter.command_plan_source !== 'confirmed-current-step'
-    || executeStepAdapter.persistent_tests_enforcement !== 'frozen-section-plus-scope-evaluator'
+    || executeStepAdapter.persistent_tests_enforcement !== 'frozen-section-plus-authority-evaluator-existing-test-distinction'
     || executeStepAdapter.completion_evidence_source !== 'recorded-step-result-only'
     || executeStepAdapter.change_detection !== 'runtime-preflight-candidate-before-after-delta'
     || executeStepAdapter.proposal_file_policy !== 'project-external-only'
@@ -2161,7 +2333,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   expectSetEqual(
     expectStringArray(executeStepContract.bound_actions, 'Runtime contract.proposal.execute_step.bound_actions'),
-    ['admit', 'retry-step', 'record-step-preflight', 'step-progress', 'record-repair-attempt', 'resolve'],
+    ['admit', 'retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'record-repair-attempt', 'resolve'],
     'Runtime contract execute-step adapter bound actions',
   );
   const reviewChangeContract = expectRecord(proposal.review_change, 'Runtime contract.proposal.review_change');
@@ -2171,7 +2343,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (
     reviewChangeAdapter.input !== 'stdin-json'
     || reviewChangeAdapter.context_source !== 'latest-recorded-execution'
-    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification'
+    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification'
     || reviewChangeAdapter.change_set !== 'runtime-owned-stable-id'
     || reviewChangeAdapter.review_target !== 'runtime-cumulative-before-after-file-delta'
     || reviewChangeAdapter.result_storage !== 'canonical-pending-review-result'
@@ -2212,7 +2384,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   expectSetEqual(
     expectStringArray(prepareTaskAdapter.draft_fields, 'Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields'),
-    ['task_basis', 'goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_scope', 'test_strategy', 'implementation_steps', 'validation_plan', 'persistent_tests'],
+    ['task_basis', 'goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_authority_version', 'mutation_authority', 'planned_mutation_targets', 'test_strategy', 'implementation_steps', 'validation_plan', 'persistent_tests'],
     'Runtime contract prepare-task adapter semantic fields',
   );
   expectSetEqual(expectStringArray(prepareTaskAdapter.optional_draft_fields, 'prepare-task optional fields'), ['project_documents', 'affected_contracts'], 'prepare-task optional fields');
@@ -2228,7 +2400,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectExactKeys(commandFootprintPreflight, ['source', 'fields', 'evaluator', 'timing'], 'Runtime contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight');
   if (
     commandFootprintPreflight.source !== 'implementation_steps[].commands'
-    || commandFootprintPreflight.evaluator !== 'shared-mutation-scope-evaluator'
+    || commandFootprintPreflight.evaluator !== 'shared-mutation-scope-evaluator-and-v2-authority-evaluator'
     || commandFootprintPreflight.timing !== 'before-draft-commit'
   ) {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter command-footprint preflight is not bound to declared step commands before draft commit.');
@@ -2315,7 +2487,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   ) {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task test-strategy classification, precedence, or freeze boundary is invalid.');
   }
-  if (prepareTaskAdapter.persistent_tests_enforcement !== 'frozen-section-plus-scope-evaluator') {
+  if (prepareTaskAdapter.persistent_tests_enforcement !== 'frozen-section-plus-authority-evaluator-existing-test-distinction') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task persistent tests must be enforced by the frozen section and scope evaluator.');
   }
   if (prepareTaskAdapter.proposal_file_policy !== 'project-external-only') {
@@ -2555,15 +2727,51 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['no-os-level-transient-write-history-proof'],
     'Runtime command write observation limitations',
   );
+  const mutationAuthorityContract = expectRecord(contract.mutation_authority, 'Runtime contract.mutation_authority');
+  expectExactKeys(
+    mutationAuthorityContract,
+    ['version', 'status', 'project_profile', 'project_domain_fields', 'task_fields', 'root_grammar', 'path_resolution', 'ambiguous_domain_behavior', 'unclassified_behavior', 'read_discovery_behavior', 'planned_footprint_behavior', 'in_envelope_expansion', 'forbidden_precedence', 'assessment_fields', 'dynamic_review', 'cross_envelope_error', 'extension_action', 'authority_amendment', 'existing_test_behavior', 'new_persistent_test_behavior', 'legacy_behavior'],
+    'Runtime contract.mutation_authority',
+  );
+  if (
+    mutationAuthorityContract.version !== 2
+    || mutationAuthorityContract.status !== 'bound'
+    || mutationAuthorityContract.project_profile !== '.workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains'
+    || mutationAuthorityContract.root_grammar !== 'bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar'
+    || mutationAuthorityContract.path_resolution !== 'path-to-one-domain-or-unclassified'
+    || mutationAuthorityContract.ambiguous_domain_behavior !== 'fail-closed'
+    || mutationAuthorityContract.unclassified_behavior !== 'write-blocked-unless-exact-exception'
+    || mutationAuthorityContract.read_discovery_behavior !== 'allowed-outside-envelope-but-never-write-authority'
+    || mutationAuthorityContract.planned_footprint_behavior !== 'guidance-only-and-not-an-independent-authority-boundary'
+    || mutationAuthorityContract.in_envelope_expansion !== 'blast-radius-assessment-and-self-admit-or-escalate'
+    || mutationAuthorityContract.forbidden_precedence !== 'explicit-forbidden-before-envelope-admission'
+    || mutationAuthorityContract.dynamic_review !== 'mandatory-cumulative-review-for-self-admitted-expansion'
+    || mutationAuthorityContract.cross_envelope_error !== 'MUTATION_AUTHORITY_EXPANSION_REQUIRED'
+    || mutationAuthorityContract.extension_action !== 'execute-step:extend-preflight'
+    || mutationAuthorityContract.authority_amendment !== 'prepare-task:amend-scope-with-explicit-user-authorization'
+    || mutationAuthorityContract.existing_test_behavior !== 'existing-in-envelope-test-is-ordinary-expansion-with-review'
+    || mutationAuthorityContract.new_persistent_test_behavior !== 'absent-test-requires-p-12-admission'
+    || mutationAuthorityContract.legacy_behavior !== 'missing-or-version-1-retains-v1-exact-step-scope-semantics'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime Mutation Authority v2 contract semantics are invalid.');
+  }
+  expectSetEqual(expectStringArray(mutationAuthorityContract.project_domain_fields, 'Runtime mutation authority project domain fields'), ['id', 'roots'], 'Runtime mutation authority project domain fields');
+  expectSetEqual(expectStringArray(mutationAuthorityContract.task_fields, 'Runtime mutation authority task fields'), ['mutation_authority_version', 'domains', 'exact_exceptions', 'forbidden'], 'Runtime mutation authority task fields');
+  expectSetEqual(expectStringArray(mutationAuthorityContract.assessment_fields, 'Runtime mutation authority assessment fields'), ['target', 'reason', 'blast_radius', 'evidence_refs', 'disposition'], 'Runtime mutation authority assessment fields');
   const canonical = expectRecord(contract.canonical_current_task, 'Runtime contract.canonical_current_task');
   expectExactKeys(canonical, ['frontmatter', 'runtime_state', 'source_of_truth', 'legacy_schema_behavior'], 'Runtime contract.canonical_current_task');
   const frontmatter = expectRecord(canonical.frontmatter, 'Runtime contract.canonical_current_task.frontmatter');
-  expectExactKeys(frontmatter, ['schema_version', 'kind', 'required'], 'Runtime contract.canonical_current_task.frontmatter');
+  expectExactKeys(frontmatter, ['schema_version', 'kind', 'required', 'optional'], 'Runtime contract.canonical_current_task.frontmatter');
   if (frontmatter.schema_version !== 1 || frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract current-task frontmatter marker is invalid.');
   expectSetEqual(
     expectStringArray(frontmatter.required, 'Runtime contract.canonical_current_task.frontmatter.required'),
     ['document_id', 'runtime_state'],
     'Runtime contract current-task frontmatter',
+  );
+  expectSetEqual(
+    expectStringArray(frontmatter.optional, 'Runtime contract.canonical_current_task.frontmatter.optional', true),
+    ['mutation_authority_version', 'mutation_authority'],
+    'Runtime current-task authority frontmatter fields',
   );
   const runtimeState = expectRecord(canonical.runtime_state, 'Runtime contract.canonical_current_task.runtime_state');
   expectExactKeys(runtimeState, ['schema_version', 'kind', 'fields', 'review_cycle'], 'Runtime contract.canonical_current_task.runtime_state');
@@ -3598,7 +3806,12 @@ function validatePartialDiffDisposition(value: unknown, location: string): Parti
 
 function validateReplanReplacementDefinition(value: unknown, location: string): ReplanReplacementDefinition {
   const record = expectRecord(value, location);
-  expectExactKeys(record, REPLAN_REPLACEMENT_FIELDS, location);
+  const hasAuthorityVersion = 'mutation_authority_version' in record;
+  const hasAuthority = 'mutation_authority' in record;
+  if (hasAuthorityVersion !== hasAuthority) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${location} must provide mutation_authority_version and mutation_authority together.`);
+  }
+  expectExactKeys(record, [...REPLAN_REPLACEMENT_FIELDS, ...(hasAuthority ? ['mutation_authority_version', 'mutation_authority'] : [])], location);
   const result = {} as ReplanReplacementDefinition;
   for (const field of REPLAN_REPLACEMENT_FIELDS) {
     const raw = record[field];
@@ -3612,8 +3825,72 @@ function validateReplanReplacementDefinition(value: unknown, location: string): 
       `${location}.${field}`,
     );
   }
+  if (hasAuthority) {
+    try {
+      if (record.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+        fail('MUTATION_AUTHORITY_VERSION_UNSUPPORTED', `${location}.mutation_authority_version must be 2.`);
+      }
+      result.mutation_authority_version = MUTATION_AUTHORITY_VERSION;
+      result.mutation_authority = normalizeTaskMutationAuthority(record.mutation_authority);
+    } catch (error) {
+      if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+      throw error;
+    }
+  }
   readProjectDocuments(result.background_context);
   return result;
+}
+
+const MUTATION_AUTHORITY_SECTION_ALIASES = ['Mutation Authority', '变更权限边界'] as const;
+
+function renderMutationAuthoritySectionContent(authority: TaskMutationAuthority): string {
+  return [
+    '- mutation_authority_version: 2',
+    `- domains: ${authority.domains.length > 0 ? authority.domains.join(', ') : 'none'}`,
+    `- exact_exceptions: ${authority.exact_exceptions.length > 0 ? authority.exact_exceptions.join(', ') : 'none'}`,
+    `- forbidden: ${authority.forbidden.length > 0 ? authority.forbidden.join(', ') : 'none'}`,
+  ].join('\n');
+}
+
+function parseMutationAuthoritySection(body: string): Pick<ReplanReplacementDefinition, 'mutation_authority_version' | 'mutation_authority'> | null {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(body), MUTATION_AUTHORITY_SECTION_ALIASES, 2);
+  if (!section) return null;
+  const values = new Map<string, string>();
+  for (const line of body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').split('\n')) {
+    const match = /^\s*-\s+([a-z_]+):\s*(.*?)\s*$/u.exec(line);
+    if (!match) continue;
+    if (values.has(match[1]!)) fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `CURRENT_TASK Mutation Authority section repeats ${match[1]}.`);
+    values.set(match[1]!, match[2]!);
+  }
+  const expectedKeys = ['mutation_authority_version', 'domains', 'exact_exceptions', 'forbidden'];
+  const unexpected = [...values.keys()].filter(key => !expectedKeys.includes(key));
+  const missing = expectedKeys.filter(key => !values.has(key));
+  if (missing.length > 0 || unexpected.length > 0) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `CURRENT_TASK Mutation Authority section keys mismatch; missing=[${missing.join(', ')}], unexpected=[${unexpected.join(', ')}].`);
+  }
+  if (values.get('mutation_authority_version') !== '2') {
+    fail('MUTATION_AUTHORITY_VERSION_UNSUPPORTED', 'CURRENT_TASK Mutation Authority section must declare mutation_authority_version: 2.');
+  }
+  const parseList = (key: string): string[] => {
+    const raw = values.get(key);
+    if (raw === undefined) fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `CURRENT_TASK Mutation Authority section is missing ${key}.`);
+    if (!raw || raw.toLowerCase() === 'none') return [];
+    return raw.split(',').map(item => item.trim()).filter(Boolean);
+  };
+  const authority = {
+    domains: parseList('domains'),
+    exact_exceptions: parseList('exact_exceptions'),
+    forbidden: parseList('forbidden'),
+  };
+  try {
+    return {
+      mutation_authority_version: MUTATION_AUTHORITY_VERSION,
+      mutation_authority: normalizeTaskMutationAuthority(authority),
+    };
+  } catch (error) {
+    if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+    throw error;
+  }
 }
 
 function testStrategySection(markdown: string, aliases: readonly string[], location: string): string {
@@ -4044,7 +4321,8 @@ export function assertReviewExecutionEligible(
 
   const checkpoint = effectiveCheckpointPolicy(resolveCanonicalTaskStep(current));
   if (execution.mode === 'default') {
-    if (checkpoint !== 'required') {
+    const dynamicReview = current.runtimeState.dynamic_review_required === true;
+    if (checkpoint !== 'required' && !dynamicReview) {
       fail('REVIEW_CHECKPOINT_NOT_REQUIRED', 'the current step does not admit a review checkpoint.');
     }
     if (execution.status !== 'in-progress'
@@ -4065,7 +4343,7 @@ export function assertReviewExecutionEligible(
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
-  const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'], 'semantic_delta.action');
+  const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'], 'semantic_delta.action');
   if (action === 'consume-retained-review') {
     expectExactKeys(record, ['kind', 'action', 'step_id', 'review_receipt', 'evidence_refs'], 'consume-retained-review');
     return {
@@ -4081,8 +4359,29 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     return {kind,action,step_id:expectString(record.step_id,'step_id',STEP_ID_PATTERN),blocked_attempt_id:expectString(record.blocked_attempt_id,'blocked_attempt_id',SAFE_KEY_PATTERN),blocker_resolution_refs:validateEvidenceRefs(record.blocker_resolution_refs,'blocker_resolution_refs'),...(record.repair_diagnosis === undefined ? {} : {repair_diagnosis:validateStepRepairDiagnosis(record.repair_diagnosis)}),evidence_refs:validateEvidenceRefs(record.evidence_refs,'evidence_refs')};
   }
   if (action === 'record-step-preflight') {
-    expectExactKeys(record, ['kind', 'action', 'step_id', 'candidate_paths', 'evidence_refs'], 'semantic_delta');
-    return { kind, action, step_id: expectString(record.step_id, 'step_id', STEP_ID_PATTERN), candidate_paths: expectStringArray(record.candidate_paths, 'candidate_paths', true, 256).map(p => normalizeRepoPath(p, 'candidate_paths')), evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs') };
+    expectExactKeys(record, ['kind', 'action', 'step_id', 'candidate_paths', 'evidence_refs', ...(record.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments'])], 'semantic_delta');
+    let assessments: BlastRadiusAssessment[] | undefined;
+    if (record.blast_radius_assessments !== undefined) {
+      try { assessments = normalizeBlastRadiusAssessments(record.blast_radius_assessments); }
+      catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error)); }
+    }
+    return { kind, action, step_id: expectString(record.step_id, 'step_id', STEP_ID_PATTERN), candidate_paths: expectStringArray(record.candidate_paths, 'candidate_paths', true, 256).map(p => normalizeRepoPath(p, 'candidate_paths')), evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs'), ...(assessments === undefined ? {} : { blast_radius_assessments: assessments }) };
+  }
+  if (action === 'extend-preflight') {
+    expectExactKeys(record, ['kind', 'action', 'step_id', 'current_preflight_id', 'additional_targets', 'blast_radius_assessments', 'evidence_refs'], 'semantic_delta');
+    let assessments: BlastRadiusAssessment[];
+    try { assessments = normalizeBlastRadiusAssessments(record.blast_radius_assessments); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error)); }
+    const additionalTargets = expectStringArray(record.additional_targets, 'additional_targets', false, 256).map(p => normalizeRepoPath(p, 'additional_targets'));
+    return {
+      kind,
+      action,
+      step_id: expectString(record.step_id, 'step_id', STEP_ID_PATTERN),
+      current_preflight_id: expectString(record.current_preflight_id, 'current_preflight_id', SAFE_KEY_PATTERN),
+      additional_targets: additionalTargets,
+      blast_radius_assessments: assessments,
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs'),
+    };
   }
   if (action === 'create-draft' || action === 'update-draft') {
     const allowedKeys = ['kind', 'action', 'task_id', 'task_slug', 'document_id', 'task_title', 'task_basis', 'draft_definition', 'active_step_id', 'evidence_refs', 'claim_evidence'];
@@ -5018,7 +5317,7 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
       }
     } else if (caller === 'execute-step') {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
-      if (semanticDelta.kind !== 'task-state' || !['step-progress', 'consume-retained-review', 'record-step-preflight', 'retry-step'].includes(semanticDelta.action)) fail('RUNTIME_MODE_INVALID', 'execute-step requires an execution task-state delta.');
+      if (semanticDelta.kind !== 'task-state' || !['step-progress', 'consume-retained-review', 'record-step-preflight', 'extend-preflight', 'retry-step'].includes(semanticDelta.action)) fail('RUNTIME_MODE_INVALID', 'execute-step requires an execution task-state delta.');
     } else {
       fail('RUNTIME_CALLER_NOT_BOUND', 'task-state-transaction is not bound to task-lifecycle.');
     }
@@ -5673,7 +5972,7 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     'finding_queue_revision', 'review_cycle', 'findings',
   ];
   if (!options.storeBackedHistory) requiredRuntimeStateFields.push('execution_log', 'applied_proposals');
-  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids'];
+  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids', 'dynamic_review_required', 'dynamic_expansions'];
   if (options.storeBackedHistory) optionalRuntimeStateFields.push('execution_log', 'applied_proposals');
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter(field => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter(field => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
@@ -5733,6 +6032,10 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     if (!Array.isArray(runtime.evidence_carry_forward) || runtime.evidence_carry_forward.length > 256) fail('RUNTIME_SCHEMA_INVALID', 'evidence_carry_forward must be a bounded array.');
     return runtime.evidence_carry_forward.map((item, index) => validateEvidenceCarryForward(item, `runtime_state.evidence_carry_forward[${index}]`));
   })();
+  const dynamicExpansions = runtime.dynamic_expansions === undefined ? [] : validateDynamicExpansions(runtime.dynamic_expansions);
+  const dynamicReviewRequired = runtime.dynamic_review_required === undefined
+    ? false
+    : expectBoolean(runtime.dynamic_review_required, 'runtime_state.dynamic_review_required');
   if (new Set(evidenceChallenges.map(item => item.challenge_id)).size !== evidenceChallenges.length) fail('RUNTIME_SCHEMA_INVALID', 'evidence_challenges IDs must be unique.');
   const findingsValue = runtime.findings;
   if (!Array.isArray(findingsValue) || findingsValue.length > MAX_FINDINGS) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.findings must be an array within the bounded size.');
@@ -5814,6 +6117,8 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     ...(runtime.evidence_challenges === undefined ? {} : { evidence_challenges: evidenceChallenges }),
     ...(runtime.evidence_carry_forward === undefined ? {} : { evidence_carry_forward: evidenceCarryForward }),
     ...(runtime.artifact_checkpoint_ids === undefined ? {} : { artifact_checkpoint_ids: expectStringArray(runtime.artifact_checkpoint_ids, 'artifact_checkpoint_ids', true, 256).map(id => expectString(id, 'checkpoint ID', /^[a-f0-9]{64}$/)) }),
+    ...(runtime.dynamic_review_required === undefined ? {} : { dynamic_review_required: dynamicReviewRequired }),
+    ...(runtime.dynamic_expansions === undefined ? {} : { dynamic_expansions: dynamicExpansions }),
     pending_review_result: pendingReviewResult,
     ...(runtime.step_attempts === undefined ? {} : {step_attempts:validateStepAttempts(runtime.step_attempts)}),
     ...(runtime.review_coverage === undefined ? {} : { review_coverage: validateReviewCoverage(runtime.review_coverage) }),
@@ -5854,7 +6159,7 @@ type MarkdownSectionRange = {
   contentEnd: number;
 };
 
-type ReplanSectionKey = keyof ReplanReplacementDefinition;
+type ReplanSectionKey = (typeof REPLAN_REPLACEMENT_FIELDS)[number];
 
 const REPLAN_SECTION_HEADINGS: Record<ReplanSectionKey, readonly string[]> = {
   background_context: ['背景与上下文', 'Background and Context'],
@@ -6123,6 +6428,11 @@ function replaceReplanDefinitionSections(body: string, replacement: ReplanReplac
     }
     replacements.push({ range, content: value ?? '' });
   }
+  if (replacement.mutation_authority_version === MUTATION_AUTHORITY_VERSION && replacement.mutation_authority) {
+    const authoritySection = findUniqueMarkdownSection(scanMarkdownSections(body), MUTATION_AUTHORITY_SECTION_ALIASES, 2);
+    if (!authoritySection) fail('RUNTIME_SECTION_INVALID', 'CURRENT_TASK is missing its Mutation Authority section.');
+    replacements.push({ range: authoritySection, content: renderMutationAuthoritySectionContent(replacement.mutation_authority) });
+  }
   replacements.sort((left, right) => right.range.contentStart - left.range.contentStart);
   for (let index = 1; index < replacements.length; index += 1) {
     const previous = replacements[index - 1].range;
@@ -6153,6 +6463,18 @@ function assertReplanDefinitionSections(body: string, replacement: ReplanReplace
     const actual = normalizeReplacementSectionContent(body.slice(range.contentStart, range.contentEnd), `CURRENT_TASK.${range.title}`);
     const expected = value ?? '';
     if (actual !== expected) fail('RUNTIME_REPLAY_INCOMPLETE', `replan replay section ${key} no longer matches the committed replacement.`);
+  }
+  const bodyAuthority = parseMutationAuthoritySection(body);
+  const replacementHasAuthority = replacement.mutation_authority_version === MUTATION_AUTHORITY_VERSION
+    && replacement.mutation_authority !== undefined;
+  if (replacementHasAuthority) {
+    if (!bodyAuthority || bodyAuthority.mutation_authority_version !== MUTATION_AUTHORITY_VERSION
+      || !bodyAuthority.mutation_authority
+      || digest(bodyAuthority.mutation_authority) !== digest(replacement.mutation_authority)) {
+      fail('RUNTIME_REPLAY_INCOMPLETE', 'replan replay Mutation Authority section no longer matches the committed replacement.');
+    }
+  } else if (bodyAuthority) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'replan replay unexpectedly contains a Mutation Authority v2 section.');
   }
 }
 
@@ -6401,6 +6723,14 @@ function renderNewDraftBody(
     '',
     definition.acceptance,
     '',
+    ...(definition.mutation_authority_version === MUTATION_AUTHORITY_VERSION && definition.mutation_authority
+      ? [
+        '## Mutation Authority',
+        '',
+        renderMutationAuthoritySectionContent(definition.mutation_authority),
+        '',
+      ]
+      : []),
     '## 允许修改范围',
     '',
     '### Read / discovery context',
@@ -6509,6 +6839,20 @@ function renderCanonicalCurrentTask(
     ...(compactBinding === undefined ? {} : { task_store: compactBinding }),
     runtime_state: compact ? compactRuntimeState : runtimeState,
   };
+  // Authority is part of the canonical task definition, so ordinary runtime
+  // state transitions must carry it forward even when they do not replace the
+  // definition (preflight, review, retry, and step progress all take this
+  // path).
+  const definitionAuthority = options.draftDefinition?.mutation_authority
+    ?? options.replacementDefinition?.mutation_authority
+    ?? frontmatter.mutation_authority;
+  const definitionAuthorityVersion = options.draftDefinition?.mutation_authority_version
+    ?? options.replacementDefinition?.mutation_authority_version
+    ?? frontmatter.mutation_authority_version;
+  if (definitionAuthorityVersion === MUTATION_AUTHORITY_VERSION && definitionAuthority) {
+    nextFrontmatter.mutation_authority_version = MUTATION_AUTHORITY_VERSION;
+    nextFrontmatter.mutation_authority = definitionAuthority;
+  }
   if (options.draftDefinition && options.draftIdentity && !options.taskBasisReference) {
     fail('TASK_BASIS_MISSING', 'A new or refined draft must link its exact task basis.');
   }
@@ -6627,8 +6971,30 @@ function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativ
   if (frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) {
     fail('MIGRATION_REQUIRED', `${relativePath} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
   }
-  expectExactKeys(frontmatter, ['schema_version', 'kind', 'document_id', 'runtime_state', ...(frontmatter.task_store === undefined ? [] : ['task_store'])], `${relativePath} frontmatter`);
+  const authorityVersionPresent = frontmatter.mutation_authority_version !== undefined;
+  const authorityValuePresent = frontmatter.mutation_authority !== undefined;
+  const authorityMarkerPresent = authorityVersionPresent || authorityValuePresent;
+  expectExactKeys(frontmatter, [
+    'schema_version',
+    'kind',
+    'document_id',
+    'runtime_state',
+    ...(frontmatter.task_store === undefined ? [] : ['task_store']),
+    ...(authorityVersionPresent ? ['mutation_authority_version'] : []),
+    ...(authorityValuePresent ? ['mutation_authority'] : []),
+  ], `${relativePath} frontmatter`);
   if (frontmatter.schema_version !== 1) fail('RUNTIME_SCHEMA_INVALID', `${relativePath}.schema_version must be 1 for a vNext CURRENT_TASK document.`);
+  if (authorityMarkerPresent && authorityVersionPresent && ![1, MUTATION_AUTHORITY_VERSION].includes(frontmatter.mutation_authority_version as number)) {
+    fail('MUTATION_AUTHORITY_VERSION_UNSUPPORTED', `${relativePath}.mutation_authority_version must be 1 or 2.`);
+  }
+  let mutationAuthority: TaskMutationAuthority | null = null;
+  if (frontmatter.mutation_authority_version === MUTATION_AUTHORITY_VERSION) {
+    if (!authorityValuePresent) fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath}.mutation_authority is required when mutation_authority_version=2.`);
+    try { mutationAuthority = normalizeTaskMutationAuthority(frontmatter.mutation_authority); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_SCHEMA_INVALID', error instanceof Error ? error.message : String(error)); }
+  } else if (authorityValuePresent) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath}.mutation_authority is only valid when mutation_authority_version=2.`);
+  }
   const documentId = expectString(frontmatter.document_id, `${relativePath}.document_id`);
   if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `${relativePath}.document_id is invalid.`);
   const storeBinding = frontmatter.task_store === undefined ? null : validateCurrentTaskStoreBinding(frontmatter.task_store, documentId, `${relativePath}.task_store`);
@@ -6638,6 +7004,13 @@ function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativ
   } catch (error) {
     if (error instanceof MutationScopeError) fail(error.code, error.message);
     fail('MUTATION_SCOPE_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const bodyAuthority = parseMutationAuthoritySection(body);
+  if ((mutationAuthority !== null) !== (bodyAuthority !== null)) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath} frontmatter and body must declare the same Mutation Authority v2 marker.`);
+  }
+  if (mutationAuthority && bodyAuthority && digest(mutationAuthority) !== digest(bodyAuthority.mutation_authority)) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath} frontmatter and body Mutation Authority values conflict.`);
   }
   const identity = extractTaskIdentityFromCurrentTask(body);
   const bodyState = extractCurrentTaskStateFromCurrentTask(body);
@@ -6677,7 +7050,7 @@ function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativ
     resume_requires_review: runtimeState.resume_requires_review,
     resume_review_reasons: [...runtimeState.resume_review_reasons],
   };
-  return { filePath, relativePath, raw, frontmatter, body, runtimeState, sourceTuple };
+  return { filePath, relativePath, raw, frontmatter, body, runtimeState, mutationAuthority, sourceTuple };
 }
 
 function hydrateCompactRuntimeHistory(root: string, current: CanonicalCurrentTask): void {
@@ -6723,6 +7096,9 @@ export function readCanonicalCurrentTask(root: string): CanonicalCurrentTask {
   recoverTaskEvolution(filePath);
   if (!fs.existsSync(filePath)) fail('RUNTIME_SOURCE_MISSING', `CURRENT_TASK.md is missing: ${relativePath}`);
   const current = parseCanonicalCurrentTaskContent(fs.readFileSync(filePath, 'utf8'), filePath, relativePath);
+  if (current.mutationAuthority) {
+    current.mutationAuthority = validateTaskMutationAuthority(root, current.mutationAuthority);
+  }
   if (current.frontmatter.task_store !== undefined) hydrateCompactRuntimeHistory(root, current);
   else {
     const legacyStore = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
@@ -9822,6 +10198,10 @@ type ScopeAmendmentCandidate = {
   definition: DraftTaskDefinition;
   claim_evidence: ClaimEvidenceRecord[];
   new_plan_revision: string;
+  authority_diff?: {
+    added_exact_exceptions: string[];
+    added_domains: string[];
+  };
   permission_change: 'additive-scope';
 };
 
@@ -9981,7 +10361,7 @@ function appendPersistentTestPaths(regressionChecks: string, paths: readonly str
   return normalized.slice(0, start) + replacement + normalized.slice(end);
 }
 
-function replaceScopeAmendmentStep(definition: DraftTaskDefinition, previousStepId: string, step: CorrectionStepInput): DraftTaskDefinition {
+function replaceScopeAmendmentStep(definition: DraftTaskDefinition, previousStepId: string, step: CorrectionStepInput, v2 = false): DraftTaskDefinition {
   const oldSteps = parseImplementationSteps(definition.implementation_steps);
   if (oldSteps.some(item => item.id === step.id)) fail('SCOPE_AMENDMENT_STEP_INVALID', 'Scope amendment step ID already exists.');
   const lines = definition.implementation_steps.replace(/\r\n?/gu, '\n').split('\n');
@@ -9995,7 +10375,7 @@ function replaceScopeAmendmentStep(definition: DraftTaskDefinition, previousStep
   const rendered = [
     `- ${step.id}: ${step.description}`,
     `  - purpose: Continue the explicitly authorized scope amendment ${step.description}`,
-    `  - mutation_scope: ${step.mutation_scope.join(', ')}`,
+    `  - ${v2 ? 'planned_mutation_targets' : 'mutation_scope'}: ${step.mutation_scope.join(', ')}`,
     `  - required_evidence: ${step.required_evidence.join('; ')}`,
     '  - review_checkpoint: required: fresh review of the amended scope and retained findings',
     ...step.commands.flatMap(item => [
@@ -10019,7 +10399,7 @@ function replaceScopeAmendmentStep(definition: DraftTaskDefinition, previousStep
 }
 
 function assertScopeAmendmentPathSafe(root: string, current: CanonicalCurrentTask, paths: readonly string[]): void {
-  const scope = parseMutationScope(current.body);
+  const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body);
   for (const file of paths) {
     if (file === current.relativePath || file.startsWith('.workflow-system/') || file.startsWith('.git/')
       || file.startsWith('.agents/') || file.startsWith('.claude/') || file.startsWith('.codex/')
@@ -10027,7 +10407,10 @@ function assertScopeAmendmentPathSafe(root: string, current: CanonicalCurrentTas
       || file.startsWith('node_modules/') || file.includes('/task-history/') || file.includes('/task-candidates/') || file.includes('/task-data/')) {
       fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment cannot authorize governance/runtime path ${file}.`);
     }
-    if (scope.forbidden.some(entry => mutationScopePatternMatchesPath(file, entry.pattern))) {
+    const forbidden = current.mutationAuthority
+      ? current.mutationAuthority.forbidden.some(pattern => mutationScopePatternMatchesPath(file, pattern))
+      : legacyScope!.forbidden.some(entry => mutationScopePatternMatchesPath(file, entry.pattern));
+    if (forbidden) {
       fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path ${file} is already forbidden.`);
     }
     const absolute = path.resolve(root, ...file.split('/'));
@@ -10042,6 +10425,19 @@ function assertScopeAmendmentPathSafe(root: string, current: CanonicalCurrentTas
   }
 }
 
+function assertV2AuthorityAmendmentExecutionSettled(current: CanonicalCurrentTask): void {
+  if (!current.mutationAuthority) return;
+  const ledger = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id];
+  const latestAttempt = ledger?.attempts.at(-1);
+  const executionOpen = current.runtimeState.pending_review_result !== null
+    || current.runtimeState.dynamic_review_required === true
+    || ['in-progress', 'blocked'].includes(current.runtimeState.active_step_status)
+    || latestAttempt !== undefined && ['ready', 'preflighted', 'blocked'].includes(latestAttempt.status);
+  if (executionOpen) {
+    fail('SCOPE_AMENDMENT_EXECUTION_GATE', 'A v2 authority amendment requires the current execution to be settled before changing the task authority envelope. Record/resolve the current result and review first.');
+  }
+}
+
 function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTask, input: ScopeAmendmentCandidateInput): ScopeAmendmentCandidate {
   if (!['active', 'blocked_by_replan'].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== 'active') {
     fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment requires an active or blocked_by_replan task with an active lifecycle.');
@@ -10051,9 +10447,25 @@ function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTas
   }
   if (current.runtimeState.resume_requires_review) fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment cannot consume a task with an uncleared resume-review gate.');
   if (!['ready', 'in-progress', 'completed', 'blocked'].includes(current.runtimeState.active_step_status)) fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment requires a usable current step.');
+  assertV2AuthorityAmendmentExecutionSettled(current);
   assertBusinessEvidenceVersion(current);
   assertTestStrategySequenceReady(current);
   assertScopeAmendmentPathSafe(root, current, input.added_paths);
+  let authorityExpansionPaths: string[] = [];
+  if (current.mutationAuthority) {
+    let projectAuthority;
+    try { projectAuthority = readProjectMutationAuthority(root); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+    if (!projectAuthority) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 scope amendment requires PROJECT_PROFILE.yaml.mutation_authority.domains.');
+    authorityExpansionPaths = input.added_paths.filter(target => {
+      const domain = authorityDomainForPath(projectAuthority, target);
+      return !current.mutationAuthority!.exact_exceptions.includes(target)
+        && (domain === null || !current.mutationAuthority!.domains.includes(domain));
+    });
+    if (authorityExpansionPaths.length === 0) {
+      fail('SCOPE_AMENDMENT_NOT_REQUIRED', 'All requested paths are already inside the task authority envelope; use execute-step extend-preflight with a blast-radius assessment.');
+    }
+  }
   if (input.persistent_test_paths.some(item => !isLikelyPersistentTestPath(item))) fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'persistent_test_paths must identify test-like paths.');
   const pendingFindingPaths = current.runtimeState.findings
     .filter(item => ['admitted', 'in-progress'].includes(item.status))
@@ -10064,7 +10476,9 @@ function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTas
   const activeStep = resolveCanonicalTaskStep(current).current;
   const currentStepScope = (activeStep.mutation_scope ?? '').split(',').map(value => value.trim().replace(/^`|`$/g, '')).filter(Boolean);
   const taskScope = parseMutationScope(current.body);
-  const taskScopeAddedPaths = input.added_paths.filter(file => !taskScope.allowed.some(entry => mutationScopePatternMatchesPath(file, entry.pattern)));
+  const taskScopeAddedPaths = current.mutationAuthority
+    ? authorityExpansionPaths
+    : input.added_paths.filter(file => taskScope.allowed.some(entry => mutationScopePatternMatchesPath(file, entry.pattern)) === false);
   const newlyAddedStepPaths = requiredPaths.filter(item => !currentStepScope.some(pattern => mutationScopePatternMatchesPath(item, pattern)));
   const amendmentStep = {
     ...input.amendment_step,
@@ -10093,15 +10507,25 @@ function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTas
     commands: [{ command: `scope-amendment: repair and verify ${input.added_paths.join(', ')}`, expected_repo_writes: requiredPaths }],
   };
   const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
-  const definition = replaceScopeAmendmentStep(oldDefinition, current.runtimeState.active_step_id, normalizedStep);
+  const definition = replaceScopeAmendmentStep(oldDefinition, current.runtimeState.active_step_id, normalizedStep, current.mutationAuthority !== null);
+  const amendedAuthority = current.mutationAuthority
+    ? {
+      ...current.mutationAuthority,
+      exact_exceptions: [...new Set([...current.mutationAuthority.exact_exceptions, ...authorityExpansionPaths])],
+    }
+    : undefined;
   const amendedDefinitionDraft: DraftTaskDefinition = {
     ...definition,
     allowed_scope: appendExactScopePaths(definition.allowed_scope, input.added_paths),
     regression_checks: appendPersistentTestPaths(definition.regression_checks, input.persistent_test_paths, claims.filter(item => item.claim_kind === 'acceptance').map(item => item.claim_id)),
+    ...(amendedAuthority ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: amendedAuthority } : {}),
   };
   // Definition replacement normalizes section boundaries and trailing bytes;
   // hash the exact definition that will be read back from CURRENT_TASK.
-  const amendedDefinition = readDraftDefinitionFromBody(replaceReplanDefinitionSections(current.body, amendedDefinitionDraft));
+  const amendedDefinition: DraftTaskDefinition = {
+    ...readDraftDefinitionFromBody(replaceReplanDefinitionSections(current.body, amendedDefinitionDraft)),
+    ...(amendedAuthority ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: amendedAuthority } : {}),
+  };
   assertPreparedTestStrategy(root, amendedDefinition, basis.basis);
   for (const record of claims) for (const slot of record.slots) {
     if (slot.due_step_id === current.runtimeState.active_step_id) {
@@ -10157,6 +10581,7 @@ function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTas
     definition: amendedDefinition,
     claim_evidence: claims,
     new_plan_revision: newPlanRevision,
+    ...(amendedAuthority ? { authority_diff: { added_exact_exceptions: [...authorityExpansionPaths], added_domains: [] } } : {}),
     permission_change: 'additive-scope',
   };
 }
@@ -11264,7 +11689,11 @@ export function readDraftDefinitionFromBody(body: string): DraftTaskDefinition {
     else if (!content) fail('DRAFT_DEFINITION_INVALID', `CURRENT_TASK draft definition section ${key} is empty.`);
     else values[key] = content;
   }
-  return validateReplanReplacementDefinition(values, 'CURRENT_TASK.draft_definition');
+  const authority = parseMutationAuthoritySection(body);
+  return validateReplanReplacementDefinition({
+    ...values,
+    ...(authority ?? {}),
+  }, 'CURRENT_TASK.draft_definition');
 }
 
 function assertNoUnresolvedDraftQuestions(body: string): void {
@@ -11900,6 +12329,10 @@ function applyTaskStateDelta(
       next: {
         ...current.runtimeState,
         pending_review_result: { ...review, recorded_at: now },
+        // A clean review is the mandatory acknowledgement for any dynamic
+        // in-envelope expansion.  Keep the history, but release the gate only
+        // after the review result has been durably recorded.
+        ...(review.verdict === 'clean' ? { dynamic_review_required: false } : {}),
         applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
       },
     };
@@ -12009,8 +12442,17 @@ function applyTaskStateDelta(
     ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
     if (proposal.mode !== 'default' || delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'preflight must bind the current ordinary step.');
     const step = resolveCanonicalTaskStep(current).steps.find(step => step.id === delta.step_id)!;
-    const patterns = (step.mutation_scope ?? '').split(',').map(value => value.trim().replace(/^`|`$/g, ''));
-    if (delta.candidate_paths.length && (evaluateMutationScope(parseMutationScope(current.body), { changed_paths: delta.candidate_paths }).status !== 'pass' || delta.candidate_paths.some(p => !patterns.some(pattern => mutationScopePatternMatchesPath(p, pattern))))) fail('PREFLIGHT_SCOPE_BLOCKED', 'preflight candidates must be admitted by the task and current step.');
+    const authorityEvaluation = evaluateTaskAuthorityPaths(root, current, delta.candidate_paths, delta.blast_radius_assessments ?? []);
+    if (authorityEvaluation) {
+      if (authorityEvaluation.status !== 'pass') {
+        const expansion = authorityEvaluation.blockers.some(item => item.startsWith('MUTATION_AUTHORITY_EXPANSION_REQUIRED'));
+        const persistent = authorityEvaluation.blockers.some(item => item.startsWith('PERSISTENT_TEST_UNADMITTED'));
+        fail(expansion ? 'MUTATION_AUTHORITY_EXPANSION_REQUIRED' : persistent ? 'PERSISTENT_TEST_UNADMITTED' : 'MUTATION_AUTHORITY_TARGET_BLOCKED', `preflight candidates are not admitted by the v2 task authority: ${authorityEvaluation.blockers.join(' ')}`);
+      }
+    } else {
+      const patterns = (step.mutation_scope ?? '').split(',').map(value => value.trim().replace(/^`|`$/g, ''));
+      if (delta.candidate_paths.length && (evaluateMutationScope(parseMutationScope(current.body), { changed_paths: delta.candidate_paths }).status !== 'pass' || delta.candidate_paths.some(p => !patterns.some(pattern => mutationScopePatternMatchesPath(p, pattern))))) fail('PREFLIGHT_SCOPE_BLOCKED', 'preflight candidates must be admitted by the task and current step.');
+    }
     const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
     for (const record of claims) for (const slot of record.slots) {
       if (slot.before_step_id !== delta.step_id || slot.prerequisite_receipt) continue;
@@ -12049,7 +12491,74 @@ function applyTaskStateDelta(
       stepAttempts = { ...stepAttempts, [delta.step_id]: { ...ledger, attempts: ledger.attempts.map((attempt, index) =>
         index === ledger.attempts.length - 1 ? { ...attempt, status: 'preflighted' as const } : attempt) } };
     }
-    return { next: { ...current.runtimeState, review_coverage: coverage, ...(stepAttempts ? {step_attempts:stepAttempts} : {}), claim_evidence: claims, applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
+    const dynamicDecisions = authorityEvaluation?.decisions.filter(item => item.status === 'self-admitted') ?? [];
+    const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
+    const newExpansions: MutationAuthorityExpansion[] = dynamicDecisions
+      .filter(item => !existingExpansions.some(existing => existing.path === item.path))
+      .map(item => ({
+        path: item.path,
+        domain: item.domain,
+        assessment: item.assessment!,
+        first_touch_state: item.first_touch_state === 'absent' ? 'absent' : 'file',
+        admitted_at: now,
+      }));
+    return { next: {
+      ...current.runtimeState,
+      review_coverage: coverage,
+      ...(stepAttempts ? {step_attempts:stepAttempts} : {}),
+      claim_evidence: claims,
+      ...(authorityEvaluation ? {
+        dynamic_review_required: current.runtimeState.dynamic_review_required === true || authorityEvaluation.dynamic_review_required,
+        dynamic_expansions: [...existingExpansions, ...newExpansions],
+      } : {}),
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+    } };
+  }
+  if (delta.action === 'extend-preflight') {
+    if (!current.mutationAuthority) fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'extend-preflight requires a Mutation Authority v2 task.');
+    if ((recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3) fail('RETRY_BUDGET_EXHAUSTED', 'The same recovery problem has exhausted three retained failed attempts across plans.');
+    assertOrdinaryPreflight(current, root);
+    assertTestStrategySequenceReady(current);
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
+    if (proposal.mode !== 'default' || delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'extend-preflight must bind the current ordinary step.');
+    const stepLedger = current.runtimeState.step_attempts?.[delta.step_id];
+    const latestAttempt = stepLedger?.attempts.at(-1);
+    if (!stepLedger || !latestAttempt || latestAttempt.status !== 'preflighted') fail('EXECUTE_PREFLIGHT_REQUIRED', 'extend-preflight requires the latest attempt to be preflighted.');
+    if (latestAttempt.idempotency_key !== delta.current_preflight_id) fail('EXECUTE_PREFLIGHT_STALE', 'extend-preflight does not bind the latest preflight receipt.');
+    const existingPaths = current.runtimeState.review_coverage?.base.entries.map(entry => entry.path) ?? [];
+    if (delta.additional_targets.some(target => existingPaths.includes(target))) fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', 'extend-preflight cannot re-admit a path already covered by the current preflight.');
+    const authorityEvaluation = evaluateTaskAuthorityPaths(root, current, [...existingPaths, ...delta.additional_targets], delta.blast_radius_assessments);
+    if (!authorityEvaluation || authorityEvaluation.status !== 'pass') {
+      const blockers = authorityEvaluation?.blockers ?? ['Mutation Authority v2 evaluation was unavailable.'];
+      const expansion = blockers.some(item => item.startsWith('MUTATION_AUTHORITY_EXPANSION_REQUIRED'));
+      fail(expansion ? 'MUTATION_AUTHORITY_EXPANSION_REQUIRED' : 'MUTATION_AUTHORITY_TARGET_BLOCKED', `extend-preflight targets are not admitted: ${blockers.join(' ')}`);
+    }
+    const coverage = extendReviewCoverage(root, current, delta.additional_targets);
+    const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
+    const newExpansions: MutationAuthorityExpansion[] = authorityEvaluation.decisions
+      .filter(item => item.status === 'self-admitted' && !existingExpansions.some(existing => existing.path === item.path))
+      .map(item => ({
+        path: item.path,
+        domain: item.domain,
+        assessment: item.assessment!,
+        first_touch_state: item.first_touch_state === 'absent' ? 'absent' : 'file',
+        admitted_at: now,
+      }));
+    // The extension replaces the receipt while retaining the same attempt.
+    // Advance the attempt's binding to that replacement idempotency key so a
+    // later discovery can extend the same attempt again without consuming a
+    // retry slot.
+    const updatedAttempts = stepLedger.attempts.map((attempt, index) => index === stepLedger.attempts.length - 1
+      ? { ...attempt, idempotency_key: proposal.idempotency_key, evidence_refs: [...new Set([...attempt.evidence_refs, ...delta.evidence_refs])] }
+      : attempt);
+    return { next: {
+      ...current.runtimeState,
+      review_coverage: coverage,
+      dynamic_review_required: current.runtimeState.dynamic_review_required === true || newExpansions.length > 0,
+      dynamic_expansions: [...existingExpansions, ...newExpansions],
+      step_attempts: { ...current.runtimeState.step_attempts, [delta.step_id]: { ...stepLedger, attempts: updatedAttempts } },
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+    } };
   }
   if (delta.action !== 'step-progress') fail('RUNTIME_SCHEMA_INVALID', 'Only step-progress reaches the execute-step state handler.');
   ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
@@ -12120,6 +12629,9 @@ function applyTaskStateDelta(
   const executionChangeSetId = delta.change_set_id ?? delta.review_receipt?.change_set_id;
   const oldStatus = current.runtimeState.active_step_status;
   const newStatus = delta.status;
+  if (newStatus === 'completed' && current.runtimeState.dynamic_review_required === true) {
+    fail('DYNAMIC_REVIEW_REQUIRED', 'An in-envelope mutation footprint expansion requires a clean cumulative review before step completion.');
+  }
   if (delta.review_receipt !== undefined && delta.execution_result !== undefined) {
     fail('REVIEWED_COMPLETION_EXECUTION_RESULT_FORBIDDEN', 'reviewed step completion cannot record a new execution result or acceptance evidence.');
   }
@@ -14713,6 +15225,9 @@ export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: str
   if (current.runtimeState.findings.some(item => ['admitted', 'in-progress'].includes(item.status))) {
     fail('REVIEW_CONVERGENCE_REQUIRED', 'Open findings require admitted repair; ordinary execution cannot consume them.');
   }
+  if (current.runtimeState.dynamic_review_required === true && current.runtimeState.active_step_status === 'in-progress') {
+    fail('DYNAMIC_REVIEW_REQUIRED', 'A self-admitted footprint expansion requires fresh cumulative review before another ordinary execution.');
+  }
   if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active' || current.runtimeState.resume_requires_review || current.runtimeState.active_step_status === 'blocked') {
     fail('PREFLIGHT_BLOCKED', 'ordinary execution requires an active unblocked task without a resume gate.');
   }
@@ -14727,14 +15242,48 @@ export function createStepRetryProposal(current: CanonicalCurrentTask, input: {s
   });
 }
 
-export function createStepPreflightProposal(current: CanonicalCurrentTask, candidatePaths: string[]): RuntimeProposal {
+export function createStepPreflightProposal(current: CanonicalCurrentTask, candidatePaths: string[], blastRadiusAssessments: BlastRadiusAssessment[] = []): RuntimeProposal {
   return validateRuntimeProposal({
     schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND,
     operation_kind: 'task-state-transaction', caller: 'execute-step', mode: 'default', source_tuple: current.sourceTuple,
     authority_evidence: ['active-task-owner', 'scope-admission', 'evidence-admission'].map(kind => ({ kind, source: current.relativePath, subject: current.runtimeState.active_step_id })),
-    semantic_delta: { kind: 'task-state', action: 'record-step-preflight', step_id: current.runtimeState.active_step_id, candidate_paths: candidatePaths, evidence_refs: [current.relativePath] },
-    preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted'], evidence_refs: [current.relativePath],
-    idempotency_key: `preflight-${digest({ task: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: current.runtimeState.active_step_id, attempt:nextStepAttemptId(current), paths: candidatePaths })}`,
+    semantic_delta: { kind: 'task-state', action: 'record-step-preflight', step_id: current.runtimeState.active_step_id, candidate_paths: candidatePaths, evidence_refs: [current.relativePath], ...(blastRadiusAssessments.length > 0 ? { blast_radius_assessments: blastRadiusAssessments } : {}) },
+    preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted'], evidence_refs: [current.relativePath, ...blastRadiusAssessments.flatMap(item => item.evidence_refs)],
+    idempotency_key: `preflight-${digest({ task: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: current.runtimeState.active_step_id, attempt:nextStepAttemptId(current), paths: candidatePaths, assessments: blastRadiusAssessments })}`,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createStepExtendPreflightProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    step_id: string;
+    current_preflight_id: string;
+    additional_targets: string[];
+    blast_radius_assessments: BlastRadiusAssessment[];
+    evidence_refs: string[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'execute-step',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: ['active-task-owner', 'scope-admission', 'evidence-admission'].map(kind => ({ kind, source: current.relativePath, subject: input.step_id })),
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'extend-preflight',
+      step_id: input.step_id,
+      current_preflight_id: input.current_preflight_id,
+      additional_targets: input.additional_targets,
+      blast_radius_assessments: input.blast_radius_assessments,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-active', 'active-step-matches', 'same-attempt', 'scope-admitted'],
+    evidence_refs: [...new Set([...input.evidence_refs, ...input.blast_radius_assessments.flatMap(item => item.evidence_refs)])],
+    idempotency_key: `preflight-extension-${digest({ task: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: input.step_id, current_preflight_id: input.current_preflight_id, targets: input.additional_targets, assessments: input.blast_radius_assessments })}`,
     requested_write_targets: [current.relativePath],
   });
 }

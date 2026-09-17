@@ -41,6 +41,81 @@ and cleanup cannot turn a recorded unauthorized mutation into a pass. A final
 Git diff is evidence only. Without OS-level monitoring, transient create/delete
 history cannot be claimed complete.
 
+## Mutation Authority v2
+
+Mutation Authority v2 is an explicit task-versioned boundary. A v2 task must
+declare `mutation_authority_version: 2` together with:
+
+```yaml
+mutation_authority:
+  domains: [node-rollout]
+  exact_exceptions: []
+  forbidden: []
+```
+
+The project profile may define the stable ownership map:
+
+```yaml
+mutation_authority:
+  domains:
+    - id: node-rollout
+      roots: [packages/node-rollout/**]
+    - id: rust-rollout
+      roots: [native/codex-rollout-collector/**]
+```
+
+Domain roots are bounded repository-relative exact paths or literal `/**`
+prefixes. IDs are unique, roots owned by different domains may not overlap,
+and path resolution fails closed when it is ambiguous. A path with no domain
+is `unclassified` and cannot be admitted by ordinary same-envelope expansion.
+The map is a mutation ownership boundary, not a dependency graph.
+
+Read/discovery is intentionally wider: the Agent may read, grep, trace callers,
+inspect consumers, and establish root cause in another domain. None of that
+creates write authority. Runtime allows writes only when the candidate path is
+in the task's positive domain envelope or an explicitly authorized exact
+exception, after applying task `forbidden` and fixed governance boundaries.
+An out-of-envelope write is a hard
+`MUTATION_AUTHORITY_EXPANSION_REQUIRED` blocker; it is not reported as a
+generic v1 `PREFLIGHT_SCOPE_BLOCKED` result.
+
+`implementation_steps[].planned_mutation_targets` is guidance, not an
+independent v2 ACL. A target outside that planned footprint but inside the
+envelope requires a Skill/model blast-radius assessment before it is admitted.
+The assessment records the target/relevant symbol, reason, locality,
+visibility, cross-component consumers, contract impact, evidence references,
+and `self-admit` or `escalate` disposition. Runtime validates structure,
+target binding, first-touch before-state, domain/forbidden/governance
+boundaries and audit state; the Agent owns the semantic judgment. Caller-count
+thresholds are not policy. Prefer the smallest correct local change; broader
+shared changes need evidence that the local alternative would be incorrect,
+duplicative, or contract-breaking. An elevated/high target may still be
+self-admitted when its root-cause and regression/consumer evidence is strong;
+uncertainty or multiple plausible directions escalates to the user.
+
+Every self-admitted planned-footprint expansion sets
+`dynamic_review_required` and enters cumulative review coverage. If discovery
+happens after another path has already been modified, the Agent calls the
+internal `execute-step:extend-preflight` action with the current receipt,
+additional targets, assessments and evidence references. Runtime captures the
+new paths' before-state before first touch, returns a replacement receipt,
+keeps the same attempt and plan revision, does not consume retry budget, and
+does not create a continuation. Results must use the newest receipt. A clean
+cumulative `review-change` is mandatory before completion.
+
+An existing test file inside the envelope follows ordinary expansion, while
+the assessment and review must cover oracle/reuse/boundary changes. A new
+persistent test whose first-touch state is absent still requires the full P-12
+admission record. This preserves `new persistent test != ordinary file`.
+
+Only a real authority change—such as Node to Rust/shared-protocol or a new
+cross-domain exact exception—uses `prepare-task:amend-scope`. That route keeps
+the old immutable candidate, history/findings/review/budget lineage and
+continuation semantics, and requires explicit user authorization. A committed
+candidate cannot be discarded. Same-envelope discovery never enters that
+route. Tasks without the v2 marker, or with version 1, retain legacy exact
+step-scope semantics and are not silently reinterpreted.
+
 ## Public entry invocation terminal boundary
 
 `public-entry-terminal/v1` is the canonical invocation boundary for every
@@ -112,12 +187,15 @@ Confirmation freezes the strategy; changes require authorized replan.
 When an active or `blocked_by_replan` task has existing work, admitted findings,
 or pending review and the user has already explicitly authorized an exact
 additional path set, the caller may use the independent versioned
-`scope-amendment-candidate/v1` route. Runtime creates the candidate digest and
-receipt only after checking that the caller-reported authorization covers every
-exact path; the source text is retained and the digest is never a second user
-authorization object. Runtime commits a continuation step while
-preserving the old definition, failures, obligations, findings, review baseline,
-review cycle, pending review, and budget. It does not change the legacy
+`scope-amendment-candidate/v1` route. In v2 this route is reserved for a path
+outside the task authority envelope; an omitted same-domain helper or an
+existing same-domain test uses `execute-step:extend-preflight` instead. Runtime
+creates the candidate digest and receipt only after checking that the
+caller-reported authorization covers every exact authority expansion path; the
+source text is retained and the digest is never a second user authorization
+object. Runtime commits a continuation step while preserving the old
+definition, failures, obligations, findings, review baseline, review cycle,
+pending review, and budget. It does not change the legacy
 `correction-replan/v2` `permission_change: none` route. Preparation/amendment,
 fresh preflight, real execution, revalidation, review, and closure remain
 separate caller invocations; a successful amendment alone is not completion.

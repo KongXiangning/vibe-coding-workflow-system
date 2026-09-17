@@ -19,8 +19,112 @@ The canonical project surface contains the following governed documents:
 - `docs/workflow/ROADMAP.md`
 
 `CURRENT_TASK.md` carries its vNext YAML envelope and runtime state. Its body
-contains the task identity, acceptance, Allowed / Conditional / Forbidden
-scope buckets, implementation steps, test strategy, and execution evidence.
+contains the task identity, acceptance, the v1 scope compatibility buckets or
+the v2 mutation-authority projection, implementation steps, test strategy, and
+execution evidence.
+
+## Mutation Authority v2
+
+Mutation Authority v2 is selected explicitly by the pair
+`mutation_authority_version: 2` and `mutation_authority` in the task
+definition/frontmatter. It is not inferred from a v1 task or from a read
+operation. A project that has no authority-domain map remains on v1 exact-path
+semantics until an explicit task upgrade/replan opts into v2.
+
+The optional project profile map is:
+
+```yaml
+mutation_authority:
+  domains:
+    - id: node-rollout
+      roots:
+        - packages/node-rollout/**
+        - packages/node-rollout-tests/**
+    - id: shared-protocol
+      roots:
+        - packages/protocol/**
+```
+
+Each domain ID is unique. Each root is a bounded repository-relative exact
+path or a literal `/**` directory prefix; arbitrary globs, traversal and
+absolute paths are invalid. Roots owned by different domains may not overlap.
+Path resolution must produce one domain or `unclassified`; ambiguity fails
+closed. An unclassified path is not admitted by ordinary in-envelope
+self-admission. The domain map expresses mutation ownership, not a dependency
+graph.
+
+A v2 task carries only positive mutation authority:
+
+```yaml
+mutation_authority_version: 2
+mutation_authority:
+  domains: [node-rollout]
+  exact_exceptions: []
+  forbidden: []
+```
+
+`domains` grant ordinary mutation authority for those project domains and
+`exact_exceptions` grant a deliberately narrow exact path, normally for an
+explicit cross-domain authorization. `forbidden` always wins. Read, grep,
+caller tracing, consumer tracing and root-cause discovery may cross domains,
+but they never grant write authority.
+
+The v2 step field is `planned_mutation_targets`. It is guidance for the
+initial implementation footprint and review comparison, not an independent
+write ACL. A target outside that planned footprint but inside the task
+authority envelope needs a complete assessment before admission:
+
+```yaml
+target: {path: src/internal/state.ts, symbol: normalizeState}
+reason: <why this target is required>
+blast_radius:
+  locality: local | elevated | high
+  visibility: private | shared | public | unknown
+  cross_component_consumers: none | present | unknown
+  contract_impact: none | possible | known
+evidence_refs: [<repository-relative evidence reference>]
+disposition: self-admit | escalate
+```
+
+The Agent owns this bounded semantic judgment. Runtime validates the shape,
+target binding, domain/forbidden/governance boundaries, first-touch state and
+audit record; it does not use caller-count thresholds or pretend to decide
+whether a shared change is business-correct. Prefer the smallest correct local
+change. A shared/high-impact target may still be self-admitted when the
+evidence establishes that the broader change is the correct root-cause
+location, preserves or intentionally changes the confirmed contract, and has
+adequate consumer/regression validation. Uncertainty or competing plausible
+directions is `escalate`.
+
+Every self-admitted unplanned target sets `dynamic_review_required` and is
+included in cumulative review coverage. If the target is discovered after an
+ordinary preflight has already admitted another path, call the internal
+`extend-preflight` action with the current receipt, additional targets and
+assessments. Runtime captures each new target's before-state before first
+mutation, keeps the same task/step/attempt/plan revision, does not consume a
+retry slot or create a continuation, and returns a replacement receipt. The
+subsequent result must use that newest receipt. A clean cumulative
+`review-change` result is required before step completion.
+
+An existing test file inside the v2 envelope is an ordinary in-envelope
+expansion, but its assessment and review must cover oracle/reuse/boundary
+impact. A newly created persistent test (before-state `absent`) still requires
+the P-12 owner, claim, basis, existing-evidence-insufficiency, assertion
+boundary and failure-disposition admission. Runtime never turns a new test
+into an ordinary file merely because its domain is authorized.
+
+If a target is outside the task envelope, Runtime returns
+`MUTATION_AUTHORITY_EXPANSION_REQUIRED`. Same-envelope discovery must not use
+scope amendment. A true cross-domain expansion is handled by the existing
+additive scope-amendment route: explicit user authorization, immutable
+candidate/old definition, preserved findings/review/budget lineage, then a
+fresh continuation preflight. Discarding a committed candidate is forbidden.
+
+The legacy `mutation_scope` step field and v1 Allowed / Conditional / Forbidden
+sections remain readable for v1 tasks and may be retained as a compatibility
+projection in v2 canonical Markdown. In v2 they are not the final hard
+authority; `planned_mutation_targets` and the task authority envelope are the
+machine-readable semantics.
 
 Every ordinary draft links one identity-derived Task Basis by exact path and
 SHA-256 revision. The Task Basis preserves only the verbatim original request
@@ -133,17 +237,20 @@ prerequisites remain `TEST_STRATEGY_PREREQUISITE_UNSUPPORTED`.
 under PROJECT_PROFILE boundaries.non_executable_change_paths (exact paths or
 literal directory-prefix /** only); documentation inventory is not proof.
 
-An additive scope amendment is stored as an independent
-`scope-amendment-candidate/v1`. Runtime first requires an existing explicit
-authorization for every exact added path, then uses the candidate receipt only
-internally for drift/idempotency checks and commits the amendment in the same
-route. The candidate records caller-reported authorization source and verbatim
-text, exact added paths, and the old/new plan identity. The amendment creates a
-continuation step and preserves prior definitions, failures,
-uncompleted obligations, admitted/in-progress findings, pending review,
-cumulative review baseline, review cycle, and budget. It does not clear a
-pending review or reset the review cycle and does not alter the legacy
-`correction-replan/v2` `permission_change: none` semantics.
+An additive authority amendment is stored as an independent
+`scope-amendment-candidate/v1`. Runtime uses it only when a v2 target is
+outside the task authority envelope (or when a v1 task requests a true scope
+addition). It requires explicit authorization for every exact added path, then
+uses the candidate receipt only internally for drift/idempotency checks and
+commits the amendment in the same route. The candidate records
+caller-reported authorization source and verbatim text, exact added paths, and
+the old/new plan identity. The amendment creates a continuation step and
+preserves prior definitions, failures, uncompleted obligations,
+admitted/in-progress findings, pending review, cumulative review baseline,
+review cycle, and budget. It does not clear a pending review or reset the
+review cycle and does not alter the legacy `correction-replan/v2`
+`permission_change: none` semantics. Same-envelope omitted helpers and
+existing tests use `extend-preflight` instead and never create a continuation.
 
 Runtime-owned `runtime_state.business_evidence_version` is optional for historical
 reading, but must equal 1 when present. New semantic/raw create-draft and explicitly

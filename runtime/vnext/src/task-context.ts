@@ -349,6 +349,7 @@ function currentStep(current: CanonicalCurrentTask): AnyRecord {
     status: current.runtimeState.active_step_status,
     description: resolved.description,
     purpose: resolved.purpose,
+    planned_mutation_targets: resolved.planned_mutation_targets,
     mutation_scope: resolved.mutation_scope,
     required_evidence: resolved.required_evidence,
     review_checkpoint: resolved.review_checkpoint,
@@ -531,6 +532,10 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
   const retainedCleanReview = pendingReview?.verdict === 'clean' && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === 'findings' && state.scope_amendment_pending_review_step_id !== undefined;
+  const dynamicReviewReady = state.dynamic_review_required === true
+    && state.active_step_status === 'in-progress'
+    && latest?.execution_result_status !== null
+    && latest?.execution_result_status !== undefined;
   const nextEntry = state.resume_requires_review
     ? 'prepare-task:clear-resume-review'
     : retainedCleanReview
@@ -541,6 +546,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
           ? 'prepare-task:amend-scope'
           : state.active_step_status === 'blocked'
             ? 'debug-task'
+            : dynamicReviewReady
+              ? 'review-change'
             : 'preflight-step';
   const nextOptions = state.workflow_status === 'blocked_by_replan'
     ? ['prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
@@ -565,6 +572,26 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       review_cycle_id: record(state.review_cycle) ? state.review_cycle.id ?? null : null,
       repair_round: record(state.review_cycle) ? state.review_cycle.repair_round ?? 0 : 0,
     },
+    mutation_authority: current.mutationAuthority === null
+      ? null
+      : {
+        version: 2,
+        domains: [...current.mutationAuthority.domains],
+        exact_exceptions: [...current.mutationAuthority.exact_exceptions],
+        forbidden: [...current.mutationAuthority.forbidden],
+      },
+    dynamic_mutation: {
+      review_required: state.dynamic_review_required === true,
+      expansions: (state.dynamic_expansions ?? []).slice(0, 64).map(item => ({
+        path: item.path,
+        domain: item.domain,
+        assessment: item.assessment,
+        first_touch_state: item.first_touch_state,
+        admitted_at: item.admitted_at,
+      })),
+      expansion_count: state.dynamic_expansions?.length ?? 0,
+      expansions_truncated: (state.dynamic_expansions?.length ?? 0) > 64,
+    },
     next_entry: nextEntry,
     next_options: nextOptions,
     obligations: {
@@ -586,6 +613,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       attempt_budget: ledger?.max_attempts ?? null,
       pending_replan_candidates: pendingReplanCandidateCount(current),
       pending_scope_amendment_candidates: pendingScopeAmendmentCandidateCount(current),
+      dynamic_review_required: state.dynamic_review_required === true,
+      dynamic_expansion_count: state.dynamic_expansions?.length ?? 0,
     },
     latest_execution: latestIndex,
     storage: storeNavigation(root, current, manifest),
@@ -599,6 +628,15 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
   const add = (id: string, required: boolean, value: unknown) => blocks.push({ id, required, value });
   if (!definitionReused) add('current-definition', true, { revision: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest), ...definition });
   add('current-step', true, currentStep(current));
+  add('mutation-authority', true, current.mutationAuthority === null
+    ? { version: null, domains: [], exact_exceptions: [], forbidden: [], legacy_mode: true }
+    : {
+      version: 2,
+      domains: [...current.mutationAuthority.domains],
+      exact_exceptions: [...current.mutationAuthority.exact_exceptions],
+      forbidden: [...current.mutationAuthority.forbidden],
+      legacy_mode: false,
+    });
   add('unfinished-obligations', true, unfinishedObligations(root, current));
   add('required-dependencies', true, dependencyResults(current));
   add('unknown-dependencies', true, {
@@ -623,6 +661,8 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     unresolved_findings: unresolvedFindings(current),
     unresolved_evidence_challenges: Array.isArray(current.runtimeState.evidence_challenges) ? current.runtimeState.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id ?? null, status: item.status ?? null, claim_id: item.claim_id ?? null, slot_id: item.slot_id ?? null, result_id: item.result_id ?? null })) : [],
     active_attempt: record(current.runtimeState.step_attempts) && record(current.runtimeState.step_attempts[current.runtimeState.active_step_id]) ? current.runtimeState.step_attempts[current.runtimeState.active_step_id] : null,
+    dynamic_review_required: current.runtimeState.dynamic_review_required === true,
+    dynamic_expansions: current.runtimeState.dynamic_expansions ?? [],
   });
   add('latest-execution', true, latestExecution(current));
   if (entry === 'review-change' || entry === 'review-context' || entry === 'review' || entry.includes('review') || mode === 'review') add('cumulative-review-target', true, reviewTarget(current));
