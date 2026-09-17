@@ -109,6 +109,8 @@ capabilities:
       - mutation_authority_version, when the task explicitly opts into v2
       - v1 canonical CURRENT_TASK Allowed Files, Conditional Files, and Forbidden Files buckets
       - v2 task authority envelope of authorized project domains, exact exceptions, and task forbidden targets
+      - v2 planning declarations for every planned target, exact command write, bounded command footprint, and persistent-test path
+      - the canonical project authority-domain map and its revision bound to a confirmed v2 task
       - explicit changed paths or one verified diff target
       - transformation kind, distinguishing localized from inherently-broad mutation
       - v1 conditional authorizations with exact target, evidence references, and authority
@@ -117,16 +119,21 @@ capabilities:
     output_contract:
       - v1 per-path mutation admission or blocker with Forbidden precedence and default-deny
       - v2 structural admission that resolves path to exactly one authority domain, applies task forbidden/governance boundaries, and distinguishes planned from self-admitted targets
+      - v2 planning-time proof that every declared mutation is inside an authorized domain or exact exception before a confirmed definition is committed
+      - deterministic subset proof for every v2 command footprint; synthetic probe paths are not evidence of command safety
       - separate read/discovery matches that never become write permission
       - exact admitted paths, excluded targets, and source revision
       - v2 dynamic expansion record with first-touch before-state and mandatory cumulative review flag
       - bounded widening requirement; changed goal, scope, or total authority routes to authority amendment, while same-envelope implementation discovery uses extend-preflight
       - separate persistent-test admission for an absent new test, including a typed P-12 decision even when no authority domain changes
       - authority-amendment settlement gate that blocks only an admitted preflight without its matching recorded execution result
+      - explicit project-owner domain candidates/confirmation lifecycle and a stable authority-domain revision for active v2 execution
     stop_conditions:
       - v1 required scope bucket is missing, malformed, duplicated, or ambiguous
       - v1 target is outside admitted scope
       - v2 target is outside the task authority envelope or is unclassified without an exact exception
+      - v2 planned target, command write, command glob, or persistent-test path fails planning-time authority proof
+      - a v2 command footprint cannot be mechanically proven as a subset of one granted domain root
       - v2 path-to-domain resolution is ambiguous
       - forbidden or governance target is requested
       - v1 Conditional target lacks an exact authorization with evidence and authority
@@ -136,6 +143,7 @@ capabilities:
       - the changed-path diff target is empty, duplicated, invalid, or not explicit
       - read/discovery context is treated as write authority
       - true authority widening lacks explicit user authorization or the goal, acceptance, or task authority changed without the authority-amendment route
+      - a confirmed v2 task observes a changed or missing project authority-domain revision without explicit revalidation/replan
 
   - id: decision-authority-gate
     exposure: internal
@@ -157,6 +165,7 @@ capabilities:
       - a v2 task selects an authority envelope or evaluates an implementation-footprint expansion
     input_contract:
       - project domain map, task authority envelope, exact exceptions, and forbidden targets
+      - planning-time declaration set and the bound project authority-domain revision
       - planned mutation footprint and actual changed target
       - Runtime-derived execution phase from the frozen Test Strategy and current-step evidence obligation; candidate-path composition cannot select the phase
       - blast-radius evidence covering locality, visibility, consumers, contract impact, and regression coverage
@@ -165,6 +174,8 @@ capabilities:
       - bounded self-admit or escalate disposition for an in-envelope unplanned target
       - smallest-correct-local-change decision with evidence for any broader shared change
       - explicit authority-amendment blocker for cross-domain or unclassified writes
+      - planning-time executable-definition proof and deterministic command-footprint subset result
+      - project inventory domain candidates kept non-authorizing until an explicit owner confirmation promotes them to the canonical profile
       - 'distinct persistent-test admission transition with authority_diff: none for an in-envelope absent test'
       - distinct runtime errors for missing blast-radius assessment, escalated assessment, and true authority expansion
       - planned, expanded, and actual footprint material for cumulative review
@@ -172,6 +183,7 @@ capabilities:
       - clean-review consumption bound to the reviewed execution identity and retained per expansion
     stop_conditions:
       - authority ownership cannot be resolved from the project domain map
+      - project domain candidates are treated as a grant without owner confirmation, or a confirmed task's domain-map revision is stale
       - a target is outside the task envelope, explicitly forbidden, or on a governance boundary
       - the expansion assessment is incomplete, uncertain, or escalated
       - a broader shared change lacks evidence that the local alternative is incorrect, duplicative, or contract-breaking

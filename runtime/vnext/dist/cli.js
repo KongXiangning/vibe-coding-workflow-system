@@ -359,7 +359,7 @@ function applyArtifactRestore(root, currentPath, plan, afterPublish, recordCompl
 }
 
 // runtime/vnext/src/kernel.ts
-import * as crypto7 from "crypto";
+import * as crypto8 from "crypto";
 import * as fs8 from "fs";
 import * as path9 from "path";
 import { parseDocument, stringify as stringify2 } from "yaml";
@@ -4157,6 +4157,7 @@ function resolveTaskStep(body, activeStepId) {
 }
 
 // runtime/vnext/src/mutation-authority.ts
+import * as crypto6 from "crypto";
 import * as fs6 from "fs";
 import * as path7 from "path";
 var MUTATION_AUTHORITY_VERSION = 2;
@@ -4232,30 +4233,18 @@ function canonicalAuthorityRoot(value) {
 function profileAuthorityValue(profile) {
   return profile.mutation_authority;
 }
-function readProjectMutationAuthority(root) {
-  const profilePath = getWorkflowProfilePath(root);
-  if (!fs6.existsSync(profilePath))
-    return null;
-  let profile;
-  try {
-    profile = loadProfile(profilePath);
-  } catch (error) {
-    fail("MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
-  }
-  const raw = profileAuthorityValue(profile);
-  if (raw === undefined)
-    return null;
-  const authority = record2(raw, "PROJECT_PROFILE.yaml.mutation_authority");
+function normalizeProjectMutationAuthority(value) {
+  const authority = record2(value, "PROJECT_PROFILE.yaml.mutation_authority");
   exactKeys(authority, ["domains"], "PROJECT_PROFILE.yaml.mutation_authority");
   if (!Array.isArray(authority.domains) || authority.domains.length === 0 || authority.domains.length > MAX_DOMAINS) {
-    fail("MUTATION_AUTHORITY_PROJECT_INVALID", "PROJECT_PROFILE.yaml.mutation_authority.domains must be a bounded non-empty array.");
+    fail("MUTATION_AUTHORITY_SCHEMA_INVALID", "PROJECT_PROFILE.yaml.mutation_authority.domains must be a bounded non-empty array.");
   }
   const domains = authority.domains.map((rawDomain, index) => {
     const domain = record2(rawDomain, `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}]`);
     exactKeys(domain, ["id", "roots"], `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}]`);
     const id = text(domain.id, `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}].id`, 128);
     if (!DOMAIN_ID_PATTERN.test(id))
-      fail("MUTATION_AUTHORITY_PROJECT_INVALID", `authority domain id ${id} is invalid.`);
+      fail("MUTATION_AUTHORITY_SCHEMA_INVALID", `authority domain id ${id} is invalid.`);
     const roots = stringList(domain.roots, `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}].roots`, {
       allowEmpty: false,
       max: MAX_ROOTS_PER_DOMAIN,
@@ -4264,7 +4253,7 @@ function readProjectMutationAuthority(root) {
     return { id, roots };
   });
   if (new Set(domains.map((domain) => domain.id)).size !== domains.length) {
-    fail("MUTATION_AUTHORITY_PROJECT_INVALID", "authority domain ids must be unique.");
+    fail("MUTATION_AUTHORITY_SCHEMA_INVALID", "authority domain ids must be unique.");
   }
   for (let leftIndex = 0;leftIndex < domains.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1;rightIndex < domains.length; rightIndex += 1) {
@@ -4278,6 +4267,28 @@ function readProjectMutationAuthority(root) {
     }
   }
   return { domains };
+}
+function readProjectMutationAuthority(root) {
+  const profilePath = getWorkflowProfilePath(root);
+  if (!fs6.existsSync(profilePath))
+    return null;
+  let profile;
+  try {
+    profile = loadProfile(profilePath);
+  } catch (error) {
+    fail("MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  const raw = profileAuthorityValue(profile);
+  if (raw === undefined)
+    return null;
+  try {
+    return normalizeProjectMutationAuthority(raw);
+  } catch (error) {
+    if (error instanceof MutationAuthorityError && error.code === "MUTATION_AUTHORITY_SCHEMA_INVALID") {
+      fail("MUTATION_AUTHORITY_PROJECT_INVALID", error.message);
+    }
+    throw error;
+  }
 }
 function normalizeTaskMutationAuthority(value) {
   const authority = record2(value, "mutation_authority");
@@ -4316,6 +4327,100 @@ function authorityDomainForPath(project, target) {
   if (matches.length > 1)
     fail("MUTATION_AUTHORITY_DOMAIN_AMBIGUOUS", `path ${target} maps to multiple authority domains: ${matches.map((domain) => domain.id).join(", ")}.`);
   return matches[0]?.id ?? null;
+}
+function projectMutationAuthorityRevision(project) {
+  const canonical = {
+    version: MUTATION_AUTHORITY_VERSION,
+    domains: project.domains.map((domain) => ({ id: domain.id, roots: [...domain.roots].sort() })).sort((left, right) => left.id.localeCompare(right.id))
+  };
+  return crypto6.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+function mutationAuthorityPatternIsSubset(candidate, boundary) {
+  const normalizedCandidate = normalizeAuthorityPath(candidate, "authority candidate pattern", true);
+  const normalizedBoundary = normalizeAuthorityPath(boundary, "authority boundary pattern", true);
+  if (normalizedCandidate === normalizedBoundary)
+    return true;
+  if (normalizedCandidate.endsWith("/**")) {
+    if (!normalizedBoundary.endsWith("/**"))
+      return false;
+    const candidatePrefix = normalizedCandidate.slice(0, -3);
+    const boundaryPrefix = normalizedBoundary.slice(0, -3);
+    return candidatePrefix === boundaryPrefix || candidatePrefix.startsWith(`${boundaryPrefix}/`);
+  }
+  return mutationScopePatternMatchesPath(normalizedCandidate, normalizedBoundary);
+}
+function mutationAuthorityPatternsOverlap(left, right) {
+  const normalizedLeft = normalizeAuthorityPath(left, "authority pattern", true);
+  const normalizedRight = normalizeAuthorityPath(right, "authority pattern", true);
+  if (normalizedLeft.endsWith("/**") && normalizedRight.endsWith("/**")) {
+    const leftPrefix = normalizedLeft.slice(0, -3);
+    const rightPrefix = normalizedRight.slice(0, -3);
+    return leftPrefix === rightPrefix || leftPrefix.startsWith(`${rightPrefix}/`) || rightPrefix.startsWith(`${leftPrefix}/`);
+  }
+  if (normalizedLeft.endsWith("/**"))
+    return mutationScopePatternMatchesPath(normalizedRight, normalizedLeft);
+  if (normalizedRight.endsWith("/**"))
+    return mutationScopePatternMatchesPath(normalizedLeft, normalizedRight);
+  return normalizedLeft === normalizedRight;
+}
+var AUTHORITY_GOVERNANCE_PATTERNS = [
+  ".git/**",
+  ".workflow-system/**",
+  ".agents/**",
+  ".claude/**",
+  ".codex/**",
+  "node_modules/**",
+  "docs/workflow/**",
+  "runtime/vnext/dist/**",
+  "packages/vibe-governance/**"
+];
+function mutationAuthorityPlanBlockerCode(decision) {
+  if (decision.reason === "target is explicitly forbidden")
+    return "MUTATION_AUTHORITY_FORBIDDEN";
+  if (decision.reason === "target overlaps a Runtime/governance boundary")
+    return "MUTATION_AUTHORITY_GOVERNANCE_BOUNDARY";
+  if (decision.kind === "command-write")
+    return "COMMAND_FOOTPRINT_AUTHORITY_BLOCKED";
+  return "MUTATION_AUTHORITY_PLANNING_BLOCKED";
+}
+function projectDomainsContainingPattern(project, pattern) {
+  if (!pattern.endsWith("/**")) {
+    const domain = authorityDomainForPath(project, pattern);
+    return domain === null ? [] : project.domains.filter((item) => item.id === domain);
+  }
+  return project.domains.filter((domain) => domain.roots.some((root) => mutationAuthorityPatternIsSubset(pattern, root)));
+}
+function evaluateTaskAuthorityPattern(project, task, rawPattern, kind) {
+  const pattern = normalizeAuthorityPath(rawPattern, `${kind} authority pattern`, true);
+  if (task.forbidden.some((forbidden) => mutationAuthorityPatternsOverlap(pattern, forbidden))) {
+    return { kind, path: pattern, admitted: false, domain: null, reason: "target is explicitly forbidden" };
+  }
+  if (AUTHORITY_GOVERNANCE_PATTERNS.some((governance) => mutationAuthorityPatternsOverlap(pattern, governance))) {
+    return { kind, path: pattern, admitted: false, domain: null, reason: "target overlaps a Runtime/governance boundary" };
+  }
+  const exactException = !pattern.endsWith("/**") && task.exact_exceptions.includes(pattern);
+  const containingDomains = projectDomainsContainingPattern(project, pattern);
+  if (exactException) {
+    return { kind, path: pattern, admitted: true, domain: containingDomains[0]?.id ?? null, reason: "exact exception is explicitly authorized" };
+  }
+  if (containingDomains.length === 0) {
+    return { kind, path: pattern, admitted: false, domain: null, reason: pattern.endsWith("/**") ? "directory footprint is not contained by one project authority root" : "target is unclassified" };
+  }
+  const domain = containingDomains[0];
+  if (!task.domains.includes(domain.id)) {
+    return { kind, path: pattern, admitted: false, domain: domain.id, reason: `target belongs to unauthorized domain ${domain.id}` };
+  }
+  return { kind, path: pattern, admitted: true, domain: domain.id, reason: "target is contained by the task authority envelope" };
+}
+function evaluateTaskMutationAuthorityPlan(input) {
+  const declarations = [
+    ...input.planned_targets.map((path8) => ({ kind: "planned-target", path: path8 })),
+    ...input.command_write_targets.map((path8) => ({ kind: "command-write", path: path8 })),
+    ...input.persistent_test_paths.map((path8) => ({ kind: "persistent-test", path: path8 }))
+  ];
+  const decisions = declarations.map((item) => evaluateTaskAuthorityPattern(input.project, input.task, item.path, item.kind));
+  const blockers = decisions.filter((item) => !item.admitted).map((item) => `${item.kind}: ${item.path} — ${item.reason}`);
+  return { status: blockers.length === 0 ? "pass" : "blocked", decisions, blockers };
 }
 function firstTouchState(root, target) {
   if (!root)
@@ -4597,7 +4702,7 @@ function evaluateExecutionTargetAdmissions(input) {
 }
 
 // runtime/vnext/src/bootstrap.ts
-import * as crypto6 from "crypto";
+import * as crypto7 from "crypto";
 import * as fs7 from "fs";
 import * as path8 from "path";
 var VNEXT_BOOTSTRAP_PROPOSAL_SCHEMA_VERSION = 1;
@@ -4664,7 +4769,7 @@ function normalizePathArray(value, location, allowEmpty = false) {
   return expectStringArray(value, location, allowEmpty).map((item, index) => normalizeRepoPath(item, `${location}[${index}]`));
 }
 function sha2563(value) {
-  return crypto6.createHash("sha256").update(value).digest("hex");
+  return crypto7.createHash("sha256").update(value).digest("hex");
 }
 function computeBootstrapTargetIdentity(root) {
   const resolved = path8.resolve(root).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
@@ -5077,7 +5182,8 @@ var RUNTIME_STATE_FIELDS = [
   "artifact_checkpoint_ids",
   "dynamic_review_required",
   "dynamic_expansions",
-  "execution_preflight"
+  "execution_preflight",
+  "authority_domain_revision"
 ];
 var REVIEW_CYCLE_FIELDS = [
   "id",
@@ -5312,7 +5418,7 @@ function normalizeRepoPath2(value, location) {
   return normalized;
 }
 function sha2564(value) {
-  return crypto7.createHash("sha256").update(value).digest("hex");
+  return crypto8.createHash("sha256").update(value).digest("hex");
 }
 function stableValue2(value) {
   if (Array.isArray(value))
@@ -5694,6 +5800,13 @@ function evaluateCurrentExecutionTargetAdmissions(root, current, input) {
     }
     if (!project)
       fail3("MUTATION_AUTHORITY_PROJECT_REQUIRED", "v2 tasks require PROJECT_PROFILE.yaml.mutation_authority.domains.");
+    const currentDomainRevision = projectMutationAuthorityRevision(project);
+    if (!current.runtimeState.authority_domain_revision) {
+      fail3("MUTATION_AUTHORITY_DOMAIN_REVISION_REQUIRED", "v2 execution must bind the project authority domain-map revision before mutation admission.");
+    }
+    if (current.runtimeState.authority_domain_revision !== currentDomainRevision) {
+      fail3("MUTATION_AUTHORITY_DOMAIN_REVISION_STALE", "the project authority domain map changed after this task was confirmed; explicitly revalidate or replan the task before execution.");
+    }
   }
   const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body, current.sourceTuple.revision);
   const evaluation = evaluateExecutionTargetAdmissions({
@@ -6425,13 +6538,34 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   }
   expectSetEqual(expectStringArray2(commandWriteFootprint.observation_limitations, "Runtime contract.mutation_scope.command_write_footprint.observation_limitations"), ["no-os-level-transient-write-history-proof"], "Runtime command write observation limitations");
   const mutationAuthorityContract = expectRecord2(contract.mutation_authority, "Runtime contract.mutation_authority");
-  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "authority_amendment_execution_gate", "persistent_test_admission", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
+  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "planning_time_authority_proof", "command_glob_proof", "domain_map_lifecycle", "domain_map_revision", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "authority_amendment_execution_gate", "persistent_test_admission", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
   if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "mandatory-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime Mutation Authority v2 contract semantics are invalid.");
   }
   expectSetEqual(expectStringArray2(mutationAuthorityContract.project_domain_fields, "Runtime mutation authority project domain fields"), ["id", "roots"], "Runtime mutation authority project domain fields");
   expectSetEqual(expectStringArray2(mutationAuthorityContract.task_fields, "Runtime mutation authority task fields"), ["mutation_authority_version", "domains", "exact_exceptions", "forbidden"], "Runtime mutation authority task fields");
   expectSetEqual(expectStringArray2(mutationAuthorityContract.assessment_fields, "Runtime mutation authority assessment fields"), ["target", "reason", "blast_radius", "evidence_refs", "disposition"], "Runtime mutation authority assessment fields");
+  const planningProof = expectRecord2(mutationAuthorityContract.planning_time_authority_proof, "Runtime mutation authority planning_time_authority_proof");
+  expectExactKeys2(planningProof, ["evaluator", "declarations", "admission", "timing", "unclassified_behavior"], "Runtime mutation authority planning_time_authority_proof");
+  if (planningProof.evaluator !== "runtime-owned-task-definition-authority-proof" || planningProof.admission !== "authorized-domain-or-exact-exception" || planningProof.timing !== "before-draft-confirmed-definition-commit" || planningProof.unclassified_behavior !== "blocked") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime planning-time authority proof semantics are invalid.");
+  }
+  expectSetEqual(expectStringArray2(planningProof.declarations, "Runtime mutation authority planning-time declarations"), ["planned_mutation_targets", "command_write_footprints", "persistent_test_paths"], "Runtime planning-time authority declarations");
+  const commandGlobProof = expectRecord2(mutationAuthorityContract.command_glob_proof, "Runtime mutation authority command_glob_proof");
+  expectExactKeys2(commandGlobProof, ["grammar", "relation", "synthetic_probe", "exact_exception"], "Runtime mutation authority command_glob_proof");
+  if (commandGlobProof.grammar !== "exact-path-or-literal-directory-prefix-globstar" || commandGlobProof.relation !== "candidate-pattern-must-be-subset-of-granted-domain-root" || commandGlobProof.synthetic_probe !== "prohibited" || commandGlobProof.exact_exception !== "cannot-authorize-directory-glob") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime command glob subset proof semantics are invalid.");
+  }
+  const domainMapLifecycle = expectRecord2(mutationAuthorityContract.domain_map_lifecycle, "Runtime mutation authority domain_map_lifecycle");
+  expectExactKeys2(domainMapLifecycle, ["proposal", "confirmation", "canonical", "task_selection"], "Runtime mutation authority domain_map_lifecycle");
+  if (domainMapLifecycle.proposal !== "bootstrap-inventory-domain-candidate" || domainMapLifecycle.confirmation !== "explicit-project-owner-decision" || domainMapLifecycle.canonical !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || domainMapLifecycle.task_selection !== "select-existing-map-without-rebuild") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime project domain-map lifecycle semantics are invalid.");
+  }
+  const domainMapRevision = expectRecord2(mutationAuthorityContract.domain_map_revision, "Runtime mutation authority domain_map_revision");
+  expectExactKeys2(domainMapRevision, ["binding", "mismatch", "grant"], "Runtime mutation authority domain_map_revision");
+  if (domainMapRevision.binding !== "v2-confirmed-task-runtime-state-authority_domain_revision" || domainMapRevision.mismatch !== "fail-closed-require-explicit-task-authority-revalidation-or-replan" || domainMapRevision.grant !== "never-inherit-changed-project-map") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime project domain-map revision semantics are invalid.");
+  }
   const dynamicExpansionIdentity = expectRecord2(mutationAuthorityContract.dynamic_expansion_identity, "Runtime mutation authority dynamic expansion identity");
   expectExactKeys2(dynamicExpansionIdentity, ["required", "active_view", "historical_records", "repeated_path_policy"], "Runtime mutation authority dynamic expansion identity");
   expectSetEqual(expectStringArray2(dynamicExpansionIdentity.required, "Runtime mutation authority dynamic expansion identity required fields"), ["step_id", "plan_revision", "change_set_id", "execution_id", "preflight_id", "mode", "path", "domain", "assessment", "first_touch_state", "admitted_at"], "Runtime mutation authority dynamic expansion identity required fields");
@@ -7598,6 +7732,91 @@ function readPersistentTestPaths(definition) {
     fail3("TEST_STRATEGY_INVALID", `${location} contains duplicate paths.`);
   return paths;
 }
+function definitionAuthorityPatterns(definition) {
+  let steps;
+  try {
+    steps = parseImplementationSteps(definition.implementation_steps);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError)
+      fail3(error.code, error.message);
+    throw error;
+  }
+  const plannedTargets = [];
+  const commandWriteTargets = [];
+  for (const [index, step] of steps.entries()) {
+    const rawTargets = step.planned_mutation_targets ?? step.mutation_scope;
+    if (!rawTargets)
+      fail3("TASK_STEP_METADATA_INCOMPLETE", `implementation_steps[${index}] is missing planned_mutation_targets.`);
+    plannedTargets.push(...rawTargets.split(",").map((value, targetIndex) => {
+      const cleaned = value.trim().replace(/^`|`$/gu, "");
+      try {
+        return normalizeAuthorityPath(cleaned, `implementation_steps[${index}].planned_mutation_targets[${targetIndex}]`, true);
+      } catch (error) {
+        if (error instanceof MutationAuthorityError)
+          fail3(error.code, error.message);
+        throw error;
+      }
+    }).filter(Boolean));
+    const planText = step.plan_text ?? "";
+    for (const match of planText.matchAll(/^\s*-\s+expected_repo_writes:\s*(.*?)\s*$/gmu)) {
+      const value = match[1].trim();
+      if (!value || value === "none")
+        continue;
+      commandWriteTargets.push(...value.split(",").map((item, targetIndex) => {
+        const cleaned = item.trim().replace(/^`|`$/gu, "");
+        try {
+          return normalizeAuthorityPath(cleaned, `implementation_steps[${index}].commands.expected_repo_writes[${targetIndex}]`, true);
+        } catch (error) {
+          if (error instanceof MutationAuthorityError)
+            fail3(error.code, error.message);
+          throw error;
+        }
+      }).filter(Boolean));
+    }
+  }
+  return { planned_targets: plannedTargets, command_write_targets: commandWriteTargets };
+}
+function assertV2DraftDefinitionAuthority(root, definition) {
+  if (definition.mutation_authority_version !== MUTATION_AUTHORITY_VERSION || !definition.mutation_authority)
+    return;
+  let task;
+  let project;
+  try {
+    task = validateTaskMutationAuthority(root, definition.mutation_authority);
+    project = readProjectMutationAuthority(root);
+  } catch (error) {
+    fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  if (!project)
+    fail3("MUTATION_AUTHORITY_PROJECT_REQUIRED", "v2 task definitions require the project authority domain map.");
+  const patterns = definitionAuthorityPatterns(definition);
+  const result = evaluateTaskMutationAuthorityPlan({
+    project,
+    task,
+    planned_targets: patterns.planned_targets,
+    command_write_targets: patterns.command_write_targets,
+    persistent_test_paths: readPersistentTestPaths(definition)
+  });
+  if (result.status !== "pass") {
+    const decision = result.decisions.find((item) => !item.admitted);
+    if (decision)
+      fail3(mutationAuthorityPlanBlockerCode(decision), `v2 task definition is outside the project authority envelope: ${result.blockers.join(" ")}`);
+    fail3("MUTATION_AUTHORITY_PLANNING_BLOCKED", `v2 task definition failed authority planning proof: ${result.blockers.join(" ")}`);
+  }
+}
+function currentAuthorityDomainRevision(root, current) {
+  if (!current.mutationAuthority)
+    return;
+  let project;
+  try {
+    project = readProjectMutationAuthority(root);
+  } catch (error) {
+    fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  if (!project)
+    fail3("MUTATION_AUTHORITY_PROJECT_REQUIRED", "v2 task state requires PROJECT_PROFILE.yaml.mutation_authority.domains.");
+  return projectMutationAuthorityRevision(project);
+}
 function strategyStepScopes(definition) {
   let steps;
   try {
@@ -7690,7 +7909,8 @@ function assertNonExecutableChangeScope(root, definition, stepScopes) {
   const declaredTargets = [...new Set([
     ...taskScope.allowed.map((entry) => entry.pattern),
     ...taskScope.conditional.map((entry) => entry.pattern),
-    ...stepScopes.flat()
+    ...stepScopes.flat(),
+    ...definition.mutation_authority_version === MUTATION_AUTHORITY_VERSION ? definitionAuthorityPatterns(definition).command_write_targets : []
   ])];
   const uncovered = declaredTargets.filter((target) => !policyPatterns.some((boundary) => {
     try {
@@ -9705,7 +9925,7 @@ function validateVNextRuntimeState(value, options = {}) {
   ];
   if (!options.storeBackedHistory)
     requiredRuntimeStateFields.push("execution_log", "applied_proposals");
-  const optionalRuntimeStateFields = ["business_evidence_version", "evidence_plan_revision", "task_evolution_version", "preservation_source_revision", "claim_evidence_required", "claim_evidence", "pending_review_result", "scope_amendment_pending_review_step_id", "review_coverage", "step_attempts", "evidence_challenges", "evidence_carry_forward", "artifact_checkpoint_ids", "dynamic_review_required", "dynamic_expansions", "execution_preflight"];
+  const optionalRuntimeStateFields = ["business_evidence_version", "evidence_plan_revision", "task_evolution_version", "preservation_source_revision", "claim_evidence_required", "claim_evidence", "pending_review_result", "scope_amendment_pending_review_step_id", "review_coverage", "step_attempts", "evidence_challenges", "evidence_carry_forward", "artifact_checkpoint_ids", "dynamic_review_required", "dynamic_expansions", "execution_preflight", "authority_domain_revision"];
   if (options.storeBackedHistory)
     optionalRuntimeStateFields.push("execution_log", "applied_proposals");
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter((field) => !(field in runtime));
@@ -9859,6 +10079,7 @@ function validateVNextRuntimeState(value, options = {}) {
     ...runtime.dynamic_review_required === undefined ? {} : { dynamic_review_required: dynamicReviewRequired },
     ...runtime.dynamic_expansions === undefined ? {} : { dynamic_expansions: dynamicExpansions },
     ...executionPreflight === undefined ? {} : { execution_preflight: executionPreflight },
+    ...runtime.authority_domain_revision === undefined ? {} : { authority_domain_revision: expectString2(runtime.authority_domain_revision, "runtime_state.authority_domain_revision", /^[a-f0-9]{64}$/) },
     pending_review_result: pendingReviewResult,
     ...runtime.step_attempts === undefined ? {} : { step_attempts: validateStepAttempts(runtime.step_attempts) },
     ...runtime.review_coverage === undefined ? {} : { review_coverage: validateReviewCoverage(runtime.review_coverage) }
@@ -13985,6 +14206,7 @@ function buildScopeAmendmentCandidate(root, current, input) {
     ...readDraftDefinitionFromBody(replaceReplanDefinitionSections(current.body, amendedDefinitionDraft)),
     ...amendedAuthority ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: amendedAuthority } : {}
   };
+  assertV2DraftDefinitionAuthority(root, amendedDefinition);
   assertPreparedTestStrategy(root, amendedDefinition, basis.basis);
   for (const record3 of claims)
     for (const slot of record3.slots) {
@@ -14278,6 +14500,7 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
   const amendedReviewCoverage = oldState.review_coverage ? registerReviewCoverage(root, current, amendmentReviewPaths) : undefined;
   const retainedPendingPaths = amendedReviewCoverage ? [...new Set([...amendedReviewCoverage.pending_paths, ...amendmentReviewPaths])].sort() : undefined;
   const { execution_preflight: _amendmentExecutionPreflight, ...stateWithoutExecutionPreflight } = oldState;
+  const domainRevision = currentAuthorityDomainRevision(root, current);
   const nextWithoutAudit = {
     ...stateWithoutExecutionPreflight,
     workflow_status: "active",
@@ -14287,6 +14510,7 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
     evidence_plan_revision: rebuilt.new_plan_revision,
     claim_evidence_required: true,
     claim_evidence: rebuilt.claim_evidence,
+    ...domainRevision ? { authority_domain_revision: domainRevision } : {},
     ...oldState.pending_review_result ? { scope_amendment_pending_review_step_id: oldState.pending_review_result.step_id } : {},
     ...amendedReviewCoverage && retainedPendingPaths ? { review_coverage: { ...amendedReviewCoverage, pending_paths: retainedPendingPaths } } : {},
     applied_proposals: appendAppliedProposal(oldState, proposal, current.sourceTuple.revision)
@@ -14378,8 +14602,9 @@ function buildCorrectionCandidate(root, current, input) {
   if (new Set(allNewSteps.map((item) => item.id)).size !== allNewSteps.length)
     fail3("RECOVERY_STEP_ID_REUSED", "Recovery and pending step IDs must be unique.");
   const writes = [...new Set(allNewSteps.flatMap((item) => item.mutation_scope))];
-  if (evaluateMutationScope(parseMutationScope(current.body), { changed_paths: writes }).status !== "pass")
+  if (!current.mutationAuthority && evaluateMutationScope(parseMutationScope(current.body), { changed_paths: writes }).status !== "pass") {
     fail3("REPLAN_SCOPE_EXPANSION", "Recovery paths exceed the old task scope.");
+  }
   if (input.mode === "conclusion-correction") {
     const boundaries = nonExecutableChangePatterns(root);
     if (writes.some((p) => !boundaries.some((boundary) => mutationScopePatternIsSubset(p, boundary))))
@@ -14415,6 +14640,7 @@ function buildCorrectionCandidate(root, current, input) {
   for (const recoveryStep of recoverySteps)
     definition = insertCorrectionStep(definition, anchor, recoveryStep, appendRecovery);
   assertPreparedTestStrategy(root, definition, basis.basis);
+  assertV2DraftDefinitionAuthority(root, definition);
   const records = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
   const correctedSlots = new Set;
   for (const challenge of challenges) {
@@ -14761,6 +14987,7 @@ function confirmCorrectionReplanLocked(root, rawInput, options) {
     evidence_refs: [location.relativePath, ...challengeRefs]
   });
   const oldState = current.runtimeState;
+  const domainRevision = currentAuthorityDomainRevision(root, current);
   const nextWithoutAudit = {
     ...oldState,
     workflow_status: "active",
@@ -14773,6 +15000,7 @@ function confirmCorrectionReplanLocked(root, rawInput, options) {
     evidence_carry_forward: rebuilt.carry_forward,
     evidence_challenges: (current.runtimeState.evidence_challenges ?? []).map((item) => rebuilt.input.challenge_ids.includes(item.challenge_id) ? { ...item, status: "invalidated", correction_step_id: rebuilt.input.correction_step.id } : item),
     pending_review_result: null,
+    ...domainRevision ? { authority_domain_revision: domainRevision } : {},
     review_cycle: reviewCycleForNextStep(current.runtimeState.review_cycle.id, rebuilt.input.correction_step.id, idempotencyKey),
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
   };
@@ -15461,6 +15689,7 @@ function assertDraftDefinitionReady(root, current) {
   const activeStepId = current.runtimeState.active_step_id;
   const body = current.body;
   const definition = readDraftDefinitionFromBody(body);
+  assertV2DraftDefinitionAuthority(root, definition);
   assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
   assertPreparedTestStrategy(root, definition, readCanonicalTaskBasis(root, current).basis);
   assertEvidencePlan(definition, current.runtimeState.claim_evidence ?? [], true);
@@ -15766,6 +15995,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertV2DraftDefinitionAuthority(root, delta.draft_definition);
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "create-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "create-draft claim_evidence");
@@ -15829,6 +16059,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (currentIdentity.title !== delta.task_title)
       fail3("DRAFT_IDENTITY_IMMUTABLE", "update-draft must preserve the task title identity.");
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertV2DraftDefinitionAuthority(root, delta.draft_definition);
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "update-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "update-draft claim_evidence");
@@ -15911,10 +16142,12 @@ function applyTaskStateDelta(root, current, proposal, now) {
     }
     const claimEvidence = requireClaimEvidencePlan(current.runtimeState.claim_evidence, "confirm-draft claim_evidence", "CLAIM_EVIDENCE_MIGRATION_REQUIRED");
     requireAcceptanceClaim(claimEvidence, "confirm-draft claim_evidence");
+    const domainRevision = currentAuthorityDomainRevision(root, current);
     const nextWithoutAudit = {
       ...current.runtimeState,
       workflow_status: "active",
       lifecycle_state: "active",
+      ...domainRevision ? { authority_domain_revision: domainRevision } : {},
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);
@@ -16084,7 +16317,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
       fail3("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge evidence must be admitted by both proposal and delta.");
     const evidencePath = path9.resolve(root, delta.evidence_ref);
-    if (!fs8.existsSync(evidencePath) || !fs8.statSync(evidencePath).isFile() || crypto7.createHash("sha256").update(fs8.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
+    if (!fs8.existsSync(evidencePath) || !fs8.statSync(evidencePath).isFile() || crypto8.createHash("sha256").update(fs8.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge artifact is missing or changed.");
     const challengeId = `challenge-${digest3({ task: current.runtimeState.task_id, claim: delta.claim_id, slot: delta.slot_id, result: delta.result_id, evidence_sha256: delta.evidence_sha256 }).slice(0, 32)}`;
     if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.challenge_id === challengeId))
@@ -16115,7 +16348,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
       fail3("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge assessment evidence must be admitted by both proposal and delta.");
     const evidencePath = path9.resolve(root, delta.evidence_ref);
-    if (!fs8.existsSync(evidencePath) || !fs8.statSync(evidencePath).isFile() || crypto7.createHash("sha256").update(fs8.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
+    if (!fs8.existsSync(evidencePath) || !fs8.statSync(evidencePath).isFile() || crypto8.createHash("sha256").update(fs8.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge assessment artifact is missing or changed.");
     const resolution = {
       kind: "not-substantiated",
@@ -19310,13 +19543,13 @@ async function runCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/bootstrap-support.ts
-import * as crypto10 from "crypto";
+import * as crypto11 from "crypto";
 import * as fs11 from "fs";
 import * as path12 from "path";
 import { parse as parse4, parseDocument as parseDocument3, stringify as stringify3 } from "yaml";
 
 // runtime/vnext/src/scoped-tree-hash.ts
-import * as crypto8 from "crypto";
+import * as crypto9 from "crypto";
 import * as fs9 from "fs";
 import * as path10 from "path";
 
@@ -19328,7 +19561,7 @@ class ScopedTreeHashError extends Error {
   }
 }
 function sha2565(value) {
-  return crypto8.createHash("sha256").update(value).digest("hex");
+  return crypto9.createHash("sha256").update(value).digest("hex");
 }
 function normalizeRepoPath3(value, location) {
   const normalized = value.trim().replace(/\\/gu, "/").replace(/^\.\//u, "").replace(/\/+/gu, "/");
@@ -19352,7 +19585,7 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
   const included = [...new Set(includedRelativePaths.map((relativePath2) => normalizeRepoPath3(relativePath2, "scoped tree hash included path")))].sort((left, right) => left.localeCompare(right));
   const ignored = new Set(ignoredRelativePaths.map((relativePath2) => normalizeRepoPath3(relativePath2, "scoped tree hash ignored path")));
   const visited = new Set;
-  const hash3 = crypto8.createHash("sha256");
+  const hash3 = crypto9.createHash("sha256");
   const isMissingPathError = (error) => {
     if (!error || typeof error !== "object" || !("code" in error))
       return false;
@@ -19427,7 +19660,7 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
 }
 
 // runtime/vnext/src/migration-provenance.ts
-import * as crypto9 from "crypto";
+import * as crypto10 from "crypto";
 
 // runtime/vnext/src/migration-preservation.ts
 function object(value, keys) {
@@ -19563,7 +19796,7 @@ function expectExactKeys3(value, expected, location) {
     fail4(`${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
 }
 function sha2566(value) {
-  return crypto9.createHash("sha256").update(value).digest("hex");
+  return crypto10.createHash("sha256").update(value).digest("hex");
 }
 function normalizeRoot(root) {
   const resolved = path11.resolve(root);
@@ -19987,7 +20220,7 @@ function expectExactKeys4(value, keys, location) {
     fail5("BOOTSTRAP_SUPPORT_SCHEMA_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
 }
 function sha2567(value) {
-  return crypto10.createHash("sha256").update(value).digest("hex");
+  return crypto11.createHash("sha256").update(value).digest("hex");
 }
 function stableValue3(value) {
   if (Array.isArray(value))
@@ -20090,6 +20323,113 @@ function listTopLevelNames(root) {
   if (!fs11.existsSync(root))
     return [];
   return fs11.readdirSync(root, { withFileTypes: true }).map((entry) => entry.name).sort();
+}
+var DOMAIN_CANDIDATE_IGNORES = new Set([
+  ".git",
+  ".workflow-system",
+  ".agents",
+  ".claude",
+  ".codex",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  "target"
+]);
+var DOMAIN_CANDIDATE_FILE_EXTENSIONS = /\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cs|php|rb|swift|kt|kts)$/iu;
+function normalizeAuthorityDomainCandidates(value, location = "authority_domain_candidates") {
+  if (!Array.isArray(value) || value.length > 128)
+    fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID", `${location} must be a bounded array.`);
+  const candidates = value.map((raw, index) => {
+    const candidate = expectRecord4(raw, `${location}[${index}]`);
+    expectExactKeys4(candidate, ["id", "roots", "basis", "evidence_refs"], `${location}[${index}]`);
+    const authority = normalizeProjectMutationAuthority({ domains: [{ id: candidate.id, roots: candidate.roots }] });
+    const domain = authority.domains[0];
+    if (typeof candidate.basis !== "string" || candidate.basis.trim().length === 0)
+      fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID", `${location}[${index}].basis must be non-empty.`);
+    if (!Array.isArray(candidate.evidence_refs) || candidate.evidence_refs.length === 0 || candidate.evidence_refs.length > 32 || candidate.evidence_refs.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+      fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID", `${location}[${index}].evidence_refs must be a non-empty bounded list of strings.`);
+    }
+    return {
+      id: domain.id,
+      roots: domain.roots,
+      basis: candidate.basis.trim(),
+      evidence_refs: candidate.evidence_refs.map((item) => item.trim())
+    };
+  });
+  if (new Set(candidates.map((item) => item.id)).size !== candidates.length)
+    fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID", `${location} domain IDs must be unique.`);
+  try {
+    normalizeProjectMutationAuthority({ domains: candidates.map((item) => ({ id: item.id, roots: item.roots })) });
+  } catch (error) {
+    fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  return candidates;
+}
+function proposeAuthorityDomainCandidates(root) {
+  let existing = null;
+  try {
+    existing = readProjectMutationAuthority(root);
+  } catch (error) {
+    fail5("BOOTSTRAP_SUPPORT_PROFILE_INVALID", error instanceof Error ? error.message : String(error));
+  }
+  if (existing) {
+    return existing.domains.map((domain) => ({
+      id: domain.id,
+      roots: [...domain.roots],
+      basis: "existing project-owner-confirmed authority domain retained as a candidate; Bootstrap does not rebuild it.",
+      evidence_refs: [`bootstrap:existing-authority-domain:${domain.id}`]
+    }));
+  }
+  const entries = fs11.existsSync(root) ? fs11.readdirSync(root, { withFileTypes: true }) : [];
+  const directories = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && !DOMAIN_CANDIDATE_IGNORES.has(entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right));
+  if (directories.length > 0) {
+    const used = new Set;
+    return directories.map((name) => {
+      const base = safeSlug(name).replace(/-+/gu, "-") || "application";
+      let id = base;
+      let suffix = 2;
+      while (used.has(id))
+        id = `${base}-${suffix++}`;
+      used.add(id);
+      return {
+        id,
+        roots: [`${name}/**`],
+        basis: `bootstrap inventory observed top-level product directory ${name}; owner confirmation is still required before this becomes canonical authority.`,
+        evidence_refs: [`bootstrap:inventory:top-level-directory:${name}`]
+      };
+    });
+  }
+  const files = entries.filter((entry) => entry.isFile() && DOMAIN_CANDIDATE_FILE_EXTENSIONS.test(entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right));
+  return files.length > 0 ? [{
+    id: "application",
+    roots: files,
+    basis: "bootstrap inventory observed executable source files at the project root; owner confirmation is still required before this becomes canonical authority.",
+    evidence_refs: ["bootstrap:inventory:top-level-source-files"]
+  }] : [];
+}
+function normalizeAuthorityDomainConfirmation(value) {
+  const confirmation = expectRecord4(value, "authority_domain_confirmation");
+  expectExactKeys4(confirmation, ["domains", "decision_source", "decision_text"], "authority_domain_confirmation");
+  const authority = normalizeProjectMutationAuthority({ domains: confirmation.domains });
+  if (typeof confirmation.decision_source !== "string" || confirmation.decision_source.trim().length === 0)
+    fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID", "authority_domain_confirmation.decision_source must be non-empty.");
+  if (typeof confirmation.decision_text !== "string" || confirmation.decision_text.trim().length === 0)
+    fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID", "authority_domain_confirmation.decision_text must be non-empty.");
+  return {
+    domains: authority.domains.map((domain) => ({ id: domain.id, roots: [...domain.roots] })),
+    decision_source: confirmation.decision_source.trim(),
+    decision_text: confirmation.decision_text.trim()
+  };
+}
+function assertAuthorityDomainConfirmationMatchesCandidates(candidates, confirmation) {
+  const candidateMap = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  for (const domain of confirmation.domains) {
+    const candidate = candidateMap.get(domain.id);
+    if (!candidate || JSON.stringify(candidate.roots) !== JSON.stringify(domain.roots)) {
+      fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID", `confirmed domain ${domain.id} must match an inventory candidate exactly.`);
+    }
+  }
 }
 function readExistingDocument(root, relative6) {
   const filePath = targetPath(root, relative6);
@@ -20322,7 +20662,7 @@ function validateInstalledDistributionReadback(root) {
     validateSkillFile(root, entry);
   return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs11.readFileSync(statePath, "utf8"), managed_files: managed };
 }
-function renderProfile(project, targetIdentity, mode, host, existing) {
+function renderProfile(project, targetIdentity, mode, host, existing, authorityDomainConfirmation = null) {
   const existingProject = existing?.project && isRecord4(existing.project) ? existing.project : {};
   const existingPaths = existing?.paths && isRecord4(existing.paths) ? existing.paths : {};
   const existingVNext = existing?.vnext && isRecord4(existing.vnext) ? existing.vnext : {};
@@ -20347,7 +20687,12 @@ function renderProfile(project, targetIdentity, mode, host, existing) {
       runtime_contract: ".workflow-system/vnext/RUNTIME_CONTRACT.yaml",
       runtime_entrypoint: ".workflow-system/runtime/dist/cli.js",
       legacy_compatibility: "absent"
-    }
+    },
+    ...authorityDomainConfirmation ? {
+      mutation_authority: {
+        domains: authorityDomainConfirmation.domains.map((domain) => ({ id: domain.id, roots: [...domain.roots] }))
+      }
+    } : {}
   });
 }
 var PUBLIC_ENTRY_TERMINAL_GUIDANCE = [
@@ -20601,12 +20946,12 @@ function renderGovernanceDocument(file2, project, mode, facts, baseline, preserv
     return renderRoadmap(project, mode, baseline, preservedBaselineKeys);
   return renderWorkflowGuide(project);
 }
-function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, baseline, preservedBaselineKeys = [], existingGovernance = null) {
+function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, baseline, preservedBaselineKeys = [], existingGovernance = null, authorityDomainConfirmation = null) {
   const templatePath = targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
   if (!fs11.existsSync(templatePath) || !fs11.statSync(templatePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
   return [
-    { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root)) },
+    { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root), authorityDomainConfirmation) },
     { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs11.readFileSync(templatePath, "utf8") },
     ...FULL_WORKFLOW_DOCS.map((file2) => ({ path: file2, category: "governance", content: renderGovernanceDocument(file2, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: "AGENTS.md", category: "governance", content: renderGuidance(project) },
@@ -20887,6 +21232,14 @@ function prepareProposal(options, distribution, classification) {
   const host = options.host ?? "codex";
   const baseline = normalizeBaseline(options.designBaseline);
   const callerFacts = normalizeFacts(options.mode === "inventory" ? options.inventoryFacts ?? options.confirmedFacts : options.confirmedFacts, options.mode === "inventory" ? "inventoryFacts" : "confirmedFacts");
+  const authorityDomainCandidates = options.authorityDomainCandidates === undefined ? proposeAuthorityDomainCandidates(root) : normalizeAuthorityDomainCandidates(options.authorityDomainCandidates);
+  const authorityDomainConfirmation = options.authorityDomainConfirmation === undefined ? null : normalizeAuthorityDomainConfirmation(options.authorityDomainConfirmation);
+  if (authorityDomainConfirmation) {
+    if (!["greenfield", "adopt", "realign"].includes(options.mode)) {
+      fail5("BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID", "domain-map confirmation is applied by greenfield, adopt, or realign; inventory only proposes candidates.");
+    }
+    assertAuthorityDomainConfirmationMatchesCandidates(authorityDomainCandidates, authorityDomainConfirmation);
+  }
   const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, classification.receipt, classification.migration);
   if (modeIssues.length > 0)
     fail5(modeIssues[0].code, modeIssues.map((issue) => issue.message).join(" "));
@@ -20900,7 +21253,7 @@ function prepareProposal(options, distribution, classification) {
   };
   const facts = options.mode === "realign" ? mergeGovernanceFacts(existingGovernance.facts, callerFacts) : callerFacts;
   const baselineKeys = options.mode === "realign" ? mergeDesignBaselineKeys(existingGovernance.designBaselineKeys, baseline) : Object.keys(baseline).sort((left, right) => left.localeCompare(right));
-  let assets = ["greenfield", "adopt", "realign"].includes(options.mode) ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys, existingGovernance) : makeModeAssets(root, project, options.mode, baseline, facts);
+  let assets = ["greenfield", "adopt", "realign"].includes(options.mode) ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys, existingGovernance, authorityDomainConfirmation) : makeModeAssets(root, project, options.mode, baseline, facts);
   if (options.mode === "adopt")
     assets = mergeAssets(assets, [{ path: "docs/adoption/ADOPTION_DECISION.md", category: "governance", content: renderDecisions(project, options.mode, facts) }]);
   if (options.mode === "realign") {
@@ -20915,6 +21268,8 @@ function prepareProposal(options, distribution, classification) {
     host,
     baseline,
     facts,
+    authority_domain_candidates: options.authorityDomainCandidates ?? null,
+    authority_domain_confirmation: options.authorityDomainConfirmation ?? null,
     targetIdentity
   });
   assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: "config", content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
@@ -20939,13 +21294,18 @@ function prepareProposal(options, distribution, classification) {
     conditional_authorizations: options.conditionalAuthorizations ?? [],
     transformation_kind: "localized",
     authority_evidence: [
-      { kind: "project-owner", source: "target-local bootstrap input", subject: `${project.slug}:${options.mode}` },
+      { kind: "project-owner", source: authorityDomainConfirmation?.decision_source ?? "target-local bootstrap input", subject: authorityDomainConfirmation?.decision_text ?? `${project.slug}:${options.mode}` },
       { kind: "scope-admission", source: "target-local bootstrap proposal.scope_document", subject: targetIdentity },
       { kind: "evidence-admission", source: "target-local Distribution support", subject: distribution.manifest_digest }
     ],
     semantic_operations: semanticOperations(assets, options.mode),
     preconditions: ["project-local Distribution read-back passed", "target-local immutable Bootstrap support is present", "Bootstrap writes governance assets only", "project-local Runtime owns the typed commit"],
-    evidence_refs: ["evidence:distribution-read-back", "evidence:bootstrap-support", "evidence:runtime-read-back"],
+    evidence_refs: [
+      "evidence:distribution-read-back",
+      "evidence:bootstrap-support",
+      "evidence:runtime-read-back",
+      ...authorityDomainConfirmation ? [`evidence:authority-domain-confirmation:${digest4(authorityDomainConfirmation)}`] : []
+    ],
     idempotency_key: `bootstrap-${options.mode}-${targetIdentity}-${inputFingerprint.slice(0, 16)}`,
     requested_write_targets: plannedWrites,
     requested_directory_targets: [],
@@ -20957,7 +21317,7 @@ function prepareProposal(options, distribution, classification) {
   } catch (error) {
     fail5(error instanceof Error && "code" in error ? String(error.code) : "BOOTSTRAP_SUPPORT_PROPOSAL_INVALID", error instanceof Error ? error.message : String(error));
   }
-  return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint };
+  return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint, authorityDomainCandidates };
 }
 function hasRealignSemanticOverlay(options) {
   const facts = options.confirmedFacts;
@@ -21073,21 +21433,22 @@ function bootstrapProjectTargetLocal(options) {
           changed_paths: options.changedPaths ?? [],
           blockers: [{ code: "BOOTSTRAP_IDENTITY_CONFLICT", message: "a valid Bootstrap receipt exists but its mode inputs or project identity differ." }],
           warnings: [],
+          authority_domain_candidates: prepared.authorityDomainCandidates,
           read_back_verified: false,
           proposal
         };
       try {
         verifyReceiptReadBack(root, classification.receipt, proposal.assets);
-        return { status: "replayed", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], read_back_verified: true };
+        return { status: "replayed", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: true };
       } catch (error) {
-        return { status: "blocked", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_REPLAY_READ_BACK_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [], read_back_verified: false, proposal };
+        return { status: "blocked", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_REPLAY_READ_BACK_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
       }
     }
     if (!options.write) {
-      return { status: options.changedPaths && options.changedPaths.length > 0 ? "ready" : "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), read_back_verified: false, proposal };
+      return { status: options.changedPaths && options.changedPaths.length > 0 ? "ready" : "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     }
     if (!options.changedPaths || options.changedPaths.length === 0)
-      return { status: "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: "CHANGED_PATHS_REQUIRED", message: `caller must provide exact changed_paths: ${prepared.plannedWrites.join(", ")}` }], warnings: [], read_back_verified: false, proposal };
+      return { status: "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: "CHANGED_PATHS_REQUIRED", message: `caller must provide exact changed_paths: ${prepared.plannedWrites.join(", ")}` }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     const beforeHash = computeBootstrapPreimageHash(root, proposal);
     const markerPath = targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH);
     try {
@@ -21096,7 +21457,7 @@ function bootstrapProjectTargetLocal(options) {
       const runtimeResult = applyBootstrapProjectProposal(root, proposal, { verify: () => verifyBootstrapHealth(root, proposal, distribution) });
       if (fs11.existsSync(markerPath))
         fs11.rmSync(markerPath, { force: true });
-      return { status: "installed", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
+      return { status: "installed", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
     } catch (error) {
       let rollbackVerified = false;
       try {
@@ -21106,7 +21467,7 @@ function bootstrapProjectTargetLocal(options) {
       }
       if (rollbackVerified && fs11.existsSync(markerPath))
         fs11.rmSync(markerPath, { force: true });
-      return { status: "blocked", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_TRANSACTION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? "ROLLBACK_VERIFIED" : "RECOVERY_REQUIRED", message: rollbackVerified ? "Bootstrap-owned governance scope was restored and its interruption marker was cleared." : "Bootstrap rollback could not be verified; interruption marker retained for explicit recovery." }], read_back_verified: false, proposal };
+      return { status: "blocked", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_TRANSACTION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? "ROLLBACK_VERIFIED" : "RECOVERY_REQUIRED", message: rollbackVerified ? "Bootstrap-owned governance scope was restored and its interruption marker was cleared." : "Bootstrap rollback could not be verified; interruption marker retained for explicit recovery." }], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     }
   } catch (error) {
     return { status: "blocked", target_root: root, target_state: classification.state, target_identity: computeBootstrapTargetIdentity(root), mode: options.mode, project: { name: "unknown", slug: "unknown" }, host: options.host ?? "codex", source: { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest }, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_PREPARATION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), read_back_verified: false };
@@ -21165,6 +21526,12 @@ function readAuthorizationsFile(filePath) {
     fail5("BOOTSTRAP_SUPPORT_INPUT_INVALID", "conditional authorizations file must contain an array.");
   return value;
 }
+function readAuthorityDomainCandidatesFile(filePath) {
+  return normalizeAuthorityDomainCandidates(JSON.parse(fs11.readFileSync(path12.resolve(filePath), "utf8")), "authority_domain_candidates file");
+}
+function readAuthorityDomainConfirmationFile(filePath) {
+  return normalizeAuthorityDomainConfirmation(JSON.parse(fs11.readFileSync(path12.resolve(filePath), "utf8")));
+}
 async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
   try {
     const { command, flags } = parseCliFlags(argv);
@@ -21173,7 +21540,7 @@ async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
         "Target-local Vibe Governance Bootstrap support",
         "",
         "Usage:",
-        "  node .workflow-system/runtime/dist/cli.js bootstrap-support prepare --root <project> --mode <design|greenfield|inventory|adopt|realign> [--write] [--changed-paths-file <file>] [--json]",
+        "  node .workflow-system/runtime/dist/cli.js bootstrap-support prepare --root <project> --mode <design|greenfield|inventory|adopt|realign> [--write] [--changed-paths-file <file>] [--authority-domain-candidates-file <file>] [--authority-domain-confirmation-file <file>] [--json]",
         "",
         "The support layer prepares a typed proposal from installed immutable bytes; the project-local Runtime commits governance assets."
       ].join(`
@@ -21190,6 +21557,8 @@ async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
     const factsFile = flagString(flags, "facts-file");
     const baselineFile = flagString(flags, "design-baseline-file");
     const authorizationsFile = flagString(flags, "conditional-authorizations-file");
+    const authorityDomainCandidatesFile = flagString(flags, "authority-domain-candidates-file");
+    const authorityDomainConfirmationFile = flagString(flags, "authority-domain-confirmation-file");
     const result = bootstrapProjectTargetLocal({
       targetRoot,
       mode,
@@ -21203,7 +21572,9 @@ async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
       inventoryFacts: factsFile ? readFactsFile(factsFile) : undefined,
       adoptionConfirmed: flags.get("confirm-adoption") === true || flags.get("confirm") === true,
       changedPaths: changedPathsFile ? readStringListFile(changedPathsFile) : undefined,
-      conditionalAuthorizations: authorizationsFile ? readAuthorizationsFile(authorizationsFile) : undefined
+      conditionalAuthorizations: authorizationsFile ? readAuthorizationsFile(authorizationsFile) : undefined,
+      authorityDomainCandidates: authorityDomainCandidatesFile ? readAuthorityDomainCandidatesFile(authorityDomainCandidatesFile) : undefined,
+      authorityDomainConfirmation: authorityDomainConfirmationFile ? readAuthorityDomainConfirmationFile(authorityDomainConfirmationFile) : undefined
     });
     console.log(JSON.stringify(publicPlan(result), null, 2));
     return ["needs-confirmation", "ready", "installed", "replayed"].includes(result.status) ? 0 : 1;
@@ -21214,7 +21585,7 @@ async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/prepare-task-adapter.ts
-import * as crypto11 from "crypto";
+import * as crypto12 from "crypto";
 import * as fs12 from "fs";
 import * as path13 from "path";
 var PREPARE_TASK_ADAPTER_COMMANDS = [
@@ -21592,6 +21963,8 @@ function scopeBody(input) {
 `);
 }
 function assertSemanticScopeIsExecutable(input) {
+  if (input.mutation_authority_version === MUTATION_AUTHORITY_VERSION)
+    return;
   const mutationScope = semanticMutationScope(input);
   const scope = parseMutationScope(scopeBody(input));
   const persistentTests = input.persistent_tests === "none" ? [] : input.persistent_tests;
@@ -21654,17 +22027,17 @@ function assertSemanticScopeIsExecutable(input) {
   }
 }
 function semanticDigest(input) {
-  return crypto11.createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  return crypto12.createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 function adapterIdempotencyKey(prefix, value) {
-  const digest5 = crypto11.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const digest5 = crypto12.createHash("sha256").update(JSON.stringify(value)).digest("hex");
   return `${prefix}-${digest5.slice(0, 48)}`;
 }
 function taskSlug(goal) {
   const ascii = goal.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 80).replace(/-+$/gu, "");
   if (ascii)
     return ascii;
-  return `task-${crypto11.createHash("sha256").update(goal).digest("hex").slice(0, 12)}`;
+  return `task-${crypto12.createHash("sha256").update(goal).digest("hex").slice(0, 12)}`;
 }
 function authority(current, subject, kinds) {
   return kinds.map((kind) => ({ kind, source: current.relativePath, subject }));
@@ -21838,7 +22211,9 @@ function assertDocumentReferencesResubmitted(current, semantic) {
 function prepareDraft(root, input, options = {}) {
   const semantic = normalizeSemanticDraft(input);
   assertSemanticAuthority(root, semantic);
-  assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
+  const definition = semanticDraftDefinition(semantic);
+  assertV2DraftDefinitionAuthority(root, definition);
+  assertPreparedTestStrategy(root, definition, semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);
   const creating = current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived";
@@ -22097,7 +22472,7 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
         const refs = [...textList(source.evidence_refs, "evidence_refs", false), `caller-reported-recovery-reason:${text3(source.reason, "reason")}`];
         result = applyVNextRuntimeProposal(args.root, createPrepareTaskReplanProposal(current, {
           delta: { kind: "task-state", action: "mark-replan-blocked", evidence_refs: refs },
-          idempotency_key: `suspend-recovery-${crypto11.createHash("sha256").update(JSON.stringify(source)).digest("hex").slice(0, 40)}`,
+          idempotency_key: `suspend-recovery-${crypto12.createHash("sha256").update(JSON.stringify(source)).digest("hex").slice(0, 40)}`,
           authority_evidence: authority(current, current.runtimeState.task_id, ["active-task-owner", "scope-admission", "evidence-admission"]),
           evidence_refs: refs
         }), options);
@@ -22113,19 +22488,19 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/execute-step-adapter.ts
-import * as crypto12 from "crypto";
+import * as crypto13 from "crypto";
 import * as fs16 from "fs";
 import * as path17 from "path";
 
 // runtime/vnext/src/task-context.ts
 import * as fs15 from "node:fs";
 import * as path16 from "node:path";
-import { createHash as createHash14 } from "node:crypto";
+import { createHash as createHash15 } from "node:crypto";
 
 // runtime/vnext/src/file-context.ts
 import * as fs14 from "node:fs";
 import * as path15 from "node:path";
-import { createHash as createHash13 } from "node:crypto";
+import { createHash as createHash14 } from "node:crypto";
 import { spawn } from "node:child_process";
 // node_modules/diff/libesm/diff/base.js
 class Diff {
@@ -22649,7 +23024,7 @@ function splitLines(text4) {
 import * as fs13 from "node:fs";
 import * as path14 from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash as createHash12 } from "node:crypto";
+import { createHash as createHash13 } from "node:crypto";
 var RG_TOOLS_PATH = ".workflow-system/runtime/tools/rg";
 var RG_BINARY = process.platform === "win32" ? "rg.exe" : "rg";
 function assertRgDirectory(root) {
@@ -22683,7 +23058,7 @@ function resolveRg(root) {
   const command = path14.join(directory, RG_BINARY);
   try {
     const identity = JSON.parse(fs13.readFileSync(path14.join(directory, "identity.json"), "utf8"));
-    if (!fs13.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash12("sha256").update(fs13.readFileSync(command)).digest("hex")) {
+    if (!fs13.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash13("sha256").update(fs13.readFileSync(command)).digest("hex")) {
       const version = probeRg(command);
       if (version && identity.version === version)
         return { command, version, source: "project" };
@@ -22703,7 +23078,7 @@ function resolveRg(root) {
 // runtime/vnext/src/file-context.ts
 var DEFAULT_CONTEXT_BYTES = 16 * 1024;
 var MAX_CONTEXT_BYTES = 64 * 1024;
-var sha2568 = (bytes) => createHash13("sha256").update(bytes).digest("hex");
+var sha2568 = (bytes) => createHash14("sha256").update(bytes).digest("hex");
 function contextInput(input, keys) {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("CONTEXT_INPUT_INVALID: expected an object.");
@@ -22937,7 +23312,7 @@ function byteLength(value) {
   return Buffer.byteLength(value, "utf8");
 }
 function sha2569(value) {
-  return createHash14("sha256").update(value, "utf8").digest("hex");
+  return createHash15("sha256").update(value, "utf8").digest("hex");
 }
 function parseContinuation(value, expectedKind) {
   if (value === undefined)
@@ -24007,7 +24382,7 @@ function pathList(value, location, allowEmpty, allowGlob = false) {
   return values;
 }
 function digest5(value) {
-  return crypto12.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 function idempotencyKey(prefix, value) {
   return `${prefix}-${digest5(value).slice(0, 48)}`;
@@ -24125,33 +24500,27 @@ function assertPathsAdmitted(current, stepPlan, paths, location, root, assessmen
 }
 function assertCommandPlansAdmitted(root, current, stepPlan, assessments = [], phase, mode = "default") {
   if (current.mutationAuthority) {
-    for (const command of stepPlan.commands) {
-      if (command.expected_repo_writes === "none")
-        continue;
-      const exactWrites = command.expected_repo_writes.filter((target) => !target.includes("*"));
-      const wildcardWrites = command.expected_repo_writes.filter((target) => target.includes("*"));
-      for (const rawPattern of wildcardWrites) {
-        let pattern;
-        try {
-          pattern = normalizeAuthorityPath(rawPattern, "planned command expected_repo_writes", true);
-        } catch (error) {
-          fail7("COMMAND_FOOTPRINT_BLOCKED", error instanceof Error ? error.message : String(error));
-        }
-        if (!pattern.endsWith("/**")) {
-          fail7("COMMAND_FOOTPRINT_BLOCKED", `planned command "${command.command}" uses an unsupported write glob: ${rawPattern}.`);
-        }
-        const prefix = pattern.slice(0, -3);
-        assertPathsAdmitted(current, stepPlan, [`${prefix}/__vnext_authority_probe__`], `planned command "${command.command}"`, root, assessments, mode, phase, [
-          ...stepPlan.planned_mutation_targets,
-          ...command.expected_repo_writes
-        ]);
+    const project = (() => {
+      try {
+        return readProjectMutationAuthority(root);
+      } catch (error) {
+        fail7(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
       }
-      if (exactWrites.length > 0) {
-        assertPathsAdmitted(current, stepPlan, exactWrites, `planned command "${command.command}"`, root, assessments, mode, phase, [
-          ...stepPlan.planned_mutation_targets,
-          ...command.expected_repo_writes
-        ]);
-      }
+    })();
+    if (!project)
+      fail7("MUTATION_AUTHORITY_PROJECT_REQUIRED", "v2 command footprints require PROJECT_PROFILE.yaml.mutation_authority.domains.");
+    const commandWrites = stepPlan.commands.flatMap((command) => command.expected_repo_writes === "none" ? [] : command.expected_repo_writes);
+    const evaluation = evaluateTaskMutationAuthorityPlan({
+      project,
+      task: current.mutationAuthority,
+      planned_targets: [],
+      command_write_targets: commandWrites,
+      persistent_test_paths: []
+    });
+    const blocked2 = evaluation.decisions.find((item) => !item.admitted);
+    if (blocked2) {
+      const command = stepPlan.commands.find((item) => item.expected_repo_writes !== "none" && item.expected_repo_writes.includes(blocked2.path));
+      fail7(mutationAuthorityPlanBlockerCode(blocked2), `planned command${command ? ` "${command.command}"` : ""} is outside the v2 authority envelope: ${evaluation.blockers.join(" ")}`);
     }
     return;
   }
@@ -25455,7 +25824,7 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/review-change-adapter.ts
-import * as crypto13 from "crypto";
+import * as crypto14 from "crypto";
 import * as fs17 from "fs";
 import * as path18 from "path";
 var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "review-read", "record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge", "ingest-evidence", "route-input"];
@@ -25504,7 +25873,7 @@ function repoPath(value, location) {
   return normalized;
 }
 function digest6(value) {
-  return crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return crypto14.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 function authority3(current) {
   return ["active-task-owner", "scope-admission", "evidence-admission"].map((kind) => ({

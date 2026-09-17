@@ -76,6 +76,9 @@ import {
   normalizeBlastRadiusAssessments,
   normalizeAuthorityPath,
   normalizeTaskMutationAuthority,
+  evaluateTaskMutationAuthorityPlan,
+  mutationAuthorityPlanBlockerCode,
+  projectMutationAuthorityRevision,
   readProjectMutationAuthority,
   validateTaskMutationAuthority,
   type BlastRadiusAssessment,
@@ -186,6 +189,7 @@ const RUNTIME_STATE_FIELDS = [
   'dynamic_review_required',
   'dynamic_expansions',
   'execution_preflight',
+  'authority_domain_revision',
 ] as const;
 const REVIEW_CYCLE_FIELDS = [
   'id',
@@ -1324,6 +1328,8 @@ export type RuntimeState = {
   dynamic_expansions?: MutationAuthorityExpansion[];
   /** The current ordinary or repair execution preflight identity. */
   execution_preflight?: ExecutionPreflightState;
+  /** v2 tasks bind execution to the exact project domain-map revision. */
+  authority_domain_revision?: string;
 };
 
 export type CurrentTaskStoreBinding = {
@@ -1995,6 +2001,13 @@ export function evaluateCurrentExecutionTargetAdmissions(
     try { project = readProjectMutationAuthority(root); }
     catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
     if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 tasks require PROJECT_PROFILE.yaml.mutation_authority.domains.');
+    const currentDomainRevision = projectMutationAuthorityRevision(project);
+    if (!current.runtimeState.authority_domain_revision) {
+      fail('MUTATION_AUTHORITY_DOMAIN_REVISION_REQUIRED', 'v2 execution must bind the project authority domain-map revision before mutation admission.');
+    }
+    if (current.runtimeState.authority_domain_revision !== currentDomainRevision) {
+      fail('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE', 'the project authority domain map changed after this task was confirmed; explicitly revalidate or replan the task before execution.');
+    }
   }
   const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body, current.sourceTuple.revision);
   const evaluation = evaluateExecutionTargetAdmissions({
@@ -3095,7 +3108,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const mutationAuthorityContract = expectRecord(contract.mutation_authority, 'Runtime contract.mutation_authority');
   expectExactKeys(
     mutationAuthorityContract,
-    ['version', 'status', 'project_profile', 'project_domain_fields', 'task_fields', 'root_grammar', 'path_resolution', 'ambiguous_domain_behavior', 'unclassified_behavior', 'read_discovery_behavior', 'planned_footprint_behavior', 'in_envelope_expansion', 'forbidden_precedence', 'assessment_fields', 'dynamic_review', 'cross_envelope_error', 'extension_action', 'extension_identity', 'repair_extension', 'test_strategy_dynamic_policy', 'non_executable_dynamic_policy', 'dynamic_expansion_identity', 'dynamic_review_consumption', 'authority_amendment', 'authority_amendment_execution_gate', 'persistent_test_admission', 'existing_test_behavior', 'new_persistent_test_behavior', 'legacy_behavior'],
+    ['version', 'status', 'project_profile', 'project_domain_fields', 'task_fields', 'root_grammar', 'path_resolution', 'ambiguous_domain_behavior', 'unclassified_behavior', 'read_discovery_behavior', 'planned_footprint_behavior', 'in_envelope_expansion', 'forbidden_precedence', 'assessment_fields', 'dynamic_review', 'cross_envelope_error', 'extension_action', 'extension_identity', 'repair_extension', 'test_strategy_dynamic_policy', 'non_executable_dynamic_policy', 'planning_time_authority_proof', 'command_glob_proof', 'domain_map_lifecycle', 'domain_map_revision', 'dynamic_expansion_identity', 'dynamic_review_consumption', 'authority_amendment', 'authority_amendment_execution_gate', 'persistent_test_admission', 'existing_test_behavior', 'new_persistent_test_behavior', 'legacy_behavior'],
     'Runtime contract.mutation_authority',
   );
   if (
@@ -3127,6 +3140,38 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(expectStringArray(mutationAuthorityContract.project_domain_fields, 'Runtime mutation authority project domain fields'), ['id', 'roots'], 'Runtime mutation authority project domain fields');
   expectSetEqual(expectStringArray(mutationAuthorityContract.task_fields, 'Runtime mutation authority task fields'), ['mutation_authority_version', 'domains', 'exact_exceptions', 'forbidden'], 'Runtime mutation authority task fields');
   expectSetEqual(expectStringArray(mutationAuthorityContract.assessment_fields, 'Runtime mutation authority assessment fields'), ['target', 'reason', 'blast_radius', 'evidence_refs', 'disposition'], 'Runtime mutation authority assessment fields');
+  const planningProof = expectRecord(mutationAuthorityContract.planning_time_authority_proof, 'Runtime mutation authority planning_time_authority_proof');
+  expectExactKeys(planningProof, ['evaluator', 'declarations', 'admission', 'timing', 'unclassified_behavior'], 'Runtime mutation authority planning_time_authority_proof');
+  if (planningProof.evaluator !== 'runtime-owned-task-definition-authority-proof'
+    || planningProof.admission !== 'authorized-domain-or-exact-exception'
+    || planningProof.timing !== 'before-draft-confirmed-definition-commit'
+    || planningProof.unclassified_behavior !== 'blocked') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime planning-time authority proof semantics are invalid.');
+  }
+  expectSetEqual(expectStringArray(planningProof.declarations, 'Runtime mutation authority planning-time declarations'), ['planned_mutation_targets', 'command_write_footprints', 'persistent_test_paths'], 'Runtime planning-time authority declarations');
+  const commandGlobProof = expectRecord(mutationAuthorityContract.command_glob_proof, 'Runtime mutation authority command_glob_proof');
+  expectExactKeys(commandGlobProof, ['grammar', 'relation', 'synthetic_probe', 'exact_exception'], 'Runtime mutation authority command_glob_proof');
+  if (commandGlobProof.grammar !== 'exact-path-or-literal-directory-prefix-globstar'
+    || commandGlobProof.relation !== 'candidate-pattern-must-be-subset-of-granted-domain-root'
+    || commandGlobProof.synthetic_probe !== 'prohibited'
+    || commandGlobProof.exact_exception !== 'cannot-authorize-directory-glob') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command glob subset proof semantics are invalid.');
+  }
+  const domainMapLifecycle = expectRecord(mutationAuthorityContract.domain_map_lifecycle, 'Runtime mutation authority domain_map_lifecycle');
+  expectExactKeys(domainMapLifecycle, ['proposal', 'confirmation', 'canonical', 'task_selection'], 'Runtime mutation authority domain_map_lifecycle');
+  if (domainMapLifecycle.proposal !== 'bootstrap-inventory-domain-candidate'
+    || domainMapLifecycle.confirmation !== 'explicit-project-owner-decision'
+    || domainMapLifecycle.canonical !== '.workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains'
+    || domainMapLifecycle.task_selection !== 'select-existing-map-without-rebuild') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime project domain-map lifecycle semantics are invalid.');
+  }
+  const domainMapRevision = expectRecord(mutationAuthorityContract.domain_map_revision, 'Runtime mutation authority domain_map_revision');
+  expectExactKeys(domainMapRevision, ['binding', 'mismatch', 'grant'], 'Runtime mutation authority domain_map_revision');
+  if (domainMapRevision.binding !== 'v2-confirmed-task-runtime-state-authority_domain_revision'
+    || domainMapRevision.mismatch !== 'fail-closed-require-explicit-task-authority-revalidation-or-replan'
+    || domainMapRevision.grant !== 'never-inherit-changed-project-map') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime project domain-map revision semantics are invalid.');
+  }
   const dynamicExpansionIdentity = expectRecord(mutationAuthorityContract.dynamic_expansion_identity, 'Runtime mutation authority dynamic expansion identity');
   expectExactKeys(dynamicExpansionIdentity, ['required', 'active_view', 'historical_records', 'repeated_path_policy'], 'Runtime mutation authority dynamic expansion identity');
   expectSetEqual(
@@ -4389,6 +4434,87 @@ export function readPersistentTestPaths(definition: Pick<DraftTaskDefinition, 'r
   return paths;
 }
 
+function definitionAuthorityPatterns(definition: DraftTaskDefinition): { planned_targets: string[]; command_write_targets: string[] } {
+  let steps: TaskStepDefinition[];
+  try {
+    steps = parseImplementationSteps(definition.implementation_steps);
+  } catch (error) {
+    if (error instanceof TaskStepDefinitionError) fail(error.code, error.message);
+    throw error;
+  }
+  const plannedTargets: string[] = [];
+  const commandWriteTargets: string[] = [];
+  for (const [index, step] of steps.entries()) {
+    const rawTargets = step.planned_mutation_targets ?? step.mutation_scope;
+    if (!rawTargets) fail('TASK_STEP_METADATA_INCOMPLETE', `implementation_steps[${index}] is missing planned_mutation_targets.`);
+    plannedTargets.push(...rawTargets.split(',').map((value, targetIndex) => {
+      const cleaned = value.trim().replace(/^`|`$/gu, '');
+      try {
+        return normalizeAuthorityPath(cleaned, `implementation_steps[${index}].planned_mutation_targets[${targetIndex}]`, true);
+      } catch (error) {
+        if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+        throw error;
+      }
+    }).filter(Boolean));
+
+    const planText = step.plan_text ?? '';
+    for (const match of planText.matchAll(/^\s*-\s+expected_repo_writes:\s*(.*?)\s*$/gmu)) {
+      const value = match[1]!.trim();
+      if (!value || value === 'none') continue;
+      commandWriteTargets.push(...value.split(',').map((item, targetIndex) => {
+        const cleaned = item.trim().replace(/^`|`$/gu, '');
+        try {
+          return normalizeAuthorityPath(cleaned, `implementation_steps[${index}].commands.expected_repo_writes[${targetIndex}]`, true);
+        } catch (error) {
+          if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+          throw error;
+        }
+      }).filter(Boolean));
+    }
+  }
+  return { planned_targets: plannedTargets, command_write_targets: commandWriteTargets };
+}
+
+/**
+ * Re-check a serialized v2 definition at every definition-admission boundary.
+ * This protects confirm/replan/raw Runtime proposals from relying solely on
+ * the semantic adapter's earlier validation.
+ */
+export function assertV2DraftDefinitionAuthority(root: string, definition: DraftTaskDefinition): void {
+  if (definition.mutation_authority_version !== MUTATION_AUTHORITY_VERSION || !definition.mutation_authority) return;
+  let task: TaskMutationAuthority;
+  let project: ReturnType<typeof readProjectMutationAuthority>;
+  try {
+    task = validateTaskMutationAuthority(root, definition.mutation_authority);
+    project = readProjectMutationAuthority(root);
+  } catch (error) {
+    fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 task definitions require the project authority domain map.');
+  const patterns = definitionAuthorityPatterns(definition);
+  const result = evaluateTaskMutationAuthorityPlan({
+    project,
+    task,
+    planned_targets: patterns.planned_targets,
+    command_write_targets: patterns.command_write_targets,
+    persistent_test_paths: readPersistentTestPaths(definition),
+  });
+  if (result.status !== 'pass') {
+    const decision = result.decisions.find(item => !item.admitted);
+    if (decision) fail(mutationAuthorityPlanBlockerCode(decision), `v2 task definition is outside the project authority envelope: ${result.blockers.join(' ')}`);
+    fail('MUTATION_AUTHORITY_PLANNING_BLOCKED', `v2 task definition failed authority planning proof: ${result.blockers.join(' ')}`);
+  }
+}
+
+function currentAuthorityDomainRevision(root: string, current: CanonicalCurrentTask): string | undefined {
+  if (!current.mutationAuthority) return undefined;
+  let project: ReturnType<typeof readProjectMutationAuthority>;
+  try { project = readProjectMutationAuthority(root); }
+  catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+  if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 task state requires PROJECT_PROFILE.yaml.mutation_authority.domains.');
+  return projectMutationAuthorityRevision(project);
+}
+
 function strategyStepScopes(definition: DraftTaskDefinition): string[][] {
   let steps: TaskStepDefinition[];
   try {
@@ -4493,6 +4619,9 @@ function assertNonExecutableChangeScope(root: string, definition: DraftTaskDefin
     ...taskScope.allowed.map(entry => entry.pattern),
     ...taskScope.conditional.map(entry => entry.pattern),
     ...stepScopes.flat(),
+    ...(definition.mutation_authority_version === MUTATION_AUTHORITY_VERSION
+      ? definitionAuthorityPatterns(definition).command_write_targets
+      : []),
   ])];
   const uncovered = declaredTargets.filter(target =>
     !policyPatterns.some(boundary => {
@@ -6470,7 +6599,7 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     'finding_queue_revision', 'review_cycle', 'findings',
   ];
   if (!options.storeBackedHistory) requiredRuntimeStateFields.push('execution_log', 'applied_proposals');
-  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids', 'dynamic_review_required', 'dynamic_expansions', 'execution_preflight'];
+  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids', 'dynamic_review_required', 'dynamic_expansions', 'execution_preflight', 'authority_domain_revision'];
   if (options.storeBackedHistory) optionalRuntimeStateFields.push('execution_log', 'applied_proposals');
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter(field => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter(field => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
@@ -6621,6 +6750,7 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     ...(runtime.dynamic_review_required === undefined ? {} : { dynamic_review_required: dynamicReviewRequired }),
     ...(runtime.dynamic_expansions === undefined ? {} : { dynamic_expansions: dynamicExpansions }),
     ...(executionPreflight === undefined ? {} : { execution_preflight: executionPreflight }),
+    ...(runtime.authority_domain_revision === undefined ? {} : { authority_domain_revision: expectString(runtime.authority_domain_revision, 'runtime_state.authority_domain_revision', /^[a-f0-9]{64}$/) }),
     pending_review_result: pendingReviewResult,
     ...(runtime.step_attempts === undefined ? {} : {step_attempts:validateStepAttempts(runtime.step_attempts)}),
     ...(runtime.review_coverage === undefined ? {} : { review_coverage: validateReviewCoverage(runtime.review_coverage) }),
@@ -11242,6 +11372,7 @@ function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTas
     ...readDraftDefinitionFromBody(replaceReplanDefinitionSections(current.body, amendedDefinitionDraft)),
     ...(amendedAuthority ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: amendedAuthority } : {}),
   };
+  assertV2DraftDefinitionAuthority(root, amendedDefinition);
   assertPreparedTestStrategy(root, amendedDefinition, basis.basis);
   for (const record of claims) for (const slot of record.slots) {
     if (slot.due_step_id === current.runtimeState.active_step_id) {
@@ -11512,6 +11643,7 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
     ? [...new Set([...amendedReviewCoverage.pending_paths, ...amendmentReviewPaths])].sort()
     : undefined;
   const { execution_preflight: _amendmentExecutionPreflight, ...stateWithoutExecutionPreflight } = oldState;
+  const domainRevision = currentAuthorityDomainRevision(root, current);
   const nextWithoutAudit: RuntimeState = {
     ...stateWithoutExecutionPreflight,
     workflow_status: 'active',
@@ -11521,6 +11653,7 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
     evidence_plan_revision: rebuilt.new_plan_revision,
     claim_evidence_required: true,
     claim_evidence: rebuilt.claim_evidence,
+    ...(domainRevision ? { authority_domain_revision: domainRevision } : {}),
     ...(oldState.pending_review_result
       ? { scope_amendment_pending_review_step_id: oldState.pending_review_result.step_id }
       : {}),
@@ -11613,7 +11746,13 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
   const allNewSteps = [...recoverySteps, ...(input.pending_step_changes?.steps ?? [])];
   if (new Set(allNewSteps.map(item => item.id)).size !== allNewSteps.length) fail('RECOVERY_STEP_ID_REUSED', 'Recovery and pending step IDs must be unique.');
   const writes = [...new Set(allNewSteps.flatMap(item => item.mutation_scope))];
-  if (evaluateMutationScope(parseMutationScope(current.body), { changed_paths: writes }).status !== 'pass') fail('REPLAN_SCOPE_EXPANSION', 'Recovery paths exceed the old task scope.');
+  // v1 recovery remains bounded by its historical exact scope.  A v2
+  // correction is instead proven against the task authority envelope by the
+  // definition-level evaluator below; the old planned footprint is guidance,
+  // not a second ACL.
+  if (!current.mutationAuthority && evaluateMutationScope(parseMutationScope(current.body), { changed_paths: writes }).status !== 'pass') {
+    fail('REPLAN_SCOPE_EXPANSION', 'Recovery paths exceed the old task scope.');
+  }
   if (input.mode === 'conclusion-correction') {
     const boundaries = nonExecutableChangePatterns(root);
     if (writes.some(p => !boundaries.some(boundary => mutationScopePatternIsSubset(p, boundary)))) fail('REPLAN_SCOPE_EXPANSION', 'Conclusion correction requires project-declared non-executable paths within original task authority.');
@@ -11643,6 +11782,7 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
   const appendRecovery = input.pending_step_changes ? !pendingAnchor : append;
   for (const recoveryStep of recoverySteps) definition = insertCorrectionStep(definition, anchor, recoveryStep, appendRecovery);
   assertPreparedTestStrategy(root, definition, basis.basis);
+  assertV2DraftDefinitionAuthority(root, definition);
   const records = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
   const correctedSlots = new Set<ClaimEvidenceSlot>();
   for (const challenge of challenges) {
@@ -11879,6 +12019,7 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
     idempotency_key: idempotencyKey, authority_evidence: authorityEvidence, evidence_refs: [location.relativePath, ...challengeRefs],
   });
   const oldState = current.runtimeState;
+  const domainRevision = currentAuthorityDomainRevision(root, current);
   const nextWithoutAudit: RuntimeState = {
     ...oldState, workflow_status: 'active', lifecycle_state: 'active', active_step_id: rebuilt.input.correction_step.id,
     ...(oldState.review_coverage ? { review_coverage: { ...oldState.review_coverage, last_clean_revision: null } } : {}),
@@ -11887,6 +12028,7 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
     evidence_challenges: (current.runtimeState.evidence_challenges ?? []).map(item => rebuilt.input.challenge_ids.includes(item.challenge_id)
       ? { ...item, status: 'invalidated' as const, correction_step_id: rebuilt.input.correction_step.id } : item),
     pending_review_result: null,
+    ...(domainRevision ? { authority_domain_revision: domainRevision } : {}),
     review_cycle: reviewCycleForNextStep(current.runtimeState.review_cycle.id, rebuilt.input.correction_step.id, idempotencyKey),
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };
@@ -12484,6 +12626,7 @@ function assertDraftDefinitionReady(root: string, current: CanonicalCurrentTask)
   const activeStepId = current.runtimeState.active_step_id;
   const body = current.body;
   const definition = readDraftDefinitionFromBody(body);
+  assertV2DraftDefinitionAuthority(root, definition);
   assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
   assertPreparedTestStrategy(root, definition, readCanonicalTaskBasis(root, current).basis);
   assertEvidencePlan(definition, current.runtimeState.claim_evidence ?? [], true);
@@ -12864,6 +13007,7 @@ function applyTaskStateDelta(
       assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertV2DraftDefinitionAuthority(root, delta.draft_definition);
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, 'create-draft claim_evidence');
     requireAcceptanceClaim(claimEvidence, 'create-draft claim_evidence');
@@ -12926,6 +13070,7 @@ function applyTaskStateDelta(
     const currentIdentity = extractTaskIdentityFromCurrentTask(current.body);
     if (currentIdentity.title !== delta.task_title) fail('DRAFT_IDENTITY_IMMUTABLE', 'update-draft must preserve the task title identity.');
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
+    assertV2DraftDefinitionAuthority(root, delta.draft_definition);
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, 'update-draft claim_evidence');
     requireAcceptanceClaim(claimEvidence, 'update-draft claim_evidence');
@@ -13009,10 +13154,12 @@ function applyTaskStateDelta(
       'CLAIM_EVIDENCE_MIGRATION_REQUIRED',
     );
     requireAcceptanceClaim(claimEvidence, 'confirm-draft claim_evidence');
+    const domainRevision = currentAuthorityDomainRevision(root, current);
     const nextWithoutAudit: RuntimeState = {
       ...current.runtimeState,
       workflow_status: 'active',
       lifecycle_state: 'active',
+      ...(domainRevision ? { authority_domain_revision: domainRevision } : {}),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
     };
     const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);

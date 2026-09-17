@@ -70,6 +70,21 @@ and path resolution fails closed when it is ambiguous. A path with no domain
 is `unclassified` and cannot be admitted by ordinary same-envelope expansion.
 The map is a mutation ownership boundary, not a dependency graph.
 
+Authority domains are established through a project lifecycle. The `inventory`
+mode proposes `authority_domain_candidates` from observed project structure;
+those candidates carry evidence but grant no write permission. In `greenfield`,
+`adopt`, or `realign`, the project owner may confirm the selected candidate
+IDs/roots with a decision source and verbatim decision text. Only that explicit
+confirmation is promoted into the canonical `PROJECT_PROFILE.yaml` map.
+`prepare-task` selects the existing map and never guesses ownership or rebuilds
+it for an individual task. A simple project may confirm one broad application
+domain, but it still follows the same admission route.
+
+Every confirmed v2 task records the stable revision/digest of the canonical
+domain map in Runtime state. If the profile map changes, the active task fails
+closed before execution admission and requires explicit authority
+revalidation/replan; it never inherits a newly widened project grant.
+
 Read/discovery is intentionally wider: the Agent may read, grep, trace callers,
 inspect consumers, and establish root cause in another domain. None of that
 creates write authority. Runtime allows writes only when the candidate path is
@@ -78,6 +93,15 @@ exception, after applying task `forbidden` and fixed governance boundaries.
 An out-of-envelope write is a hard
 `MUTATION_AUTHORITY_EXPANSION_REQUIRED` blocker; it is not reported as a
 generic v1 `PREFLIGHT_SCOPE_BLOCKED` result.
+
+Before `prepare-task` confirms a v2 definition, Runtime proves every planned
+target, exact command write, bounded command footprint, and persistent-test path
+against the selected project authority. Planned targets need no blast-radius
+assessment, but they must be inside an authorized domain or exact exception and
+outside Forbidden/governance boundaries. Command writes use only an exact path
+or literal `/**` directory-prefix grammar, and a command glob is admitted only
+when its pattern is a deterministic subset of one granted domain root. An exact
+exception never proves a directory glob; synthetic probe paths are not proof.
 
 `implementation_steps[].planned_mutation_targets` is guidance, not an
 independent v2 ACL. A target outside that planned footprint but inside the

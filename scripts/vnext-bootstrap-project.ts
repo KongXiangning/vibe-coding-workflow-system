@@ -36,6 +36,8 @@ import {
   bootstrapProjectTargetLocal,
   classifyBootstrapTargetLocal,
   type BootstrapMigrationAdmission,
+  type BootstrapAuthorityDomainCandidate,
+  type BootstrapAuthorityDomainConfirmation,
   type BootstrapReceipt as TargetBootstrapReceipt,
   type BootstrapSupportOptions,
   type BootstrapSupportPlan,
@@ -72,6 +74,8 @@ export type BootstrapProjectOptions = {
   adoptionConfirmed?: boolean;
   changedPaths?: string[];
   conditionalAuthorizations?: ConditionalScopeAuthorization[];
+  authorityDomainCandidates?: BootstrapAuthorityDomainCandidate[];
+  authorityDomainConfirmation?: BootstrapAuthorityDomainConfirmation;
 };
 
 export type BootstrapIssue = { code: string; message: string; path?: string };
@@ -100,6 +104,7 @@ export type BootstrapPlan = {
   changed_paths: string[];
   blockers: BootstrapIssue[];
   warnings: BootstrapIssue[];
+  authority_domain_candidates: BootstrapAuthorityDomainCandidate[];
   evidence: BootstrapEvidence[];
   scope?: ReturnType<typeof validateBootstrapProjectProposal>['scope'];
   read_back_verified: boolean;
@@ -320,6 +325,8 @@ function sourceSupportOptions(options: BootstrapProjectOptions, source: { revisi
     adoptionConfirmed: options.adoptionConfirmed,
     changedPaths,
     conditionalAuthorizations: options.conditionalAuthorizations,
+    authorityDomainCandidates: options.authorityDomainCandidates,
+    authorityDomainConfirmation: options.authorityDomainConfirmation,
     source,
     legacySurfacePresent: hasLegacySurface(targetRoot),
     migrationAdmission: sourceMigrationAdmission(targetRoot),
@@ -378,6 +385,7 @@ function mapSupportPlan(support: BootstrapSupportPlan, options: BootstrapProject
     changed_paths: support.changed_paths,
     blockers: mappedBlockers,
     warnings: support.warnings,
+    authority_domain_candidates: support.authority_domain_candidates ?? [],
     evidence,
     scope,
     read_back_verified: support.read_back_verified,
@@ -409,7 +417,7 @@ export function buildBootstrapPlan(options: BootstrapProjectOptions): BootstrapP
   const guard = checkTargetRoot(sourceRoot, targetRoot);
   const targetIdentity = computeBootstrapTargetIdentity(targetRoot);
   const emptySource = { revision: 'unavailable', tree_hash: '0'.repeat(64) };
-  if (!guard.allowed) return { status: 'blocked', mode: options.mode, target_root: targetRoot, target_state: 'conflicting', target_identity: targetIdentity, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source: emptySource, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: [{ code: 'TARGET_ROOT_DENIED', message: guard.message, path: targetRoot }], warnings: [], evidence: [], read_back_verified: false, replay: false, caller_obligation: 'Use a disposable target root outside the source repository.' };
+  if (!guard.allowed) return { status: 'blocked', mode: options.mode, target_root: targetRoot, target_state: 'conflicting', target_identity: targetIdentity, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source: emptySource, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: [{ code: 'TARGET_ROOT_DENIED', message: guard.message, path: targetRoot }], warnings: [], authority_domain_candidates: [], evidence: [], read_back_verified: false, replay: false, caller_obligation: 'Use a disposable target root outside the source repository.' };
 
   let source: { revision: string; tree_hash: string };
   try {
@@ -418,7 +426,7 @@ export function buildBootstrapPlan(options: BootstrapProjectOptions): BootstrapP
     const identity = getSourceIdentity(sourceRoot);
     source = { revision: identity.revision, tree_hash: identity.tree_hash };
   } catch (error) {
-    return { status: 'rejected', mode: options.mode, target_root: targetRoot, target_state: 'conflicting', target_identity: targetIdentity, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source: emptySource, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: [{ code: 'SOURCE_CONTRACT_INVALID', message: error instanceof Error ? error.message : String(error) }], warnings: [], evidence: [], read_back_verified: false, replay: false, caller_obligation: 'Repair the source contract/runtime validation before Bootstrap.' };
+    return { status: 'rejected', mode: options.mode, target_root: targetRoot, target_state: 'conflicting', target_identity: targetIdentity, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source: emptySource, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: [{ code: 'SOURCE_CONTRACT_INVALID', message: error instanceof Error ? error.message : String(error) }], warnings: [], authority_domain_candidates: [], evidence: [], read_back_verified: false, replay: false, caller_obligation: 'Repair the source contract/runtime validation before Bootstrap.' };
   }
 
   const classification = classifyBootstrapTarget(targetRoot);
@@ -428,7 +436,7 @@ export function buildBootstrapPlan(options: BootstrapProjectOptions): BootstrapP
     distribution = validateInstalledDistribution(targetRoot, packageRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { status: 'blocked', mode: options.mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: [{ code: 'DISTRIBUTION_PREREQUISITE_FAILED', message: `Bootstrap requires a valid installed Vibe Governance Distribution: ${message}` }], warnings: classification.reasons.map(reason => ({ code: 'TARGET_STATE', message: reason })), evidence: [...sourceEvidence(options.mode, classification.state, source, []), { id: 'distribution-read-back', kind: 'installed-distribution-read-back', status: 'blocked', detail: message }], read_back_verified: false, replay: false, caller_obligation: 'Run or repair the Distribution boundary, then rerun Bootstrap.' };
+    return { status: 'blocked', mode: options.mode, target_root: targetRoot, target_state: classification.state, target_identity: targetIdentity, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: normalizeChangedPaths(options.changedPaths), blockers: [{ code: 'DISTRIBUTION_PREREQUISITE_FAILED', message: `Bootstrap requires a valid installed Vibe Governance Distribution: ${message}` }], warnings: classification.reasons.map(reason => ({ code: 'TARGET_STATE', message: reason })), authority_domain_candidates: [], evidence: [...sourceEvidence(options.mode, classification.state, source, []), { id: 'distribution-read-back', kind: 'installed-distribution-read-back', status: 'blocked', detail: message }], read_back_verified: false, replay: false, caller_obligation: 'Run or repair the Distribution boundary, then rerun Bootstrap.' };
   }
   const support = bootstrapProjectTargetLocal(sourceSupportOptions({ ...options, changedPaths: undefined }, source, false, undefined));
   admitSourceChangedPaths(support, options);
@@ -492,7 +500,7 @@ function cliValue(argv: string[], flag: string): string | undefined {
 function cliUsage(): string {
   return [
     'Usage:',
-    '  bun run scripts/vnext-bootstrap-project.ts bootstrap --target <project> --mode <design|greenfield|inventory|adopt|realign> [--write] [--path <repo-relative>] [--paths-file <file>] [--json]',
+    '  bun run scripts/vnext-bootstrap-project.ts bootstrap --target <project> --mode <design|greenfield|inventory|adopt|realign> [--write] [--path <repo-relative>] [--paths-file <file>] [--authority-domain-candidates-file <file>] [--authority-domain-confirmation-file <file>] [--json]',
     '  bun run scripts/vnext-bootstrap-project.ts recover --target <project> [--json]',
     '',
     'Write mode requires the exact changed_paths returned by a dry run. Target projects use the installed Node Runtime support boundary.',
@@ -522,9 +530,13 @@ if (import.meta.main) {
     const authFile = cliValue(argv, '--conditional-authorizations-file');
     const designFile = cliValue(argv, '--design-baseline-file');
     const factsFile = cliValue(argv, '--facts-file');
+    const authorityDomainCandidatesFile = cliValue(argv, '--authority-domain-candidates-file');
+    const authorityDomainConfirmationFile = cliValue(argv, '--authority-domain-confirmation-file');
     const conditionalAuthorizations = authFile ? readJson(authFile) as ConditionalScopeAuthorization[] : undefined;
     const designBaseline = designFile ? readJsonObject(designFile, 'BOOTSTRAP_INPUT_INVALID') as Record<string, string> : undefined;
     const facts = factsFile ? readJson(factsFile) as BootstrapFact[] : undefined;
+    const authorityDomainCandidates = authorityDomainCandidatesFile ? readJson(authorityDomainCandidatesFile) as BootstrapAuthorityDomainCandidate[] : undefined;
+    const authorityDomainConfirmation = authorityDomainConfirmationFile ? readJsonObject(authorityDomainConfirmationFile, 'BOOTSTRAP_INPUT_INVALID') as unknown as BootstrapAuthorityDomainConfirmation : undefined;
     const result = bootstrapProject({
       targetRoot,
       sourceRoot: cliValue(argv, '--source'),
@@ -539,6 +551,8 @@ if (import.meta.main) {
       adoptionConfirmed: argv.includes('--confirm-adoption') || argv.includes('--confirm'),
       changedPaths: paths,
       conditionalAuthorizations,
+      authorityDomainCandidates,
+      authorityDomainConfirmation,
     });
     console.log(JSON.stringify(((value: BootstrapPlan) => { const { proposal: _proposal, ...publicValue } = value; return publicValue; })(result), null, 2));
     process.exit(['ready', 'installed', 'replayed'].includes(result.status) ? 0 : 1);

@@ -118,7 +118,11 @@ those paths, and the caller-reported decision source/text. Runtime consumes that
 existing explicit authorization through one `prepare-scope-amendment` route;
 its candidate digest is an internal drift guard, not a second approval object.
 The user does not construct an authority transition or receipt, and this
-`execute-step` invocation does not invoke `prepare-task` for them. Same-domain
+   `execute-step` invocation does not invoke `prepare-task` for them. Before any
+   v2 target admission, Runtime compares the task-bound
+   `authority_domain_revision` with the canonical project map; a missing or
+   stale revision is fail-closed and must be resolved by explicit task-authority
+   revalidation/replan. Same-domain
 discovery must use `extend-preflight`, not this route.
 If the amendment retains a clean pending review for the prior step, return
 `complete-reviewed-step` for that prior step as the next manual call; Runtime

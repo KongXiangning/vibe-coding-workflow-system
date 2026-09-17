@@ -9423,6 +9423,90 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
+  test('E16 blocks v2 planned targets outside the selected authority domain during prepare', () => {
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    try {
+      const before = readCanonicalCurrentTask(root);
+      expect(() => prepareDraft(root, v2MutationAuthoritySemanticDraft({
+        implementation_steps: [{
+          id: 'step-1',
+          description: 'Attempt to plan a Rust target from a Node task',
+          planned_mutation_targets: ['native/codex-rollout-collector/src/protocol.rs'],
+          commands: [],
+          validation: ['The planned target is checked'],
+          review_checkpoint: { policy: 'required', reason: 'Review the planned target' },
+        }],
+      }))).toThrow('MUTATION_AUTHORITY_PLANNING_BLOCKED');
+      expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(before.sourceTuple.revision);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E17 blocks a planned command glob that is broader than the granted domain', () => {
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    try {
+      expect(() => prepareDraft(root, v2MutationAuthoritySemanticDraft({
+        implementation_steps: [{
+          id: 'step-1',
+          description: 'Plan a command with an over-broad write footprint',
+          planned_mutation_targets: ['packages/node-rollout/src/session.ts'],
+          commands: [{ command: 'generator', expected_repo_writes: ['native/**'] }],
+          validation: ['The command footprint is checked'],
+          review_checkpoint: { policy: 'required', reason: 'Review the command footprint' },
+        }],
+      }))).toThrow('COMMAND_FOOTPRINT_AUTHORITY_BLOCKED');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E18 accepts a planned command glob that is a strict subset of the granted domain', () => {
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    try {
+      const prepared = prepareDraft(root, v2MutationAuthoritySemanticDraft({
+        implementation_steps: [{
+          id: 'step-1',
+          description: 'Plan a bounded generated-file command',
+          planned_mutation_targets: ['packages/node-rollout/src/session.ts'],
+          commands: [{ command: 'generator', expected_repo_writes: ['packages/node-rollout/generated/**'] }],
+          validation: ['The bounded command footprint is checked'],
+          review_checkpoint: { policy: 'required', reason: 'Review the bounded command footprint' },
+        }],
+      }));
+      expect(prepared.confirmation_receipt).toBeDefined();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E20 fails closed when the project authority domain-map revision changes after confirmation', () => {
+    const root = v2ConfirmedRoot();
+    try {
+      const before = readCanonicalCurrentTask(root);
+      expect(before.runtimeState.authority_domain_revision).toMatch(/^[a-f0-9]{64}$/);
+      const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+      const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+      profile.mutation_authority = {
+        domains: [
+          { id: 'node-rollout', roots: ['packages/node-rollout-v2/**'] },
+          { id: 'node-rollout-tests', roots: ['packages/node-rollout-tests/**'] },
+          { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+        ],
+      };
+      fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+      expect(() => preflightStep(root, { candidate_paths: ['packages/node-rollout/src/session.ts'] })).toThrow('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE');
+      const after = readCanonicalCurrentTask(root);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(after.runtimeState).toEqual(before.runtimeState);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('fixed tgz installed Node CLI supports same-envelope discovery without amendment or retry reset', { timeout: 120000 }, () => {
     const target = v2ConfirmedRoot();
     const plannedA = 'packages/node-rollout/src/session.ts';

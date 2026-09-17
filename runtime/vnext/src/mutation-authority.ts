@@ -7,6 +7,7 @@
  * forbidden-boundary, and first-touch checks auditable.
  */
 
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -176,28 +177,22 @@ function profileAuthorityValue(profile: JsonObject): unknown {
   return profile.mutation_authority;
 }
 
-/** Validate the optional project-level map. Missing means legacy/v1 mode. */
-export function readProjectMutationAuthority(root: string): ProjectMutationAuthority | null {
-  const profilePath = getWorkflowProfilePath(root);
-  if (!fs.existsSync(profilePath)) return null;
-  let profile: JsonObject;
-  try {
-    profile = loadProfile(profilePath);
-  } catch (error) {
-    fail('MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error));
-  }
-  const raw = profileAuthorityValue(profile);
-  if (raw === undefined) return null;
-  const authority = record(raw, 'PROJECT_PROFILE.yaml.mutation_authority');
+/**
+ * Normalize a project-owned authority map before it is persisted.  Bootstrap
+ * uses this for the explicit owner-confirmation route; Runtime uses the same
+ * grammar when reading the canonical PROJECT_PROFILE.
+ */
+export function normalizeProjectMutationAuthority(value: unknown): ProjectMutationAuthority {
+  const authority = record(value, 'PROJECT_PROFILE.yaml.mutation_authority');
   exactKeys(authority, ['domains'], 'PROJECT_PROFILE.yaml.mutation_authority');
   if (!Array.isArray(authority.domains) || authority.domains.length === 0 || authority.domains.length > MAX_DOMAINS) {
-    fail('MUTATION_AUTHORITY_PROJECT_INVALID', 'PROJECT_PROFILE.yaml.mutation_authority.domains must be a bounded non-empty array.');
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', 'PROJECT_PROFILE.yaml.mutation_authority.domains must be a bounded non-empty array.');
   }
   const domains = authority.domains.map((rawDomain, index) => {
     const domain = record(rawDomain, `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}]`);
     exactKeys(domain, ['id', 'roots'], `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}]`);
     const id = text(domain.id, `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}].id`, 128);
-    if (!DOMAIN_ID_PATTERN.test(id)) fail('MUTATION_AUTHORITY_PROJECT_INVALID', `authority domain id ${id} is invalid.`);
+    if (!DOMAIN_ID_PATTERN.test(id)) fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `authority domain id ${id} is invalid.`);
     const roots = stringList(domain.roots, `PROJECT_PROFILE.yaml.mutation_authority.domains[${index}].roots`, {
       allowEmpty: false,
       max: MAX_ROOTS_PER_DOMAIN,
@@ -206,7 +201,7 @@ export function readProjectMutationAuthority(root: string): ProjectMutationAutho
     return { id, roots };
   });
   if (new Set(domains.map(domain => domain.id)).size !== domains.length) {
-    fail('MUTATION_AUTHORITY_PROJECT_INVALID', 'authority domain ids must be unique.');
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', 'authority domain ids must be unique.');
   }
   for (let leftIndex = 0; leftIndex < domains.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < domains.length; rightIndex += 1) {
@@ -220,6 +215,28 @@ export function readProjectMutationAuthority(root: string): ProjectMutationAutho
     }
   }
   return { domains };
+}
+
+/** Validate the optional project-level map. Missing means legacy/v1 mode. */
+export function readProjectMutationAuthority(root: string): ProjectMutationAuthority | null {
+  const profilePath = getWorkflowProfilePath(root);
+  if (!fs.existsSync(profilePath)) return null;
+  let profile: JsonObject;
+  try {
+    profile = loadProfile(profilePath);
+  } catch (error) {
+    fail('MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const raw = profileAuthorityValue(profile);
+  if (raw === undefined) return null;
+  try {
+    return normalizeProjectMutationAuthority(raw);
+  } catch (error) {
+    if (error instanceof MutationAuthorityError && error.code === 'MUTATION_AUTHORITY_SCHEMA_INVALID') {
+      fail('MUTATION_AUTHORITY_PROJECT_INVALID', error.message);
+    }
+    throw error;
+  }
 }
 
 export function normalizeTaskMutationAuthority(value: unknown): TaskMutationAuthority {
@@ -257,6 +274,153 @@ export function authorityDomainForPath(project: ProjectMutationAuthority, target
   }));
   if (matches.length > 1) fail('MUTATION_AUTHORITY_DOMAIN_AMBIGUOUS', `path ${target} maps to multiple authority domains: ${matches.map(domain => domain.id).join(', ')}.`);
   return matches[0]?.id ?? null;
+}
+
+/**
+ * Return the stable identity of the project authority map.  Domain ordering is
+ * not semantic, so the digest is canonicalized before it is persisted into an
+ * active task's execution state.
+ */
+export function projectMutationAuthorityRevision(project: ProjectMutationAuthority): string {
+  const canonical = {
+    version: MUTATION_AUTHORITY_VERSION,
+    domains: project.domains
+      .map(domain => ({ id: domain.id, roots: [...domain.roots].sort() }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+/**
+ * Prove the only bounded v2 pattern relation: an exact path or a literal
+ * directory `/**` is contained by another exact path or literal directory
+ * `/**`.  In particular, an exact exception is never used as evidence for a
+ * directory-wide command footprint.
+ */
+export function mutationAuthorityPatternIsSubset(candidate: string, boundary: string): boolean {
+  const normalizedCandidate = normalizeAuthorityPath(candidate, 'authority candidate pattern', true);
+  const normalizedBoundary = normalizeAuthorityPath(boundary, 'authority boundary pattern', true);
+  if (normalizedCandidate === normalizedBoundary) return true;
+  if (normalizedCandidate.endsWith('/**')) {
+    if (!normalizedBoundary.endsWith('/**')) return false;
+    const candidatePrefix = normalizedCandidate.slice(0, -3);
+    const boundaryPrefix = normalizedBoundary.slice(0, -3);
+    return candidatePrefix === boundaryPrefix || candidatePrefix.startsWith(`${boundaryPrefix}/`);
+  }
+  return mutationScopePatternMatchesPath(normalizedCandidate, normalizedBoundary);
+}
+
+/** Determine whether two v2 literal-path patterns can address a common path. */
+export function mutationAuthorityPatternsOverlap(left: string, right: string): boolean {
+  const normalizedLeft = normalizeAuthorityPath(left, 'authority pattern', true);
+  const normalizedRight = normalizeAuthorityPath(right, 'authority pattern', true);
+  if (normalizedLeft.endsWith('/**') && normalizedRight.endsWith('/**')) {
+    const leftPrefix = normalizedLeft.slice(0, -3);
+    const rightPrefix = normalizedRight.slice(0, -3);
+    return leftPrefix === rightPrefix
+      || leftPrefix.startsWith(`${rightPrefix}/`)
+      || rightPrefix.startsWith(`${leftPrefix}/`);
+  }
+  if (normalizedLeft.endsWith('/**')) return mutationScopePatternMatchesPath(normalizedRight, normalizedLeft);
+  if (normalizedRight.endsWith('/**')) return mutationScopePatternMatchesPath(normalizedLeft, normalizedRight);
+  return normalizedLeft === normalizedRight;
+}
+
+const AUTHORITY_GOVERNANCE_PATTERNS = [
+  '.git/**',
+  '.workflow-system/**',
+  '.agents/**',
+  '.claude/**',
+  '.codex/**',
+  'node_modules/**',
+  'docs/workflow/**',
+  'runtime/vnext/dist/**',
+  'packages/vibe-governance/**',
+] as const;
+
+export type MutationAuthorityPlanTargetKind = 'planned-target' | 'command-write' | 'persistent-test';
+
+export type MutationAuthorityPlanDecision = {
+  kind: MutationAuthorityPlanTargetKind;
+  path: string;
+  admitted: boolean;
+  domain: string | null;
+  reason: string;
+};
+
+export type MutationAuthorityPlanEvaluation = {
+  status: 'pass' | 'blocked';
+  decisions: MutationAuthorityPlanDecision[];
+  blockers: string[];
+};
+
+export function mutationAuthorityPlanBlockerCode(decision: MutationAuthorityPlanDecision): string {
+  if (decision.reason === 'target is explicitly forbidden') return 'MUTATION_AUTHORITY_FORBIDDEN';
+  if (decision.reason === 'target overlaps a Runtime/governance boundary') return 'MUTATION_AUTHORITY_GOVERNANCE_BOUNDARY';
+  if (decision.kind === 'command-write') return 'COMMAND_FOOTPRINT_AUTHORITY_BLOCKED';
+  return 'MUTATION_AUTHORITY_PLANNING_BLOCKED';
+}
+
+function projectDomainsContainingPattern(project: ProjectMutationAuthority, pattern: string): MutationAuthorityDomain[] {
+  if (!pattern.endsWith('/**')) {
+    const domain = authorityDomainForPath(project, pattern);
+    return domain === null ? [] : project.domains.filter(item => item.id === domain);
+  }
+  return project.domains.filter(domain => domain.roots.some(root => mutationAuthorityPatternIsSubset(pattern, root)));
+}
+
+function evaluateTaskAuthorityPattern(
+  project: ProjectMutationAuthority,
+  task: TaskMutationAuthority,
+  rawPattern: string,
+  kind: MutationAuthorityPlanTargetKind,
+): MutationAuthorityPlanDecision {
+  const pattern = normalizeAuthorityPath(rawPattern, `${kind} authority pattern`, true);
+  if (task.forbidden.some(forbidden => mutationAuthorityPatternsOverlap(pattern, forbidden))) {
+    return { kind, path: pattern, admitted: false, domain: null, reason: 'target is explicitly forbidden' };
+  }
+  if (AUTHORITY_GOVERNANCE_PATTERNS.some(governance => mutationAuthorityPatternsOverlap(pattern, governance))) {
+    return { kind, path: pattern, admitted: false, domain: null, reason: 'target overlaps a Runtime/governance boundary' };
+  }
+
+  const exactException = !pattern.endsWith('/**') && task.exact_exceptions.includes(pattern);
+  const containingDomains = projectDomainsContainingPattern(project, pattern);
+  if (exactException) {
+    return { kind, path: pattern, admitted: true, domain: containingDomains[0]?.id ?? null, reason: 'exact exception is explicitly authorized' };
+  }
+  if (containingDomains.length === 0) {
+    return { kind, path: pattern, admitted: false, domain: null, reason: pattern.endsWith('/**')
+      ? 'directory footprint is not contained by one project authority root'
+      : 'target is unclassified' };
+  }
+  const domain = containingDomains[0]!;
+  if (!task.domains.includes(domain.id)) {
+    return { kind, path: pattern, admitted: false, domain: domain.id, reason: `target belongs to unauthorized domain ${domain.id}` };
+  }
+  return { kind, path: pattern, admitted: true, domain: domain.id, reason: 'target is contained by the task authority envelope' };
+}
+
+/**
+ * Planning-time structural proof for every v2 mutation declaration.  This is
+ * intentionally separate from execution-time first-touch and blast-radius
+ * judgement: planned declarations need no assessment, but they must already
+ * be structurally executable inside the task envelope.
+ */
+export function evaluateTaskMutationAuthorityPlan(input: {
+  project: ProjectMutationAuthority;
+  task: TaskMutationAuthority;
+  planned_targets: readonly string[];
+  command_write_targets: readonly string[];
+  persistent_test_paths: readonly string[];
+}): MutationAuthorityPlanEvaluation {
+  const declarations: Array<{ kind: MutationAuthorityPlanTargetKind; path: string }> = [
+    ...input.planned_targets.map(path => ({ kind: 'planned-target' as const, path })),
+    ...input.command_write_targets.map(path => ({ kind: 'command-write' as const, path })),
+    ...input.persistent_test_paths.map(path => ({ kind: 'persistent-test' as const, path })),
+  ];
+  const decisions = declarations.map(item => evaluateTaskAuthorityPattern(input.project, input.task, item.path, item.kind));
+  const blockers = decisions.filter(item => !item.admitted).map(item => `${item.kind}: ${item.path} — ${item.reason}`);
+  return { status: blockers.length === 0 ? 'pass' : 'blocked', decisions, blockers };
 }
 
 function firstTouchState(root: string | undefined, target: string): MutationAuthorityDecision['first_touch_state'] {

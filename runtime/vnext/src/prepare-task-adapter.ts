@@ -22,6 +22,7 @@ import {
   assertEvidencePlan,
   allocateNextTaskId,
   applyVNextRuntimeProposal,
+  assertV2DraftDefinitionAuthority,
   createPrepareTaskConfirmProposal,
   createPrepareTaskDraftProposal,
   createPrepareTaskReplanProposal,
@@ -564,6 +565,11 @@ function scopeBody(input: PrepareTaskSemanticDraft): string {
 }
 
 function assertSemanticScopeIsExecutable(input: PrepareTaskSemanticDraft): void {
+  // v2 planned targets are guidance, not a second file ACL.  The v2
+  // definition-level authority proof runs after serialization so it can
+  // inspect planned targets, command footprints, and persistent-test paths
+  // together against the project domain map.
+  if (input.mutation_authority_version === MUTATION_AUTHORITY_VERSION) return;
   const mutationScope = semanticMutationScope(input);
   const scope = parseMutationScope(scopeBody(input));
   const persistentTests = input.persistent_tests === 'none' ? [] : input.persistent_tests;
@@ -856,7 +862,9 @@ function assertDocumentReferencesResubmitted(current: ReturnType<typeof readCano
 export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
   const semantic = normalizeSemanticDraft(input);
   assertSemanticAuthority(root, semantic);
-  assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
+  const definition = semanticDraftDefinition(semantic);
+  assertV2DraftDefinitionAuthority(root, definition);
+  assertPreparedTestStrategy(root, definition, semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);
   const creating = current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived';

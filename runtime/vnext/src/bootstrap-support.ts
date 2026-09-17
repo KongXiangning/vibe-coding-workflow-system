@@ -48,7 +48,12 @@ import {
   MigrationProvenanceError,
   type CompletedMigrationProvenance,
 } from './migration-provenance';
-import { readProjectMutationAuthority, MutationAuthorityError } from './mutation-authority';
+import {
+  normalizeProjectMutationAuthority,
+  readProjectMutationAuthority,
+  MutationAuthorityError,
+  type ProjectMutationAuthority,
+} from './mutation-authority';
 
 export const BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH = '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl' as const;
 export const BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH = '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' as const;
@@ -111,6 +116,21 @@ export type BootstrapSupportHost = 'codex' | 'claude' | 'factory';
 
 export type BootstrapSupportFact = CanonicalGovernanceFact;
 
+/** A non-authorizing ownership proposal produced from project inventory. */
+export type BootstrapAuthorityDomainCandidate = {
+  id: string;
+  roots: string[];
+  basis: string;
+  evidence_refs: string[];
+};
+
+/** The project-owner decision that promotes selected candidates to the profile. */
+export type BootstrapAuthorityDomainConfirmation = {
+  domains: Array<{ id: string; roots: string[] }>;
+  decision_source: string;
+  decision_text: string;
+};
+
 export type BootstrapSupportOptions = {
   targetRoot: string;
   mode: BootstrapMode;
@@ -125,6 +145,10 @@ export type BootstrapSupportOptions = {
   adoptionConfirmed?: boolean;
   changedPaths?: string[];
   conditionalAuthorizations?: ConditionalScopeAuthorization[];
+  /** Inventory-derived, non-authorizing domain candidates. */
+  authorityDomainCandidates?: BootstrapAuthorityDomainCandidate[];
+  /** Explicit project-owner confirmation for the canonical domain map. */
+  authorityDomainConfirmation?: BootstrapAuthorityDomainConfirmation;
   /** Source-side facade may supply its validated source identity. */
   source?: { revision: string; tree_hash: string };
   /** Legacy-aware adapters may report a detected legacy surface. */
@@ -156,6 +180,7 @@ export type BootstrapSupportPlan = {
   changed_paths: string[];
   blockers: Array<{ code: string; message: string; path?: string }>;
   warnings: Array<{ code: string; message: string; path?: string }>;
+  authority_domain_candidates?: BootstrapAuthorityDomainCandidate[];
   read_back_verified: boolean;
   runtime_result?: BootstrapRuntimeResult;
   proposal?: BootstrapProjectProposal;
@@ -322,6 +347,119 @@ function resolveProject(root: string, options: BootstrapSupportOptions, receipt:
 function listTopLevelNames(root: string): string[] {
   if (!fs.existsSync(root)) return [];
   return fs.readdirSync(root, { withFileTypes: true }).map(entry => entry.name).sort();
+}
+
+const DOMAIN_CANDIDATE_IGNORES = new Set([
+  '.git',
+  '.workflow-system',
+  '.agents',
+  '.claude',
+  '.codex',
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+  'target',
+]);
+const DOMAIN_CANDIDATE_FILE_EXTENSIONS = /\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|cs|php|rb|swift|kt|kts)$/iu;
+
+function normalizeAuthorityDomainCandidates(value: unknown, location = 'authority_domain_candidates'): BootstrapAuthorityDomainCandidate[] {
+  if (!Array.isArray(value) || value.length > 128) fail('BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID', `${location} must be a bounded array.`);
+  const candidates = value.map((raw, index) => {
+    const candidate = expectRecord(raw, `${location}[${index}]`);
+    expectExactKeys(candidate, ['id', 'roots', 'basis', 'evidence_refs'], `${location}[${index}]`);
+    const authority = normalizeProjectMutationAuthority({ domains: [{ id: candidate.id, roots: candidate.roots }] });
+    const domain = authority.domains[0]!;
+    if (typeof candidate.basis !== 'string' || candidate.basis.trim().length === 0) fail('BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID', `${location}[${index}].basis must be non-empty.`);
+    if (!Array.isArray(candidate.evidence_refs) || candidate.evidence_refs.length === 0 || candidate.evidence_refs.length > 32 || candidate.evidence_refs.some(item => typeof item !== 'string' || item.trim().length === 0)) {
+      fail('BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID', `${location}[${index}].evidence_refs must be a non-empty bounded list of strings.`);
+    }
+    return {
+      id: domain.id,
+      roots: domain.roots,
+      basis: candidate.basis.trim(),
+      evidence_refs: (candidate.evidence_refs as string[]).map(item => item.trim()),
+    };
+  });
+  if (new Set(candidates.map(item => item.id)).size !== candidates.length) fail('BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID', `${location} domain IDs must be unique.`);
+  try {
+    normalizeProjectMutationAuthority({ domains: candidates.map(item => ({ id: item.id, roots: item.roots })) });
+  } catch (error) {
+    fail('BOOTSTRAP_AUTHORITY_DOMAIN_CANDIDATES_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  return candidates;
+}
+
+function proposeAuthorityDomainCandidates(root: string): BootstrapAuthorityDomainCandidate[] {
+  let existing: ProjectMutationAuthority | null = null;
+  try { existing = readProjectMutationAuthority(root); }
+  catch (error) { fail('BOOTSTRAP_SUPPORT_PROFILE_INVALID', error instanceof Error ? error.message : String(error)); }
+  if (existing) {
+    return existing.domains.map(domain => ({
+      id: domain.id,
+      roots: [...domain.roots],
+      basis: 'existing project-owner-confirmed authority domain retained as a candidate; Bootstrap does not rebuild it.',
+      evidence_refs: [`bootstrap:existing-authority-domain:${domain.id}`],
+    }));
+  }
+
+  const entries = fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : [];
+  const directories = entries
+    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && !DOMAIN_CANDIDATE_IGNORES.has(entry.name))
+    .map(entry => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+  if (directories.length > 0) {
+    const used = new Set<string>();
+    return directories.map(name => {
+      const base = safeSlug(name).replace(/-+/gu, '-') || 'application';
+      let id = base;
+      let suffix = 2;
+      while (used.has(id)) id = `${base}-${suffix++}`;
+      used.add(id);
+      return {
+        id,
+        roots: [`${name}/**`],
+        basis: `bootstrap inventory observed top-level product directory ${name}; owner confirmation is still required before this becomes canonical authority.`,
+        evidence_refs: [`bootstrap:inventory:top-level-directory:${name}`],
+      };
+    });
+  }
+  const files = entries
+    .filter(entry => entry.isFile() && DOMAIN_CANDIDATE_FILE_EXTENSIONS.test(entry.name))
+    .map(entry => entry.name)
+    .sort((left, right) => left.localeCompare(right));
+  return files.length > 0 ? [{
+    id: 'application',
+    roots: files,
+    basis: 'bootstrap inventory observed executable source files at the project root; owner confirmation is still required before this becomes canonical authority.',
+    evidence_refs: ['bootstrap:inventory:top-level-source-files'],
+  }] : [];
+}
+
+function normalizeAuthorityDomainConfirmation(value: unknown): BootstrapAuthorityDomainConfirmation {
+  const confirmation = expectRecord(value, 'authority_domain_confirmation');
+  expectExactKeys(confirmation, ['domains', 'decision_source', 'decision_text'], 'authority_domain_confirmation');
+  const authority = normalizeProjectMutationAuthority({ domains: confirmation.domains });
+  if (typeof confirmation.decision_source !== 'string' || confirmation.decision_source.trim().length === 0) fail('BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID', 'authority_domain_confirmation.decision_source must be non-empty.');
+  if (typeof confirmation.decision_text !== 'string' || confirmation.decision_text.trim().length === 0) fail('BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID', 'authority_domain_confirmation.decision_text must be non-empty.');
+  return {
+    domains: authority.domains.map(domain => ({ id: domain.id, roots: [...domain.roots] })),
+    decision_source: confirmation.decision_source.trim(),
+    decision_text: confirmation.decision_text.trim(),
+  };
+}
+
+function assertAuthorityDomainConfirmationMatchesCandidates(
+  candidates: readonly BootstrapAuthorityDomainCandidate[],
+  confirmation: BootstrapAuthorityDomainConfirmation,
+): void {
+  const candidateMap = new Map(candidates.map(candidate => [candidate.id, candidate]));
+  for (const domain of confirmation.domains) {
+    const candidate = candidateMap.get(domain.id);
+    if (!candidate || JSON.stringify(candidate.roots) !== JSON.stringify(domain.roots)) {
+      fail('BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID', `confirmed domain ${domain.id} must match an inventory candidate exactly.`);
+    }
+  }
 }
 
 type BootstrapGovernanceState = {
@@ -563,7 +701,14 @@ export function validateInstalledDistributionReadback(root: string): Distributio
   return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs.readFileSync(statePath, 'utf8'), managed_files: managed };
 }
 
-function renderProfile(project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapSupportHost, existing: Record<string, unknown> | null): string {
+function renderProfile(
+  project: { name: string; slug: string },
+  targetIdentity: string,
+  mode: BootstrapMode,
+  host: BootstrapSupportHost,
+  existing: Record<string, unknown> | null,
+  authorityDomainConfirmation: BootstrapAuthorityDomainConfirmation | null = null,
+): string {
   const existingProject = existing?.project && isRecord(existing.project) ? existing.project : {};
   const existingPaths = existing?.paths && isRecord(existing.paths) ? existing.paths : {};
   const existingVNext = existing?.vnext && isRecord(existing.vnext) ? existing.vnext : {};
@@ -589,6 +734,11 @@ function renderProfile(project: { name: string; slug: string }, targetIdentity: 
       runtime_entrypoint: '.workflow-system/runtime/dist/cli.js',
       legacy_compatibility: 'absent',
     },
+    ...(authorityDomainConfirmation ? {
+      mutation_authority: {
+        domains: authorityDomainConfirmation.domains.map(domain => ({ id: domain.id, roots: [...domain.roots] })),
+      },
+    } : {}),
   });
 }
 
@@ -790,11 +940,11 @@ function renderGovernanceDocument(file: string, project: { name: string; slug: s
   return renderWorkflowGuide(project);
 }
 
-function makeGovernanceAssets(root: string, project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapSupportHost, facts: BootstrapSupportFact[], baseline: Record<string, string>, preservedBaselineKeys: readonly string[] = [], existingGovernance: BootstrapGovernanceState | null = null): BootstrapAsset[] {
+function makeGovernanceAssets(root: string, project: { name: string; slug: string }, targetIdentity: string, mode: BootstrapMode, host: BootstrapSupportHost, facts: BootstrapSupportFact[], baseline: Record<string, string>, preservedBaselineKeys: readonly string[] = [], existingGovernance: BootstrapGovernanceState | null = null, authorityDomainConfirmation: BootstrapAuthorityDomainConfirmation | null = null): BootstrapAsset[] {
   const templatePath = targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
   if (!fs.existsSync(templatePath) || !fs.statSync(templatePath).isFile()) fail('BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID', `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
   return [
-    { path: PROJECT_PROFILE_RELATIVE_PATH, category: 'config', content: renderProfile(project, targetIdentity, mode, host, existingProfile(root)) },
+    { path: PROJECT_PROFILE_RELATIVE_PATH, category: 'config', content: renderProfile(project, targetIdentity, mode, host, existingProfile(root), authorityDomainConfirmation) },
     { path: CURRENT_TASK_RELATIVE_PATH, category: 'generated', content: fs.readFileSync(templatePath, 'utf8') },
     ...FULL_WORKFLOW_DOCS.map(file => ({ path: file, category: 'governance' as const, content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: 'AGENTS.md', category: 'governance', content: renderGuidance(project) },
@@ -1035,12 +1185,24 @@ function markerValue(proposal: BootstrapProjectProposal): string {
   return `${JSON.stringify({ schema_version: 1, kind: 'vnext-bootstrap-in-progress', target_identity: proposal.target_identity, mode: proposal.mode, source_revision: proposal.source_revision, source_tree_hash: proposal.source_tree_hash, planned_writes: proposal.requested_write_targets, planned_directories: proposal.requested_directory_targets, recovery: 'fail-closed-explicit-recovery' }, null, 2)}\n`;
 }
 
-function prepareProposal(options: BootstrapSupportOptions, distribution: DistributionReadback, classification: BootstrapTargetClassification): { proposal: BootstrapProjectProposal; project: { name: string; slug: string }; host: BootstrapSupportHost; baseline: Record<string, string>; facts: BootstrapSupportFact[]; plannedWrites: string[]; inputFingerprint: string } {
+function prepareProposal(options: BootstrapSupportOptions, distribution: DistributionReadback, classification: BootstrapTargetClassification): { proposal: BootstrapProjectProposal; project: { name: string; slug: string }; host: BootstrapSupportHost; baseline: Record<string, string>; facts: BootstrapSupportFact[]; plannedWrites: string[]; inputFingerprint: string; authorityDomainCandidates: BootstrapAuthorityDomainCandidate[] } {
   const root = path.resolve(options.targetRoot);
   const project = resolveProject(root, options, classification.receipt);
   const host = options.host ?? 'codex';
   const baseline = normalizeBaseline(options.designBaseline);
   const callerFacts = normalizeFacts(options.mode === 'inventory' ? (options.inventoryFacts ?? options.confirmedFacts) : options.confirmedFacts, options.mode === 'inventory' ? 'inventoryFacts' : 'confirmedFacts');
+  const authorityDomainCandidates = options.authorityDomainCandidates === undefined
+    ? proposeAuthorityDomainCandidates(root)
+    : normalizeAuthorityDomainCandidates(options.authorityDomainCandidates);
+  const authorityDomainConfirmation = options.authorityDomainConfirmation === undefined
+    ? null
+    : normalizeAuthorityDomainConfirmation(options.authorityDomainConfirmation);
+  if (authorityDomainConfirmation) {
+    if (!['greenfield', 'adopt', 'realign'].includes(options.mode)) {
+      fail('BOOTSTRAP_AUTHORITY_DOMAIN_CONFIRMATION_INVALID', 'domain-map confirmation is applied by greenfield, adopt, or realign; inventory only proposes candidates.');
+    }
+    assertAuthorityDomainConfirmationMatchesCandidates(authorityDomainCandidates, authorityDomainConfirmation);
+  }
   const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, classification.receipt, classification.migration);
   if (modeIssues.length > 0) fail(modeIssues[0]!.code, modeIssues.map(issue => issue.message).join(' '));
   const existingGovernance: BootstrapGovernanceState = options.mode === 'realign'
@@ -1058,7 +1220,7 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
     ? mergeDesignBaselineKeys(existingGovernance.designBaselineKeys, baseline)
     : Object.keys(baseline).sort((left, right) => left.localeCompare(right));
   let assets = ['greenfield', 'adopt', 'realign'].includes(options.mode)
-    ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys, existingGovernance)
+    ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys, existingGovernance, authorityDomainConfirmation)
     : makeModeAssets(root, project, options.mode, baseline, facts);
   if (options.mode === 'adopt') assets = mergeAssets(assets, [{ path: 'docs/adoption/ADOPTION_DECISION.md', category: 'governance', content: renderDecisions(project, options.mode, facts) }]);
   if (options.mode === 'realign') {
@@ -1073,6 +1235,10 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
     host,
     baseline,
     facts,
+    // Auto-proposed candidates are read-only inventory output and must not
+    // change replay identity. Explicit candidate/owner decisions are inputs.
+    authority_domain_candidates: options.authorityDomainCandidates ?? null,
+    authority_domain_confirmation: options.authorityDomainConfirmation ?? null,
     targetIdentity,
   });
   assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: 'config', content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
@@ -1095,13 +1261,18 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
     conditional_authorizations: options.conditionalAuthorizations ?? [],
     transformation_kind: 'localized',
     authority_evidence: [
-      { kind: 'project-owner', source: 'target-local bootstrap input', subject: `${project.slug}:${options.mode}` },
+      { kind: 'project-owner', source: authorityDomainConfirmation?.decision_source ?? 'target-local bootstrap input', subject: authorityDomainConfirmation?.decision_text ?? `${project.slug}:${options.mode}` },
       { kind: 'scope-admission', source: 'target-local bootstrap proposal.scope_document', subject: targetIdentity },
       { kind: 'evidence-admission', source: 'target-local Distribution support', subject: distribution.manifest_digest },
     ] satisfies BootstrapAuthorityEvidence[],
     semantic_operations: semanticOperations(assets, options.mode),
     preconditions: ['project-local Distribution read-back passed', 'target-local immutable Bootstrap support is present', 'Bootstrap writes governance assets only', 'project-local Runtime owns the typed commit'],
-    evidence_refs: ['evidence:distribution-read-back', 'evidence:bootstrap-support', 'evidence:runtime-read-back'],
+    evidence_refs: [
+      'evidence:distribution-read-back',
+      'evidence:bootstrap-support',
+      'evidence:runtime-read-back',
+      ...(authorityDomainConfirmation ? [`evidence:authority-domain-confirmation:${digest(authorityDomainConfirmation)}`] : []),
+    ],
     idempotency_key: `bootstrap-${options.mode}-${targetIdentity}-${inputFingerprint.slice(0, 16)}`,
     requested_write_targets: plannedWrites,
     requested_directory_targets: [],
@@ -1113,7 +1284,7 @@ function prepareProposal(options: BootstrapSupportOptions, distribution: Distrib
   } catch (error) {
     fail(error instanceof Error && 'code' in error ? String((error as { code?: unknown }).code) : 'BOOTSTRAP_SUPPORT_PROPOSAL_INVALID', error instanceof Error ? error.message : String(error));
   }
-  return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint };
+  return { proposal, project, host, baseline, facts, plannedWrites, inputFingerprint, authorityDomainCandidates };
 }
 
 function hasRealignSemanticOverlay(options: BootstrapSupportOptions): boolean {
@@ -1201,19 +1372,19 @@ export function bootstrapProjectTargetLocal(options: BootstrapSupportOptions): B
     const proposal = prepared.proposal;
     if (classification.state === 'valid' && classification.receipt && classification.receipt.mode === options.mode) {
       if (classification.receipt.input_fingerprint !== prepared.inputFingerprint) return {
-        status: 'blocked', target_root: root, target_state: 'valid', target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: 'BOOTSTRAP_IDENTITY_CONFLICT', message: 'a valid Bootstrap receipt exists but its mode inputs or project identity differ.' }], warnings: [], read_back_verified: false, proposal,
+        status: 'blocked', target_root: root, target_state: 'valid', target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: 'BOOTSTRAP_IDENTITY_CONFLICT', message: 'a valid Bootstrap receipt exists but its mode inputs or project identity differ.' }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal,
       };
       try {
         verifyReceiptReadBack(root, classification.receipt, proposal.assets);
-        return { status: 'replayed', target_root: root, target_state: 'valid', target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], read_back_verified: true };
+        return { status: 'replayed', target_root: root, target_state: 'valid', target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: true };
       } catch (error) {
-        return { status: 'blocked', target_root: root, target_state: 'valid', target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : 'BOOTSTRAP_SUPPORT_REPLAY_READ_BACK_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: [], read_back_verified: false, proposal };
+        return { status: 'blocked', target_root: root, target_state: 'valid', target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : 'BOOTSTRAP_SUPPORT_REPLAY_READ_BACK_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
       }
     }
     if (!options.write) {
-      return { status: options.changedPaths && options.changedPaths.length > 0 ? 'ready' : 'needs-confirmation', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [], warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), read_back_verified: false, proposal };
+      return { status: options.changedPaths && options.changedPaths.length > 0 ? 'ready' : 'needs-confirmation', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [], warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     }
-    if (!options.changedPaths || options.changedPaths.length === 0) return { status: 'needs-confirmation', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: 'CHANGED_PATHS_REQUIRED', message: `caller must provide exact changed_paths: ${prepared.plannedWrites.join(', ')}` }], warnings: [], read_back_verified: false, proposal };
+    if (!options.changedPaths || options.changedPaths.length === 0) return { status: 'needs-confirmation', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: 'CHANGED_PATHS_REQUIRED', message: `caller must provide exact changed_paths: ${prepared.plannedWrites.join(', ')}` }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     const beforeHash = computeBootstrapPreimageHash(root, proposal);
     const markerPath = targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH);
     try {
@@ -1221,12 +1392,12 @@ export function bootstrapProjectTargetLocal(options: BootstrapSupportOptions): B
       fs.writeFileSync(markerPath, markerValue(proposal), 'utf8');
       const runtimeResult = applyBootstrapProjectProposal(root, proposal, { verify: () => verifyBootstrapHealth(root, proposal, distribution) });
       if (fs.existsSync(markerPath)) fs.rmSync(markerPath, { force: true });
-      return { status: 'installed', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
+      return { status: 'installed', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
     } catch (error) {
       let rollbackVerified = false;
       try { rollbackVerified = computeBootstrapPreimageHash(root, proposal) === beforeHash; } catch { rollbackVerified = false; }
       if (rollbackVerified && fs.existsSync(markerPath)) fs.rmSync(markerPath, { force: true });
-      return { status: 'blocked', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : 'BOOTSTRAP_SUPPORT_TRANSACTION_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? 'ROLLBACK_VERIFIED' : 'RECOVERY_REQUIRED', message: rollbackVerified ? 'Bootstrap-owned governance scope was restored and its interruption marker was cleared.' : 'Bootstrap rollback could not be verified; interruption marker retained for explicit recovery.' }], read_back_verified: false, proposal };
+      return { status: 'blocked', target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : 'BOOTSTRAP_SUPPORT_TRANSACTION_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? 'ROLLBACK_VERIFIED' : 'RECOVERY_REQUIRED', message: rollbackVerified ? 'Bootstrap-owned governance scope was restored and its interruption marker was cleared.' : 'Bootstrap rollback could not be verified; interruption marker retained for explicit recovery.' }], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     }
   } catch (error) {
     return { status: 'blocked', target_root: root, target_state: classification.state, target_identity: computeBootstrapTargetIdentity(root), mode: options.mode, project: { name: 'unknown', slug: 'unknown' }, host: options.host ?? 'codex', source: { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest }, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : 'BOOTSTRAP_SUPPORT_PREPARATION_FAILED', message: error instanceof Error ? error.message : String(error) }], warnings: classification.reasons.map(message => ({ code: 'TARGET_STATE', message })), read_back_verified: false };
@@ -1281,6 +1452,14 @@ function readAuthorizationsFile(filePath: string): ConditionalScopeAuthorization
   return value as ConditionalScopeAuthorization[];
 }
 
+function readAuthorityDomainCandidatesFile(filePath: string): BootstrapAuthorityDomainCandidate[] {
+  return normalizeAuthorityDomainCandidates(JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8')) as unknown, 'authority_domain_candidates file');
+}
+
+function readAuthorityDomainConfirmationFile(filePath: string): BootstrapAuthorityDomainConfirmation {
+  return normalizeAuthorityDomainConfirmation(JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8')) as unknown);
+}
+
 export async function runBootstrapSupportCli(argv: string[] = process.argv.slice(2)): Promise<number> {
   try {
     const { command, flags } = parseCliFlags(argv);
@@ -1288,7 +1467,7 @@ export async function runBootstrapSupportCli(argv: string[] = process.argv.slice
       console.log([
         'Target-local Vibe Governance Bootstrap support', '',
         'Usage:',
-        '  node .workflow-system/runtime/dist/cli.js bootstrap-support prepare --root <project> --mode <design|greenfield|inventory|adopt|realign> [--write] [--changed-paths-file <file>] [--json]',
+        '  node .workflow-system/runtime/dist/cli.js bootstrap-support prepare --root <project> --mode <design|greenfield|inventory|adopt|realign> [--write] [--changed-paths-file <file>] [--authority-domain-candidates-file <file>] [--authority-domain-confirmation-file <file>] [--json]',
         '',
         'The support layer prepares a typed proposal from installed immutable bytes; the project-local Runtime commits governance assets.',
       ].join('\n'));
@@ -1302,6 +1481,8 @@ export async function runBootstrapSupportCli(argv: string[] = process.argv.slice
     const factsFile = flagString(flags, 'facts-file');
     const baselineFile = flagString(flags, 'design-baseline-file');
     const authorizationsFile = flagString(flags, 'conditional-authorizations-file');
+    const authorityDomainCandidatesFile = flagString(flags, 'authority-domain-candidates-file');
+    const authorityDomainConfirmationFile = flagString(flags, 'authority-domain-confirmation-file');
     const result = bootstrapProjectTargetLocal({
       targetRoot,
       mode,
@@ -1316,6 +1497,8 @@ export async function runBootstrapSupportCli(argv: string[] = process.argv.slice
       adoptionConfirmed: flags.get('confirm-adoption') === true || flags.get('confirm') === true,
       changedPaths: changedPathsFile ? readStringListFile(changedPathsFile) : undefined,
       conditionalAuthorizations: authorizationsFile ? readAuthorizationsFile(authorizationsFile) : undefined,
+      authorityDomainCandidates: authorityDomainCandidatesFile ? readAuthorityDomainCandidatesFile(authorityDomainCandidatesFile) : undefined,
+      authorityDomainConfirmation: authorityDomainConfirmationFile ? readAuthorityDomainConfirmationFile(authorityDomainConfirmationFile) : undefined,
     });
     console.log(JSON.stringify(publicPlan(result), null, 2));
     return ['needs-confirmation', 'ready', 'installed', 'replayed'].includes(result.status) ? 0 : 1;

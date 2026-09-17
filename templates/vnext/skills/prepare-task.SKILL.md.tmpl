@@ -108,6 +108,22 @@ decision and must use the explicit `amend-scope` route. If the project has no
 domain map, preserve legacy/v1 semantics; do not silently infer domains or
 upgrade an existing task.
 
+Before accepting a v2 draft, prove the complete executable declaration set:
+every `planned_mutation_targets`, exact `expected_repo_writes`, bounded command
+footprint, and persistent-test path must be inside one selected project domain
+or an exact exception, and must not overlap Forbidden, governance, or
+`unclassified` paths. Planned targets do not need a blast-radius assessment;
+they still need this structural proof. For a command `literal/path/**`, use the
+deterministic pattern-subset relation against the granted domain root. Never
+use a synthetic probe path, and never use an exact exception to authorize a
+directory glob. Resolve these blockers during `prepare-draft`, `update-draft`,
+replan/correction, or confirmation rather than deferring them to execution.
+
+Consume the project-owner-confirmed domain map produced by
+`bootstrap-project` inventory/adoption/realignment. Domain candidates are
+evidence only until explicitly confirmed; this entry does not guess ownership,
+rebuild the map per task, or widen a task because a dependency was read.
+
 For every possible in-envelope expansion, the transient assessment must name
 the exact target (and optional symbol), reason, locality, visibility,
 cross-component consumers, contract impact, evidence references, and either

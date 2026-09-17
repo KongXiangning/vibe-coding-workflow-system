@@ -409,6 +409,42 @@ uses a fresh preflight. Existing in-envelope tests remain ordinary assessed
 expansions. Focused fixtures E10–E15 cover settlement, immutable candidates,
 typed admission, and the no-default failure path.
 
+#### Step 4 design closure — planning executability and project authority lifecycle
+
+Add one shared Runtime proof at every definition-admission boundary:
+`prepare-draft`, `update-draft`, replan/correction, and `confirm-draft`. It
+evaluates all v2 planned targets, exact command writes, bounded command
+footprints, and persistent-test paths against the canonical project authority
+map. Planned declarations do not need a blast-radius assessment, but every
+path/pattern must be inside an authorized domain or exact exception and outside
+Forbidden, governance, ambiguous, and `unclassified` space. This proof runs
+before a confirmed definition or amendment is written, so an invalid plan does
+not reach `execute-step`.
+
+Replace synthetic command-probe paths with a deterministic subset relation for
+the only supported footprint grammar: an exact repository path or a literal
+`/**` directory-prefix pattern. A candidate directory glob is admitted only
+when its prefix is contained by one granted domain root. An exact exception
+cannot authorize a directory glob, and a wider parent glob cannot be justified
+by a narrower domain. The same structural helper is used for definition and
+command declaration checks; it does not attempt semantic business judgment.
+
+Add the project authority lifecycle to the target-local Bootstrap support and
+source facade. `inventory` proposes bounded `authority_domain_candidates` with
+basis/evidence; `greenfield`, `adopt`, and `realign` accept an explicit
+project-owner confirmation and write the selected domains to
+`.workflow-system/PROJECT_PROFILE.yaml`. Existing confirmed maps are retained;
+the Runtime and task planner never infer ownership or reconstruct a domain map
+per task. The canonical map's revision/digest is stored when a v2 task is
+confirmed. Every later execution compares the bound revision with the profile
+and fails closed on mismatch until explicit authority revalidation/replan.
+
+The focused Step 4 acceptance set is E16 (planned target outside the envelope),
+E17 (over-broad command glob), E18 (strict-subset command glob), E19
+(inventory candidate followed by owner confirmation), and E20 (active-task
+domain-map revision mismatch). These tests are a separate subsystem slice and
+do not require the repository-wide workflow suite.
+
 ### 3.7 Trusted Authority Channel architecture freeze
 
 The Trusted Authority Channel is frozen as an architecture constraint, but its
@@ -630,6 +666,7 @@ package.json 只删除已识别的旧 workflow 命令，业务命令/依赖保�
 | Phase 2 Slice C | ordinary independent request 的 durable `draft + active`、same-identity refinement、explicit `prepare-task:confirm` / `confirm-draft`、fresh identity allocation、draft non-execution、audit/replay/rollback/read-back | 不创建第二个 draft-authoring/state Skill、registry/catalog/queue、cancel/discard state 或第二份 CURRENT_TASK；该 slice 已实现 |
 | Phase 2 close-task | closure eligibility、archive 前 Contract/Decision/Lesson admission、`archive-transaction`、Contract/Decision/STATUS/Lesson reconciliation，以及可从 archive provenance 重建的 re-entry；`closed + archived` terminal contract | 不引入 pending-closure state、第二次 archive 或 `TASK_SUMMARY` vNext output；design + implementation 已完成 |
 | Core Daily Execution Semantics Stabilization（已实现） | 只实现本次冻结的三项：Evidence-first / Persistent Test Admission、Mutation-oriented Scope、multi-step advancement / risk-based Review Checkpoint / repair verification integration；已通过 daily-loop E2E gate | 不混入现有 Runtime robustness backlog；不新增 Test Skill/registry/state machine、ACL subsystem、review-step/advance-step public surface；不改变 Slice A/B/close-task 语义 |
+| Mutation Authority v2 Step 4（本阶段） | 在定义确认前统一证明 v2 planned targets、command exact/glob footprints 与 persistent-test paths；以 inventory candidate → project-owner confirmation 建立 canonical domain map；绑定 domain-map revision 并在 active execution 中 fail closed on drift | 不让 Runtime 猜 module ownership；不使用 synthetic glob probe；不把 command subset proof、domain lifecycle 或 revision mismatch 延后到 execute-step；不静默升级 v1 task |
 | Independent draft review（已实现） | `prepare-task` 在同一 draft 事务中写入 `CURRENT_TASK` 与 identity-derived `TASK_BASIS-<TASK_ID>.md`，后者只保留原始需求及后续显式用户决定的 verbatim 来源证据；`review-draft` 读取其 path/revision 后对一个 `draft + active` 候选返回 `clean | findings | needs-user` | review 本身不修改 Runtime/CURRENT_TASK，不写 review 结果、finding queue 或 receipt；历史 review 不是需求权威，也不自动调用 `prepare-task` 或确认草案 |
 | bootstrap-project（已实现） | 在上述 daily semantics 完成并通过 E2E gate 后实现正式 admin surface；已完成 source facade、target-local Bootstrap support、Runtime atomic boundary 与 component/disposable-project verification；只消费已安装 Distribution 并以只读方式验证，不重新生成/推广 Runtime、Protocol、Schema 或 Agent Skills | 不把未稳定的 prepare/execute/review 行为提前推广到新项目；不覆盖 `sync-state` internal surface；不把 Distribution software 写入 Bootstrap Receipt |
 | vNext implementation status | Target implementation boundaries resolved；八个 daily entry 已包含独立 `review-draft`；`sync-state` 为已由 caller-local orchestration 与 typed Runtime operations 覆盖的逻辑 internal role，无 standalone implementation required | 不新增独立 `sync-state` Runtime、Skill、facade、transaction 或 durable artifact，除非未来证明存在 genuine shared reconciliation/routing requirement |

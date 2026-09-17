@@ -279,6 +279,42 @@ Ordinary dynamic admission stays blocked until this transition succeeds.
 Existing test files continue through ordinary assessed expansion, with review
 of oracle, reuse, and boundary impact.
 
+#### Step 4 design closure — planning-time executability and domain lifecycle
+
+Mutation Authority v2 also has a planning-time definition boundary. Before a
+draft is committed as confirmed, `prepare-draft`, `update-draft`, replan or
+correction, and `confirm-draft` must prove the complete declaration set:
+`planned_mutation_targets`, every exact command write, every bounded command
+footprint, and every persistent-test path. Each declaration must be inside an
+authorized project domain or an exact exception, and must not be Forbidden,
+governance-owned, ambiguous, or `unclassified`. Planned targets need no
+blast-radius assessment because they are planning facts; the proof is
+structural executability, not a second step ACL.
+
+The v2 command grammar is deliberately bounded to exact paths and literal
+`literal/path/**` directory-prefix patterns. Runtime proves the candidate
+pattern is a subset of one granted domain root directly from the path
+relationship. A narrow subdirectory glob is valid under its domain root; a
+broader glob is not; an exact exception can authorize one exact path but never
+proves a directory-wide glob. Synthetic probe paths are not evidence.
+
+Project ownership is established once through the administrative lifecycle.
+`bootstrap-project` inventory observes structure and proposes
+`authority_domain_candidates` with basis and evidence. A project owner then
+confirms the selected IDs and roots in `greenfield`, `adopt`, or `realign`, and
+only that decision promotes the map into `PROJECT_PROFILE.yaml`. A simple
+project may confirm one broad application domain, but neither Runtime nor
+`prepare-task` may silently infer it or rebuild the map for every task. Existing
+confirmed maps are preserved.
+
+The canonical map has a stable revision/digest. A confirmed v2 task stores that
+revision in Runtime state; every execution admission compares it with the
+current profile. A missing or changed revision fails closed and requires
+explicit task-authority revalidation or replan. The active task never inherits
+a newly widened project grant. The resulting planning/lifecycle acceptance
+cases are: E16–E18 for definition and command proof, E19 for candidate then
+owner confirmation, and E20 for stale-map rejection.
+
 Legacy tasks with a missing or version-1 authority marker retain the existing
 `Allowed` / `Conditional` / `Forbidden` plus step-hard-scope semantics. v1 is
 not silently converted into a domain map. True authority changes (for example
@@ -1283,6 +1319,11 @@ The following cases define the target behavior:
 | `TA-41` | A stale or unauthorized `prepare-task:confirm` is presented | Runtime returns `conflict`/`blocked`, performs no write, and does not auto-confirm the draft |
 | `TA-42` | A confirmed draft is executed and later closed, then another request is prepared | the first archive remains byte-stable and immutable; the next draft receives a new identity with no dual current owner |
 | `TA-43` | An active vNext Virtual Project captures a proven-unrelated work item | exactly one identity-derived inbox record is committed; exact replay is byte-identical no-op; stale, non-unrelated, unresolved, colliding, or failed transactions write nothing and leave task state unchanged |
+| `TA-44` | A v2 draft declares a planned target outside its selected domain | `prepare-draft`/`update-draft`/replan/confirm definition admission fails before Runtime state mutation with a planning-authority blocker |
+| `TA-45` | A planned command declares an over-broad or unprovable glob | definition admission uses deterministic pattern-subset proof and blocks before commit; an exact exception cannot authorize a directory glob |
+| `TA-46` | Inventory observes ownership boundaries | `bootstrap-project` emits non-authorizing domain candidates; only explicit project-owner confirmation promotes the selected map to `PROJECT_PROFILE.yaml` |
+| `TA-47` | An active v2 task encounters a changed project domain map | the bound domain-map revision mismatch fails closed and requires explicit task authority revalidation/replan; no widened grant is inherited |
+| `TA-48` | A bounded command glob is a strict subset of its selected domain root | planning-time proof succeeds and the v2 definition can be confirmed |
 
 ## 15. Success measures
 

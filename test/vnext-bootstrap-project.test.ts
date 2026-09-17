@@ -1175,4 +1175,66 @@ describe('vNext bootstrap-project', () => {
     expect(buildBootstrapPlan(adoptOptions).status).toBe('replayed');
     expect(fs.readFileSync(path.join(target, 'src', 'main.ts'), 'utf8')).toBe(productBefore);
   });
+
+  test('E19 proposes authority domains during inventory and writes only an owner-confirmed map during adoption', { timeout: 15000 }, () => {
+    const target = targetRoot();
+    const facts = [{
+      key: 'architecture',
+      value: 'confirmed from domain inventory',
+      source: 'E19 inventory fixture',
+      certainty: 'confirmed' as const,
+    }];
+    fs.mkdirSync(path.join(target, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'src', 'main.ts'), 'export const domainFixture = true;\n', 'utf8');
+    installDistributionFixture(target);
+    const inventoryOptions: BootstrapProjectOptions = {
+      sourceRoot: ROOT,
+      targetRoot: target,
+      mode: 'inventory',
+      projectName: 'Authority Lifecycle Project',
+      projectSlug: 'authority-lifecycle-project',
+      host: 'codex',
+      inventoryFacts: facts,
+    };
+    const inventory = buildBootstrapPlan(inventoryOptions);
+    expect(inventory.status).toBe('ready');
+    expect(inventory.authority_domain_candidates).toEqual([
+      expect.objectContaining({ id: 'src', roots: ['src/**'] }),
+    ]);
+    expect(fs.existsSync(path.join(target, '.workflow-system', 'PROJECT_PROFILE.yaml'))).toBe(false);
+    const inventoryInstalled = bootstrapProject({
+      ...inventoryOptions,
+      write: true,
+      changedPaths: [...inventory.planned_writes, ...inventory.planned_directories],
+    });
+    expect(inventoryInstalled.status).toBe('installed');
+
+    const candidates = inventory.authority_domain_candidates;
+    const adoptOptions: BootstrapProjectOptions = {
+      ...inventoryOptions,
+      mode: 'adopt',
+      confirmedFacts: facts,
+      adoptionConfirmed: true,
+      designBaseline: { architecture: 'confirmed domain lifecycle baseline' },
+      designConfirmed: true,
+      authorityDomainCandidates: candidates,
+      authorityDomainConfirmation: {
+        domains: candidates.map(candidate => ({ id: candidate.id, roots: candidate.roots })),
+        decision_source: 'project-owner:E19',
+        decision_text: 'Confirm the inventory-derived src domain as the project mutation authority map.',
+      },
+    };
+    const adoptDry = buildBootstrapPlan(adoptOptions);
+    expect(adoptDry.status).toBe('ready');
+    const adopted = bootstrapProject({
+      ...adoptOptions,
+      write: true,
+      changedPaths: [...adoptDry.planned_writes, ...adoptDry.planned_directories],
+    });
+    expect(adopted.status).toBe('installed');
+    const profile = fs.readFileSync(path.join(target, '.workflow-system', 'PROJECT_PROFILE.yaml'), 'utf8');
+    expect(profile).toContain('mutation_authority:');
+    expect(profile).toContain('id: src');
+    expect(profile).toContain('src/**');
+  });
 });

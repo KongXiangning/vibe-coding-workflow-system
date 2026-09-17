@@ -82,6 +82,10 @@ exports, references, consumers, contract/DTO/schema role, persistence,
 concurrency and security boundaries. Caller count is evidence, never a policy
 threshold. An uncertain or escalated expansion is not clean. Read/discovery
 outside the envelope is allowed and is not itself a finding.
+Also verify that the v2 execution was bound to the current project authority-map
+revision and that every planned command write was admitted by the deterministic
+exact/subset footprint proof; a stale revision or synthetic glob proof is a
+blocker, not a review waiver.
 For a newly admitted persistent test, also consume only the current change-set
 admission and verify every P-12 field, including oracle boundary, reuse and
 the reason existing evidence was insufficient; do not treat `authority_diff:

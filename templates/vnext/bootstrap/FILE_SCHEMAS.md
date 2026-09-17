@@ -53,6 +53,37 @@ closed. An unclassified path is not admitted by ordinary in-envelope
 self-admission. The domain map expresses mutation ownership, not a dependency
 graph.
 
+The domain map has a project-level lifecycle, not a per-task discovery step.
+`bootstrap-project` inventory reads the project structure and emits
+non-authorizing `authority_domain_candidates` with their basis and evidence
+references. In `greenfield`, `adopt`, or `realign`, a project owner may submit
+an explicit confirmation containing the selected candidate IDs/roots and the
+decision source/text. Only that confirmation promotes candidates into
+`PROJECT_PROFILE.yaml`; Runtime and `prepare-task` must never guess ownership or
+silently create a project-wide grant. A later task selects from this canonical
+map and does not rebuild it.
+
+The owner-confirmed lifecycle payload is conceptually:
+
+```yaml
+authority_domain_candidates:
+  - id: node-rollout
+    roots: [packages/node-rollout/**]
+    basis: <inventory observation>
+    evidence_refs: [<inventory evidence>]
+authority_domain_confirmation:
+  domains:
+    - id: node-rollout
+      roots: [packages/node-rollout/**]
+  decision_source: <project-owner source>
+  decision_text: <verbatim owner decision>
+```
+
+Every confirmed v2 task binds the canonical domain map revision into Runtime
+state. If the profile map is edited later, execution fails closed with a stale
+revision result and requires explicit task authority revalidation/replan; the
+task never inherits a widened project grant.
+
 A v2 task carries only positive mutation authority:
 
 ```yaml
@@ -105,6 +136,16 @@ mutation, keeps the same task/step/attempt/plan revision, does not consume a
 retry slot or create a continuation, and returns a replacement receipt. The
 subsequent result must use that newest receipt. A clean cumulative
 `review-change` result is required before step completion.
+
+Before a v2 draft becomes a confirmed definition, Runtime proves all declared
+`planned_mutation_targets`, exact command writes, bounded command footprints,
+and persistent-test paths against the project map. A planned target needs no
+blast-radius assessment, but it must be in an authorized domain or an exact
+exception and must not be forbidden, governed, or unclassified. Command
+footprints use only an exact path or literal `/**` directory-prefix grammar;
+Runtime admits a glob only when the candidate pattern is mechanically a subset
+of one granted domain root. An exact exception can authorize one exact path,
+never a directory glob, and synthetic probe paths are not proof.
 
 An existing test file inside the v2 envelope is an ordinary in-envelope
 expansion, but its assessment and review must cover oracle/reuse/boundary

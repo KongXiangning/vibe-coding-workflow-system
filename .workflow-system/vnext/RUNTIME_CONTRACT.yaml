@@ -882,6 +882,29 @@ mutation_authority:
   repair_extension: same-execution-admission-evaluator-and-repair-wave
   test_strategy_dynamic_policy: every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation
   non_executable_dynamic_policy: not-applicable-remains-closed-under-all-target-discovery
+  planning_time_authority_proof:
+    evaluator: runtime-owned-task-definition-authority-proof
+    declarations:
+      - planned_mutation_targets
+      - command_write_footprints
+      - persistent_test_paths
+    admission: authorized-domain-or-exact-exception
+    timing: before-draft-confirmed-definition-commit
+    unclassified_behavior: blocked
+  command_glob_proof:
+    grammar: exact-path-or-literal-directory-prefix-globstar
+    relation: candidate-pattern-must-be-subset-of-granted-domain-root
+    synthetic_probe: prohibited
+    exact_exception: cannot-authorize-directory-glob
+  domain_map_lifecycle:
+    proposal: bootstrap-inventory-domain-candidate
+    confirmation: explicit-project-owner-decision
+    canonical: .workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains
+    task_selection: select-existing-map-without-rebuild
+  domain_map_revision:
+    binding: v2-confirmed-task-runtime-state-authority_domain_revision
+    mismatch: fail-closed-require-explicit-task-authority-revalidation-or-replan
+    grant: never-inherit-changed-project-map
   dynamic_expansion_identity:
     required:
       - step_id
@@ -972,6 +995,7 @@ canonical_current_task:
       - dynamic_review_required
       - dynamic_expansions
       - execution_preflight
+      - authority_domain_revision
     review_cycle:
       fields:
         - id

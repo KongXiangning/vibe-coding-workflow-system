@@ -72,8 +72,10 @@ import {
 } from './mutation-scope';
 import {
   MutationAuthorityError,
-  normalizeAuthorityPath,
   normalizeBlastRadiusAssessments,
+  evaluateTaskMutationAuthorityPlan,
+  mutationAuthorityPlanBlockerCode,
+  readProjectMutationAuthority,
   type BlastRadiusAssessment,
 } from './mutation-authority';
 import { resolveTaskStep, type TaskStepDefinition } from './task-steps';
@@ -451,33 +453,23 @@ function assertCommandPlansAdmitted(
   mode: 'default' | 'repair' = 'default',
 ): void {
   if (current.mutationAuthority) {
-    // Command footprints are planned declarations.  They still use the same
-    // exact-target admission evaluator, with the declaration temporarily
-    // included in planned_targets so an omitted duplicate does not become a
-    // second semantic expansion.
-    for (const command of stepPlan.commands) {
-      if (command.expected_repo_writes === 'none') continue;
-      const exactWrites = command.expected_repo_writes.filter(target => !target.includes('*'));
-      const wildcardWrites = command.expected_repo_writes.filter(target => target.includes('*'));
-      for (const rawPattern of wildcardWrites) {
-        let pattern: string;
-        try { pattern = normalizeAuthorityPath(rawPattern, 'planned command expected_repo_writes', true); }
-        catch (error) { fail('COMMAND_FOOTPRINT_BLOCKED', error instanceof Error ? error.message : String(error)); }
-        if (!pattern.endsWith('/**')) {
-          fail('COMMAND_FOOTPRINT_BLOCKED', `planned command "${command.command}" uses an unsupported write glob: ${rawPattern}.`);
-        }
-        const prefix = pattern.slice(0, -3);
-        assertPathsAdmitted(current, stepPlan, [`${prefix}/__vnext_authority_probe__`], `planned command "${command.command}"`, root, assessments, mode, phase, [
-          ...stepPlan.planned_mutation_targets,
-          ...command.expected_repo_writes,
-        ]);
-      }
-      if (exactWrites.length > 0) {
-        assertPathsAdmitted(current, stepPlan, exactWrites, `planned command "${command.command}"`, root, assessments, mode, phase, [
-          ...stepPlan.planned_mutation_targets,
-          ...command.expected_repo_writes,
-        ]);
-      }
+    const project = (() => {
+      try { return readProjectMutationAuthority(root); }
+      catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+    })();
+    if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 command footprints require PROJECT_PROFILE.yaml.mutation_authority.domains.');
+    const commandWrites = stepPlan.commands.flatMap(command => command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes);
+    const evaluation = evaluateTaskMutationAuthorityPlan({
+      project,
+      task: current.mutationAuthority,
+      planned_targets: [],
+      command_write_targets: commandWrites,
+      persistent_test_paths: [],
+    });
+    const blocked = evaluation.decisions.find(item => !item.admitted);
+    if (blocked) {
+      const command = stepPlan.commands.find(item => item.expected_repo_writes !== 'none' && item.expected_repo_writes.includes(blocked.path));
+      fail(mutationAuthorityPlanBlockerCode(blocked), `planned command${command ? ` "${command.command}"` : ''} is outside the v2 authority envelope: ${evaluation.blockers.join(' ')}`);
     }
     return;
   }
