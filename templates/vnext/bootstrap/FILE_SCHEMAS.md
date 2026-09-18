@@ -591,9 +591,30 @@ reads expose the saved metadata without loading the referenced documents.
 CURRENT_TASK.md carries one aggregate submission head with exact source_revision,
 definition_revision, state_revision, and committed event range. The head is
 authoritative; a cache or index conflict cannot change execution facts. The
-current presentation retains the complete confirmed definition and workset;
-compact v2 retains only a bounded history navigation preview, while complete
-event history is navigated through the bound sidecar store.
+logical task retains the complete confirmed definition and workset. New tasks
+use compact-v3: the on-disk CURRENT_TASK contains identity/status, exact
+`task_store.projection.definition` and `.state` object references, the current
+step and due-evidence navigation summary. No full claim plan, report, review
+result or complete implementation prose is duplicated inline. The summary is
+not an independent authority or an execution grant.
+
+The two roots and all selected material are part of the SAME canonical task
+aggregate, not a second mutable truth store. Definition material retains exact
+Markdown sections and claim/check definitions. State material contains dynamic
+slot outcomes, decisions and runtime facts, with content-addressed report and
+review material. Unchanged definitions and sections keep the same object IDs;
+normal execution changes the selected state, not the frozen definition.
+The Runtime resolves references and validates the complete logical task before
+using it. Missing/corrupt/uncommitted material or a head conflict cannot be
+silently replaced by the readable summary.
+
+Inline and compact-v2 tasks remain readable without automatic conversion.
+Explicit task-storage-migration also upgrades compact-v2 to compact-v3. It
+preserves the exact old file and history, definition semantics, user decisions,
+claim identities, failures, scope, review gates and budgets. No size limit or
+new lifecycle/admission requirement is introduced. The existing source-bound
+migration preview reports `legacy_bytes` and `projected_bytes` without writes;
+this is a representation comparison, not a growth-rate or performance claim.
 
 The profile-derived layout is:
 
@@ -615,6 +636,11 @@ bounds metadata and content in UTF-8 bytes and returns returned / total_bytes,
 continuation, and complete_for_operation; required content omitted by a page is
 incomplete. Continuations bind the source, definition, state, and exact
 reference. Receipts are read receipts only, not authority.
+For compact-v3, default `task-read kind=definition|state|current-snapshot`
+returns a `vnext-task-resolved-view/v1` with `source_object` and the full logical
+`payload`, still byte-paged. Explicit object SHA reads return the actual raw
+content-addressed object, not a resolved payload mislabeled with its digest.
+Aggregate export retains the full material closure, including previous roots.
 Required content that does not fit one page must be continued; an incomplete
 required page is not complete. Definition reuse is limited to the same visible
 session and exact definition_revision.

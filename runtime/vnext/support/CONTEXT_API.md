@@ -555,3 +555,34 @@ Authority-amendment continuations retain the original evidence check commands an
 their exact repository-write footprints when those obligations move to the new
 step. Runtime does not synthesize a shell command from an implementation note or
 make the caller repeat an already frozen validation plan merely to add permission.
+
+
+## Compact-v3 active task presentation
+
+New tasks select exact immutable definition and state roots from CURRENT_TASK.
+The small Markdown file is a navigation projection, not the full plan or a new
+permission source. Continue using task-context and all required pages; use
+`task-read` for exact definitions, state, reports and review material. Default
+definition/state reads resolve the roots into a labeled logical view; explicit
+SHA object reads remain raw. Do not infer acceptance or mutation scope from
+summary text or edit task-data objects by hand.
+
+Existing inline and compact-v2 tasks continue unchanged. For an explicitly
+requested representation-only compaction, use the existing
+`task-storage-migration` preview, then commit with that exact source revision.
+Preview includes old/projected UTF-8 byte counts and writes nothing. Compaction
+retains original task/Task Basis/definition, decisions, scopes, outcomes,
+findings, review/repair budgets and historical source locators. It is not
+replan, successor, waiver, a test rerun, or a new workflow checkpoint.
+If canonical publication was interrupted before aggregate acknowledgement,
+retry the identical migration commit. Under the existing governance lock it
+recovers the exact pending transaction; its acknowledged result is idempotent.
+A source changed by any later transaction is still stale. Retained global write
+locks are not deleted or bypassed by compaction.
+
+Backups and transfers must include CURRENT_TASK and its task-data directory
+(and linked Task Basis and external evidence as before). `task-export` retains
+the complete committed object/event closure. No automatic history deletion or
+file-size rejection is performed. This representation reduces the active file;
+it does not claim that every internal Runtime operation avoids hydrating the
+full logical state/history or that total audit storage stops growing.

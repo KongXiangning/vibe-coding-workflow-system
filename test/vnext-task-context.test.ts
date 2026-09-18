@@ -132,7 +132,7 @@ describe('vNext task context projection', () => {
       expect(compactBytes).not.toBe(currentBytes);
       expect(compactBytes).not.toMatch(/^  execution_log:/m);
       expect(compactBytes).not.toMatch(/^  applied_proposals:/m);
-      expect(committed.manifest.current_representation).toBe('compact-v2');
+      expect(committed.manifest.current_representation).toBe('compact-v3');
       expect(readCanonicalCurrentTask(root).runtimeState).toEqual(current.runtimeState);
       expect(taskStoreCurrentValidation(root).status).toBe('valid');
       expect(taskStoreValidation(root).status).toBe('valid');

@@ -4,7 +4,9 @@ import { installDistribution, upgradeDistribution } from '../scripts/vibe-govern
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { prepareSuccessor, semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
 import { commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from '../runtime/vnext/src/task-evolution-io';
-import { commitTaskStorageMigration } from '../runtime/vnext/src/task-store';
+import { commitTaskStorageMigration, TaskStore, taskStoreDefinitionRevision } from '../runtime/vnext/src/task-store';
+import { projectionJson } from '../runtime/vnext/src/task-projection';
+import { taskRead, taskContextMigrationPreview, taskContextMigrationCommit } from '../runtime/vnext/src/task-context';
 import { reviewPreimageBlobPath } from '../runtime/vnext/src/review-preimage-store';
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
@@ -5948,6 +5950,142 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(confirmDraft(releaseRoot, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
     Object.assign(e2e, { breadth_basis: null, breadth_source_ref: null, breadth_reason: null });
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+  });
+
+  test('active task projection retains exact large definitions, evidence and standalone material without inline duplication', () => {
+    const root = archivedBaselineRoot();
+    const longObservation = ('业务观察：生产者写入后消费者读取同一条记录；不得用局部成功替代。'.repeat(75));
+    const draft = singleStepSemanticDraft({ validation_plan: Array.from({ length: 40 }, (_, i) => `${i}: ${longObservation.slice(0, 450)}`) });
+    draft.claim_evidence[0]!.requirement = longObservation;
+    draft.claim_evidence[0]!.slots[0]!.check!.expected_observation = longObservation;
+    draft.mutation_scope.allowed = ['README.md'];
+    draft.implementation_steps[0]!.mutation_scope = ['README.md'];
+    draft.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const before = readCanonicalCurrentTask(root);
+    const filesBefore = fs.readdirSync(path.dirname(before.filePath), { recursive: true }).sort();
+    expect(prepareDraft(root, draft, { dryRun: true }).status).toBe('success');
+    expect(fs.readFileSync(before.filePath, 'utf8')).toBe(before.raw);
+    expect(fs.readdirSync(path.dirname(before.filePath), { recursive: true }).sort()).toEqual(filesBefore);
+    const created = prepareDraft(root, draft);
+    const current = readCanonicalCurrentTask(root);
+    expect(current.frontmatter.task_store.format).toBe('compact-v3');
+    expect(current.runtimeState.claim_evidence).toEqual(draft.claim_evidence);
+    expect(current.body).toContain(longObservation);
+    expect(current.raw).not.toContain(longObservation);
+    const expandedBytes = Buffer.byteLength(`---\n${stringify(current.frontmatter)}---\n${current.body}`);
+    expect(Buffer.byteLength(current.raw)).toBeLessThan(expandedBytes / 5);
+    const store = TaskStore.forCurrent(root, current as any);
+    const definition = store.manifest!.object_refs.definition.sha256;
+    expect(confirmDraft(root, { confirmation_receipt: created.confirmation_receipt }).status).toBe('success');
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const report = reportFixture(root);
+    const longReport = 'Exact retained environment observation. '.repeat(80).trim();
+    report.report.environment = longReport;
+    expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [],
+      command_results: draft.implementation_steps[0]!.commands.map(c => ({ command: c.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: draft.implementation_steps[0]!.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: [report], outcome: 'implemented', note: 'Bound projection test observation' }).status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    expect(store.manifest!.object_refs.definition.sha256).toBe(definition);
+    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report!.environment).toBe(longReport);
+    expect(after.raw).not.toContain(longReport);
+    expect(Buffer.byteLength(after.raw)).toBeLessThan(Buffer.byteLength(current.raw) + 300);
+    expect(after.runtimeState.execution_log.length).toBeGreaterThan(current.runtimeState.execution_log.length);
+    const readAll = (kind: string) => {
+      let page = taskRead(root, { kind, max_bytes: 4096 });
+      if (page.value !== undefined) return page.value as any;
+      let text = page.text ?? '';
+      while (page.continuation) { page = taskRead(root, { kind, continuation: page.continuation, max_bytes: 4096 }); text += page.text ?? ''; }
+      return JSON.parse(text);
+    };
+    expect(readAll('definition').payload.claim_evidence_plan[0].requirement).toBe(longObservation);
+    expect(readAll('claim-evidence')[0].slots[0].report.environment).toBe(longReport);
+    expect(readAll('state').payload.runtime_state.pending_review_result).toEqual(after.runtimeState.pending_review_result);
+    expect(store.deepValidate().status).toBe('valid');
+    const exported = store.exportAggregate();
+    // Exact SHA reads remain raw objects; resolved definition/state views never
+    // claim their rendered payload is itself the content-addressed object.
+    expect(exported.objects.find(x => x.sha256 === definition)!.object.payload.kind).toBe('vnext-active-definition/v1');
+    const rawObject = taskRead(root, { kind: 'object', object_sha256: definition, max_bytes: 65536 });
+    expect((rawObject.value as any).payload.kind).toBe('vnext-active-definition/v1');
+    const materialDir = path.join(root, 'docs/workflow/task-data', current.sourceTuple.document_id, 'objects');
+    const corrupt = exported.objects.find(x => x.object.object_type === 'evidence-report' && (x.object.payload as any).result_id === report.report.result_id)!;
+    const corruptPath = path.join(materialDir, `${corrupt.sha256}.json`);
+    const bytes = fs.readFileSync(corruptPath, 'utf8');
+    fs.writeFileSync(corruptPath, bytes.replace('Exact retained', 'Wrong retained'));
+    expect(() => readCanonicalCurrentTask(root)).toThrow('TASK_PROJECTION_INVALID');
+    fs.writeFileSync(corruptPath, bytes);
+    expect(readCanonicalCurrentTask(root).raw).toBe(after.raw);
+    // Reconstruct the store from its public export, not a copy of internal
+    // indexes/caches. A cold Node process must read the same full evidence.
+    const restored = archivedBaselineRoot();
+    fs.cpSync(root, restored, { recursive: true });
+    const restoredStore = path.join(restored, exported.manifest.storage_root);
+    fs.rmSync(restoredStore, { recursive: true, force: true });
+    fs.mkdirSync(path.join(restoredStore, 'objects'), { recursive: true });
+    fs.mkdirSync(path.join(restoredStore, 'events'), { recursive: true });
+    fs.writeFileSync(path.join(restoredStore, 'manifest.json'), projectionJson(exported.manifest) + '\n');
+    for (const object of exported.objects) fs.writeFileSync(path.join(restoredStore, 'objects', `${object.sha256}.json`), projectionJson(object.object) + '\n');
+    for (const event of exported.events) fs.writeFileSync(path.join(restoredStore, 'events', `${String(event.sequence).padStart(12, '0')}-${event.event_hash}.json`), projectionJson(event) + '\n');
+    expect(readCanonicalCurrentTask(restored).runtimeState).toEqual(after.runtimeState);
+    expect(readCanonicalCurrentTask(restored).body).toBe(after.body);
+    const cli = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), restored, 'evidence-context', {});
+    expect(cli.status, cli.stderr + cli.stdout).toBe(0);
+    expect(cli.stdout).toContain(after.runtimeState.evidence_plan_revision!);
+    const review = reviewContext(restored, {});
+    expect(recordReviewResult(restored, { context_receipt: review.receipt, verdict: 'clean', findings: [],
+      unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(restored, { step_id: 'step-1', note: 'Restored aggregate keeps normal completion semantics.' }).status).toBe('success');
+  });
+
+  test('active task projection migrates inline and compact-v2 tasks without changing decisions or consuming receipts', () => {
+    for (const format of ['inline', 'compact-v2']) {
+      const root = confirmedSemanticRoot();
+      useLegacyInlineCurrent(root);
+      if (format === 'compact-v2') {
+        const old = readCanonicalCurrentTask(root);
+        const frontmatter = structuredClone(old.frontmatter);
+        delete frontmatter.runtime_state.execution_log; delete frontmatter.runtime_state.applied_proposals;
+        frontmatter.task_store = { schema_version: 1, kind: 'vnext-current-task-store-binding', format,
+          manifest_path: `docs/workflow/task-data/${old.sourceTuple.document_id}/manifest.json`,
+          history: { execution_log: 'task-store', applied_proposals: 'task-store' } };
+        const raw = `---\n${stringify(frontmatter).trimEnd()}\n---\n${old.body}`;
+        fs.writeFileSync(old.filePath, raw);
+        TaskStore.forCurrent(root, old as any).ensureInitialized({ ...old, raw, frontmatter,
+          sourceTuple: { ...old.sourceTuple, revision: crypto.createHash('sha256').update(raw).digest('hex') } } as any);
+      }
+      const before = readCanonicalCurrentTask(root);
+      const definition = taskStoreDefinitionRevision(before as any);
+      const basis = readCanonicalTaskBasis(root, before);
+      const view = taskContextMigrationPreview(root);
+      expect(view.status).toBe('preview');
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      if (format === 'compact-v2') {
+        // Real public migration entry, interrupted after canonical publication
+        // but before manifest acknowledgement, then retried in a cold CLI.
+        const commit = TaskStore.prototype.recordCommit;
+        try {
+          TaskStore.prototype.recordCommit = function(input) {
+            if (input.result.operation_kind === 'task-storage-migration') throw new Error('injected projection publication interruption');
+            return commit.call(this, input);
+          };
+          expect(() => taskContextMigrationCommit(root, before.sourceTuple.revision)).toThrow('injected projection publication interruption');
+        } finally { TaskStore.prototype.recordCommit = commit; }
+        expect(() => readCanonicalCurrentTask(root)).toThrow('RUNTIME_STORAGE_RECOVERY_REQUIRED');
+        const retry = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'task-storage-migration', { mode: 'commit', source_revision: before.sourceTuple.revision });
+        expect(retry.status, retry.stderr + retry.stdout).toBe(0);
+        expect(JSON.parse(retry.stdout).status).toBe('no-op');
+      } else expect(taskContextMigrationCommit(root, before.sourceTuple.revision).status).toBe('committed');
+      const after = readCanonicalCurrentTask(root);
+      expect(after.sourceTuple.document_id).toBe(before.sourceTuple.document_id);
+      expect(after.runtimeState).toEqual(before.runtimeState);
+      expect(taskStoreDefinitionRevision(after as any)).toBe(definition);
+      expect(readCanonicalTaskBasis(root, after).content).toBe(basis.content);
+      expect(TaskStore.forCurrent(root, after as any).readHistoryMaterial(before.sourceTuple.revision)).toBe(before.raw);
+      expect(commitTaskStorageMigration(root, after as any, after.sourceTuple.revision).status).toBe('no-op');
+      expect(preflightStep(root, { candidate_paths: [] }).status).toBe('pass');
+      expect(() => taskContextMigrationCommit(root, before.sourceTuple.revision)).toThrow('TASK_STORE_MIGRATION_SOURCE_STALE');
+    }
   });
 
   test('process-control review rejects validation selection changes through engineering replacement', () => {

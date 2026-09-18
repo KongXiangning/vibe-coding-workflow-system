@@ -72,6 +72,14 @@ below are part of execution, not a new task authority.
 
 ## Operating rules
 
+The compact-v3 CURRENT_TASK file is only an active navigation projection. Read
+exact definition, authority, obligations and reports through the bounded Runtime
+context/read APIs; do not treat summary text as the complete task or hand-edit
+its immutable task-data material. Legacy task compaction uses the existing
+explicit storage-migration route, never task replan or a size-based blocker.
+
+
+
 Start with a fresh `validate --summary`, then call the read-only
 `task-context(entry:"preflight-step", mode:"default")`. Follow every required
 continuation before treating the operation context as complete; use

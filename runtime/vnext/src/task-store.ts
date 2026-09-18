@@ -13,6 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse, stringify } from 'yaml';
 import { persistLegacyReviewPreimages } from './review-preimage-store';
+import { ACTIVE_TASK_FORMAT, expandTaskProjection, prepareTaskProjection, persistTaskProjection, projectionDigest, type PreparedTaskContent } from './task-projection';
 
 export const TASK_STORE_SCHEMA_VERSION = 1 as const;
 /**
@@ -205,7 +206,7 @@ export type TaskStoreManifest = {
   storage_format: 'vnext-task-store/v1' | 'vnext-task-store/v2';
   definition_revision_algorithm: typeof TASK_DEFINITION_REVISION_V1 | typeof TASK_DEFINITION_REVISION_V2;
   state_revision_algorithm: typeof TASK_STATE_REVISION_V1;
-  current_representation: 'legacy-inline' | 'compact-v2';
+  current_representation: 'legacy-inline' | 'compact-v2' | 'compact-v3';
 };
 
 export type TaskStorePaths = {
@@ -578,7 +579,27 @@ function definitionPayload(current: TaskStoreCurrent, algorithm: TaskStoreManife
 
 function compactCurrent(current: TaskStoreCurrent): boolean {
   const binding = record(current.frontmatter?.task_store) ? current.frontmatter?.task_store : null;
-  return binding !== null && binding.format === 'compact-v2';
+  return binding !== null && ['compact-v2', ACTIVE_TASK_FORMAT].includes(binding.format as string);
+}
+
+function currentRepresentation(current: TaskStoreCurrent): TaskStoreManifest['current_representation'] {
+  return current.frontmatter?.task_store && record(current.frontmatter.task_store) && current.frontmatter.task_store.format === ACTIVE_TASK_FORMAT
+    ? ACTIVE_TASK_FORMAT : compactCurrent(current) ? 'compact-v2' : 'legacy-inline';
+}
+
+function projectionMaterial(current: TaskStoreCurrent): PreparedTaskContent | null {
+  return currentRepresentation(current) === ACTIVE_TASK_FORMAT
+    ? expandTaskProjection(current.raw, current.filePath, current.relativePath) : null;
+}
+
+function storedCurrentPayload(current: TaskStoreCurrent, type: 'definition' | 'state', fallback: Record<string, unknown>): unknown {
+  const material = projectionMaterial(current);
+  if (!material) return fallback;
+  const binding = current.frontmatter!.task_store as Record<string, any>;
+  const sha = binding.projection[type].sha256;
+  const object = material.objects.find(object => projectionDigest(object) === sha && object.object_type === type);
+  if (!object) throw new TaskStoreError('TASK_STORE_OBJECT_MISSING', 'Projection root is missing.');
+  return object.payload;
 }
 
 function stateSnapshotPayload(current: TaskStoreCurrent): Record<string, unknown> {
@@ -871,7 +892,7 @@ function validateManifest(value: unknown, paths: TaskStorePaths): TaskStoreManif
     storage_format: value.storage_format === 'vnext-task-store/v2' ? 'vnext-task-store/v2' : 'vnext-task-store/v1',
     definition_revision_algorithm: value.definition_revision_algorithm === TASK_DEFINITION_REVISION_V2 ? TASK_DEFINITION_REVISION_V2 : TASK_DEFINITION_REVISION_V1,
     state_revision_algorithm: TASK_STATE_REVISION_V1,
-    current_representation: value.current_representation === 'compact-v2' ? 'compact-v2' : 'legacy-inline',
+    current_representation: value.current_representation === ACTIVE_TASK_FORMAT ? ACTIVE_TASK_FORMAT : value.current_representation === 'compact-v2' ? 'compact-v2' : 'legacy-inline',
   };
 }
 
@@ -1207,6 +1228,10 @@ function collectObjectPayloads(current: TaskStoreCurrent, includeExecutionLog = 
     payloads.push({ object_type: objectType, payload });
   };
   const state = current.runtimeState;
+  const previousMaterial = new Set((compareTo ? projectionMaterial(compareTo)?.objects ?? [] : []).map(projectionDigest));
+  for (const object of projectionMaterial(current)?.objects ?? []) {
+    if (!previousMaterial.has(projectionDigest(object))) add(object.object_type, object.payload);
+  }
   if (root) {
     const basis = taskBasisPayload(root, current);
     const previousBasis = compareTo ? taskBasisPayload(root, compareTo) : null;
@@ -2017,7 +2042,7 @@ export class TaskStore {
 
   private buildManifest(current: TaskStoreCurrent, previous: TaskStoreManifest | null, refs: { definition: TaskStoreObjectReference; state: TaskStoreObjectReference; currentSnapshot: TaskStoreObjectReference; legacySource?: TaskStoreObjectReference }, event: TaskStoreEvent | null, objectCount: number, idempotencyCount: number, recordedAt?: string, algorithms?: { definition: TaskStoreManifest['definition_revision_algorithm']; representation: TaskStoreManifest['current_representation'] }): TaskStoreManifest {
     const definitionAlgorithm = algorithms?.definition ?? previous?.definition_revision_algorithm ?? (compactCurrent(current) ? TASK_DEFINITION_REVISION_V2 : TASK_DEFINITION_REVISION_V1);
-    const representation = algorithms?.representation ?? previous?.current_representation ?? (compactCurrent(current) ? 'compact-v2' : 'legacy-inline');
+    const representation = algorithms?.representation ?? previous?.current_representation ?? currentRepresentation(current);
     const first = event ? (previous?.head.event_range.first ?? event.sequence) : (previous?.head.event_range.first ?? null);
     return {
       schema_version: 1,
@@ -2052,7 +2077,7 @@ export class TaskStore {
         idempotency_entries: idempotencyCount,
       },
       compatibility: { legacy_current_task: true, hot_window_is_cache: true, full_history_persistent: true },
-      storage_format: representation === 'compact-v2' ? 'vnext-task-store/v2' : 'vnext-task-store/v1',
+      storage_format: representation !== 'legacy-inline' ? 'vnext-task-store/v2' : 'vnext-task-store/v1',
       definition_revision_algorithm: definitionAlgorithm,
       state_revision_algorithm: TASK_STATE_REVISION_V1,
       current_representation: representation,
@@ -2096,9 +2121,9 @@ export class TaskStore {
     // Existing v0.19.4 manifests are read with their recorded v1 algorithm
     // above and are never re-hashed until explicit migration.
     const definitionAlgorithm = TASK_DEFINITION_REVISION_V2;
-    const representation = compactCurrent(current) ? 'compact-v2' : 'legacy-inline';
-    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', definitionPayload(current, definitionAlgorithm), current.sourceTuple.revision, recordedAt);
-    const state = this.storeObject(current.sourceTuple.document_id, 'state', stateSnapshotPayload(current), current.sourceTuple.revision, recordedAt);
+    const representation = currentRepresentation(current);
+    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', storedCurrentPayload(current, 'definition', definitionPayload(current, definitionAlgorithm)), current.sourceTuple.revision, recordedAt);
+    const state = this.storeObject(current.sourceTuple.document_id, 'state', storedCurrentPayload(current, 'state', stateSnapshotPayload(current)), current.sourceTuple.revision, recordedAt);
     const legacySource = this.storeObject(current.sourceTuple.document_id, 'legacy-current-task', {
       source_revision: current.sourceTuple.revision,
       source_path: current.relativePath,
@@ -2165,13 +2190,13 @@ export class TaskStore {
   private reconcileExternalCurrent(current: TaskStoreCurrent, recordedAt?: string): TaskStoreManifest {
     const previous = this.manifest;
     if (!previous) return this.ensureInitialized(current, recordedAt);
-    if (previous.current_representation === 'compact-v2') {
+    if (previous.current_representation !== 'legacy-inline') {
       throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact CURRENT_TASK changed without a matching governed task-store journal; recovery is required.');
     }
     this.newlyReferencedObjects.clear();
     const definitionAlgorithm = previous.definition_revision_algorithm;
-    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', definitionPayload(current, definitionAlgorithm), current.sourceTuple.revision, recordedAt);
-    const state = this.storeObject(current.sourceTuple.document_id, 'state', stateSnapshotPayload(current), current.sourceTuple.revision, recordedAt);
+    const definition = this.storeObject(current.sourceTuple.document_id, 'definition', storedCurrentPayload(current, 'definition', definitionPayload(current, definitionAlgorithm)), current.sourceTuple.revision, recordedAt);
+    const state = this.storeObject(current.sourceTuple.document_id, 'state', storedCurrentPayload(current, 'state', stateSnapshotPayload(current)), current.sourceTuple.revision, recordedAt);
     const stagedManifest: TaskStoreManifest = {
       ...previous,
       head: {
@@ -2272,8 +2297,8 @@ export class TaskStore {
       },
     });
     const definitionAlgorithm = compactCurrent(input.after) ? TASK_DEFINITION_REVISION_V2 : previous.definition_revision_algorithm;
-    const definition = this.storeObject(input.after.sourceTuple.document_id, 'definition', definitionPayload(input.after, definitionAlgorithm), input.after.sourceTuple.revision, input.recorded_at);
-    const state = this.storeObject(input.after.sourceTuple.document_id, 'state', stateSnapshotPayload(input.after), input.after.sourceTuple.revision, input.recorded_at);
+    const definition = this.storeObject(input.after.sourceTuple.document_id, 'definition', storedCurrentPayload(input.after, 'definition', definitionPayload(input.after, definitionAlgorithm)), input.after.sourceTuple.revision, input.recorded_at);
+    const state = this.storeObject(input.after.sourceTuple.document_id, 'state', storedCurrentPayload(input.after, 'state', stateSnapshotPayload(input.after)), input.after.sourceTuple.revision, input.recorded_at);
     const refs: Record<string, TaskStoreObjectReference | string | null> = {
       definition,
       state,
@@ -2308,7 +2333,7 @@ export class TaskStore {
     refs.result = resultReference;
     if (proposalClaimEvidenceReference) refs['proposal-claim-evidence'] = proposalClaimEvidenceReference;
     if (proposalExecutionResultReference) refs['proposal-execution-result'] = proposalExecutionResultReference;
-    if (previous.current_representation !== 'compact-v2' && compactCurrent(input.after)) {
+    if (previous.current_representation !== currentRepresentation(input.after) && compactCurrent(input.after)) {
       const locatorAlias = this.storeObject(
         input.after.sourceTuple.document_id,
         'history-material',
@@ -2396,7 +2421,7 @@ export class TaskStore {
       ...(previous.object_refs.legacy_source ? { legacySource: previous.object_refs.legacy_source } : {}),
     }, event, previous.counts.objects + this.newlyReferencedObjects.size, uniqueIndex.length, input.recorded_at, {
       definition: definitionAlgorithm,
-      representation: compactCurrent(input.after) ? 'compact-v2' : previous.current_representation,
+      representation: compactCurrent(input.after) ? currentRepresentation(input.after) : previous.current_representation,
     });
     this.writeManifest(manifest);
     rememberCommittedObjectReferences(this.paths, manifest, Object.values(event.object_refs));
@@ -2511,6 +2536,12 @@ export class TaskStore {
       if (manifest.current_task_path !== current.relativePath) errors.push('manifest current_task_path does not match CURRENT_TASK.');
       if (manifest.task_id !== current.sourceTuple.task_id || manifest.task_slug !== current.sourceTuple.task_slug) errors.push('manifest task identity does not match CURRENT_TASK.');
       if (manifest.head.source_revision !== current.sourceTuple.revision) errors.push('manifest head source_revision does not match CURRENT_TASK.');
+      if (currentRepresentation(current) === ACTIVE_TASK_FORMAT) {
+        const binding = current.frontmatter!.task_store as Record<string, any>;
+        if (stableJson(binding.projection.definition) !== stableJson(manifest.object_refs.definition)
+          || stableJson(binding.projection.state) !== stableJson(manifest.object_refs.state)) errors.push('projection roots differ from the committed aggregate.');
+        for (const object of projectionMaterial(current)!.objects) this.readObject({ object_type: object.object_type, sha256: projectionDigest(object) });
+      }
       const expectedDefinitionRevision = taskStoreDefinitionRevision(current, manifest.definition_revision_algorithm);
       const expectedStateRevision = taskStoreStateRevision(current);
       if (manifest.head.definition_revision !== expectedDefinitionRevision) errors.push('manifest definition revision does not match the governed CURRENT_TASK definition.');
@@ -2668,6 +2699,7 @@ export type TaskStorageMigrationPreview = {
   current_task_path: string;
   manifest_path: string;
   legacy_bytes: number;
+  projected_bytes: number;
   definition_revision: string;
   state_revision: string;
   existing_store: boolean;
@@ -2701,41 +2733,27 @@ function compactHistoryBody(body: string, executionLog: readonly unknown[]): str
   return normalized.slice(0, contentStart) + `\n${preview}\n\n` + normalized.slice(contentEnd);
 }
 
-function compactCurrentRaw(current: TaskStoreCurrent, store: TaskStore): string {
+function compactCurrentRaw(current: TaskStoreCurrent, store: TaskStore): PreparedTaskContent {
   const frontmatter = structuredClone(current.frontmatter ?? {}) as Record<string, unknown>;
-  const runtime = record(frontmatter.runtime_state) ? withoutInlineReviewPreimageContent(frontmatter.runtime_state) : {};
+  const runtime = withoutInlineReviewPreimageContent(current.runtimeState);
   delete runtime.execution_log;
   delete runtime.applied_proposals;
   frontmatter.runtime_state = runtime;
   frontmatter.task_store = {
-    schema_version: 1,
-    kind: 'vnext-current-task-store-binding',
-    format: 'compact-v2',
+    schema_version: 1, kind: 'vnext-current-task-store-binding', format: ACTIVE_TASK_FORMAT,
     manifest_path: `${store.paths.relativeRoot}/manifest.json`,
     history: { execution_log: 'task-store', applied_proposals: 'task-store' },
   };
   const body = compactHistoryBody(current.body, Array.isArray(current.runtimeState.execution_log) ? current.runtimeState.execution_log : []);
-  return `---\n${stringify(frontmatter).trimEnd()}\n---\n${body}`;
+  return prepareTaskProjection(`---\n${stringify(frontmatter).trimEnd()}\n---\n${body}`);
 }
 
-function compactAfter(current: TaskStoreCurrent, raw: string): TaskStoreCurrent {
-  const frontmatter = structuredClone(current.frontmatter ?? {}) as Record<string, unknown>;
-  const runtimeState = withoutInlineReviewPreimageContent(current.runtimeState);
-  frontmatter.runtime_state = copyWithout(runtimeState, ['execution_log', 'applied_proposals']);
-  frontmatter.task_store = {
-    schema_version: 1,
-    kind: 'vnext-current-task-store-binding',
-    format: 'compact-v2',
-    manifest_path: `${path.posix.join(path.posix.dirname(current.relativePath), 'task-data', current.sourceTuple.document_id, 'manifest.json')}`,
-    history: { execution_log: 'task-store', applied_proposals: 'task-store' },
-  };
-  return {
-    ...current,
-    raw,
-    frontmatter,
-    runtimeState,
-    sourceTuple: { ...current.sourceTuple, revision: sha256(raw) },
-  };
+function compactAfter(current: TaskStoreCurrent, prepared: PreparedTaskContent): TaskStoreCurrent {
+  const match = /^---\n([\s\S]*?)\n---\n/u.exec(prepared.expandedContent)!;
+  const frontmatter = parse(match[1]!) as Record<string, unknown>;
+  return { ...current, raw: prepared.content, body: prepared.expandedContent.slice(match[0].length), frontmatter,
+    runtimeState: withoutInlineReviewPreimageContent(current.runtimeState),
+    sourceTuple: { ...current.sourceTuple, revision: sha256(prepared.content) } };
 }
 
 function migrationSemanticModel(current: TaskStoreCurrent): unknown {
@@ -2767,28 +2785,43 @@ export function previewTaskStorageMigration(root: string, current: TaskStoreCurr
   const definitionRevision = taskStoreDefinitionRevision(current);
   const stateRevision = taskStoreStateRevision(current);
   return {
-    status: manifest?.current_representation === 'compact-v2' && !legacyInlineReviewPreimages ? 'already-migrated' : 'preview',
+    status: manifest?.current_representation === ACTIVE_TASK_FORMAT && !legacyInlineReviewPreimages ? 'already-migrated' : 'preview',
     operation_kind: 'task-storage-migration',
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
     current_task_path: current.relativePath,
     manifest_path: `${store.paths.relativeRoot}/${TASK_STORE_MANIFEST_FILE}`,
     legacy_bytes: Buffer.byteLength(current.raw),
+    projected_bytes: Buffer.byteLength(compactCurrentRaw(current, store).content),
     definition_revision: definitionRevision,
     state_revision: stateRevision,
     existing_store: manifest !== null,
     semantic_model_digest: digest({ task_id: current.sourceTuple.task_id, task_slug: current.sourceTuple.task_slug, workflow_status: current.sourceTuple.workflow_status, lifecycle_state: current.sourceTuple.lifecycle_state, active_step_id: current.sourceTuple.active_step_id, definition_revision: definitionRevision, state_revision: stateRevision }),
-    planned_objects: ['definition', 'state', 'current-snapshot', 'legacy-current-task'],
-    planned_events: manifest?.current_representation === 'compact-v2' && !legacyInlineReviewPreimages ? [] : [manifest ? 'storage-migration' : 'legacy-import', 'storage-migration'],
+    planned_objects: ['definition', 'state', 'other', 'evidence-report', 'review-receipt', 'legacy-current-task'],
+    planned_events: manifest?.current_representation === ACTIVE_TASK_FORMAT && !legacyInlineReviewPreimages ? [] : [manifest ? 'storage-migration' : 'legacy-import', 'storage-migration'],
   };
 }
 
 export function commitTaskStorageMigration(root: string, current: TaskStoreCurrent, sourceRevision: string): { status: 'committed' | 'no-op'; operation_kind: 'task-storage-migration'; source_revision: string; manifest: TaskStoreManifest } {
-  if (sourceRevision !== current.sourceTuple.revision) throw new TaskStoreError('TASK_STORE_MIGRATION_SOURCE_STALE', 'migration source_revision does not match the exact current CURRENT_TASK bytes.');
   const store = TaskStore.forCurrent(root, current);
   const existing = store.manifest;
+  if (sourceRevision !== current.sourceTuple.revision) {
+    // The exact migration may have published CURRENT_TASK before its caller
+    // observed success. Only its acknowledged resulting head is a replay;
+    // another state change remains stale and cannot be silently adopted.
+    const previous = SHA256.test(sourceRevision)
+      ? store.lookupIdempotency(`task-storage-migration-v3-${current.sourceTuple.document_id}-${sourceRevision.slice(0, 16)}`) : null;
+    if (existing?.current_representation === ACTIVE_TASK_FORMAT
+      && existing.head.source_revision === current.sourceTuple.revision
+      && previous?.source_revision === sourceRevision
+      && previous.event.event_type === 'storage-migration'
+      && previous.event.resulting_source_revision === current.sourceTuple.revision) {
+      return { status: 'no-op', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest: existing };
+    }
+    throw new TaskStoreError('TASK_STORE_MIGRATION_SOURCE_STALE', 'migration source_revision does not match the exact current CURRENT_TASK bytes.');
+  }
   const legacyInlineReviewPreimages = hasLegacyInlineReviewPreimages(current);
-  if (existing?.current_representation === 'compact-v2' && !legacyInlineReviewPreimages) {
+  if (existing?.current_representation === ACTIVE_TASK_FORMAT && !legacyInlineReviewPreimages) {
     if (existing.head.source_revision !== current.sourceTuple.revision) throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact task-store manifest does not match the requested migration source.');
     return { status: 'no-op', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest: existing };
   }
@@ -2798,9 +2831,10 @@ export function commitTaskStorageMigration(root: string, current: TaskStoreCurre
   // readable through its legacy inline baseline.
   const coverage = record(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
   if (coverage && Array.isArray(coverage.preimages)) persistLegacyReviewPreimages(root, coverage.preimages);
-  const previous = store.ensureInitialized(current);
-  const compactRaw = compactCurrentRaw(current, store);
-  const after = compactAfter(current, compactRaw);
+  store.ensureInitialized(current);
+  const prepared = compactCurrentRaw(current, store);
+  const compactRaw = prepared.content;
+  const after = compactAfter(current, prepared);
   if (digest(migrationSemanticModel(current)) !== digest(migrationSemanticModel(after))) {
     throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'storage migration changed the normalized task model outside its representation boundary.');
   }
@@ -2808,16 +2842,17 @@ export function commitTaskStorageMigration(root: string, current: TaskStoreCurre
     schema_version: 1,
     kind: 'vnext-storage-migration-proposal',
     operation_kind: 'task-storage-migration',
-    idempotency_key: `task-storage-migration-${current.sourceTuple.document_id}`,
+    idempotency_key: `task-storage-migration-v3-${current.sourceTuple.document_id}-${sourceRevision.slice(0, 16)}`,
     source_revision: sourceRevision,
   };
   const result = { status: 'success', committed: true, operation_kind: 'task-storage-migration', idempotency_key: proposal.idempotency_key } as const;
+  persistTaskProjection(prepared, current.filePath, current.relativePath);
   store.stageCommit({ before: current, after, after_source_revision: after.sourceTuple.revision, proposal, result, write_targets: [current.relativePath] });
   atomicWrite(current.filePath, compactRaw);
   store.markCurrentPublished(after.sourceTuple.revision);
   const manifest = store.recordCommit({ before: current, after, proposal, result });
-  if (!manifest || manifest.current_representation !== 'compact-v2' || manifest.head.source_revision !== after.sourceTuple.revision) {
+  if (!manifest || manifest.current_representation !== ACTIVE_TASK_FORMAT || manifest.head.source_revision !== after.sourceTuple.revision) {
     throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'compact migration did not publish a matching aggregate head.');
   }
-  return { status: previous.current_representation === 'compact-v2' && !legacyInlineReviewPreimages ? 'no-op' : 'committed', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest };
+  return { status: 'committed', operation_kind: 'task-storage-migration', source_revision: sourceRevision, manifest };
 }

@@ -15,6 +15,7 @@ import { describeEvidenceObjects, preserveEvidenceObjects, verifyEvidenceObject,
 import { captureArtifactImages, saveArtifactCheckpoint, prepareArtifactRestore, applyArtifactRestore, assertNoArtifactPublication, type ArtifactRestorePlan } from './artifact-checkpoints';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import { ACTIVE_TASK_FORMAT, prepareTaskProjection, expandTaskProjection, persistTaskProjection, type PreparedTaskContent } from './task-projection';
 import * as path from 'path';
 import { parseDocument, stringify } from 'yaml';
 import {
@@ -1442,7 +1443,8 @@ export type RuntimeState = {
 export type CurrentTaskStoreBinding = {
   schema_version: 1;
   kind: 'vnext-current-task-store-binding';
-  format: 'compact-v2';
+  format: 'compact-v2' | 'compact-v3';
+  projection?: { definition: import('./task-store').TaskStoreObjectReference; state: import('./task-store').TaskStoreObjectReference };
   manifest_path: string;
   history: {
     execution_log: 'task-store';
@@ -2443,10 +2445,18 @@ function validateTaskContextContract(value: unknown): void {
 
 function validateTaskStoreContract(value: unknown): void {
   const store = expectRecord(value, 'Runtime contract.task_store');
-  expectExactKeys(store, ['schema_version', 'kind', 'root', 'objects', 'events', 'indexes', 'commit_head', 'hot_window', 'full_history', 'dedup_key', 'event_identity', 'migration', 'garbage_collection', 'target_owned_data'], 'Runtime contract.task_store');
+  expectExactKeys(store, ['schema_version', 'kind', 'root', 'objects', 'events', 'indexes', 'commit_head', 'hot_window', 'full_history', 'dedup_key', 'event_identity', 'migration', 'garbage_collection', 'target_owned_data', 'active_projection'], 'Runtime contract.task_store');
   if (store.schema_version !== 1 || store.kind !== 'vnext-task-store-contract' || store.root !== '<workflow_home>/task-data/<document_id>' || store.objects !== 'objects/<sha256>.json' || store.events !== 'events/<sequence>-<sha256>.json' || store.indexes !== 'rebuildable-and-non-authoritative' || store.commit_head !== 'CURRENT_TASK-single-submission-head' || store.hot_window !== 'cache-only' || store.full_history !== 'persistent-and-queryable' || store.dedup_key !== 'schema-object-type-document-id-complete-content' || store.event_identity !== 'sequence-time-cause-and-idempotency-preserved' || store.migration !== 'preview-confirm-commit-with-source-revision' || store.garbage_collection !== 'disabled-in-v1' || store.target_owned_data !== 'task-data-is-never-removed-by-distribution-upgrade') {
     fail('RUNTIME_CONTRACT_INVALID', 'task_store must retain the content-addressed, append-only aggregate contract.');
   }
+  const projection = expectRecord(store.active_projection, 'Runtime contract.task_store.active_projection');
+  const expected = { format: ACTIVE_TASK_FORMAT,
+    canonical_roots: 'CURRENT_TASK-definition-state-and-acknowledged-manifest',
+    material: 'immutable-content-addressed-definition-state-reports',
+    history: 'preserve-exact-preimages-events-and-idempotency',
+    legacy: 'read-without-rewrite-and-explicit-storage-migration',
+    admission: 'no-size-quota-or-business-transition' };
+  if (digest(projection) !== digest(expected)) fail('RUNTIME_CONTRACT_INVALID', 'task projection must preserve the canonical aggregate and legacy semantics.');
 }
 
 function validateBootstrapRuntimeContract(value: unknown): string[] {
@@ -8061,7 +8071,7 @@ function renderCanonicalCurrentTask(
     compactTaskStore?: boolean;
     taskStoreManifestPath?: string;
   } = {},
-): string {
+): PreparedTaskContent {
   const existingBinding = frontmatter.task_store;
   const compact = options.compactTaskStore === true || existingBinding !== undefined;
   const compactBinding = compact
@@ -8121,7 +8131,10 @@ function renderCanonicalCurrentTask(
   nextBody = renderCurrentTaskLifecycleFields(nextBody, runtimeState);
   if (compact) nextBody = compactHistoryPreview(nextBody, runtimeState, options.audit);
   else if (options.audit) nextBody = appendExecutionAuditToBody(nextBody, options.audit);
-  return `---\n${stringify(nextFrontmatter).trimEnd()}\n---\n${nextBody}`;
+  const expandedContent = `---\n${stringify(nextFrontmatter).trimEnd()}\n---\n${nextBody}`;
+  return compact && (options.draftDocumentId !== undefined || (isRecord(existingBinding) && existingBinding.format === ACTIVE_TASK_FORMAT))
+    ? prepareTaskProjection(expandedContent)
+    : { content: expandedContent, expandedContent, objects: [] };
 }
 
 function currentTaskPathForRoot(root: string): { filePath: string; relativePath: string } {
@@ -8192,8 +8205,8 @@ function generatedDraftDocumentId(identity: Pick<DraftTaskIdentity, 'task_id' | 
 
 function validateCurrentTaskStoreBinding(value: unknown, documentId: string, location: string): CurrentTaskStoreBinding {
   const binding = expectRecord(value, location);
-  expectExactKeys(binding, ['schema_version', 'kind', 'format', 'manifest_path', 'history'], location);
-  if (binding.schema_version !== 1 || binding.kind !== 'vnext-current-task-store-binding' || binding.format !== 'compact-v2') {
+  expectExactKeys(binding, ['schema_version', 'kind', 'format', 'manifest_path', 'history', ...(binding.format === ACTIVE_TASK_FORMAT ? ['projection'] : [])], location);
+  if (binding.schema_version !== 1 || binding.kind !== 'vnext-current-task-store-binding' || !['compact-v2', ACTIVE_TASK_FORMAT].includes(binding.format as string)) {
     fail('RUNTIME_STORAGE_COMPACT_INVALID', `${location} is not a supported compact task-store binding.`);
   }
   const manifestPath = expectString(binding.manifest_path, `${location}.manifest_path`);
@@ -8209,14 +8222,16 @@ function validateCurrentTaskStoreBinding(value: unknown, documentId: string, loc
   return {
     schema_version: 1,
     kind: 'vnext-current-task-store-binding',
-    format: 'compact-v2',
+    format: binding.format as CurrentTaskStoreBinding['format'],
+    ...(binding.format === ACTIVE_TASK_FORMAT ? { projection: binding.projection as CurrentTaskStoreBinding['projection'] } : {}),
     manifest_path: manifestPath,
     history: { execution_log: 'task-store', applied_proposals: 'task-store' },
   };
 }
 
-function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativePath: string): CanonicalCurrentTask {
-  const { frontmatter, body } = parseYamlFrontmatter(raw, relativePath);
+function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativePath: string, prepared?: PreparedTaskContent): CanonicalCurrentTask {
+  const { expandedContent } = expandTaskProjection(raw, filePath, relativePath, prepared);
+  const { frontmatter, body } = parseYamlFrontmatter(expandedContent, relativePath);
   if (frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) {
     fail('MIGRATION_REQUIRED', `${relativePath} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
   }
@@ -8314,7 +8329,7 @@ function hydrateCompactRuntimeHistory(root: string, current: CanonicalCurrentTas
   if (binding.manifest_path !== `${manifest.storage_root}/manifest.json`) {
     fail('RUNTIME_STORAGE_COMPACT_INVALID', 'CURRENT_TASK task-store manifest path does not match the committed aggregate.');
   }
-  if (manifest.current_representation !== 'compact-v2' || manifest.storage_format !== 'vnext-task-store/v2') {
+  if (!['compact-v2', ACTIVE_TASK_FORMAT].includes(manifest.current_representation) || manifest.storage_format !== 'vnext-task-store/v2') {
     fail('RUNTIME_STORAGE_COMPACT_INVALID', 'compact CURRENT_TASK is bound to a non-compact task-store manifest.');
   }
   if (manifest.head.source_revision !== current.sourceTuple.revision) {
@@ -8384,7 +8399,7 @@ function recoveryCurrentFromRaw(
  * normal governance lock is held.  Read-only callers continue to fail closed
  * on a pending marker and report recovery-required.
  */
-function recoverPendingTaskStoreCommit(root: string): void {
+export function recoverPendingTaskStoreCommit(root: string): void {
   const { filePath, relativePath } = currentTaskPathForRoot(root);
   if (!fs.existsSync(filePath)) return;
   const raw = fs.readFileSync(filePath, 'utf8');
@@ -8543,6 +8558,7 @@ type ArchiveReceipt = {
 type ArchiveTransactionPlan = {
   next: RuntimeState;
   nextContent: string;
+  prepared: PreparedTaskContent;
   archiveFilePath: string;
   archiveRelativePath: string;
   nextArchiveContent: string;
@@ -9314,10 +9330,12 @@ function prepareArchiveTransaction(root: string, current: CanonicalCurrentTask, 
     ...nextWithoutAudit,
     execution_log: appendExecutionLogEntry(current.runtimeState, audit),
   };
-  const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { audit });
+  const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { audit });
+  const nextContent = prepared.content;
   return {
     next,
     nextContent,
+    prepared,
     archiveFilePath: archiveTarget.filePath,
     archiveRelativePath: archiveTarget.relativePath,
     nextArchiveContent,
@@ -11077,7 +11095,8 @@ export function replaceValidation(root: string, rawInput: unknown, options: Runt
     const next: RuntimeState = { ...state, active_step_status: 'ready', claim_evidence: claims, evidence_plan_revision: newPlan,
       evidence_carry_forward: carry, step_attempts: stepAttempts, applied_proposals: appendAppliedProposal(state, proposal, sourceRevision) };
     delete next.execution_preflight;
-    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { replacementDefinition: definition });
+    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { replacementDefinition: definition });
+    const nextContent = prepared.content;
     const historyInput = { currentPath: current.filePath, previousContent: current.raw, nextContent,
       documentId: current.sourceTuple.document_id, taskId: state.task_id, basisPath: basis.filePath, basisContent: basis.content,
       operation: 'replace-validation' as const, evidencePlanRevision: state.evidence_plan_revision };
@@ -11087,7 +11106,7 @@ export function replaceValidation(root: string, rawInput: unknown, options: Runt
       dry_run: true, committed: false, message: 'Equivalent invocation replacement validated; task intent is unchanged.', planned_writes: writes,
       governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
     for (const proof of carry) preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
-    const staged = stageTaskEvolutionStoreCommit(root, current, nextContent, next, proposal, [{ path: history.path, content: history.content }, { path: current.filePath, content: nextContent }]);
+    const staged = stageTaskEvolutionStoreCommit(root, current, nextContent, next, proposal, [{ path: history.path, content: history.content }, { path: current.filePath, content: nextContent }], prepared);
     try {
       commitTaskEvolutionWithHistory(historyInput, raw => {
         const parsed = parseCanonicalCurrentTaskContent(raw, current.filePath, current.relativePath);
@@ -11153,8 +11172,9 @@ function initializeTaskPreservationLocked(root: string, rawInput: unknown, optio
   const nextState: RuntimeState = { ...current.runtimeState, task_evolution_version: 2,
     preservation_source_revision: current.sourceTuple.revision,
   };
-  const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState);
-  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
+  const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState);
+  const nextContent = prepared.content;
+  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath, prepared);
   if (preview.body !== current.body || digest({ ...preview.runtimeState, task_evolution_version: undefined, preservation_source_revision: undefined })
     !== digest({ ...current.runtimeState, task_evolution_version: undefined, preservation_source_revision: undefined })) {
     fail('TASK_EVOLUTION_INIT_INVALID', 'Initialization must preserve the complete definition and runtime state.');
@@ -11172,7 +11192,7 @@ function initializeTaskPreservationLocked(root: string, rawInput: unknown, optio
     stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, idempotencyProposal, [
       { path: history.path, content: history.content },
       { path: current.filePath, content: nextContent },
-    ]);
+    ], prepared);
   } catch (error) {
     return buildResult('blocked', idempotencyProposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
       code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
@@ -12406,8 +12426,9 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
     : `persistent-test admission: ${rebuilt.persistent_test_admission!.added.map(item => item.path).join(', ')}`;
   const audit: ReplanAuditLogEntry = { ...makeReplanAudit(current, proposal, nextWithoutAudit, options.now?.() ?? new Date().toISOString()), candidate_digest: candidateDigest, correction_reason: correctionReason };
   const nextState = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
-  const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState, { replacementDefinition: rebuilt.definition, taskBasisReference: { path: basis.path, revision: nextBasisArtifact.revision }, audit });
-  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
+  const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState, { replacementDefinition: rebuilt.definition, taskBasisReference: { path: basis.path, revision: nextBasisArtifact.revision }, audit });
+  const nextContent = prepared.content;
+  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath, prepared);
   if (preview.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || preview.runtimeState.active_step_id !== rebuilt.input.amendment_step.id || preview.runtimeState.pending_review_result?.review_id !== oldState.pending_review_result?.review_id) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Rendered scope amendment does not preserve the pending review or admitted plan.');
   const history = taskHistoryLocation({ currentPath: current.filePath, previousContent: current.raw, nextContent, documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id, basisPath: basis.filePath, basisContent: basis.content, nextBasisContent: nextBasisArtifact.content, operation: 'commit-scope-amendment', evidencePlanRevision: current.runtimeState.evidence_plan_revision, referencedEvidence: [location.relativePath] });
   const plannedWrites = [path.posix.join(path.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
@@ -12421,7 +12442,7 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
   }
   let stagedAfter: CanonicalCurrentTask;
   try {
-    stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, [{ path: history.path, content: history.content }, { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content }, { path: current.filePath, content: nextContent }]);
+    stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, [{ path: history.path, content: history.content }, { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content }, { path: current.filePath, content: nextContent }], prepared);
   } catch (error) {
     return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, { code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED' });
   }
@@ -12794,9 +12815,10 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
   };
   const audit: ReplanAuditLogEntry = { ...makeReplanAudit(current, proposal, nextWithoutAudit, options.now?.() ?? new Date().toISOString()), candidate_digest: candidateDigest, correction_reason: invalidationReason };
   const nextState = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
-  const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState,
+  const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState,
     { replacementDefinition: rebuilt.definition, taskBasisReference: { path: basis.path, revision: nextBasisArtifact.revision }, audit });
-  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
+  const nextContent = prepared.content;
+  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath, prepared);
   if (preview.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || preview.runtimeState.active_step_id !== rebuilt.input.correction_step.id) {
     fail('REPLAN_CANDIDATE_INVALID', 'Rendered correction does not match the admitted plan and step.');
   }
@@ -12820,7 +12842,7 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
       { path: history.path, content: history.content },
       { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content },
       { path: current.filePath, content: nextContent },
-    ]);
+    ], prepared);
   } catch (error) {
     return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
       code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
@@ -15079,6 +15101,7 @@ type ParsedSuspendedPackage = {
 type LifecycleTransactionPlan = {
   next: RuntimeState;
   nextContent: string;
+  prepared: PreparedTaskContent;
   packageFilePath?: string;
   packageRelativePath?: string;
   nextPackageContent?: string;
@@ -15457,8 +15480,9 @@ function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask
       ...nextWithoutAudit,
       execution_log: appendExecutionLogEntry(current.runtimeState, audit),
     };
-    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { audit });
-    return { next, nextContent, audit };
+    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { audit });
+    const nextContent = prepared.content;
+    return { next, nextContent, prepared, audit };
   }
   const target = assertRequestedLifecycleTargets(root, current, proposal);
   const packageFilePath = target.packageFilePath!;
@@ -15482,9 +15506,10 @@ function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask
       resume_review_reasons: [...delta.resume_review_reasons],
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
     };
-    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next);
+    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next);
+    const nextContent = prepared.content;
     const nextPackageContent = renderSuspendedPackage(current, delta, delta.action === 'pause' ? 'paused' : 'interrupted');
-    return { next, nextContent, packageFilePath, packageRelativePath, nextPackageContent, ...(originalPackageContent === undefined ? {} : { originalPackageContent }) };
+    return { next, nextContent, prepared, packageFilePath, packageRelativePath, nextPackageContent, ...(originalPackageContent === undefined ? {} : { originalPackageContent }) };
   }
 
   ensureAuthorityKinds(proposal, ['resume-review', 'evidence-admission']);
@@ -15513,11 +15538,13 @@ function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask
     resume_review_reasons: [...packageArtifact.resumeReviewReasons],
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };
-  const nextContent = renderCanonicalCurrentTask(packageArtifact.snapshot.frontmatter, packageArtifact.snapshot.body, next);
+  const prepared = renderCanonicalCurrentTask(packageArtifact.snapshot.frontmatter, packageArtifact.snapshot.body, next);
+  const nextContent = prepared.content;
   const nextPackageContent = renderRehydratedPackage(packageArtifact);
   return {
     next,
     nextContent,
+    prepared,
     packageFilePath,
     packageRelativePath,
     nextPackageContent,
@@ -15609,7 +15636,9 @@ function stageTaskEvolutionStoreCommit(
   nextState: RuntimeState,
   proposal: unknown,
   writeOperations: Array<{ path: string; content: string }>,
+  prepared?: PreparedTaskContent,
 ): CanonicalCurrentTask {
+  if (prepared) persistTaskProjection(prepared, current.filePath, current.relativePath);
   const after = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
   after.runtimeState = nextState;
   if (after.frontmatter.task_store !== undefined) {
@@ -15914,7 +15943,9 @@ export class GovernanceTransactionKernel {
     proposal: RuntimeProposal,
     writeTargets: string[],
     writeOperations: Array<{ path: string; content: string }> = [{ path: current.filePath, content: nextContent }],
+    prepared?: PreparedTaskContent,
   ): CanonicalCurrentTask {
+    if (prepared) persistTaskProjection(prepared, current.filePath, current.relativePath);
     const after = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
     after.runtimeState = nextState;
     if (after.frontmatter.task_store !== undefined) {
@@ -16035,7 +16066,7 @@ export class GovernanceTransactionKernel {
       stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
         { path: current.filePath, content: plan.nextContent },
         { path: plan.archiveFilePath, content: plan.nextArchiveContent },
-      ]);
+      ], plan.prepared);
     } catch (error) {
       return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
         code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
@@ -16330,7 +16361,7 @@ export class GovernanceTransactionKernel {
         stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
           { path: current.filePath, content: plan.nextContent },
           { path: path.join(this.root, ...historyPath.split('/')), content: historyContent },
-        ]);
+        ], plan.prepared);
       } catch (error) {
         return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
           code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
@@ -16385,7 +16416,7 @@ export class GovernanceTransactionKernel {
       stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
         { path: current.filePath, content: plan.nextContent },
         { path: plan.packageFilePath, content: plan.nextPackageContent },
-      ]);
+      ], plan.prepared);
     } catch (error) {
       return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
         code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
@@ -16953,6 +16984,7 @@ export class GovernanceTransactionKernel {
       return buildResult('blocked', proposal, current, options, 'The retained predecessor snapshot conflicts with its exact source.', { code: 'SUCCESSOR_HISTORY_CONFLICT' });
     }
     let nextContent: string;
+    let prepared: PreparedTaskContent;
     try {
       if (current.runtimeState.task_evolution_version === 2 && proposal.semantic_delta.kind === 'task-state') {
         const delta = proposal.semantic_delta;
@@ -16966,7 +16998,7 @@ export class GovernanceTransactionKernel {
           transition.next = { ...transition.next, artifact_checkpoint_ids: [...(current.runtimeState.artifact_checkpoint_ids ?? []), checkpointId] };
         }
       }
-      nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, transition.next, {
+      prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, transition.next, {
         ...(transition.replacementDefinition ? { replacementDefinition: transition.replacementDefinition } : {}),
         ...(transition.draftDefinition ? { draftDefinition: transition.draftDefinition } : {}),
         ...(transition.draftIdentity ? { draftIdentity: transition.draftIdentity } : {}),
@@ -16978,6 +17010,7 @@ export class GovernanceTransactionKernel {
         ...(taskBasisArtifact ? { taskBasisReference: { path: taskBasisArtifact.path, revision: taskBasisArtifact.revision } } : {}),
         ...(transition.audit ? { audit: transition.audit } : {}),
       });
+      nextContent = prepared.content;
     } catch (error) {
       return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
         code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_RENDER_BLOCKED',
@@ -17021,7 +17054,7 @@ export class GovernanceTransactionKernel {
         { path: current.filePath, content: nextContent },
         ...(taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : []),
         ...(successorSnapshot ? [successorSnapshot] : []),
-      ]);
+      ], prepared);
     } catch (error) {
       return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
         code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',

@@ -122,6 +122,18 @@ replay may remain idempotent without a new authority.
 
 `CURRENT_TASK.md`, `CONTRACTS.md`, `DECISIONS.md`, `STATUS.md`, `LESSONS.md`, task artifacts, Profile, Protocol, and Schema retain their existing authority. Machine-readable objects are ephemeral projections or typed proposals unless a future protocol change explicitly places a field inside an existing canonical source.
 
+For the current task, the compact-v3 storage protocol makes the exact
+content-addressed definition/state material selected by CURRENT_TASK part of
+that same canonical aggregate. The file is the active navigation projection;
+immutable definition sections, reports, decisions and transaction history live
+under its task-data directory. No separate editable state source is introduced.
+The manifest must acknowledge the same roots/source revision, and indexes stay
+non-authoritative. Rendering/compaction preserves the complete task semantics;
+old inline/compact-v2 tasks are not silently replanned or forced to migrate.
+A normal result write references unchanged definition material rather than
+copying it into CURRENT_TASK again. Small file size is a representation goal,
+not an acceptance gate or a claim of constant total history/memory cost.
+
 ### P-08 — Legacy understanding belongs only to the one-time Migration Pack
 
 The vNext runtime is not a compatibility runtime. It does not parse old protocol/schema documents, resolve old Skill names, or execute legacy modes. A separate, one-time Migration Pack is the only legacy-aware component; it converts an idle old project offline before the vNext Distribution is installed. The resulting Distribution contains no old Skills or compatibility aliases.

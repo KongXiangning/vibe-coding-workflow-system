@@ -75,8 +75,8 @@ task_context:
 task_store:
   schema_version: 1
   kind: vnext-task-store-contract
-  # v2 compact CURRENT_TASK binds this same manifest head to the current
-  # presentation; v1 sidecars remain readable until explicit migration.
+  # v3 is a lossless active projection of this same aggregate. Existing inline
+  # and compact-v2 tasks remain readable until explicit storage migration.
   root: <workflow_home>/task-data/<document_id>
   objects: objects/<sha256>.json
   events: events/<sequence>-<sha256>.json
@@ -89,6 +89,13 @@ task_store:
   migration: preview-confirm-commit-with-source-revision
   garbage_collection: disabled-in-v1
   target_owned_data: task-data-is-never-removed-by-distribution-upgrade
+  active_projection:
+    format: compact-v3
+    canonical_roots: CURRENT_TASK-definition-state-and-acknowledged-manifest
+    material: immutable-content-addressed-definition-state-reports
+    history: preserve-exact-preimages-events-and-idempotency
+    legacy: read-without-rewrite-and-explicit-storage-migration
+    admission: no-size-quota-or-business-transition
 
 proposal:
   schema_version: 1

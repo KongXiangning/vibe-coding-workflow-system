@@ -7,6 +7,7 @@
  */
 
 import * as fs from 'node:fs';
+import { ACTIVE_TASK_FORMAT } from './task-projection';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
@@ -19,6 +20,7 @@ import {
   evaluateEvidenceSlotForContext,
   dynamicReviewRequiredForCurrentExecution,
   readCanonicalCurrentTask,
+  recoverPendingTaskStoreCommit,
   type CanonicalCurrentTask,
 } from './kernel';
 import { withGovernanceWriteLock } from './runtime-io';
@@ -33,6 +35,7 @@ import {
   taskStoreHistoryPath,
   taskStorePaths,
   taskStoreStateRevision,
+  taskStoreStateSnapshotPayload,
   type TaskStoreCurrent,
   type TaskStoreEvent,
   type TaskStoreManifest,
@@ -963,6 +966,11 @@ function resolvedRead(root: string, current: CanonicalCurrentTask, input: TaskRe
   if (kind === 'definition' || (kind === undefined && objectSha === undefined && eventPath === undefined && input.path === undefined)) {
     if (objectSha !== undefined) return { kind, reference: objectSha, required: true, value: store.readObject(objectSha, 'definition'), encoding: 'json' };
     const manifest = aggregateManifest;
+    if (manifest?.current_representation === ACTIVE_TASK_FORMAT) return {
+      kind: 'definition', reference: manifest.object_refs.definition.sha256, required: true,
+      value: { kind: 'vnext-task-resolved-view/v1', source_object: manifest.object_refs.definition,
+        payload: taskStoreDefinitionPayload(asStoreCurrent(current), manifest.definition_revision_algorithm) }, encoding: 'json',
+    };
     if (manifest) return { kind: 'definition', reference: manifest.object_refs.definition.sha256, required: true, value: store.readObject(manifest.object_refs.definition, 'definition'), encoding: 'json' };
     return { kind: 'definition', reference: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), aggregateManifest), required: true, value: taskStoreDefinitionPayload(asStoreCurrent(current), aggregateManifest?.definition_revision_algorithm), encoding: 'json' };
   }
@@ -970,7 +978,12 @@ function resolvedRead(root: string, current: CanonicalCurrentTask, input: TaskRe
     const manifest = aggregateManifest;
     if (!manifest) throw new Error('TASK_READ_MANIFEST_MISSING: task store has not been initialized.');
     const refValue = objectSha !== undefined ? { sha256: objectSha, object_type: kind } as const : kind === 'state' ? manifest.object_refs.state : manifest.object_refs.current_snapshot;
-    return { kind, reference: refValue.sha256, required: true, value: store.readObject(refValue, kind), encoding: 'json' };
+    if (objectSha === undefined && manifest.current_representation === ACTIVE_TASK_FORMAT) return {
+      kind, reference: refValue.sha256, required: true,
+      value: { kind: 'vnext-task-resolved-view/v1', source_object: refValue,
+        payload: taskStoreStateSnapshotPayload(asStoreCurrent(current)) }, encoding: 'json',
+    };
+    return { kind, reference: refValue.sha256, required: true, value: store.readObject(refValue, refValue.object_type), encoding: 'json' };
   }
   if (kind === 'claim-evidence') {
     // Claim reports are dynamic workset facts, not part of the frozen
@@ -1278,6 +1291,7 @@ export function taskContextMigrationPreview(root: string) {
 
 export function taskContextMigrationCommit(root: string, sourceRevision: string) {
   return withGovernanceWriteLock(root, () => {
+    recoverPendingTaskStoreCommit(root);
     const current = readCanonicalCurrentTask(root);
     return commitTaskStorageMigration(root, asStoreCurrent(current), sourceRevision);
   });
