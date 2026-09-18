@@ -10,6 +10,8 @@
 
 用户不要求默认严格 TDD。目标是：避免一次简单功能甚至文案修改自动生成大量无价值测试；必要单元测试必须锚定已确认业务要求、契约、缺陷或相关关键风险；需要跨组件完成的业务目标不能靠局部测试全绿冒充可用；适合的业务流程需要实际验证。不是一律少测，也不是一律新增 E2E。
 
+这里的“避免大量无价值测试”同时约束**测试执行范围**，不只约束是否创建新测试。默认目标是最少必要测试：能用一个关键函数/函数链的 focused check 可靠证明局部规则，就不因为同目录、同 target 或同 suite 里还有测试而自动扩大执行；业务正确性依赖跨组件、协议、持久化或真实数据流时，必须选择能覆盖该业务链条的 integration/business-flow evidence，不能用大量局部 PASS 替代；E2E 属于高成本证据，只在验收确实依赖真实用户/系统边界、关键跨层风险，或更低成本证据无法充分证明时准入。测试数量、覆盖数量和“全绿”本身都不是交付目标。
+
 前序实施已完成测试策略治理与 prepare-task 分类，并在当时契约下得到 clean。随后原 Step 3 实现了首步 mandatory Red、expected-failure、Red 后 review；聚焦审查发现单步任务无法完成、blocked 无同计划重试、滚动日志可能淘汰 Red。用户随后明确不走默认严格 TDD，因此本轮是对前序设计的定向修订，不是继续修补完整 TDD 引擎。
 
 不应继续用“所有 test-first 至少两个步骤且必须改产品代码”修单步死局。纯测试资产任务首次运行即通过是合法的；单纯调查/验证请求可用现有 validate-change/debug-task，不为它制造假实现步骤。
@@ -102,6 +104,10 @@ Runtime 强制已确认的定义、身份关联、范围、结果结构、版本
 每个 slot 指定已有证据类型，例如 focused-test、integration-smoke、browser-session-check、static-proof 或项目已接受的等价类型。新任务不能把需要区分的义务全降为无差别 planned-validation；该值可保留作已明示的旧格式读取，不能充当新协议全能通过槽。
 
 一次运行可以支持多个已映射槽位，但不能因共享一条 evidence_ref 就自动满足所有 claim。类型之间不建立“E2E 永远比 unit 高，因此随便替代”的总序。
+
+minimum-sufficient 同时约束 required execution set。prepare-task 应先确定“为这个 claim 必须观察什么”，再选择能够产生该观察的最小检查集合；不得默认把整个测试文件、Cargo/Node test target、package test script、repository regression 或最终 full suite 作为 required evidence。只有存在明确的共享契约/关键风险/影响不确定性、适用的项目或发布 gate、或用户显式要求时，才把更宽回归纳入 required set，并记录为什么更窄的 focused unit、函数链或业务流程检查不足。为了方便而多跑、历史习惯、coverage 偏好或“顺便确认一下”不能单独构成准入理由。
+
+执行型证据优先按实际 claim 边界选择：局部逻辑优先 focused unit/function-chain；跨组件业务语义优先真实 integration/business-flow；E2E 只在真实端到端边界本身属于验收内容或较低成本证据无法建立结论时使用。E2E 的高成本、环境脆弱性和诊断半径必须作为 admission 成本考虑，而不是最终步骤的默认仪式。
 
 ### 3.2 必须落到真实业务计划
 
