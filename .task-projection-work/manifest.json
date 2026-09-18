@@ -1,0 +1,17 @@
+{
+  ".workflow-system/vnext/RUNTIME_CONTRACT.yaml": "ee659966419e8d90d18b3f2bc33a00eec3ced8ec413f57342bd5260ad1d65f12",
+  ".workflow-system/vnext/SOURCE_CONTRACT.yaml": "e14c93b51df9df4a31c085f811c4472f37cd903812eb2a98403a8a7888ad1a79",
+  "docs/designs/workflow-vnext-target-architecture.md": "40ab5dfd22348d41c4fce899b2474997db5038184e22fc1ecb5a5b8a7ecd58c4",
+  "runtime/vnext/dist/cli.js": "c924f3ca05e834a1fbf8200b79d85d25f184f2e97d5974dbc73a9ed7c0a7a321",
+  "runtime/vnext/src/kernel.ts": "da47c894a63feaeb2a1a617c844fdd1de1835fb73a05b65f8b5b3f5dd5a89c08",
+  "runtime/vnext/src/task-context.ts": "9ce638f484e2ab0514918b67655909645356c06b575fa575e623db81271dc83c",
+  "runtime/vnext/src/task-projection.ts": "3419b8287903f4b87e265215855f53d06fa6cad0968ab6738b2a45a1ccbd5b91",
+  "runtime/vnext/src/task-store.ts": "553755c606ec0aae6c01574ff2c267df96a9f29653290de8bef05685061ee5a4",
+  "runtime/vnext/support/CONTEXT_API.md": "cdd561c1ecfe2df33fd1dcda619046e3b182466f9e1a0239984751e0e8fb4f7c",
+  "templates/vnext/bootstrap/FILE_SCHEMAS.md": "4e5b7becd50fca9168a69af6f35f848a20ea06da3b01c3b21e9ae0e5d8bdc171",
+  "templates/vnext/skills/execute-step.SKILL.md.tmpl": "bc8e383a2b093cc3689e5a4b872133a887cd710e7615c2e9d1fe5418f56c42a5",
+  "templates/vnext/skills/prepare-task.SKILL.md.tmpl": "1d93757809f1c528574cef337751dc8926e84384e34f50446cb54baf05afadfc",
+  "templates/vnext/skills/review-change.SKILL.md.tmpl": "b60434eb64d970bb187a9c9e9c4b04cbdc773661e0da199245b5901e032d1ede",
+  "test/vnext-runtime.test.ts": "994b15f45a022cd91569a83ab7e9b0e7c61dc712a4e40a3a11594641e25262f4",
+  "test/vnext-task-context.test.ts": "e5ce4da7d470a9c31955891f62966e27f8110c6326d74331eb1b2b2e9f9b181d"
+}
