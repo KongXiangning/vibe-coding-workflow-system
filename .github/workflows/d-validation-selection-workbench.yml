@@ -1,28 +1,135 @@
-name: D validation selection workbench
+name: D guidance and detection calibration
 on:
   push:
     branches: [codex/d-validation-selection-work-20260919]
     paths: [.github/workflows/d-validation-selection-workbench.yml]
 permissions:
   contents: read
+concurrency:
+  group: d-selection-work-20260919
+  cancel-in-progress: false
 jobs:
-  export:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: b3d8410bd37db6a135783d10b6c3ef291cf119c5
+      OLD_SHA: a37115df5cb97dae969582e8c9570653cd0cd20a
+      PATTERN: 'storage metrics review (invalidates samples when a real commit crosses the start or final sampling boundary|uses canonical Task Basis references without imposing blank-line spelling|normalizes missing legacy defaults before computing migration deltas)$'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: b3d8410bd37db6a135783d10b6c3ef291cf119c5
-          persist-credentials: false
-      - name: Export exact source
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Apply exact locally checked guidance and case material
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = b3d8410bd37db6a135783d10b6c3ef291cf119c5
-          git archive HEAD | gzip > "$RUNNER_TEMP/d-selection-source.tgz"
+          mkdir -p "$RUNNER_TEMP/d-logs"
+          cp .d-selection-work/manifest.json "$RUNNER_TEMP/d-manifest.json"
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib
+          text = ''.join(pathlib.Path(f'.d-selection-work/patch-{i}.b64').read_text().strip() for i in (1, 2))
+          patch = lzma.decompress(base64.b64decode(text, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '51328d9011eb259aa3b1eac6ecfeedf7252aa464a0f8f6b7a702b9669912160f'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'd.patch').write_bytes(patch)
+          PY
+          git checkout --detach "$BASE_SHA"
+          git apply --check "$RUNNER_TEMP/d.patch"
+          git apply "$RUNNER_TEMP/d.patch"
+          git add -N docs/ops/validation-selection
+          bun install --frozen-lockfile --ignore-scripts
+      - name: Source contracts, unchanged Runtime build, generation and focused guidance guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          { bun run validate:vnext-runtime; bun run validate:vnext-source; bun run gen:all; bun run validate:freshness; } 2>&1 | tee "$RUNNER_TEMP/d-logs/contracts.log"
+          test -z "$(git diff --name-only -- runtime/vnext/src runtime/vnext/dist .workflow-system VERSION package.json)"
+          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'preserves P-12|keeps execute-step focused|requires prepare-task to map' 2>&1 | tee "$RUNNER_TEMP/d-logs/guidance.log"
+      - name: Historical defect controls using selected existing tests, not Agent accuracy scoring
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="$RUNNER_TEMP/d-old"
+          git worktree add --detach "$old" "$OLD_SHA"
+          cp test/vnext-runtime.test.ts "$old/test/vnext-runtime.test.ts"
+          cp test/vnext-task-metrics.test.ts "$old/test/vnext-task-metrics.test.ts"
+          cp -a node_modules "$old/node_modules"
+          (cd "$old" && bun run build:vnext-runtime) > "$RUNNER_TEMP/d-logs/old-build.log" 2>&1
+          set +e
+          (cd "$old" && bun test --timeout 60000 test/vnext-runtime.test.ts test/vnext-task-metrics.test.ts --test-name-pattern "$PATTERN") > "$RUNNER_TEMP/d-logs/negative-controls.log" 2>&1
+          result=$?
+          set -e
+          test "$result" -eq 1
+          python3 - <<'PY'
+          import os, pathlib, re
+          text = pathlib.Path(os.environ['RUNNER_TEMP'], 'd-logs/negative-controls.log').read_text()
+          text = re.sub(r'\x1b\[[0-9;]*m', '', text)
+          assert '0 pass' in text and '3 fail' in text, text
+          for name in ('invalidates samples when a real commit', 'uses canonical Task Basis references', 'normalizes missing legacy defaults'):
+              assert any('(fail)' in line and name in line for line in text.splitlines()), name
+          for symptom in ('Received: "complete"', 'Expected: 405', 'Received: 2'):
+              assert symptom in text, symptom
+          assert 'error: Cannot find' not in text and 'error: SyntaxError' not in text
+          print('Three selected checks detect the three historical business assertion failures.')
+          print('This is informed check calibration, not a fresh Agent run or original Rust replay.')
+          PY
+          git worktree remove --force "$old"
+          bun test --timeout 60000 test/vnext-runtime.test.ts test/vnext-task-metrics.test.ts --test-name-pattern "$PATTERN" 2>&1 | tee "$RUNNER_TEMP/d-logs/positive-controls.log"
+      - name: Verify shipped guidance and exclude source-only evaluation answers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run scripts/build-vibe-governance-distribution.ts --out "$RUNNER_TEMP/d-package" 2>&1 | tee "$RUNNER_TEMP/d-logs/package.log"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          source = pathlib.Path.cwd()
+          bundle = pathlib.Path(os.environ['RUNNER_TEMP'], 'd-package/payload/vnext-bundle')
+          manifest = json.loads((bundle/'vnext-bundle.json').read_text())
+          paths = ['runtime/vnext/support/CONTEXT_API.md'] + [f'templates/vnext/skills/{name}.SKILL.md.tmpl' for name in ('prepare-task','review-draft','review-change','execute-step')]
+          for path in paths:
+              assert (source/path).read_bytes() == (bundle/path).read_bytes(), path
+              artifact = next(x for x in manifest['artifacts'] if x['source_path'] == path)
+              assert artifact['checksum'] == hashlib.sha256((source/path).read_bytes()).hexdigest(), path
+          assert not list(bundle.rglob('rollout-incident.json'))
+          print('All four Skill payloads and support match. Evaluation answers are source-only.')
+          PY
+      - name: Publish clean candidate bound to exact reviewed bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          expected = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'd-manifest.json').read_text())
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          assert changed == set(expected), (changed-set(expected), set(expected)-changed)
+          for path, digest in expected.items():
+              assert hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest() == digest, path
+          subprocess.run(['git', 'add', '--', *expected], check=True)
+          PY
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- runtime/vnext/src runtime/vnext/dist .workflow-system VERSION package.json .github .d-selection-work)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n' 'feat(vnext): select validation by business failure and independent oracle' 'Phase D: guide existing prepare/review/execute selection by discriminating observations and minimum effective evidence. Preserve source-derived rollout incident and fresh-run evaluation protocol. Calibrate selected existing checks on historical real defects without claiming model-selection efficacy or adding Runtime gates.' | git commit-tree "$tree" -p "$BASE_SHA")
+          branch="codex/d-selection-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "$commit:refs/heads/$branch"
+          printf 'BASE_SHA=%s\nCOMMIT_SHA=%s\nTREE_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$commit" "$tree" "$branch" | tee "$RUNNER_TEMP/d-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" -f state=success -f context=validation-selection/guidance-calibration -f description='Guidance/payload checks and historical detection controls passed; not Agent efficacy' -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf '## D candidate\n\n`%s`\n\nGuidance and defect-detection calibration only; independent Agent/target dogfood remains unmeasured. Product branch unchanged.\n' "$commit" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: d-selection-source
-          path: ${{ runner.temp }}/d-selection-source.tgz
-          retention-days: 1
-          if-no-files-found: error
+          name: d-guidance-detection-calibration
+          path: ${{ runner.temp }}/d-logs/
+          retention-days: 3
+          if-no-files-found: warn
