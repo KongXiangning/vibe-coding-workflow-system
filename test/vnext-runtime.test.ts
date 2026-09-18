@@ -5898,121 +5898,141 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
   });
 
-  test('opaque invocation freezes wrappers without granting focused metadata', () => {
-    for (const command of ['npm run test:ticket', 'pwsh -File scripts/test-ticket.ps1', 'TICKET_ENV=test ./scripts/test-ticket']) {
-      const draft = singleStepSemanticDraft();
-      const check = draft.claim_evidence[0]!.slots[0]!.check!;
-      check.entry = command;
-      draft.implementation_steps[0]!.commands[0]!.command = command;
-      Object.assign(check.selection!, { granularity: 'target', selector: null,
-        invocation: { kind: 'opaque', command }, breadth_reason: 'Existing launcher exposes only this ticket target.',
-        breadth_basis: 'explicit-user', breadth_source_ref: 'test:original-request' });
-      const root = archivedBaselineRoot();
-      const prepared = prepareDraft(root, draft);
-      expect(prepared.status).toBe('success');
-      expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
-      expect(evidenceContext(root, {}).checks[0]).toMatchObject({ frozen_invocation: command,
-        execution_selection: { granularity: 'target', invocation: { kind: 'opaque', command } } });
-      check.selection!.granularity = 'focused';
-      check.selection!.selector = 'ticket_case';
-      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow('CLAIM_EVIDENCE_SELECTOR_UNBOUND');
-      check.selection!.granularity = 'target'; check.selection!.selector = null;
-      check.entry = 'npm run test:all';
-      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow('CLAIM_EVIDENCE_INVOCATION_UNBOUND');
-      check.entry = command; check.selection!.breadth_reason = null;
-      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
-    }
-  });
-
-  test('authoritative claim sources retain requirements Contract and Decision identity without user decisions', () => {
-    for (const [basis, file, heading] of [
-      ['claim-risk-contract', 'CONTRACTS.md', 'C-1'],
-      ['acceptance-boundary', 'requirements.md', 'REQ-1'],
-      ['low-cost-evidence-insufficient', 'DECISIONS.md', 'AD-1'],
-    ] as const) {
+  test('shared minimum-sufficient validation matrix', () => {
+    // One claim/fixture; each row changes only the dimension under examination.
+    // The target contains unrelated cases; selecting it is never the default.
+    const cases = [
+      { name: 'C1 local rule + business-flow focused slots', mixed: true },
+      { name: 'local focused selector' },
+      { name: 'local target without reason', target: true, error: 'CLAIM_EVIDENCE_BREADTH_REQUIRED' },
+      { name: 'local runner limited to target', target: true, authority: 'user' },
+      { name: 'business-flow focused integration case', flow: true },
+      { name: 'business-flow target runner limitation', flow: true, target: true, authority: 'user' },
+      { name: 'unit PASS cannot replace flow', mixed: true, reportSubstitution: true },
+      { name: 'E2E without reason', e2e: true, error: 'CLAIM_EVIDENCE_BREADTH_REQUIRED' },
+      { name: 'real release policy requires E2E', e2e: true, authority: 'release' },
+      { name: 'forged explicit-user', target: true, authority: 'forged', error: 'TEST_STRATEGY_INVALID' },
+      { name: 'Contract authorizes broad without user decision', broad: true, authority: 'contract' },
+      { name: 'missing Contract identity', broad: true, authority: 'missing-contract', error: 'CLAIM_EVIDENCE_AUTHORITY_INVALID' },
+      { name: 'Contract is not explicit-user', target: true, authority: 'contract-as-user', error: 'TEST_STRATEGY_INVALID' },
+      { name: 'focused metadata disagrees with whole-target invocation', mismatch: true, error: 'CLAIM_EVIDENCE_INVOCATION_UNBOUND' },
+      { name: 'opaque wrapper preserves command format', target: true, opaque: true, authority: 'user' },
+      { name: 'opaque cannot claim Runtime-proven focused', opaque: true, error: 'CLAIM_EVIDENCE_SELECTOR_UNBOUND' },
+      { name: 'opaque target still needs reason', target: true, opaque: true, error: 'CLAIM_EVIDENCE_BREADTH_REQUIRED' },
+      { name: 'recovery replacement without selection', legacy: true, replacement: true, error: 'CLAIM_EVIDENCE_SELECTION_REQUIRED' },
+      { name: 'recovery replacement with new contract', legacy: true, replacement: true, restore: true },
+      { name: 'unchanged legacy check', legacy: true },
+    ];
+    for (const row of cases) {
       const root = archivedBaselineRoot();
       const draft = singleStepSemanticDraft();
+      draft.mutation_scope.allowed = ['README.md'];
+      draft.implementation_steps[0]!.mutation_scope = ['README.md'];
       const claim = draft.claim_evidence[0]!;
-      const selection = claim.slots[0]!.check!.selection!;
-      claim.source_ref = `${file}#${heading}`;
-      Object.assign(selection, { granularity: 'target', selector: null,
-        invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null },
-        breadth_reason: 'The authoritative requirement needs the launcher boundary.', breadth_basis: basis, breadth_source_ref: claim.claim_id });
-      expect(() => prepareDraft(root, draft)).toThrow('TEST_STRATEGY_INVALID');
-      fs.writeFileSync(path.join(root, file), `# ${heading}: Ticket boundary\nRequired observation crosses the ticket launcher.\n`);
-      expect(prepareDraft(root, draft).status).toBe('success');
-      claim.source_ref = `${file}#missing`;
-      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow();
-      expect(() => prepareDraft(root, draft)).toThrow('CLAIM_EVIDENCE_AUTHORITY_INVALID');
-      claim.source_ref = `${file}#${heading}`;
-      selection.breadth_basis = 'explicit-user'; selection.breadth_source_ref = claim.source_ref;
-      expect(() => prepareDraft(root, draft)).toThrow('TEST_STRATEGY_INVALID');
+      claim.claim_id = 'C1';
+      const rule = claim.slots[0]!;
+      rule.slot_id = 'C1-rule'; rule.check!.check_id = 'C1-rule-check';
+      rule.check!.subject_paths = ['README.md'];
+      const check = rule.check!;
+      const selection = check.selection!;
+      const focusedCommand = 'bun test test/ticket.test.ts --test-name-pattern ticket_rule';
+      check.entry = focusedCommand;
+      selection.selector = 'ticket_rule';
+      selection.invocation = { kind: 'structured', argv: ['bun', 'test', 'test/ticket.test.ts', '--test-name-pattern', 'ticket_rule'], selector_arg_index: 4 };
+      if (row.flow || row.e2e) {
+        check.boundary = row.e2e ? 'e2e' : 'business-flow';
+        check.required_boundaries = ['writer persists ticket', 'fresh process reads ticket'];
+      }
+      if (row.target || row.broad) {
+        selection.granularity = row.broad ? 'broad-regression' : 'target';
+        selection.selector = null;
+        selection.invocation = { argv: ['bun', 'test', 'test/ticket.test.ts'], selector_arg_index: null };
+        check.entry = 'bun test test/ticket.test.ts';
+      }
+      if (row.opaque) {
+        check.entry = 'pwsh -File scripts/test-ticket.ps1 -Environment test';
+        selection.invocation = { kind: 'opaque', command: check.entry };
+      }
+      if (row.authority) {
+        selection.breadth_reason = 'This launcher has no finer selector for the required ticket observation.';
+        selection.breadth_basis = 'explicit-user';
+        selection.breadth_source_ref = 'test:runner-decision';
+        if (row.authority === 'user') draft.task_basis.user_decisions.push({
+          source: 'test:runner-decision', verbatim: 'Allow the target: the ticket launcher cannot select individual cases.',
+        });
+        if (row.authority === 'release') {
+          fs.writeFileSync(path.join(root, 'release-policy.md'), '# Release\nReal end-to-end ticket validation is required before release.\n');
+          selection.breadth_basis = 'release-gate'; selection.breadth_source_ref = 'release-policy.md#Release';
+        }
+        if (row.authority.includes('contract')) {
+          fs.writeFileSync(path.join(root, 'CONTRACTS.md'), '# C-1: Ticket compatibility\nBroad compatibility validation is required across ticket consumers.\n');
+          claim.source_ref = row.authority === 'missing-contract' ? 'CONTRACTS.md#missing' : 'CONTRACTS.md#C-1';
+          selection.breadth_basis = 'claim-risk-contract'; selection.breadth_source_ref = 'C1';
+          if (row.authority === 'contract-as-user') {
+            selection.breadth_basis = 'explicit-user'; selection.breadth_source_ref = claim.source_ref;
+          }
+        }
+      }
+      if (row.mismatch) check.entry = 'bun test test/ticket.test.ts';
+      if (row.mixed) {
+        const flow = structuredClone(rule);
+        flow.slot_id = 'C1-flow'; flow.check!.check_id = 'C1-flow-check';
+        flow.minimum_type = 'integration-smoke'; flow.check!.boundary = 'business-flow';
+        flow.check!.expected_observation = 'A ticket persists across writer and fresh reader processes';
+        flow.check!.required_boundaries = ['writer persists ticket', 'fresh process reads ticket'];
+        flow.check!.entry = 'bun test test/ticket.test.ts --test-name-pattern ticket_flow';
+        flow.check!.selection!.selector = 'ticket_flow';
+        flow.check!.selection!.invocation = { kind: 'structured', argv: ['bun', 'test', 'test/ticket.test.ts', '--test-name-pattern', 'ticket_flow'], selector_arg_index: 4 };
+        claim.slots.push(flow);
+      }
+      draft.implementation_steps[0]!.commands = claim.slots.map(slot => ({ command: slot.check!.entry, expected_repo_writes: 'none' }));
+      let previous: ClaimEvidenceRecord[] = [];
+      if (row.legacy) {
+        delete check.selection; delete check.boundary;
+        previous = structuredClone(draft.claim_evidence);
+        if (row.replacement) {
+          check.check_id = 'replacement';
+          if (row.restore) { check.selection = selection; check.boundary = 'local'; }
+        }
+      }
+      const admission = () => assertEvidencePlan(semanticDraftDefinition(draft), draft.claim_evidence, !row.legacy,
+        { root, taskBasis: draft.task_basis, previous });
+      if (row.error) {
+        expect(admission, row.name).toThrow(row.error);
+        continue;
+      }
+      expect(admission, row.name).not.toThrow();
+      if (row.legacy) {
+        expect(readCanonicalCurrentTask(makeRoot(makeRuntimeState({ claim_evidence: previous }))).runtimeState.claim_evidence, row.name).toEqual(previous);
+        continue;
+      }
+      const prepared = prepareDraft(root, draft);
+      expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status, row.name).toBe('success');
+      const frozen = readCanonicalCurrentTask(root).runtimeState.claim_evidence![0]!;
+      expect(frozen, row.name).not.toHaveProperty('boundary');
+      expect(frozen.slots, row.name).toEqual(claim.slots);
+      if (row.mixed) expect(frozen.slots.map(slot => [slot.slot_id, slot.check!.boundary, slot.check!.selection!.granularity]), row.name)
+        .toEqual([['C1-rule', 'local', 'focused'], ['C1-flow', 'business-flow', 'focused']]);
+      if (row.opaque) expect(evidenceContext(root, {}).checks[0], row.name).toMatchObject({
+        frozen_invocation: check.entry, execution_selection: { invocation: selection.invocation },
+      });
+      if (row.reportSubstitution) {
+        const preflight = preflightStep(root, { candidate_paths: [] });
+        const ruleReport = reportFixture(root, 'C1', 'C1-rule');
+        const result = { preflight_receipt: preflight.receipt, actual_changed_paths: [],
+          command_results: draft.implementation_steps[0]!.commands.map(item => ({
+            command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'],
+          })),
+          validation_results: [{ validation: draft.implementation_steps[0]!.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+          acceptance_evidence: [{ ...ruleReport, slot_id: 'C1-flow' }], outcome: 'implemented', note: 'Matrix caller-reported result fixture' };
+        expect(() => recordStepResult(root, result), row.name).toThrow('CLAIM_EVIDENCE_PLAN_CONFLICT');
+        expect(recordStepResult(root, { ...result, acceptance_evidence: [ruleReport] }).status, row.name).toBe('success');
+        const current = readCanonicalCurrentTask(root);
+        expect(current.runtimeState.claim_evidence![0]!.slots[1]!.report, row.name).toBeNull();
+        expect(applyVNextRuntimeProposal(root, taskProposal(root, { claim_evidence: current.runtimeState.claim_evidence, idempotency_key: 'matrix-missing-flow' })), row.name)
+          .toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_INCOMPLETE' });
+      }
     }
-  });
-
-  test('orthogonal evidence boundary and granularity admit focused flows but gate whole targets and focused E2E', () => {
-    const root = archivedBaselineRoot();
-    const draft = singleStepSemanticDraft();
-    const check = draft.claim_evidence[0]!.slots[0]!.check!;
-    const selection = check.selection!;
-    const context = { root, taskBasis: draft.task_basis, previous: [] };
-    const admit = () => assertEvidencePlan(semanticDraftDefinition(draft), draft.claim_evidence, true, context);
-    check.boundary = 'business-flow';
-    expect(admit).not.toThrow();
-    selection.granularity = 'target'; selection.selector = null; selection.invocation!.selector_arg_index = null;
-    expect(admit).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
-    Object.assign(selection, { breadth_reason: 'The integration runner has only target granularity; smaller flow execution is unavailable.',
-      breadth_basis: 'claim-risk-contract', breadth_source_ref: 'A1' });
-    expect(admit).not.toThrow();
-    selection.granularity = 'broad-regression';
-    expect(admit).not.toThrow();
-
-    check.boundary = 'e2e'; selection.granularity = 'focused';
-    selection.selector = selection.invocation!.argv[2]!; selection.invocation!.selector_arg_index = 2;
-    Object.assign(selection, { breadth_reason: null, breadth_basis: null, breadth_source_ref: null });
-    expect(admit).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
-    Object.assign(selection, { breadth_reason: 'Observe the explicitly requested real end-to-end boundary.',
-      breadth_basis: 'acceptance-boundary', breadth_source_ref: 'A1' });
-    expect(admit).not.toThrow();
-    selection.granularity = 'broad-regression'; selection.selector = null; selection.invocation!.selector_arg_index = null;
-    expect(admit).toThrow('CLAIM_EVIDENCE_BROAD_UNAUTHORIZED');
-    selection.breadth_basis = 'explicit-user'; selection.breadth_source_ref = draft.task_basis.original_request.source;
-    expect(admit).not.toThrow();
-    draft.claim_evidence[0]!.boundary = 'e2e';
-    expect(admit).toThrow('CLAIM_EVIDENCE_BOUNDARY_INVALID');
-  });
-
-  test('validation contract preserves legacy checks but re-admits recovery replacement execution identities', () => {
-    const legacy = evidencePlanFixture('The legacy observation remains required');
-    delete legacy[0]!.slots[0]!.check!.boundary;
-    delete legacy[0]!.slots[0]!.check!.selection;
-    const root = makeRoot(makeRuntimeState({ claim_evidence: legacy }));
-    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence![0]!.slots[0]!.check!.selection).toBeUndefined();
-    const definition = draftDefinition({ acceptance: '- [ ] The legacy observation remains required' });
-    const context = { root, taskBasis: taskBasisFixture(), previous: legacy };
-    expect(() => assertEvidencePlan(definition, legacy, false, context)).not.toThrow();
-    const oldMetadata = structuredClone(legacy);
-    oldMetadata[0]!.slots[0]!.check!.selection = structuredClone(evidencePlanFixture('fixture')[0]!.slots[0]!.check!.selection);
-    delete oldMetadata[0]!.slots[0]!.check!.selection!.granularity;
-    Object.assign(oldMetadata[0]!.slots[0]!.check!.selection!, { scope: 'focused', claim_scope: 'local' });
-    oldMetadata[0]!.boundary = 'local';
-    delete oldMetadata[0]!.slots[0]!.check!.selection!.invocation;
-    expect(() => assertEvidencePlan(definition, oldMetadata, false, { ...context, previous: oldMetadata })).not.toThrow();
-    const historicalRoot = makeRoot(makeRuntimeState({ claim_evidence: oldMetadata }));
-    expect(readCanonicalCurrentTask(historicalRoot).runtimeState.claim_evidence).toEqual(oldMetadata);
-    oldMetadata[0]!.slots[0]!.check!.selection!.invocation = structuredClone(evidencePlanFixture('fixture')[0]!.slots[0]!.check!.selection!.invocation);
-    expect(() => assertEvidencePlan(definition, oldMetadata, false, { ...context, previous: oldMetadata })).not.toThrow();
-    expect(readCanonicalCurrentTask(makeRoot(makeRuntimeState({ claim_evidence: oldMetadata }))).runtimeState.claim_evidence).toEqual(oldMetadata);
-    const replacement = structuredClone(legacy);
-    replacement[0]!.slots[0]!.check!.check_id = 'replacement';
-    expect(() => assertEvidencePlan(definition, replacement, false, context)).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
-    replacement[0]!.slots[0]!.check!.boundary = 'local';
-    replacement[0]!.slots[0]!.check!.selection = evidencePlanFixture('fixture')[0]!.slots[0]!.check!.selection;
-    expect(() => assertEvidencePlan(definition, replacement, false, context)).not.toThrow();
-    // Keeping an old ID while changing its semantics is not a compatibility path.
-    const changed = structuredClone(legacy);
-    changed[0]!.slots[0]!.check!.expected_observation = 'A different observation';
-    expect(() => assertEvidencePlan(definition, changed, false, context)).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
   });
 
   test('validation contract enforces replacement selection through correction and execution recovery adapters', () => {
