@@ -1,0 +1,7 @@
+{
+  "runtime/vnext/dist/cli.js": "40323d6d16f494776108f3114542b8a3d19956d5db38705f48d91175a428d5ed",
+  "runtime/vnext/src/task-storage-metrics.ts": "1034530554c601c2b9e2db26d2fcef0b5c481d9352a013183cd3ab51e6cc09c3",
+  "runtime/vnext/support/CONTEXT_API.md": "5518e076ee71e5a4cc35591fdf3c7147ab725548850980b89c3994ad1245e5f8",
+  "test/vnext-runtime.test.ts": "f27ae75fe09f6ef1a3c4c4778577154cb6f7d74f6572e5da002cd8ce28fa83c6",
+  "test/vnext-task-metrics.test.ts": "df492e1d79bd0135549f26db3055b5aecd05b9aea6631763271da07354a71e67"
+}
