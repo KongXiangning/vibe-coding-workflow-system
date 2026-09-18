@@ -1,3 +1,4 @@
+import { taskStorageMetrics } from '../runtime/vnext/src/task-storage-metrics';
 import { readProjectDocuments } from '../runtime/vnext/src/project-documents';
 import { reviewRead } from '../runtime/vnext/src/review-change-adapter';
 import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
@@ -5950,6 +5951,96 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(confirmDraft(releaseRoot, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
     Object.assign(e2e, { breadth_basis: null, breadth_source_ref: null, breadth_reason: null });
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+  });
+
+  test('storage metrics observe draft, execution, review and migration without consuming receipts or writing data', () => {
+    const draft = singleStepSemanticDraft({ goal: 'Observe 中文 task growth, not an arbitrary test count.' });
+    draft.mutation_scope.allowed = ['README.md'];
+    draft.implementation_steps[0]!.mutation_scope = ['README.md'];
+    draft.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const root = archivedBaselineRoot();
+    const prepared = prepareDraft(root, draft);
+    const metrics = () => taskStorageMetrics(root, readCanonicalCurrentTask(root));
+    const filesDigest = () => {
+      const values: string[] = [];
+      const walk = (directory: string) => { for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const file = path.join(directory, entry.name);
+        if (entry.isDirectory()) walk(file);
+        else values.push(path.relative(root, file) + ':' + crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+      } };
+      walk(root); return values.sort();
+    };
+    const beforeRead = filesDigest();
+    const first = metrics();
+    const again = metrics();
+    expect(again).toEqual(first);
+    expect(filesDigest()).toEqual(beforeRead);
+    const current = readCanonicalCurrentTask(root);
+    expect(first.active_projection_bytes).toBe(Buffer.byteLength(current.raw, 'utf8'));
+    expect(first.claim_evidence_bytes).toBe(Buffer.byteLength(projectionJson(current.runtimeState.claim_evidence), 'utf8'));
+    expect(first.task_basis_bytes).toBe(Buffer.byteLength(readCanonicalTaskBasis(root).content, 'utf8'));
+    const store = TaskStore.forCurrent(root, current);
+    expect(first.aggregate_total_bytes).toBe(store.measure().total_bytes);
+    expect(first.previous_transaction_delta.reason).toBe('NO_PREVIOUS_EVENT');
+    const refined = prepareDraft(root, { ...draft, goal: draft.goal + ' Additional approved draft detail 中文' });
+    const draftMetrics = metrics();
+    expect(draftMetrics.previous_transaction_delta.definition_bytes).toBe(draftMetrics.definition_bytes! - first.definition_bytes!);
+    expect(draftMetrics.previous_transaction_delta.definition_bytes!).toBeGreaterThan(0);
+    const confirmed = confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt });
+    expect(confirmed.status).toBe('success');
+    const confirmation = metrics();
+    expect(confirmation.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(confirmation.previous_transaction_delta.active_projection_bytes).toBe(confirmation.active_projection_bytes - draftMetrics.active_projection_bytes);
+    expect(confirmation.previous_transaction_delta.committed_material_bytes).toBe(confirmation.committed_material_bytes! - draftMetrics.committed_material_bytes!);
+    const preflight = preflightStep(root, { candidate_paths: ['README.md'] });
+    const beforeResult = metrics();
+    const summary = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+    expect(summary.status, summary.stderr).toBe(0);
+    expect(JSON.parse(summary.stdout).storage_metrics).toEqual(beforeResult);
+    fs.writeFileSync(path.join(root, 'README.md'), 'Approved product edit after measurement.\n');
+    expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: ['README.md'],
+      command_results: draft.implementation_steps[0]!.commands.map(item => ({ command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: draft.implementation_steps[0]!.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Metric sampling must preserve the current attempt' }).status).toBe('success');
+    const afterResult = metrics();
+    expect(afterResult.previous_transaction_delta.status, JSON.stringify(afterResult)).toBe('available');
+    expect(afterResult.previous_transaction_delta.action).toBe('step-progress');
+    expect(afterResult.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(afterResult.previous_transaction_delta.claim_evidence_bytes).toBe(afterResult.claim_evidence_bytes! - beforeResult.claim_evidence_bytes!);
+    expect(afterResult.previous_transaction_delta.claim_evidence_bytes!).toBeGreaterThan(0);
+    expect(afterResult.previous_transaction_delta.committed_material_bytes).toBe(afterResult.committed_material_bytes! - beforeResult.committed_material_bytes!);
+    const review = reviewContext(root, {});
+    const reviewBytes = metrics().pending_review_bytes;
+    expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [],
+      unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    const afterReview = metrics();
+    expect(afterReview.previous_transaction_delta.pending_review_bytes).toBe(afterReview.pending_review_bytes! - reviewBytes!);
+    expect(afterReview.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(afterReview.external_history_bytes!).toBeGreaterThan(0);
+    expect(afterReview.committed_material_bytes!).toBeLessThan(afterReview.aggregate_total_bytes!);
+    // A no-op and a read are not transactions. Keep the same last-event delta.
+    const afterReviewFiles = filesDigest();
+    expect(metrics()).toEqual(afterReview);
+    expect(filesDigest()).toEqual(afterReviewFiles);
+
+    useLegacyInlineCurrent(root);
+    const inline = readCanonicalCurrentTask(root);
+    const legacyMetrics = metrics();
+    expect(legacyMetrics.coverage.notes).toContain('NO_COMMITTED_AGGREGATE');
+    expect(legacyMetrics.aggregate_total_bytes).toBeNull();
+    expect(taskContextMigrationCommit(root, inline.sourceTuple.revision).status).toBe('committed');
+    const migration = metrics();
+    expect(migration.previous_transaction_delta.event_type).toBe('storage-migration');
+    expect(migration.previous_transaction_delta.active_projection_bytes).toBe(migration.active_projection_bytes - legacyMetrics.active_projection_bytes);
+    expect(migration.previous_transaction_delta.active_projection_bytes!).toBeLessThan(0);
+    expect(migration.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.claim_evidence_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.pending_review_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.logical_state_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.aggregate_total_bytes).toBeNull();
+    expect(taskContextMigrationCommit(root, inline.sourceTuple.revision).status).toBe('no-op');
+    expect(metrics()).toEqual(migration);
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Metrics and migration do not consume review' }).status).toBe('success');
   });
 
   test('compact-v3 durable golden is reader-versioned and independent of YAML writer spelling', () => {

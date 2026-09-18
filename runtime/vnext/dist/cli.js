@@ -58,314 +58,15 @@ function readProjectDocuments(background) {
   return normalizeProjectDocuments(value.sources);
 }
 
-// runtime/vnext/src/task-recovery.ts
-var TASK_RECOVERY_PROTOCOL = {
-  candidate: "correction-replan-candidate/v2",
-  confirmation: "correction-replan-candidate-receipt/v2",
-  modes: ["conclusion-correction", "execution-recovery"],
-  strategies: ["forward-fix", "artifact-restore", "mixed"],
-  routing: ["unrelated", "conclusion-counterevidence", "execution-error", "authority-change"],
-  target_limit: 16,
-  recovery_step_limit: 16,
-  source: "runtime-task-document-source-tuple-basis-and-plan",
-  obligations: "all-old-claim-slots-and-replaced-step-obligations",
-  history: "immutable-definitions-executions-and-content-addressed-evidence",
-  evidence: "evidence-carry-forward/v2-original-anchor-and-current-reception",
-  artifact_checkpoint: "artifact-checkpoint/v1",
-  artifact_completion: "artifact-restore-completion/v1-execution-v2-revalidation-and-exact-targets",
-  artifact_publication: "exact-write-set-journal-rollback-or-fail-closed",
-  concurrency: "shared-governance-write-lock-and-source-cas",
-  authority: "caller-reported-no-permission-expansion",
-  legacy: "readable-explicit-preservation-old-receipts-rejected"
-};
-
-// runtime/vnext/src/evidence-lineage.ts
-import * as crypto from "crypto";
-import * as fs from "fs";
-import * as path from "path";
-var MAX_OBJECT_BYTES = 1024 * 1024;
-var MAX_SNAPSHOT_BYTES = 8 * MAX_OBJECT_BYTES;
-function hash(bytes) {
-  return crypto.createHash("sha256").update(bytes).digest("hex");
-}
-function safeRepositoryFile(root2, relative) {
-  if (!relative || relative.includes("\\") || relative.startsWith("/") || relative.includes(":") || relative.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git" || /[. ]$/.test(part))) {
-    throw new Error("EVIDENCE_OBJECT_PATH_INVALID: expected a bounded repository-relative file.");
-  }
-  let cursor = path.resolve(root2);
-  if (fs.lstatSync(cursor).isSymbolicLink())
-    throw new Error("EVIDENCE_OBJECT_PATH_INVALID: symbolic root.");
-  for (const part of relative.split("/")) {
-    cursor = path.join(cursor, part);
-    try {
-      if (fs.lstatSync(cursor).isSymbolicLink())
-        throw new Error("EVIDENCE_OBJECT_PATH_INVALID: symbolic paths are unsupported.");
-    } catch (error) {
-      if (error.code !== "ENOENT")
-        throw error;
-    }
-  }
-  return cursor;
-}
-function readBounded(file) {
-  const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.size > MAX_OBJECT_BYTES)
-    throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: requires a regular file of at most 1 MiB.");
-  const bytes = fs.readFileSync(file);
-  if (bytes.length > MAX_OBJECT_BYTES)
-    throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: file exceeded the limit while reading.");
-  return bytes;
-}
-function describeEvidenceObjects(root2, paths) {
-  const unique = [...new Set(paths.map((item) => item.split("#")[0]))].sort();
-  if (unique.length > 128)
-    throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: too many snapshot files.");
-  let total = 0;
-  return unique.map((relative) => {
-    const bytes = readBounded(safeRepositoryFile(root2, relative));
-    total += bytes.length;
-    if (total > MAX_SNAPSHOT_BYTES)
-      throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: snapshot exceeds 8 MiB.");
-    return { path: relative, sha256: hash(bytes), size: bytes.length };
-  });
-}
-function objectFile(root2, currentPath, sha) {
-  if (!/^[a-f0-9]{64}$/.test(sha))
-    throw new Error("EVIDENCE_OBJECT_INVALID: invalid digest.");
-  const relative2 = path.relative(root2, path.join(path.dirname(currentPath), "evidence-objects", `${sha}.blob`)).replace(/\\/g, "/");
-  return safeRepositoryFile(root2, relative2);
-}
-function readEvidenceObject(root2, currentPath, object) {
-  verifyEvidenceObject(root2, currentPath, object);
-  return readBounded(objectFile(root2, currentPath, object.sha256));
-}
-function preserveEvidenceObjects(root2, currentPath, objects) {
-  for (const object of objects) {
-    const bytes = readBounded(safeRepositoryFile(root2, object.path));
-    if (hash(bytes) !== object.sha256 || bytes.length !== object.size)
-      throw new Error("EVIDENCE_OBJECT_STALE: source changed before preservation.");
-    const file = objectFile(root2, currentPath, object.sha256);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    if (!fs.existsSync(file)) {
-      const fd = fs.openSync(file, "wx");
-      try {
-        fs.writeFileSync(fd, bytes);
-        fs.fsyncSync(fd);
-      } finally {
-        fs.closeSync(fd);
-      }
-    }
-    verifyEvidenceObject(root2, currentPath, object);
-  }
-}
-function verifyEvidenceObject(root2, currentPath, object) {
-  const bytes = readBounded(objectFile(root2, currentPath, object.sha256));
-  if (hash(bytes) !== object.sha256 || bytes.length !== object.size)
-    throw new Error("EVIDENCE_OBJECT_CORRUPT: immutable evidence object changed.");
-}
-function ingestEvidenceText(root2, currentPath, input, dryRun) {
-  const bytes = Buffer.from(input.body, "utf8");
-  if (!bytes.length || bytes.length > MAX_OBJECT_BYTES || input.source_locator.length > 2048)
-    throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: bounded evidence body and source locator required.");
-  const sha = hash(bytes);
-  const file = objectFile(root2, currentPath, sha);
-  const provenance = JSON.stringify({ kind: "ingested-evidence/v1", ...input, body: undefined, evidence_sha256: sha, assurance: "caller-reported" }) + `
-`;
-  const metadata = objectFile(root2, currentPath, hash(Buffer.from(provenance)));
-  if (!dryRun) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    for (const [target, content] of [[file, bytes], [metadata, Buffer.from(provenance)]]) {
-      if (!fs.existsSync(target)) {
-        const fd = fs.openSync(target, "wx");
-        try {
-          fs.writeFileSync(fd, content);
-          fs.fsyncSync(fd);
-        } finally {
-          fs.closeSync(fd);
-        }
-      }
-      if (!fs.readFileSync(target).equals(content))
-        throw new Error("EVIDENCE_OBJECT_CORRUPT: stored evidence differs.");
-    }
-  }
-  return { evidence_ref: path.relative(root2, file).replace(/\\/g, "/"), evidence_sha256: sha, provenance_ref: path.relative(root2, metadata).replace(/\\/g, "/") };
-}
-
-// runtime/vnext/src/artifact-checkpoints.ts
-import * as crypto2 from "crypto";
-import * as fs2 from "fs";
-import * as path2 from "path";
-function digest(value) {
-  function canonical(item) {
-    if (Array.isArray(item))
-      return item.map(canonical);
-    if (item && typeof item === "object")
-      return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, value]) => [key, canonical(value)]));
-    return item;
-  }
-  return crypto2.createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
-}
-function assertProductPath(root2, currentPath, relative) {
-  const absolute = safeRepositoryFile(root2, relative);
-  const home = path2.dirname(currentPath);
-  const local = path2.relative(home, absolute).replace(/\\/g, "/");
-  if (relative.includes("#") || relative.toLowerCase() === ".gitmodules" || /^(TASKS|\.agents\/skills|\.claude\/skills|\.codex\/skills)(\/|$)/i.test(relative) || /^\.workflow-system(\/|$)/i.test(relative) || path2.resolve(home) !== path2.resolve(root2) && local !== ".." && !local.startsWith("../") || !local.startsWith("../") && (/^(CURRENT_TASK|TASK_BASIS|STATUS|CONTRACTS|DECISIONS|LESSONS|PROJECT_PROFILE)([._/]|$)/i.test(local) || /^(task-history|task-candidates|evidence-objects|archive|archives|\.vnext)/i.test(local))) {
-    throw new Error("ARTIFACT_RESTORE_FORBIDDEN: governance and Runtime installation files cannot be restored.");
-  }
-  let parent = path2.dirname(absolute);
-  while (parent !== path2.resolve(root2)) {
-    if (fs2.existsSync(path2.join(parent, ".git")))
-      throw new Error("ARTIFACT_UNSUPPORTED: submodule files cannot be restored.");
-    parent = path2.dirname(parent);
-  }
-  for (const registry of ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"]) {
-    const file = path2.join(root2, registry);
-    if (fs2.existsSync(file) && fs2.readFileSync(file, "utf8").split(/\r?\n/).some((line) => line.includes(relative) && !/^\s*[-#]*\s*(unfreeze|not frozen)/i.test(line)))
-      throw new Error("ARTIFACT_FROZEN: path is in the freeze registry.");
-  }
-  if (fs2.existsSync(absolute)) {
-    const stat = fs2.lstatSync(absolute);
-    if (!stat.isFile() || stat.size > 1048576)
-      throw new Error("ARTIFACT_UNSUPPORTED: only bounded regular files can be snapshotted.");
-    const content = fs2.readFileSync(absolute);
-    if (content.includes(0) || !Buffer.from(content.toString("utf8")).equals(content))
-      throw new Error("ARTIFACT_UNSUPPORTED: binary baseline cannot be verified.");
-    if (/@frozen|DO NOT MODIFY/i.test(content.subarray(0, 8192).toString("utf8")))
-      throw new Error("ARTIFACT_FROZEN: file has a freeze marker.");
-  }
-  return absolute;
-}
-function captureArtifactImages(root2, currentPath, paths) {
-  const unique = [...new Set(paths)].sort();
-  if (unique.length > 128)
-    throw new Error("ARTIFACT_BUDGET_EXHAUSTED: at most 128 paths.");
-  const present = unique.filter((p) => fs2.existsSync(assertProductPath(root2, currentPath, p)));
-  const objects = describeEvidenceObjects(root2, present);
-  return unique.map((p) => ({ path: p, object: objects.find((object) => object.path === p) ?? null }));
-}
-function checkpointFile(root2, currentPath, documentId, id) {
-  if (!/^doc-[a-f0-9]+$/.test(documentId) || !/^[a-f0-9]{64}$/.test(id))
-    throw new Error("ARTIFACT_CHECKPOINT_INVALID: invalid identity.");
-  return safeRepositoryFile(root2, path2.relative(root2, path2.join(path2.dirname(currentPath), "task-history", documentId, "artifact-checkpoints", `${id}.json`)).replace(/\\/g, "/"));
-}
-function saveArtifactCheckpoint(root2, currentPath, checkpoint, paths, dryRun = false) {
-  const images = captureArtifactImages(root2, currentPath, paths);
-  const payload = { kind: "artifact-checkpoint/v1", ...checkpoint, images };
-  const id = digest(payload);
-  if (dryRun)
-    return id;
-  preserveEvidenceObjects(root2, currentPath, images.flatMap((image) => image.object ? [image.object] : []));
-  const file = checkpointFile(root2, currentPath, checkpoint.document_id, id);
-  fs2.mkdirSync(path2.dirname(file), { recursive: true });
-  const bytes = JSON.stringify(payload) + `
-`;
-  if (!fs2.existsSync(file)) {
-    const fd = fs2.openSync(file, "wx");
-    try {
-      fs2.writeFileSync(fd, bytes);
-      fs2.fsyncSync(fd);
-    } finally {
-      fs2.closeSync(fd);
-    }
-  }
-  if (fs2.readFileSync(file, "utf8") !== bytes)
-    throw new Error("ARTIFACT_CHECKPOINT_CORRUPT: immutable checkpoint changed.");
-  return id;
-}
-function prepareArtifactRestore(root2, currentPath, taskId, documentId, checkpointId, paths) {
-  const file = checkpointFile(root2, currentPath, documentId, checkpointId);
-  const checkpoint = JSON.parse(fs2.readFileSync(file, "utf8"));
-  if (digest(checkpoint) !== checkpointId || checkpoint.kind !== "artifact-checkpoint/v1" || checkpoint.task_id !== taskId || checkpoint.document_id !== documentId || !["before", "after"].includes(checkpoint.phase))
-    throw new Error("ARTIFACT_CHECKPOINT_INVALID: checkpoint identity or bytes differ.");
-  if (!paths.length || new Set(paths).size !== paths.length)
-    throw new Error("ARTIFACT_RESTORE_INVALID: exact nonempty unique paths required.");
-  const targets = [...paths].sort().map((p) => {
-    const target = checkpoint.images.find((image) => image.path === p);
-    if (!target)
-      throw new Error("ARTIFACT_BASELINE_MISSING: path was not captured at this checkpoint.");
-    assertProductPath(root2, currentPath, p);
-    if (target.object)
-      readEvidenceObject(root2, currentPath, target.object);
-    return target;
-  });
-  return { checkpoint_id: checkpointId, checkpoint, expected: captureArtifactImages(root2, currentPath, paths), targets };
-}
-function assertNoArtifactPublication(currentPath) {
-  if (fs2.existsSync(path2.join(path2.dirname(currentPath), ".vnext-artifact-restore.lock")))
-    throw new Error("ARTIFACT_RECOVERY_REQUIRED: interrupted restore is retained; ordinary execution is blocked.");
-}
-function publish(root2, currentPath, image) {
-  const file = assertProductPath(root2, currentPath, image.path);
-  if (!image.object) {
-    if (fs2.existsSync(file))
-      fs2.unlinkSync(file);
-    return;
-  }
-  const bytes = readEvidenceObject(root2, currentPath, image.object);
-  fs2.mkdirSync(path2.dirname(file), { recursive: true });
-  const stage = `${file}.vnext-${crypto2.randomUUID()}.tmp`;
-  const fd = fs2.openSync(stage, "wx");
-  try {
-    fs2.writeFileSync(fd, bytes);
-    fs2.fsyncSync(fd);
-  } finally {
-    fs2.closeSync(fd);
-  }
-  try {
-    fs2.renameSync(stage, file);
-  } finally {
-    if (fs2.existsSync(stage))
-      fs2.unlinkSync(stage);
-  }
-}
-function applyArtifactRestore(root2, currentPath, plan, afterPublish, recordCompletion) {
-  assertNoArtifactPublication(currentPath);
-  if (digest(captureArtifactImages(root2, currentPath, plan.expected.map((image) => image.path))) !== digest(plan.expected))
-    throw new Error("ARTIFACT_RESTORE_STALE: current files differ; user changes were preserved.");
-  preserveEvidenceObjects(root2, currentPath, plan.expected.flatMap((image) => image.object ? [image.object] : []));
-  const lock = path2.join(path2.dirname(currentPath), ".vnext-artifact-restore.lock");
-  const fd = fs2.openSync(lock, "wx");
-  try {
-    fs2.writeFileSync(fd, JSON.stringify({ kind: "artifact-restore-journal/v1", pid: process.pid, plan }) + `
-`);
-    fs2.fsyncSync(fd);
-  } finally {
-    fs2.closeSync(fd);
-  }
-  const applied = [];
-  try {
-    for (const target of plan.targets) {
-      const before = plan.expected.find((image) => image.path === target.path);
-      if (digest(captureArtifactImages(root2, currentPath, [target.path])[0]) !== digest(before))
-        throw new Error("ARTIFACT_RESTORE_STALE: path changed during publication.");
-      publish(root2, currentPath, target);
-      applied.push(target);
-      afterPublish?.();
-    }
-    if (digest(captureArtifactImages(root2, currentPath, plan.targets.map((image) => image.path))) !== digest(plan.targets))
-      throw new Error("ARTIFACT_RESTORE_VERIFY_FAILED: restored files differ.");
-    recordCompletion?.();
-    fs2.unlinkSync(lock);
-  } catch (error) {
-    for (const target of applied.reverse()) {
-      if (digest(captureArtifactImages(root2, currentPath, [target.path])[0]) !== digest(target))
-        throw new Error("ARTIFACT_RECOVERY_REQUIRED: drift during rollback; journal retained.");
-      publish(root2, currentPath, plan.expected.find((image) => image.path === target.path));
-    }
-    if (digest(captureArtifactImages(root2, currentPath, plan.expected.map((image) => image.path))) === digest(plan.expected))
-      fs2.unlinkSync(lock);
-    throw error;
-  }
-}
-
-// runtime/vnext/src/kernel.ts
-import * as crypto10 from "crypto";
-import * as fs10 from "fs";
+// runtime/vnext/src/task-storage-metrics.ts
+import * as fs5 from "node:fs";
+import * as path5 from "node:path";
+import { parse as parse4, stringify as stringify3 } from "yaml";
 
 // runtime/vnext/src/task-projection.ts
-import * as crypto3 from "node:crypto";
-import * as fs3 from "node:fs";
-import * as path3 from "node:path";
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { parse, stringify } from "yaml";
 import { isDeepStrictEqual } from "node:util";
 
@@ -433,7 +134,7 @@ function projectionJson(value) {
     return `{${Object.keys(value).sort().filter((k) => value[k] !== undefined).map((k) => `${JSON.stringify(k)}:${projectionJson(value[k])}`).join(",")}}`;
   return JSON.stringify(value);
 }
-var projectionDigest = (value) => crypto3.createHash("sha256").update(projectionJson(value)).digest("hex");
+var projectionDigest = (value) => crypto.createHash("sha256").update(projectionJson(value)).digest("hex");
 function invalid2(detail) {
   throw new Error(`TASK_PROJECTION_INVALID: ${detail}`);
 }
@@ -516,23 +217,23 @@ ${body}`;
   return { content, expandedContent: expanded, objects: [...objects.values()] };
 }
 function location(filePath, relativePath, documentId) {
-  if (path3.isAbsolute(relativePath) || relativePath.split("/").some((p) => !p || p === "." || p === "..") || !/^doc-[a-f0-9]{24}$/u.test(documentId))
+  if (path.isAbsolute(relativePath) || relativePath.split("/").some((p) => !p || p === "." || p === "..") || !/^doc-[a-f0-9]{24}$/u.test(documentId))
     return invalid2("unsafe task location");
-  let root2 = path3.resolve(filePath);
+  let root2 = path.resolve(filePath);
   for (const _part of relativePath.split("/"))
-    root2 = path3.dirname(root2);
-  if (path3.resolve(root2, relativePath) !== path3.resolve(filePath))
+    root2 = path.dirname(root2);
+  if (path.resolve(root2, relativePath) !== path.resolve(filePath))
     return invalid2("task path mismatch");
-  return { root: root2, directory: path3.join(root2, path3.posix.dirname(relativePath), "task-data", documentId, "objects") };
+  return { root: root2, directory: path.join(root2, path.posix.dirname(relativePath), "task-data", documentId, "objects") };
 }
 function safePath(root2, target) {
-  const relative = path3.relative(root2, target);
-  if (relative.startsWith("..") || path3.isAbsolute(relative))
+  const relative2 = path.relative(root2, target);
+  if (relative2.startsWith("..") || path.isAbsolute(relative2))
     return invalid2("material escapes project");
   let cursor = root2;
-  for (const part of relative.split(path3.sep)) {
-    cursor = path3.join(cursor, part);
-    if (fs3.lstatSync(cursor, { throwIfNoEntry: false })?.isSymbolicLink())
+  for (const part of relative2.split(path.sep)) {
+    cursor = path.join(cursor, part);
+    if (fs.lstatSync(cursor, { throwIfNoEntry: false })?.isSymbolicLink())
       return invalid2("material traverses a symbolic link");
   }
 }
@@ -542,30 +243,30 @@ function persistTaskProjection(prepared, filePath, relativePath) {
   const fm = frontmatterOf(prepared.content).frontmatter;
   const { root: root2, directory } = location(filePath, relativePath, fm.document_id);
   safePath(root2, directory);
-  fs3.mkdirSync(directory, { recursive: true });
+  fs.mkdirSync(directory, { recursive: true });
   for (const object of prepared.objects) {
-    const file = path3.join(directory, `${projectionDigest(object)}.json`);
+    const file = path.join(directory, `${projectionDigest(object)}.json`);
     safePath(root2, file);
     const bytes = `${projectionJson(object)}
 `;
-    if (fs3.existsSync(file)) {
-      if (!fs3.lstatSync(file).isFile() || fs3.readFileSync(file, "utf8") !== bytes)
+    if (fs.existsSync(file)) {
+      if (!fs.lstatSync(file).isFile() || fs.readFileSync(file, "utf8") !== bytes)
         return invalid2("immutable material conflicts");
       continue;
     }
-    const temporary = `${file}.${crypto3.randomUUID()}.tmp`;
+    const temporary = `${file}.${crypto.randomUUID()}.tmp`;
     try {
-      const fd = fs3.openSync(temporary, "wx");
+      const fd = fs.openSync(temporary, "wx");
       try {
-        fs3.writeFileSync(fd, bytes, "utf8");
-        fs3.fsyncSync(fd);
+        fs.writeFileSync(fd, bytes, "utf8");
+        fs.fsyncSync(fd);
       } finally {
-        fs3.closeSync(fd);
+        fs.closeSync(fd);
       }
-      fs3.renameSync(temporary, file);
+      fs.renameSync(temporary, file);
     } finally {
-      if (fs3.existsSync(temporary))
-        fs3.rmSync(temporary);
+      if (fs.existsSync(temporary))
+        fs.rmSync(temporary);
     }
   }
 }
@@ -574,7 +275,7 @@ function expandTaskProjection(raw, filePath, relativePath, prepared) {
   if (fm.task_store?.format !== ACTIVE_TASK_FORMAT)
     return { content: raw, expandedContent: raw, objects: [] };
   const { root: root2, directory } = location(filePath, relativePath, fm.document_id);
-  if (fm.task_store.manifest_path !== `${path3.posix.dirname(relativePath)}/task-data/${fm.document_id}/manifest.json`)
+  if (fm.task_store.manifest_path !== `${path.posix.dirname(relativePath)}/task-data/${fm.document_id}/manifest.json`)
     return invalid2("manifest identity mismatch");
   const supplied = new Map((prepared?.objects ?? []).map((obj) => [projectionDigest(obj), obj]));
   const objects = new Map;
@@ -583,11 +284,11 @@ function expandTaskProjection(raw, filePath, relativePath, prepared) {
       return invalid2("invalid object reference");
     let object = objects.get(ref.sha256) ?? supplied.get(ref.sha256);
     if (!object) {
-      const file = path3.join(directory, `${ref.sha256}.json`);
+      const file = path.join(directory, `${ref.sha256}.json`);
       safePath(root2, file);
-      if (!fs3.existsSync(file) || !fs3.lstatSync(file).isFile())
+      if (!fs.existsSync(file) || !fs.lstatSync(file).isFile())
         return invalid2(`missing material ${ref.sha256}`);
-      object = JSON.parse(fs3.readFileSync(file, "utf8"));
+      object = JSON.parse(fs.readFileSync(file, "utf8"));
     }
     if (!isRecord(object) || object.kind !== "vnext-task-object" || object.schema_version !== 1 || object.document_id !== fm.document_id || object.object_type !== ref.object_type || projectionDigest(object) !== ref.sha256)
       return invalid2("material content/identity mismatch");
@@ -661,19 +362,26 @@ ${body}`;
   return { content: raw, expandedContent, objects: [...objects.values()] };
 }
 
-// runtime/vnext/src/kernel.ts
-import * as path11 from "path";
-import { parseDocument, stringify as stringify3 } from "yaml";
+// runtime/vnext/src/task-store.ts
+import * as crypto3 from "node:crypto";
+import * as fs4 from "node:fs";
+import * as path4 from "node:path";
+import { parse as parse3, stringify as stringify2 } from "yaml";
+
+// runtime/vnext/src/review-preimage-store.ts
+import * as crypto2 from "node:crypto";
+import * as fs3 from "node:fs";
+import * as path3 from "node:path";
 
 // runtime/vnext/src/runtime-io.ts
-import * as fs4 from "fs";
-import * as path4 from "path";
+import * as fs2 from "fs";
+import * as path2 from "path";
 import { parse as parse2 } from "yaml";
 var WORKFLOW_PROFILE_RELATIVE_PATH = ".workflow-system/PROJECT_PROFILE.yaml";
 var heldGovernanceLocks = new Set;
 function assertGovernanceReadable(currentPath) {
-  const lock = path4.join(path4.dirname(currentPath), ".vnext-governance-write.lock");
-  if (fs4.existsSync(lock) && !heldGovernanceLocks.has(lock))
+  const lock = path2.join(path2.dirname(currentPath), ".vnext-governance-write.lock");
+  if (fs2.existsSync(lock) && !heldGovernanceLocks.has(lock))
     throw new Error("GOVERNANCE_WRITE_LOCKED: publication is running or was interrupted; fail closed.");
 }
 function governanceWriteLockIsHeld(root2) {
@@ -684,18 +392,18 @@ function governanceWriteLockIsHeld(root2) {
 function withGovernanceWriteLock(root2, operation) {
   const profile = loadProfile(getWorkflowProfilePath(root2));
   const lock = getWorkflowDocPath(root2, profile, ".vnext-governance-write.lock");
-  fs4.mkdirSync(path4.dirname(lock), { recursive: true });
+  fs2.mkdirSync(path2.dirname(lock), { recursive: true });
   let fd;
   try {
-    fd = fs4.openSync(lock, "wx");
+    fd = fs2.openSync(lock, "wx");
   } catch {
     throw new Error("GOVERNANCE_WRITE_LOCKED: concurrent or interrupted governance publication requires recovery; no writes admitted.");
   }
   let release = true;
   try {
-    fs4.writeFileSync(fd, JSON.stringify({ kind: "governance-write-lock/v1", pid: process.pid }) + `
+    fs2.writeFileSync(fd, JSON.stringify({ kind: "governance-write-lock/v1", pid: process.pid }) + `
 `);
-    fs4.fsyncSync(fd);
+    fs2.fsyncSync(fd);
     heldGovernanceLocks.add(lock);
     const result = operation();
     if (result && typeof result === "object" && "code" in result && result.code === "ROLLBACK_FAILED")
@@ -703,18 +411,18 @@ function withGovernanceWriteLock(root2, operation) {
     return result;
   } finally {
     heldGovernanceLocks.delete(lock);
-    fs4.closeSync(fd);
+    fs2.closeSync(fd);
     if (release)
-      fs4.rmSync(lock);
+      fs2.rmSync(lock);
   }
 }
 function readText(filePath) {
-  if (!fs4.existsSync(filePath))
+  if (!fs2.existsSync(filePath))
     throw new Error("Required file not found: " + filePath);
-  return fs4.readFileSync(filePath, "utf8");
+  return fs2.readFileSync(filePath, "utf8");
 }
 function getWorkflowProfilePath(root2) {
-  return path4.join(path4.resolve(root2), ...WORKFLOW_PROFILE_RELATIVE_PATH.split("/"));
+  return path2.join(path2.resolve(root2), ...WORKFLOW_PROFILE_RELATIVE_PATH.split("/"));
 }
 function loadProfile(profilePath) {
   const profile = parse2(readText(profilePath));
@@ -739,30 +447,30 @@ function normalizeWorkflowHome(value) {
 function getWorkflowDocPath(root2, profile, file) {
   const paths = profile.paths;
   const workflowHome = paths && typeof paths === "object" && !Array.isArray(paths) ? normalizeWorkflowHome(paths.workflow_home) : "";
-  return path4.join(path4.resolve(root2), ...[workflowHome, file].filter(Boolean).join("/").split("/"));
+  return path2.join(path2.resolve(root2), ...[workflowHome, file].filter(Boolean).join("/").split("/"));
 }
-function executeWrites(operations, dryRun, _summary, _prepare, fileSystem = fs4) {
+function executeWrites(operations, dryRun, _summary, _prepare, fileSystem = fs2) {
   if (dryRun || operations.length === 0)
     return;
-  const stagingRoot = fs4.mkdtempSync(path4.join(path4.dirname(path4.resolve(operations[0].path)), ".vnext-runtime-"));
+  const stagingRoot = fs2.mkdtempSync(path2.join(path2.dirname(path2.resolve(operations[0].path)), ".vnext-runtime-"));
   const stagedWrites = [];
   const rollbackEntries = [];
   try {
     for (const [index, operation] of operations.entries()) {
-      const tempPath = path4.join(stagingRoot, "staged", index + ".tmp");
-      fileSystem.mkdirSync(path4.dirname(tempPath), { recursive: true });
+      const tempPath = path2.join(stagingRoot, "staged", index + ".tmp");
+      fileSystem.mkdirSync(path2.dirname(tempPath), { recursive: true });
       fileSystem.writeFileSync(tempPath, operation.content, "utf8");
       stagedWrites.push({ tempPath, targetPath: operation.path });
     }
     for (const [index, staged] of stagedWrites.entries()) {
       let backupPath;
       if (fileSystem.existsSync(staged.targetPath)) {
-        backupPath = path4.join(stagingRoot, "backup", index + ".bak");
-        fileSystem.mkdirSync(path4.dirname(backupPath), { recursive: true });
+        backupPath = path2.join(stagingRoot, "backup", index + ".bak");
+        fileSystem.mkdirSync(path2.dirname(backupPath), { recursive: true });
         fileSystem.renameSync(staged.targetPath, backupPath);
       }
       rollbackEntries.push({ targetPath: staged.targetPath, backupPath });
-      fileSystem.mkdirSync(path4.dirname(staged.targetPath), { recursive: true });
+      fileSystem.mkdirSync(path2.dirname(staged.targetPath), { recursive: true });
       fileSystem.renameSync(staged.tempPath, staged.targetPath);
     }
     fileSystem.rmSync(stagingRoot, { recursive: true, force: true });
@@ -775,7 +483,7 @@ function executeWrites(operations, dryRun, _summary, _prepare, fileSystem = fs4)
       if (fileSystem.existsSync(entry.targetPath))
         fileSystem.rmSync(entry.targetPath, { force: true });
       if (entry.backupPath && fileSystem.existsSync(entry.backupPath)) {
-        fileSystem.mkdirSync(path4.dirname(entry.targetPath), { recursive: true });
+        fileSystem.mkdirSync(path2.dirname(entry.targetPath), { recursive: true });
         fileSystem.renameSync(entry.backupPath, entry.targetPath);
       }
     }
@@ -784,320 +492,7 @@ function executeWrites(operations, dryRun, _summary, _prepare, fileSystem = fs4)
   }
 }
 
-// runtime/vnext/src/task-evolution-io.ts
-import * as crypto4 from "crypto";
-import * as fs5 from "fs";
-import * as path5 from "path";
-function sha256(value) {
-  return crypto4.createHash("sha256").update(value, "utf8").digest("hex");
-}
-function lockPathFor(currentPath) {
-  return path5.join(path5.dirname(currentPath), ".vnext-task-evolution.lock");
-}
-function assertSafeHistoryDirectory(currentPath, directory) {
-  const workflowDirectory = path5.dirname(currentPath);
-  const relative = path5.relative(workflowDirectory, directory);
-  if (!relative || relative.startsWith("..") || path5.isAbsolute(relative)) {
-    throw new Error("TASK_HISTORY_PATH_INVALID: history must stay below the canonical workflow directory.");
-  }
-  let cursor = workflowDirectory;
-  for (const part of relative.split(path5.sep)) {
-    cursor = path5.join(cursor, part);
-    if (fs5.existsSync(cursor) && fs5.lstatSync(cursor).isSymbolicLink()) {
-      throw new Error("TASK_HISTORY_PATH_INVALID: history path cannot traverse a symbolic link.");
-    }
-  }
-}
-function taskHistoryLocation(input) {
-  if (!/^doc-[a-f0-9]+$/u.test(input.documentId))
-    throw new Error("TASK_HISTORY_IDENTITY_INVALID: document ID is invalid.");
-  const revision = sha256(input.previousContent);
-  if (input.basisPath === undefined !== (input.basisContent === undefined)) {
-    throw new Error("TASK_HISTORY_BASIS_INVALID: Task Basis path and bytes must be provided together.");
-  }
-  const basisRelativePath = input.basisPath === undefined ? null : path5.relative(path5.dirname(input.currentPath), input.basisPath);
-  if (basisRelativePath !== null && (!basisRelativePath || basisRelativePath.startsWith("..") || path5.isAbsolute(basisRelativePath))) {
-    throw new Error("TASK_HISTORY_BASIS_INVALID: linked Task Basis must stay inside the canonical workflow directory.");
-  }
-  const basisRevision = input.basisContent === undefined ? null : sha256(input.basisContent);
-  const directory = path5.join(path5.dirname(input.currentPath), "task-history", input.documentId);
-  assertSafeHistoryDirectory(input.currentPath, directory);
-  const historyPath = path5.join(directory, `${revision}.json`);
-  const packageContent = JSON.stringify({
-    schema_version: 1,
-    kind: "vnext-task-definition-history",
-    operation: input.operation ?? "supersede",
-    task_id: input.taskId,
-    document_id: input.documentId,
-    source_path: path5.basename(input.currentPath),
-    source_revision: revision,
-    task_basis_path: basisRelativePath?.replace(/\\/gu, "/") ?? null,
-    task_basis_revision: basisRevision,
-    evidence_plan_revision: input.evidencePlanRevision ?? null,
-    referenced_evidence: [...new Set(input.referencedEvidence ?? [])].sort().map((locator) => ({ locator, preservation: "reference-only; content not snapshotted" })),
-    current_task_base64: Buffer.from(input.previousContent, "utf8").toString("base64"),
-    task_basis_base64: input.basisContent === undefined ? null : Buffer.from(input.basisContent, "utf8").toString("base64")
-  }, null, 2) + `
-`;
-  return {
-    path: historyPath,
-    relativePath: path5.relative(path5.dirname(input.currentPath), historyPath).replace(/\\/gu, "/"),
-    content: packageContent
-  };
-}
-function assertTaskHistoryForRevision(currentPath, documentId, taskId, sourceRevision, operation = "supersede") {
-  if (!/^doc-[a-f0-9]+$/u.test(documentId) || !/^[a-f0-9]{64}$/u.test(sourceRevision)) {
-    throw new Error("TASK_HISTORY_INVALID: replay identity or revision is invalid.");
-  }
-  const directory = path5.join(path5.dirname(currentPath), "task-history", documentId);
-  assertSafeHistoryDirectory(currentPath, directory);
-  const historyPath = path5.join(directory, `${sourceRevision}.json`);
-  if (!fs5.existsSync(historyPath) || !fs5.lstatSync(historyPath).isFile()) {
-    throw new Error("TASK_HISTORY_MISSING: task evolution requires the immutable preimage.");
-  }
-  let history;
-  try {
-    history = JSON.parse(fs5.readFileSync(historyPath, "utf8"));
-  } catch {
-    throw new Error("TASK_HISTORY_INVALID: preimage package is unreadable.");
-  }
-  if (history.schema_version !== 1 || history.kind !== "vnext-task-definition-history" || history.operation !== operation || history.document_id !== documentId || history.task_id !== taskId || history.source_path !== path5.basename(currentPath) || history.source_revision !== sourceRevision || typeof history.current_task_base64 !== "string" || sha256(Buffer.from(history.current_task_base64, "base64").toString("utf8")) !== sourceRevision || history.task_basis_revision === null && (history.task_basis_base64 !== null || history.task_basis_path !== null) || history.task_basis_revision !== null && (typeof history.task_basis_revision !== "string" || typeof history.task_basis_base64 !== "string" || typeof history.task_basis_path !== "string" || sha256(Buffer.from(history.task_basis_base64, "base64").toString("utf8")) !== history.task_basis_revision)) {
-    throw new Error("TASK_HISTORY_INVALID: preimage identity or content digest changed.");
-  }
-}
-function atomicReplace(filePath, content) {
-  const temporaryPath = path5.join(path5.dirname(filePath), `.${path5.basename(filePath)}.${crypto4.randomUUID()}.tmp`);
-  let descriptor;
-  try {
-    descriptor = fs5.openSync(temporaryPath, "wx");
-    fs5.writeFileSync(descriptor, content, "utf8");
-    fs5.fsyncSync(descriptor);
-    fs5.closeSync(descriptor);
-    descriptor = undefined;
-    fs5.renameSync(temporaryPath, filePath);
-  } finally {
-    if (descriptor !== undefined)
-      fs5.closeSync(descriptor);
-    if (fs5.existsSync(temporaryPath))
-      fs5.rmSync(temporaryPath, { force: true });
-  }
-}
-function processIsAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code !== "ESRCH";
-  }
-}
-function parseLock(content, currentPath) {
-  let value;
-  try {
-    value = JSON.parse(content);
-  } catch {
-    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock is unreadable.");
-  }
-  if (value.schema_version !== 1 || !["prepared", "history-written", "current-published"].includes(value.phase ?? "") || !Number.isSafeInteger(value.pid) || !value.pid || value.current_path !== currentPath || ![value.previous_revision, value.next_revision, value.history_revision].every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item)) || typeof value.history_path !== "string" || path5.basename(value.history_path) !== `${value.previous_revision}.json`) {
-    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock is invalid.");
-  }
-  if (value.basis_path !== undefined) {
-    if (typeof value.basis_path !== "string" || !value.basis_path || ![value.previous_basis_revision, value.next_basis_revision].every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item))) {
-      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock basis binding is invalid.");
-    }
-    const relative = path5.relative(path5.dirname(currentPath), value.basis_path);
-    if (!relative || relative.startsWith("..") || path5.isAbsolute(relative))
-      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: Task Basis path escapes workflow directory.");
-    assertSafeHistoryDirectory(currentPath, path5.dirname(value.basis_path));
-  } else if (value.previous_basis_revision !== undefined || value.next_basis_revision !== undefined) {
-    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock has incomplete Task Basis binding.");
-  }
-  const historyDirectory = path5.dirname(value.history_path);
-  assertSafeHistoryDirectory(currentPath, historyDirectory);
-  if (path5.dirname(historyDirectory) !== path5.join(path5.dirname(currentPath), "task-history")) {
-    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock history path is not canonical.");
-  }
-  return value;
-}
-function recoverTaskEvolution(currentPath) {
-  const lockPath = lockPathFor(currentPath);
-  if (!fs5.existsSync(lockPath))
-    return;
-  const lock = parseLock(fs5.readFileSync(lockPath, "utf8"), currentPath);
-  if (processIsAlive(lock.pid)) {
-    throw new Error("TASK_EVOLUTION_IN_PROGRESS: another process owns the task evolution lock.");
-  }
-  if (!fs5.existsSync(currentPath)) {
-    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: CURRENT_TASK is missing after an interrupted evolution.");
-  }
-  const currentRevision = sha256(fs5.readFileSync(currentPath, "utf8"));
-  if (currentRevision !== lock.previous_revision && currentRevision !== lock.next_revision) {
-    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: CURRENT_TASK is neither the old nor the new recorded revision.");
-  }
-  if (fs5.existsSync(lock.history_path)) {
-    if (sha256(fs5.readFileSync(lock.history_path, "utf8")) !== lock.history_revision) {
-      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history bytes changed after interruption.");
-    }
-  } else if (currentRevision === lock.next_revision) {
-    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: new CURRENT_TASK is visible without its required history.");
-  }
-  if (lock.basis_path) {
-    if (!fs5.existsSync(lock.basis_path))
-      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: linked Task Basis is missing.");
-    const basisRevision = sha256(fs5.readFileSync(lock.basis_path, "utf8"));
-    if (basisRevision !== lock.previous_basis_revision && basisRevision !== lock.next_basis_revision) {
-      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: linked Task Basis is neither old nor new revision.");
-    }
-    if (currentRevision !== lock.next_revision || basisRevision !== lock.next_basis_revision) {
-      if (basisRevision === lock.next_basis_revision) {
-        if (!fs5.existsSync(lock.history_path))
-          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: cannot restore Task Basis without history.");
-        const history = JSON.parse(fs5.readFileSync(lock.history_path, "utf8"));
-        if (!history.task_basis_base64)
-          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history lacks old Task Basis bytes.");
-        const oldBasis = Buffer.from(history.task_basis_base64, "base64").toString("utf8");
-        if (sha256(oldBasis) !== lock.previous_basis_revision || history.task_basis_revision !== lock.previous_basis_revision) {
-          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history Task Basis preimage is invalid.");
-        }
-        atomicReplace(lock.basis_path, oldBasis);
-      }
-      if (currentRevision === lock.next_revision) {
-        const history = JSON.parse(fs5.readFileSync(lock.history_path, "utf8"));
-        if (!history.current_task_base64)
-          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history lacks old CURRENT_TASK bytes.");
-        const oldCurrent = Buffer.from(history.current_task_base64, "base64").toString("utf8");
-        if (sha256(oldCurrent) !== lock.previous_revision)
-          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history CURRENT_TASK preimage is invalid.");
-        atomicReplace(currentPath, oldCurrent);
-      }
-    }
-  }
-  fs5.rmSync(lockPath);
-}
-function commitTaskEvolutionWithHistory(input, verifyNext, afterBasisPublished) {
-  recoverTaskEvolution(input.currentPath);
-  const history = taskHistoryLocation(input);
-  const previousRevision = sha256(input.previousContent);
-  const nextRevision = sha256(input.nextContent);
-  const lock = {
-    schema_version: 1,
-    phase: "prepared",
-    pid: process.pid,
-    current_path: input.currentPath,
-    previous_revision: previousRevision,
-    next_revision: nextRevision,
-    history_path: history.path,
-    history_revision: sha256(history.content),
-    ...input.nextBasisContent === undefined ? {} : {
-      basis_path: input.basisPath,
-      previous_basis_revision: sha256(input.basisContent),
-      next_basis_revision: sha256(input.nextBasisContent)
-    }
-  };
-  const lockPath = lockPathFor(input.currentPath);
-  let descriptor;
-  let ownsLock = false;
-  try {
-    descriptor = fs5.openSync(lockPath, "wx");
-    ownsLock = true;
-    fs5.writeFileSync(descriptor, JSON.stringify(lock) + `
-`, "utf8");
-    fs5.fsyncSync(descriptor);
-    fs5.closeSync(descriptor);
-    descriptor = undefined;
-    if (!fs5.existsSync(input.currentPath) || sha256(fs5.readFileSync(input.currentPath, "utf8")) !== previousRevision) {
-      throw new Error("TASK_EVOLUTION_SOURCE_STALE: CURRENT_TASK changed before the evolution lock was acquired.");
-    }
-    if (input.basisPath !== undefined && input.basisContent !== undefined && (!fs5.existsSync(input.basisPath) || sha256(fs5.readFileSync(input.basisPath, "utf8")) !== sha256(input.basisContent))) {
-      throw new Error("TASK_EVOLUTION_BASIS_STALE: Task Basis changed before the evolution lock was acquired.");
-    }
-    fs5.mkdirSync(path5.dirname(history.path), { recursive: true });
-    assertSafeHistoryDirectory(input.currentPath, path5.dirname(history.path));
-    if (fs5.existsSync(history.path)) {
-      if (fs5.readFileSync(history.path, "utf8") !== history.content) {
-        throw new Error("TASK_HISTORY_CONFLICT: existing source revision has different bytes.");
-      }
-    } else {
-      atomicReplace(history.path, history.content);
-    }
-    if (fs5.readFileSync(history.path, "utf8") !== history.content) {
-      throw new Error("TASK_HISTORY_READ_BACK_FAILED: history bytes differ after write.");
-    }
-    atomicReplace(lockPath, JSON.stringify({ ...lock, phase: "history-written" }) + `
-`);
-    if (input.nextBasisContent !== undefined) {
-      if (!input.basisPath || input.basisContent === undefined)
-        throw new Error("TASK_EVOLUTION_BASIS_INVALID: new Task Basis requires its exact old binding.");
-      atomicReplace(input.basisPath, input.nextBasisContent);
-      if (fs5.readFileSync(input.basisPath, "utf8") !== input.nextBasisContent)
-        throw new Error("TASK_EVOLUTION_BASIS_READ_BACK_FAILED: Task Basis bytes differ after write.");
-      afterBasisPublished?.();
-    }
-    atomicReplace(input.currentPath, input.nextContent);
-    const readBack = fs5.readFileSync(input.currentPath, "utf8");
-    if (sha256(readBack) !== nextRevision) {
-      throw new Error("TASK_EVOLUTION_READ_BACK_FAILED: CURRENT_TASK bytes differ after write.");
-    }
-    atomicReplace(lockPath, JSON.stringify({ ...lock, phase: "current-published" }) + `
-`);
-    verifyNext(readBack);
-    fs5.rmSync(lockPath);
-    return history;
-  } catch (error) {
-    if (descriptor !== undefined)
-      fs5.closeSync(descriptor);
-    if (ownsLock && fs5.existsSync(input.currentPath) && sha256(fs5.readFileSync(input.currentPath, "utf8")) === nextRevision) {
-      try {
-        atomicReplace(input.currentPath, input.previousContent);
-      } catch {}
-    }
-    if (ownsLock && input.basisPath && input.basisContent !== undefined && input.nextBasisContent !== undefined && fs5.existsSync(input.basisPath) && sha256(fs5.readFileSync(input.basisPath, "utf8")) === sha256(input.nextBasisContent)) {
-      try {
-        atomicReplace(input.basisPath, input.basisContent);
-      } catch {}
-    }
-    if (ownsLock && fs5.existsSync(input.currentPath) && sha256(fs5.readFileSync(input.currentPath, "utf8")) === previousRevision && (input.nextBasisContent === undefined || input.basisPath && fs5.existsSync(input.basisPath) && sha256(fs5.readFileSync(input.basisPath, "utf8")) === sha256(input.basisContent)) && fs5.existsSync(lockPath)) {
-      fs5.rmSync(lockPath);
-    }
-    throw error;
-  }
-}
-function commitSupersedeWithHistory(input, verifyNext) {
-  return commitTaskEvolutionWithHistory({ ...input, operation: "supersede" }, verifyNext);
-}
-function publishPreparedSuccessor(currentPath, previousContent, nextContent, artifacts, prepareAggregate) {
-  if (fs5.readFileSync(currentPath, "utf8") !== previousContent) {
-    throw new Error("SUCCESSOR_SOURCE_STALE: predecessor changed before publication.");
-  }
-  for (const artifact of artifacts) {
-    if (fs5.existsSync(artifact.path)) {
-      if (!fs5.lstatSync(artifact.path).isFile() || fs5.readFileSync(artifact.path, "utf8") !== artifact.content) {
-        throw new Error("SUCCESSOR_HISTORY_CONFLICT: immutable prerequisite has different bytes.");
-      }
-      continue;
-    }
-    fs5.mkdirSync(path5.dirname(artifact.path), { recursive: true });
-    atomicReplace(artifact.path, artifact.content);
-    if (fs5.readFileSync(artifact.path, "utf8") !== artifact.content)
-      throw new Error("SUCCESSOR_READ_BACK_FAILED: prerequisite differs.");
-  }
-  prepareAggregate();
-  if (fs5.readFileSync(currentPath, "utf8") !== previousContent)
-    throw new Error("SUCCESSOR_SOURCE_STALE: predecessor changed while preparing dependencies.");
-  atomicReplace(currentPath, nextContent);
-  if (fs5.readFileSync(currentPath, "utf8") !== nextContent)
-    throw new Error("SUCCESSOR_READ_BACK_FAILED: published draft differs.");
-}
-
-// runtime/vnext/src/task-store.ts
-import * as crypto6 from "node:crypto";
-import * as fs7 from "node:fs";
-import * as path7 from "node:path";
-import { parse as parse3, stringify as stringify2 } from "yaml";
-
 // runtime/vnext/src/review-preimage-store.ts
-import * as crypto5 from "node:crypto";
-import * as fs6 from "node:fs";
-import * as path6 from "node:path";
 var SHA256 = /^[a-f0-9]{64}$/u;
 var REVIEW_PREIMAGE_DIRECTORY = "review-preimages";
 
@@ -1115,21 +510,21 @@ function assertDigest(value) {
   return value;
 }
 function relativePath(root2, target) {
-  const resolvedRoot = path6.resolve(root2);
-  const resolvedTarget = path6.resolve(target);
-  const relative = path6.relative(resolvedRoot, resolvedTarget).replace(/\\/gu, "/");
-  if (!relative || relative === ".." || relative.startsWith("../") || path6.isAbsolute(relative)) {
+  const resolvedRoot = path3.resolve(root2);
+  const resolvedTarget = path3.resolve(target);
+  const relative = path3.relative(resolvedRoot, resolvedTarget).replace(/\\/gu, "/");
+  if (!relative || relative === ".." || relative.startsWith("../") || path3.isAbsolute(relative)) {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_PATH_INVALID", "review preimage storage path escapes the project root.");
   }
   return relative;
 }
 function assertNoSymlink(root2, target) {
   const relative = relativePath(root2, target);
-  let cursor = path6.resolve(root2);
+  let cursor = path3.resolve(root2);
   for (const component of relative.split("/")) {
-    cursor = path6.join(cursor, component);
+    cursor = path3.join(cursor, component);
     try {
-      if (fs6.lstatSync(cursor).isSymbolicLink()) {
+      if (fs3.lstatSync(cursor).isSymbolicLink()) {
         throw new ReviewPreimageStoreError("REVIEW_BASELINE_PATH_INVALID", `review preimage storage traverses a symbolic link: ${relative}`);
       }
     } catch (error) {
@@ -1148,22 +543,22 @@ function reviewPreimageDirectory(root2) {
 function reviewPreimageBlobPath(root2, sha256) {
   const digest = assertDigest(sha256);
   const directory = reviewPreimageDirectory(root2);
-  const file = path6.join(directory, `${digest}.blob`);
+  const file = path3.join(directory, `${digest}.blob`);
   assertNoSymlink(root2, file);
   return file;
 }
 function verifyContent(digest, content) {
-  if (sha2562(content) !== digest) {
+  if (sha256(content) !== digest) {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_HASH_MISMATCH", `review preimage bytes do not match ${digest}.`);
   }
 }
-function sha2562(content) {
-  return crypto5.createHash("sha256").update(content).digest("hex");
+function sha256(content) {
+  return crypto2.createHash("sha256").update(content).digest("hex");
 }
 function verifyExistingBlob(file, digest, expected) {
   let stat;
   try {
-    stat = fs6.lstatSync(file);
+    stat = fs3.lstatSync(file);
   } catch (error) {
     if (error.code === "ENOENT")
       throw new ReviewPreimageStoreError("REVIEW_BASELINE_MISSING", `review preimage blob is missing: ${digest}.blob`);
@@ -1173,7 +568,7 @@ function verifyExistingBlob(file, digest, expected) {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob is not a regular file: ${digest}.blob`);
   let content;
   try {
-    content = fs6.readFileSync(file);
+    content = fs3.readFileSync(file);
   } catch {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob cannot be read: ${digest}.blob`);
   }
@@ -1185,29 +580,29 @@ function persistReviewPreimage(root2, digest, content) {
   const address = assertDigest(digest);
   verifyContent(address, content);
   const directory = reviewPreimageDirectory(root2);
-  fs6.mkdirSync(directory, { recursive: true });
+  fs3.mkdirSync(directory, { recursive: true });
   assertNoSymlink(root2, directory);
   const file = reviewPreimageBlobPath(root2, address);
-  if (fs6.existsSync(file)) {
+  if (fs3.existsSync(file)) {
     verifyExistingBlob(file, address, content);
     return;
   }
-  const temporary = path6.join(directory, `.${address}.${crypto5.randomUUID()}.tmp`);
+  const temporary = path3.join(directory, `.${address}.${crypto2.randomUUID()}.tmp`);
   let descriptor;
   try {
-    descriptor = fs6.openSync(temporary, "wx");
-    fs6.writeFileSync(descriptor, content);
-    fs6.fsyncSync(descriptor);
-    fs6.closeSync(descriptor);
+    descriptor = fs3.openSync(temporary, "wx");
+    fs3.writeFileSync(descriptor, content);
+    fs3.fsyncSync(descriptor);
+    fs3.closeSync(descriptor);
     descriptor = undefined;
     try {
-      fs6.renameSync(temporary, file);
+      fs3.renameSync(temporary, file);
     } catch (error) {
-      if (!fs6.existsSync(file))
+      if (!fs3.existsSync(file))
         throw error;
       verifyExistingBlob(file, address, content);
     }
-    if (!fs6.existsSync(file))
+    if (!fs3.existsSync(file))
       throw new ReviewPreimageStoreError("REVIEW_BASELINE_PERSISTENCE_FAILED", `review preimage blob was not published: ${address}.blob`);
     verifyExistingBlob(file, address, content);
   } catch (error) {
@@ -1217,12 +612,12 @@ function persistReviewPreimage(root2, digest, content) {
   } finally {
     if (descriptor !== undefined) {
       try {
-        fs6.closeSync(descriptor);
+        fs3.closeSync(descriptor);
       } catch {}
     }
-    if (fs6.existsSync(temporary)) {
+    if (fs3.existsSync(temporary)) {
       try {
-        fs6.unlinkSync(temporary);
+        fs3.unlinkSync(temporary);
       } catch {}
     }
   }
@@ -1245,7 +640,7 @@ function readReviewPreimageBlob(root2, digest) {
   const file = reviewPreimageBlobPath(root2, address);
   let stat;
   try {
-    stat = fs6.lstatSync(file);
+    stat = fs3.lstatSync(file);
   } catch (error) {
     if (error.code === "ENOENT")
       throw new ReviewPreimageStoreError("REVIEW_BASELINE_MISSING", `review preimage blob is missing: ${address}.blob`);
@@ -1255,11 +650,11 @@ function readReviewPreimageBlob(root2, digest) {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob is not a regular file: ${address}.blob`);
   let content;
   try {
-    content = fs6.readFileSync(file);
+    content = fs3.readFileSync(file);
   } catch {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob cannot be read: ${address}.blob`);
   }
-  if (sha2562(content) !== address)
+  if (sha256(content) !== address)
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_HASH_MISMATCH", `review preimage blob hash does not match ${address}.blob`);
   return content;
 }
@@ -1352,11 +747,11 @@ function stableValue(value) {
 function stableJson(value) {
   return JSON.stringify(stableValue(value));
 }
-function sha2563(value) {
-  return crypto6.createHash("sha256").update(value).digest("hex");
+function sha2562(value) {
+  return crypto3.createHash("sha256").update(value).digest("hex");
 }
-function digest2(value) {
-  return sha2563(stableJson(value));
+function digest(value) {
+  return sha2562(stableJson(value));
 }
 function assertDocumentId(value) {
   if (!DOCUMENT_ID.test(value))
@@ -1370,11 +765,11 @@ function normalizeRelative(value, label) {
   return normalized;
 }
 function workflowHomeForRoot(root2) {
-  const profilePath = path7.join(root2, ".workflow-system", "PROJECT_PROFILE.yaml");
-  if (!fs7.existsSync(profilePath))
+  const profilePath = path4.join(root2, ".workflow-system", "PROJECT_PROFILE.yaml");
+  if (!fs4.existsSync(profilePath))
     return "docs/workflow";
   try {
-    const parsed = parse3(fs7.readFileSync(profilePath, "utf8"));
+    const parsed = parse3(fs4.readFileSync(profilePath, "utf8"));
     const paths = record2(parsed?.paths) ? parsed.paths : {};
     const value = typeof paths.workflow_home === "string" ? paths.workflow_home.trim() : "docs/workflow";
     return value ? normalizeRelative(value, "workflow_home").replace(/\/$/u, "") : "";
@@ -1383,15 +778,15 @@ function workflowHomeForRoot(root2) {
   }
 }
 function taskStorePaths(rootInput, documentId) {
-  const root2 = path7.resolve(rootInput);
+  const root2 = path4.resolve(rootInput);
   assertDocumentId(documentId);
   const workflowHome = workflowHomeForRoot(root2);
-  const relativeRoot = normalizeRelative(path7.posix.join(workflowHome, "task-data", documentId), "task store root");
+  const relativeRoot = normalizeRelative(path4.posix.join(workflowHome, "task-data", documentId), "task store root");
   assertNoSymlink2(root2, relativeRoot);
-  const directory = path7.join(root2, ...relativeRoot.split("/"));
-  const objects = path7.join(directory, "objects");
-  const events = path7.join(directory, "events");
-  const indexes = path7.join(directory, "indexes");
+  const directory = path4.join(root2, ...relativeRoot.split("/"));
+  const objects = path4.join(directory, "objects");
+  const events = path4.join(directory, "events");
+  const indexes = path4.join(directory, "indexes");
   return {
     root: root2,
     workflowHome,
@@ -1401,27 +796,27 @@ function taskStorePaths(rootInput, documentId) {
     objects,
     events,
     indexes,
-    manifest: path7.join(directory, TASK_STORE_MANIFEST_FILE),
-    pending: path7.join(indexes, "pending.json"),
-    idempotencyIndex: path7.join(indexes, "idempotency.jsonl"),
-    legacyIdempotencyIndex: path7.join(indexes, "idempotency.json"),
-    eventIndex: path7.join(indexes, "events.jsonl"),
-    legacyEventIndex: path7.join(indexes, "events.json")
+    manifest: path4.join(directory, TASK_STORE_MANIFEST_FILE),
+    pending: path4.join(indexes, "pending.json"),
+    idempotencyIndex: path4.join(indexes, "idempotency.jsonl"),
+    legacyIdempotencyIndex: path4.join(indexes, "idempotency.json"),
+    eventIndex: path4.join(indexes, "events.jsonl"),
+    legacyEventIndex: path4.join(indexes, "events.json")
   };
 }
 function relativePath2(root2, value) {
-  const relative = path7.relative(root2, value).replace(/\\/gu, "/");
-  if (!relative || relative.startsWith("../") || path7.isAbsolute(relative)) {
+  const relative = path4.relative(root2, value).replace(/\\/gu, "/");
+  if (!relative || relative.startsWith("../") || path4.isAbsolute(relative)) {
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", `path escapes project root: ${value}`);
   }
   return relative;
 }
 function assertNoSymlink2(root2, relative) {
-  let cursor = path7.resolve(root2);
+  let cursor = path4.resolve(root2);
   for (const part of relative.split("/").filter(Boolean)) {
-    cursor = path7.join(cursor, part);
+    cursor = path4.join(cursor, part);
     try {
-      if (fs7.lstatSync(cursor).isSymbolicLink())
+      if (fs4.lstatSync(cursor).isSymbolicLink())
         throw new TaskStoreError("TASK_STORE_PATH_INVALID", `task store path traverses a symbolic link: ${relative}`);
     } catch (error) {
       if (error.code !== "ENOENT")
@@ -1430,22 +825,22 @@ function assertNoSymlink2(root2, relative) {
   }
 }
 function atomicWrite(filePath, content, sync = true) {
-  fs7.mkdirSync(path7.dirname(filePath), { recursive: true });
-  const temporary = path7.join(path7.dirname(filePath), `.${path7.basename(filePath)}.${crypto6.randomUUID()}.tmp`);
+  fs4.mkdirSync(path4.dirname(filePath), { recursive: true });
+  const temporary = path4.join(path4.dirname(filePath), `.${path4.basename(filePath)}.${crypto3.randomUUID()}.tmp`);
   let fd;
   try {
-    fd = fs7.openSync(temporary, "wx");
-    fs7.writeFileSync(fd, content, "utf8");
+    fd = fs4.openSync(temporary, "wx");
+    fs4.writeFileSync(fd, content, "utf8");
     if (sync)
-      fs7.fsyncSync(fd);
-    fs7.closeSync(fd);
+      fs4.fsyncSync(fd);
+    fs4.closeSync(fd);
     fd = undefined;
-    fs7.renameSync(temporary, filePath);
+    fs4.renameSync(temporary, filePath);
   } finally {
     if (fd !== undefined)
-      fs7.closeSync(fd);
-    if (fs7.existsSync(temporary))
-      fs7.rmSync(temporary, { force: true });
+      fs4.closeSync(fd);
+    if (fs4.existsSync(temporary))
+      fs4.rmSync(temporary, { force: true });
   }
 }
 function writeJson(filePath, value, sync = true) {
@@ -1453,20 +848,20 @@ function writeJson(filePath, value, sync = true) {
 `, sync);
 }
 function writePrecommitFile(filePath, content, committed, conflictCode, label) {
-  fs7.mkdirSync(path7.dirname(filePath), { recursive: true });
-  if (fs7.existsSync(filePath)) {
-    const existing = fs7.readFileSync(filePath, "utf8");
+  fs4.mkdirSync(path4.dirname(filePath), { recursive: true });
+  if (fs4.existsSync(filePath)) {
+    const existing = fs4.readFileSync(filePath, "utf8");
     if (existing === content)
       return;
     if (committed())
       throw new TaskStoreError(conflictCode, `${label} has different bytes after it was committed.`);
-    fs7.rmSync(filePath, { force: true });
+    fs4.rmSync(filePath, { force: true });
   }
-  fs7.writeFileSync(filePath, content, "utf8");
+  fs4.writeFileSync(filePath, content, "utf8");
 }
 function readJson(filePath) {
   try {
-    return JSON.parse(fs7.readFileSync(filePath, "utf8"));
+    return JSON.parse(fs4.readFileSync(filePath, "utf8"));
   } catch (error) {
     throw new TaskStoreError("TASK_STORE_MANIFEST_INVALID", `${filePath} is not readable JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -1586,8 +981,8 @@ function stateSnapshotPayload(current) {
       return item;
     const slots = Array.isArray(item.slots) ? item.slots.filter(record2).map((slot) => ({
       ...copyWithout(slot, ["report", "prerequisite_receipt"]),
-      report_digest: slot.report === undefined ? null : digest2(slot.report),
-      prerequisite_receipt_digest: slot.prerequisite_receipt === undefined ? null : digest2(slot.prerequisite_receipt)
+      report_digest: slot.report === undefined ? null : digest(slot.report),
+      prerequisite_receipt_digest: slot.prerequisite_receipt === undefined ? null : digest(slot.prerequisite_receipt)
     })) : [];
     return { ...copyWithout(item, ["slots"]), slots };
   }) : [];
@@ -1630,7 +1025,7 @@ var appliedProposalCaches = new Map;
 var indexFileCaches = new Map;
 var idempotencyEventCaches = new Map;
 function committedObjectCacheKey(paths) {
-  return path7.resolve(paths.directory);
+  return path4.resolve(paths.directory);
 }
 function addObjectReferences(hashes, references) {
   for (const reference of references) {
@@ -1672,7 +1067,7 @@ function rememberCommittedObjectReferences(paths, manifest, references) {
   committedObjectCaches.set(key, next);
 }
 function idempotencyEventCacheKey(paths) {
-  return path7.resolve(paths.directory);
+  return path4.resolve(paths.directory);
 }
 function loadIdempotencyEventCache(paths, manifest) {
   const key = idempotencyEventCacheKey(paths);
@@ -1683,7 +1078,7 @@ function loadIdempotencyEventCache(paths, manifest) {
   for (const event of committedEventFiles(paths, manifest, true)) {
     if (!event.idempotency_key || !event.proposal_digest)
       continue;
-    const relative = path7.posix.join(paths.relativeRoot, "events", `${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`);
+    const relative = path4.posix.join(paths.relativeRoot, "events", `${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`);
     const indexEntry = {
       idempotency_key: event.idempotency_key,
       operation_kind: event.operation_kind,
@@ -1714,16 +1109,16 @@ function rememberIdempotencyMatches(paths, manifest, matches) {
   }
   idempotencyEventCaches.set(key, next);
 }
-function objectFile2(paths, sha) {
+function objectFile(paths, sha) {
   if (!SHA2562.test(sha))
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", "object reference is not a SHA-256 digest.");
-  return path7.join(paths.objects, `${sha}.json`);
+  return path4.join(paths.objects, `${sha}.json`);
 }
 function eventFile(paths, sequence, eventHash) {
   if (!Number.isSafeInteger(sequence) || sequence < 1 || !SHA2562.test(eventHash)) {
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", "event reference is invalid.");
   }
-  return path7.join(paths.events, `${String(sequence).padStart(12, "0")}-${eventHash}.json`);
+  return path4.join(paths.events, `${String(sequence).padStart(12, "0")}-${eventHash}.json`);
 }
 function assertObjectReference(value, location) {
   if (!record2(value) || typeof value.sha256 !== "string" || !SHA2562.test(value.sha256) || typeof value.object_type !== "string" || !TASK_STORE_OBJECT_TYPES.has(value.object_type)) {
@@ -1798,7 +1193,7 @@ function validateEvent(value, paths, expectedPath) {
     throw new TaskStoreError("TASK_STORE_EVENT_INVALID", `${expectedPath ?? "event"}.event_hash is invalid.`);
   const unsigned = { ...value };
   delete unsigned.event_hash;
-  if (sha2563(stableJson(unsigned)) !== value.event_hash)
+  if (sha2562(stableJson(unsigned)) !== value.event_hash)
     throw new TaskStoreError("TASK_STORE_EVENT_INVALID", `${expectedPath ?? "event"} event_hash does not match its content.`);
   const eventType = value.event_type;
   if (eventType !== "legacy-import" && eventType !== "transaction" && eventType !== "external-current-sync" && eventType !== "storage-migration")
@@ -1820,10 +1215,10 @@ function readEventFile(paths, name) {
     throw new TaskStoreError("TASK_STORE_EVENT_INVALID", `event filename is invalid: ${name}`);
   const sequence = Number(match[1]);
   const eventHash = match[2];
-  const relative = path7.posix.join(paths.relativeRoot, "events", name);
-  const file = path7.join(paths.events, name);
+  const relative = path4.posix.join(paths.relativeRoot, "events", name);
+  const file = path4.join(paths.events, name);
   assertNoSymlink2(paths.root, relative);
-  if (!fs7.existsSync(file))
+  if (!fs4.existsSync(file))
     throw new TaskStoreError("TASK_STORE_EVENT_MISSING", `event is missing: ${relative}`);
   const event = validateEvent(readJson(file), paths, relative);
   if (event.sequence !== sequence || event.event_hash !== eventHash) {
@@ -1836,16 +1231,16 @@ function committedEventFiles(paths, manifest, useCache = false) {
   if (headSequence === 0)
     return [];
   const cacheKey = committedObjectCacheKey(paths);
-  if (!fs7.existsSync(paths.events))
+  if (!fs4.existsSync(paths.events))
     throw new TaskStoreError("TASK_STORE_EVENT_MISSING", "the committed event directory is missing.");
   assertNoSymlink2(paths.root, relativePath2(paths.root, paths.events));
-  const directoryStat = fs7.statSync(paths.events);
+  const directoryStat = fs4.statSync(paths.events);
   const directorySignature = `${directoryStat.size}:${directoryStat.mtimeMs}:${directoryStat.ctimeMs}`;
   const cached = useCache ? committedEventCaches.get(cacheKey) : undefined;
   if (cached && cached.eventSequence === headSequence && cached.eventHash === manifest.head.event_hash && cached.directorySignature === directorySignature)
     return cached.events;
   const bySequence = new Map;
-  for (const entry of fs7.readdirSync(paths.events, { withFileTypes: true })) {
+  for (const entry of fs4.readdirSync(paths.events, { withFileTypes: true })) {
     if (!entry.isFile())
       continue;
     const match = EVENT_FILE.exec(entry.name);
@@ -1854,9 +1249,9 @@ function committedEventFiles(paths, manifest, useCache = false) {
     const sequence = Number(match[1]);
     if (sequence > headSequence)
       continue;
-    const file = path7.join(paths.events, entry.name);
+    const file = path4.join(paths.events, entry.name);
     assertNoSymlink2(paths.root, relativePath2(paths.root, file));
-    const stat = fs7.statSync(file);
+    const stat = fs4.statSync(file);
     const names = bySequence.get(sequence) ?? [];
     names.push({ name: entry.name, signature: `${entry.name}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` });
     bySequence.set(sequence, names);
@@ -1911,7 +1306,7 @@ function validateObject(value, paths, sha) {
   if (!record2(value) || value.schema_version !== 1 || value.kind !== TASK_OBJECT_KIND || value.document_id !== paths.documentId || typeof value.object_type !== "string" || !TASK_STORE_OBJECT_TYPES.has(value.object_type) || !("payload" in value)) {
     throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `object ${sha} has an invalid envelope.`);
   }
-  if (digest2(value) !== sha)
+  if (digest(value) !== sha)
     throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `object ${sha} content hash does not match its filename.`);
   return value;
 }
@@ -1924,7 +1319,7 @@ function historyRawFromObject(object, sourceRevision) {
   if (typeof payload.raw_base64 === "string") {
     const rawBytes = Buffer.from(payload.raw_base64, "base64");
     const expectedDigest = typeof payload.raw_sha256 === "string" ? payload.raw_sha256 : sourceRevision;
-    if (sha2563(rawBytes) !== expectedDigest || expectedDigest !== sourceRevision) {
+    if (sha2562(rawBytes) !== expectedDigest || expectedDigest !== sourceRevision) {
       throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `retained history preimage digest does not match ${sourceRevision}.`);
     }
     return rawBytes.toString("utf8");
@@ -1932,7 +1327,7 @@ function historyRawFromObject(object, sourceRevision) {
   if (typeof payload.package_base64 !== "string")
     return null;
   const packageBytes = Buffer.from(payload.package_base64, "base64");
-  if (typeof payload.package_sha256 === "string" && sha2563(packageBytes) !== payload.package_sha256) {
+  if (typeof payload.package_sha256 === "string" && sha2562(packageBytes) !== payload.package_sha256) {
     throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `history material package digest does not match ${sourceRevision}.`);
   }
   let packageValue;
@@ -1945,7 +1340,7 @@ function historyRawFromObject(object, sourceRevision) {
     throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `history material package ${sourceRevision} has an invalid preimage envelope.`);
   }
   const currentBytes = Buffer.from(packageValue.current_task_base64, "base64");
-  if (sha2563(currentBytes) !== sourceRevision)
+  if (sha2562(currentBytes) !== sourceRevision)
     throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `history material preimage digest does not match ${sourceRevision}.`);
   return currentBytes.toString("utf8");
 }
@@ -1997,10 +1392,10 @@ function nowIso(value) {
   return result;
 }
 function proposalDigest(value) {
-  return value === undefined ? null : digest2(value);
+  return value === undefined ? null : digest(value);
 }
 function optionalDigest(value) {
-  return value === undefined ? null : digest2(value);
+  return value === undefined ? null : digest(value);
 }
 function linkedTaskBasisReference(body) {
   const match = /##\s+(?:任务输入依据|Task Basis)\s*\r?\n\s*\r?\n-\s*path:\s*`([^`]+)`\s*\r?\n-\s*revision:\s*`([a-f0-9]{64})`/mu.exec(body);
@@ -2012,10 +1407,10 @@ function taskBasisPayload(root2, current) {
   const reference = linkedTaskBasisReference(current.body);
   if (!reference)
     return null;
-  const file = path7.resolve(root2, ...reference.path.split("/"));
-  const relative = relativePath2(path7.resolve(root2), file);
-  assertNoSymlink2(path7.resolve(root2), relative);
-  if (!fs7.existsSync(file) || !fs7.statSync(file).isFile()) {
+  const file = path4.resolve(root2, ...reference.path.split("/"));
+  const relative = relativePath2(path4.resolve(root2), file);
+  assertNoSymlink2(path4.resolve(root2), relative);
+  if (!fs4.existsSync(file) || !fs4.statSync(file).isFile()) {
     return {
       schema_version: 1,
       kind: "task-basis-material/v1",
@@ -2027,8 +1422,8 @@ function taskBasisPayload(root2, current) {
       actual_revision: null
     };
   }
-  const bytes = fs7.readFileSync(file);
-  const actualRevision = sha2563(bytes);
+  const bytes = fs4.readFileSync(file);
+  const actualRevision = sha2562(bytes);
   return {
     schema_version: 1,
     kind: "task-basis-material/v1",
@@ -2042,14 +1437,14 @@ function taskBasisPayload(root2, current) {
   };
 }
 function historyMaterialPayloads(root2, current) {
-  const resolvedRoot = path7.resolve(root2);
-  const directory = path7.join(path7.dirname(current.filePath), "task-history", current.sourceTuple.document_id);
+  const resolvedRoot = path4.resolve(root2);
+  const directory = path4.join(path4.dirname(current.filePath), "task-history", current.sourceTuple.document_id);
   const directoryRelative = relativePath2(resolvedRoot, directory);
   assertNoSymlink2(resolvedRoot, directoryRelative);
-  if (!fs7.existsSync(directory))
+  if (!fs4.existsSync(directory))
     return [];
   const payloads = [];
-  for (const entry of fs7.readdirSync(directory, { withFileTypes: true })) {
+  for (const entry of fs4.readdirSync(directory, { withFileTypes: true })) {
     if (entry.isSymbolicLink())
       throw new TaskStoreError("TASK_STORE_PATH_INVALID", `history material cannot traverse a symbolic link: ${entry.name}`);
     if (!entry.isFile())
@@ -2057,16 +1452,16 @@ function historyMaterialPayloads(root2, current) {
     const match = /^([a-f0-9]{64})\.json$/u.exec(entry.name);
     if (!match)
       continue;
-    const file = path7.join(directory, entry.name);
+    const file = path4.join(directory, entry.name);
     const relative = relativePath2(resolvedRoot, file);
     assertNoSymlink2(resolvedRoot, relative);
-    const bytes = fs7.readFileSync(file);
+    const bytes = fs4.readFileSync(file);
     payloads.push({
       schema_version: 1,
       kind: "task-history-material/v1",
       source_revision: match[1],
       package_path: relative,
-      package_sha256: sha2563(bytes),
+      package_sha256: sha2562(bytes),
       package_bytes: bytes.length,
       package_base64: bytes.toString("base64")
     });
@@ -2096,7 +1491,7 @@ function legacyLineMap(raw, replacementSourceRevision = null) {
   const oldLineCount = lineCount(raw);
   return {
     kind: "vnext-current-task-line-map/v1",
-    source_revision: sha2563(raw),
+    source_revision: sha2562(raw),
     old_line_count: oldLineCount,
     replacement_source_revision: replacementSourceRevision,
     replacement_line_count: null,
@@ -2110,7 +1505,7 @@ function legacyLocatorPayload(raw, sourceRevision, sourcePath, replacementSource
     source_revision: sourceRevision,
     source_path: sourcePath,
     raw_base64: Buffer.from(raw, "utf8").toString("base64"),
-    raw_sha256: sha2563(raw),
+    raw_sha256: sha2562(raw),
     raw_bytes: Buffer.byteLength(raw, "utf8"),
     line_map: legacyLineMap(raw, replacementSourceRevision)
   };
@@ -2119,7 +1514,7 @@ function collectObjectPayloads(current, includeExecutionLog = true, root2, compa
   const payloads = [];
   const seen = new Set;
   const add = (objectType, payload) => {
-    const key = `${objectType}:${digest2(payload)}`;
+    const key = `${objectType}:${digest(payload)}`;
     if (seen.has(key))
       return;
     seen.add(key);
@@ -2243,19 +1638,19 @@ function storedExecutionEntryPayload(entry, claimEvidenceReference, executionRes
   };
 }
 function directoryBytes(directory) {
-  if (!fs7.existsSync(directory))
+  if (!fs4.existsSync(directory))
     return { bytes: 0, files: 0 };
   let bytes = 0;
   let files = 0;
   const visit = (current) => {
-    for (const entry of fs7.readdirSync(current, { withFileTypes: true })) {
-      const full = path7.join(current, entry.name);
+    for (const entry of fs4.readdirSync(current, { withFileTypes: true })) {
+      const full = path4.join(current, entry.name);
       if (entry.isSymbolicLink())
         throw new TaskStoreError("TASK_STORE_PATH_INVALID", `symbolic link is not allowed in task store: ${full}`);
       if (entry.isDirectory())
         visit(full);
       else if (entry.isFile()) {
-        bytes += fs7.statSync(full).size;
+        bytes += fs4.statSync(full).size;
         files++;
       }
     }
@@ -2274,7 +1669,7 @@ class TaskStore {
     return new TaskStore(root2, current.sourceTuple.document_id);
   }
   get exists() {
-    return fs7.existsSync(this.paths.manifest);
+    return fs4.existsSync(this.paths.manifest);
   }
   get hasPendingCommit() {
     return this.readPending() !== null;
@@ -2283,7 +1678,7 @@ class TaskStore {
     return this.readPending();
   }
   get manifest() {
-    if (!fs7.existsSync(this.paths.manifest))
+    if (!fs4.existsSync(this.paths.manifest))
       return null;
     return validateManifest(readJson(this.paths.manifest), this.paths);
   }
@@ -2295,18 +1690,18 @@ class TaskStore {
       document_id: documentId,
       payload
     };
-    const hash = digest2(object);
-    const file = objectFile2(this.paths, hash);
+    const hash = digest(object);
+    const file = objectFile(this.paths, hash);
     assertNoSymlink2(this.paths.root, relativePath2(this.paths.root, file));
     const content = `${stableJson(object)}
 `;
-    const fileExists = fs7.existsSync(file);
+    const fileExists = fs4.existsSync(file);
     const committedBefore = fileExists ? this.objectIsCommitted(hash) : false;
     if (fileExists) {
-      if (fs7.readFileSync(file, "utf8") !== content) {
+      if (fs4.readFileSync(file, "utf8") !== content) {
         if (this.objectIsCommitted(hash))
           throw new TaskStoreError("TASK_STORE_OBJECT_CONFLICT", `existing object ${hash} has different bytes.`);
-        fs7.rmSync(file, { force: true });
+        fs4.rmSync(file, { force: true });
         writePrecommitFile(file, content, () => this.objectIsCommitted(hash), "TASK_STORE_OBJECT_CONFLICT", `object ${hash}`);
       }
     } else {
@@ -2324,9 +1719,9 @@ class TaskStore {
     if (!manifest || !loadCommittedObjectCache(this.paths, manifest).hashes.has(hash)) {
       throw new TaskStoreError("TASK_STORE_OBJECT_NOT_COMMITTED", `object ${hash} is not acknowledged by the aggregate head.`);
     }
-    const file = objectFile2(this.paths, hash);
+    const file = objectFile(this.paths, hash);
     assertNoSymlink2(this.paths.root, relativePath2(this.paths.root, file));
-    if (!fs7.existsSync(file))
+    if (!fs4.existsSync(file))
       throw new TaskStoreError("TASK_STORE_OBJECT_MISSING", `object ${hash} is missing.`);
     const object = validateObject(readJson(file), this.paths, hash);
     if (expectedObjectType !== undefined && object.object_type !== expectedObjectType) {
@@ -2509,21 +1904,21 @@ class TaskStore {
     return { execution_log: this.readExecutionLog(), applied_proposals: this.readAppliedProposals() };
   }
   readIndexFile(file) {
-    if (!fs7.existsSync(file))
+    if (!fs4.existsSync(file))
       return [];
-    const stat = fs7.statSync(file);
+    const stat = fs4.statSync(file);
     const cached = indexFileCaches.get(file);
     if (cached && cached.fileSize === stat.size && cached.modifiedAt === stat.mtimeMs && cached.changedAt === stat.ctimeMs)
       return cached.entries;
     if (cached && cached.format === "jsonl" && stat.size > cached.fileSize && cached.changedAt === stat.ctimeMs) {
-      const fd = fs7.openSync(file, "r");
+      const fd = fs4.openSync(file, "r");
       let suffix = "";
       try {
         const bytes = Buffer.alloc(stat.size - cached.fileSize);
-        fs7.readSync(fd, bytes, 0, bytes.length, cached.fileSize);
+        fs4.readSync(fd, bytes, 0, bytes.length, cached.fileSize);
         suffix = bytes.toString("utf8");
       } finally {
-        fs7.closeSync(fd);
+        fs4.closeSync(fd);
       }
       const lines = suffix.split(/\r?\n/u).filter(Boolean);
       const additions = lines.map((line, index) => {
@@ -2539,7 +1934,7 @@ class TaskStore {
       indexFileCaches.set(file, { fileSize: stat.size, modifiedAt: stat.mtimeMs, changedAt: stat.ctimeMs, format: "jsonl", entries });
       return entries;
     }
-    const raw = fs7.readFileSync(file, "utf8").trim();
+    const raw = fs4.readFileSync(file, "utf8").trim();
     if (!raw)
       return [];
     let values;
@@ -2592,7 +1987,7 @@ class TaskStore {
     const normalized = normalizeRelative(relative, "event reference");
     if (!normalized.startsWith(`${this.paths.relativeRoot}/events/`))
       throw new TaskStoreError("TASK_STORE_PATH_INVALID", "event reference is outside this task store.");
-    const basename = path7.posix.basename(normalized);
+    const basename = path4.posix.basename(normalized);
     const match = EVENT_FILE.exec(basename);
     if (!match)
       throw new TaskStoreError("TASK_STORE_PATH_INVALID", `event filename is invalid: ${relative}`);
@@ -2610,7 +2005,7 @@ class TaskStore {
     return event;
   }
   readEvent(reference) {
-    const relative = typeof reference === "string" ? reference : path7.posix.join(this.paths.relativeRoot, "events", `${String(reference.sequence).padStart(12, "0")}-${reference.event_hash}.json`);
+    const relative = typeof reference === "string" ? reference : path4.posix.join(this.paths.relativeRoot, "events", `${String(reference.sequence).padStart(12, "0")}-${reference.event_hash}.json`);
     return this.readEventPath(relative);
   }
   listEvents() {
@@ -2631,7 +2026,7 @@ class TaskStore {
       sequence: event.sequence,
       event_id: event.event_id,
       event_hash: event.event_hash,
-      path: path7.posix.join(this.paths.relativeRoot, "events", `${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`),
+      path: path4.posix.join(this.paths.relativeRoot, "events", `${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`),
       operation_kind: event.operation_kind,
       idempotency_key: event.idempotency_key,
       source_revision: event.source_revision
@@ -2640,11 +2035,11 @@ class TaskStore {
   appendIndexes(event, idempotency) {
     const entry = `${stableJson(this.eventIndexEntry(event))}
 `;
-    fs7.mkdirSync(path7.dirname(this.paths.eventIndex), { recursive: true });
-    fs7.appendFileSync(this.paths.eventIndex, entry, "utf8");
+    fs4.mkdirSync(path4.dirname(this.paths.eventIndex), { recursive: true });
+    fs4.appendFileSync(this.paths.eventIndex, entry, "utf8");
     const idempotencyEntry = idempotency.find((item) => item.sequence === event.sequence && item.event_id === event.event_id && item.event_path.endsWith(`${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`));
     if (idempotencyEntry)
-      fs7.appendFileSync(this.paths.idempotencyIndex, `${stableJson(idempotencyEntry)}
+      fs4.appendFileSync(this.paths.idempotencyIndex, `${stableJson(idempotencyEntry)}
 `, "utf8");
   }
   makeEvent(eventType, current, manifest, refs, input) {
@@ -2675,7 +2070,7 @@ class TaskStore {
         recorded_at: nowIso(input.recordedAt)
       }
     };
-    return { ...base, event_hash: sha2563(stableJson(base)) };
+    return { ...base, event_hash: sha2562(stableJson(base)) };
   }
   writeEvent(event) {
     const file = eventFile(this.paths, event.sequence, event.event_hash);
@@ -2696,10 +2091,10 @@ class TaskStore {
     return Boolean(manifest && sequence <= manifest.head.event_sequence);
   }
   readPending() {
-    if (!fs7.existsSync(this.paths.pending))
+    if (!fs4.existsSync(this.paths.pending))
       return null;
     try {
-      const value = JSON.parse(fs7.readFileSync(this.paths.pending, "utf8"));
+      const value = JSON.parse(fs4.readFileSync(this.paths.pending, "utf8"));
       if (value.schema_version !== 1 || value.kind !== "vnext-task-store-pending-commit" || value.document_id !== this.paths.documentId || !Number.isSafeInteger(value.sequence) || value.sequence < 1 || typeof value.source_revision !== "string" || !SHA2562.test(value.source_revision) || typeof value.resulting_source_revision !== "string" || !SHA2562.test(value.resulting_source_revision) || value.idempotency_key !== null && typeof value.idempotency_key !== "string" || value.proposal_digest !== null && (typeof value.proposal_digest !== "string" || !SHA2562.test(value.proposal_digest))) {
         throw new TaskStoreError("TASK_STORE_MANIFEST_INVALID", `${this.paths.pending} has an invalid pending transaction marker.`);
       }
@@ -2754,12 +2149,12 @@ class TaskStore {
   }
   writePending(pending) {
     assertNoSymlink2(this.paths.root, relativePath2(this.paths.root, this.paths.indexes));
-    fs7.mkdirSync(path7.dirname(this.paths.pending), { recursive: true });
+    fs4.mkdirSync(path4.dirname(this.paths.pending), { recursive: true });
     writeJson(this.paths.pending, pending);
   }
   clearPending() {
     try {
-      fs7.rmSync(this.paths.pending, { force: true });
+      fs4.rmSync(this.paths.pending, { force: true });
     } catch {}
   }
   stageCommit(input) {
@@ -2781,9 +2176,9 @@ class TaskStore {
         if (paths.has(item.path))
           throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", `pending write set contains duplicate path ${item.path}.`);
         paths.add(item.path);
-        const file = path7.join(this.paths.root, ...item.path.split("/"));
+        const file = path4.join(this.paths.root, ...item.path.split("/"));
         assertNoSymlink2(this.paths.root, item.path);
-        const actual = fs7.existsSync(file) ? fs7.statSync(file).isFile() ? fs7.readFileSync(file, "utf8") : (() => {
+        const actual = fs4.existsSync(file) ? fs4.statSync(file).isFile() ? fs4.readFileSync(file, "utf8") : (() => {
           throw new TaskStoreError("TASK_STORE_PATH_INVALID", `pending write target is not a regular file: ${item.path}`);
         })() : null;
         if (actual !== item.before_content)
@@ -2844,10 +2239,10 @@ class TaskStore {
     this.clearPending();
   }
   findOrphanTransaction(previous, after, definition, state, idempotencyKey, proposalHash, proposal, proposalReference, operationKind) {
-    if (!idempotencyKey || !proposalHash || !fs7.existsSync(this.paths.events))
+    if (!idempotencyKey || !proposalHash || !fs4.existsSync(this.paths.events))
       return null;
     const sequence = previous.head.event_sequence + 1;
-    for (const entry of fs7.readdirSync(this.paths.events, { withFileTypes: true })) {
+    for (const entry of fs4.readdirSync(this.paths.events, { withFileTypes: true })) {
       if (!entry.isFile())
         continue;
       const match = EVENT_FILE.exec(entry.name);
@@ -2856,7 +2251,7 @@ class TaskStore {
       try {
         const event = readEventFile(this.paths, entry.name);
         const eventProposal = event.transaction?.proposal;
-        const proposalMatches = proposalReference && isObjectReference(eventProposal) ? eventProposal.object_type === "proposal" && eventProposal.sha256 === proposalReference.sha256 : eventProposal !== undefined && digest2(eventProposal) === digest2(proposal);
+        const proposalMatches = proposalReference && isObjectReference(eventProposal) ? eventProposal.object_type === "proposal" && eventProposal.sha256 === proposalReference.sha256 : eventProposal !== undefined && digest(eventProposal) === digest(proposal);
         if (event.event_type !== (operationKind === "task-storage-migration" ? "storage-migration" : "transaction") || event.previous_event_hash !== previous.head.event_hash || event.idempotency_key !== idempotencyKey || event.proposal_digest !== proposalHash || event.resulting_source_revision !== after.sourceTuple.revision || refSha(event.object_refs.definition) !== definition.sha256 || refSha(event.object_refs.state) !== state.sha256 || !event.transaction || !proposalMatches)
           continue;
         return event;
@@ -2926,9 +2321,9 @@ class TaskStore {
       return existing;
     }
     this.newlyReferencedObjects.clear();
-    fs7.mkdirSync(this.paths.objects, { recursive: true });
-    fs7.mkdirSync(this.paths.events, { recursive: true });
-    fs7.mkdirSync(this.paths.indexes, { recursive: true });
+    fs4.mkdirSync(this.paths.objects, { recursive: true });
+    fs4.mkdirSync(this.paths.events, { recursive: true });
+    fs4.mkdirSync(this.paths.indexes, { recursive: true });
     const definitionAlgorithm = TASK_DEFINITION_REVISION_V2;
     const representation = currentRepresentation(current);
     const definition = this.storeObject(current.sourceTuple.document_id, "definition", storedCurrentPayload(current, "definition", definitionPayload(current, definitionAlgorithm)), current.sourceTuple.revision, recordedAt);
@@ -2972,7 +2367,7 @@ class TaskStore {
     const index = applied.filter(record2).map((item) => ({
       idempotency_key: typeof item.idempotency_key === "string" ? item.idempotency_key : "",
       operation_kind: typeof item.operation_kind === "string" ? item.operation_kind : "task-state-transaction",
-      proposal_digest: typeof item.proposal_digest === "string" && SHA2562.test(item.proposal_digest) ? item.proposal_digest : digest2(item),
+      proposal_digest: typeof item.proposal_digest === "string" && SHA2562.test(item.proposal_digest) ? item.proposal_digest : digest(item),
       source_revision: typeof item.source_revision === "string" && SHA2562.test(item.source_revision) ? item.source_revision : current.sourceTuple.revision,
       event_path: eventPath,
       event_id: legacyEvent.event_id,
@@ -3047,7 +2442,7 @@ class TaskStore {
       } else if (pending.sequence !== previous.head.event_sequence + 1 || pending.source_revision !== input.before.sourceTuple.revision || pending.resulting_source_revision !== input.after.sourceTuple.revision || pending.idempotency_key !== key || pending.proposal_digest !== proposalHash) {
         throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "an unfinished task-store transaction does not match this commit request.");
       } else {
-        if (pending.proposal !== undefined && digest2(pending.proposal) !== digest2(input.proposal)) {
+        if (pending.proposal !== undefined && digest(pending.proposal) !== digest(input.proposal)) {
           throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "pending task-store intent contains different proposal bytes.");
         }
         recoveryPending = true;
@@ -3251,7 +2646,7 @@ class TaskStore {
     const objects = directoryBytes(this.paths.objects);
     const events = directoryBytes(this.paths.events);
     const indexes = directoryBytes(this.paths.indexes);
-    const manifestBytes = fs7.existsSync(this.paths.manifest) ? fs7.statSync(this.paths.manifest).size : 0;
+    const manifestBytes = fs4.existsSync(this.paths.manifest) ? fs4.statSync(this.paths.manifest).size : 0;
     return {
       document_id: this.paths.documentId,
       root: this.paths.relativeRoot,
@@ -3446,21 +2841,21 @@ function taskStoreStateSnapshotPayload(current) {
   return stateSnapshotPayload(current);
 }
 function taskStoreDefinitionRevision(current, algorithm = TASK_DEFINITION_REVISION_V2) {
-  return digest2(definitionPayload(current, algorithm));
+  return digest(definitionPayload(current, algorithm));
 }
 function taskStoreDefinitionRevisionForManifest(current, manifest) {
   return taskStoreDefinitionRevision(current, manifest?.definition_revision_algorithm ?? TASK_DEFINITION_REVISION_V2);
 }
 function taskStoreStateRevision(current) {
-  return digest2(stateSnapshotPayload(current));
+  return digest(stateSnapshotPayload(current));
 }
 function taskStoreHistoryPath(root2, current, sourceRevision) {
   if (!SHA2562.test(sourceRevision))
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", "history source revision is invalid.");
-  const directory = path7.join(path7.dirname(current.filePath), "task-history", current.sourceTuple.document_id);
-  const rootResolved = path7.resolve(root2);
+  const directory = path4.join(path4.dirname(current.filePath), "task-history", current.sourceTuple.document_id);
+  const rootResolved = path4.resolve(root2);
   const normalized = relativePath2(rootResolved, directory);
-  return path7.join(rootResolved, ...path7.posix.join(normalized, `${sourceRevision}.json`).split("/"));
+  return path4.join(rootResolved, ...path4.posix.join(normalized, `${sourceRevision}.json`).split("/"));
 }
 function compactHistoryBody(body, executionLog) {
   const normalized = body.replace(/\r\n?/gu, `
@@ -3521,7 +2916,7 @@ function compactAfter(current, prepared) {
     body: prepared.expandedContent.slice(match[0].length),
     frontmatter,
     runtimeState: withoutInlineReviewPreimageContent(current.runtimeState),
-    sourceTuple: { ...current.sourceTuple, revision: sha2563(prepared.content) }
+    sourceTuple: { ...current.sourceTuple, revision: sha2562(prepared.content) }
   };
 }
 function migrationSemanticModel(current) {
@@ -3546,7 +2941,7 @@ function readStorageMigrationLineage(root2, current, sourceRevision) {
     return null;
   const store = TaskStore.forCurrent(root2, current);
   const manifest = store.manifest;
-  if (!manifest || store.hasPendingCommit || manifest.head.source_revision !== current.sourceTuple.revision || sha2563(current.raw) !== current.sourceTuple.revision)
+  if (!manifest || store.hasPendingCommit || manifest.head.source_revision !== current.sourceTuple.revision || sha2562(current.raw) !== current.sourceTuple.revision)
     return null;
   let revision = current.sourceTuple.revision;
   const preimages = [];
@@ -3556,7 +2951,7 @@ function readStorageMigrationLineage(root2, current, sourceRevision) {
     if (event.resulting_source_revision !== revision || event.event_type !== "storage-migration" || event.operation_kind !== "task-storage-migration" || !event.metadata.committed || event.metadata.status !== "success")
       return null;
     const raw = store.readHistoryMaterial(event.source_revision);
-    if (raw === null || sha2563(raw) !== event.source_revision)
+    if (raw === null || sha2562(raw) !== event.source_revision)
       return null;
     preimages.push(raw);
     if (event.source_revision === sourceRevision)
@@ -3583,7 +2978,7 @@ function previewTaskStorageMigration(root2, current) {
     definition_revision: definitionRevision,
     state_revision: stateRevision,
     existing_store: manifest !== null,
-    semantic_model_digest: digest2({ task_id: current.sourceTuple.task_id, task_slug: current.sourceTuple.task_slug, workflow_status: current.sourceTuple.workflow_status, lifecycle_state: current.sourceTuple.lifecycle_state, active_step_id: current.sourceTuple.active_step_id, definition_revision: definitionRevision, state_revision: stateRevision }),
+    semantic_model_digest: digest({ task_id: current.sourceTuple.task_id, task_slug: current.sourceTuple.task_slug, workflow_status: current.sourceTuple.workflow_status, lifecycle_state: current.sourceTuple.lifecycle_state, active_step_id: current.sourceTuple.active_step_id, definition_revision: definitionRevision, state_revision: stateRevision }),
     planned_objects: ["definition", "state", "other", "evidence-report", "review-receipt", "legacy-current-task"],
     planned_events: manifest?.current_representation === ACTIVE_TASK_FORMAT && !legacyInlineReviewPreimages ? [] : [manifest ? "storage-migration" : "legacy-import", "storage-migration"]
   };
@@ -3611,7 +3006,7 @@ function commitTaskStorageMigration(root2, current, sourceRevision) {
   const prepared = compactCurrentRaw(current, store);
   const compactRaw = prepared.content;
   const after = compactAfter(current, prepared);
-  if (digest2(migrationSemanticModel(current)) !== digest2(migrationSemanticModel(after))) {
+  if (digest(migrationSemanticModel(current)) !== digest(migrationSemanticModel(after))) {
     throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", "storage migration changed the normalized task model outside its representation boundary.");
   }
   const proposal = {
@@ -3633,8 +3028,1046 @@ function commitTaskStorageMigration(root2, current, sourceRevision) {
   return { status: "committed", operation_kind: "task-storage-migration", source_revision: sourceRevision, manifest };
 }
 
-// runtime/vnext/src/task-identity.ts
+// runtime/vnext/src/task-storage-metrics.ts
+var isRecord2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var omitted = (v, keys) => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
+var bytes = (v) => v == null ? 0 : Buffer.byteLength(stableJson(v), "utf8");
+var LIMITS = { files: 4096, events: 1024, objects: 512, read_bytes: 8 * 1024 * 1024 };
+var LOGICAL_KEYS = ["definition_bytes", "claim_evidence_bytes", "pending_review_bytes", "execution_hot_state_bytes", "logical_state_bytes"];
+var nullLogical = () => Object.fromEntries(LOGICAL_KEYS.map((k) => [k, null]));
+function unavailable(code) {
+  throw new Error(code);
+}
+function codeOf(error) {
+  const code = error instanceof Error ? error.message.split(":", 1)[0] : "";
+  return /^[A-Z][A-Z0-9_]+$/u.test(code) ? code : "MEASUREMENT_UNAVAILABLE";
+}
+function logicalSizes(current) {
+  const hotCurrent = { ...current, runtimeState: omitted(current.runtimeState, ["execution_log", "applied_proposals"]) };
+  const normalized = migrationSemanticModel(hotCurrent);
+  const runtime = normalized.runtime_state;
+  return {
+    definition_bytes: bytes(taskStoreDefinitionPayload(current, "task-definition/v2")),
+    claim_evidence_bytes: bytes(runtime.claim_evidence),
+    pending_review_bytes: bytes(runtime.pending_review_result),
+    execution_hot_state_bytes: bytes(omitted(runtime, ["claim_evidence", "pending_review_result"])),
+    logical_state_bytes: bytes(runtime)
+  };
+}
+function taskStorageMetrics(rootInput, current) {
+  const result = {
+    kind: "task-storage-metrics/v1",
+    read_only: true,
+    diagnostic_only: true,
+    status: "complete",
+    unit: "byte",
+    source_revision: current.sourceTuple.revision,
+    document_id: current.sourceTuple.document_id,
+    representation: String(current.frontmatter?.task_store?.format ?? "legacy-inline"),
+    logical_encoding: "stable-json-utf8/v1",
+    logical_fields_overlap: true,
+    active_projection_bytes: Buffer.byteLength(current.raw, "utf8"),
+    ...nullLogical(),
+    task_basis_bytes: null,
+    aggregate_total_bytes: null,
+    external_history_bytes: null,
+    committed_material_bytes: null,
+    physical_breakdown: null,
+    previous_transaction_delta: {
+      status: "unavailable",
+      reason: "NO_PREVIOUS_EVENT",
+      event_sequence: null,
+      previous_event_sequence: null,
+      event_type: null,
+      operation_kind: null,
+      action: null,
+      recorded_at: null,
+      from_source_revision: null,
+      to_source_revision: current.sourceTuple.revision,
+      active_projection_bytes: null,
+      task_basis_bytes: null,
+      ...nullLogical(),
+      committed_material_bytes: null,
+      aggregate_total_bytes: null
+    },
+    coverage: {
+      event_history: "unavailable",
+      physical_inventory: "unavailable",
+      limits: { ...LIMITS },
+      notes: ["LOGICAL_FIELDS_OVERLAP_DO_NOT_SUM", "HISTORICAL_FILESYSTEM_TOTAL_NOT_RETAINED"]
+    }
+  };
+  const note = (message) => {
+    if (!result.coverage.notes.includes(message))
+      result.coverage.notes.push(message);
+    result.status = "partial";
+  };
+  const attempt = (read) => {
+    try {
+      return read();
+    } catch (error) {
+      note(codeOf(error));
+      return null;
+    }
+  };
+  const logical = attempt(() => logicalSizes(current));
+  if (logical)
+    Object.assign(result, logical);
+  const root2 = path5.resolve(rootInput);
+  let readBytes = 0;
+  let objectReads = 0;
+  const safeStat = (file) => {
+    const relative = path5.relative(root2, file);
+    if (relative.split(path5.sep).includes("..") || path5.isAbsolute(relative))
+      return unavailable("METRICS_UNSAFE_PATH");
+    let cursor = root2;
+    for (const part of relative.split(path5.sep).filter(Boolean)) {
+      cursor = path5.join(cursor, part);
+      const stat = fs5.lstatSync(cursor);
+      if (stat.isSymbolicLink())
+        return unavailable("METRICS_SYMLINK");
+    }
+    const stat = fs5.lstatSync(file);
+    if (!stat.isFile())
+      return unavailable("METRICS_NOT_REGULAR_FILE");
+    return stat;
+  };
+  const chargeRead = (file) => {
+    readBytes += safeStat(file).size;
+    if (readBytes > LIMITS.read_bytes)
+      unavailable("METRICS_READ_BUDGET");
+  };
+  const basisReference = (body) => {
+    const m = /##\s+(?:任务输入依据|Task Basis)\s*\r?\n\s*\r?\n-\s*path:\s*`([^`]+)`\s*\r?\n-\s*revision:\s*`([a-f0-9]{64})`/mu.exec(body);
+    return m ? { path: m[1], revision: m[2] } : null;
+  };
+  const basis = basisReference(current.body);
+  result.task_basis_bytes = basis === null ? 0 : attempt(() => {
+    const file = path5.resolve(root2, basis.path.replace(/\\/gu, "/"));
+    chargeRead(file);
+    const content = fs5.readFileSync(file);
+    if (sha2562(content) !== basis.revision)
+      return unavailable("METRICS_BASIS_REVISION_MISMATCH");
+    return content.length;
+  });
+  attempt(() => {
+    const store = TaskStore.forCurrent(root2, current);
+    const manifest = store.manifest;
+    if (!manifest) {
+      note("NO_COMMITTED_AGGREGATE");
+      return;
+    }
+    if (store.hasPendingCommit || manifest.head.source_revision !== current.sourceTuple.revision)
+      return unavailable("METRICS_HEAD_NOT_SETTLED");
+    const manifestBytes = fs5.readFileSync(store.paths.manifest, "utf8");
+    const sourceStat = safeStat(current.filePath);
+    const signature = (s) => `${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+    const objects = new Map;
+    const getObject = (ref) => {
+      if (!ref || !/^[a-f0-9]{64}$/u.test(ref.sha256))
+        return unavailable("METRICS_REFERENCE_INVALID");
+      let object = objects.get(ref.sha256);
+      if (!object) {
+        if (++objectReads > LIMITS.objects)
+          return unavailable("METRICS_OBJECT_BUDGET");
+        chargeRead(path5.join(store.paths.objects, `${ref.sha256}.json`));
+        object = store.readObject(ref, ref.object_type);
+        objects.set(ref.sha256, object);
+      }
+      return object;
+    };
+    const eventFile = (event) => path5.join(store.paths.events, `${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`);
+    const getEvent = (sequence, event_hash) => {
+      chargeRead(eventFile({ sequence, event_hash }));
+      return store.readEvent({ sequence, event_hash });
+    };
+    const inventory = attempt(() => {
+      const sizes = new Map;
+      let visits = 0;
+      const walk = (directory) => {
+        const dir = fs5.opendirSync(directory);
+        try {
+          for (let entry = dir.readSync();entry !== null; entry = dir.readSync()) {
+            if (++visits > LIMITS.files)
+              return unavailable("METRICS_INVENTORY_BUDGET");
+            const file = path5.join(directory, entry.name);
+            if (entry.isSymbolicLink())
+              return unavailable("METRICS_SYMLINK");
+            if (entry.isDirectory())
+              walk(file);
+            else
+              sizes.set(path5.relative(store.paths.directory, file).split(path5.sep).join("/"), safeStat(file).size);
+          }
+        } finally {
+          dir.closeSync();
+        }
+      };
+      walk(store.paths.directory);
+      const group = { objects_bytes: 0, events_bytes: 0, indexes_bytes: 0, manifest_bytes: 0, other_bytes: 0, files: sizes.size };
+      for (const [name, size] of sizes) {
+        const key = name.startsWith("objects/") ? "objects_bytes" : name.startsWith("events/") ? "events_bytes" : name.startsWith("indexes/") ? "indexes_bytes" : name === "manifest.json" ? "manifest_bytes" : "other_bytes";
+        group[key] += size;
+      }
+      result.physical_breakdown = group;
+      result.aggregate_total_bytes = group.objects_bytes + group.events_bytes + group.indexes_bytes + group.manifest_bytes + group.other_bytes;
+      result.coverage.physical_inventory = "complete";
+      return sizes;
+    });
+    const events = [];
+    attempt(() => {
+      if (manifest.head.event_sequence && manifest.head.event_hash) {
+        const head = getEvent(manifest.head.event_sequence, manifest.head.event_hash);
+        events.push(head);
+        if (head.sequence > 1 && head.previous_event_hash)
+          events.push(getEvent(head.sequence - 1, head.previous_event_hash));
+      }
+    });
+    const finishHistory = () => {
+      if (result.coverage.event_history === "complete")
+        return;
+      let sequence = events.length ? events[events.length - 1].sequence - 1 : manifest.head.event_sequence;
+      let hash = events.length ? events[events.length - 1].previous_event_hash : manifest.head.event_hash;
+      while (sequence > 0 && hash) {
+        if (events.length >= LIMITS.events)
+          return unavailable("METRICS_EVENT_BUDGET");
+        const event = getEvent(sequence, hash);
+        events.push(event);
+        sequence--;
+        hash = event.previous_event_hash;
+      }
+      if (sequence !== 0 || hash !== null)
+        return unavailable("METRICS_EVENT_CHAIN_INCOMPLETE");
+      result.coverage.event_history = "complete";
+    };
+    const head = events[0];
+    const previousEvent = events[1];
+    const delta = result.previous_transaction_delta;
+    if (!head && manifest.head.event_sequence > 0)
+      delta.reason = "HEAD_EVENT_UNAVAILABLE";
+    else if (head && head.sequence > 1 && !previousEvent)
+      delta.reason = "PREVIOUS_EVENT_UNAVAILABLE";
+    if (head) {
+      Object.assign(delta, {
+        event_sequence: head.sequence,
+        previous_event_sequence: previousEvent?.sequence ?? null,
+        event_type: head.event_type,
+        operation_kind: head.operation_kind,
+        recorded_at: head.metadata.recorded_at,
+        from_source_revision: head.source_revision
+      });
+      attempt(() => {
+        const ref = head.object_refs.proposal;
+        const value = ref && typeof ref !== "string" ? getObject(ref).payload : head.transaction?.proposal;
+        delta.action = typeof value?.semantic_delta?.action === "string" ? value.semantic_delta.action : null;
+      });
+    }
+    const currentRefs = new Set;
+    const resolveV3 = (definitionRef, stateRef, sourceRevision, visited) => {
+      const payload = (ref) => {
+        visited.add(ref.sha256);
+        return getObject(ref).payload;
+      };
+      const value = (v) => {
+        if (!isRecord2(v))
+          return unavailable("METRICS_HISTORICAL_SHAPE_UNSUPPORTED");
+        if ("value" in v)
+          return v.value;
+        const resolved = payload(v.ref);
+        return v.ref.object_type === "other" ? resolved.value : resolved;
+      };
+      const definition = payload(definitionRef);
+      const state = payload(stateRef);
+      if (definition.kind !== "vnext-active-definition/v1" || state.kind !== "vnext-active-state/v1" || stableJson(state.definition) !== stableJson(definitionRef))
+        return unavailable("METRICS_HISTORICAL_SHAPE_UNSUPPORTED");
+      const runtime = Object.fromEntries(Object.entries(state.runtime).map(([k, v]) => [k, value(v)]));
+      if (Array.isArray(definition.claim_definitions))
+        runtime.claim_evidence = definition.claim_definitions.map((v, i) => {
+          const claim = value(v);
+          const progress = state.claim_states[i];
+          if (claim.claim_id !== progress?.claim_id || claim.slots.length !== progress.slots.length)
+            return unavailable("METRICS_HISTORICAL_SHAPE_UNSUPPORTED");
+          return { ...claim, slots: claim.slots.map((slot, j) => {
+            if (slot.slot_id !== progress.slots[j]?.slot_id)
+              return unavailable("METRICS_HISTORICAL_SHAPE_UNSUPPORTED");
+            return { ...slot, ...Object.fromEntries(Object.entries(progress.slots[j].fields).map(([k, v]) => [k, value(v)])) };
+          }) };
+        });
+      const body = definition.sections.map((section) => ("dynamic" in section) ? value(state.dynamic_body[section.dynamic]) : value(section.text)).join("");
+      const binding = {
+        schema_version: 1,
+        kind: "vnext-current-task-store-binding",
+        format: "compact-v3",
+        manifest_path: `${store.paths.relativeRoot}/manifest.json`,
+        history: { execution_log: "task-store", applied_proposals: "task-store" },
+        projection: { definition: definitionRef, state: stateRef }
+      };
+      const frontmatter = { ...definition.frontmatter, task_store: binding, runtime_state: runtime };
+      return {
+        ...current,
+        body,
+        frontmatter,
+        runtimeState: runtime,
+        raw: "",
+        sourceTuple: { ...current.sourceTuple, revision: sourceRevision, task_id: runtime.task_id, task_slug: runtime.task_slug }
+      };
+    };
+    const currentClosure = result.representation === "compact-v3" ? attempt(() => resolveV3(manifest.object_refs.definition, manifest.object_refs.state, current.sourceTuple.revision, currentRefs)) : null;
+    if (head && previousEvent && previousEvent.resulting_source_revision === head.source_revision) {
+      const before = attempt(() => {
+        const ref = head.object_refs["legacy-locator-alias"] ?? (previousEvent.sequence === 1 ? manifest.object_refs.legacy_source : undefined);
+        if (ref && typeof ref !== "string") {
+          const p = getObject(ref).payload;
+          if (p.source_revision === head.source_revision && typeof p.raw_base64 === "string") {
+            const raw = Buffer.from(p.raw_base64, "base64").toString("utf8");
+            if (sha2562(raw) !== head.source_revision)
+              return unavailable("METRICS_HISTORY_HASH_MISMATCH");
+            const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(raw);
+            if (!m)
+              return unavailable("METRICS_HISTORICAL_SHAPE_UNSUPPORTED");
+            const fm = parse4(m[1]);
+            if (fm.document_id !== current.sourceTuple.document_id)
+              return unavailable("METRICS_HISTORY_IDENTITY_MISMATCH");
+            if (fm.task_store?.format !== "compact-v3")
+              return {
+                ...current,
+                raw,
+                frontmatter: fm,
+                body: raw.slice(m[0].length),
+                runtimeState: fm.runtime_state,
+                sourceTuple: { ...current.sourceTuple, revision: head.source_revision }
+              };
+            const restored = resolveV3(previousEvent.object_refs.definition, previousEvent.object_refs.state, head.source_revision, new Set);
+            if (stableJson(fm.task_store.projection) !== stableJson(restored.frontmatter.task_store.projection))
+              return unavailable("METRICS_HISTORY_IDENTITY_MISMATCH");
+            return { ...restored, raw };
+          }
+        }
+        return resolveV3(previousEvent.object_refs.definition, previousEvent.object_refs.state, head.source_revision, new Set);
+      });
+      if (before && logical) {
+        const old = logicalSizes(before);
+        for (const key of LOGICAL_KEYS)
+          delta[key] = logical[key] - old[key];
+        let oldRaw = before.raw;
+        if (!oldRaw)
+          attempt(() => {
+            const expanded = `---
+${stringify3(before.frontmatter).trimEnd()}
+---
+${before.body}`;
+            const candidate = prepareTaskProjection(expanded).content;
+            if (sha2562(candidate) === head.source_revision)
+              oldRaw = candidate;
+          });
+        if (oldRaw)
+          delta.active_projection_bytes = result.active_projection_bytes - Buffer.byteLength(oldRaw, "utf8");
+        const priorBasis = basisReference(before.body);
+        if (stableJson(priorBasis) === stableJson(basis) && result.task_basis_bytes !== null)
+          delta.task_basis_bytes = 0;
+        else if (priorBasis === null && result.task_basis_bytes !== null)
+          delta.task_basis_bytes = result.task_basis_bytes;
+        else if (priorBasis && result.task_basis_bytes !== null)
+          attempt(() => {
+            attempt(finishHistory);
+            for (const event of events.slice(1))
+              for (const ref of Object.values(event.object_refs)) {
+                if (!ref || typeof ref === "string" || ref.object_type !== "task-basis")
+                  continue;
+                const p = getObject(ref).payload;
+                if (p.path !== priorBasis.path || p.basis_revision !== priorBasis.revision || typeof p.raw_base64 !== "string")
+                  continue;
+                const raw = Buffer.from(p.raw_base64, "base64");
+                if (sha2562(raw) === priorBasis.revision) {
+                  delta.task_basis_bytes = result.task_basis_bytes - raw.length;
+                  return;
+                }
+              }
+          });
+        delta.status = delta.active_projection_bytes !== null && delta.task_basis_bytes !== null ? "available" : "partial";
+        delta.reason = delta.status === "available" ? null : "HISTORICAL_PHYSICAL_BYTES_UNAVAILABLE";
+      } else
+        delta.reason = "HISTORICAL_LOGICAL_MATERIAL_UNAVAILABLE";
+    } else if (head && previousEvent)
+      delta.reason = "EVENT_SOURCE_DISCONTINUITY";
+    attempt(finishHistory);
+    if (result.coverage.event_history !== "complete" && events.length)
+      result.coverage.event_history = "partial";
+    if (inventory && result.coverage.event_history === "complete")
+      attempt(() => {
+        const known = new Set;
+        let committed = 0;
+        let beforeHead = 0;
+        const sizeOf = (name) => inventory.get(name) ?? unavailable("METRICS_COMMITTED_FILE_MISSING");
+        for (const event of [...events].reverse()) {
+          beforeHead = committed;
+          for (const ref of Object.values(event.object_refs)) {
+            const hash = typeof ref === "string" ? ref : ref?.sha256;
+            if (hash && !known.has(hash)) {
+              known.add(hash);
+              committed += sizeOf(`objects/${hash}.json`);
+            }
+          }
+          const length = sizeOf(`events/${path5.basename(eventFile(event))}`);
+          committed += length;
+        }
+        result.committed_material_bytes = committed;
+        if (previousEvent)
+          delta.committed_material_bytes = committed - beforeHead;
+        if (currentClosure && currentRefs.size) {
+          let active = 0;
+          for (const hash of currentRefs) {
+            if (!known.has(hash))
+              return unavailable("METRICS_CURRENT_MATERIAL_NOT_COMMITTED");
+            active += sizeOf(`objects/${hash}.json`);
+          }
+          result.external_history_bytes = committed - active;
+        } else
+          note("LEGACY_CURRENT_MATERIAL_CLOSURE_UNAVAILABLE");
+      });
+    if (store.hasPendingCommit || fs5.readFileSync(store.paths.manifest, "utf8") !== manifestBytes || signature(safeStat(current.filePath)) !== signature(sourceStat))
+      return unavailable("METRICS_SAMPLE_CHANGED");
+  });
+  const delta = result.previous_transaction_delta;
+  if (delta.previous_event_sequence !== null) {
+    const fields = [...LOGICAL_KEYS, "active_projection_bytes", "task_basis_bytes", "committed_material_bytes"];
+    const available = fields.filter((key) => delta[key] !== null).length;
+    delta.status = available === fields.length ? "available" : available ? "partial" : "unavailable";
+    if (delta.status === "available")
+      delta.reason = null;
+    else if (delta.reason === null)
+      delta.reason = "COMMITTED_MATERIAL_COVERAGE_INCOMPLETE";
+  }
+  if (result.coverage.event_history !== "complete" || result.coverage.physical_inventory !== "complete" || result.previous_transaction_delta.reason !== "NO_PREVIOUS_EVENT" && result.previous_transaction_delta.status !== "available")
+    result.status = "partial";
+  if (result.coverage.notes.includes("METRICS_SAMPLE_CHANGED")) {
+    result.status = "unavailable";
+    result.aggregate_total_bytes = result.external_history_bytes = result.committed_material_bytes = null;
+    result.physical_breakdown = null;
+    result.previous_transaction_delta = {
+      ...result.previous_transaction_delta,
+      status: "unavailable",
+      reason: "METRICS_SAMPLE_CHANGED",
+      ...nullLogical(),
+      active_projection_bytes: null,
+      task_basis_bytes: null,
+      committed_material_bytes: null
+    };
+  }
+  return result;
+}
+
+// runtime/vnext/src/task-recovery.ts
+var TASK_RECOVERY_PROTOCOL = {
+  candidate: "correction-replan-candidate/v2",
+  confirmation: "correction-replan-candidate-receipt/v2",
+  modes: ["conclusion-correction", "execution-recovery"],
+  strategies: ["forward-fix", "artifact-restore", "mixed"],
+  routing: ["unrelated", "conclusion-counterevidence", "execution-error", "authority-change"],
+  target_limit: 16,
+  recovery_step_limit: 16,
+  source: "runtime-task-document-source-tuple-basis-and-plan",
+  obligations: "all-old-claim-slots-and-replaced-step-obligations",
+  history: "immutable-definitions-executions-and-content-addressed-evidence",
+  evidence: "evidence-carry-forward/v2-original-anchor-and-current-reception",
+  artifact_checkpoint: "artifact-checkpoint/v1",
+  artifact_completion: "artifact-restore-completion/v1-execution-v2-revalidation-and-exact-targets",
+  artifact_publication: "exact-write-set-journal-rollback-or-fail-closed",
+  concurrency: "shared-governance-write-lock-and-source-cas",
+  authority: "caller-reported-no-permission-expansion",
+  legacy: "readable-explicit-preservation-old-receipts-rejected"
+};
+
+// runtime/vnext/src/evidence-lineage.ts
+import * as crypto4 from "crypto";
+import * as fs6 from "fs";
+import * as path6 from "path";
+var MAX_OBJECT_BYTES = 1024 * 1024;
+var MAX_SNAPSHOT_BYTES = 8 * MAX_OBJECT_BYTES;
+function hash(bytes) {
+  return crypto4.createHash("sha256").update(bytes).digest("hex");
+}
+function safeRepositoryFile(root2, relative) {
+  if (!relative || relative.includes("\\") || relative.startsWith("/") || relative.includes(":") || relative.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git" || /[. ]$/.test(part))) {
+    throw new Error("EVIDENCE_OBJECT_PATH_INVALID: expected a bounded repository-relative file.");
+  }
+  let cursor = path6.resolve(root2);
+  if (fs6.lstatSync(cursor).isSymbolicLink())
+    throw new Error("EVIDENCE_OBJECT_PATH_INVALID: symbolic root.");
+  for (const part of relative.split("/")) {
+    cursor = path6.join(cursor, part);
+    try {
+      if (fs6.lstatSync(cursor).isSymbolicLink())
+        throw new Error("EVIDENCE_OBJECT_PATH_INVALID: symbolic paths are unsupported.");
+    } catch (error) {
+      if (error.code !== "ENOENT")
+        throw error;
+    }
+  }
+  return cursor;
+}
+function readBounded(file) {
+  const stat = fs6.lstatSync(file);
+  if (!stat.isFile() || stat.size > MAX_OBJECT_BYTES)
+    throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: requires a regular file of at most 1 MiB.");
+  const bytes = fs6.readFileSync(file);
+  if (bytes.length > MAX_OBJECT_BYTES)
+    throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: file exceeded the limit while reading.");
+  return bytes;
+}
+function describeEvidenceObjects(root2, paths) {
+  const unique = [...new Set(paths.map((item) => item.split("#")[0]))].sort();
+  if (unique.length > 128)
+    throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: too many snapshot files.");
+  let total = 0;
+  return unique.map((relative) => {
+    const bytes = readBounded(safeRepositoryFile(root2, relative));
+    total += bytes.length;
+    if (total > MAX_SNAPSHOT_BYTES)
+      throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: snapshot exceeds 8 MiB.");
+    return { path: relative, sha256: hash(bytes), size: bytes.length };
+  });
+}
+function objectFile2(root2, currentPath, sha) {
+  if (!/^[a-f0-9]{64}$/.test(sha))
+    throw new Error("EVIDENCE_OBJECT_INVALID: invalid digest.");
+  const relative = path6.relative(root2, path6.join(path6.dirname(currentPath), "evidence-objects", `${sha}.blob`)).replace(/\\/g, "/");
+  return safeRepositoryFile(root2, relative);
+}
+function readEvidenceObject(root2, currentPath, object) {
+  verifyEvidenceObject(root2, currentPath, object);
+  return readBounded(objectFile2(root2, currentPath, object.sha256));
+}
+function preserveEvidenceObjects(root2, currentPath, objects) {
+  for (const object of objects) {
+    const bytes = readBounded(safeRepositoryFile(root2, object.path));
+    if (hash(bytes) !== object.sha256 || bytes.length !== object.size)
+      throw new Error("EVIDENCE_OBJECT_STALE: source changed before preservation.");
+    const file = objectFile2(root2, currentPath, object.sha256);
+    fs6.mkdirSync(path6.dirname(file), { recursive: true });
+    if (!fs6.existsSync(file)) {
+      const fd = fs6.openSync(file, "wx");
+      try {
+        fs6.writeFileSync(fd, bytes);
+        fs6.fsyncSync(fd);
+      } finally {
+        fs6.closeSync(fd);
+      }
+    }
+    verifyEvidenceObject(root2, currentPath, object);
+  }
+}
+function verifyEvidenceObject(root2, currentPath, object) {
+  const bytes = readBounded(objectFile2(root2, currentPath, object.sha256));
+  if (hash(bytes) !== object.sha256 || bytes.length !== object.size)
+    throw new Error("EVIDENCE_OBJECT_CORRUPT: immutable evidence object changed.");
+}
+function ingestEvidenceText(root2, currentPath, input, dryRun) {
+  const bytes = Buffer.from(input.body, "utf8");
+  if (!bytes.length || bytes.length > MAX_OBJECT_BYTES || input.source_locator.length > 2048)
+    throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: bounded evidence body and source locator required.");
+  const sha = hash(bytes);
+  const file = objectFile2(root2, currentPath, sha);
+  const provenance = JSON.stringify({ kind: "ingested-evidence/v1", ...input, body: undefined, evidence_sha256: sha, assurance: "caller-reported" }) + `
+`;
+  const metadata = objectFile2(root2, currentPath, hash(Buffer.from(provenance)));
+  if (!dryRun) {
+    fs6.mkdirSync(path6.dirname(file), { recursive: true });
+    for (const [target, content] of [[file, bytes], [metadata, Buffer.from(provenance)]]) {
+      if (!fs6.existsSync(target)) {
+        const fd = fs6.openSync(target, "wx");
+        try {
+          fs6.writeFileSync(fd, content);
+          fs6.fsyncSync(fd);
+        } finally {
+          fs6.closeSync(fd);
+        }
+      }
+      if (!fs6.readFileSync(target).equals(content))
+        throw new Error("EVIDENCE_OBJECT_CORRUPT: stored evidence differs.");
+    }
+  }
+  return { evidence_ref: path6.relative(root2, file).replace(/\\/g, "/"), evidence_sha256: sha, provenance_ref: path6.relative(root2, metadata).replace(/\\/g, "/") };
+}
+
+// runtime/vnext/src/artifact-checkpoints.ts
+import * as crypto5 from "crypto";
+import * as fs7 from "fs";
+import * as path7 from "path";
+function digest2(value) {
+  function canonical(item) {
+    if (Array.isArray(item))
+      return item.map(canonical);
+    if (item && typeof item === "object")
+      return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, value]) => [key, canonical(value)]));
+    return item;
+  }
+  return crypto5.createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+}
+function assertProductPath(root2, currentPath, relative) {
+  const absolute = safeRepositoryFile(root2, relative);
+  const home = path7.dirname(currentPath);
+  const local = path7.relative(home, absolute).replace(/\\/g, "/");
+  if (relative.includes("#") || relative.toLowerCase() === ".gitmodules" || /^(TASKS|\.agents\/skills|\.claude\/skills|\.codex\/skills)(\/|$)/i.test(relative) || /^\.workflow-system(\/|$)/i.test(relative) || path7.resolve(home) !== path7.resolve(root2) && local !== ".." && !local.startsWith("../") || !local.startsWith("../") && (/^(CURRENT_TASK|TASK_BASIS|STATUS|CONTRACTS|DECISIONS|LESSONS|PROJECT_PROFILE)([._/]|$)/i.test(local) || /^(task-history|task-candidates|evidence-objects|archive|archives|\.vnext)/i.test(local))) {
+    throw new Error("ARTIFACT_RESTORE_FORBIDDEN: governance and Runtime installation files cannot be restored.");
+  }
+  let parent = path7.dirname(absolute);
+  while (parent !== path7.resolve(root2)) {
+    if (fs7.existsSync(path7.join(parent, ".git")))
+      throw new Error("ARTIFACT_UNSUPPORTED: submodule files cannot be restored.");
+    parent = path7.dirname(parent);
+  }
+  for (const registry of ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"]) {
+    const file = path7.join(root2, registry);
+    if (fs7.existsSync(file) && fs7.readFileSync(file, "utf8").split(/\r?\n/).some((line) => line.includes(relative) && !/^\s*[-#]*\s*(unfreeze|not frozen)/i.test(line)))
+      throw new Error("ARTIFACT_FROZEN: path is in the freeze registry.");
+  }
+  if (fs7.existsSync(absolute)) {
+    const stat = fs7.lstatSync(absolute);
+    if (!stat.isFile() || stat.size > 1048576)
+      throw new Error("ARTIFACT_UNSUPPORTED: only bounded regular files can be snapshotted.");
+    const content = fs7.readFileSync(absolute);
+    if (content.includes(0) || !Buffer.from(content.toString("utf8")).equals(content))
+      throw new Error("ARTIFACT_UNSUPPORTED: binary baseline cannot be verified.");
+    if (/@frozen|DO NOT MODIFY/i.test(content.subarray(0, 8192).toString("utf8")))
+      throw new Error("ARTIFACT_FROZEN: file has a freeze marker.");
+  }
+  return absolute;
+}
+function captureArtifactImages(root2, currentPath, paths) {
+  const unique = [...new Set(paths)].sort();
+  if (unique.length > 128)
+    throw new Error("ARTIFACT_BUDGET_EXHAUSTED: at most 128 paths.");
+  const present = unique.filter((p) => fs7.existsSync(assertProductPath(root2, currentPath, p)));
+  const objects = describeEvidenceObjects(root2, present);
+  return unique.map((p) => ({ path: p, object: objects.find((object) => object.path === p) ?? null }));
+}
+function checkpointFile(root2, currentPath, documentId, id) {
+  if (!/^doc-[a-f0-9]+$/.test(documentId) || !/^[a-f0-9]{64}$/.test(id))
+    throw new Error("ARTIFACT_CHECKPOINT_INVALID: invalid identity.");
+  return safeRepositoryFile(root2, path7.relative(root2, path7.join(path7.dirname(currentPath), "task-history", documentId, "artifact-checkpoints", `${id}.json`)).replace(/\\/g, "/"));
+}
+function saveArtifactCheckpoint(root2, currentPath, checkpoint, paths, dryRun = false) {
+  const images = captureArtifactImages(root2, currentPath, paths);
+  const payload = { kind: "artifact-checkpoint/v1", ...checkpoint, images };
+  const id = digest2(payload);
+  if (dryRun)
+    return id;
+  preserveEvidenceObjects(root2, currentPath, images.flatMap((image) => image.object ? [image.object] : []));
+  const file = checkpointFile(root2, currentPath, checkpoint.document_id, id);
+  fs7.mkdirSync(path7.dirname(file), { recursive: true });
+  const bytes = JSON.stringify(payload) + `
+`;
+  if (!fs7.existsSync(file)) {
+    const fd = fs7.openSync(file, "wx");
+    try {
+      fs7.writeFileSync(fd, bytes);
+      fs7.fsyncSync(fd);
+    } finally {
+      fs7.closeSync(fd);
+    }
+  }
+  if (fs7.readFileSync(file, "utf8") !== bytes)
+    throw new Error("ARTIFACT_CHECKPOINT_CORRUPT: immutable checkpoint changed.");
+  return id;
+}
+function prepareArtifactRestore(root2, currentPath, taskId, documentId, checkpointId, paths) {
+  const file = checkpointFile(root2, currentPath, documentId, checkpointId);
+  const checkpoint = JSON.parse(fs7.readFileSync(file, "utf8"));
+  if (digest2(checkpoint) !== checkpointId || checkpoint.kind !== "artifact-checkpoint/v1" || checkpoint.task_id !== taskId || checkpoint.document_id !== documentId || !["before", "after"].includes(checkpoint.phase))
+    throw new Error("ARTIFACT_CHECKPOINT_INVALID: checkpoint identity or bytes differ.");
+  if (!paths.length || new Set(paths).size !== paths.length)
+    throw new Error("ARTIFACT_RESTORE_INVALID: exact nonempty unique paths required.");
+  const targets = [...paths].sort().map((p) => {
+    const target = checkpoint.images.find((image) => image.path === p);
+    if (!target)
+      throw new Error("ARTIFACT_BASELINE_MISSING: path was not captured at this checkpoint.");
+    assertProductPath(root2, currentPath, p);
+    if (target.object)
+      readEvidenceObject(root2, currentPath, target.object);
+    return target;
+  });
+  return { checkpoint_id: checkpointId, checkpoint, expected: captureArtifactImages(root2, currentPath, paths), targets };
+}
+function assertNoArtifactPublication(currentPath) {
+  if (fs7.existsSync(path7.join(path7.dirname(currentPath), ".vnext-artifact-restore.lock")))
+    throw new Error("ARTIFACT_RECOVERY_REQUIRED: interrupted restore is retained; ordinary execution is blocked.");
+}
+function publish(root2, currentPath, image) {
+  const file = assertProductPath(root2, currentPath, image.path);
+  if (!image.object) {
+    if (fs7.existsSync(file))
+      fs7.unlinkSync(file);
+    return;
+  }
+  const bytes = readEvidenceObject(root2, currentPath, image.object);
+  fs7.mkdirSync(path7.dirname(file), { recursive: true });
+  const stage = `${file}.vnext-${crypto5.randomUUID()}.tmp`;
+  const fd = fs7.openSync(stage, "wx");
+  try {
+    fs7.writeFileSync(fd, bytes);
+    fs7.fsyncSync(fd);
+  } finally {
+    fs7.closeSync(fd);
+  }
+  try {
+    fs7.renameSync(stage, file);
+  } finally {
+    if (fs7.existsSync(stage))
+      fs7.unlinkSync(stage);
+  }
+}
+function applyArtifactRestore(root2, currentPath, plan, afterPublish, recordCompletion) {
+  assertNoArtifactPublication(currentPath);
+  if (digest2(captureArtifactImages(root2, currentPath, plan.expected.map((image) => image.path))) !== digest2(plan.expected))
+    throw new Error("ARTIFACT_RESTORE_STALE: current files differ; user changes were preserved.");
+  preserveEvidenceObjects(root2, currentPath, plan.expected.flatMap((image) => image.object ? [image.object] : []));
+  const lock = path7.join(path7.dirname(currentPath), ".vnext-artifact-restore.lock");
+  const fd = fs7.openSync(lock, "wx");
+  try {
+    fs7.writeFileSync(fd, JSON.stringify({ kind: "artifact-restore-journal/v1", pid: process.pid, plan }) + `
+`);
+    fs7.fsyncSync(fd);
+  } finally {
+    fs7.closeSync(fd);
+  }
+  const applied = [];
+  try {
+    for (const target of plan.targets) {
+      const before = plan.expected.find((image) => image.path === target.path);
+      if (digest2(captureArtifactImages(root2, currentPath, [target.path])[0]) !== digest2(before))
+        throw new Error("ARTIFACT_RESTORE_STALE: path changed during publication.");
+      publish(root2, currentPath, target);
+      applied.push(target);
+      afterPublish?.();
+    }
+    if (digest2(captureArtifactImages(root2, currentPath, plan.targets.map((image) => image.path))) !== digest2(plan.targets))
+      throw new Error("ARTIFACT_RESTORE_VERIFY_FAILED: restored files differ.");
+    recordCompletion?.();
+    fs7.unlinkSync(lock);
+  } catch (error) {
+    for (const target of applied.reverse()) {
+      if (digest2(captureArtifactImages(root2, currentPath, [target.path])[0]) !== digest2(target))
+        throw new Error("ARTIFACT_RECOVERY_REQUIRED: drift during rollback; journal retained.");
+      publish(root2, currentPath, plan.expected.find((image) => image.path === target.path));
+    }
+    if (digest2(captureArtifactImages(root2, currentPath, plan.expected.map((image) => image.path))) === digest2(plan.expected))
+      fs7.unlinkSync(lock);
+    throw error;
+  }
+}
+
+// runtime/vnext/src/kernel.ts
+import * as crypto10 from "crypto";
+import * as fs11 from "fs";
+import * as path12 from "path";
+import { parseDocument, stringify as stringify4 } from "yaml";
+
+// runtime/vnext/src/task-evolution-io.ts
+import * as crypto6 from "crypto";
+import * as fs8 from "fs";
 import * as path8 from "path";
+function sha2563(value) {
+  return crypto6.createHash("sha256").update(value, "utf8").digest("hex");
+}
+function lockPathFor(currentPath) {
+  return path8.join(path8.dirname(currentPath), ".vnext-task-evolution.lock");
+}
+function assertSafeHistoryDirectory(currentPath, directory) {
+  const workflowDirectory = path8.dirname(currentPath);
+  const relative = path8.relative(workflowDirectory, directory);
+  if (!relative || relative.startsWith("..") || path8.isAbsolute(relative)) {
+    throw new Error("TASK_HISTORY_PATH_INVALID: history must stay below the canonical workflow directory.");
+  }
+  let cursor = workflowDirectory;
+  for (const part of relative.split(path8.sep)) {
+    cursor = path8.join(cursor, part);
+    if (fs8.existsSync(cursor) && fs8.lstatSync(cursor).isSymbolicLink()) {
+      throw new Error("TASK_HISTORY_PATH_INVALID: history path cannot traverse a symbolic link.");
+    }
+  }
+}
+function taskHistoryLocation(input) {
+  if (!/^doc-[a-f0-9]+$/u.test(input.documentId))
+    throw new Error("TASK_HISTORY_IDENTITY_INVALID: document ID is invalid.");
+  const revision = sha2563(input.previousContent);
+  if (input.basisPath === undefined !== (input.basisContent === undefined)) {
+    throw new Error("TASK_HISTORY_BASIS_INVALID: Task Basis path and bytes must be provided together.");
+  }
+  const basisRelativePath = input.basisPath === undefined ? null : path8.relative(path8.dirname(input.currentPath), input.basisPath);
+  if (basisRelativePath !== null && (!basisRelativePath || basisRelativePath.startsWith("..") || path8.isAbsolute(basisRelativePath))) {
+    throw new Error("TASK_HISTORY_BASIS_INVALID: linked Task Basis must stay inside the canonical workflow directory.");
+  }
+  const basisRevision = input.basisContent === undefined ? null : sha2563(input.basisContent);
+  const directory = path8.join(path8.dirname(input.currentPath), "task-history", input.documentId);
+  assertSafeHistoryDirectory(input.currentPath, directory);
+  const historyPath = path8.join(directory, `${revision}.json`);
+  const packageContent = JSON.stringify({
+    schema_version: 1,
+    kind: "vnext-task-definition-history",
+    operation: input.operation ?? "supersede",
+    task_id: input.taskId,
+    document_id: input.documentId,
+    source_path: path8.basename(input.currentPath),
+    source_revision: revision,
+    task_basis_path: basisRelativePath?.replace(/\\/gu, "/") ?? null,
+    task_basis_revision: basisRevision,
+    evidence_plan_revision: input.evidencePlanRevision ?? null,
+    referenced_evidence: [...new Set(input.referencedEvidence ?? [])].sort().map((locator) => ({ locator, preservation: "reference-only; content not snapshotted" })),
+    current_task_base64: Buffer.from(input.previousContent, "utf8").toString("base64"),
+    task_basis_base64: input.basisContent === undefined ? null : Buffer.from(input.basisContent, "utf8").toString("base64")
+  }, null, 2) + `
+`;
+  return {
+    path: historyPath,
+    relativePath: path8.relative(path8.dirname(input.currentPath), historyPath).replace(/\\/gu, "/"),
+    content: packageContent
+  };
+}
+function assertTaskHistoryForRevision(currentPath, documentId, taskId, sourceRevision, operation = "supersede") {
+  if (!/^doc-[a-f0-9]+$/u.test(documentId) || !/^[a-f0-9]{64}$/u.test(sourceRevision)) {
+    throw new Error("TASK_HISTORY_INVALID: replay identity or revision is invalid.");
+  }
+  const directory = path8.join(path8.dirname(currentPath), "task-history", documentId);
+  assertSafeHistoryDirectory(currentPath, directory);
+  const historyPath = path8.join(directory, `${sourceRevision}.json`);
+  if (!fs8.existsSync(historyPath) || !fs8.lstatSync(historyPath).isFile()) {
+    throw new Error("TASK_HISTORY_MISSING: task evolution requires the immutable preimage.");
+  }
+  let history;
+  try {
+    history = JSON.parse(fs8.readFileSync(historyPath, "utf8"));
+  } catch {
+    throw new Error("TASK_HISTORY_INVALID: preimage package is unreadable.");
+  }
+  if (history.schema_version !== 1 || history.kind !== "vnext-task-definition-history" || history.operation !== operation || history.document_id !== documentId || history.task_id !== taskId || history.source_path !== path8.basename(currentPath) || history.source_revision !== sourceRevision || typeof history.current_task_base64 !== "string" || sha2563(Buffer.from(history.current_task_base64, "base64").toString("utf8")) !== sourceRevision || history.task_basis_revision === null && (history.task_basis_base64 !== null || history.task_basis_path !== null) || history.task_basis_revision !== null && (typeof history.task_basis_revision !== "string" || typeof history.task_basis_base64 !== "string" || typeof history.task_basis_path !== "string" || sha2563(Buffer.from(history.task_basis_base64, "base64").toString("utf8")) !== history.task_basis_revision)) {
+    throw new Error("TASK_HISTORY_INVALID: preimage identity or content digest changed.");
+  }
+}
+function atomicReplace(filePath, content) {
+  const temporaryPath = path8.join(path8.dirname(filePath), `.${path8.basename(filePath)}.${crypto6.randomUUID()}.tmp`);
+  let descriptor;
+  try {
+    descriptor = fs8.openSync(temporaryPath, "wx");
+    fs8.writeFileSync(descriptor, content, "utf8");
+    fs8.fsyncSync(descriptor);
+    fs8.closeSync(descriptor);
+    descriptor = undefined;
+    fs8.renameSync(temporaryPath, filePath);
+  } finally {
+    if (descriptor !== undefined)
+      fs8.closeSync(descriptor);
+    if (fs8.existsSync(temporaryPath))
+      fs8.rmSync(temporaryPath, { force: true });
+  }
+}
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
+  }
+}
+function parseLock(content, currentPath) {
+  let value;
+  try {
+    value = JSON.parse(content);
+  } catch {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock is unreadable.");
+  }
+  if (value.schema_version !== 1 || !["prepared", "history-written", "current-published"].includes(value.phase ?? "") || !Number.isSafeInteger(value.pid) || !value.pid || value.current_path !== currentPath || ![value.previous_revision, value.next_revision, value.history_revision].every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item)) || typeof value.history_path !== "string" || path8.basename(value.history_path) !== `${value.previous_revision}.json`) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock is invalid.");
+  }
+  if (value.basis_path !== undefined) {
+    if (typeof value.basis_path !== "string" || !value.basis_path || ![value.previous_basis_revision, value.next_basis_revision].every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item))) {
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock basis binding is invalid.");
+    }
+    const relative = path8.relative(path8.dirname(currentPath), value.basis_path);
+    if (!relative || relative.startsWith("..") || path8.isAbsolute(relative))
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: Task Basis path escapes workflow directory.");
+    assertSafeHistoryDirectory(currentPath, path8.dirname(value.basis_path));
+  } else if (value.previous_basis_revision !== undefined || value.next_basis_revision !== undefined) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock has incomplete Task Basis binding.");
+  }
+  const historyDirectory = path8.dirname(value.history_path);
+  assertSafeHistoryDirectory(currentPath, historyDirectory);
+  if (path8.dirname(historyDirectory) !== path8.join(path8.dirname(currentPath), "task-history")) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock history path is not canonical.");
+  }
+  return value;
+}
+function recoverTaskEvolution(currentPath) {
+  const lockPath = lockPathFor(currentPath);
+  if (!fs8.existsSync(lockPath))
+    return;
+  const lock = parseLock(fs8.readFileSync(lockPath, "utf8"), currentPath);
+  if (processIsAlive(lock.pid)) {
+    throw new Error("TASK_EVOLUTION_IN_PROGRESS: another process owns the task evolution lock.");
+  }
+  if (!fs8.existsSync(currentPath)) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: CURRENT_TASK is missing after an interrupted evolution.");
+  }
+  const currentRevision = sha2563(fs8.readFileSync(currentPath, "utf8"));
+  if (currentRevision !== lock.previous_revision && currentRevision !== lock.next_revision) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: CURRENT_TASK is neither the old nor the new recorded revision.");
+  }
+  if (fs8.existsSync(lock.history_path)) {
+    if (sha2563(fs8.readFileSync(lock.history_path, "utf8")) !== lock.history_revision) {
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history bytes changed after interruption.");
+    }
+  } else if (currentRevision === lock.next_revision) {
+    throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: new CURRENT_TASK is visible without its required history.");
+  }
+  if (lock.basis_path) {
+    if (!fs8.existsSync(lock.basis_path))
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: linked Task Basis is missing.");
+    const basisRevision = sha2563(fs8.readFileSync(lock.basis_path, "utf8"));
+    if (basisRevision !== lock.previous_basis_revision && basisRevision !== lock.next_basis_revision) {
+      throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: linked Task Basis is neither old nor new revision.");
+    }
+    if (currentRevision !== lock.next_revision || basisRevision !== lock.next_basis_revision) {
+      if (basisRevision === lock.next_basis_revision) {
+        if (!fs8.existsSync(lock.history_path))
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: cannot restore Task Basis without history.");
+        const history = JSON.parse(fs8.readFileSync(lock.history_path, "utf8"));
+        if (!history.task_basis_base64)
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history lacks old Task Basis bytes.");
+        const oldBasis = Buffer.from(history.task_basis_base64, "base64").toString("utf8");
+        if (sha2563(oldBasis) !== lock.previous_basis_revision || history.task_basis_revision !== lock.previous_basis_revision) {
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history Task Basis preimage is invalid.");
+        }
+        atomicReplace(lock.basis_path, oldBasis);
+      }
+      if (currentRevision === lock.next_revision) {
+        const history = JSON.parse(fs8.readFileSync(lock.history_path, "utf8"));
+        if (!history.current_task_base64)
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history lacks old CURRENT_TASK bytes.");
+        const oldCurrent = Buffer.from(history.current_task_base64, "base64").toString("utf8");
+        if (sha2563(oldCurrent) !== lock.previous_revision)
+          throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: history CURRENT_TASK preimage is invalid.");
+        atomicReplace(currentPath, oldCurrent);
+      }
+    }
+  }
+  fs8.rmSync(lockPath);
+}
+function commitTaskEvolutionWithHistory(input, verifyNext, afterBasisPublished) {
+  recoverTaskEvolution(input.currentPath);
+  const history = taskHistoryLocation(input);
+  const previousRevision = sha2563(input.previousContent);
+  const nextRevision = sha2563(input.nextContent);
+  const lock = {
+    schema_version: 1,
+    phase: "prepared",
+    pid: process.pid,
+    current_path: input.currentPath,
+    previous_revision: previousRevision,
+    next_revision: nextRevision,
+    history_path: history.path,
+    history_revision: sha2563(history.content),
+    ...input.nextBasisContent === undefined ? {} : {
+      basis_path: input.basisPath,
+      previous_basis_revision: sha2563(input.basisContent),
+      next_basis_revision: sha2563(input.nextBasisContent)
+    }
+  };
+  const lockPath = lockPathFor(input.currentPath);
+  let descriptor;
+  let ownsLock = false;
+  try {
+    descriptor = fs8.openSync(lockPath, "wx");
+    ownsLock = true;
+    fs8.writeFileSync(descriptor, JSON.stringify(lock) + `
+`, "utf8");
+    fs8.fsyncSync(descriptor);
+    fs8.closeSync(descriptor);
+    descriptor = undefined;
+    if (!fs8.existsSync(input.currentPath) || sha2563(fs8.readFileSync(input.currentPath, "utf8")) !== previousRevision) {
+      throw new Error("TASK_EVOLUTION_SOURCE_STALE: CURRENT_TASK changed before the evolution lock was acquired.");
+    }
+    if (input.basisPath !== undefined && input.basisContent !== undefined && (!fs8.existsSync(input.basisPath) || sha2563(fs8.readFileSync(input.basisPath, "utf8")) !== sha2563(input.basisContent))) {
+      throw new Error("TASK_EVOLUTION_BASIS_STALE: Task Basis changed before the evolution lock was acquired.");
+    }
+    fs8.mkdirSync(path8.dirname(history.path), { recursive: true });
+    assertSafeHistoryDirectory(input.currentPath, path8.dirname(history.path));
+    if (fs8.existsSync(history.path)) {
+      if (fs8.readFileSync(history.path, "utf8") !== history.content) {
+        throw new Error("TASK_HISTORY_CONFLICT: existing source revision has different bytes.");
+      }
+    } else {
+      atomicReplace(history.path, history.content);
+    }
+    if (fs8.readFileSync(history.path, "utf8") !== history.content) {
+      throw new Error("TASK_HISTORY_READ_BACK_FAILED: history bytes differ after write.");
+    }
+    atomicReplace(lockPath, JSON.stringify({ ...lock, phase: "history-written" }) + `
+`);
+    if (input.nextBasisContent !== undefined) {
+      if (!input.basisPath || input.basisContent === undefined)
+        throw new Error("TASK_EVOLUTION_BASIS_INVALID: new Task Basis requires its exact old binding.");
+      atomicReplace(input.basisPath, input.nextBasisContent);
+      if (fs8.readFileSync(input.basisPath, "utf8") !== input.nextBasisContent)
+        throw new Error("TASK_EVOLUTION_BASIS_READ_BACK_FAILED: Task Basis bytes differ after write.");
+      afterBasisPublished?.();
+    }
+    atomicReplace(input.currentPath, input.nextContent);
+    const readBack = fs8.readFileSync(input.currentPath, "utf8");
+    if (sha2563(readBack) !== nextRevision) {
+      throw new Error("TASK_EVOLUTION_READ_BACK_FAILED: CURRENT_TASK bytes differ after write.");
+    }
+    atomicReplace(lockPath, JSON.stringify({ ...lock, phase: "current-published" }) + `
+`);
+    verifyNext(readBack);
+    fs8.rmSync(lockPath);
+    return history;
+  } catch (error) {
+    if (descriptor !== undefined)
+      fs8.closeSync(descriptor);
+    if (ownsLock && fs8.existsSync(input.currentPath) && sha2563(fs8.readFileSync(input.currentPath, "utf8")) === nextRevision) {
+      try {
+        atomicReplace(input.currentPath, input.previousContent);
+      } catch {}
+    }
+    if (ownsLock && input.basisPath && input.basisContent !== undefined && input.nextBasisContent !== undefined && fs8.existsSync(input.basisPath) && sha2563(fs8.readFileSync(input.basisPath, "utf8")) === sha2563(input.nextBasisContent)) {
+      try {
+        atomicReplace(input.basisPath, input.basisContent);
+      } catch {}
+    }
+    if (ownsLock && fs8.existsSync(input.currentPath) && sha2563(fs8.readFileSync(input.currentPath, "utf8")) === previousRevision && (input.nextBasisContent === undefined || input.basisPath && fs8.existsSync(input.basisPath) && sha2563(fs8.readFileSync(input.basisPath, "utf8")) === sha2563(input.basisContent)) && fs8.existsSync(lockPath)) {
+      fs8.rmSync(lockPath);
+    }
+    throw error;
+  }
+}
+function commitSupersedeWithHistory(input, verifyNext) {
+  return commitTaskEvolutionWithHistory({ ...input, operation: "supersede" }, verifyNext);
+}
+function publishPreparedSuccessor(currentPath, previousContent, nextContent, artifacts, prepareAggregate) {
+  if (fs8.readFileSync(currentPath, "utf8") !== previousContent) {
+    throw new Error("SUCCESSOR_SOURCE_STALE: predecessor changed before publication.");
+  }
+  for (const artifact of artifacts) {
+    if (fs8.existsSync(artifact.path)) {
+      if (!fs8.lstatSync(artifact.path).isFile() || fs8.readFileSync(artifact.path, "utf8") !== artifact.content) {
+        throw new Error("SUCCESSOR_HISTORY_CONFLICT: immutable prerequisite has different bytes.");
+      }
+      continue;
+    }
+    fs8.mkdirSync(path8.dirname(artifact.path), { recursive: true });
+    atomicReplace(artifact.path, artifact.content);
+    if (fs8.readFileSync(artifact.path, "utf8") !== artifact.content)
+      throw new Error("SUCCESSOR_READ_BACK_FAILED: prerequisite differs.");
+  }
+  prepareAggregate();
+  if (fs8.readFileSync(currentPath, "utf8") !== previousContent)
+    throw new Error("SUCCESSOR_SOURCE_STALE: predecessor changed while preparing dependencies.");
+  atomicReplace(currentPath, nextContent);
+  if (fs8.readFileSync(currentPath, "utf8") !== nextContent)
+    throw new Error("SUCCESSOR_READ_BACK_FAILED: published draft differs.");
+}
+
+// runtime/vnext/src/task-identity.ts
+import * as path9 from "path";
 var CURRENT_TASK_WORKFLOW_STATUSES = [
   "draft",
   "active",
@@ -3818,8 +4251,8 @@ function getTaskArtifactPath(taskId, taskSlug, kind) {
     throw new Error(`Invalid TaskArtifactKind "${kind}".`);
   const fileName = `TASK-${taskId}-${taskSlug}.md`;
   if (kind === "archive")
-    return path8.posix.join("TASKS", fileName);
-  return path8.posix.join("TASKS", kind, fileName);
+    return path9.posix.join("TASKS", fileName);
+  return path9.posix.join("TASKS", kind, fileName);
 }
 function validateTaskId(taskId) {
   const normalized = normalizeValue(taskId);
@@ -4764,8 +5197,8 @@ function resolveTaskStep(body, activeStepId) {
 
 // runtime/vnext/src/mutation-authority.ts
 import * as crypto8 from "crypto";
-import * as fs8 from "fs";
-import * as path9 from "path";
+import * as fs9 from "fs";
+import * as path10 from "path";
 var MUTATION_AUTHORITY_VERSION = 2;
 
 class MutationAuthorityError extends Error {
@@ -4876,7 +5309,7 @@ function normalizeProjectMutationAuthority(value) {
 }
 function readProjectMutationAuthority(root2) {
   const profilePath = getWorkflowProfilePath(root2);
-  if (!fs8.existsSync(profilePath))
+  if (!fs9.existsSync(profilePath))
     return null;
   let profile;
   try {
@@ -5031,10 +5464,10 @@ function evaluateTaskMutationAuthorityPlan(input) {
 function firstTouchState(root2, target) {
   if (!root2)
     return;
-  const absolute = path9.resolve(root2, ...target.split("/"));
-  if (!fs8.existsSync(absolute))
+  const absolute = path10.resolve(root2, ...target.split("/"));
+  if (!fs9.existsSync(absolute))
     return "absent";
-  const stat = fs8.lstatSync(absolute);
+  const stat = fs9.lstatSync(absolute);
   if (stat.isSymbolicLink())
     return "symlink";
   return stat.isFile() ? "file" : undefined;
@@ -5313,8 +5746,8 @@ function evaluateExecutionTargetAdmissions(input) {
 
 // runtime/vnext/src/bootstrap.ts
 import * as crypto9 from "crypto";
-import * as fs9 from "fs";
-import * as path10 from "path";
+import * as fs10 from "fs";
+import * as path11 from "path";
 var VNEXT_BOOTSTRAP_PROPOSAL_SCHEMA_VERSION = 1;
 var VNEXT_BOOTSTRAP_PROPOSAL_KIND = "vnext-bootstrap-proposal";
 var BOOTSTRAP_MODES = ["design", "greenfield", "inventory", "adopt", "realign"];
@@ -5340,11 +5773,11 @@ class BootstrapRuntimeError extends Error {
 function fail2(code, message) {
   throw new BootstrapRuntimeError(code, message);
 }
-function isRecord2(value) {
+function isRecord3(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function expectRecord(value, location) {
-  if (!isRecord2(value))
+  if (!isRecord3(value))
     fail2("BOOTSTRAP_SCHEMA_INVALID", `${location} must be a mapping.`);
   return value;
 }
@@ -5382,7 +5815,7 @@ function sha2564(value) {
   return crypto9.createHash("sha256").update(value).digest("hex");
 }
 function computeBootstrapTargetIdentity(root2) {
-  const resolved = path10.resolve(root2).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
+  const resolved = path11.resolve(root2).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
   return sha2564(resolved).slice(0, 32);
 }
 function isAllowedAssetPath(value) {
@@ -5588,9 +6021,9 @@ function validateBootstrapProjectProposal(value) {
   return { proposal, scope: scopeResult };
 }
 function absoluteTarget(root2, relativePath) {
-  const resolvedRoot = path10.resolve(root2);
-  const resolved = path10.resolve(resolvedRoot, ...relativePath.split("/"));
-  const prefix = resolvedRoot.endsWith(path10.sep) ? resolvedRoot : `${resolvedRoot}${path10.sep}`;
+  const resolvedRoot = path11.resolve(root2);
+  const resolved = path11.resolve(resolvedRoot, ...relativePath.split("/"));
+  const prefix = resolvedRoot.endsWith(path11.sep) ? resolvedRoot : `${resolvedRoot}${path11.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
     fail2("BOOTSTRAP_PATH_INVALID", `target escapes project root: ${relativePath}`);
   return resolved;
@@ -5599,56 +6032,56 @@ function contentHash(content) {
   return sha2564(Buffer.from(content, "utf8"));
 }
 function applyAtomicBootstrapTransaction(root2, proposal, verify) {
-  const resolvedRoot = path10.resolve(root2);
-  const stagingRoot = fs9.mkdtempSync(path10.join(path10.dirname(resolvedRoot), ".workflow-vnext-bootstrap-"));
+  const resolvedRoot = path11.resolve(root2);
+  const stagingRoot = fs10.mkdtempSync(path11.join(path11.dirname(resolvedRoot), ".workflow-vnext-bootstrap-"));
   const backups = [];
   const newlyPromoted = [];
   try {
     const stagedFiles = [];
     for (const [index, asset] of proposal.assets.entries()) {
-      const stagedPath = path10.join(stagingRoot, "files", `${index}.tmp`);
-      fs9.mkdirSync(path10.dirname(stagedPath), { recursive: true });
-      fs9.writeFileSync(stagedPath, asset.content, "utf8");
+      const stagedPath = path11.join(stagingRoot, "files", `${index}.tmp`);
+      fs10.mkdirSync(path11.dirname(stagedPath), { recursive: true });
+      fs10.writeFileSync(stagedPath, asset.content, "utf8");
       stagedFiles.push({ relative: asset.path, path: stagedPath });
     }
     const touched = stagedFiles.map((item) => item.relative);
     for (const [index, relative] of touched.entries()) {
       const targetPath = absoluteTarget(resolvedRoot, relative);
-      if (!fs9.existsSync(targetPath))
+      if (!fs10.existsSync(targetPath))
         continue;
-      const backupPath = path10.join(stagingRoot, "backups", `${index}.bak`);
-      fs9.mkdirSync(path10.dirname(backupPath), { recursive: true });
-      fs9.renameSync(targetPath, backupPath);
+      const backupPath = path11.join(stagingRoot, "backups", `${index}.bak`);
+      fs10.mkdirSync(path11.dirname(backupPath), { recursive: true });
+      fs10.renameSync(targetPath, backupPath);
       backups.push({ targetPath, backupPath });
     }
     for (const staged of stagedFiles) {
       const targetPath = absoluteTarget(resolvedRoot, staged.relative);
-      fs9.mkdirSync(path10.dirname(targetPath), { recursive: true });
-      fs9.renameSync(staged.path, targetPath);
+      fs10.mkdirSync(path11.dirname(targetPath), { recursive: true });
+      fs10.renameSync(staged.path, targetPath);
       newlyPromoted.push(targetPath);
     }
     for (const asset of proposal.assets) {
       const targetPath = absoluteTarget(resolvedRoot, asset.path);
-      if (!fs9.existsSync(targetPath) || contentHash(fs9.readFileSync(targetPath, "utf8")) !== contentHash(asset.content)) {
+      if (!fs10.existsSync(targetPath) || contentHash(fs10.readFileSync(targetPath, "utf8")) !== contentHash(asset.content)) {
         fail2("BOOTSTRAP_READ_BACK_FAILED", `promoted asset did not read back identically: ${asset.path}`);
       }
     }
     verify?.();
-    fs9.rmSync(stagingRoot, { recursive: true, force: true });
+    fs10.rmSync(stagingRoot, { recursive: true, force: true });
   } catch (error) {
     for (const targetPath of newlyPromoted.reverse()) {
-      if (fs9.existsSync(targetPath))
-        fs9.rmSync(targetPath, { recursive: true, force: true });
+      if (fs10.existsSync(targetPath))
+        fs10.rmSync(targetPath, { recursive: true, force: true });
     }
     for (const entry of backups.reverse()) {
-      if (fs9.existsSync(entry.targetPath))
-        fs9.rmSync(entry.targetPath, { recursive: true, force: true });
-      if (fs9.existsSync(entry.backupPath)) {
-        fs9.mkdirSync(path10.dirname(entry.targetPath), { recursive: true });
-        fs9.renameSync(entry.backupPath, entry.targetPath);
+      if (fs10.existsSync(entry.targetPath))
+        fs10.rmSync(entry.targetPath, { recursive: true, force: true });
+      if (fs10.existsSync(entry.backupPath)) {
+        fs10.mkdirSync(path11.dirname(entry.targetPath), { recursive: true });
+        fs10.renameSync(entry.backupPath, entry.targetPath);
       }
     }
-    fs9.rmSync(stagingRoot, { recursive: true, force: true });
+    fs10.rmSync(stagingRoot, { recursive: true, force: true });
     throw error;
   }
 }
@@ -5675,7 +6108,7 @@ function applyBootstrapProjectProposal(root2, value, options = {}) {
 }
 function parseJsonFile(filePath) {
   try {
-    return JSON.parse(fs9.readFileSync(path10.resolve(filePath), "utf8"));
+    return JSON.parse(fs10.readFileSync(path11.resolve(filePath), "utf8"));
   } catch (error) {
     throw new BootstrapRuntimeError("BOOTSTRAP_SCHEMA_INVALID", `proposal file is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -5962,14 +6395,14 @@ class VNextRuntimeError extends Error {
     this.code = code;
   }
 }
-function isRecord3(value) {
+function isRecord4(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function fail3(code, message) {
   throw new VNextRuntimeError(code, message);
 }
 function expectRecord2(value, location) {
-  if (!isRecord3(value))
+  if (!isRecord4(value))
     fail3("RUNTIME_SCHEMA_INVALID", `${location} must be a mapping.`);
   return value;
 }
@@ -6053,7 +6486,7 @@ function sha2565(value) {
 function stableValue2(value) {
   if (Array.isArray(value))
     return value.map(stableValue2);
-  if (isRecord3(value)) {
+  if (isRecord4(value)) {
     return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue2(value[key])]));
   }
   return value;
@@ -6062,23 +6495,23 @@ function digest3(value) {
   return sha2565(JSON.stringify(stableValue2(value)));
 }
 function captureReviewTarget(root2, paths) {
-  const resolvedRoot = path11.resolve(root2);
+  const resolvedRoot = path12.resolve(root2);
   const normalizedPaths = [...new Set(paths.map((item, index) => normalizeRepoPath2(item, `review_target.paths[${index}]`)))].sort();
   const entries = normalizedPaths.map((relativePath) => {
-    const filePath = path11.resolve(resolvedRoot, ...relativePath.split("/"));
-    if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path11.sep}`)) {
+    const filePath = path12.resolve(resolvedRoot, ...relativePath.split("/"));
+    if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path12.sep}`)) {
       fail3("RUNTIME_PATH_INVALID", `review target escapes the target root: ${relativePath}`);
     }
-    if (!fs10.existsSync(filePath))
+    if (!fs11.existsSync(filePath))
       return { path: relativePath, state: "absent", sha256: null };
-    const stat = fs10.lstatSync(filePath);
+    const stat = fs11.lstatSync(filePath);
     if (stat.isSymbolicLink()) {
-      return { path: relativePath, state: "symlink", sha256: sha2565(fs10.readlinkSync(filePath)) };
+      return { path: relativePath, state: "symlink", sha256: sha2565(fs11.readlinkSync(filePath)) };
     }
     if (!stat.isFile()) {
       fail3("REVIEW_TARGET_INVALID", `review target must be a file, symlink, or absent path: ${relativePath}`);
     }
-    return { path: relativePath, state: "file", sha256: sha2565(fs10.readFileSync(filePath)) };
+    return { path: relativePath, state: "file", sha256: sha2565(fs11.readFileSync(filePath)) };
   });
   return {
     kind: "runtime-file-manifest/v1",
@@ -6174,12 +6607,12 @@ function validateRetryResolution(root2, current, delta, failure) {
     fail3("RETRY_DIAGNOSIS_REQUIRED", "Environment retry requires a recorded environment blocker without failed checks.");
   for (const ref of delta.blocker_resolution_refs) {
     const relative = normalizeRepoPath2(ref, "blocker_resolution_ref");
-    const absolute = path11.resolve(root2, relative);
-    if (!fs10.existsSync(absolute) || !fs10.statSync(absolute).isFile() || fs10.statSync(absolute).size > 65536)
+    const absolute = path12.resolve(root2, relative);
+    if (!fs11.existsSync(absolute) || !fs11.statSync(absolute).isFile() || fs11.statSync(absolute).size > 65536)
       fail3("RETRY_RESOLUTION_REQUIRED", "Resolution must be a retained bounded JSON report.");
     let parsed;
     try {
-      parsed = JSON.parse(fs10.readFileSync(absolute, "utf8"));
+      parsed = JSON.parse(fs11.readFileSync(absolute, "utf8"));
     } catch {
       fail3("RETRY_RESOLUTION_REQUIRED", "Resolution must be structured JSON, not a free-form unlock note.");
     }
@@ -6357,8 +6790,8 @@ function normalizeReviewPreimages(preimages) {
 function reviewPreimageWrite(root2, entry) {
   if (entry.state === "absent")
     return null;
-  const absolute = path11.resolve(root2, entry.path);
-  const content = entry.state === "symlink" ? Buffer.from(fs10.readlinkSync(absolute)) : fs10.readFileSync(absolute);
+  const absolute = path12.resolve(root2, entry.path);
+  const content = entry.state === "symlink" ? Buffer.from(fs11.readlinkSync(absolute)) : fs11.readFileSync(absolute);
   if (!entry.sha256 || sha2565(content) !== entry.sha256)
     fail3("REVIEW_BASE_INVALID", `first-touch baseline hash changed while capturing ${entry.path}.`);
   return { sha256: entry.sha256, content };
@@ -6586,15 +7019,15 @@ function parseYamlFrontmatter(content, location) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location} has invalid frontmatter YAML: ${diagnostics.map((item) => item.message).join("; ")}`);
   }
   const frontmatter = document.toJS();
-  if (!isRecord3(frontmatter)) {
+  if (!isRecord4(frontmatter)) {
     fail3("MIGRATION_REQUIRED", `${location} does not declare a supported vNext CURRENT_TASK schema; run the Migration Pack.`);
   }
   return { frontmatter, body: match[2] };
 }
 function parseYamlMappingFile(filePath) {
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     fail3("RUNTIME_CONTRACT_MISSING", `Runtime contract is missing: ${filePath}`);
-  const document = parseDocument(fs10.readFileSync(filePath, "utf8"), { uniqueKeys: true });
+  const document = parseDocument(fs11.readFileSync(filePath, "utf8"), { uniqueKeys: true });
   const diagnostics = [...document.errors, ...document.warnings];
   if (diagnostics.length > 0)
     fail3("RUNTIME_CONTRACT_INVALID", `${filePath} has invalid YAML: ${diagnostics.map((item) => item.message).join("; ")}`);
@@ -6621,29 +7054,29 @@ function validateRuntimeEnvironment(nodeVersion = process.versions.node, nodeMin
   }
 }
 function readJsonObject(filePath, code) {
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     fail3(code, "Required Runtime distribution file is missing: " + filePath);
   let parsed;
   try {
-    parsed = JSON.parse(fs10.readFileSync(filePath, "utf8"));
+    parsed = JSON.parse(fs11.readFileSync(filePath, "utf8"));
   } catch (error) {
     fail3(code, filePath + " is not valid JSON: " + (error instanceof Error ? error.message : String(error)));
   }
   return expectRecord2(parsed, filePath);
 }
 function resolveRuntimeDistributionDirectory(root2) {
-  const resolvedRoot = path11.resolve(root2);
-  const installedDirectory = path11.join(resolvedRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"));
-  if (fs10.existsSync(path11.join(installedDirectory, "package.json"))) {
+  const resolvedRoot = path12.resolve(root2);
+  const installedDirectory = path12.join(resolvedRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"));
+  if (fs11.existsSync(path12.join(installedDirectory, "package.json"))) {
     return { directory: installedDirectory, installed: true };
   }
-  return { directory: path11.join(resolvedRoot, "runtime", "vnext"), installed: false };
+  return { directory: path12.join(resolvedRoot, "runtime", "vnext"), installed: false };
 }
 function validateVNextRuntimeDistribution(root2, contract, requireDependencies = false) {
   const { directory } = resolveRuntimeDistributionDirectory(root2);
-  const packagePath = path11.join(directory, "package.json");
-  const lockfilePath = path11.join(directory, "package-lock.json");
-  const entrypointPath = path11.join(directory, "dist", "cli.js");
+  const packagePath = path12.join(directory, "package.json");
+  const lockfilePath = path12.join(directory, "package-lock.json");
+  const entrypointPath = path12.join(directory, "dist", "cli.js");
   const packageManifest = readJsonObject(packagePath, "RUNTIME_PACKAGE_INVALID");
   if (packageManifest.name !== contract.package_name || packageManifest.version !== contract.package_version || packageManifest.private !== true || packageManifest.type !== "module") {
     fail3("RUNTIME_PACKAGE_INVALID", "Runtime package.json must declare the contract name, version, private=true, and type=module.");
@@ -6665,13 +7098,13 @@ function validateVNextRuntimeDistribution(root2, contract, requireDependencies =
   const yamlLock = expectRecord2(lockPackages["node_modules/yaml"], "Runtime package-lock.json.packages[node_modules/yaml]");
   if (yamlLock.version !== "2.8.3")
     fail3("RUNTIME_PACKAGE_INVALID", "Runtime package-lock.json must lock yaml to 2.8.3.");
-  if (!fs10.existsSync(entrypointPath) || !fs10.statSync(entrypointPath).isFile())
+  if (!fs11.existsSync(entrypointPath) || !fs11.statSync(entrypointPath).isFile())
     fail3("RUNTIME_PACKAGE_INVALID", "Runtime entrypoint is missing: " + entrypointPath);
-  const entrypoint = fs10.readFileSync(entrypointPath, "utf8");
+  const entrypoint = fs11.readFileSync(entrypointPath, "utf8");
   if (!entrypoint.includes("vnext-runtime-proposal") || !entrypoint.includes("runCli"))
     fail3("RUNTIME_PACKAGE_INVALID", "Runtime dist/cli.js is not the generated vNext Runtime entrypoint.");
   if (requireDependencies) {
-    const localYaml = path11.join(directory, "node_modules", "yaml", "package.json");
+    const localYaml = path12.join(directory, "node_modules", "yaml", "package.json");
     const localYamlManifest = readJsonObject(localYaml, "RUNTIME_DEPENDENCY_MISSING");
     if (localYamlManifest.version !== "2.8.3")
       fail3("RUNTIME_DEPENDENCY_INVALID", "Runtime-local yaml dependency does not match package-lock.json.");
@@ -6682,8 +7115,8 @@ function validateVNextRuntimeDistribution(root2, contract, requireDependencies =
     entrypoint: contract.entrypoint,
     package_version: contract.package_version,
     node_min_version: contract.node_min_version,
-    package_lock_sha256: sha2565(fs10.readFileSync(lockfilePath)),
-    entrypoint_sha256: sha2565(fs10.readFileSync(entrypointPath))
+    package_lock_sha256: sha2565(fs11.readFileSync(lockfilePath)),
+    entrypoint_sha256: sha2565(fs11.readFileSync(entrypointPath))
   };
 }
 function validateRuntimeDistributionContract(value) {
@@ -6732,7 +7165,7 @@ function validateTaskContextContract(value) {
 }
 function validateTaskStoreContract(value) {
   const store = expectRecord2(value, "Runtime contract.task_store");
-  expectExactKeys2(store, ["schema_version", "kind", "root", "objects", "events", "indexes", "commit_head", "hot_window", "full_history", "dedup_key", "event_identity", "migration", "garbage_collection", "target_owned_data", "active_projection"], "Runtime contract.task_store");
+  expectExactKeys2(store, ["schema_version", "kind", "root", "objects", "events", "indexes", "commit_head", "hot_window", "full_history", "dedup_key", "event_identity", "migration", "garbage_collection", "target_owned_data", "active_projection", ...store.diagnostics === undefined ? [] : ["diagnostics"]], "Runtime contract.task_store");
   if (store.schema_version !== 1 || store.kind !== "vnext-task-store-contract" || store.root !== "<workflow_home>/task-data/<document_id>" || store.objects !== "objects/<sha256>.json" || store.events !== "events/<sequence>-<sha256>.json" || store.indexes !== "rebuildable-and-non-authoritative" || store.commit_head !== "CURRENT_TASK-single-submission-head" || store.hot_window !== "cache-only" || store.full_history !== "persistent-and-queryable" || store.dedup_key !== "schema-object-type-document-id-complete-content" || store.event_identity !== "sequence-time-cause-and-idempotency-preserved" || store.migration !== "preview-confirm-commit-with-source-revision" || store.garbage_collection !== "disabled-in-v1" || store.target_owned_data !== "task-data-is-never-removed-by-distribution-upgrade") {
     fail3("RUNTIME_CONTRACT_INVALID", "task_store must retain the content-addressed, append-only aggregate contract.");
   }
@@ -6749,6 +7182,15 @@ function validateTaskStoreContract(value) {
   };
   if (digest3(projection) !== digest3(expected))
     fail3("RUNTIME_CONTRACT_INVALID", "task projection must preserve the canonical aggregate and legacy semantics.");
+  if (store.diagnostics !== undefined && digest3(store.diagnostics) !== digest3({
+    response: "validate --summary/storage_metrics",
+    kind: "task-storage-metrics/v1",
+    read_only: true,
+    authority: "none",
+    persistence: "none",
+    incomplete: "null-with-reason-not-a-gate"
+  }))
+    fail3("RUNTIME_CONTRACT_INVALID", "Storage diagnostics must remain optional read-only observations.");
 }
 function validateBootstrapRuntimeContract(value) {
   const bootstrap = expectRecord2(value, "vNext Runtime contract.bootstrap_project");
@@ -6817,7 +7259,7 @@ function validateBootstrapRuntimeContract(value) {
   return bound;
 }
 function validateVNextRuntimeContract(root2, requireDependencies = false) {
-  const filePath = path11.join(path11.resolve(root2), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split("/"));
+  const filePath = path12.join(path12.resolve(root2), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split("/"));
   const contract = parseYamlMappingFile(filePath);
   expectExactKeys2(contract, ["schema_version", "kind", "phase", "runtime_distribution", "task_context", "task_store", "proposal", "mutation_scope", "mutation_authority", "review_coverage_preimages", "canonical_current_task", "concurrency", "operations", "unbound_operations", "bootstrap_project"], "vNext Runtime contract");
   if (contract.schema_version !== 1 || contract.kind !== "vnext-runtime-contract" || contract.phase !== "Phase 2") {
@@ -7702,7 +8144,7 @@ function validateStepExecutionResult(value, location) {
   if (new Set(validationResults.map((item) => item.validation)).size !== validationResults.length) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.validation_results must not contain duplicate validations.`);
   }
-  const acceptanceEvidence = Array.isArray(result.acceptance_evidence) && result.acceptance_evidence.every((item) => isRecord3(item) && ("acceptance" in item)) ? result.acceptance_evidence.map((item) => {
+  const acceptanceEvidence = Array.isArray(result.acceptance_evidence) && result.acceptance_evidence.every((item) => isRecord4(item) && ("acceptance" in item)) ? result.acceptance_evidence.map((item) => {
     expectExactKeys2(item, ["acceptance", "evidence_refs"], "historical acceptance evidence");
     return { acceptance: expectText(item.acceptance, "acceptance"), evidence_refs: validateEvidenceRefs(item.evidence_refs, "evidence_refs") };
   }) : validateStepAcceptanceEvidence(result.acceptance_evidence, `${location}.acceptance_evidence`);
@@ -7987,8 +8429,8 @@ function assertPersistentTestAdmission(definition, records) {
 }
 function recoveryEvidenceContextRevision(root2) {
   return digest3([".workflow-system/PROJECT_PROFILE.yaml", ".workflow-system/vnext/RUNTIME_CONTRACT.yaml", ".workflow-system/runtime/package.json"].map((relative) => {
-    const file = path11.resolve(root2, relative);
-    return { path: relative, sha256: fs10.existsSync(file) ? sha2565(fs10.readFileSync(file)) : null };
+    const file = path12.resolve(root2, relative);
+    return { path: relative, sha256: fs11.existsSync(file) ? sha2565(fs11.readFileSync(file)) : null };
   }));
 }
 function validateUserEvidenceDecision(value) {
@@ -8019,8 +8461,8 @@ function assertUserEvidenceApplicable(root2, current, slot) {
     if (!proof)
       fail3("USER_EVIDENCE_STALE", "No unchanged-decision carry-forward proof exists for this plan.");
     assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proof.old_source_revision, proof.history_operation ?? "confirm-replan");
-    const file = path11.join(path11.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${proof.old_source_revision}.json`);
-    const history = JSON.parse(fs10.readFileSync(file, "utf8"));
+    const file = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${proof.old_source_revision}.json`);
+    const history = JSON.parse(fs11.readFileSync(file, "utf8"));
     const old = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
     const oldSlot = old.runtimeState.claim_evidence?.find((c) => c.claim_id === proof.claim_id)?.slots.find((s) => s.slot_id === slot.slot_id);
     if (digest3(oldSlot?.user_decision) !== digest3(d) || digest3(oldSlot?.check) !== digest3(slot.check))
@@ -8103,8 +8545,8 @@ function assertEvidenceReportApplicable(root2, current, slot) {
       fail3("CLAIM_EVIDENCE_INCOMPLETE", "old-plan report has no applicable unchallenged Runtime carry-forward proof.");
     }
     assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proof.old_source_revision, proof.history_operation ?? "confirm-replan");
-    const historyFile = path11.join(path11.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${proof.old_source_revision}.json`);
-    const history = JSON.parse(fs10.readFileSync(historyFile, "utf8"));
+    const historyFile = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${proof.old_source_revision}.json`);
+    const history = JSON.parse(fs11.readFileSync(historyFile, "utf8"));
     const previous = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
     const oldSlot = previous.runtimeState.claim_evidence?.find((record) => record.claim_id === proof.claim_id)?.slots.find((item) => item.slot_id === proof.slot_id);
     if (previous.runtimeState.evidence_plan_revision !== proof.old_plan_revision || digest3(oldSlot?.report) !== proof.report_sha256 || digest3(oldSlot?.check) !== digest3(slot.check)) {
@@ -8128,7 +8570,7 @@ function assertEvidenceReportApplicable(root2, current, slot) {
   if (!slot.evidence_refs.length || slot.evidence_refs.some((ref) => {
     try {
       const p = normalizeRepoPath2(ref.split("#")[0], "evidence_ref");
-      return !fs10.statSync(path11.resolve(root2, p)).isFile();
+      return !fs11.statSync(path12.resolve(root2, p)).isFile();
     } catch {
       return true;
     }
@@ -8894,7 +9336,7 @@ function nonExecutableChangePatterns(root2) {
     fail3("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", `not-applicable requires a readable PROJECT_PROFILE.yaml non-executable boundary: ${error instanceof Error ? error.message : String(error)}`);
   }
   const boundaries = profile.boundaries;
-  if (!isRecord3(boundaries) || !Array.isArray(boundaries.non_executable_change_paths)) {
+  if (!isRecord4(boundaries) || !Array.isArray(boundaries.non_executable_change_paths)) {
     fail3("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", "not-applicable requires PROJECT_PROFILE.yaml boundaries.non_executable_change_paths.");
   }
   if (boundaries.non_executable_change_paths.length === 0) {
@@ -8964,18 +9406,18 @@ function assertRepositoryAuthoritySource(root2, sourceRef) {
   if (normalized !== file || normalized.includes("*") || /^[A-Za-z]:[\\/]/u.test(normalized)) {
     fail3("TEST_STRATEGY_INVALID", "authority source must be a canonical repository-relative file.");
   }
-  const resolvedRoot = path11.resolve(root2);
-  const resolved = path11.resolve(resolvedRoot, ...normalized.split("/"));
-  const relative = path11.relative(resolvedRoot, resolved);
-  if (!relative || relative.startsWith(`..${path11.sep}`) || path11.isAbsolute(relative) || !fs10.existsSync(resolved) || !fs10.statSync(resolved).isFile()) {
+  const resolvedRoot = path12.resolve(root2);
+  const resolved = path12.resolve(resolvedRoot, ...normalized.split("/"));
+  const relative = path12.relative(resolvedRoot, resolved);
+  if (!relative || relative.startsWith(`..${path12.sep}`) || path12.isAbsolute(relative) || !fs11.existsSync(resolved) || !fs11.statSync(resolved).isFile()) {
     fail3("TEST_STRATEGY_INVALID", `authority source does not identify an existing project file: ${sourceRef}.`);
   }
-  const realRelative = path11.relative(fs10.realpathSync(resolvedRoot), fs10.realpathSync(resolved));
-  if (!realRelative || realRelative.startsWith(`..${path11.sep}`) || path11.isAbsolute(realRelative)) {
+  const realRelative = path12.relative(fs11.realpathSync(resolvedRoot), fs11.realpathSync(resolved));
+  if (!realRelative || realRelative.startsWith(`..${path12.sep}`) || path12.isAbsolute(realRelative)) {
     fail3("TEST_STRATEGY_INVALID", "authority source cannot escape the repository through a symlink.");
   }
   if (locator !== undefined) {
-    const headings = [...fs10.readFileSync(resolved, "utf8").matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gmu)].map((match) => match[1]);
+    const headings = [...fs11.readFileSync(resolved, "utf8").matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gmu)].map((match) => match[1]);
     const matches = headings.filter((heading) => heading === locator || heading.startsWith(`${locator}:`) || heading.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, "").replace(/\s/gu, "-") === locator);
     if (matches.length !== 1)
       fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "source heading/record identity must exist and be unambiguous.");
@@ -9767,7 +10209,7 @@ function validateImplementationAnchors(value, location) {
     }
     const rawAnchorPath = expectString2(anchor.path, `${location}.anchors[${index}].path`);
     const anchorPath = normalizeRepoPath2(rawAnchorPath, `${location}.anchors[${index}].path`);
-    if (/^[A-Za-z]:\//u.test(anchorPath) || anchorPath.includes(":") || anchorPath !== path11.posix.normalize(anchorPath)) {
+    if (/^[A-Za-z]:\//u.test(anchorPath) || anchorPath.includes(":") || anchorPath !== path12.posix.normalize(anchorPath)) {
       fail3("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors[${index}].path must be a canonical repository-relative path.`);
     }
     if (anchorPath.includes("*") || /:\d+(?:-\d+)?$/u.test(anchorPath)) {
@@ -10449,7 +10891,7 @@ function validateArchiveAuditLogEntry(value, location, taskId, taskSlug) {
   };
 }
 function successorSnapshotPath(currentPath, documentId, revision) {
-  return path11.posix.join(path11.posix.dirname(currentPath), "task-history", documentId, `${revision}.successor.md`);
+  return path12.posix.join(path12.posix.dirname(currentPath), "task-history", documentId, `${revision}.successor.md`);
 }
 function validateSuccessorDecision(value) {
   const d = expectRecord2(value, "successor decision");
@@ -11590,9 +12032,9 @@ function compactHistoryPreview(body, runtimeState, audit) {
   if (!section)
     fail3("RUNTIME_SECTION_INVALID", "CURRENT_TASK is missing the required ## 执行记录 audit section.");
   const entries = [...runtimeState.execution_log];
-  if (audit && !entries.some((item) => isRecord3(item) && item.idempotency_key === audit.idempotency_key))
+  if (audit && !entries.some((item) => isRecord4(item) && item.idempotency_key === audit.idempotency_key))
     entries.push(audit);
-  const preview = entries.filter(isRecord3).slice(-8).map((item) => {
+  const preview = entries.filter(isRecord4).slice(-8).map((item) => {
     const action = typeof item.action === "string" ? item.action : "step-execution";
     const idempotencyKey = typeof item.idempotency_key === "string" ? item.idempotency_key : "unknown";
     const stepId = typeof item.step_id === "string" ? item.step_id : null;
@@ -11643,14 +12085,14 @@ function taskBasisRelativePath(currentTaskPath, taskId) {
   } catch (error) {
     fail3("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const directory = path11.posix.dirname(normalizeRepoPath2(currentTaskPath, "CURRENT_TASK source path"));
-  return path11.posix.join(directory, "task-basis", `TASK_BASIS-${taskId}.md`);
+  const directory = path12.posix.dirname(normalizeRepoPath2(currentTaskPath, "CURRENT_TASK source path"));
+  return path12.posix.join(directory, "task-basis", `TASK_BASIS-${taskId}.md`);
 }
 function taskBasisFilePath(root2, relativePath) {
-  const resolvedRoot = path11.resolve(root2);
-  const filePath = path11.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath, "task basis path").split("/"));
-  const relative = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relative || relative.startsWith("../") || path11.isAbsolute(relative)) {
+  const resolvedRoot = path12.resolve(root2);
+  const filePath = path12.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath, "task basis path").split("/"));
+  const relative = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relative || relative.startsWith("../") || path12.isAbsolute(relative)) {
     fail3("RUNTIME_PATH_INVALID", `task basis path escapes the target root: ${relativePath}`);
   }
   return filePath;
@@ -11666,7 +12108,7 @@ function renderTaskBasisContent(identity, basis) {
   };
   return [
     "---",
-    stringify3(frontmatter).trimEnd(),
+    stringify4(frontmatter).trimEnd(),
     "---",
     "# vNext TASK_BASIS",
     "",
@@ -11871,30 +12313,30 @@ function renderCanonicalCurrentTask(frontmatter, body, runtimeState, options = {
   else if (options.audit)
     nextBody = appendExecutionAuditToBody(nextBody, options.audit);
   const expandedContent = `---
-${stringify3(nextFrontmatter).trimEnd()}
+${stringify4(nextFrontmatter).trimEnd()}
 ---
 ${nextBody}`;
-  return compact && (options.draftDocumentId !== undefined || isRecord3(existingBinding) && existingBinding.format === ACTIVE_TASK_FORMAT) ? prepareTaskProjection(expandedContent) : { content: expandedContent, expandedContent, objects: [] };
+  return compact && (options.draftDocumentId !== undefined || isRecord4(existingBinding) && existingBinding.format === ACTIVE_TASK_FORMAT) ? prepareTaskProjection(expandedContent) : { content: expandedContent, expandedContent, objects: [] };
 }
 function currentTaskPathForRoot(root2) {
-  const resolvedRoot = path11.resolve(root2);
+  const resolvedRoot = path12.resolve(root2);
   const profilePath = getWorkflowProfilePath(resolvedRoot);
-  if (!fs10.existsSync(profilePath))
+  if (!fs11.existsSync(profilePath))
     fail3("RUNTIME_SOURCE_MISSING", `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
   const profile = loadProfile(profilePath);
   const filePath = getWorkflowDocPath(resolvedRoot, profile, "CURRENT_TASK.md");
-  const relativePath = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relativePath || relativePath.startsWith("../") || path11.isAbsolute(relativePath))
+  const relativePath = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relativePath || relativePath.startsWith("../") || path12.isAbsolute(relativePath))
     fail3("RUNTIME_PATH_INVALID", "CURRENT_TASK path escapes the target root.");
   return { filePath, relativePath: relativePath || CURRENT_TASK_RELATIVE_FALLBACK };
 }
 function walkMarkdownFiles(directory) {
-  if (!fs10.existsSync(directory))
+  if (!fs11.existsSync(directory))
     return [];
   const files = [];
   const visit = (currentDirectory) => {
-    for (const entry of fs10.readdirSync(currentDirectory, { withFileTypes: true })) {
-      const entryPath = path11.join(currentDirectory, entry.name);
+    for (const entry of fs11.readdirSync(currentDirectory, { withFileTypes: true })) {
+      const entryPath = path12.join(currentDirectory, entry.name);
       if (entry.isDirectory())
         visit(entryPath);
       else if (entry.isFile() && entry.name.endsWith(".md"))
@@ -11911,11 +12353,11 @@ function allocateNextTaskId(root2, currentTaskId) {
     fail3("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
   const current = BigInt(currentTaskId);
-  const taskDirectory = path11.join(path11.resolve(root2), "TASKS");
+  const taskDirectory = path12.join(path12.resolve(root2), "TASKS");
   const usedIds = new Set([current]);
   const taskFilePattern = /^TASK-([0-9]{3,})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
   for (const taskFile of walkMarkdownFiles(taskDirectory)) {
-    const match = taskFilePattern.exec(path11.basename(taskFile));
+    const match = taskFilePattern.exec(path12.basename(taskFile));
     if (match) {
       usedIds.add(BigInt(match[1]));
     }
@@ -11929,11 +12371,11 @@ function allocateNextTaskId(root2, currentTaskId) {
 function collectTaskDocumentIds(root2) {
   const { filePath } = currentTaskPathForRoot(root2);
   const documentIds = new Set;
-  const allFiles = [filePath, ...walkMarkdownFiles(path11.join(path11.resolve(root2), "TASKS"))];
+  const allFiles = [filePath, ...walkMarkdownFiles(path12.join(path12.resolve(root2), "TASKS"))];
   for (const file of allFiles) {
-    if (!fs10.existsSync(file))
+    if (!fs11.existsSync(file))
       continue;
-    const content = fs10.readFileSync(file, "utf8");
+    const content = fs11.readFileSync(file, "utf8");
     for (const match of content.matchAll(/^\s*(?:-\s*)?document_id:\s*['"]?(doc-[a-f0-9]{24})['"]?\s*$/gim)) {
       documentIds.add(match[1]);
     }
@@ -12115,9 +12557,9 @@ function readCanonicalCurrentTask(root2) {
   assertGovernanceReadable(filePath);
   assertNoArtifactPublication(filePath);
   recoverTaskEvolution(filePath);
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     fail3("RUNTIME_SOURCE_MISSING", `CURRENT_TASK.md is missing: ${relativePath}`);
-  const current = parseCanonicalCurrentTaskContent(fs10.readFileSync(filePath, "utf8"), filePath, relativePath);
+  const current = parseCanonicalCurrentTaskContent(fs11.readFileSync(filePath, "utf8"), filePath, relativePath);
   if (current.mutationAuthority) {
     current.mutationAuthority = validateTaskMutationAuthority(root2, current.mutationAuthority);
   }
@@ -12137,7 +12579,7 @@ function readCanonicalCurrentTask(root2) {
 }
 function recoveryCurrentFromRaw(raw, filePath, relativePath, runtimeState) {
   const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath);
-  if (!isRecord3(runtimeState))
+  if (!isRecord4(runtimeState))
     throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "pending commit is missing its exact runtime after-image.");
   parsed.runtimeState = runtimeState;
   if (parsed.frontmatter.task_store !== undefined) {
@@ -12147,13 +12589,13 @@ function recoveryCurrentFromRaw(raw, filePath, relativePath, runtimeState) {
 }
 function recoverPendingTaskStoreCommit(root2) {
   const { filePath, relativePath } = currentTaskPathForRoot(root2);
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     return;
-  const raw = fs10.readFileSync(filePath, "utf8");
+  const raw = fs11.readFileSync(filePath, "utf8");
   const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath);
   const store = TaskStore.forCurrent(root2, parsed);
   const pending = store.pendingCommit;
-  if (!isRecord3(pending))
+  if (!isRecord4(pending))
     return;
   const manifest = store.manifest;
   if (!manifest)
@@ -12183,7 +12625,7 @@ function recoverPendingTaskStoreCommit(root2) {
     store.clearPendingForNoCommit();
     return;
   }
-  if (parsed.sourceTuple.revision !== resultingRevision || typeof pending.before_raw !== "string" || typeof pending.after_raw !== "string" || pending.before_raw === undefined || pending.after_raw === undefined || !isRecord3(pending.before_runtime_state) || !isRecord3(pending.after_runtime_state) || !isRecord3(pending.proposal) || !isRecord3(pending.result)) {
+  if (parsed.sourceTuple.revision !== resultingRevision || typeof pending.before_raw !== "string" || typeof pending.after_raw !== "string" || pending.before_raw === undefined || pending.after_raw === undefined || !isRecord4(pending.before_runtime_state) || !isRecord4(pending.after_runtime_state) || !isRecord4(pending.proposal) || !isRecord4(pending.result)) {
     throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "CURRENT_TASK advanced during a pending commit but exact recovery material is unavailable.");
   }
   if (sha2565(pending.before_raw) !== sourceRevision || sha2565(pending.after_raw) !== resultingRevision) {
@@ -12233,9 +12675,9 @@ function readCanonicalTaskBasis(root2, current = readCanonicalCurrentTask(root2)
     fail3("TASK_BASIS_REFERENCE_INVALID", `CURRENT_TASK task basis path must be ${expectedPath}.`);
   }
   const filePath = taskBasisFilePath(root2, reference.path);
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     fail3("TASK_BASIS_MISSING", `Linked task basis is missing: ${reference.path}`);
-  const content = fs10.readFileSync(filePath, "utf8");
+  const content = fs11.readFileSync(filePath, "utf8");
   const revision = sha2565(content);
   if (revision !== reference.revision)
     fail3("TASK_BASIS_REVISION_CONFLICT", "Linked task basis revision does not match its file content.");
@@ -12265,14 +12707,14 @@ function readCanonicalTaskBasis(root2, current = readCanonicalCurrentTask(root2)
   };
 }
 function workflowDocPathForRoot(root2, file, missingCode = "RUNTIME_SOURCE_MISSING") {
-  const resolvedRoot = path11.resolve(root2);
+  const resolvedRoot = path12.resolve(root2);
   const profilePath = getWorkflowProfilePath(resolvedRoot);
-  if (!fs10.existsSync(profilePath))
+  if (!fs11.existsSync(profilePath))
     fail3(missingCode, `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
   const profile = loadProfile(profilePath);
   const filePath = getWorkflowDocPath(resolvedRoot, profile, file);
-  const relativePath = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relativePath || relativePath.startsWith("../") || path11.isAbsolute(relativePath)) {
+  const relativePath = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relativePath || relativePath.startsWith("../") || path12.isAbsolute(relativePath)) {
     fail3("RUNTIME_PATH_INVALID", `${file} path escapes the target root.`);
   }
   return { filePath, relativePath };
@@ -12284,10 +12726,10 @@ function archivePathForTask(root2, current) {
   } catch (error) {
     fail3("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const resolvedRoot = path11.resolve(root2);
-  const filePath = path11.resolve(resolvedRoot, ...relativePath.split("/"));
-  const relativeCheck = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path11.isAbsolute(relativeCheck)) {
+  const resolvedRoot = path12.resolve(root2);
+  const filePath = path12.resolve(resolvedRoot, ...relativePath.split("/"));
+  const relativeCheck = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path12.isAbsolute(relativeCheck)) {
     fail3("RUNTIME_PATH_INVALID", `archive path escapes the target root: ${relativePath}`);
   }
   return { filePath, relativePath };
@@ -12304,10 +12746,10 @@ function canonicalInboxRecordTarget(root2, delta) {
   if (delta.target_path !== relativePath) {
     fail3("RUNTIME_PATH_INVALID", "inbox target_path is not the canonical identity-derived path.");
   }
-  const resolvedRoot = path11.resolve(root2);
-  const filePath = path11.resolve(resolvedRoot, ...relativePath.split("/"));
-  const relativeCheck = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path11.isAbsolute(relativeCheck)) {
+  const resolvedRoot = path12.resolve(root2);
+  const filePath = path12.resolve(resolvedRoot, ...relativePath.split("/"));
+  const relativeCheck = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path12.isAbsolute(relativeCheck)) {
     fail3("RUNTIME_PATH_INVALID", `inbox path escapes the target root: ${relativePath}`);
   }
   return { filePath, relativePath };
@@ -12410,12 +12852,12 @@ function readInboxProvenanceMarkers(content, location) {
   return markers;
 }
 function scanInboxRecordFiles(root2) {
-  const resolvedRoot = path11.resolve(root2);
-  const inboxRoot = path11.join(resolvedRoot, "TASKS", "inbox");
+  const resolvedRoot = path12.resolve(root2);
+  const inboxRoot = path12.join(resolvedRoot, "TASKS", "inbox");
   return walkMarkdownFiles(inboxRoot).map((filePath) => {
-    const relativePath = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+    const relativePath = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
     const pathMatch = INBOX_RECORD_PATH_PATTERN.exec(relativePath);
-    const content = fs10.readFileSync(filePath, "utf8");
+    const content = fs11.readFileSync(filePath, "utf8");
     const provenance = readInboxProvenanceMarkers(content, relativePath);
     if (provenance.length > 0 && !pathMatch) {
       fail3("INBOX_PATH_INVALID", `${relativePath} contains vNext inbox provenance but is not a canonical inbox path.`);
@@ -12448,11 +12890,11 @@ function assertCanonicalInboxRecordContent(content, proposal, location) {
 function inspectInboxRecordTransaction(root2, proposal) {
   const delta = proposal.semantic_delta;
   const target = canonicalInboxRecordTarget(root2, delta);
-  if (fs10.existsSync(target.filePath)) {
-    if (!fs10.statSync(target.filePath).isFile()) {
+  if (fs11.existsSync(target.filePath)) {
+    if (!fs11.statSync(target.filePath).isFile()) {
       fail3("INBOX_IDENTITY_CONFLICT", `${target.relativePath} exists but is not a regular inbox record file.`);
     }
-    const existingContent = fs10.readFileSync(target.filePath, "utf8");
+    const existingContent = fs11.readFileSync(target.filePath, "utf8");
     try {
       assertCanonicalInboxRecordContent(existingContent, proposal, target.relativePath);
     } catch (error) {
@@ -12565,9 +13007,9 @@ function readCanonicalArchive(root2, current, expectedPath) {
   if (expectedPath !== undefined && expectedPath !== expected.relativePath) {
     fail3("RUNTIME_PATH_INVALID", "archive path is not the exact identity-derived path.");
   }
-  if (!fs10.existsSync(expected.filePath))
+  if (!fs11.existsSync(expected.filePath))
     fail3("ARCHIVE_MISSING", `canonical task archive is missing: ${expected.relativePath}`);
-  const raw = fs10.readFileSync(expected.filePath, "utf8");
+  const raw = fs11.readFileSync(expected.filePath, "utf8");
   const sections = requiredArchiveSections(raw);
   const metadata = raw.slice(sections["任务元数据"].contentStart, sections["任务元数据"].contentEnd);
   const lessonSection = raw.slice(sections["Lessons 回写"].contentStart, sections["Lessons 回写"].contentEnd);
@@ -12919,7 +13361,7 @@ function prepareArchiveTransaction(root2, current, proposal, now) {
     fail3("CLOSURE_TUPLE_INVALID", "first successful close requires active + active.");
   }
   const archiveTarget = archivePathForTask(root2, current);
-  const blockers = closureEligibilityBlockers(root2, current, delta, fs10.existsSync(archiveTarget.filePath));
+  const blockers = closureEligibilityBlockers(root2, current, delta, fs11.existsSync(archiveTarget.filePath));
   if (blockers.length > 0)
     fail3("CLOSURE_NOT_ELIGIBLE", blockers.join(" "));
   const closureDeltaDigest = digest3(delta);
@@ -13339,9 +13781,9 @@ function prepareProjectStatusTransaction(root2, current, proposal) {
   ensureAuthorityKinds(proposal, ["evidence-admission"]);
   const { receipt } = matchingArchiveReceipt(root2, current);
   const target = workflowDocPathForRoot(root2, "STATUS.md");
-  if (!fs10.existsSync(target.filePath))
+  if (!fs11.existsSync(target.filePath))
     fail3("RUNTIME_SOURCE_MISSING", `STATUS.md is missing: ${target.relativePath}`);
-  const originalStatusContent = fs10.readFileSync(target.filePath, "utf8");
+  const originalStatusContent = fs11.readFileSync(target.filePath, "utf8");
   validateStatusDocument(originalStatusContent, target.relativePath);
   const existingReceipt = matchingStatusReceipt(originalStatusContent, target.relativePath, receipt);
   const deltaDigest = digest3(proposal.semantic_delta);
@@ -13410,7 +13852,7 @@ function renderLessonMarker(candidate, archive) {
   })} -->`;
 }
 function expectLessonRecord(value, location) {
-  if (!isRecord3(value))
+  if (!isRecord4(value))
     fail3("LESSON_INVALID", `${location} is not a canonical Lesson marker mapping.`);
   return value;
 }
@@ -13447,7 +13889,7 @@ function validateLessonTaskSlug(value, location) {
   return taskSlug;
 }
 function validateLessonCandidateKey(value, location) {
-  if (!isRecord3(value))
+  if (!isRecord4(value))
     fail3("LESSON_INVALID", `${location} must be a mapping.`);
   const taskId = expectLessonString(value.task_id, `${location}.task_id`);
   try {
@@ -13511,7 +13953,7 @@ function readLessonMarkers(content, location) {
       evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.lesson_marker.evidence_refs`)
     };
     if (hasDisposition) {
-      if (!isRecord3(record.reused_candidate)) {
+      if (!isRecord4(record.reused_candidate)) {
         fail3("LESSON_INVALID", `${location}.lesson_marker.reused_candidate must be a mapping.`);
       }
       const reusedRecord = record.reused_candidate;
@@ -13858,9 +14300,9 @@ function prepareLessonRecordTransaction(root2, current, proposal) {
     fail3("KNOWLEDGE_ADMISSION_INVALID", "lesson-record evidence_refs must cover the durable archive lesson admission evidence_refs.");
   }
   const target = workflowDocPathForRoot(root2, "LESSONS.md");
-  if (!fs10.existsSync(target.filePath))
+  if (!fs11.existsSync(target.filePath))
     fail3("RUNTIME_SOURCE_MISSING", `LESSONS.md is missing: ${target.relativePath}`);
-  const originalLessonsContent = fs10.readFileSync(target.filePath, "utf8");
+  const originalLessonsContent = fs11.readFileSync(target.filePath, "utf8");
   const sections = scanMarkdownSections2(originalLessonsContent);
   for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
     if (!findUniqueMarkdownSection(sections, [heading], 2))
@@ -14184,11 +14626,11 @@ function scanKnowledgeRecords(root2) {
   const result = [];
   for (const knowledgeKind of ["contract", "decision"]) {
     const target = knowledgeTarget(root2, knowledgeKind);
-    if (!fs10.existsSync(target.filePath))
+    if (!fs11.existsSync(target.filePath))
       continue;
-    if (!fs10.statSync(target.filePath).isFile())
+    if (!fs11.statSync(target.filePath).isFile())
       fail3("KNOWLEDGE_RECORD_INVALID", `${target.relativePath} is not a regular file.`);
-    result.push(...readDurableKnowledgeRecords(fs10.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind));
+    result.push(...readDurableKnowledgeRecords(fs11.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind));
   }
   return result;
 }
@@ -14200,9 +14642,9 @@ function inspectKnowledgeRecordTransaction(root2, current, proposal) {
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", "knowledge proposal admission does not match the archived close-task admission decision.");
   const expectedRecord = durableKnowledgeRecordFromProposal(proposal, receipt);
   const target = knowledgeTarget(root2, delta.knowledge_kind);
-  if (!fs10.existsSync(target.filePath))
+  if (!fs11.existsSync(target.filePath))
     fail3("RUNTIME_SOURCE_MISSING", `knowledge target is missing: ${target.relativePath}`);
-  const originalContent = fs10.readFileSync(target.filePath, "utf8");
+  const originalContent = fs11.readFileSync(target.filePath, "utf8");
   const records = readDurableKnowledgeRecords(originalContent, target.relativePath, delta.knowledge_kind);
   const allRecords = scanKnowledgeRecords(root2);
   const sameIdempotency = allRecords.filter((record) => record.proposal_idempotency_key === proposal.idempotency_key);
@@ -14307,10 +14749,10 @@ function assertPreviousTaskReconciliationComplete(root2, current, receipt) {
     for (const admission of knowledgeAdmissions) {
       const knowledgeKind = admission.candidate.kind;
       const target = knowledgeTarget(root2, knowledgeKind);
-      if (!fs10.existsSync(target.filePath)) {
+      if (!fs11.existsSync(target.filePath)) {
         fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation is incomplete: ${target.relativePath} does not exist.`);
       }
-      const records = readDurableKnowledgeRecords(fs10.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind);
+      const records = readDurableKnowledgeRecords(fs11.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind);
       const exactIdentity = records.find((record) => record.candidate_id === admission.candidate.candidateId);
       const equivalent = records.some((record) => record.semantic_digest === knowledgeCandidateSemanticDigest(admission.candidate));
       if (exactIdentity) {
@@ -14324,10 +14766,10 @@ function assertPreviousTaskReconciliationComplete(root2, current, receipt) {
   }
   if (receipt.lessonAdmission.decision === "admit") {
     const lessonsTarget = workflowDocPathForRoot(root2, "LESSONS.md");
-    if (!fs10.existsSync(lessonsTarget.filePath)) {
+    if (!fs11.existsSync(lessonsTarget.filePath)) {
       fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} lesson reconciliation is incomplete: LESSONS.md does not exist.`);
     }
-    const lessonsContent = fs10.readFileSync(lessonsTarget.filePath, "utf8");
+    const lessonsContent = fs11.readFileSync(lessonsTarget.filePath, "utf8");
     const existingRecords = readDurableLessonRecords(lessonsContent, lessonsTarget.relativePath);
     for (const candidateRef of receipt.lessonAdmission.candidate_refs) {
       const matching = existingRecords.find((record) => record.marker.candidate_ref === candidateRef && record.marker.task_id === receipt.taskId && record.marker.task_slug === receipt.taskSlug && record.marker.document_id === receipt.documentId && record.marker.archive_path === receipt.relativePath && record.marker.archive_revision === receipt.revision && record.marker.source_revision === receipt.sourceRevision);
@@ -14556,7 +14998,7 @@ function replaceValidation(root2, rawInput, options = {}) {
       evidencePlanRevision: state.evidence_plan_revision
     };
     const history = taskHistoryLocation(historyInput);
-    const writes = [path11.posix.join(path11.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
+    const writes = [path12.posix.join(path12.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
     if (options.dryRun)
       return {
         status: "success",
@@ -14581,7 +15023,7 @@ function replaceValidation(root2, rawInput, options = {}) {
           fail3("VALIDATION_REPLACEMENT_READ_BACK_FAILED", "Evidence plan read-back differs.");
       });
     } catch (error) {
-      if (fs10.readFileSync(current.filePath, "utf8") === current.raw)
+      if (fs11.readFileSync(current.filePath, "utf8") === current.raw)
         clearPendingTaskStoreAfterRollback(root2, current);
       throw error;
     }
@@ -14620,7 +15062,7 @@ function initializeTaskPreservationLocked(root2, rawInput, options) {
     if (sourceRevision !== (current.runtimeState.preservation_source_revision ?? current.sourceTuple.revision)) {
       fail3("TASK_EVOLUTION_SOURCE_STALE", "Preservation replay does not name the initialized source revision.");
     }
-    const boundBasisRevision = current.runtimeState.preservation_source_revision ? JSON.parse(fs10.readFileSync(path11.join(path11.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${current.runtimeState.preservation_source_revision}.json`), "utf8")).task_basis_revision : readCanonicalTaskBasis(root2, current).revision;
+    const boundBasisRevision = current.runtimeState.preservation_source_revision ? JSON.parse(fs11.readFileSync(path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${current.runtimeState.preservation_source_revision}.json`), "utf8")).task_basis_revision : readCanonicalTaskBasis(root2, current).revision;
     if (basisRevision !== boundBasisRevision)
       fail3("TASK_EVOLUTION_BASIS_STALE", "Preservation replay does not name the initialized Task Basis revision.");
     return {
@@ -14681,7 +15123,7 @@ function initializeTaskPreservationLocked(root2, rawInput, options) {
     operation: "initialize-preservation",
     evidencePlanRevision: current.runtimeState.evidence_plan_revision
   });
-  const plannedWrites = [path11.posix.join(path11.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
+  const plannedWrites = [path12.posix.join(path12.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
   if (options.dryRun)
     return {
       status: "success",
@@ -14724,7 +15166,7 @@ function initializeTaskPreservationLocked(root2, rawInput, options) {
         fail3("TASK_EVOLUTION_INIT_INVALID", "Preservation initialization read-back differs.");
     });
   } catch (error) {
-    if (fs10.existsSync(current.filePath) && sha2565(fs10.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
+    if (fs11.existsSync(current.filePath) && sha2565(fs11.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
       clearPendingTaskStoreAfterRollback(root2, current);
     }
     throw error;
@@ -14926,24 +15368,24 @@ function revisePendingSteps(current, definition, revision, recoverySteps) {
 function correctionCandidateLocation(current, candidateDigest) {
   if (!/^[a-f0-9]{64}$/u.test(candidateDigest))
     fail3("REPLAN_CANDIDATE_INVALID", "Candidate digest must be SHA-256.");
-  const directory = path11.join(path11.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
-  const filePath = path11.join(directory, `${candidateDigest}.json`);
-  return { filePath, relativePath: path11.posix.join(path11.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${candidateDigest}.json`) };
+  const directory = path12.join(path12.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  const filePath = path12.join(directory, `${candidateDigest}.json`);
+  return { filePath, relativePath: path12.posix.join(path12.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${candidateDigest}.json`) };
 }
 function pendingCorrectionCandidates(root2, current) {
-  const directory = path11.join(path11.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
-  if (!fs10.existsSync(directory))
+  const directory = path12.join(path12.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  if (!fs11.existsSync(directory))
     return [];
-  const names = fs10.readdirSync(directory).filter((item) => /^[a-f0-9]{64}\.json$/u.test(item));
+  const names = fs11.readdirSync(directory).filter((item) => /^[a-f0-9]{64}\.json$/u.test(item));
   if (names.length > 128)
     fail3("REPLAN_CANDIDATE_BUDGET_EXHAUSTED", "Task has too many retained candidates to summarize safely.");
   return names.flatMap((name) => {
     const candidateDigest = name.slice(0, -5);
     const location = correctionCandidateLocation(current, candidateDigest);
-    if (fs10.existsSync(`${location.filePath}.discarded`))
+    if (fs11.existsSync(`${location.filePath}.discarded`))
       return [];
     try {
-      const value = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+      const value = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
       if (!taskSourceRevisionMatches(root2, current, value.source_revision) || value.document_id !== current.sourceTuple.document_id)
         return [];
       const { candidate_digest: _marker, ...payload } = value;
@@ -14958,27 +15400,27 @@ function pendingCorrectionCandidates(root2, current) {
   });
 }
 function unconfirmedCorrectionCandidatePaths(current) {
-  const directory = path11.join(path11.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
-  if (!fs10.existsSync(directory))
+  const directory = path12.join(path12.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  if (!fs11.existsSync(directory))
     return [];
   const committed = new Set(current.runtimeState.execution_log.flatMap((entry) => ("action" in entry) && entry.action === "commit-replan" && entry.candidate_digest ? [`${entry.candidate_digest}.json`] : []));
-  return fs10.readdirSync(directory).filter((name) => /^[a-f0-9]{64}\.json$/u.test(name) && !name.endsWith(".scope.json")).filter((name) => !committed.has(name) && !fs10.existsSync(path11.join(directory, `${name}.discarded`))).map((name) => path11.posix.join(path11.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, name));
+  return fs11.readdirSync(directory).filter((name) => /^[a-f0-9]{64}\.json$/u.test(name) && !name.endsWith(".scope.json")).filter((name) => !committed.has(name) && !fs11.existsSync(path12.join(directory, `${name}.discarded`))).map((name) => path12.posix.join(path12.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, name));
 }
 function pendingScopeAmendmentCandidates(current) {
-  const directory = path11.join(path11.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
-  if (!fs10.existsSync(directory))
+  const directory = path12.join(path12.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  if (!fs11.existsSync(directory))
     return [];
-  const names = fs10.readdirSync(directory).filter((item) => /^[a-f0-9]{64}\.scope\.json$/u.test(item));
+  const names = fs11.readdirSync(directory).filter((item) => /^[a-f0-9]{64}\.scope\.json$/u.test(item));
   if (names.length > 64)
     fail3("SCOPE_AMENDMENT_CANDIDATE_BUDGET_EXHAUSTED", "Task has too many retained scope-amendment candidates to summarize safely.");
   const committed = new Set(current.runtimeState.execution_log.flatMap((entry) => ("action" in entry) && entry.action === "commit-scope-amendment" && entry.candidate_digest ? [`${entry.candidate_digest}.scope.json`] : []));
   return names.flatMap((name) => {
-    if (committed.has(name) || fs10.existsSync(path11.join(directory, `${name}.discarded`)))
+    if (committed.has(name) || fs11.existsSync(path12.join(directory, `${name}.discarded`)))
       return [];
     const candidateDigest = name.slice(0, -".scope.json".length);
     const location = scopeAmendmentCandidateLocation(current, candidateDigest);
     try {
-      const value = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+      const value = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
       const { candidate_digest: _marker, ...payload } = value;
       return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath, valid: value.candidate_digest === candidateDigest && digest3(payload) === candidateDigest }];
     } catch {
@@ -15115,9 +15557,9 @@ function normalizeScopeAmendmentInput(input, options = {}) {
 function scopeAmendmentCandidateLocation(current, candidateDigest) {
   if (!SHA256_PATTERN2.test(candidateDigest))
     fail3("SCOPE_AMENDMENT_CANDIDATE_INVALID", "Scope amendment candidate digest must be SHA-256.");
-  const directory = path11.join(path11.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
-  const filePath = path11.join(directory, `${candidateDigest}.scope.json`);
-  return { filePath, relativePath: path11.posix.join(path11.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${candidateDigest}.scope.json`) };
+  const directory = path12.join(path12.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  const filePath = path12.join(directory, `${candidateDigest}.scope.json`);
+  return { filePath, relativePath: path12.posix.join(path12.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${candidateDigest}.scope.json`) };
 }
 function assertScopeAmendmentHistoryForRevision(current, sourceRevision) {
   try {
@@ -15384,15 +15826,15 @@ function assertScopeAmendmentPathSafe(root2, current, paths) {
     if (forbidden) {
       fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path ${file} is already forbidden.`);
     }
-    const absolute = path11.resolve(root2, ...file.split("/"));
-    const relative = path11.relative(path11.resolve(root2), absolute).replace(/\\/g, "/");
-    if (relative !== file || relative.startsWith("../") || path11.isAbsolute(relative))
+    const absolute = path12.resolve(root2, ...file.split("/"));
+    const relative = path12.relative(path12.resolve(root2), absolute).replace(/\\/g, "/");
+    if (relative !== file || relative.startsWith("../") || path12.isAbsolute(relative))
       fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path escapes the repository: ${file}.`);
-    if (fs10.existsSync(absolute)) {
-      const stat = fs10.lstatSync(absolute);
+    if (fs11.existsSync(absolute)) {
+      const stat = fs11.lstatSync(absolute);
       if (stat.isSymbolicLink() || !stat.isFile())
         fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path must be a regular file: ${file}.`);
-      const header = fs10.readFileSync(absolute, "utf8").slice(0, 4096);
+      const header = fs11.readFileSync(absolute, "utf8").slice(0, 4096);
       if (/@frozen|DO NOT MODIFY/iu.test(header))
         fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path is frozen: ${file}.`);
     }
@@ -15458,15 +15900,15 @@ function buildScopeAmendmentCandidate(root2, current, input) {
     });
     const admissionPaths = persistentTestAdmissions.map((item) => item.path);
     for (const admission of persistentTestAdmissions) {
-      const absolute = path11.resolve(root2, ...admission.path.split("/"));
-      if (fs10.existsSync(absolute)) {
+      const absolute = path12.resolve(root2, ...admission.path.split("/"));
+      if (fs11.existsSync(absolute)) {
         fail3("PERSISTENT_TEST_ADMISSION_INVALID", `persistent test ${admission.path} already exists; only an absent new persistent test needs P-12 admission.`);
       }
     }
     const missingPersistentAdmissions = input.added_paths.filter((target) => {
       if (!isLikelyPersistentTestPath(target) || admissionPaths.includes(target))
         return false;
-      return !fs10.existsSync(path11.resolve(root2, ...target.split("/")));
+      return !fs11.existsSync(path12.resolve(root2, ...target.split("/")));
     });
     if (missingPersistentAdmissions.length > 0) {
       fail3("PERSISTENT_TEST_ADMISSION_REQUIRED", `absent new persistent test path(s) require complete persistent_test_admissions records: ${missingPersistentAdmissions.join(", ")}.`);
@@ -15647,12 +16089,12 @@ function prepareScopeAmendment(root2, rawInput, options = {}) {
       if (!("action" in entry) || entry.action !== "commit-scope-amendment" || !entry.candidate_digest)
         continue;
       const priorLocation = scopeAmendmentCandidateLocation(current, entry.candidate_digest);
-      if (!fs10.existsSync(priorLocation.filePath) || fs10.existsSync(`${priorLocation.filePath}.discarded`)) {
+      if (!fs11.existsSync(priorLocation.filePath) || fs11.existsSync(`${priorLocation.filePath}.discarded`)) {
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "A committed scope-amendment candidate is missing or discarded.");
       }
       let priorCandidate;
       try {
-        priorCandidate = JSON.parse(fs10.readFileSync(priorLocation.filePath, "utf8"));
+        priorCandidate = JSON.parse(fs11.readFileSync(priorLocation.filePath, "utf8"));
       } catch (error) {
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", `A committed scope-amendment candidate cannot be read: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -15686,34 +16128,34 @@ function prepareScopeAmendment(root2, rawInput, options = {}) {
     const location = scopeAmendmentCandidateLocation(current, candidateDigest);
     const content = JSON.stringify({ ...candidate, candidate_digest: candidateDigest }, null, 2) + `
 `;
-    const existed = fs10.existsSync(location.filePath);
-    const directory = path11.dirname(location.filePath);
-    if (fs10.existsSync(directory)) {
-      const prior = fs10.readdirSync(directory).filter((name) => name.endsWith(".scope.json"));
+    const existed = fs11.existsSync(location.filePath);
+    const directory = path12.dirname(location.filePath);
+    if (fs11.existsSync(directory)) {
+      const prior = fs11.readdirSync(directory).filter((name) => name.endsWith(".scope.json"));
       if (prior.length > 64)
         fail3("SCOPE_AMENDMENT_CANDIDATE_BUDGET_EXHAUSTED", "Too many retained scope-amendment candidates.");
       const committed = new Set(current.runtimeState.execution_log.flatMap((entry) => ("action" in entry) && entry.action === "commit-scope-amendment" && entry.candidate_digest ? [`${entry.candidate_digest}.scope.json`] : []));
       for (const name of prior) {
-        if (name === path11.basename(location.filePath) || fs10.existsSync(path11.join(directory, `${name}.discarded`)) || committed.has(name))
+        if (name === path12.basename(location.filePath) || fs11.existsSync(path12.join(directory, `${name}.discarded`)) || committed.has(name))
           continue;
         fail3("SCOPE_AMENDMENT_CANDIDATE_CONFLICT", "Discard the existing unconfirmed scope-amendment candidate before preparing another.");
       }
     }
     if (!options.dryRun) {
-      fs10.mkdirSync(directory, { recursive: true });
+      fs11.mkdirSync(directory, { recursive: true });
       if (existed) {
-        if (fs10.readFileSync(location.filePath, "utf8") !== content)
+        if (fs11.readFileSync(location.filePath, "utf8") !== content)
           fail3("SCOPE_AMENDMENT_CANDIDATE_CONFLICT", "Existing scope-amendment candidate bytes differ.");
       } else {
-        const descriptor = fs10.openSync(location.filePath, "wx");
+        const descriptor = fs11.openSync(location.filePath, "wx");
         try {
-          fs10.writeFileSync(descriptor, content, "utf8");
-          fs10.fsyncSync(descriptor);
+          fs11.writeFileSync(descriptor, content, "utf8");
+          fs11.fsyncSync(descriptor);
         } finally {
-          fs10.closeSync(descriptor);
+          fs11.closeSync(descriptor);
         }
       }
-      if (fs10.readFileSync(location.filePath, "utf8") !== content)
+      if (fs11.readFileSync(location.filePath, "utf8") !== content)
         fail3("SCOPE_AMENDMENT_CANDIDATE_READ_BACK_FAILED", "Scope-amendment candidate read-back failed.");
     }
     const receipt = scopeAmendmentCandidateReceipt(candidate, candidateDigest);
@@ -15813,9 +16255,9 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
   const basis = readCanonicalTaskBasis(root2, current);
   if (basis.revision !== basisRevision || (current.runtimeState.evidence_plan_revision ?? oldPlanRevision) !== oldPlanRevision || digest3(correctionObligations(current)) !== obligationsDigest)
     fail3("SCOPE_AMENDMENT_OBLIGATIONS_STALE", "Task Basis, plan revision, or old obligations changed after candidate preparation.");
-  if (!fs10.existsSync(location.filePath) || fs10.existsSync(`${location.filePath}.discarded`))
+  if (!fs11.existsSync(location.filePath) || fs11.existsSync(`${location.filePath}.discarded`))
     fail3("SCOPE_AMENDMENT_CANDIDATE_MISSING", "Scope-amendment candidate is absent or discarded.");
-  const saved = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+  const saved = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
   if (saved.candidate_digest !== candidateDigest)
     fail3("SCOPE_AMENDMENT_CANDIDATE_INVALID", "Candidate digest marker differs.");
   const { candidate_digest: _marker, ...storedCandidate } = saved;
@@ -15891,7 +16333,7 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
   if (preview.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || preview.runtimeState.active_step_id !== rebuilt.input.amendment_step.id || preview.runtimeState.pending_review_result?.review_id !== oldState.pending_review_result?.review_id)
     fail3("SCOPE_AMENDMENT_CANDIDATE_INVALID", "Rendered scope amendment does not preserve the pending review or admitted plan.");
   const history = taskHistoryLocation({ currentPath: current.filePath, previousContent: current.raw, nextContent, documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id, basisPath: basis.filePath, basisContent: basis.content, nextBasisContent: nextBasisArtifact.content, operation: "commit-scope-amendment", evidencePlanRevision: current.runtimeState.evidence_plan_revision, referencedEvidence: [location.relativePath] });
-  const plannedWrites = [path11.posix.join(path11.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
+  const plannedWrites = [path12.posix.join(path12.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
   if (options.dryRun)
     return { status: "success", operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: true, committed: false, message: "Scope-amendment commit dry run passed; no live task was changed.", planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: "caller-reported" };
   try {
@@ -15914,7 +16356,7 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
         fail3("SCOPE_AMENDMENT_READ_BACK_FAILED", "Scope-amendment task/Basis read-back is inconsistent.");
     });
   } catch (error) {
-    if (fs10.existsSync(current.filePath) && sha2565(fs10.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision)
+    if (fs11.existsSync(current.filePath) && sha2565(fs11.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision)
       clearPendingTaskStoreAfterRollback(root2, current);
     throw error;
   }
@@ -15940,12 +16382,12 @@ function discardScopeAmendment(root2, rawInput, options = {}) {
     if (committed) {
       fail3("SCOPE_AMENDMENT_ALREADY_COMMITTED", "A committed scope-amendment candidate is immutable and cannot be discarded.");
     }
-    if (!fs10.existsSync(location.filePath))
+    if (!fs11.existsSync(location.filePath))
       fail3("SCOPE_AMENDMENT_CANDIDATE_MISSING", "Scope-amendment candidate does not exist.");
     const marker = `${location.filePath}.discarded`;
-    const existed = fs10.existsSync(marker);
+    const existed = fs11.existsSync(marker);
     if (!options.dryRun && !existed)
-      fs10.writeFileSync(marker, `${candidateDigest}
+      fs11.writeFileSync(marker, `${candidateDigest}
 `, { flag: "wx" });
     return { status: existed ? "no-op" : "success", operation_kind: "task-state-transaction", idempotency_key: `discard-scope-amendment-${candidateDigest.slice(0, 40)}`, target_path: location.relativePath, dry_run: options.dryRun === true, committed: !options.dryRun && !existed, message: "Scope-amendment candidate discarded; CURRENT_TASK was not changed.", planned_writes: [`${location.relativePath}.discarded`], governed_mutation_count: options.dryRun || existed ? 0 : 1, read_back_verified: options.dryRun !== true, evidence_assurance: "caller-reported" };
   });
@@ -15966,8 +16408,8 @@ function buildCorrectionCandidate(root2, current, input) {
     fail3("REPLAN_CHALLENGE_REQUIRED", "Every target must bind an unresolved, unassigned challenge.");
   }
   for (const challenge of challenges) {
-    const evidencePath = path11.resolve(root2, challenge.evidence_ref);
-    if (!fs10.existsSync(evidencePath) || sha2565(fs10.readFileSync(evidencePath)) !== challenge.evidence_sha256)
+    const evidencePath = path12.resolve(root2, challenge.evidence_ref);
+    if (!fs11.existsSync(evidencePath) || sha2565(fs11.readFileSync(evidencePath)) !== challenge.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge evidence changed.");
   }
   const step = input.correction_step;
@@ -16159,7 +16601,7 @@ function buildCorrectionCandidate(root2, current, input) {
       ...explicitMap.find((item) => item.claim_id === record.claim_id && item.slot_id === slot.slot_id)
     })),
     evidence_objects: describeEvidenceObjects(root2, [
-      ...writes.filter((p) => fs10.existsSync(path11.resolve(root2, p))),
+      ...writes.filter((p) => fs11.existsSync(path12.resolve(root2, p))),
       ...(current.runtimeState.claim_evidence ?? []).flatMap((record) => record.slots.flatMap((slot) => slot.evidence_refs))
     ]),
     source_revision: current.sourceTuple.revision,
@@ -16195,22 +16637,22 @@ function prepareCorrectionReplanLocked(root2, rawInput, options) {
   const location = correctionCandidateLocation(current, candidateDigest);
   const content = JSON.stringify({ ...candidate, candidate_digest: candidateDigest }, null, 2) + `
 `;
-  const existed = fs10.existsSync(location.filePath);
-  const candidateDirectory = path11.dirname(location.filePath);
-  if (fs10.existsSync(candidateDirectory)) {
-    const prior = fs10.readdirSync(candidateDirectory).filter((item) => item.endsWith(".json"));
+  const existed = fs11.existsSync(location.filePath);
+  const candidateDirectory = path12.dirname(location.filePath);
+  if (fs11.existsSync(candidateDirectory)) {
+    const prior = fs11.readdirSync(candidateDirectory).filter((item) => item.endsWith(".json"));
     if (prior.length > 128)
       fail3("REPLAN_CANDIDATE_BUDGET_EXHAUSTED", "Task candidate inventory exceeds the bounded limit.");
     let sameChallengeCount = 0;
     let sameProblemCount = 0;
     const committed = new Set(current.runtimeState.execution_log.flatMap((entry) => ("action" in entry) && entry.action === "commit-replan" && entry.candidate_digest ? [`${entry.candidate_digest}.json`] : []));
     for (const name of prior) {
-      const discarded = fs10.existsSync(path11.join(candidateDirectory, `${name}.discarded`));
-      if (name !== path11.basename(location.filePath) && !discarded && !committed.has(name))
+      const discarded = fs11.existsSync(path12.join(candidateDirectory, `${name}.discarded`));
+      if (name !== path12.basename(location.filePath) && !discarded && !committed.has(name))
         fail3("REPLAN_CANDIDATE_CONFLICT", "Discard the existing unconfirmed recovery candidate before preparing another batch.");
       let previous;
       try {
-        previous = JSON.parse(fs10.readFileSync(path11.join(candidateDirectory, name), "utf8"));
+        previous = JSON.parse(fs11.readFileSync(path12.join(candidateDirectory, name), "utf8"));
       } catch {
         if (!discarded)
           fail3("REPLAN_CANDIDATE_INVALID", `Unreadable candidate ${name} must be discarded before preparing another.`);
@@ -16221,7 +16663,7 @@ function prepareCorrectionReplanLocked(root2, rawInput, options) {
       if (!(previous.input?.challenge_ids ?? [previous.input?.challenge_id]).some((id) => id && input.challenge_ids.includes(id)))
         continue;
       sameChallengeCount += 1;
-      if (name !== path11.basename(location.filePath) && !discarded) {
+      if (name !== path12.basename(location.filePath) && !discarded) {
         fail3("REPLAN_CANDIDATE_CONFLICT", "Discard the earlier unconfirmed correction candidate before preparing a different one for this challenge.");
       }
     }
@@ -16232,20 +16674,20 @@ function prepareCorrectionReplanLocked(root2, rawInput, options) {
   }
   if (!options.dryRun) {
     preserveEvidenceObjects(root2, current.filePath, candidate.evidence_objects);
-    fs10.mkdirSync(path11.dirname(location.filePath), { recursive: true });
+    fs11.mkdirSync(path12.dirname(location.filePath), { recursive: true });
     if (existed) {
-      if (fs10.readFileSync(location.filePath, "utf8") !== content)
+      if (fs11.readFileSync(location.filePath, "utf8") !== content)
         fail3("REPLAN_CANDIDATE_CONFLICT", "Existing candidate bytes differ.");
     } else {
-      const fd = fs10.openSync(location.filePath, "wx");
+      const fd = fs11.openSync(location.filePath, "wx");
       try {
-        fs10.writeFileSync(fd, content, "utf8");
-        fs10.fsyncSync(fd);
+        fs11.writeFileSync(fd, content, "utf8");
+        fs11.fsyncSync(fd);
       } finally {
-        fs10.closeSync(fd);
+        fs11.closeSync(fd);
       }
     }
-    if (fs10.readFileSync(location.filePath, "utf8") !== content)
+    if (fs11.readFileSync(location.filePath, "utf8") !== content)
       fail3("REPLAN_CANDIDATE_READ_BACK_FAILED", "Candidate read-back failed.");
   }
   return {
@@ -16333,9 +16775,9 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
   const basis = readCanonicalTaskBasis(root2, current);
   if (basis.revision !== receipt.basis_revision || digest3(correctionObligations(current)) !== receipt.obligations_digest)
     fail3("REPLAN_OBLIGATIONS_STALE", "Task Basis or old obligations changed after candidate preparation.");
-  if (!fs10.existsSync(location.filePath) || fs10.existsSync(`${location.filePath}.discarded`))
+  if (!fs11.existsSync(location.filePath) || fs11.existsSync(`${location.filePath}.discarded`))
     fail3("REPLAN_CANDIDATE_MISSING", "Candidate is absent or discarded.");
-  const saved = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+  const saved = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
   if (saved.candidate_digest !== candidateDigest)
     fail3("REPLAN_CANDIDATE_INVALID", "Candidate digest marker differs.");
   const { candidate_digest: _marker, ...storedCandidate } = saved;
@@ -16428,7 +16870,7 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
       return slot?.evidence_refs ?? [];
     })]
   });
-  const plannedWrites = [path11.posix.join(path11.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
+  const plannedWrites = [path12.posix.join(path12.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
   if (options.dryRun)
     return {
       status: "success",
@@ -16474,7 +16916,7 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
         fail3("REPLAN_READ_BACK_FAILED", "Correction task/Basis read-back is inconsistent.");
     });
   } catch (error) {
-    if (fs10.existsSync(current.filePath) && sha2565(fs10.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
+    if (fs11.existsSync(current.filePath) && sha2565(fs11.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
       clearPendingTaskStoreAfterRollback(root2, current);
     }
     throw error;
@@ -16543,12 +16985,12 @@ function discardCorrectionReplanLocked(root2, rawInput, options) {
   const current = readCanonicalCurrentTask(root2);
   const candidateDigest = expectString2(input.candidate_digest, "candidate_digest", /^[a-f0-9]{64}$/);
   const location = correctionCandidateLocation(current, candidateDigest);
-  if (!fs10.existsSync(location.filePath))
+  if (!fs11.existsSync(location.filePath))
     fail3("REPLAN_CANDIDATE_MISSING", "Candidate does not exist.");
   const marker = `${location.filePath}.discarded`;
-  const existed = fs10.existsSync(marker);
+  const existed = fs11.existsSync(marker);
   if (!options.dryRun && !existed)
-    fs10.writeFileSync(marker, `${candidateDigest}
+    fs11.writeFileSync(marker, `${candidateDigest}
 `, { flag: "wx" });
   return {
     status: existed ? "no-op" : "success",
@@ -16580,13 +17022,13 @@ function artifactRestoreCompletion(root2, current, candidate, attempt = current.
     ...originCompletion ? { origin_completion: originCompletion } : {}
   };
   const id = digest3(receipt);
-  const location = path11.join(path11.dirname(current.filePath), "task-history", current.sourceTuple.document_id, "artifact-restores", `${id}.json`);
-  const file = safeRepositoryFile(root2, path11.relative(root2, location).replace(/\\/g, "/"));
+  const location = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, "artifact-restores", `${id}.json`);
+  const file = safeRepositoryFile(root2, path12.relative(root2, location).replace(/\\/g, "/"));
   return { id, file, bytes: JSON.stringify(receipt) + `
 ` };
 }
 function restoreCompletionMatches(completion) {
-  return fs10.existsSync(completion.file) && fs10.statSync(completion.file).size === Buffer.byteLength(completion.bytes) && fs10.readFileSync(completion.file, "utf8") === completion.bytes;
+  return fs11.existsSync(completion.file) && fs11.statSync(completion.file).size === Buffer.byteLength(completion.bytes) && fs11.readFileSync(completion.file, "utf8") === completion.bytes;
 }
 function restoreCompletionOrigin(root2, current, candidate) {
   for (const attempt of current.runtimeState.step_attempts?.[candidate.input.correction_step.id]?.attempts ?? []) {
@@ -16598,7 +17040,7 @@ function restoreCompletionOrigin(root2, current, candidate) {
 }
 function currentRestoreCompletion(root2, current, candidate) {
   const direct = artifactRestoreCompletion(root2, current, candidate);
-  if (fs10.existsSync(direct.file))
+  if (fs11.existsSync(direct.file))
     return restoreCompletionMatches(direct) ? direct : null;
   const origin = restoreCompletionOrigin(root2, current, candidate);
   if (!origin)
@@ -16607,14 +17049,14 @@ function currentRestoreCompletion(root2, current, candidate) {
   return restoreCompletionMatches(revalidated) ? revalidated : null;
 }
 function persistRestoreCompletion(completion) {
-  fs10.mkdirSync(path11.dirname(completion.file), { recursive: true });
-  if (!fs10.existsSync(completion.file)) {
-    const fd = fs10.openSync(completion.file, "wx");
+  fs11.mkdirSync(path12.dirname(completion.file), { recursive: true });
+  if (!fs11.existsSync(completion.file)) {
+    const fd = fs11.openSync(completion.file, "wx");
     try {
-      fs10.writeFileSync(fd, completion.bytes);
-      fs10.fsyncSync(fd);
+      fs11.writeFileSync(fd, completion.bytes);
+      fs11.fsyncSync(fd);
     } finally {
-      fs10.closeSync(fd);
+      fs11.closeSync(fd);
     }
   }
   if (!restoreCompletionMatches(completion))
@@ -16641,7 +17083,7 @@ function executeConfirmedArtifactRestore(root2, sourceRevision, stepId, candidat
     if (!audit || !("candidate_digest" in audit) || !audit.candidate_digest)
       fail3("ARTIFACT_RESTORE_UNAUTHORIZED", "No confirmed recovery candidate.");
     const location = correctionCandidateLocation(current, audit.candidate_digest);
-    const { candidate_digest: marker, ...candidate } = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+    const { candidate_digest: marker, ...candidate } = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
     if (marker !== audit.candidate_digest || digest3(candidate) !== marker || candidate.kind !== "correction-replan-candidate/v2" || candidate.input.correction_step.id !== stepId || !candidate.restore_plan || candidate.new_plan_revision !== current.runtimeState.evidence_plan_revision)
       fail3("ARTIFACT_RESTORE_UNAUTHORIZED", "Restore must bind the exact confirmed candidate and first recovery step.");
     const paths = candidate.restore_plan.targets.map((item) => item.path);
@@ -16691,12 +17133,12 @@ function executeConfirmedArtifactRestore(root2, sourceRevision, stepId, candidat
 }
 function listArtifactCheckpoints(root2) {
   const current = readCanonicalCurrentTask(root2);
-  const directory = path11.join(path11.dirname(current.filePath), "task-history", current.sourceTuple.document_id, "artifact-checkpoints");
-  const names = fs10.existsSync(directory) ? fs10.readdirSync(directory).filter((name) => /^[a-f0-9]{64}\.json$/.test(name)) : [];
+  const directory = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, "artifact-checkpoints");
+  const names = fs11.existsSync(directory) ? fs11.readdirSync(directory).filter((name) => /^[a-f0-9]{64}\.json$/.test(name)) : [];
   if (names.length > 256)
     fail3("ARTIFACT_BUDGET_EXHAUSTED", "Checkpoint inventory exceeds the bounded summary limit.");
   return { status: "success", checkpoints: names.map((name) => {
-    const checkpoint = JSON.parse(fs10.readFileSync(path11.join(directory, name), "utf8"));
+    const checkpoint = JSON.parse(fs11.readFileSync(path12.join(directory, name), "utf8"));
     if (digest3(checkpoint) !== name.slice(0, -5))
       fail3("ARTIFACT_CHECKPOINT_CORRUPT", "Checkpoint digest differs.");
     return {
@@ -16725,7 +17167,7 @@ function confirmedRecoveryCandidates(current) {
   return current.runtimeState.execution_log.flatMap((entry) => {
     if (!("action" in entry) || entry.action !== "commit-replan" || !entry.candidate_digest)
       return [];
-    const { candidate_digest: marker, ...candidate } = JSON.parse(fs10.readFileSync(correctionCandidateLocation(current, entry.candidate_digest).filePath, "utf8"));
+    const { candidate_digest: marker, ...candidate } = JSON.parse(fs11.readFileSync(correctionCandidateLocation(current, entry.candidate_digest).filePath, "utf8"));
     if (marker !== entry.candidate_digest || digest3(candidate) !== marker)
       fail3("RECOVERY_HISTORY_CORRUPT", "Confirmed recovery candidate changed.");
     return candidate.kind === "correction-replan-candidate/v2" ? [candidate] : [];
@@ -16780,8 +17222,8 @@ function challengeReportIsRetained(root2, current, challenge, currentResultId) {
       fail3("RECOVERY_HISTORY_CORRUPT", "Recovery candidate has no committed confirmation source.");
     const historyRevision = confirmation.source_revision;
     assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, historyRevision, "confirm-replan");
-    const historyPath = path11.join(path11.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${historyRevision}.json`);
-    const history = JSON.parse(fs10.readFileSync(safeRepositoryFile(root2, path11.relative(root2, historyPath).replace(/\\/g, "/")), "utf8"));
+    const historyPath = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${historyRevision}.json`);
+    const history = JSON.parse(fs11.readFileSync(safeRepositoryFile(root2, path12.relative(root2, historyPath).replace(/\\/g, "/")), "utf8"));
     const source = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
     const replaced = source.runtimeState.claim_evidence?.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id)?.report;
     if (!replaced)
@@ -16855,11 +17297,11 @@ function inheritedScopeAmendmentAttemptLedger(root2, current, stepId) {
       if (!("candidate_digest" in entry) || !entry.candidate_digest)
         continue;
       const location = scopeAmendmentCandidateLocation(current, entry.candidate_digest);
-      if (!fs10.existsSync(location.filePath))
+      if (!fs11.existsSync(location.filePath))
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate is missing while inheriting an attempt budget.");
       let candidate;
       try {
-        candidate = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+        candidate = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
       } catch (error) {
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", `Confirmed scope-amendment candidate cannot be read: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -16889,7 +17331,7 @@ function assertRecoveryHistory(root2, current) {
       continue;
     const d = event.predecessor;
     const file = safeRepositoryFile(root2, successorSnapshotPath(current.relativePath, d.document_id, d.source_revision));
-    if (sha2565(fs10.readFileSync(file, "utf8")) !== d.source_revision)
+    if (sha2565(fs11.readFileSync(file, "utf8")) !== d.source_revision)
       fail3("SUCCESSOR_HISTORY_CONFLICT", "The exact predecessor task must remain retained.");
   }
   for (const entry of current.runtimeState.execution_log) {
@@ -16897,16 +17339,16 @@ function assertRecoveryHistory(root2, current) {
       continue;
     if (entry.action === "commit-scope-amendment") {
       const location = scopeAmendmentCandidateLocation(current, entry.candidate_digest);
-      if (!fs10.existsSync(location.filePath))
+      if (!fs11.existsSync(location.filePath))
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate is missing.");
-      const { candidate_digest: marker, ...candidate } = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+      const { candidate_digest: marker, ...candidate } = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
       if (digest3(candidate) !== marker || marker !== entry.candidate_digest || candidate.task_id !== current.runtimeState.task_id || candidate.document_id !== current.sourceTuple.document_id)
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate changed or belongs to another task.");
       assertScopeAmendmentHistoryForRevision(current, entry.source_revision);
       continue;
     }
     const location = correctionCandidateLocation(current, entry.candidate_digest);
-    const { candidate_digest: marker, ...candidate } = JSON.parse(fs10.readFileSync(location.filePath, "utf8"));
+    const { candidate_digest: marker, ...candidate } = JSON.parse(fs11.readFileSync(location.filePath, "utf8"));
     if (digest3(candidate) !== marker || marker !== entry.candidate_digest || candidate.task_id !== current.runtimeState.task_id || candidate.document_id !== current.sourceTuple.document_id)
       fail3("RECOVERY_HISTORY_CORRUPT", "Confirmed recovery candidate changed or belongs to another task.");
     if (candidate.kind === "correction-replan-candidate/v1")
@@ -16915,8 +17357,8 @@ function assertRecoveryHistory(root2, current) {
       fail3("RECOVERY_HISTORY_VERSION_UNSUPPORTED", "Unknown confirmed recovery protocol version.");
     const definition = readDraftDefinitionFromBody(current.body);
     assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, entry.source_revision, "confirm-replan");
-    const historyFile = path11.join(path11.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${entry.source_revision}.json`);
-    const history = JSON.parse(fs10.readFileSync(historyFile, "utf8"));
+    const historyFile = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${entry.source_revision}.json`);
+    const history = JSON.parse(fs11.readFileSync(historyFile, "utf8"));
     const old = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
     if (old.frontmatter.task_store !== undefined) {
       const store = TaskStore.forCurrent(root2, current);
@@ -17486,7 +17928,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     }
     if (delta.predecessor) {} else if (current.runtimeState.task_id === "000") {
       const bootstrapArchive = archivePathForTask(root2, current);
-      if (fs10.existsSync(bootstrapArchive.filePath))
+      if (fs11.existsSync(bootstrapArchive.filePath))
         fail3("TASK_ARCHIVE_CONFLICT", "bootstrap TASK-000 must not already have a canonical archive before the first ordinary draft.");
     } else {
       const { receipt } = matchingArchiveReceipt(root2, current);
@@ -17538,7 +17980,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       const manifest = store.manifest;
       if (manifest) {
         const history = store.readExecutionLog();
-        const initial = history.length === 1 && isRecord3(history[0]) ? history[0] : null;
+        const initial = history.length === 1 && isRecord4(history[0]) ? history[0] : null;
         if (manifest.task_id !== delta.task_id || manifest.task_slug !== delta.task_slug || manifest.current_task_path !== current.relativePath || manifest.head.event_sequence !== 1 || digest3(store.readAppliedProposals()) !== digest3(draftStateWithProposal.applied_proposals) || initial?.action !== "create-draft" || initial.idempotency_key !== proposal.idempotency_key || initial.source_revision !== current.sourceTuple.revision || typeof initial.recorded_at !== "string" || Number.isNaN(Date.parse(initial.recorded_at))) {
           fail3("SUCCESSOR_HISTORY_CONFLICT", "An existing prepared successor aggregate must belong to this exact proposal and predecessor.");
         }
@@ -17827,8 +18269,8 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       fail3("EVIDENCE_CHALLENGE_TARGET_INVALID", "Challenge must bind an existing claim, slot, and report result.");
     if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
       fail3("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge evidence must be admitted by both proposal and delta.");
-    const evidencePath = path11.resolve(root2, delta.evidence_ref);
-    if (!fs10.existsSync(evidencePath) || !fs10.statSync(evidencePath).isFile() || crypto10.createHash("sha256").update(fs10.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
+    const evidencePath = path12.resolve(root2, delta.evidence_ref);
+    if (!fs11.existsSync(evidencePath) || !fs11.statSync(evidencePath).isFile() || crypto10.createHash("sha256").update(fs11.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge artifact is missing or changed.");
     const challengeId = `challenge-${digest3({ task: current.runtimeState.task_id, claim: delta.claim_id, slot: delta.slot_id, result: delta.result_id, evidence_sha256: delta.evidence_sha256 }).slice(0, 32)}`;
     if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.challenge_id === challengeId))
@@ -17858,8 +18300,8 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       fail3("EVIDENCE_CHALLENGE_STATE_INVALID", "Only an unresolved contested challenge may be dismissed.");
     if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
       fail3("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge assessment evidence must be admitted by both proposal and delta.");
-    const evidencePath = path11.resolve(root2, delta.evidence_ref);
-    if (!fs10.existsSync(evidencePath) || !fs10.statSync(evidencePath).isFile() || crypto10.createHash("sha256").update(fs10.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
+    const evidencePath = path12.resolve(root2, delta.evidence_ref);
+    if (!fs11.existsSync(evidencePath) || !fs11.statSync(evidencePath).isFile() || crypto10.createHash("sha256").update(fs11.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge assessment artifact is missing or changed.");
     const resolution = {
       kind: "not-substantiated",
@@ -18733,10 +19175,10 @@ function packagePathForTask(root2, taskId, taskSlug, artifactKind) {
   } catch (error) {
     fail3("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const filePath = path11.resolve(path11.resolve(root2), ...relativePath.split("/"));
-  const resolvedRoot = path11.resolve(root2);
-  const relativeCheck = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path11.isAbsolute(relativeCheck)) {
+  const filePath = path12.resolve(path12.resolve(root2), ...relativePath.split("/"));
+  const resolvedRoot = path12.resolve(root2);
+  const relativeCheck = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path12.isAbsolute(relativeCheck)) {
     fail3("RUNTIME_PATH_INVALID", `suspended package path escapes the target root: ${relativePath}`);
   }
   return { filePath, relativePath };
@@ -18765,9 +19207,9 @@ function parseSuspendedPackage(root2, current, relativePath, expectedKind) {
   if (normalizedPath !== canonicalExpectedPath.relativePath)
     fail3("RUNTIME_PATH_INVALID", "suspended package path is not the canonical identity-derived path.");
   const filePath = canonicalExpectedPath.filePath;
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     fail3("SUSPENDED_PACKAGE_MISSING", `suspended package is missing: ${normalizedPath}`);
-  const raw = fs10.readFileSync(filePath, "utf8");
+  const raw = fs11.readFileSync(filePath, "utf8");
   if (raw.split(SUSPENDED_PACKAGE_BEGIN).length !== 2 || raw.split(SUSPENDED_PACKAGE_END).length !== 2) {
     fail3("SUSPENDED_PACKAGE_INVALID", `${normalizedPath} must contain exactly one complete CURRENT_TASK snapshot.`);
   }
@@ -19017,7 +19459,7 @@ function assertLifecycleReplayArtifacts(root2, current, proposal) {
 function assertSiblingRecoveryIsReconciled(root2, current, artifactKind) {
   const siblingKind = artifactKind === "paused" ? "interrupted" : "paused";
   const sibling = packagePathForTask(root2, current.runtimeState.task_id, current.runtimeState.task_slug, siblingKind);
-  if (!fs10.existsSync(sibling.filePath))
+  if (!fs11.existsSync(sibling.filePath))
     return;
   const siblingArtifact = parseSuspendedPackage(root2, current, sibling.relativePath, siblingKind);
   if (siblingArtifact.rehydrationStatus === "rehydrated" && siblingArtifact.ownershipState === "rehydrated")
@@ -19026,7 +19468,7 @@ function assertSiblingRecoveryIsReconciled(root2, current, artifactKind) {
 }
 function prepareExistingPackageForReplacement(root2, current, packageRelativePath, artifactKind) {
   const expected = packagePathForTask(root2, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
-  if (!fs10.existsSync(expected.filePath))
+  if (!fs11.existsSync(expected.filePath))
     return;
   const existing = parseSuspendedPackage(root2, current, packageRelativePath, artifactKind);
   if (existing.rehydrationStatus === "rehydrated" && existing.ownershipState === "rehydrated")
@@ -19109,7 +19551,7 @@ function prepareLifecycleTransaction(root2, current, proposal, now) {
   const expectedLifecycle = delta.action === "resume-paused" ? ["paused_pending_closure", "paused_blocked"] : ["interrupted"];
   if (!expectedLifecycle.includes(current.runtimeState.lifecycle_state))
     fail3("LIFECYCLE_TRANSITION_INVALID", "resume mode does not match the current suspended lifecycle state.");
-  if (!fs10.existsSync(packageFilePath))
+  if (!fs11.existsSync(packageFilePath))
     fail3("SUSPENDED_PACKAGE_MISSING", `suspended package is missing: ${packageRelativePath}`);
   const packageArtifact = parseSuspendedPackage(root2, current, packageRelativePath, delta.artifact_kind);
   if (packageArtifact.rehydrationStatus !== "ready_for_resume" || packageArtifact.ownershipState !== "recovery_only") {
@@ -19183,26 +19625,26 @@ function resultState(state, findingStatus, recoveryPackagePath) {
 }
 function exactPendingFileContent(root2, relativePath) {
   const normalized = normalizeRepoPath2(relativePath, "task-store pending write path");
-  const resolvedRoot = path11.resolve(root2);
-  const filePath = path11.resolve(resolvedRoot, ...normalized.split("/"));
-  const check = path11.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (check !== normalized || check.startsWith("../") || path11.isAbsolute(check)) {
+  const resolvedRoot = path12.resolve(root2);
+  const filePath = path12.resolve(resolvedRoot, ...normalized.split("/"));
+  const check = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (check !== normalized || check.startsWith("../") || path12.isAbsolute(check)) {
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", `pending write path escapes the project root: ${relativePath}`);
   }
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     return null;
-  const stat = fs10.lstatSync(filePath);
+  const stat = fs11.lstatSync(filePath);
   if (stat.isSymbolicLink())
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", `pending write path traverses a symbolic link: ${normalized}`);
   if (!stat.isFile())
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", `pending write target is not a regular file: ${normalized}`);
-  return fs10.readFileSync(filePath, "utf8");
+  return fs11.readFileSync(filePath, "utf8");
 }
 function pendingWriteSetForOperations(root2, operations) {
-  const resolvedRoot = path11.resolve(root2);
+  const resolvedRoot = path12.resolve(root2);
   const seen = new Set;
   return operations.map((operation) => {
-    const relativePath = path11.relative(resolvedRoot, path11.resolve(operation.path)).replace(/\\/g, "/");
+    const relativePath = path12.relative(resolvedRoot, path12.resolve(operation.path)).replace(/\\/g, "/");
     const normalized = normalizeRepoPath2(relativePath, "task-store pending write path");
     if (seen.has(normalized))
       throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", `pending write set contains duplicate path ${normalized}.`);
@@ -19228,9 +19670,9 @@ function stageTaskEvolutionStoreCommit(root2, current, nextContent, nextState, p
       status: "success",
       committed: true,
       operation_kind: "task-state-transaction",
-      idempotency_key: isRecord3(proposal) && typeof proposal.idempotency_key === "string" ? proposal.idempotency_key : undefined
+      idempotency_key: isRecord4(proposal) && typeof proposal.idempotency_key === "string" ? proposal.idempotency_key : undefined
     },
-    write_targets: writeOperations.map((operation) => path11.relative(path11.resolve(root2), path11.resolve(operation.path)).replace(/\\/g, "/")),
+    write_targets: writeOperations.map((operation) => path12.relative(path12.resolve(root2), path12.resolve(operation.path)).replace(/\\/g, "/")),
     write_set: pendingWriteSetForOperations(root2, writeOperations)
   });
   return after;
@@ -19274,9 +19716,9 @@ function reconcilePendingWriteSet(root2, canonicalRevision, pending) {
     if (actual !== alternate) {
       throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", `pending write target ${write.path} contains neither its exact before nor after bytes.`);
     }
-    const target = path11.resolve(root2, ...normalizeRepoPath2(write.path, "task-store pending write path").split("/"));
+    const target = path12.resolve(root2, ...normalizeRepoPath2(write.path, "task-store pending write path").split("/"));
     if (restoreBefore && expected === null) {
-      fs10.rmSync(target, { force: true });
+      fs11.rmSync(target, { force: true });
     } else if (!restoreBefore && expected !== null) {
       executeWrites([{ path: target, content: expected }], false, "vNext Runtime task-store pending write recovery");
     } else {
@@ -19290,9 +19732,9 @@ function clearPendingTaskStoreAfterRollback(root2, current) {
   } catch {}
 }
 function fileRevisionForPath(filePath) {
-  if (!fs10.existsSync(filePath))
+  if (!fs11.existsSync(filePath))
     fail3("RUNTIME_SOURCE_MISSING", `Required file is missing: ${filePath}`);
-  return sha2565(fs10.readFileSync(filePath, "utf8"));
+  return sha2565(fs11.readFileSync(filePath, "utf8"));
 }
 function rollbackCurrentTaskAndVerify(root2, current, readCurrentTask) {
   try {
@@ -19327,8 +19769,8 @@ function rollbackDraftTransactionAndVerify(root2, current, artifact, originalTas
       writes.push({ path: artifact.filePath, content: originalTaskBasisContent });
     }
     executeWrites(writes, false, "vNext Runtime draft rollback after read-back failure");
-    if (originalTaskBasisContent === undefined && fs10.existsSync(artifact.filePath)) {
-      fs10.rmSync(artifact.filePath, { force: true });
+    if (originalTaskBasisContent === undefined && fs11.existsSync(artifact.filePath)) {
+      fs11.rmSync(artifact.filePath, { force: true });
     }
     clearPendingTaskStoreAfterRollback(root2, current);
   } catch (error) {
@@ -19340,9 +19782,9 @@ function rollbackDraftTransactionAndVerify(root2, current, artifact, originalTas
       return { verified: false, detail: "rollback read-back did not restore the original canonical CURRENT_TASK document." };
     }
     if (originalTaskBasisContent === undefined) {
-      if (fs10.existsSync(artifact.filePath))
+      if (fs11.existsSync(artifact.filePath))
         return { verified: false, detail: "rollback left a newly-created task basis behind." };
-    } else if (!fs10.existsSync(artifact.filePath) || fs10.readFileSync(artifact.filePath, "utf8") !== originalTaskBasisContent) {
+    } else if (!fs11.existsSync(artifact.filePath) || fs11.readFileSync(artifact.filePath, "utf8") !== originalTaskBasisContent) {
       return { verified: false, detail: "rollback read-back did not restore the original task basis." };
     }
     return { verified: true, detail: "rollback read-back verified for CURRENT_TASK and task basis." };
@@ -19360,8 +19802,8 @@ function rollbackLifecycleTransactionAndVerify(root2, current, plan, readCurrent
       rollbackOperations.push({ path: plan.packageFilePath, content: plan.originalPackageContent });
     }
     executeWrites(rollbackOperations, false, "vNext Runtime lifecycle rollback after read-back failure");
-    if (plan.originalPackageContent === undefined && fs10.existsSync(plan.packageFilePath)) {
-      fs10.rmSync(plan.packageFilePath, { force: true });
+    if (plan.originalPackageContent === undefined && fs11.existsSync(plan.packageFilePath)) {
+      fs11.rmSync(plan.packageFilePath, { force: true });
     }
     clearPendingTaskStoreAfterRollback(root2, current);
   } catch (error) {
@@ -19375,11 +19817,11 @@ function rollbackLifecycleTransactionAndVerify(root2, current, plan, readCurrent
     if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
       return { verified: false, detail: "rollback read-back did not restore the original canonical CURRENT_TASK document." };
     }
-    const packageExists = fs10.existsSync(plan.packageFilePath);
+    const packageExists = fs11.existsSync(plan.packageFilePath);
     if (plan.originalPackageContent === undefined) {
       if (packageExists)
         return { verified: false, detail: "rollback read-back left a newly-created suspended package behind." };
-    } else if (!packageExists || fs10.readFileSync(plan.packageFilePath, "utf8") !== plan.originalPackageContent) {
+    } else if (!packageExists || fs11.readFileSync(plan.packageFilePath, "utf8") !== plan.originalPackageContent) {
       return { verified: false, detail: "rollback read-back did not restore the original suspended package." };
     }
     return { verified: true, detail: "rollback read-back verified." };
@@ -19391,8 +19833,8 @@ function rollbackArchiveTransactionAndVerify(root2, current, plan, readCurrentTa
   try {
     executeWrites([{ path: current.filePath, content: current.raw }], false, "vNext Runtime archive rollback CURRENT_TASK");
     if (plan.originalArchiveContent === undefined) {
-      if (fs10.existsSync(plan.archiveFilePath))
-        fs10.rmSync(plan.archiveFilePath, { force: true });
+      if (fs11.existsSync(plan.archiveFilePath))
+        fs11.rmSync(plan.archiveFilePath, { force: true });
     } else {
       executeWrites([{ path: plan.archiveFilePath, content: plan.originalArchiveContent }], false, "vNext Runtime archive rollback archive");
     }
@@ -19406,9 +19848,9 @@ function rollbackArchiveTransactionAndVerify(root2, current, plan, readCurrentTa
       return { verified: false, detail: "archive rollback read-back did not restore the original CURRENT_TASK document." };
     }
     if (plan.originalArchiveContent === undefined) {
-      if (fs10.existsSync(plan.archiveFilePath))
+      if (fs11.existsSync(plan.archiveFilePath))
         return { verified: false, detail: "archive rollback left a newly-created archive behind." };
-    } else if (!fs10.existsSync(plan.archiveFilePath) || fs10.readFileSync(plan.archiveFilePath, "utf8") !== plan.originalArchiveContent) {
+    } else if (!fs11.existsSync(plan.archiveFilePath) || fs11.readFileSync(plan.archiveFilePath, "utf8") !== plan.originalArchiveContent) {
       return { verified: false, detail: "archive rollback did not restore the original archive." };
     }
     return { verified: true, detail: "archive rollback read-back verified for CURRENT_TASK and archive." };
@@ -19419,7 +19861,7 @@ function rollbackArchiveTransactionAndVerify(root2, current, plan, readCurrentTa
 function rollbackSingleFileAndVerify(filePath, originalContent, label) {
   try {
     executeWrites([{ path: filePath, content: originalContent }], false, `vNext Runtime ${label} rollback`);
-    if (fs10.readFileSync(filePath, "utf8") !== originalContent)
+    if (fs11.readFileSync(filePath, "utf8") !== originalContent)
       return { verified: false, detail: `${label} rollback read-back did not restore the original document.` };
     return { verified: true, detail: `${label} rollback read-back verified.` };
   } catch (error) {
@@ -19428,13 +19870,13 @@ function rollbackSingleFileAndVerify(filePath, originalContent, label) {
 }
 function rollbackCreatedInboxRecordAndVerify(filePath) {
   try {
-    if (fs10.existsSync(filePath)) {
-      if (!fs10.lstatSync(filePath).isFile()) {
+    if (fs11.existsSync(filePath)) {
+      if (!fs11.lstatSync(filePath).isFile()) {
         return { verified: false, detail: "inbox rollback refused to remove a non-file target." };
       }
-      fs10.rmSync(filePath, { force: true });
+      fs11.rmSync(filePath, { force: true });
     }
-    if (fs10.existsSync(filePath))
+    if (fs11.existsSync(filePath))
       return { verified: false, detail: "inbox rollback left the newly-created record behind." };
     return { verified: true, detail: "inbox rollback read-back verified." };
   } catch (error) {
@@ -19450,8 +19892,8 @@ class GovernanceTransactionKernel {
   lastApplyCurrent;
   lastApplyAfter;
   lastApplyProposal;
-  constructor(root2, readCurrentTask = readCanonicalCurrentTask, readFile = (filePath) => fs10.readFileSync(filePath, "utf8"), writeFiles = (operations, dryRun, summary) => executeWrites(operations, dryRun, summary)) {
-    this.root = path11.resolve(root2);
+  constructor(root2, readCurrentTask = readCanonicalCurrentTask, readFile = (filePath) => fs11.readFileSync(filePath, "utf8"), writeFiles = (operations, dryRun, summary) => executeWrites(operations, dryRun, summary)) {
+    this.root = path12.resolve(root2);
     this.readCurrentTask = readCurrentTask;
     this.readFile = readFile;
     this.writeFiles = writeFiles;
@@ -19586,7 +20028,7 @@ class GovernanceTransactionKernel {
       if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
         throw new Error("canonical CURRENT_TASK read-back did not match the staged terminal document.");
       }
-      if (!fs10.existsSync(plan.archiveFilePath) || fs10.readFileSync(plan.archiveFilePath, "utf8") !== plan.nextArchiveContent) {
+      if (!fs11.existsSync(plan.archiveFilePath) || fs11.readFileSync(plan.archiveFilePath, "utf8") !== plan.nextArchiveContent) {
         throw new Error("canonical task archive read-back did not match the staged archive.");
       }
       const receipt = readCanonicalArchive(this.root, readBack, plan.archiveRelativePath);
@@ -19643,7 +20085,7 @@ class GovernanceTransactionKernel {
       });
     }
     try {
-      const readBack = fs10.readFileSync(plan.statusFilePath, "utf8");
+      const readBack = fs11.readFileSync(plan.statusFilePath, "utf8");
       if (readBack !== plan.nextStatusContent)
         throw new Error("STATUS read-back did not match the staged typed reconciliation.");
       const receipt = matchingStatusReceipt(readBack, plan.statusRelativePath, plan.archive);
@@ -19696,7 +20138,7 @@ class GovernanceTransactionKernel {
       });
     }
     try {
-      const readBack = fs10.readFileSync(plan.lessonsFilePath, "utf8");
+      const readBack = fs11.readFileSync(plan.lessonsFilePath, "utf8");
       if (readBack !== plan.nextLessonsContent)
         throw new Error("LESSONS read-back did not match the staged typed lesson record.");
       readDurableLessonRecords(readBack, plan.lessonsRelativePath);
@@ -19793,7 +20235,7 @@ class GovernanceTransactionKernel {
       try {
         basis = readTaskBasisReferenceFromBody(current.body) ? readCanonicalTaskBasis(this.root, current) : undefined;
         const location = taskHistoryLocation({ ...historyInput, ...basis ? { basisPath: basis.filePath, basisContent: basis.content } : {} });
-        historyPath = path11.relative(this.root, location.path).replace(/\\/gu, "/");
+        historyPath = path12.relative(this.root, location.path).replace(/\\/gu, "/");
         historyContent = location.content;
       } catch (error) {
         return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
@@ -19813,7 +20255,7 @@ class GovernanceTransactionKernel {
       try {
         stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
           { path: current.filePath, content: plan.nextContent },
-          { path: path11.join(this.root, ...historyPath.split("/")), content: historyContent }
+          { path: path12.join(this.root, ...historyPath.split("/")), content: historyContent }
         ], plan.prepared);
       } catch (error) {
         return buildResult("blocked", proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
@@ -19833,7 +20275,7 @@ class GovernanceTransactionKernel {
           TaskStore.forCurrent(this.root, current).markCurrentPublished(nextRevision);
         }
       } catch (error) {
-        if (fs10.existsSync(current.filePath) && sha2565(fs10.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
+        if (fs11.existsSync(current.filePath) && sha2565(fs11.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
           clearPendingTaskStoreAfterRollback(this.root, current);
         }
         return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
@@ -19888,7 +20330,7 @@ class GovernanceTransactionKernel {
       if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
         throw new Error("canonical CURRENT_TASK read-back did not match the staged lifecycle document.");
       }
-      if (!fs10.existsSync(plan.packageFilePath) || fs10.readFileSync(plan.packageFilePath, "utf8") !== plan.nextPackageContent) {
+      if (!fs11.existsSync(plan.packageFilePath) || fs11.readFileSync(plan.packageFilePath, "utf8") !== plan.nextPackageContent) {
         throw new Error("suspended package read-back did not match the staged lifecycle artifact.");
       }
       const lifecycleDelta = proposal.semantic_delta;
@@ -19958,8 +20400,8 @@ class GovernanceTransactionKernel {
       proposal = validateRuntimeProposal(rawProposal);
     } catch (error) {
       const code = error instanceof VNextRuntimeError ? error.code : "RUNTIME_SCHEMA_INVALID";
-      const fallbackOperation = isRecord3(rawProposal) && typeof rawProposal.operation_kind === "string" && RUNTIME_OPERATION_KINDS.includes(rawProposal.operation_kind) ? rawProposal.operation_kind : "task-state-transaction";
-      const fallbackKey = isRecord3(rawProposal) && typeof rawProposal.idempotency_key === "string" ? rawProposal.idempotency_key : "invalid-proposal";
+      const fallbackOperation = isRecord4(rawProposal) && typeof rawProposal.operation_kind === "string" && RUNTIME_OPERATION_KINDS.includes(rawProposal.operation_kind) ? rawProposal.operation_kind : "task-state-transaction";
+      const fallbackKey = isRecord4(rawProposal) && typeof rawProposal.idempotency_key === "string" ? rawProposal.idempotency_key : "invalid-proposal";
       return {
         status: "blocked",
         operation_kind: fallbackOperation,
@@ -20308,12 +20750,12 @@ class GovernanceTransactionKernel {
         };
         taskBasisArtifact = materializeTaskBasis(this.root, current, identity, transition.taskBasis);
         const existingReference = readTaskBasisReferenceFromBody(current.body);
-        const basisExists = fs10.existsSync(taskBasisArtifact.filePath);
+        const basisExists = fs11.existsSync(taskBasisArtifact.filePath);
         if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "create-draft") {
           if (basisExists) {
             const predecessor = proposal.semantic_delta.predecessor;
             const snapshotPath = predecessor ? safeRepositoryFile(this.root, successorSnapshotPath(current.relativePath, predecessor.document_id, predecessor.source_revision)) : null;
-            const exactPreparedSuccessor = predecessor && snapshotPath && fs10.existsSync(snapshotPath) && fs10.lstatSync(snapshotPath).isFile() && fs10.readFileSync(snapshotPath, "utf8") === current.raw && fs10.lstatSync(taskBasisArtifact.filePath).isFile() && fs10.readFileSync(taskBasisArtifact.filePath, "utf8") === taskBasisArtifact.content;
+            const exactPreparedSuccessor = predecessor && snapshotPath && fs11.existsSync(snapshotPath) && fs11.lstatSync(snapshotPath).isFile() && fs11.readFileSync(snapshotPath, "utf8") === current.raw && fs11.lstatSync(taskBasisArtifact.filePath).isFile() && fs11.readFileSync(taskBasisArtifact.filePath, "utf8") === taskBasisArtifact.content;
             if (!exactPreparedSuccessor)
               fail3("TASK_BASIS_CONFLICT", `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
           }
@@ -20323,7 +20765,7 @@ class GovernanceTransactionKernel {
           }
           if (!basisExists)
             fail3("TASK_BASIS_MISSING", `Linked task basis is missing: ${taskBasisArtifact.path}`);
-          originalTaskBasisContent = fs10.readFileSync(taskBasisArtifact.filePath, "utf8");
+          originalTaskBasisContent = fs11.readFileSync(taskBasisArtifact.filePath, "utf8");
           if (sha2565(originalTaskBasisContent) !== existingReference.revision) {
             fail3("TASK_BASIS_REVISION_CONFLICT", "Linked task basis changed outside the Runtime transaction.");
           }
@@ -20341,7 +20783,7 @@ class GovernanceTransactionKernel {
       });
     }
     const successorSnapshot = proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "create-draft" && proposal.semantic_delta.predecessor ? { path: safeRepositoryFile(this.root, successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision)), content: current.raw } : null;
-    if (successorSnapshot && fs10.existsSync(successorSnapshot.path) && fs10.readFileSync(successorSnapshot.path, "utf8") !== successorSnapshot.content) {
+    if (successorSnapshot && fs11.existsSync(successorSnapshot.path) && fs11.readFileSync(successorSnapshot.path, "utf8") !== successorSnapshot.content) {
       return buildResult("blocked", proposal, current, options, "The retained predecessor snapshot conflicts with its exact source.", { code: "SUCCESSOR_HISTORY_CONFLICT" });
     }
     let nextContent;
@@ -20449,7 +20891,7 @@ class GovernanceTransactionKernel {
         const rollback = taskBasisArtifact ? rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask) : rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
         return buildResult("blocked", proposal, current, options, rollback.verified ? "Runtime read-back did not match the staged canonical document; rollback read-back verified." : `Runtime read-back did not match the staged canonical document; ${rollback.detail}`, { code: rollback.verified ? "READ_BACK_MISMATCH" : "ROLLBACK_FAILED" });
       }
-      if (successorSnapshot && fs10.readFileSync(successorSnapshot.path, "utf8") !== current.raw)
+      if (successorSnapshot && fs11.readFileSync(successorSnapshot.path, "utf8") !== current.raw)
         throw new Error("The predecessor snapshot did not retain the exact unfinished task.");
       if (taskBasisArtifact) {
         const basisReadBack = readCanonicalTaskBasis(this.root, readBack);
@@ -20972,17 +21414,17 @@ function parseCli(argv) {
   return { command, root: root2, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary, deep };
 }
 function resolveExternalProposalFile(root2, proposalFile) {
-  const resolvedRoot = path11.resolve(root2);
-  const resolvedProposal = path11.resolve(proposalFile);
-  const relative = path11.relative(resolvedRoot, resolvedProposal);
-  const insideProject = relative === "" || !relative.startsWith(`..${path11.sep}`) && relative !== ".." && !path11.isAbsolute(relative);
+  const resolvedRoot = path12.resolve(root2);
+  const resolvedProposal = path12.resolve(proposalFile);
+  const relative = path12.relative(resolvedRoot, resolvedProposal);
+  const insideProject = relative === "" || !relative.startsWith(`..${path12.sep}`) && relative !== ".." && !path12.isAbsolute(relative);
   if (insideProject) {
     fail3("PROPOSAL_FILE_INSIDE_PROJECT", "proposal/helper files must not be created inside the target project; send the proposal on stdin or use an OS-temporary path outside the project.");
   }
   return resolvedProposal;
 }
 function readCliStringList(filePath, label) {
-  const content = fs10.readFileSync(path11.resolve(filePath), "utf8");
+  const content = fs11.readFileSync(path12.resolve(filePath), "utf8");
   if (content.trimStart().startsWith("[")) {
     let parsed;
     try {
@@ -20999,7 +21441,7 @@ function readCliStringList(filePath, label) {
 function readCliConditionalAuthorizations(filePath) {
   let parsed;
   try {
-    parsed = JSON.parse(fs10.readFileSync(path11.resolve(filePath), "utf8"));
+    parsed = JSON.parse(fs11.readFileSync(path12.resolve(filePath), "utf8"));
   } catch (error) {
     throw new Error(`conditional authorizations file must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -21011,7 +21453,7 @@ function readCliCommandAudit(args) {
   if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin || args.persistentTestPaths.length > 0 || args.persistentTestPathsFile) {
     throw new Error("command audit input cannot be combined with ordinary path or persistent-test scope input.");
   }
-  const content = args.commandAuditFile ? fs10.readFileSync(path11.resolve(args.commandAuditFile), "utf8") : (() => {
+  const content = args.commandAuditFile ? fs11.readFileSync(path12.resolve(args.commandAuditFile), "utf8") : (() => {
     if (process.stdin.isTTY)
       throw new Error("--command-audit-stdin requires a JSON command audit on stdin.");
     const input = process.stdin.read();
@@ -21050,14 +21492,14 @@ function readScopeCheckInput(args) {
   };
 }
 function validateInstalledRuntimeForCli(root2) {
-  const runtimePackagePath = path11.join(path11.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs10.existsSync(runtimePackagePath)) {
+  const runtimePackagePath = path12.join(path12.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs11.existsSync(runtimePackagePath)) {
     validateVNextRuntimeContract(root2, true);
   }
 }
 function requireBootstrappedProject(root2) {
   const profilePath = getWorkflowProfilePath(root2);
-  if (!fs10.existsSync(profilePath)) {
+  if (!fs11.existsSync(profilePath)) {
     fail3("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
   let profile;
@@ -21067,7 +21509,7 @@ function requireBootstrappedProject(root2) {
     fail3("BOOTSTRAP_REQUIRED", "Project governance profile is unavailable or invalid; invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
   const currentTaskPath = getWorkflowDocPath(root2, profile, "CURRENT_TASK.md");
-  if (!fs10.existsSync(currentTaskPath)) {
+  if (!fs11.existsSync(currentTaskPath)) {
     fail3("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
 }
@@ -21104,6 +21546,7 @@ async function runCli(argv = process.argv.slice(2)) {
         package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
         validation_scope: args.deep ? "aggregate-and-full-history" : "current-aggregate",
         storage_validation: storageValidation,
+        storage_metrics: taskStorageMetrics(args.root, current),
         summary: {
           ...documentContext,
           task_id: state.task_id,
@@ -21137,7 +21580,7 @@ async function runCli(argv = process.argv.slice(2)) {
     } else {
       validateInstalledRuntimeForCli(args.root);
       requireBootstrappedProject(args.root);
-      const proposalText = args.proposalFile ? fs10.readFileSync(resolveExternalProposalFile(args.root, args.proposalFile), "utf8") : !process.stdin.isTTY ? fs10.readFileSync(0, "utf8") : "";
+      const proposalText = args.proposalFile ? fs11.readFileSync(resolveExternalProposalFile(args.root, args.proposalFile), "utf8") : !process.stdin.isTTY ? fs11.readFileSync(0, "utf8") : "";
       if (!proposalText.trim())
         throw new Error("apply requires a JSON proposal on stdin or via --proposal-file <json-file>.");
       const proposal = JSON.parse(proposalText);
@@ -21159,14 +21602,14 @@ async function runCli(argv = process.argv.slice(2)) {
 
 // runtime/vnext/src/bootstrap-support.ts
 import * as crypto13 from "crypto";
-import * as fs13 from "fs";
-import * as path14 from "path";
-import { parse as parse5, parseDocument as parseDocument3, stringify as stringify4 } from "yaml";
+import * as fs14 from "fs";
+import * as path15 from "path";
+import { parse as parse6, parseDocument as parseDocument3, stringify as stringify5 } from "yaml";
 
 // runtime/vnext/src/scoped-tree-hash.ts
 import * as crypto11 from "crypto";
-import * as fs11 from "fs";
-import * as path12 from "path";
+import * as fs12 from "fs";
+import * as path13 from "path";
 
 class ScopedTreeHashError extends Error {
   code = "UNSAFE_PATH";
@@ -21187,16 +21630,16 @@ function normalizeRepoPath3(value, location) {
 }
 function resolveRepoPath(root2, relativePath, location) {
   const normalized = normalizeRepoPath3(relativePath, location);
-  const resolvedRoot = path12.resolve(root2);
-  const resolved = path12.resolve(resolvedRoot, ...normalized.split("/"));
-  const prefix = resolvedRoot.endsWith(path12.sep) ? resolvedRoot : `${resolvedRoot}${path12.sep}`;
+  const resolvedRoot = path13.resolve(root2);
+  const resolved = path13.resolve(resolvedRoot, ...normalized.split("/"));
+  const prefix = resolvedRoot.endsWith(path13.sep) ? resolvedRoot : `${resolvedRoot}${path13.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix)) {
     throw new ScopedTreeHashError(`${location} escapes the target root: ${relativePath}`);
   }
   return resolved;
 }
 function computeScopedTreeHash(root2, includedRelativePaths, ignoredRelativePaths = []) {
-  const resolvedRoot = path12.resolve(root2);
+  const resolvedRoot = path13.resolve(root2);
   const included = [...new Set(includedRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash included path")))].sort((left, right) => left.localeCompare(right));
   const ignored = new Set(ignoredRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash ignored path")));
   const visited = new Set;
@@ -21208,7 +21651,7 @@ function computeScopedTreeHash(root2, includedRelativePaths, ignoredRelativePath
   };
   const lstatOrMissing = (fullPath) => {
     try {
-      return fs11.lstatSync(fullPath);
+      return fs12.lstatSync(fullPath);
     } catch (error) {
       if (isMissingPathError(error))
         return null;
@@ -21228,7 +21671,7 @@ function computeScopedTreeHash(root2, includedRelativePaths, ignoredRelativePath
     const parts = relativePath.split("/");
     let current = resolvedRoot;
     for (let index = 0;index < parts.length - 1; index += 1) {
-      current = path12.join(current, parts[index]);
+      current = path13.join(current, parts[index]);
       const status = lstatOrMissing(current);
       if (!status)
         return;
@@ -21250,18 +21693,18 @@ function computeScopedTreeHash(root2, includedRelativePaths, ignoredRelativePath
     }
     visited.add(relativePath);
     if (status.isSymbolicLink()) {
-      record(relativePath, "symlink", fs11.readlinkSync(fullPath));
+      record(relativePath, "symlink", fs12.readlinkSync(fullPath));
       return;
     }
     if (status.isDirectory()) {
       record(relativePath, "directory");
-      for (const name of fs11.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
-        visit(`${relativePath}/${name}`, path12.join(fullPath, name));
+      for (const name of fs12.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
+        visit(`${relativePath}/${name}`, path13.join(fullPath, name));
       }
       return;
     }
     if (status.isFile()) {
-      const content = fs11.readFileSync(fullPath);
+      const content = fs12.readFileSync(fullPath);
       record(relativePath, "file", `${content.byteLength}\x00${sha2566(content)}`);
       return;
     }
@@ -21356,8 +21799,8 @@ function validateMigrationAlignment(value) {
 }
 
 // runtime/vnext/src/migration-provenance.ts
-import * as fs12 from "fs";
-import * as path13 from "path";
+import * as fs13 from "fs";
+import * as path14 from "path";
 import { parseDocument as parseDocument2 } from "yaml";
 var COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH = ".workflow-system/vnext/INSTALL_STATE.json";
 var COMPLETED_MIGRATION_RECEIPT_RELATIVE_PATH = ".workflow-system/vnext/MIGRATION_RECEIPT.json";
@@ -21382,11 +21825,11 @@ class MigrationProvenanceError extends Error {
 function fail4(message) {
   throw new MigrationProvenanceError(message);
 }
-function isRecord4(value) {
+function isRecord5(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function expectRecord3(value, location) {
-  if (!isRecord4(value))
+  if (!isRecord5(value))
     fail4(`${location} must be a mapping.`);
   return value;
 }
@@ -21414,9 +21857,9 @@ function sha2567(value) {
   return crypto12.createHash("sha256").update(value).digest("hex");
 }
 function normalizeRoot(root2) {
-  const resolved = path13.resolve(root2);
+  const resolved = path14.resolve(root2);
   const normalized = resolved.replace(/\\/gu, "/");
-  const parsedRoot = path13.parse(resolved).root.replace(/\\/gu, "/");
+  const parsedRoot = path14.parse(resolved).root.replace(/\\/gu, "/");
   const rootValue = process.platform === "win32" ? parsedRoot.toLowerCase() : parsedRoot;
   const normalizedValue = process.platform === "win32" ? normalized.toLowerCase() : normalized;
   return normalizedValue === rootValue ? rootValue : normalizedValue.replace(/\/+$/u, "");
@@ -21430,16 +21873,16 @@ function normalizeRepoPath4(value, location) {
 }
 function resolveRepoPath2(root2, relative, location) {
   const normalized = normalizeRepoPath4(relative, location);
-  const resolvedRoot = path13.resolve(root2);
-  const resolved = path13.resolve(resolvedRoot, ...normalized.split("/"));
-  const prefix = resolvedRoot.endsWith(path13.sep) ? resolvedRoot : `${resolvedRoot}${path13.sep}`;
+  const resolvedRoot = path14.resolve(root2);
+  const resolved = path14.resolve(resolvedRoot, ...normalized.split("/"));
+  const prefix = resolvedRoot.endsWith(path14.sep) ? resolvedRoot : `${resolvedRoot}${path14.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
     fail4(`${location} escapes the target root: ${relative}`);
   return resolved;
 }
 function readJson2(filePath, location) {
   try {
-    return expectRecord3(JSON.parse(fs12.readFileSync(filePath, "utf8")), location);
+    return expectRecord3(JSON.parse(fs13.readFileSync(filePath, "utf8")), location);
   } catch (error) {
     if (error instanceof MigrationProvenanceError)
       throw error;
@@ -21448,7 +21891,7 @@ function readJson2(filePath, location) {
 }
 function readYaml(filePath, location) {
   try {
-    const document = parseDocument2(fs12.readFileSync(filePath, "utf8"), { uniqueKeys: true });
+    const document = parseDocument2(fs13.readFileSync(filePath, "utf8"), { uniqueKeys: true });
     const diagnostics = [...document.errors, ...document.warnings];
     if (diagnostics.length > 0)
       fail4(`${location} is invalid YAML: ${diagnostics.map((item) => item.message).join("; ")}`);
@@ -21616,7 +22059,7 @@ function canonicalArtifactIdentity(relativePath, content) {
   return { stableId: `artifact-${sha2567(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`, sourceRevision, sourceTreeHash };
 }
 function validateCurrentTaskShape(root2, currentTaskPath, runtimeInstalled) {
-  const content = fs12.readFileSync(currentTaskPath, "utf8");
+  const content = fs13.readFileSync(currentTaskPath, "utf8");
   if (runtimeInstalled) {
     try {
       readCanonicalCurrentTask(root2);
@@ -21647,11 +22090,11 @@ function profileTargetIdentity(root2, profile) {
   return sha2567(`${normalizeRoot(root2)}\x00${slug}`).slice(0, 32);
 }
 function validateCompletedMigrationProvenance(targetRoot) {
-  const root2 = path13.resolve(targetRoot);
+  const root2 = path14.resolve(targetRoot);
   const statePath = resolveRepoPath2(root2, COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH, "completed migration install state");
   const receiptPath = resolveRepoPath2(root2, COMPLETED_MIGRATION_RECEIPT_RELATIVE_PATH, "completed migration receipt");
-  const hasState = fs12.existsSync(statePath);
-  const hasReceipt = fs12.existsSync(receiptPath);
+  const hasState = fs13.existsSync(statePath);
+  const hasReceipt = fs13.existsSync(receiptPath);
   if (!hasState && !hasReceipt)
     return null;
   if (!hasState || !hasReceipt)
@@ -21666,7 +22109,7 @@ function validateCompletedMigrationProvenance(targetRoot) {
       fail4("Alignment original inventory differs from install state.");
     for (const original of originals) {
       const full = resolveRepoPath2(root2, original.backup_path, "alignment original");
-      if (!fs12.existsSync(full) || sha2567(fs12.readFileSync(full)) !== original.sha256)
+      if (!fs13.existsSync(full) || sha2567(fs13.readFileSync(full)) !== original.sha256)
         fail4(`Alignment original is missing or changed: ${original.path}`);
     }
   }
@@ -21677,22 +22120,22 @@ function validateCompletedMigrationProvenance(targetRoot) {
   for (const removedPath of state.removed_legacy_files) {
     if (admittedCurrentPaths.has(removedPath))
       continue;
-    if (fs12.existsSync(resolveRepoPath2(root2, removedPath, `removed legacy path ${removedPath}`)))
+    if (fs13.existsSync(resolveRepoPath2(root2, removedPath, `removed legacy path ${removedPath}`)))
       fail4(`completed migration still has a Pack-declared removed legacy path: ${removedPath}`);
   }
   const profilePath = resolveRepoPath2(root2, ".workflow-system/PROJECT_PROFILE.yaml", "completed migration PROJECT_PROFILE");
-  if (!fs12.existsSync(profilePath) || !fs12.statSync(profilePath).isFile())
+  if (!fs13.existsSync(profilePath) || !fs13.statSync(profilePath).isFile())
     fail4("completed migration provenance is missing PROJECT_PROFILE.yaml.");
   const profile = readYaml(profilePath, "PROJECT_PROFILE.yaml");
   if (profileTargetIdentity(root2, profile) !== state.target_identity)
     fail4("completed migration target identity does not match the current project profile/root.");
-  const workflowHomeValue = isRecord4(profile.paths) ? profile.paths.workflow_home : undefined;
+  const workflowHomeValue = isRecord5(profile.paths) ? profile.paths.workflow_home : undefined;
   const workflowHome = workflowHomeValue === undefined ? "docs/workflow" : expectString3(workflowHomeValue, "PROJECT_PROFILE.yaml.paths.workflow_home");
   if (workflowHome !== "docs/workflow")
     fail4("completed migration workflow_home is not canonical.");
   const currentTaskRelative = `${workflowHome}/${CURRENT_TASK_FILE}`;
   const currentTaskPath = resolveRepoPath2(root2, currentTaskRelative, "completed migration CURRENT_TASK");
-  if (!fs12.existsSync(currentTaskPath) || !fs12.statSync(currentTaskPath).isFile())
+  if (!fs13.existsSync(currentTaskPath) || !fs13.statSync(currentTaskPath).isFile())
     fail4("completed migration provenance is missing the canonical CURRENT_TASK.md.");
   const currentTaskRecord = state.managed_files.find((entry) => entry.path === currentTaskRelative);
   if (!currentTaskRecord || !SHA256_PATTERN3.test(currentTaskRecord.checksum))
@@ -21705,9 +22148,9 @@ function validateCompletedMigrationProvenance(targetRoot) {
     fail4("completed migration install state does not record the converted PROJECT_PROFILE.yaml artifact.");
   const derived = migratedFiles.map((entry) => {
     const fullPath = resolveRepoPath2(root2, entry.path, `completed migration artifact ${entry.path}`);
-    if (!fs12.existsSync(fullPath) || !fs12.statSync(fullPath).isFile())
+    if (!fs13.existsSync(fullPath) || !fs13.statSync(fullPath).isFile())
       fail4(`converted migration artifact is missing: ${entry.path}`);
-    return { path: entry.path, ...canonicalArtifactIdentity(entry.path, fs12.readFileSync(fullPath, "utf8")) };
+    return { path: entry.path, ...canonicalArtifactIdentity(entry.path, fs13.readFileSync(fullPath, "utf8")) };
   });
   const derivedIds = derived.map((item) => item.stableId);
   if (JSON.stringify(derivedIds) !== JSON.stringify(receipt.converted_artifact_ids))
@@ -21814,11 +22257,11 @@ class BootstrapSupportError extends Error {
 function fail5(code, message) {
   throw new BootstrapSupportError(code, message);
 }
-function isRecord5(value) {
+function isRecord6(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function expectRecord4(value, location) {
-  if (!isRecord5(value))
+  if (!isRecord6(value))
     fail5("BOOTSTRAP_SUPPORT_SCHEMA_INVALID", `${location} must be a mapping.`);
   return value;
 }
@@ -21854,18 +22297,18 @@ function normalizeRelative2(value, location = "path") {
   return normalized;
 }
 function targetPath(root2, relative) {
-  const resolvedRoot = path14.resolve(root2);
-  const resolved = path14.resolve(resolvedRoot, ...normalizeRelative2(relative).split("/"));
-  const prefix = resolvedRoot.endsWith(path14.sep) ? resolvedRoot : `${resolvedRoot}${path14.sep}`;
+  const resolvedRoot = path15.resolve(root2);
+  const resolved = path15.resolve(resolvedRoot, ...normalizeRelative2(relative).split("/"));
+  const prefix = resolvedRoot.endsWith(path15.sep) ? resolvedRoot : `${resolvedRoot}${path15.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
     fail5("BOOTSTRAP_SUPPORT_PATH_INVALID", `target path escapes root: ${relative}`);
   return resolved;
 }
 function readJsonObject2(filePath, location) {
-  if (!fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile())
+  if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_INPUT_INVALID", `${location} is missing.`);
   try {
-    return expectRecord4(JSON.parse(fs13.readFileSync(filePath, "utf8")), location);
+    return expectRecord4(JSON.parse(fs14.readFileSync(filePath, "utf8")), location);
   } catch (error) {
     if (error instanceof BootstrapSupportError)
       throw error;
@@ -21873,21 +22316,21 @@ function readJsonObject2(filePath, location) {
   }
 }
 function readYamlObject(filePath, location) {
-  if (!fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile())
+  if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile())
     return {};
   try {
-    const value = parse5(fs13.readFileSync(filePath, "utf8"));
+    const value = parse6(fs14.readFileSync(filePath, "utf8"));
     return value === null ? {} : expectRecord4(value, location);
   } catch (error) {
     fail5("BOOTSTRAP_SUPPORT_PROFILE_INVALID", `${location} is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 function fileHash(filePath) {
-  return sha2568(fs13.readFileSync(filePath));
+  return sha2568(fs14.readFileSync(filePath));
 }
 function existingProfile(root2) {
   const filePath = targetPath(root2, PROJECT_PROFILE_RELATIVE_PATH);
-  if (!fs13.existsSync(filePath))
+  if (!fs14.existsSync(filePath))
     return null;
   const profile = readYamlObject(filePath, PROJECT_PROFILE_RELATIVE_PATH);
   if (profile.mutation_authority !== undefined) {
@@ -21901,7 +22344,7 @@ function existingProfile(root2) {
 }
 function profileProject(profile) {
   const project = profile?.project;
-  if (!isRecord5(project) || typeof project.name !== "string" || typeof project.slug !== "string")
+  if (!isRecord6(project) || typeof project.name !== "string" || typeof project.slug !== "string")
     return null;
   return { name: project.name.trim(), slug: project.slug.trim() };
 }
@@ -21914,7 +22357,7 @@ function resolveProject(root2, options, receipt) {
   const profileIdentity = profileProject(profile);
   let packageName = null;
   const packagePath = targetPath(root2, "package.json");
-  if (fs13.existsSync(packagePath)) {
+  if (fs14.existsSync(packagePath)) {
     try {
       const packageJson = readJsonObject2(packagePath, "package.json");
       packageName = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name.trim() : null;
@@ -21922,7 +22365,7 @@ function resolveProject(root2, options, receipt) {
       packageName = null;
     }
   }
-  const name = options.projectName?.trim() || profileIdentity?.name || receipt?.project.name || packageName || path14.basename(path14.resolve(root2));
+  const name = options.projectName?.trim() || profileIdentity?.name || receipt?.project.name || packageName || path15.basename(path15.resolve(root2));
   const slug = options.projectSlug?.trim() || profileIdentity?.slug || receipt?.project.slug || safeSlug(name);
   if (!SAFE_SLUG.test(slug))
     fail5("BOOTSTRAP_SUPPORT_PROFILE_INVALID", `project slug must be lowercase kebab-case: ${slug}`);
@@ -21930,14 +22373,14 @@ function resolveProject(root2, options, receipt) {
     fail5("BOOTSTRAP_SUPPORT_IDENTITY_CONFLICT", "caller project name conflicts with the existing project profile.");
   if (profileIdentity && options.projectSlug && profileIdentity.slug !== options.projectSlug.trim())
     fail5("BOOTSTRAP_SUPPORT_IDENTITY_CONFLICT", "caller project slug conflicts with the existing project profile.");
-  if (profile?.paths && isRecord5(profile.paths) && profile.paths.workflow_home !== undefined && profile.paths.workflow_home !== "docs/workflow")
+  if (profile?.paths && isRecord6(profile.paths) && profile.paths.workflow_home !== undefined && profile.paths.workflow_home !== "docs/workflow")
     fail5("BOOTSTRAP_SUPPORT_IDENTITY_CONFLICT", "existing paths.workflow_home is not the canonical vNext workflow home.");
   return { name, slug };
 }
 function listTopLevelNames(root2) {
-  if (!fs13.existsSync(root2))
+  if (!fs14.existsSync(root2))
     return [];
-  return fs13.readdirSync(root2, { withFileTypes: true }).map((entry) => entry.name).sort();
+  return fs14.readdirSync(root2, { withFileTypes: true }).map((entry) => entry.name).sort();
 }
 var DOMAIN_CANDIDATE_IGNORES = new Set([
   ".git",
@@ -21996,7 +22439,7 @@ function proposeAuthorityDomainCandidates(root2) {
       evidence_refs: [`bootstrap:existing-authority-domain:${domain.id}`]
     }));
   }
-  const entries = fs13.existsSync(root2) ? fs13.readdirSync(root2, { withFileTypes: true }) : [];
+  const entries = fs14.existsSync(root2) ? fs14.readdirSync(root2, { withFileTypes: true }) : [];
   const directories = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && !DOMAIN_CANDIDATE_IGNORES.has(entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right));
   if (directories.length > 0) {
     const used = new Set;
@@ -22048,11 +22491,11 @@ function assertAuthorityDomainConfirmationMatchesCandidates(candidates, confirma
 }
 function readExistingDocument(root2, relative) {
   const filePath = targetPath(root2, relative);
-  if (!fs13.existsSync(filePath))
+  if (!fs14.existsSync(filePath))
     return null;
-  if (!fs13.statSync(filePath).isFile())
+  if (!fs14.statSync(filePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative} is not a regular governance document.`);
-  return fs13.readFileSync(filePath, "utf8");
+  return fs14.readFileSync(filePath, "utf8");
 }
 function readExistingMarkdownSection(root2, relative, title) {
   const content = readExistingDocument(root2, relative);
@@ -22126,20 +22569,20 @@ function hasMeaningfulImplementation(root2) {
 }
 function isVNextMarkerFile(root2, relative) {
   const filePath = targetPath(root2, relative);
-  if (!fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile())
+  if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile())
     return false;
-  return /vnext|vNext/iu.test(fs13.readFileSync(filePath, "utf8").slice(0, 1600));
+  return /vnext|vNext/iu.test(fs14.readFileSync(filePath, "utf8").slice(0, 1600));
 }
 function isFrozenPath(root2, relative) {
   const normalized = normalizeRelative2(relative, "freeze check");
-  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file) => targetPath(root2, file)).filter((file) => fs13.existsSync(file) && fs13.statSync(file).isFile());
+  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file) => targetPath(root2, file)).filter((file) => fs14.existsSync(file) && fs14.statSync(file).isFile());
   for (const registry of registries) {
-    if (fs13.readFileSync(registry, "utf8").split(/\r?\n/u).some((line) => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/iu.test(line)))
+    if (fs14.readFileSync(registry, "utf8").split(/\r?\n/u).some((line) => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/iu.test(line)))
       return true;
   }
   const filePath = targetPath(root2, normalized);
-  if (fs13.existsSync(filePath) && fs13.statSync(filePath).isFile()) {
-    const head = fs13.readFileSync(filePath, "utf8").split(/\r?\n/u).slice(0, 20).join(`
+  if (fs14.existsSync(filePath) && fs14.statSync(filePath).isFile()) {
+    const head = fs14.readFileSync(filePath, "utf8").split(/\r?\n/u).slice(0, 20).join(`
 `);
     if (/@frozen|DO NOT MODIFY/iu.test(head))
       return true;
@@ -22148,7 +22591,7 @@ function isFrozenPath(root2, relative) {
 }
 function readBootstrapReceipt(root2) {
   const filePath = targetPath(root2, BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH);
-  if (!fs13.existsSync(filePath))
+  if (!fs14.existsSync(filePath))
     return null;
   const raw = readJsonObject2(filePath, "BOOTSTRAP_RECEIPT.json");
   expectExactKeys4(raw, BOOTSTRAP_RECEIPT_KEYS, "BOOTSTRAP_RECEIPT.json");
@@ -22193,9 +22636,9 @@ function isDistributionManagedPath(relative) {
 function validateSkillFile(root2, entry) {
   const relative = `.agents/skills/${entry}/SKILL.md`;
   const filePath = targetPath(root2, relative);
-  if (!fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile())
+  if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `required Distribution Skill is missing: ${relative}`);
-  const content = fs13.readFileSync(filePath, "utf8");
+  const content = fs14.readFileSync(filePath, "utf8");
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/u.exec(content);
   if (!match)
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative} is missing Agent Skill frontmatter.`);
@@ -22213,7 +22656,7 @@ function validateSkillFile(root2, entry) {
 function validateInstalledDistributionReadback(root2) {
   const statePath = targetPath(root2, DISTRIBUTION_STATE_RELATIVE_PATH);
   const journalPath = targetPath(root2, DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH);
-  if (fs13.existsSync(journalPath))
+  if (fs14.existsSync(journalPath))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution has an interrupted transaction marker; recover through Distribution before Bootstrap.");
   const raw = readJsonObject2(statePath, "DISTRIBUTION_STATE.json");
   expectExactKeys4(raw, DISTRIBUTION_STATE_KEYS, "DISTRIBUTION_STATE.json");
@@ -22242,7 +22685,7 @@ function validateInstalledDistributionReadback(root2) {
   const managedMap = new Map(managed.map((item) => [item.path, item]));
   for (const entry of managed) {
     const filePath = targetPath(root2, entry.path);
-    if (!fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile() || fileHash(filePath) !== entry.checksum)
+    if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== entry.checksum)
       fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution managed artifact read-back failed: ${entry.path}`);
   }
   const required = [
@@ -22264,25 +22707,25 @@ function validateInstalledDistributionReadback(root2) {
   const runtime = validateVNextRuntimeContract(root2, true).runtime_distribution;
   if (runtime.package_version !== version)
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution State and project-local Runtime versions differ.");
-  const protocol = fs13.readFileSync(targetPath(root2, ".workflow-system/WORKFLOW_PROTOCOL.md"), "utf8");
-  const schema = fs13.readFileSync(targetPath(root2, ".workflow-system/FILE_SCHEMAS.md"), "utf8");
+  const protocol = fs14.readFileSync(targetPath(root2, ".workflow-system/WORKFLOW_PROTOCOL.md"), "utf8");
+  const schema = fs14.readFileSync(targetPath(root2, ".workflow-system/FILE_SCHEMAS.md"), "utf8");
   if (!/^kind:\s*vnext-protocol\s*$/imu.test(protocol) || !/schema_version\s*:\s*1/iu.test(protocol))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Protocol is invalid.");
   if (!/^kind:\s*vnext-file-schema\s*$/imu.test(schema) || !/CURRENT_TASK\.md/iu.test(schema))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Schema is invalid.");
-  const supportTemplate = fs13.readFileSync(targetPath(root2, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH), "utf8");
+  const supportTemplate = fs14.readFileSync(targetPath(root2, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH), "utf8");
   if (!/^kind:\s*vnext-current-task\s*$/imu.test(supportTemplate) || !supportTemplate.includes("# vNext CURRENT_TASK"))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed Bootstrap support template is invalid.");
   for (const entry of REQUIRED_SKILL_ENTRIES)
     validateSkillFile(root2, entry);
-  return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs13.readFileSync(statePath, "utf8"), managed_files: managed };
+  return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs14.readFileSync(statePath, "utf8"), managed_files: managed };
 }
 function renderProfile(project, targetIdentity, mode, host, existing, authorityDomainConfirmation = null) {
-  const existingProject = existing?.project && isRecord5(existing.project) ? existing.project : {};
-  const existingPaths = existing?.paths && isRecord5(existing.paths) ? existing.paths : {};
-  const existingVNext = existing?.vnext && isRecord5(existing.vnext) ? existing.vnext : {};
+  const existingProject = existing?.project && isRecord6(existing.project) ? existing.project : {};
+  const existingPaths = existing?.paths && isRecord6(existing.paths) ? existing.paths : {};
+  const existingVNext = existing?.vnext && isRecord6(existing.vnext) ? existing.vnext : {};
   const existingHosts = Array.isArray(existingProject.primary_hosts) ? existingProject.primary_hosts.filter((value) => typeof value === "string" && value.trim()) : [];
-  return stringify4({
+  return stringify5({
     ...existing ?? {},
     schema_version: 1,
     kind: "vnext-project-profile",
@@ -22520,7 +22963,7 @@ function renderRoadmap(project, mode, baseline, preservedBaselineKeys = []) {
 `);
 }
 function renderDesignDocument(filePath, baseline) {
-  const key = path14.basename(filePath, ".md");
+  const key = path15.basename(filePath, ".md");
   const value = baseline[key] ?? baseline[filePath] ?? "No confirmed content was supplied for this design section.";
   return [`# Design baseline: ${key}`, "", "## Authority", "", "- source: caller-provided confirmed design baseline", "- certainty: confirmed or explicitly awaiting confirmation", "", "## Content", "", value, ""].join(`
 `);
@@ -22563,11 +23006,11 @@ function renderGovernanceDocument(file, project, mode, facts, baseline, preserve
 }
 function makeGovernanceAssets(root2, project, targetIdentity, mode, host, facts, baseline, preservedBaselineKeys = [], existingGovernance = null, authorityDomainConfirmation = null) {
   const templatePath = targetPath(root2, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
-  if (!fs13.existsSync(templatePath) || !fs13.statSync(templatePath).isFile())
+  if (!fs14.existsSync(templatePath) || !fs14.statSync(templatePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
   return [
     { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root2), authorityDomainConfirmation) },
-    { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs13.readFileSync(templatePath, "utf8") },
+    { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs14.readFileSync(templatePath, "utf8") },
     ...FULL_WORKFLOW_DOCS.map((file) => ({ path: file, category: "governance", content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: "AGENTS.md", category: "governance", content: renderGuidance(project) },
     { path: "CLAUDE.md", category: "governance", content: renderGuidance(project) }
@@ -22653,7 +23096,7 @@ function normalizeBaseline(value) {
 }
 function existingIsWorkflowOwned(root2, relative, receipt = null) {
   const filePath = targetPath(root2, relative);
-  if (!fs13.existsSync(filePath))
+  if (!fs14.existsSync(filePath))
     return true;
   if (isFrozenPath(root2, relative))
     return false;
@@ -22697,7 +23140,7 @@ function migrationAdmission(root2, supplied) {
   }
 }
 function classifyBootstrapTargetLocal(root2, options = {}) {
-  if (fs13.existsSync(targetPath(root2, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH)))
+  if (fs14.existsSync(targetPath(root2, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH)))
     return { state: "in-progress", receipt: null, migration: { status: "none" }, reasons: ["an explicit Bootstrap interruption marker is present"] };
   let receipt = null;
   try {
@@ -22716,7 +23159,7 @@ function classifyBootstrapTargetLocal(root2, options = {}) {
   try {
     const profile = existingProfile(root2);
     const profileVNext = profile?.vnext;
-    if (isRecord5(profileVNext) && profileVNext.target_identity !== undefined && profileVNext.target_identity !== targetIdentity)
+    if (isRecord6(profileVNext) && profileVNext.target_identity !== undefined && profileVNext.target_identity !== targetIdentity)
       return { state: "conflicting", receipt, migration, reasons: ["project profile target identity does not match the current target root"] };
   } catch (error) {
     return { state: "conflicting", receipt, migration, reasons: [error instanceof Error ? error.message : String(error)] };
@@ -22724,14 +23167,14 @@ function classifyBootstrapTargetLocal(root2, options = {}) {
   if (receipt) {
     const drift = receipt.managed_files.filter((file) => {
       const filePath = targetPath(root2, file.path);
-      return !fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum;
+      return !fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum;
     });
     return drift.length === 0 ? { state: "valid", receipt, migration, reasons: [] } : { state: "stale", receipt, migration, reasons: drift.map((file) => `managed governance asset drifted: ${file.path}`) };
   }
   if (migration.status === "valid")
     return { state: "governed", receipt: null, migration, reasons: ["the project was admitted by the completed Migration Pack provenance verifier; a Bootstrap Receipt is not required"] };
   const governanceSignals = [PROJECT_PROFILE_RELATIVE_PATH, CURRENT_TASK_RELATIVE_PATH, ...FULL_WORKFLOW_DOCS];
-  if (governanceSignals.some((relative) => fs13.existsSync(targetPath(root2, relative))))
+  if (governanceSignals.some((relative) => fs14.existsSync(targetPath(root2, relative))))
     return { state: "incomplete", receipt: null, migration, reasons: ["governance assets exist without Bootstrap transaction provenance"] };
   return { state: hasMeaningfulImplementation(root2) ? "existing" : "empty", receipt: null, migration, reasons: [] };
 }
@@ -22754,7 +23197,7 @@ function modeBlockers(root2, state, mode, options, baseline, facts, receipt, mig
     blockers.push({ code: "BOOTSTRAP_NOT_REQUIRED", message: "Migration Pack provenance already establishes a governed vNext project; ordinary Bootstrap is not required." });
     return blockers;
   }
-  if (["greenfield", "adopt", "realign"].includes(mode) && fs13.existsSync(targetPath(root2, CURRENT_TASK_RELATIVE_PATH))) {
+  if (["greenfield", "adopt", "realign"].includes(mode) && fs14.existsSync(targetPath(root2, CURRENT_TASK_RELATIVE_PATH))) {
     try {
       const current = readCanonicalCurrentTask(root2);
       if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived" || current.runtimeState.active_step_status !== "completed" || mode !== "realign" && current.runtimeState.task_id !== "000") {
@@ -22783,7 +23226,7 @@ function modeBlockers(root2, state, mode, options, baseline, facts, receipt, mig
   if (mode === "adopt") {
     if (state !== "valid" && (!["existing", "incomplete"].includes(state) || !hasMeaningfulImplementation(root2)))
       blockers.push({ code: "ADOPT_PRECONDITION", message: "adopt mode requires an existing project implementation or valid replay." });
-    if (state !== "valid" && !fs13.existsSync(targetPath(root2, "docs/adoption/architecture-inventory.md")))
+    if (state !== "valid" && !fs14.existsSync(targetPath(root2, "docs/adoption/architecture-inventory.md")))
       blockers.push({ code: "INVENTORY_REQUIRED", message: "adopt mode requires inventory evidence from inventory mode." });
     if (options.adoptionConfirmed !== true)
       blockers.push({ code: "ADOPTION_CONFIRMATION_REQUIRED", message: "adopt mode requires explicit project-owner confirmation." });
@@ -22801,7 +23244,7 @@ function verifyReceiptReadBack(root2, receipt, assets) {
     fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed-file paths do not match the governance proposal.");
   for (const file of receipt.managed_files) {
     const filePath = targetPath(root2, file.path);
-    if (!fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum)
+    if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum)
       fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `Bootstrap governance asset read-back failed: ${file.path}`);
   }
 }
@@ -22818,7 +23261,7 @@ function verifyBootstrapHealth(root2, proposal, distributionBefore) {
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_MUTATED", "Bootstrap changed Distribution State bytes.");
   for (const asset of proposal.assets) {
     const filePath = targetPath(root2, asset.path);
-    if (!fs13.existsSync(filePath) || !fs13.statSync(filePath).isFile() || fileHash(filePath) !== sha2568(Buffer.from(asset.content, "utf8")))
+    if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== sha2568(Buffer.from(asset.content, "utf8")))
       fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `promoted governance asset did not read back identically: ${asset.path}`);
   }
   const receipt = readBootstrapReceipt(root2);
@@ -22842,7 +23285,7 @@ function markerValue(proposal) {
 `;
 }
 function prepareProposal(options, distribution, classification) {
-  const root2 = path14.resolve(options.targetRoot);
+  const root2 = path15.resolve(options.targetRoot);
   const project = resolveProject(root2, options, classification.receipt);
   const host = options.host ?? "codex";
   const baseline = normalizeBaseline(options.designBaseline);
@@ -22873,7 +23316,7 @@ function prepareProposal(options, distribution, classification) {
     assets = mergeAssets(assets, [{ path: "docs/adoption/ADOPTION_DECISION.md", category: "governance", content: renderDecisions(project, options.mode, facts) }]);
   if (options.mode === "realign") {
     const preservedMigrationPaths = new Set(classification.migration.provenance?.converted_artifact_paths ?? []);
-    assets = assets.filter((asset) => asset.path !== CURRENT_TASK_RELATIVE_PATH && !(preservedMigrationPaths.has(asset.path) && fs13.existsSync(targetPath(root2, asset.path))));
+    assets = assets.filter((asset) => asset.path !== CURRENT_TASK_RELATIVE_PATH && !(preservedMigrationPaths.has(asset.path) && fs14.existsSync(targetPath(root2, asset.path))));
   }
   const targetIdentity = computeBootstrapTargetIdentity(root2);
   const source = options.source ?? { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest };
@@ -22939,7 +23382,7 @@ function hasRealignSemanticOverlay(options) {
   if (facts !== undefined && (!Array.isArray(facts) || facts.length > 0))
     return true;
   const baseline = options.designBaseline;
-  if (baseline !== undefined && (!isRecord5(baseline) || Object.keys(baseline).length > 0))
+  if (baseline !== undefined && (!isRecord6(baseline) || Object.keys(baseline).length > 0))
     return true;
   return false;
 }
@@ -22980,7 +23423,7 @@ function publicPlan(plan) {
   return publicValue;
 }
 function bootstrapProjectTargetLocal(options) {
-  const root2 = path14.resolve(options.targetRoot);
+  const root2 = path15.resolve(options.targetRoot);
   if (!BOOTSTRAP_MODES.includes(options.mode))
     return {
       status: "blocked",
@@ -23067,11 +23510,11 @@ function bootstrapProjectTargetLocal(options) {
     const beforeHash = computeBootstrapPreimageHash(root2, proposal);
     const markerPath = targetPath(root2, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH);
     try {
-      fs13.mkdirSync(path14.dirname(markerPath), { recursive: true });
-      fs13.writeFileSync(markerPath, markerValue(proposal), "utf8");
+      fs14.mkdirSync(path15.dirname(markerPath), { recursive: true });
+      fs14.writeFileSync(markerPath, markerValue(proposal), "utf8");
       const runtimeResult = applyBootstrapProjectProposal(root2, proposal, { verify: () => verifyBootstrapHealth(root2, proposal, distribution) });
-      if (fs13.existsSync(markerPath))
-        fs13.rmSync(markerPath, { force: true });
+      if (fs14.existsSync(markerPath))
+        fs14.rmSync(markerPath, { force: true });
       return { status: "installed", target_root: root2, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
     } catch (error) {
       let rollbackVerified = false;
@@ -23080,8 +23523,8 @@ function bootstrapProjectTargetLocal(options) {
       } catch {
         rollbackVerified = false;
       }
-      if (rollbackVerified && fs13.existsSync(markerPath))
-        fs13.rmSync(markerPath, { force: true });
+      if (rollbackVerified && fs14.existsSync(markerPath))
+        fs14.rmSync(markerPath, { force: true });
       return { status: "blocked", target_root: root2, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_TRANSACTION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? "ROLLBACK_VERIFIED" : "RECOVERY_REQUIRED", message: rollbackVerified ? "Bootstrap-owned governance scope was restored and its interruption marker was cleared." : "Bootstrap rollback could not be verified; interruption marker retained for explicit recovery." }], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     }
   } catch (error) {
@@ -23116,7 +23559,7 @@ function flagString(flags, key, required = false) {
   return;
 }
 function readStringListFile(filePath) {
-  const content = fs13.readFileSync(path14.resolve(filePath), "utf8");
+  const content = fs14.readFileSync(path15.resolve(filePath), "utf8");
   if (content.trimStart().startsWith("[")) {
     const parsed = JSON.parse(content);
     if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string"))
@@ -23126,26 +23569,26 @@ function readStringListFile(filePath) {
   return content.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
 }
 function readFactsFile(filePath) {
-  const value = JSON.parse(fs13.readFileSync(path14.resolve(filePath), "utf8"));
+  const value = JSON.parse(fs14.readFileSync(path15.resolve(filePath), "utf8"));
   if (!Array.isArray(value))
     fail5("BOOTSTRAP_SUPPORT_INPUT_INVALID", "facts file must contain an array.");
   return value;
 }
 function readBaselineFile(filePath) {
-  const value = JSON.parse(fs13.readFileSync(path14.resolve(filePath), "utf8"));
+  const value = JSON.parse(fs14.readFileSync(path15.resolve(filePath), "utf8"));
   return expectRecord4(value, "design baseline file");
 }
 function readAuthorizationsFile(filePath) {
-  const value = JSON.parse(fs13.readFileSync(path14.resolve(filePath), "utf8"));
+  const value = JSON.parse(fs14.readFileSync(path15.resolve(filePath), "utf8"));
   if (!Array.isArray(value))
     fail5("BOOTSTRAP_SUPPORT_INPUT_INVALID", "conditional authorizations file must contain an array.");
   return value;
 }
 function readAuthorityDomainCandidatesFile(filePath) {
-  return normalizeAuthorityDomainCandidates(JSON.parse(fs13.readFileSync(path14.resolve(filePath), "utf8")), "authority_domain_candidates file");
+  return normalizeAuthorityDomainCandidates(JSON.parse(fs14.readFileSync(path15.resolve(filePath), "utf8")), "authority_domain_candidates file");
 }
 function readAuthorityDomainConfirmationFile(filePath) {
-  return normalizeAuthorityDomainConfirmation(JSON.parse(fs13.readFileSync(path14.resolve(filePath), "utf8")));
+  return normalizeAuthorityDomainConfirmation(JSON.parse(fs14.readFileSync(path15.resolve(filePath), "utf8")));
 }
 async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
   try {
@@ -23201,8 +23644,8 @@ async function runBootstrapSupportCli(argv = process.argv.slice(2)) {
 
 // runtime/vnext/src/prepare-task-adapter.ts
 import * as crypto14 from "crypto";
-import * as fs14 from "fs";
-import * as path15 from "path";
+import * as fs15 from "fs";
+import * as path16 from "path";
 var PREPARE_TASK_ADAPTER_COMMANDS = [
   "prepare-draft",
   "prepare-successor",
@@ -24055,7 +24498,7 @@ function parsePrepareTaskAdapterCli(argv) {
   return { command, root: root2, dryRun };
 }
 function readSemanticStdin(command) {
-  const raw = !process.stdin.isTTY ? fs14.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs15.readFileSync(0, "utf8") : "";
   if (!raw.trim()) {
     throw new Error(`${command} requires semantic JSON on stdin.`);
   }
@@ -24066,8 +24509,8 @@ function readSemanticStdin(command) {
   }
 }
 function validateInstalledRuntime(root2) {
-  const runtimeManifest = path15.join(path15.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs14.existsSync(runtimeManifest))
+  const runtimeManifest = path16.join(path16.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs15.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root2, true);
 }
 async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
@@ -24146,17 +24589,17 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
 
 // runtime/vnext/src/execute-step-adapter.ts
 import * as crypto15 from "crypto";
-import * as fs18 from "fs";
-import * as path19 from "path";
+import * as fs19 from "fs";
+import * as path20 from "path";
 
 // runtime/vnext/src/task-context.ts
-import * as fs17 from "node:fs";
-import * as path18 from "node:path";
+import * as fs18 from "node:fs";
+import * as path19 from "node:path";
 import { createHash as createHash17 } from "node:crypto";
 
 // runtime/vnext/src/file-context.ts
-import * as fs16 from "node:fs";
-import * as path17 from "node:path";
+import * as fs17 from "node:fs";
+import * as path18 from "node:path";
 import { createHash as createHash16 } from "node:crypto";
 import { spawn } from "node:child_process";
 // node_modules/diff/libesm/diff/base.js
@@ -24678,18 +25121,18 @@ function splitLines(text) {
   return result;
 }
 // runtime/vnext/src/rg-tool.ts
-import * as fs15 from "node:fs";
-import * as path16 from "node:path";
+import * as fs16 from "node:fs";
+import * as path17 from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash as createHash15 } from "node:crypto";
 var RG_TOOLS_PATH = ".workflow-system/runtime/tools/rg";
 var RG_BINARY = process.platform === "win32" ? "rg.exe" : "rg";
 function assertRgDirectory(root2) {
-  let directory = path16.resolve(root2);
+  let directory = path17.resolve(root2);
   for (const part of RG_TOOLS_PATH.split("/")) {
-    directory = path16.join(directory, part);
+    directory = path17.join(directory, part);
     try {
-      if (!fs15.lstatSync(directory).isDirectory())
+      if (!fs16.lstatSync(directory).isDirectory())
         throw new Error("RG_DEPENDENCY_PATH_INVALID: tool directory must not be a symlink or file.");
     } catch (error) {
       if (error.code !== "ENOENT")
@@ -24712,18 +25155,18 @@ function probeRg(command) {
 }
 function resolveRg(root2) {
   const directory = assertRgDirectory(root2);
-  const command = path16.join(directory, RG_BINARY);
+  const command = path17.join(directory, RG_BINARY);
   try {
-    const identity = JSON.parse(fs15.readFileSync(path16.join(directory, "identity.json"), "utf8"));
-    if (!fs15.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash15("sha256").update(fs15.readFileSync(command)).digest("hex")) {
+    const identity = JSON.parse(fs16.readFileSync(path17.join(directory, "identity.json"), "utf8"));
+    if (!fs16.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash15("sha256").update(fs16.readFileSync(command)).digest("hex")) {
       const version = probeRg(command);
       if (version && identity.version === version)
         return { command, version, source: "project" };
     }
   } catch {}
-  for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path16.delimiter).filter(Boolean)) {
-    const command = path16.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
-    if (!fs15.existsSync(command))
+  for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path17.delimiter).filter(Boolean)) {
+    const command = path17.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
+    if (!fs16.existsSync(command))
       continue;
     const version = probeRg(command);
     if (version)
@@ -24755,14 +25198,14 @@ function contextPath(root2, value) {
   if (typeof value !== "string" || !value || value.length > 1024 || /[\0\r\n]/u.test(value))
     throw new Error("CONTEXT_PATH_INVALID: expected a project-relative path.");
   const relative = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path17.posix.isAbsolute(relative) || /^[A-Za-z]:/u.test(relative) || relative.split("/").includes(".."))
+  if (path18.posix.isAbsolute(relative) || /^[A-Za-z]:/u.test(relative) || relative.split("/").includes(".."))
     throw new Error("CONTEXT_PATH_INVALID: path escapes project.");
-  const absolute = path17.resolve(root2, relative);
-  let parent = path17.resolve(root2);
+  const absolute = path18.resolve(root2, relative);
+  let parent = path18.resolve(root2);
   for (const part of relative.split("/").filter((part) => part && part !== ".")) {
-    parent = path17.join(parent, part);
+    parent = path18.join(parent, part);
     try {
-      if (fs16.lstatSync(parent).isSymbolicLink())
+      if (fs17.lstatSync(parent).isSymbolicLink())
         throw new Error("CONTEXT_SYMLINK: symbolic links are not followed.");
     } catch (error) {
       if (error.code !== "ENOENT")
@@ -24816,7 +25259,7 @@ function textDiff(file, before, after) {
 function readFileContext(root2, input) {
   const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line"]);
   const file = contextPath(root2, value.path);
-  const bytes = fs16.readFileSync(file.absolute);
+  const bytes = fs17.readFileSync(file.absolute);
   const revision = sha2569(bytes);
   if (value.sha256 !== undefined && value.sha256 !== revision)
     throw new Error("CONTEXT_STALE: file changed; start a fresh read.");
@@ -24888,7 +25331,7 @@ async function searchFileContext(root2, input) {
         try {
           let hit;
           if (value.query === undefined)
-            hit = { path: path17.relative(root2, line.toString("utf8")).replace(/\\/gu, "/") };
+            hit = { path: path18.relative(root2, line.toString("utf8")).replace(/\\/gu, "/") };
           else {
             const event = JSON.parse(line.toString("utf8"));
             if (event.type !== "match")
@@ -24897,7 +25340,7 @@ async function searchFileContext(root2, input) {
               stop("non-utf8-result");
               return;
             }
-            hit = { path: path17.relative(root2, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
+            hit = { path: path18.relative(root2, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
           }
           contextPath(root2, hit.path);
           const size = Buffer.byteLength(JSON.stringify(hit));
@@ -25150,11 +25593,11 @@ function pendingReplanCandidateCount(current) {
   return entries.slice(lastReplan + 1).filter((item) => item.action === "prepare-replan").length;
 }
 function pendingScopeAmendmentCandidateCount(current) {
-  const directory = path18.join(path18.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
-  if (!fs17.existsSync(directory))
+  const directory = path19.join(path19.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  if (!fs18.existsSync(directory))
     return 0;
   const committed = new Set(current.runtimeState.execution_log.filter((item) => ("action" in item) && item.action === "commit-scope-amendment" && item.candidate_digest).map((item) => `${item.candidate_digest}.scope.json`));
-  return fs17.readdirSync(directory).filter((name) => name.endsWith(".scope.json") && !committed.has(name) && !fs17.existsSync(path18.join(directory, `${name}.discarded`))).length;
+  return fs18.readdirSync(directory).filter((name) => name.endsWith(".scope.json") && !committed.has(name) && !fs18.existsSync(path19.join(directory, `${name}.discarded`))).length;
 }
 function reviewTarget(current) {
   const coverage = record5(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
@@ -25507,9 +25950,9 @@ function readHistoryMaterial(root2, current, sourceRevision) {
   if (stored !== null)
     return stored;
   const file = taskStoreHistoryPath(root2, asStoreCurrent(current), sourceRevision);
-  if (fs17.existsSync(file)) {
+  if (fs18.existsSync(file)) {
     try {
-      const parsed = JSON.parse(fs17.readFileSync(file, "utf8"));
+      const parsed = JSON.parse(fs18.readFileSync(file, "utf8"));
       if (parsed.kind === "vnext-task-definition-history" && parsed.source_revision === sourceRevision && typeof parsed.current_task_base64 === "string") {
         const raw = Buffer.from(parsed.current_task_base64, "base64").toString("utf8");
         if (sha25610(raw) !== sourceRevision)
@@ -25701,7 +26144,7 @@ function resolvedRead(root2, current, input, expectedContentRevision) {
   }
   if (input.path) {
     const file = contextPath(root2, input.path);
-    if (!fs17.existsSync(file.absolute))
+    if (!fs18.existsSync(file.absolute))
       throw new Error(`TASK_READ_PATH_MISSING: ${file.relative}`);
     const result = readFileContext(root2, { operation: "read", path: file.relative, ...input.sha256 ?? expectedContentRevision ? { sha256: input.sha256 ?? expectedContentRevision } : {} });
     const contentRevision = typeof result.sha256 === "string" ? result.sha256 : undefined;
@@ -25940,13 +26383,13 @@ function taskContextMigrationCommit(root2, sourceRevision) {
 function readCliInput() {
   if (process.stdin.isTTY)
     return {};
-  const content = fs17.readFileSync(0, "utf8");
+  const content = fs18.readFileSync(0, "utf8");
   return content.trim() ? JSON.parse(content) : {};
 }
 function cliRoot(args) {
   if (args.length !== 2 || args[0] !== "--root" || !args[1])
     throw new Error("Usage: <task-context|task-read|task-storage-migration|task-export> --root <project> (JSON on stdin)");
-  return path18.resolve(args[1]);
+  return path19.resolve(args[1]);
 }
 async function runTaskContextCli(command, args = process.argv.slice(2)) {
   try {
@@ -27450,7 +27893,7 @@ function parseExecuteStepAdapterCli(argv) {
   return { command, root: root2, dryRun };
 }
 function readSemanticStdin2(command) {
-  const raw = !process.stdin.isTTY ? fs18.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs19.readFileSync(0, "utf8") : "";
   if (!raw.trim())
     throw new Error(`${command} requires semantic JSON on stdin.`);
   try {
@@ -27460,8 +27903,8 @@ function readSemanticStdin2(command) {
   }
 }
 function validateInstalledRuntime2(root2) {
-  const runtimeManifest = path19.join(path19.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs18.existsSync(runtimeManifest))
+  const runtimeManifest = path20.join(path20.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs19.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root2, true);
 }
 async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
@@ -27520,8 +27963,8 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
 
 // runtime/vnext/src/review-change-adapter.ts
 import * as crypto16 from "crypto";
-import * as fs19 from "fs";
-import * as path20 from "path";
+import * as fs20 from "fs";
+import * as path21 from "path";
 var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "review-read", "record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge", "ingest-evidence", "route-input"];
 var MAX_ITEMS3 = 256;
 var SHA256_PATTERN5 = /^[a-f0-9]{64}$/u;
@@ -27562,7 +28005,7 @@ function textList3(value, location, allowEmpty) {
 }
 function repoPath(value, location) {
   const normalized = text5(value, location, 1024).replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path20.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
+  if (path21.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
     fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location} must be a project-relative path.`);
   }
   return normalized;
@@ -28007,7 +28450,7 @@ function reviewFilePage(root2, current, execution, file, view, input) {
       throw error;
     }
   }
-  const after = target.state === "file" ? fs19.readFileSync(contextPath(root2, file).absolute) : Buffer.alloc(0);
+  const after = target.state === "file" ? fs20.readFileSync(contextPath(root2, file).absolute) : Buffer.alloc(0);
   if (target.state === "file" && sha2569(after) !== target.sha256)
     fail8("REVIEW_TARGET_STALE", "file changed while reading review context.");
   if (preimage?.state === "file" && sha2569(before) !== preimage.sha256)
@@ -28299,7 +28742,7 @@ function parseCli2(argv) {
   return { command, root: root2, dryRun };
 }
 function readSemanticStdin3(command) {
-  const raw = !process.stdin.isTTY ? fs19.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs20.readFileSync(0, "utf8") : "";
   if (!raw.trim())
     throw new Error(`${command} requires semantic JSON on stdin.`);
   try {
@@ -28309,8 +28752,8 @@ function readSemanticStdin3(command) {
   }
 }
 function validateInstalledRuntime3(root2) {
-  const runtimeManifest = path20.join(path20.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs19.existsSync(runtimeManifest))
+  const runtimeManifest = path21.join(path21.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs20.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root2, true);
 }
 async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
@@ -28343,17 +28786,17 @@ async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
 }
 
 // runtime/vnext/src/file-context-cli.ts
-import * as fs20 from "node:fs";
-import * as path21 from "node:path";
+import * as fs21 from "node:fs";
+import * as path22 from "node:path";
 async function runFileContextCli(args) {
   try {
     validateRuntimeEnvironment();
     if (args.length !== 2 || args[0] !== "--root" || !args[1])
       throw new Error("Usage: file-context --root <project> (JSON on stdin)");
-    const root2 = path21.resolve(args[1]);
-    if (fs20.existsSync(path21.join(root2, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
+    const root2 = path22.resolve(args[1]);
+    if (fs21.existsSync(path22.join(root2, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
       validateVNextRuntimeContract(root2, true);
-    const result = await fileContext(root2, JSON.parse(fs20.readFileSync(0, "utf8")));
+    const result = await fileContext(root2, JSON.parse(fs21.readFileSync(0, "utf8")));
     console.log(JSON.stringify(result, null, 2));
     return result.status === "partial" ? 2 : 0;
   } catch (error) {

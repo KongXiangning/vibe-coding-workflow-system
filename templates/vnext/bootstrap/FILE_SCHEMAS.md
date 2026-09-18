@@ -751,3 +751,19 @@ Dynamic discovery uses existing assessments: only private/local/no cross-compone
 consumer/no contract impact self-admission omits an additional dynamic review gate.
 Other expansions retain cumulative review; all ordinary and repair checkpoints
 remain. Old expansion records without `review_required` retain mandatory review.
+
+
+## Storage diagnostics response (not persisted task state)
+
+`validate --summary.storage_metrics` has `kind: task-storage-metrics/v1`,
+`read_only: true`, `diagnostic_only: true`, `unit: byte`, exact source/document
+identity and diagnostic `status: complete | partial | unavailable`. Its nullable
+byte counters and `previous_transaction_delta` are specified in CONTEXT_API.md's
+**Read-only task storage metrics** section. `coverage` names measurement limits
+and unavailable portions. Logical view fields overlap and must not be summed;
+physical aggregate totals include prepared/orphan files, whereas committed
+material/history counters exclude them and deduplicate objects by SHA.
+The previous delta is tied to adjacent acknowledged events, not repeated reads.
+Unknown prior filesystem totals are null. A metric is not a receipt, validation
+result, authority grant, size gate or an instruction to migrate/replan. No schema
+fields are added to CURRENT_TASK, immutable roots, events or manifests for metrics.

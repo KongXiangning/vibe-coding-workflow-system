@@ -98,6 +98,13 @@ task_store:
     admission: no-size-quota-or-business-transition
     receipt_continuity: committed-storage-only-lineage-and-equal-logical-state
     wire_compatibility: frozen-v3-model-not-current-serializer-bytes
+  diagnostics:
+    response: validate --summary/storage_metrics
+    kind: task-storage-metrics/v1
+    read_only: true
+    authority: none
+    persistence: none
+    incomplete: null-with-reason-not-a-gate
 
 proposal:
   schema_version: 1

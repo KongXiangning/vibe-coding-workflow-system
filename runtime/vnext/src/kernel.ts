@@ -10,6 +10,7 @@
  */
 
 import { readProjectDocuments } from './project-documents';
+import { taskStorageMetrics } from './task-storage-metrics';
 import { TASK_RECOVERY_PROTOCOL } from './task-recovery';
 import { describeEvidenceObjects, preserveEvidenceObjects, verifyEvidenceObject, safeRepositoryFile, type EvidenceObject } from './evidence-lineage';
 import { captureArtifactImages, saveArtifactCheckpoint, prepareArtifactRestore, applyArtifactRestore, assertNoArtifactPublication, type ArtifactRestorePlan } from './artifact-checkpoints';
@@ -2445,7 +2446,7 @@ function validateTaskContextContract(value: unknown): void {
 
 function validateTaskStoreContract(value: unknown): void {
   const store = expectRecord(value, 'Runtime contract.task_store');
-  expectExactKeys(store, ['schema_version', 'kind', 'root', 'objects', 'events', 'indexes', 'commit_head', 'hot_window', 'full_history', 'dedup_key', 'event_identity', 'migration', 'garbage_collection', 'target_owned_data', 'active_projection'], 'Runtime contract.task_store');
+  expectExactKeys(store, ['schema_version', 'kind', 'root', 'objects', 'events', 'indexes', 'commit_head', 'hot_window', 'full_history', 'dedup_key', 'event_identity', 'migration', 'garbage_collection', 'target_owned_data', 'active_projection', ...(store.diagnostics === undefined ? [] : ['diagnostics'])], 'Runtime contract.task_store');
   if (store.schema_version !== 1 || store.kind !== 'vnext-task-store-contract' || store.root !== '<workflow_home>/task-data/<document_id>' || store.objects !== 'objects/<sha256>.json' || store.events !== 'events/<sequence>-<sha256>.json' || store.indexes !== 'rebuildable-and-non-authoritative' || store.commit_head !== 'CURRENT_TASK-single-submission-head' || store.hot_window !== 'cache-only' || store.full_history !== 'persistent-and-queryable' || store.dedup_key !== 'schema-object-type-document-id-complete-content' || store.event_identity !== 'sequence-time-cause-and-idempotency-preserved' || store.migration !== 'preview-confirm-commit-with-source-revision' || store.garbage_collection !== 'disabled-in-v1' || store.target_owned_data !== 'task-data-is-never-removed-by-distribution-upgrade') {
     fail('RUNTIME_CONTRACT_INVALID', 'task_store must retain the content-addressed, append-only aggregate contract.');
   }
@@ -2459,6 +2460,10 @@ function validateTaskStoreContract(value: unknown): void {
     receipt_continuity: 'committed-storage-only-lineage-and-equal-logical-state',
     wire_compatibility: 'frozen-v3-model-not-current-serializer-bytes' };
   if (digest(projection) !== digest(expected)) fail('RUNTIME_CONTRACT_INVALID', 'task projection must preserve the canonical aggregate and legacy semantics.');
+  if (store.diagnostics !== undefined && digest(store.diagnostics) !== digest({
+    response: 'validate --summary/storage_metrics', kind: 'task-storage-metrics/v1',
+    read_only: true, authority: 'none', persistence: 'none', incomplete: 'null-with-reason-not-a-gate',
+  })) fail('RUNTIME_CONTRACT_INVALID', 'Storage diagnostics must remain optional read-only observations.');
 }
 
 function validateBootstrapRuntimeContract(value: unknown): string[] {
@@ -18335,6 +18340,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         status: storageInvalid ? 'blocked' : 'success', source_tuple: current.sourceTuple, package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
         validation_scope: args.deep ? 'aggregate-and-full-history' : 'current-aggregate',
         storage_validation: storageValidation,
+        storage_metrics: taskStorageMetrics(args.root, current),
         summary: { ...documentContext, task_id: state.task_id, workflow_status: state.workflow_status, lifecycle_state: state.lifecycle_state,
           active_step_id: state.active_step_id, active_step_status: state.active_step_status,
           pending_review_verdict: state.pending_review_result?.verdict ?? null,
