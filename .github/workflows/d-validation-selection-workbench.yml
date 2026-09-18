@@ -1,0 +1,28 @@
+name: D validation selection workbench
+on:
+  push:
+    branches: [codex/d-validation-selection-work-20260919]
+    paths: [.github/workflows/d-validation-selection-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: b3d8410bd37db6a135783d10b6c3ef291cf119c5
+          persist-credentials: false
+      - name: Export exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b3d8410bd37db6a135783d10b6c3ef291cf119c5
+          git archive HEAD | gzip > "$RUNNER_TEMP/d-selection-source.tgz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: d-selection-source
+          path: ${{ runner.temp }}/d-selection-source.tgz
+          retention-days: 1
+          if-no-files-found: error
