@@ -1,38 +1,102 @@
-name: B migration receipts workbench
+name: B migration receipt and format verification
 on:
   push:
     branches: [codex/b-migration-receipts-work-20260919]
     paths: [.github/workflows/b-migration-receipts-workbench.yml]
 permissions:
   contents: read
+concurrency:
+  group: b-migration-receipts-20260919
+  cancel-in-progress: false
 jobs:
-  export:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: afeec7b8f7eed0cbf9c11dd74544582acb78c25f
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: afeec7b8f7eed0cbf9c11dd74544582acb78c25f
-          persist-credentials: false
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.2
-      - name: Export exact source and test dependencies
+      - name: Apply exact locally tested source-only patch
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = afeec7b8f7eed0cbf9c11dd74544582acb78c25f
+          mkdir -p "$RUNNER_TEMP/b-receipt-logs"
+          cp .b-receipts-work/manifest.json "$RUNNER_TEMP/b-receipt-manifest.json"
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib
+          encoded = ''.join(pathlib.Path(f'.b-receipts-work/patch-{i}.b64').read_text().strip() for i in range(1, 4))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '8ae50697cbe1111b6c546d26edb6511611b8f38cf88807501dfa9a44724086a9'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'b-receipts.patch').write_bytes(patch)
+          print('Verified exact source patch:', len(patch), 'bytes')
+          PY
+          git checkout --detach "$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git apply --check "$RUNNER_TEMP/b-receipts.patch"
+          git apply "$RUNNER_TEMP/b-receipts.patch"
+          git add -N runtime/vnext/src/task-projection-v3.ts test/fixtures/compact-v3/afeec7b.json test/fixtures/compact-v3/README.md
           bun install --frozen-lockfile --ignore-scripts
-          target="$RUNNER_TEMP/b-receipt-fix"
-          mkdir -p "$target/source" "$target/tools"
-          git archive HEAD | tar -x -C "$target/source"
-          cp -a node_modules "$target/source/node_modules"
-          cp "$(command -v bun)" "$target/tools/bun"
-          git rev-parse HEAD > "$target/source-revision.txt"
-          tar -czf "$RUNNER_TEMP/b-receipt-fix.tgz" -C "$RUNNER_TEMP" b-receipt-fix
+      - name: Rebuild Runtime and verify contracts and generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          { bun --version; node --version; bun run validate:vnext-runtime; bun run validate:vnext-source; bun run gen:all; bun run validate:freshness; } 2>&1 | tee "$RUNNER_TEMP/b-receipt-logs/contracts.log"
+      - name: Committed storage lineage and bounded context protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/vnext-task-store.test.ts test/vnext-task-context.test.ts 2>&1 | tee "$RUNNER_TEMP/b-receipt-logs/storage.log"
+      - name: Receipt continuity, historical v3 and related Runtime paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'compact-v3 durable golden|storage migration preserves issued|keeps original audit obligations|active task projection|process-control review|process-control successor|enforces confirmation authority|wraps resume review|scope amendment consumes prior authorization|hands multiple review findings' 2>&1 | tee "$RUNNER_TEMP/b-receipt-logs/runtime.log"
+      - name: Directly related Skill contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'preserves P-12|keeps execute-step focused|requires prepare-task to map' 2>&1 | tee "$RUNNER_TEMP/b-receipt-logs/skills.log"
+      - name: Match tested final bytes and publish isolated clean candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          expected = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'b-receipt-manifest.json').read_text())
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          assert changed == set(expected), (changed - set(expected), set(expected) - changed)
+          for path, sha in expected.items():
+              actual = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+              assert actual == sha, (path, actual, sha)
+          subprocess.run(['git', 'add', '--', *expected], check=True)
+          print('All 17 source, historical fixture and generated files match the locally verified bytes.')
+          PY
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- VERSION package.json .github .b-receipts-work)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n' 'fix(vnext): preserve receipts across storage-only migration and stabilize v3 reads' 'Verify committed migration-only lineage and equal canonically normalized task semantics before reusing business receipts. Preserve candidate approvals and exact physical history, baseline, authority, identity and stale-write checks. Read compact-v3 through its frozen projection model rather than current YAML emission; retain an afeec7b golden fixture and negative integrity checks. Rebuilt and validated with focused storage, cold Node CLI, confirmation, execution, review, repair, correction and Skill regressions.' | git commit-tree "$tree" -p "$BASE_SHA")
+          branch="codex/b-receipts-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "$commit:refs/heads/$branch"
+          printf 'BASE_SHA=%s\nTREE_SHA=%s\nCOMMIT_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$tree" "$commit" "$branch" | tee "$RUNNER_TEMP/b-receipt-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" -f state=success -f context=task-projection/receipt-compatibility -f description='Storage-only receipt continuity, durable v3 and focused Runtime checks passed' -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf '## Verified B-stage fix\n\n`%s`\n\nBase `%s`. This workflow does not modify the product branch.\n' "$commit" "$BASE_SHA" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: b-receipt-fix-source
-          path: ${{ runner.temp }}/b-receipt-fix.tgz
-          retention-days: 1
-          if-no-files-found: error
+          name: b-receipt-compatibility-verification
+          path: ${{ runner.temp }}/b-receipt-logs/
+          retention-days: 3
+          if-no-files-found: warn
