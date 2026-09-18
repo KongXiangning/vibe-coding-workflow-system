@@ -1,0 +1,38 @@
+name: Task projection workbench
+on:
+  push:
+    branches: [codex/task-projection-work-20260918]
+    paths: [.github/workflows/task-projection-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 843a4cb0821047b976cf38f524baaafcdd349f26
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Export exact source and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 843a4cb0821047b976cf38f524baaafcdd349f26
+          bun install --frozen-lockfile --ignore-scripts
+          target="$RUNNER_TEMP/vnext-projection"
+          mkdir -p "$target/source" "$target/tools"
+          git archive HEAD | tar -x -C "$target/source"
+          cp -a node_modules "$target/source/node_modules"
+          cp "$(command -v bun)" "$target/tools/bun"
+          git rev-parse HEAD > "$target/source-revision.txt"
+          tar -czf "$RUNNER_TEMP/vnext-projection.tgz" -C "$RUNNER_TEMP" vnext-projection
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vnext-projection-source
+          path: ${{ runner.temp }}/vnext-projection.tgz
+          retention-days: 1
+          if-no-files-found: error
