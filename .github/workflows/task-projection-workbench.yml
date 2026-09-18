@@ -1,4 +1,4 @@
-name: Task projection focused verification
+name: Task projection protocol finalization
 on:
   push:
     branches: [codex/task-projection-work-20260918]
@@ -11,12 +11,13 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: write
       statuses: write
     env:
-      BASE_SHA: 843a4cb0821047b976cf38f524baaafcdd349f26
+      CODE_SHA: 4823918d7b52c4d0fd398783754ea192a8d0b8fa
+      CODE_RUN: '35368400658'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -24,52 +25,35 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.2
-      - name: Apply exact locally verified source patch
+      - name: Bind already-verified Runtime and exact documentation change
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/projection-logs"
-          cp .task-projection-work/manifest.json "$RUNNER_TEMP/projection-manifest.json"
+          mkdir -p "$RUNNER_TEMP/projection-final-logs"
+          cp .task-projection-work/protocol.patch "$RUNNER_TEMP/protocol.patch"
+          test "$(sha256sum "$RUNNER_TEMP/protocol.patch" | cut -d ' ' -f1)" = d75bc6b2967e95488f4bb17e735c23d08398c58d86d4a8efbdea53ac55213f42
+          gh api "repos/$GITHUB_REPOSITORY/commits/$CODE_SHA/status" > "$RUNNER_TEMP/code-status.json"
           python3 - <<'PY'
-          import base64, hashlib, lzma, os, pathlib
-          encoded = ''.join(pathlib.Path(f'.task-projection-work/patch-{i}.b64').read_text().strip() for i in range(1, 3))
-          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
-          assert hashlib.sha256(patch).hexdigest() == '29e941515b997f9f82a4969565bae7f0adebbc8117973696703bc8853c3d3010'
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'projection.patch').write_bytes(patch)
-          print('Verified exact source patch:', len(patch), 'bytes')
+          import json, os, pathlib
+          status = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'code-status.json').read_text())
+          assert status['sha'] == os.environ['CODE_SHA']
+          assert any(s['context'] == 'task-projection/focused-verification' and s['state'] == 'success'
+              and s['target_url'].endswith('/actions/runs/' + os.environ['CODE_RUN']) for s in status['statuses'])
           PY
-          git checkout --detach "$BASE_SHA"
-          test "$(git rev-parse HEAD)" = "$BASE_SHA"
-          git apply --unidiff-zero --check "$RUNNER_TEMP/projection.patch"
-          git apply --unidiff-zero "$RUNNER_TEMP/projection.patch"
-          git add -N runtime/vnext/src/task-projection.ts
+          git checkout --detach "$CODE_SHA"
+          test "$(git rev-parse HEAD)" = "$CODE_SHA"
+          git apply --check "$RUNNER_TEMP/protocol.patch"
+          git apply "$RUNNER_TEMP/protocol.patch"
           bun install --frozen-lockfile --ignore-scripts
-      - name: Build, contracts and generated freshness
+      - name: Rebuild and verify protocol, contracts and freshness
         shell: bash
         run: |
           set -euo pipefail
-          { bun --version; node --version; bun run validate:vnext-runtime; bun run validate:vnext-source; bun run gen:all; bun run validate:freshness; } 2>&1 | tee "$RUNNER_TEMP/projection-logs/contracts.log"
-      - name: Dedicated aggregate storage and context regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          bun test --timeout 60000 test/vnext-task-store.test.ts test/vnext-task-context.test.ts 2>&1 | tee "$RUNNER_TEMP/projection-logs/storage.log"
-      - name: Projection lifecycle, exact export, interruption and Phase-A protections
-        shell: bash
-        run: |
-          set -euo pipefail
-          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'active task projection|process-control|shared minimum-sufficient validation matrix|validation contract enforces replacement selection|S2 rule success|runs the ordinary draft|confirmed correction recovers a crash|scope amendment consumes prior authorization|atomically closes active' 2>&1 | tee "$RUNNER_TEMP/projection-logs/runtime.log"
-      - name: Related Skill boundaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'preserves P-12|keeps execute-step focused|requires prepare-task to map' 2>&1 | tee "$RUNNER_TEMP/projection-logs/skills.log"
-      - name: Fixed package installation and cold Node CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          bun test --timeout 120000 test/vnext-runtime.test.ts --test-name-pattern 'fixed tgz installed Node CLI supports same-envelope discovery' 2>&1 | tee "$RUNNER_TEMP/projection-logs/installed.log"
-      - name: Match final files and publish clean candidate
+          { bun run validate:vnext-runtime; bun run validate:vnext-source; bun run gen:all; bun run validate:freshness; } 2>&1 | tee "$RUNNER_TEMP/projection-final-logs/contracts.log"
+          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'preserves P-12|keeps execute-step focused|requires prepare-task to map' 2>&1 | tee "$RUNNER_TEMP/projection-final-logs/skills.log"
+      - name: Verify documentation-only delta and publish final candidate
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,31 +61,28 @@ jobs:
           set -euo pipefail
           git diff --check
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, subprocess
-          expected = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'projection-manifest.json').read_text())
-          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
-          assert changed == set(expected), (changed - set(expected), set(expected) - changed)
-          for path, sha in expected.items():
-              actual = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
-              assert actual == sha, (path, actual, sha)
-          subprocess.run(['git', 'add', '--', *expected], check=True)
-          print('All 15 final source/generated files match the locally verified bytes.')
+          import hashlib, pathlib, subprocess
+          target = 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md'
+          changed = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          assert changed == [target], changed
+          assert hashlib.sha256(pathlib.Path(target).read_bytes()).hexdigest() == '8aa1c82ea1af194b3bae2bff3e0c43b634372c3da58fd8878532c3f2f31d5236'
+          subprocess.run(['git', 'add', '--', target], check=True)
+          print('Runtime, tests, generated CLI and remaining contracts are byte-identical to the successful focused verification.')
           PY
           git diff --cached --check
-          test -z "$(git diff --cached --name-only -- VERSION package.json .github .task-projection-work)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           tree=$(git write-tree)
-          commit=$(printf '%s\n\n%s\n' 'feat(vnext): compact active task into immutable aggregate references' 'Phase B: keep CURRENT_TASK as a small lossless projection of exact immutable definition/state roots. Retain logical context, evidence, decisions and audit history; keep inline/v2 readable and explicitly migrate without replan or size gates. Verify material export, cold CLI, exact migration retry and existing Phase-A protections.' | git commit-tree "$tree" -p "$BASE_SHA")
-          branch="codex/task-projection-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          commit=$(printf '%s\n\n%s\n' 'docs(vnext): align workflow protocol with compact task presentation' 'Document the compact-v3 aggregate without altering runtime or test bytes. Reuse exact code verification from run 35368400658 and check this protocol-only delta, rebuild and freshness.' | git commit-tree "$tree" -p "$CODE_SHA")
+          branch="codex/task-projection-final-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git push origin "$commit:refs/heads/$branch"
-          printf 'BASE_SHA=%s\nTREE_SHA=%s\nCOMMIT_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$tree" "$commit" "$branch" | tee "$RUNNER_TEMP/projection-logs/candidate.txt"
-          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" -f state=success -f context=task-projection/focused-verification -f description='Lossless projection, migration/recovery, Phase-A and installed Node CLI checks passed' -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          printf '## Verified B-stage candidate\n\n`%s`\n\nBase `%s`. Product branch is unchanged by this workflow.\n' "$commit" "$BASE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          printf 'CODE_SHA=%s\nCODE_VERIFICATION_RUN=%s\nCOMMIT_SHA=%s\nBRANCH=%s\n' "$CODE_SHA" "$CODE_RUN" "$commit" "$branch" | tee "$RUNNER_TEMP/projection-final-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" -f state=success -f context=task-projection/focused-verification -f description='Exact tested Runtime retained; protocol-only delta, contracts and freshness passed' -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf '## Final compact task candidate\n\n`%s`\n\nRuntime/test bytes equal `%s`, verified by run %s. Only the workflow protocol text changed; focused source checks passed.\n' "$commit" "$CODE_SHA" "$CODE_RUN" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: task-projection-focused-verification
-          path: ${{ runner.temp }}/projection-logs/
+          name: task-projection-protocol-verification
+          path: ${{ runner.temp }}/projection-final-logs/
           retention-days: 3
           if-no-files-found: warn
