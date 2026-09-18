@@ -1,0 +1,11 @@
+{
+  ".workflow-system/vnext/RUNTIME_CONTRACT.yaml": "87a82452dc3243e373a778a32ab0ee4c1da4a09c2607ae5b6e502e28e0cfd59d",
+  ".workflow-system/vnext/SOURCE_CONTRACT.yaml": "0b13fc638706e2dcbc768724c61569de04ebc88a0f2eb41129c1051b03833d67",
+  "runtime/vnext/dist/cli.js": "f466002b30680b36a346b92cd3ac95600b57d5d0a8926a21e0bd5f3846bfd16f",
+  "runtime/vnext/src/kernel.ts": "a1888d598d35474c60a75b8d1bab8e4ecf3166fb1726b382dc2d78d6c3e4cefe",
+  "runtime/vnext/src/task-storage-metrics.ts": "696ccf9ecd709fd0a9b134c8fae7d5bd90275872811b9f8e482fe8367723adad",
+  "runtime/vnext/support/CONTEXT_API.md": "89002623c44fe2788c1bc7c550896ad43d68bc56bb641b83adb8ccfbf0820358",
+  "templates/vnext/bootstrap/FILE_SCHEMAS.md": "826baa1e90255a7d3f6798a276c7eab110b87d1350c03e6473da55445d3f732f",
+  "test/vnext-runtime.test.ts": "a3365af49b5038ef8ecf53bf8e135c0d63fad51c52da1ad3b0305b21c39c0f64",
+  "test/vnext-task-metrics.test.ts": "959bdff7f11cb964a87fbd9bdef23223b1a1ada386279cca8eebec1d5c64bfd1"
+}
