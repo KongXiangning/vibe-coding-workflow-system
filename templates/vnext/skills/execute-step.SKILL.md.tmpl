@@ -130,6 +130,11 @@ If the amendment retains a clean pending review for the prior step, return
 consumes only that retained review and leaves the new continuation ready. This
 does not claim that the new continuation has executed or passed review.
 
+Execute `frozen_invocation` exactly; do not change its selector or expand its argv.
+If it is insufficient, use existing correction/replan. Every replacement execution
+check must newly bind claim boundary, selection, invocation and breadth authority;
+unchanged legacy-check compatibility does not transfer to a replacement identity.
+
 ## Required result
 
 Return one structured `change-result` with the current step, Runtime-detected changed files, commands and validation run, evidence, Runtime result, and any blocker. A blocked `record-step-result` commit may be followed in this invocation only by bounded `retry-step`, fresh preflight, correction and rerun under the unchanged plan; no other public Skill is invoked. After an implemented/completed result, stop.

@@ -31,6 +31,7 @@ import {
   clearResumeReview,
   captureReviewTarget,
   assertEvidencePlan,
+  evidenceContext,
   readDraftDefinitionFromBody,
   createReviewChangeDelta,
   confirmDraft,
@@ -389,6 +390,8 @@ function completeClaimEvidence(): ClaimEvidenceRecord[] {
 
 function completeFixtureClaims(records: ClaimEvidenceRecord[]): ClaimEvidenceRecord[] {
   const result = records.map(record => ({ ...record, requirement: record.requirement ?? 'original acceptance', source_ref: 'test:original-request', slots: record.slots.map(slot => ({ ...evidencePlanFixture('original acceptance')[0]!.slots[0]!, ...slot, check: { ...evidencePlanFixture('original acceptance')[0]!.slots[0]!.check!, check_id: `${record.claim_id}-${slot.slot_id}`, subject_paths: ['fixture-subject.txt'] }, evidence_refs: ['evidence-report.txt'] })) }));
+  // These represent already confirmed historical reports, not newly admitted checks.
+  for (const record of result) for (const slot of record.slots) delete slot.check.selection;
   const definition = readDraftDefinitionFromBody(makeBody(makeRuntimeState({ claim_evidence: result })));
   const revision = assertEvidencePlan(definition, result);
   for (const record of result) for (const slot of record.slots) slot.report = { result_id: `result-${slot.check.check_id}`, status: 'passed', evidence_plan_revision: revision, subject_revision: captureReviewTarget(ROOT, ['fixture-subject.txt']).revision, actual_method: 'execution', environment: 'isolated Runtime fixture', assurance: 'caller-reported' };
@@ -647,7 +650,7 @@ function freshDraftFixtureClaims(definition: ReplanReplacementDefinition, claims
   if (!claims) return undefined;
   const acceptance = definition.acceptance.replace(/^- \[ \] /gm, '').trim();
   const first = /- ([^:]+):/.exec(definition.implementation_steps)?.[1] ?? 'step-1';
-  return claims.map(claim => ({ ...claim, requirement: acceptance, slots: claim.slots.map(slot => ({ ...slot, due_step_id: first, disposition: 'missing' as const, evidence_refs: [], report: null })) }));
+  return claims.map(claim => ({ ...claim, boundary: 'local' as const, requirement: acceptance, slots: claim.slots.map(slot => ({ ...slot, check: { ...slot.check!, selection: evidencePlanFixture(acceptance)[0]!.slots[0]!.check!.selection }, due_step_id: first, disposition: 'missing' as const, evidence_refs: [], report: null })) }));
 }
 
 function createPrepareTaskDraftProposal(
@@ -673,7 +676,7 @@ function createPrepareTaskUpdateDraftProposal(
 }
 
 function evidencePlanFixture(requirement: string, step = 'step-1'): ClaimEvidenceRecord[] {
-  return [{ claim_id: 'A1', claim_kind: 'acceptance', requirement, source_ref: 'test:original-request', slots: [{ slot_id: 'a1', minimum_type: 'focused-test', disposition: 'missing', evidence_refs: [], due_step_id: step, applicability: 'current', check: { check_id: 'K1', method: 'execution', entry: 'bun test test/vnext-runtime.test.ts', expected_observation: requirement, required_boundaries: ['Runtime transaction'], allowed_substitutes: ['isolated filesystem fixture'], subject_paths: ['src/login.ts'], expected_result: 'passed', selection: { scope: 'focused', claim_scope: 'local', selector: 'test/vnext-runtime.test.ts', selection_reason: 'The isolated Runtime fixture directly observes this local adapter claim.', breadth_reason: null, breadth_basis: null, breadth_source_ref: null } }, report: null }] }];
+  return [{ claim_id: 'A1', claim_kind: 'acceptance', boundary: 'local', requirement, source_ref: 'test:original-request', slots: [{ slot_id: 'a1', minimum_type: 'focused-test', disposition: 'missing', evidence_refs: [], due_step_id: step, applicability: 'current', check: { check_id: 'K1', method: 'execution', entry: 'bun test test/vnext-runtime.test.ts', expected_observation: requirement, required_boundaries: ['Runtime transaction'], allowed_substitutes: ['isolated filesystem fixture'], subject_paths: ['src/login.ts'], expected_result: 'passed', selection: { scope: 'focused', claim_scope: 'local', selector: 'test/vnext-runtime.test.ts', invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: 2 }, selection_reason: 'The isolated Runtime fixture directly observes this local adapter claim.', breadth_reason: null, breadth_basis: null, breadth_source_ref: null } }, report: null }] }];
 }
 
 function reportFixture(root: string, claimId = 'A1', slotId = 'a1', status = 'passed') {
@@ -921,7 +924,7 @@ function installedReviewAssessment(): Record<string, any> {
 }
 
 function notApplicableSemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
-  return semanticDraft({
+  const draft = semanticDraft({
     mutation_scope: {
       allowed: ['README.md'],
       conditional: [],
@@ -944,6 +947,11 @@ function notApplicableSemanticDraft(overrides: Partial<PrepareTaskSemanticDraft>
     persistent_tests: 'none',
     ...overrides,
   });
+  if (overrides.claim_evidence === undefined) for (const claim of draft.claim_evidence) for (const slot of claim.slots) {
+    slot.check!.method = 'static'; slot.check!.expected_result = 'accepted'; slot.check!.entry = 'Review the documentation';
+    delete slot.check!.selection;
+  }
+  return draft;
 }
 
 function archivedBaselineRoot(): string {
@@ -2125,7 +2133,16 @@ describe('vNext Phase 2 Runtime contract', () => {
       evidence_refs: ['test:evidence:draft-execute'],
       claim_evidence: completedCurrentClaims(root),
     }));
-    expect(executed.status).toBe('success');
+    expect(executed).toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_RESULT_UNBOUND' });
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const currentClaims = readCanonicalCurrentTask(root).runtimeState.claim_evidence!;
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt, actual_changed_paths: [],
+      command_results: preflight.current_step.commands.map(item => ({ command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: currentClaims.flatMap(claim => claim.slots.map(slot => reportFixture(root, claim.claim_id, slot.slot_id))),
+      outcome: 'implemented', note: 'Record the frozen invocation result',
+    }).status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
 
     const closed = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({ evidence_refs: ['test:evidence:draft-close'] }), 'archive-first-task'));
@@ -5732,14 +5749,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     focused.implementation_steps[0]!.validation = ['Focused reconnect owner check passes'];
     focused.claim_evidence[0]!.slots[0]!.check!.entry = focusedCommand;
     focused.claim_evidence[0]!.slots[0]!.check!.selection = {
-      scope: 'focused', claim_scope: 'local', selector: '--test-name-pattern "reconnect preserves the owner"',
+      scope: 'focused', claim_scope: 'local', selector: 'reconnect preserves the owner',
+      invocation: { argv: ['bun', 'test', 'test/dogfood-target.test.ts', '--test-name-pattern', 'reconnect preserves the owner'], selector_arg_index: 4 },
       selection_reason: 'The local owner branch is the only changed function chain.',
       breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
     };
     const focusedRoot = archivedBaselineRoot();
     expect(prepareDraft(focusedRoot, focused).status).toBe('success');
     const focusedCheck = readCanonicalCurrentTask(focusedRoot).runtimeState.claim_evidence![0]!.slots[0]!.check!;
-    expect(focusedCheck.selection).toMatchObject({ scope: 'focused', selector: '--test-name-pattern "reconnect preserves the owner"' });
+    expect(focusedCheck.selection).toMatchObject({ scope: 'focused', selector: 'reconnect preserves the owner' });
     expect(focusedCheck.entry).toBe(focusedCommand);
 
     const targetWithoutNeed = singleStepSemanticDraft();
@@ -5749,6 +5767,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     targetWithoutNeed.claim_evidence[0]!.slots[0]!.check!.entry = wholeTarget;
     targetWithoutNeed.claim_evidence[0]!.slots[0]!.check!.selection = {
       scope: 'target', claim_scope: 'local', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/dogfood-target.test.ts'], selector_arg_index: null },
       selection_reason: 'A related target exists.',
       breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
     };
@@ -5759,8 +5778,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     flowReplacedByUnits.implementation_steps[0]!.commands = [{ command: broadCommand, expected_repo_writes: 'none' }];
     flowReplacedByUnits.implementation_steps[0]!.validation = ['Business-flow target passes'];
     flowReplacedByUnits.claim_evidence[0]!.slots[0]!.check!.entry = broadCommand;
+    flowReplacedByUnits.claim_evidence[0]!.boundary = 'business-flow';
     flowReplacedByUnits.claim_evidence[0]!.slots[0]!.check!.selection = {
       scope: 'broad-regression', claim_scope: 'business-flow', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/business-flow.test.ts'], selector_arg_index: null },
       selection_reason: 'Several unit checks are already green.',
       breadth_reason: 'Use the existing broad target.', breadth_basis: 'claim-risk-contract', breadth_source_ref: 'test:business-flow-claim',
     };
@@ -5772,6 +5793,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     e2eByDefault.claim_evidence[0]!.slots[0]!.check!.entry = broadCommand;
     e2eByDefault.claim_evidence[0]!.slots[0]!.check!.selection = {
       scope: 'e2e', claim_scope: 'local', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/business-flow.test.ts'], selector_arg_index: null },
       selection_reason: 'Run E2E just in case.',
       breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
     };
@@ -5784,10 +5806,162 @@ describe('vNext Phase 2 Runtime contract', () => {
     userRequestedBroad.claim_evidence[0]!.slots[0]!.check!.entry = broadCommand;
     userRequestedBroad.claim_evidence[0]!.slots[0]!.check!.selection = {
       scope: 'broad-regression', claim_scope: 'local', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/business-flow.test.ts'], selector_arg_index: null },
       selection_reason: 'The user explicitly requested broad regression evidence.',
       breadth_reason: 'User requested the whole regression target.', breadth_basis: 'explicit-user', breadth_source_ref: 'test:user-request#broad-regression',
     };
     expect(prepareDraft(archivedBaselineRoot(), userRequestedBroad).status).toBe('success');
+  });
+
+  test('validation contract binds boundary invocation and real breadth authority in prepare update and confirm', () => {
+    const local = singleStepSemanticDraft();
+    const check = local.claim_evidence[0]!.slots[0]!.check!;
+    check.selection = { ...check.selection!, scope: 'integration', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null } };
+    expect(() => prepareDraft(archivedBaselineRoot(), local)).toThrow('CLAIM_EVIDENCE_SELECTION_INVALID');
+    const flow = structuredClone(local);
+    flow.claim_evidence[0]!.boundary = 'business-flow';
+    flow.claim_evidence[0]!.slots[0]!.check!.selection!.claim_scope = 'business-flow';
+    flow.claim_evidence[0]!.slots[0]!.check!.required_boundaries = ['writer persists ticket', 'fresh process reads ticket'];
+    expect(prepareDraft(archivedBaselineRoot(), flow).status).toBe('success');
+
+    const focused = singleStepSemanticDraft();
+    const selected = focused.claim_evidence[0]!.slots[0]!.check!;
+    selected.selection!.selector = 'owner survives reconnect';
+    selected.selection!.invocation = { argv: ['bun', 'test', 'test/vnext-runtime.test.ts', '--test-name-pattern', 'owner survives reconnect'], selector_arg_index: 4 };
+    // The declared focused argv must not accompany the old whole-target entry.
+    expect(() => prepareDraft(archivedBaselineRoot(), focused)).toThrow('CLAIM_EVIDENCE_INVOCATION_UNBOUND');
+    selected.entry = 'bun test test/vnext-runtime.test.ts --test-name-pattern "owner survives reconnect"';
+    focused.implementation_steps[0]!.commands[0]!.command = selected.entry;
+    selected.selection!.invocation.selector_arg_index = 2;
+    expect(() => prepareDraft(archivedBaselineRoot(), focused)).toThrow('CLAIM_EVIDENCE_SELECTOR_UNBOUND');
+    selected.selection!.invocation.selector_arg_index = 4;
+    const root = archivedBaselineRoot();
+    expect(prepareDraft(root, focused).status).toBe('success');
+    const updated = structuredClone(focused);
+    updated.claim_evidence[0]!.slots[0]!.slot_id = 'replacement';
+    updated.claim_evidence[0]!.slots[0]!.check!.check_id = 'replacement';
+    delete updated.claim_evidence[0]!.slots[0]!.check!.selection;
+    expect(() => prepareDraft(root, updated)).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
+    updated.claim_evidence[0]!.slots[0]!.check!.selection = structuredClone(selected.selection);
+    const refined = prepareDraft(root, updated);
+    expect(refined.status).toBe('success');
+    expect(confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt }).status).toBe('success');
+
+    for (const [argv, selectorIndex, entry] of [
+      [['cargo', 'test', '--test', 'test', 'reconnect_case'], 4, 'cargo test --test test reconnect_case'],
+      [['python', '-m', 'unittest', 'ticket.Owner.test_reconnect'], 3, 'python -m unittest ticket.Owner.test_reconnect'],
+    ] as const) {
+      const otherRunner = singleStepSemanticDraft();
+      const otherCheck = otherRunner.claim_evidence[0]!.slots[0]!.check!;
+      otherCheck.entry = entry;
+      otherCheck.selection!.selector = argv[selectorIndex]!;
+      otherCheck.selection!.invocation = { argv: [...argv], selector_arg_index: selectorIndex };
+      otherRunner.implementation_steps[0]!.commands[0]!.command = entry;
+      expect(prepareDraft(archivedBaselineRoot(), otherRunner).status).toBe('success');
+    }
+
+    const broad = singleStepSemanticDraft();
+    const selection = broad.claim_evidence[0]!.slots[0]!.check!.selection!;
+    Object.assign(selection, { scope: 'target', selector: null, invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null },
+      breadth_reason: 'This runner cannot select a case; this target is its smallest invocation.', breadth_basis: 'explicit-user', breadth_source_ref: 'missing:user' });
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow('TEST_STRATEGY_INVALID');
+    broad.task_basis.user_decisions.push({ source: 'test:granularity', verbatim: 'Allow the target because this runner has no finer selector.' });
+    selection.breadth_source_ref = 'test:granularity';
+    expect(prepareDraft(archivedBaselineRoot(), broad).status).toBe('success');
+    selection.breadth_basis = 'project-policy'; selection.breadth_source_ref = 'missing-policy.md';
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow('TEST_STRATEGY_INVALID');
+    const policyRoot = archivedBaselineRoot();
+    fs.writeFileSync(path.join(policyRoot, 'release-policy.md'), 'Release gate: run the real end-to-end ticket boundary before release.');
+    selection.breadth_source_ref = 'release-policy.md';
+    expect(prepareDraft(policyRoot, broad).status).toBe('success');
+    selection.breadth_source_ref = '../release-policy.md';
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow();
+    selection.breadth_basis = 'claim-risk-contract'; selection.breadth_source_ref = 'invented-claim';
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow('CLAIM_EVIDENCE_AUTHORITY_INVALID');
+    selection.breadth_source_ref = 'A1';
+    expect(prepareDraft(archivedBaselineRoot(), broad).status).toBe('success');
+
+    const release = structuredClone(broad);
+    release.claim_evidence[0]!.boundary = 'e2e';
+    const e2e = release.claim_evidence[0]!.slots[0]!.check!.selection!;
+    Object.assign(e2e, { scope: 'e2e', claim_scope: 'e2e', breadth_basis: 'release-gate', breadth_source_ref: 'release-policy.md' });
+    const releaseRoot = archivedBaselineRoot();
+    fs.writeFileSync(path.join(releaseRoot, 'release-policy.md'), 'Release gate requires real end-to-end ticket validation.');
+    expect(() => prepareDraft(releaseRoot, release)).toThrow('CLAIM_EVIDENCE_AUTHORITY_INVALID');
+    release.test_strategy.source = 'project-policy'; release.test_strategy.source_ref = 'release-policy.md';
+    const prepared = prepareDraft(releaseRoot, release);
+    expect(prepared.status).toBe('success');
+    expect(confirmDraft(releaseRoot, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    Object.assign(e2e, { breadth_basis: null, breadth_source_ref: null, breadth_reason: null });
+    expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+  });
+
+  test('validation contract preserves legacy checks but re-admits recovery replacement execution identities', () => {
+    const legacy = evidencePlanFixture('The legacy observation remains required');
+    delete legacy[0]!.boundary;
+    delete legacy[0]!.slots[0]!.check!.selection;
+    const root = makeRoot(makeRuntimeState({ claim_evidence: legacy }));
+    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence![0]!.slots[0]!.check!.selection).toBeUndefined();
+    const definition = draftDefinition({ acceptance: '- [ ] The legacy observation remains required' });
+    const context = { root, taskBasis: taskBasisFixture(), previous: legacy };
+    expect(() => assertEvidencePlan(definition, legacy, false, context)).not.toThrow();
+    const oldMetadata = structuredClone(legacy);
+    oldMetadata[0]!.slots[0]!.check!.selection = structuredClone(evidencePlanFixture('fixture')[0]!.slots[0]!.check!.selection);
+    delete oldMetadata[0]!.slots[0]!.check!.selection!.invocation;
+    expect(() => assertEvidencePlan(definition, oldMetadata, false, { ...context, previous: oldMetadata })).not.toThrow();
+    const replacement = structuredClone(legacy);
+    replacement[0]!.slots[0]!.check!.check_id = 'replacement';
+    expect(() => assertEvidencePlan(definition, replacement, false, context)).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
+    replacement[0]!.boundary = 'local';
+    replacement[0]!.slots[0]!.check!.selection = evidencePlanFixture('fixture')[0]!.slots[0]!.check!.selection;
+    expect(() => assertEvidencePlan(definition, replacement, false, context)).not.toThrow();
+    // Keeping an old ID while changing its semantics is not a compatibility path.
+    const changed = structuredClone(legacy);
+    changed[0]!.slots[0]!.check!.expected_observation = 'A different observation';
+    expect(() => assertEvidencePlan(definition, changed, false, context)).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
+  });
+
+  test('validation contract enforces replacement selection through correction and execution recovery adapters', () => {
+    const semantic = singleStepSemanticDraft();
+    semantic.mutation_scope.allowed = ['README.md'];
+    semantic.implementation_steps[0]!.mutation_scope = ['README.md'];
+    semantic.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const root = confirmedSemanticRoot(semantic);
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const report = reportFixture(root);
+    const command = semantic.implementation_steps[0]!.commands[0]!.command;
+    const result = { preflight_receipt: preflight.receipt, actual_changed_paths: [],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: semantic.implementation_steps[0]!.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [report], outcome: 'implemented', note: 'Observe the original check' };
+    expect(recordStepResult(root, { ...result, outcome: 'blocked', command_results: [{ ...result.command_results[0], status: 'blocked' }] })).toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_RESULT_UNBOUND' });
+    expect(recordStepResult(root, result).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(review.claim_evidence[0]).toMatchObject({ boundary: 'local', slots: [{ frozen_invocation: command }] });
+    expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Reviewed the original observation' }).status).toBe('success');
+    fs.writeFileSync(path.join(root, 'counterexample.txt'), 'The selected case missed the reconnect failure.');
+    expect(recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: report.report.result_id,
+      evidence_ref: 'counterexample.txt', evidence_sha256: fileRevision(path.join(root, 'counterexample.txt')), reason: 'A replacement selector is required' }).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const replacement = structuredClone(current.runtimeState.claim_evidence![0]!.slots[0]!.check!);
+    replacement.check_id = 'replacement';
+    const selected = replacement.selection;
+    delete replacement.selection;
+    const recovery = { challenge_ids: [current.runtimeState.evidence_challenges![0]!.challenge_id],
+      correction_step: { id: 'R1', description: 'Verify the replacement case', mutation_scope: semantic.implementation_steps[0]!.mutation_scope,
+        commands: [{ command, expected_repo_writes: 'none' }], required_evidence: ['Replacement observation'] },
+      obligation_map: [{ claim_id: 'A1', slot_id: 'a1', due_step_id: 'R1', replaces_check_id: 'K1', check: replacement }] };
+    for (const mode of ['conclusion-correction', 'execution-recovery']) {
+      expect(() => prepareCorrectionReplan(root, { ...recovery, mode })).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
+    }
+    replacement.selection = selected;
+    const prepared = prepareCorrectionReplan(root, { ...recovery, mode: 'execution-recovery' });
+    expect(confirmCorrectionReplan(root, { candidate_receipt: prepared.candidate_receipt, authorization: {
+      approved_candidate_digest: prepared.candidate_receipt.candidate_digest, decision_source: 'test:replacement',
+      decision_text: 'Approve the bounded replacement check.', invalidation_reason: 'The old check missed reconnect.' } }).status).toBe('success');
+    expect(evidenceContext(root, {}).checks[0]).toMatchObject({ check_id: 'replacement', claim_boundary: 'local', frozen_invocation: command });
   });
 
   // S2 admission: protects distinct business obligations, current applicability,
@@ -5806,6 +5980,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     semantic.implementation_steps[0]!.validation = ['Stored ticket satisfies the admitted schema'];
     const rule = semantic.claim_evidence[0]!.slots[0]!;
     rule.check!.entry = ruleCommand;
+    rule.check!.selection = { scope: 'integration', claim_scope: 'business-flow', selector: null,
+      invocation: { argv: ['node', '-e', ruleScript], selector_arg_index: null },
+      selection_reason: 'Observe the ticket written through the storage boundary.', breadth_reason: null, breadth_basis: null, breadth_source_ref: null };
+    semantic.claim_evidence[0]!.boundary = 'business-flow';
     rule.check!.expected_observation = requirement;
     rule.check!.subject_paths = ['fixture.json'];
     const flow = structuredClone(rule);
@@ -5815,6 +5993,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     flow.check!.entry = `node -e ${JSON.stringify(flowScript)}`;
     flow.check!.selection = {
       scope: 'integration', claim_scope: 'business-flow', selector: null,
+      invocation: { argv: ['node', '-e', flowScript], selector_arg_index: null },
       selection_reason: 'The claim requires a write followed by a fresh-process read.',
       breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
     };
@@ -5929,6 +6108,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     semantic.implementation_steps[0]!.commands=[{command,expected_repo_writes:'none'}];
     semantic.implementation_steps[0]!.validation=[command];
     semantic.claim_evidence[0]!.slots[0]!.check!.entry=command;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.selector = code;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.invocation = { argv: ['bun', '-e', code], selector_arg_index: 2 };
     const root=confirmedSemanticRoot(semantic);
     const editedPath='runtime/vnext/src/prepare-task-adapter.ts';
     fs.mkdirSync(path.dirname(path.join(root,editedPath)),{recursive:true});
@@ -6056,6 +6237,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     semantic.implementation_steps[0]!.commands = [{ command, expected_repo_writes: 'none' }];
     semantic.implementation_steps[0]!.validation = [command];
     semantic.claim_evidence[0]!.slots[0]!.check!.entry = command;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.selector = file;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.invocation = { argv: ['bun', file], selector_arg_index: 1 };
     const root = confirmedSemanticRoot(semantic);
     fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     const preflight = preflightStep(root, { candidate_paths: [file] });
@@ -7290,6 +7473,13 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('validates the prepared test strategy and its minimum planning invariants', () => {
+    function inspection(step: string): ClaimEvidenceRecord[] {
+      const claims = evidencePlanFixture('The semantic adapter persists and reads back a canonical draft', step);
+      const check = claims[0]!.slots[0]!.check!;
+      check.method = 'static'; check.expected_result = 'accepted'; check.entry = 'inspect the implementation';
+      delete check.selection;
+      return claims;
+    }
     const missingRoot = archivedBaselineRoot();
     const { test_strategy: _omitted, ...withoutStrategy } = semanticDraft();
     expect(() => prepareDraft(missingRoot, withoutStrategy)).toThrow('PREPARE_ADAPTER_INPUT_INVALID');
@@ -7297,6 +7487,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const noTestsRoot = archivedBaselineRoot();
     expect(() => prepareDraft(noTestsRoot, semanticDraft({
+      claim_evidence: inspection('implementation-only'),
       mutation_scope: {
         allowed: ['runtime/vnext/src/prepare-task-adapter.ts'],
         conditional: [],
@@ -7325,6 +7516,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const orderingRoot = archivedBaselineRoot();
     expect(() => prepareDraft(orderingRoot, semanticDraft({
+      claim_evidence: inspection('implementation-first-by-mistake'),
       implementation_steps: [{
         id: 'implementation-first-by-mistake',
         description: 'Modify product code before admitting the planned regression',
@@ -7336,6 +7528,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const mixedFirstStepRoot = archivedBaselineRoot();
     expect(() => prepareDraft(mixedFirstStepRoot, semanticDraft({
+      claim_evidence: inspection('mixed-test-and-product'),
       implementation_steps: [{
         id: 'mixed-test-and-product',
         description: 'Combine test authoring and product implementation',

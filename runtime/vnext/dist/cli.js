@@ -6472,16 +6472,16 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (claimEvidenceContract.report_binding !== "exact-claim-slot-check-only; command pass never creates or satisfies another slot") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence reports must remain bound to one exact claim/slot/check.");
   }
-  expectSetEqual(expectStringArray2(claimEvidenceContract.record_fields, "Runtime contract claim evidence record_fields"), ["claim_id", "claim_kind", "requirement", "source_ref", "slots"], "Runtime claim evidence record fields");
+  expectSetEqual(expectStringArray2(claimEvidenceContract.record_fields, "Runtime contract claim evidence record_fields"), ["claim_id", "claim_kind", "requirement", "source_ref", "boundary", "slots"], "Runtime claim evidence record fields");
   expectSetEqual(expectStringArray2(claimEvidenceContract.slot_fields, "Runtime contract claim evidence slot_fields"), ["slot_id", "minimum_type", "disposition", "evidence_refs", "due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt"], "Runtime claim evidence slot fields");
   expectSetEqual(expectStringArray2(claimEvidenceContract.complete_dispositions, "Runtime contract claim evidence complete_dispositions"), ["existing", "reused", "newly-executed"], "Runtime claim evidence complete dispositions");
   expectSetEqual(expectStringArray2(claimEvidenceContract.incomplete_dispositions, "Runtime contract claim evidence incomplete_dispositions"), ["missing", "deferred", "blocked"], "Runtime claim evidence incomplete dispositions");
   const executionSelection = expectRecord2(claimEvidenceContract.execution_selection, "Runtime contract claim evidence execution_selection");
-  expectExactKeys2(executionSelection, ["fields", "scopes", "breadth_bases", "freshness", "command_binding", "business_flow", "e2e_admission", "broad_admission"], "Runtime contract claim evidence execution_selection");
-  expectSetEqual(expectStringArray2(executionSelection.fields, "Runtime claim evidence execution selection fields"), ["scope", "claim_scope", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref"], "Runtime claim evidence execution selection fields");
+  expectExactKeys2(executionSelection, ["fields", "scopes", "breadth_bases", "freshness", "command_binding", "business_flow", "authority_binding", "e2e_admission", "broad_admission"], "Runtime contract claim evidence execution_selection");
+  expectSetEqual(expectStringArray2(executionSelection.fields, "Runtime claim evidence execution selection fields"), ["scope", "claim_scope", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref", "invocation"], "Runtime claim evidence execution selection fields");
   expectSetEqual(expectStringArray2(executionSelection.scopes, "Runtime claim evidence execution selection scopes"), [...EVIDENCE_EXECUTION_SELECTION_SCOPES], "Runtime claim evidence execution selection scopes");
   expectSetEqual(expectStringArray2(executionSelection.breadth_bases, "Runtime claim evidence execution selection breadth bases"), [...EVIDENCE_EXECUTION_BREADTH_BASES], "Runtime claim evidence execution selection breadth bases");
-  if (executionSelection.freshness !== "required-for-new-execution-checks" || executionSelection.command_binding !== "exact-due-step-planned-command" || executionSelection.business_flow !== "integration-or-e2e-required" || executionSelection.e2e_admission !== "acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-explicit-user" || executionSelection.broad_admission !== "claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user") {
+  if (executionSelection.freshness !== "new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible" || executionSelection.command_binding !== "canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command" || executionSelection.business_flow !== "claim-boundary-equals-selection; integration-requires-business-flow; e2e-is-not-a-higher-test-level" || executionSelection.authority_binding !== "exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis" || executionSelection.e2e_admission !== "acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user" || executionSelection.broad_admission !== "claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime execution selection contract is invalid.");
   }
   if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
@@ -7359,18 +7359,65 @@ function plannedCommandsForEvidence(definition) {
   }
   return commands;
 }
-function assertExecutionSelection(check, fresh) {
+function evidenceInvocationCommand(invocation) {
+  if (!invocation.argv.length || invocation.argv.some((arg) => !arg || /[$`\r\n\0]/u.test(arg))) {
+    fail3("CLAIM_EVIDENCE_INVOCATION_INVALID", "invocation needs literal nonempty arguments without shell expansion.");
+  }
+  if (!/^[\w./:\\-]+$/u.test(invocation.argv[0]) || /^(?:.*[/\\])?(?:sh|bash|zsh|cmd|powershell|pwsh)(?:\.exe)?$/iu.test(invocation.argv[0])) {
+    fail3("CLAIM_EVIDENCE_INVOCATION_INVALID", "invocation must name a runner directly, not a shell command interpreter.");
+  }
+  return invocation.argv.map((arg) => /^[\w./:=,@+\-]+$/u.test(arg) ? arg : JSON.stringify(arg)).join(" ");
+}
+function unchangedEvidenceCheck(record4, slot, previous) {
+  const old = previous.find((item) => item.claim_id === record4.claim_id);
+  const oldSlot = old?.slots.find((item) => item.slot_id === slot.slot_id);
+  if (!old || !oldSlot)
+    return false;
+  return old.requirement === record4.requirement && old.source_ref === record4.source_ref && old.claim_kind === record4.claim_kind && (old.boundary === undefined || old.boundary === record4.boundary) && digest3(oldSlot.check) === digest3(slot.check);
+}
+function assertSelectionAuthority(selection, record4, definition, context) {
+  const basis = selection.breadth_basis;
+  const ref = selection.breadth_source_ref;
+  if (!basis)
+    return;
+  if (basis === "explicit-user" || basis === "project-policy") {
+    assertTestStrategySource(context.root, { ...readTestStrategyDefinition(definition), source: basis, source_ref: ref }, context.taskBasis);
+    return;
+  }
+  if (basis === "release-gate") {
+    const strategy = readTestStrategyDefinition(definition);
+    if (strategy.source !== "project-policy" || strategy.source_ref !== ref) {
+      fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "release-gate must bind the task test strategy's existing project-policy source.");
+    }
+    assertTestStrategySource(context.root, strategy, context.taskBasis);
+    return;
+  }
+  if (ref !== record4.claim_id || basis === "acceptance-boundary" && record4.claim_kind !== "acceptance") {
+    fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "claim/acceptance/insufficiency basis must reference this exact claim identity.");
+  }
+  assertTestStrategySource(context.root, { ...readTestStrategyDefinition(definition), source: "explicit-user", source_ref: record4.source_ref }, context.taskBasis);
+}
+function assertExecutionSelection(check, required) {
   if (check.method !== "execution") {
     if (check.selection !== undefined)
       fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "only execution checks may declare test selection.");
     return;
   }
   if (!check.selection) {
-    if (fresh)
+    if (required)
       fail3("CLAIM_EVIDENCE_SELECTION_REQUIRED", "new execution checks require a frozen minimum-sufficient selection declaration.");
     return;
   }
   const selection = check.selection;
+  if (!required && !selection.invocation)
+    return;
+  if (!selection.invocation || evidenceInvocationCommand(selection.invocation) !== check.entry) {
+    fail3("CLAIM_EVIDENCE_INVOCATION_UNBOUND", "selection invocation must produce the exact frozen check entry.");
+  }
+  const selectorIndex = selection.invocation.selector_arg_index;
+  if (selection.selector === null ? selectorIndex !== null : selectorIndex === null || !Number.isInteger(selectorIndex) || selectorIndex < 1 || selection.invocation.argv[selectorIndex] !== selection.selector) {
+    fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector must equal the literal runner argument at selector_arg_index.");
+  }
   const hasBreadth = selection.breadth_reason !== null || selection.breadth_basis !== null || selection.breadth_source_ref !== null;
   if (selection.scope === "focused") {
     if (!selection.selector || hasBreadth || selection.claim_scope !== "local") {
@@ -7385,16 +7432,16 @@ function assertExecutionSelection(check, fresh) {
     return;
   }
   if (selection.scope === "integration") {
-    if (hasBreadth)
-      fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "integration selection is itself the declared business-flow boundary; do not relabel it as broad regression.");
+    if (hasBreadth || selection.claim_scope !== "business-flow")
+      fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "integration requires a business-flow claim; local runner granularity limitations must use justified target scope.");
     return;
   }
   if (!selection.breadth_reason || !selection.breadth_basis || !selection.breadth_source_ref) {
     fail3("CLAIM_EVIDENCE_BREADTH_REQUIRED", `${selection.scope} execution requires an explicit breadth reason, basis, and source reference.`);
   }
   if (selection.scope === "e2e") {
-    if (!["acceptance-boundary", "low-cost-evidence-insufficient", "project-policy", "explicit-user"].includes(selection.breadth_basis)) {
-      fail3("CLAIM_EVIDENCE_E2E_UNAUTHORIZED", "E2E execution requires an acceptance boundary, insufficient lower-cost evidence, project policy, or explicit user request.");
+    if (!["acceptance-boundary", "low-cost-evidence-insufficient", "project-policy", "release-gate", "explicit-user"].includes(selection.breadth_basis)) {
+      fail3("CLAIM_EVIDENCE_E2E_UNAUTHORIZED", "E2E execution requires an acceptance boundary, insufficient lower-cost evidence, project policy, bound release gate, or explicit user request.");
     }
     return;
   }
@@ -7402,7 +7449,7 @@ function assertExecutionSelection(check, fresh) {
     fail3("CLAIM_EVIDENCE_BROAD_UNAUTHORIZED", "broad regression requires a claim/risk/contract basis, release gate, project policy, or explicit user request.");
   }
 }
-function assertEvidencePlan(definition, records, fresh = false) {
+function assertEvidencePlan(definition, records, fresh = false, context) {
   requireClaimEvidencePlan(records, "evidence plan");
   requireAcceptanceClaim(records, "evidence plan");
   const steps = parseImplementationSteps(definition.implementation_steps).map((step) => step.id);
@@ -7424,12 +7471,25 @@ function assertEvidencePlan(definition, records, fresh = false) {
       ids.add(check.check_id);
       if (check.subject_paths.some((p) => p.includes("*") || /(?:^|\/)CURRENT_TASK\.md$/.test(p) || p.startsWith(".git/")) || new Set(check.subject_paths).size !== check.subject_paths.length)
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "subject_paths must be exact unique product paths, excluding Runtime audit state.");
-      assertExecutionSelection(check, fresh);
-      if (fresh && check.method === "execution" && !plannedCommands.get(slot.due_step_id)?.has(check.entry)) {
+      const isNew = context ? !unchangedEvidenceCheck(record4, slot, context.previous) : fresh;
+      assertExecutionSelection(check, isNew);
+      const bound = isNew || !!check.selection?.invocation;
+      if (bound && check.method === "execution" && !plannedCommands.get(slot.due_step_id)?.has(check.entry)) {
         fail3("CLAIM_EVIDENCE_COMMAND_UNBOUND", `execution check ${check.check_id} must bind its due step's exact planned command.`);
       }
-      if (check.selection?.claim_scope === "business-flow" && !["integration", "e2e"].includes(check.selection.scope)) {
+      if (bound && check.method === "execution" && (!record4.boundary || record4.boundary !== check.selection?.claim_scope)) {
+        fail3("CLAIM_EVIDENCE_BOUNDARY_INVALID", "new execution selection must equal its claim boundary.");
+      }
+      if (bound && check.selection?.claim_scope === "e2e" && check.selection.scope !== "e2e") {
+        fail3("CLAIM_EVIDENCE_BOUNDARY_INVALID", "real end-to-end claims require explicit E2E admission.");
+      }
+      if (bound && check.selection?.claim_scope === "business-flow" && !["integration", "e2e"].includes(check.selection.scope)) {
         fail3("CLAIM_EVIDENCE_FLOW_REQUIRED", "a business-flow claim requires integration or E2E evidence; focused, target, and broad regression checks cannot substitute for the flow.");
+      }
+      if (isNew && check.selection?.breadth_basis) {
+        if (!context)
+          fail3("CLAIM_EVIDENCE_AUTHORITY_REQUIRED", "breadth admission requires canonical task authority context.");
+        assertSelectionAuthority(check.selection, record4, definition, context);
       }
       if (record4.claim_kind === "acceptance" && (slot.applicability !== "current" || check.expected_result === "expected-failure"))
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "positive acceptance requires current successful evidence.");
@@ -7554,7 +7614,7 @@ function validateClaimEvidence(value, location) {
   }
   const records = value.map((raw, index) => {
     const record4 = expectRecord2(raw, `${location}[${index}]`);
-    expectExactKeys2(record4, ["claim_id", "claim_kind", "slots", ...["requirement", "source_ref"].filter((key) => (key in record4))], `${location}[${index}]`);
+    expectExactKeys2(record4, ["claim_id", "claim_kind", "slots", ...["requirement", "source_ref", "boundary"].filter((key) => (key in record4))], `${location}[${index}]`);
     const claimId = expectString2(record4.claim_id, `${location}[${index}].claim_id`, CLAIM_ID_PATTERN);
     const claimKind = expectEnum(record4.claim_kind, CLAIM_KINDS, `${location}[${index}].claim_kind`);
     if (!Array.isArray(record4.slots) || record4.slots.length === 0 || record4.slots.length > MAX_CLAIM_EVIDENCE_SLOTS) {
@@ -7577,9 +7637,19 @@ function validateClaimEvidence(value, location) {
         let selection;
         if (check.selection !== undefined) {
           const rawSelection = expectRecord2(check.selection, "check.selection");
-          expectExactKeys2(rawSelection, ["scope", "claim_scope", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref"], "check.selection");
+          expectExactKeys2(rawSelection, ["scope", "claim_scope", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref", ..."invocation" in rawSelection ? ["invocation"] : []], "check.selection");
           const scope = expectEnum(rawSelection.scope, EVIDENCE_EXECUTION_SELECTION_SCOPES, "check.selection.scope");
-          const claimScope = expectEnum(rawSelection.claim_scope, ["local", "business-flow"], "check.selection.claim_scope");
+          const claimScope = expectEnum(rawSelection.claim_scope, ["local", "business-flow", "e2e"], "check.selection.claim_scope");
+          let invocation;
+          if (rawSelection.invocation !== undefined) {
+            const raw2 = expectRecord2(rawSelection.invocation, "selection.invocation");
+            expectExactKeys2(raw2, ["argv", "selector_arg_index"], "selection.invocation");
+            if (raw2.selector_arg_index !== null && (!Number.isInteger(raw2.selector_arg_index) || raw2.selector_arg_index < 1))
+              fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector_arg_index must be null or a positive integer.");
+            if (!Array.isArray(raw2.argv) || raw2.argv.length === 0)
+              fail3("CLAIM_EVIDENCE_INVOCATION_INVALID", "invocation.argv must be a nonempty ordered argument list.");
+            invocation = { argv: raw2.argv.map((arg, index2) => expectText(arg, `invocation.argv[${index2}]`)), selector_arg_index: raw2.selector_arg_index };
+          }
           const selector = rawSelection.selector === null ? null : expectText(rawSelection.selector, "check.selection.selector");
           const breadthReason = rawSelection.breadth_reason === null ? null : expectText(rawSelection.breadth_reason, "check.selection.breadth_reason");
           const breadthBasis = rawSelection.breadth_basis === null ? null : expectEnum(rawSelection.breadth_basis, EVIDENCE_EXECUTION_BREADTH_BASES, "check.selection.breadth_basis");
@@ -7591,7 +7661,8 @@ function validateClaimEvidence(value, location) {
             selection_reason: expectText(rawSelection.selection_reason, "check.selection.selection_reason"),
             breadth_reason: breadthReason,
             breadth_basis: breadthBasis,
-            breadth_source_ref: breadthSourceRef
+            breadth_source_ref: breadthSourceRef,
+            ...invocation ? { invocation } : {}
           };
         }
         result.check = {
@@ -7638,7 +7709,8 @@ function validateClaimEvidence(value, location) {
       claim_kind: claimKind,
       slots,
       ...record4.requirement === undefined ? {} : { requirement: expectText(record4.requirement, "claim.requirement") },
-      ...record4.source_ref === undefined ? {} : { source_ref: expectText(record4.source_ref, "claim.source_ref") }
+      ...record4.source_ref === undefined ? {} : { source_ref: expectText(record4.source_ref, "claim.source_ref") },
+      ...record4.boundary === undefined ? {} : { boundary: expectEnum(record4.boundary, ["local", "business-flow", "e2e"], "claim.boundary") }
     };
   });
   if (new Set(records.map((record4) => record4.claim_id)).size !== records.length) {
@@ -7716,7 +7788,7 @@ function assertClaimEvidencePlanPreserved(planned, proposed, location) {
   const proposedByClaim = new Map(proposed.map((record4) => [record4.claim_id, record4]));
   for (const plannedRecord of planned) {
     const proposedRecord = proposedByClaim.get(plannedRecord.claim_id);
-    if (!proposedRecord || proposedRecord.claim_kind !== plannedRecord.claim_kind || proposedRecord.requirement !== plannedRecord.requirement || proposedRecord.source_ref !== plannedRecord.source_ref) {
+    if (!proposedRecord || proposedRecord.claim_kind !== plannedRecord.claim_kind || proposedRecord.requirement !== plannedRecord.requirement || proposedRecord.source_ref !== plannedRecord.source_ref || proposedRecord.boundary !== plannedRecord.boundary) {
       fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", `${location} must preserve every planned claim identity and kind.`);
     }
     if (proposedRecord.slots.length !== plannedRecord.slots.length) {
@@ -8331,6 +8403,10 @@ function assertTestStrategySource(root, strategy, taskBasis) {
   const relative7 = path10.relative(resolvedRoot, resolved);
   if (!relative7 || relative7.startsWith(`..${path10.sep}`) || path10.isAbsolute(relative7) || !fs9.existsSync(resolved) || !fs9.statSync(resolved).isFile()) {
     fail3("TEST_STRATEGY_INVALID", `project-policy source_ref does not identify an existing project file: ${strategy.source_ref}.`);
+  }
+  const realRelative = path10.relative(fs9.realpathSync(resolvedRoot), fs9.realpathSync(resolved));
+  if (!realRelative || realRelative.startsWith(`..${path10.sep}`) || path10.isAbsolute(realRelative)) {
+    fail3("TEST_STRATEGY_INVALID", "project-policy source cannot escape the repository through a symlink.");
   }
 }
 function assertPreparedTestStrategy(root, definition, taskBasis) {
@@ -13908,18 +13984,13 @@ function normalizeCorrectionStep(raw, options = {}) {
   return { id, description, mutation_scope: mutationScope, required_evidence: requiredEvidence, commands };
 }
 function validateEvidenceCheck(value, location) {
-  const check = expectRecord2(value, location);
-  expectExactKeys2(check, ["check_id", "method", "entry", "expected_observation", "required_boundaries", "allowed_substitutes", "subject_paths", "expected_result"], location);
-  return {
-    check_id: expectString2(check.check_id, "check_id", CLAIM_ID_PATTERN),
-    method: expectEnum(check.method, ["execution", "static", "human"], "check.method"),
-    entry: expectText(check.entry, "check.entry"),
-    expected_observation: expectText(check.expected_observation, "check.expected_observation"),
-    required_boundaries: expectStringArray2(check.required_boundaries, "required_boundaries", false, 256),
-    allowed_substitutes: expectStringArray2(check.allowed_substitutes, "allowed_substitutes", true, 256),
-    subject_paths: expectStringArray2(check.subject_paths, "subject_paths", false, 256).map((p) => normalizeRepoPath2(p, "subject_paths")),
-    expected_result: expectEnum(check.expected_result, ["passed", "accepted", "expected-failure"], "expected_result")
-  };
+  return validateClaimEvidence([{ claim_id: "replacement", claim_kind: "acceptance", slots: [{
+    slot_id: "replacement",
+    minimum_type: "focused-test",
+    disposition: "missing",
+    evidence_refs: [],
+    check: value
+  }] }], location)[0].slots[0].check;
 }
 function executedStepIds(current) {
   return new Set([
@@ -14597,7 +14668,7 @@ function buildScopeAmendmentCandidate(root, current, input) {
         delete slot.prerequisite_receipt;
       }
     }
-  const newPlanRevision = assertEvidencePlan(amendedDefinition, claims);
+  const newPlanRevision = assertEvidencePlan(amendedDefinition, claims, false, { root, taskBasis: basis.basis, previous: current.runtimeState.claim_evidence ?? [] });
   const findingFingerprints = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status)).map((item) => item.fingerprint).sort();
   const authorization = input.authorization === null ? null : {
     ...input.authorization,
@@ -15071,6 +15142,7 @@ function buildCorrectionCandidate(root, current, input) {
       if (slot.check.required_boundaries.some((boundary) => !mapping.check.required_boundaries.includes(boundary)) || slot.check.subject_paths.some((p) => !mapping.check.subject_paths.includes(p)))
         fail3("RECOVERY_CHECK_WEAKENED", "Existing required boundaries and subjects cannot be removed by recovery.");
       slot.check = mapping.check;
+      record4.boundary ??= mapping.check.selection?.claim_scope;
     }
     if (targeted || mapping.check || mapping.due_step_id !== slot.due_step_id) {
       if (!newIds.has(mapping.due_step_id))
@@ -15083,7 +15155,7 @@ function buildCorrectionCandidate(root, current, input) {
       correctedSlots.add(slot);
     }
   }
-  const newPlan = assertEvidencePlan(definition, records);
+  const newPlan = assertEvidencePlan(definition, records, false, { root, taskBasis: basis.basis, previous: current.runtimeState.claim_evidence ?? [] });
   const carry = [];
   for (const record4 of records)
     for (const slot of record4.slots) {
@@ -16075,8 +16147,9 @@ function assertDraftDefinitionReady(root, current) {
   const definition = readDraftDefinitionFromBody(body);
   assertV2DraftDefinitionAuthority(root, definition);
   assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
-  assertPreparedTestStrategy(root, definition, readCanonicalTaskBasis(root, current).basis);
-  assertEvidencePlan(definition, current.runtimeState.claim_evidence ?? [], true);
+  const taskBasis = readCanonicalTaskBasis(root, current).basis;
+  assertPreparedTestStrategy(root, definition, taskBasis);
+  assertEvidencePlan(definition, current.runtimeState.claim_evidence ?? [], true, { root, taskBasis, previous: [] });
   assertNoUnresolvedDraftQuestions(body);
   return definition;
 }
@@ -16383,7 +16456,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "create-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "create-draft claim_evidence");
-    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true);
+    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true, { root, taskBasis: delta.task_basis, previous: [] });
     const draftIdentity = {
       task_id: delta.task_id,
       task_slug: delta.task_slug,
@@ -16447,10 +16520,10 @@ function applyTaskStateDelta(root, current, proposal, now) {
     assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "update-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "update-draft claim_evidence");
-    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true);
+    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true, { root, taskBasis: delta.task_basis, previous: current.runtimeState.claim_evidence ?? [] });
     for (const claim of claimEvidence) {
       const previous = current.runtimeState.claim_evidence?.find((item) => item.claim_id === claim.claim_id);
-      if (previous && (previous.requirement !== claim.requirement || previous.source_ref !== claim.source_ref || previous.claim_kind !== claim.claim_kind))
+      if (previous && (previous.requirement !== claim.requirement || previous.source_ref !== claim.source_ref || previous.claim_kind !== claim.claim_kind || previous.boundary !== claim.boundary))
         fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "Changing a draft obligation requires a new claim identity.");
       for (const slot of claim.slots) {
         const old = previous?.slots.find((item) => item.slot_id === slot.slot_id);
@@ -17132,6 +17205,11 @@ function applyTaskStateDelta(root, current, proposal, now) {
   for (const record4 of transitionClaimEvidence)
     for (const slot of record4.slots) {
       const old = current.runtimeState.claim_evidence?.find((item) => item.claim_id === record4.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
+      if (slot.report && digest3(old) !== digest3(slot) && slot.check?.selection?.invocation) {
+        const exactResult = delta.execution_result?.acceptance_evidence.some((result) => !("acceptance" in result) && result.claim_id === record4.claim_id && result.slot_id === slot.slot_id && result.check_id === slot.check.check_id && digest3(result.report) === digest3(slot.report));
+        if (!exactResult)
+          fail3("CLAIM_EVIDENCE_RESULT_UNBOUND", "A new execution report requires its exact invocation result; raw progress cannot invent evidence.");
+      }
       if (slot.report && digest3(old) !== digest3(slot))
         assertEvidenceReportApplicable(root, current, slot);
       if (old?.report && slot.report?.result_id === old.report.result_id && (digest3(old.report) !== digest3(slot.report) || digest3(old.evidence_refs) !== digest3(slot.evidence_refs)))
@@ -17181,6 +17259,13 @@ function applyTaskStateDelta(root, current, proposal, now) {
     const slot = transitionClaimEvidence.find((claim) => claim.claim_id === result.claim_id)?.slots.find((slot2) => slot2.slot_id === result.slot_id);
     if (!slot || slot.check?.check_id !== result.check_id || slot.minimum_type !== result.minimum_type || slot.disposition !== result.disposition || digest3(slot.report) !== digest3(result.report) || digest3(slot.evidence_refs) !== digest3(result.evidence_refs))
       fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "Execution reports must exactly match the persisted slot results.");
+    if (slot.check.method === "execution" && slot.check.selection?.invocation && result.report) {
+      const command = delta.execution_result.command_results.find((item) => item.command === slot.check.entry);
+      const successful = result.report.status === "passed" || result.report.status === "expected-failure";
+      if (!command || successful && command.status !== result.report.status || slot.due_step_id !== delta.step_id) {
+        fail3("CLAIM_EVIDENCE_RESULT_UNBOUND", "execution evidence must bind its frozen invocation result and due step.");
+      }
+    }
   }
   if (newStatus === "completed" && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete)
     fail3("CLAIM_EVIDENCE_INCOMPLETE", "Every due slot must have applicable successful evidence before step completion.");
@@ -22166,7 +22251,7 @@ function commandTransformationKind(command) {
 function stepScopeAdmitsCommandTarget(target, stepScope) {
   return target.includes("*") ? stepScope.includes(target) : stepScope.some((pattern) => mutationScopePatternMatchesPath(target, pattern));
 }
-function normalizeSemanticDraft(input) {
+function normalizeSemanticDraft(root, input) {
   const source = record4(input, "prepare-task semantic draft");
   const v2 = source.mutation_authority !== undefined || source.mutation_authority_version === MUTATION_AUTHORITY_VERSION;
   const allowedDraftFields = SEMANTIC_DRAFT_FIELDS.filter((key) => key !== "mutation_scope" && key !== "mutation_authority_version" && key !== "mutation_authority");
@@ -22316,7 +22401,7 @@ function normalizeSemanticDraft(input) {
     persistent_tests: persistentTests
   };
   assertSemanticScopeIsExecutable(normalized);
-  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true);
+  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true, { root, taskBasis: normalized.task_basis, previous: [] });
   return normalized;
 }
 function markdownBullets(items, checklist = false) {
@@ -22609,7 +22694,7 @@ function assertDocumentReferencesResubmitted(current, semantic) {
   }
 }
 function prepareDraft(root, input, options = {}) {
-  const semantic = normalizeSemanticDraft(input);
+  const semantic = normalizeSemanticDraft(root, input);
   assertSemanticAuthority(root, semantic);
   const definition = semanticDraftDefinition(semantic);
   assertV2DraftDefinitionAuthority(root, definition);
@@ -22746,7 +22831,7 @@ function clearResumeReview(root, input, options = {}) {
 }
 function replan(root, input, options = {}) {
   fail6("REPLAN_CONFIRMATION_REQUIRED", "The legacy replan command commits immediately and is disabled. A revision-bound candidate and explicit confirmation are required before replacement.");
-  const semantic = normalizeSemanticDraft(input);
+  const semantic = normalizeSemanticDraft(root, input);
   assertSemanticAuthority(root, semantic);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
@@ -25317,6 +25402,8 @@ function evidenceContext(root, input) {
       claim_id: claim.claim_id,
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
+      claim_boundary: claim.boundary ?? null,
+      frozen_invocation: slot.check.entry,
       minimum_type: slot.minimum_type,
       execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
       subject_revision: snapshot.revision,
@@ -26477,6 +26564,9 @@ function claimEvidenceSummary(value) {
     due_step_id: slot.due_step_id ?? null,
     before_step_id: slot.before_step_id ?? null,
     check_id: slot.check?.check_id ?? null,
+    frozen_invocation: slot.check?.entry ?? null,
+    required_observation: slot.check?.expected_observation ?? null,
+    required_boundaries: slot.check?.required_boundaries ?? [],
     execution_selection: slot.check?.selection ? { ...slot.check.selection } : null,
     result_id: slot.report?.result_id ?? null,
     report: evidenceReportSummary(slot.report),
@@ -26487,6 +26577,7 @@ function claimEvidenceSummary(value) {
     claim_kind: value.claim_kind,
     requirement: value.requirement,
     source_ref: value.source_ref,
+    boundary: value.boundary ?? null,
     slots,
     slot_count: value.slots.length,
     slots_truncated: value.slots.length > MAX_CONTEXT_ENTRIES

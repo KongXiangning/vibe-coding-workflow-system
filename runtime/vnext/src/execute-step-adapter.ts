@@ -194,6 +194,8 @@ export type ExecuteStepEvidenceContext = {
     claim_id: string;
     slot_id: string;
     check_id: string;
+    claim_boundary: string | null;
+    frozen_invocation: string;
     subject_revision: string;
     execution_selection: {
       scope: string;
@@ -203,6 +205,7 @@ export type ExecuteStepEvidenceContext = {
       breadth_reason: string | null;
       breadth_basis: string | null;
       breadth_source_ref: string | null;
+      invocation?: { argv: string[]; selector_arg_index: number | null };
     } | null;
     subject_snapshot: {
       kind: string;
@@ -922,6 +925,8 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
       claim_id: claim.claim_id,
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
+      claim_boundary: claim.boundary ?? null,
+      frozen_invocation: slot.check.entry,
       minimum_type: slot.minimum_type,
       execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
       subject_revision: snapshot.revision,

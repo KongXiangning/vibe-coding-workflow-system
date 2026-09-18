@@ -359,7 +359,7 @@ function stepScopeAdmitsCommandTarget(target: string, stepScope: readonly string
     : stepScope.some(pattern => mutationScopePatternMatchesPath(target, pattern));
 }
 
-function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
+function normalizeSemanticDraft(root: string, input: unknown): PrepareTaskSemanticDraft {
   const source = record(input, 'prepare-task semantic draft');
   const v2 = source.mutation_authority !== undefined || source.mutation_authority_version === MUTATION_AUTHORITY_VERSION;
   const allowedDraftFields = SEMANTIC_DRAFT_FIELDS.filter(key => key !== 'mutation_scope' && key !== 'mutation_authority_version' && key !== 'mutation_authority');
@@ -515,7 +515,7 @@ function normalizeSemanticDraft(input: unknown): PrepareTaskSemanticDraft {
     persistent_tests: persistentTests,
   };
   assertSemanticScopeIsExecutable(normalized);
-  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true);
+  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true, { root, taskBasis: normalized.task_basis, previous: [] });
   return normalized;
 }
 
@@ -860,7 +860,7 @@ function assertDocumentReferencesResubmitted(current: ReturnType<typeof readCano
 }
 
 export function prepareDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
-  const semantic = normalizeSemanticDraft(input);
+  const semantic = normalizeSemanticDraft(root, input);
   assertSemanticAuthority(root, semantic);
   const definition = semanticDraftDefinition(semantic);
   assertV2DraftDefinitionAuthority(root, definition);
@@ -1008,7 +1008,7 @@ export function clearResumeReview(root: string, input: unknown, options: Runtime
 
 export function replan(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   fail('REPLAN_CONFIRMATION_REQUIRED', 'The legacy replan command commits immediately and is disabled. A revision-bound candidate and explicit confirmation are required before replacement.');
-  const semantic = normalizeSemanticDraft(input);
+  const semantic = normalizeSemanticDraft(root, input);
   assertSemanticAuthority(root, semantic);
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);

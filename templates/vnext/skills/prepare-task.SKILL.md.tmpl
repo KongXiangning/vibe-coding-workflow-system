@@ -112,12 +112,38 @@ contract, release gate, project policy, or explicit user request; “more safe,�
 
 For every execution check, submit the frozen selection object bound to its one
 claim slot: `scope` (`focused`, `target`, `integration`, `e2e`, or
-`broad-regression`), `claim_scope` (`local` or `business-flow`), selector,
+`broad-regression`), `claim_scope` (`local`, `business-flow`, or `e2e`), selector,
 selection reason, and, for target/E2E/broad execution, breadth reason and
 basis plus its exact Task Basis or policy source reference. Bind `check.entry` to the exact planned command of its due step. A
 command PASS never fills another claim slot automatically; each claim needs its
 own matching report and evidence. This is a selection declaration, not a test
 registry or a permission to create tests.
+
+Freeze the chain claim → required observation → claim `boundary` → selection
+→ actual invocation → exact result. Claim `boundary` must equal `claim_scope`.
+Test types are not a unit < integration < E2E hierarchy. `integration` requires
+`business-flow` and a real cross-component/protocol/persistence/process/data-flow
+observation. A local claim with unavoidable integration runner granularity uses
+`target` with concrete lower-cost-evidence insufficiency and breadth authority;
+renaming the check integration does not grant breadth.
+
+Every new execution check, including update-draft and replan/recovery replacement
+checks, supplies `invocation: {argv, selector_arg_index}`. Use the Runtime canonical
+literal argv rendering as `entry` and the due step's planned command. A non-null
+selector must equal the argv element at that positive index; no selector means
+a null index. Shell wrappers/expansion are not supported by this bounded format.
+Do not declare a file/target as a focused case when unrelated cases also run;
+runner argument semantics and true granularity need review. Unchanged confirmed
+legacy checks remain usable; a new identity must satisfy the whole contract.
+
+Breadth authority is not free text: `explicit-user` references an exact source in
+Task Basis original_request/user_decisions; `project-policy` references an existing
+canonical repository-relative policy file. `release-gate` is restricted to that
+task's already selected project-policy Test Strategy source (including E2E).
+Claim-risk, acceptance-boundary and lower-cost insufficiency reference the current
+claim ID, whose source must exist in Task Basis. Review that the source actually
+authorizes the proposed breadth; existence does not prove its natural-language
+meaning. Never invent a user decision, policy, release gate, or authority source.
 
 ## Mutation Authority v2
 
@@ -375,7 +401,7 @@ must not invoke another public Skill.
 ## Structured business evidence
 
 Submit claim_evidence instead of an acceptance text array. Each stable claim ID
-binds requirement/source_ref and concrete slots with globally task-unique check IDs.
+binds requirement/source_ref/boundary and concrete slots with globally task-unique check IDs.
 Each slot has due_step_id, applicability, method/entry/expected observation,
 required real boundaries, permitted substitutes, exact subject_paths and expected
 result. Use distinct rule and flow slots when the confirmed requirement crosses

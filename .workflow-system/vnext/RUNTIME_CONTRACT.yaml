@@ -246,6 +246,7 @@ proposal:
         - claim_kind
         - requirement
         - source_ref
+        - boundary
         - slots
       slot_fields:
         - slot_id
@@ -275,6 +276,7 @@ proposal:
           - breadth_reason
           - breadth_basis
           - breadth_source_ref
+          - invocation
         scopes:
           - focused
           - target
@@ -288,10 +290,11 @@ proposal:
           - project-policy
           - release-gate
           - explicit-user
-        freshness: required-for-new-execution-checks
-        command_binding: exact-due-step-planned-command
-        business_flow: integration-or-e2e-required
-        e2e_admission: acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-explicit-user
+        freshness: new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible
+        command_binding: canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command
+        business_flow: claim-boundary-equals-selection; integration-requires-business-flow; e2e-is-not-a-higher-test-level
+        authority_binding: exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis
+        e2e_admission: acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user
         broad_admission: claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user
       completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites
     claim_evidence_migration:

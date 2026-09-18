@@ -113,6 +113,13 @@ material contested until assessed; dismissal requires evidence, not convenience.
 6. Send an ordinary verdict to Runtime `record-review-result` on stdin. For an earlier-result challenge, record the challenge or its evidence-bound dismissal through the corresponding Runtime action; a confirmed error requires correction. Do not create proposal or helper files in the project.
 7. Do not repair code or advance the step. A recommendation must not invoke another public Skill.
 
+Verify actual evidence against `frozen_invocation` and its selector arguments.
+Incidental PASS from other cases does not prove this claim. Inspect whether the
+declared business-flow actually crossed its required boundaries, whether mocks
+or fixtures bypassed them, and whether the report overstates its observation.
+Source existence is only structural authority binding: review the source text's
+actual authorization for broad execution, including release-gate E2E.
+
 ## Required result
 
 Return the Runtime-recorded `review-result`, inspected review target, findings or blocker, evidence, and at most one `next_route` recommendation for a later caller invocation. Then stop.

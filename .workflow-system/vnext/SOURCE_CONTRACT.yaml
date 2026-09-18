@@ -378,6 +378,8 @@ capabilities:
       - claim-bound minimum-sufficient evidence plan that separates validation from test creation
       - 'durable claim-bound evidence completion state consumed by task-complete and close-task; aggregate command success or free-text notes cannot substitute for a slot disposition and evidence_refs'
       - 'minimum-sufficient execution selection with an exact due-step planned-command binding; a command PASS never automatically satisfies another claim slot'
+      - 'claim -> required observation -> claim boundary -> minimum-sufficient selection -> canonical argv/selector invocation -> exact result; new check identities obey this invariant in draft, update, confirm, replan and recovery; unchanged confirmed legacy checks remain compatible'
+      - 'integration requires business-flow; local runner granularity limits use justified target; breadth sources bind real Task Basis or canonical policy; release-gate E2E requires the selected project policy'
       - 'invariant admission preserves semantic strength: bounded local/temporal mechanical claims remain reversible, while global/domain/permanent claims carry explicit authority and future-design conflict trace'
       - persistent-test not-admitted, admitted, deferred, or rejected decision separate from validation and existing-check reuse
       - 'admitted persistent tests only with an explicit owner, one of acceptance, regression, critical-invariant, or critical-risk, a behavioral or contract boundary assertion, and an expected failure disposition'
