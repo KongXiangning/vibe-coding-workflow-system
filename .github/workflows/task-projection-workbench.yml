@@ -1,38 +1,107 @@
-name: Task projection workbench
+name: Task projection focused verification
 on:
   push:
     branches: [codex/task-projection-work-20260918]
     paths: [.github/workflows/task-projection-workbench.yml]
 permissions:
   contents: read
+concurrency:
+  group: task-projection-workbench-20260918
+  cancel-in-progress: false
 jobs:
-  export:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: 843a4cb0821047b976cf38f524baaafcdd349f26
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 843a4cb0821047b976cf38f524baaafcdd349f26
-          persist-credentials: false
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.2
-      - name: Export exact source and dependencies
+      - name: Apply exact locally verified source patch
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 843a4cb0821047b976cf38f524baaafcdd349f26
+          mkdir -p "$RUNNER_TEMP/projection-logs"
+          cp .task-projection-work/manifest.json "$RUNNER_TEMP/projection-manifest.json"
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib
+          encoded = ''.join(pathlib.Path(f'.task-projection-work/patch-{i}.b64').read_text().strip() for i in range(1, 3))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '29e941515b997f9f82a4969565bae7f0adebbc8117973696703bc8853c3d3010'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'projection.patch').write_bytes(patch)
+          print('Verified exact source patch:', len(patch), 'bytes')
+          PY
+          git checkout --detach "$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git apply --unidiff-zero --check "$RUNNER_TEMP/projection.patch"
+          git apply --unidiff-zero "$RUNNER_TEMP/projection.patch"
+          git add -N runtime/vnext/src/task-projection.ts
           bun install --frozen-lockfile --ignore-scripts
-          target="$RUNNER_TEMP/vnext-projection"
-          mkdir -p "$target/source" "$target/tools"
-          git archive HEAD | tar -x -C "$target/source"
-          cp -a node_modules "$target/source/node_modules"
-          cp "$(command -v bun)" "$target/tools/bun"
-          git rev-parse HEAD > "$target/source-revision.txt"
-          tar -czf "$RUNNER_TEMP/vnext-projection.tgz" -C "$RUNNER_TEMP" vnext-projection
+      - name: Build, contracts and generated freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          { bun --version; node --version; bun run validate:vnext-runtime; bun run validate:vnext-source; bun run gen:all; bun run validate:freshness; } 2>&1 | tee "$RUNNER_TEMP/projection-logs/contracts.log"
+      - name: Dedicated aggregate storage and context regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/vnext-task-store.test.ts test/vnext-task-context.test.ts 2>&1 | tee "$RUNNER_TEMP/projection-logs/storage.log"
+      - name: Projection lifecycle, exact export, interruption and Phase-A protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'active task projection|process-control|shared minimum-sufficient validation matrix|validation contract enforces replacement selection|S2 rule success|runs the ordinary draft|confirmed correction recovers a crash|scope amendment consumes prior authorization|atomically closes active' 2>&1 | tee "$RUNNER_TEMP/projection-logs/runtime.log"
+      - name: Related Skill boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'preserves P-12|keeps execute-step focused|requires prepare-task to map' 2>&1 | tee "$RUNNER_TEMP/projection-logs/skills.log"
+      - name: Fixed package installation and cold Node CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 120000 test/vnext-runtime.test.ts --test-name-pattern 'fixed tgz installed Node CLI supports same-envelope discovery' 2>&1 | tee "$RUNNER_TEMP/projection-logs/installed.log"
+      - name: Match final files and publish clean candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          expected = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'projection-manifest.json').read_text())
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          assert changed == set(expected), (changed - set(expected), set(expected) - changed)
+          for path, sha in expected.items():
+              actual = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+              assert actual == sha, (path, actual, sha)
+          subprocess.run(['git', 'add', '--', *expected], check=True)
+          print('All 15 final source/generated files match the locally verified bytes.')
+          PY
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- VERSION package.json .github .task-projection-work)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n' 'feat(vnext): compact active task into immutable aggregate references' 'Phase B: keep CURRENT_TASK as a small lossless projection of exact immutable definition/state roots. Retain logical context, evidence, decisions and audit history; keep inline/v2 readable and explicitly migrate without replan or size gates. Verify material export, cold CLI, exact migration retry and existing Phase-A protections.' | git commit-tree "$tree" -p "$BASE_SHA")
+          branch="codex/task-projection-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "$commit:refs/heads/$branch"
+          printf 'BASE_SHA=%s\nTREE_SHA=%s\nCOMMIT_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$tree" "$commit" "$branch" | tee "$RUNNER_TEMP/projection-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" -f state=success -f context=task-projection/focused-verification -f description='Lossless projection, migration/recovery, Phase-A and installed Node CLI checks passed' -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf '## Verified B-stage candidate\n\n`%s`\n\nBase `%s`. Product branch is unchanged by this workflow.\n' "$commit" "$BASE_SHA" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: vnext-projection-source
-          path: ${{ runner.temp }}/vnext-projection.tgz
-          retention-days: 1
-          if-no-files-found: error
+          name: task-projection-focused-verification
+          path: ${{ runner.temp }}/projection-logs/
+          retention-days: 3
+          if-no-files-found: warn
