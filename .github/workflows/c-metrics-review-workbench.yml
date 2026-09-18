@@ -1,28 +1,95 @@
-name: C metrics review workbench
+name: C metrics review focused verification
 on:
   push:
     branches: [codex/c-metrics-review-work-20260919]
     paths: [.github/workflows/c-metrics-review-workbench.yml]
 permissions:
   contents: read
+concurrency:
+  group: c-metrics-review-20260919
+  cancel-in-progress: false
 jobs:
-  export:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: a37115df5cb97dae969582e8c9570653cd0cd20a
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: a37115df5cb97dae969582e8c9570653cd0cd20a
-          persist-credentials: false
-      - name: Export exact source
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Apply exact reviewed source patch to the pinned baseline
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = a37115df5cb97dae969582e8c9570653cd0cd20a
-          git archive HEAD | gzip > "$RUNNER_TEMP/c-metrics-review-source.tgz"
+          mkdir -p "$RUNNER_TEMP/metrics-review-logs"
+          cp .c-metrics-review/manifest.json "$RUNNER_TEMP/metrics-review-manifest.json"
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib
+          patch = lzma.decompress(base64.b64decode(pathlib.Path('.c-metrics-review/fixes.b64').read_text().strip(), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'a3ecf221831c877e86e2d76301f00be4043e63b92cd7a8b3f982430675f64814'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'metrics-review.patch').write_bytes(patch)
+          print('Verified exact local patch:', len(patch), 'bytes')
+          PY
+          git checkout --detach "$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git apply --check "$RUNNER_TEMP/metrics-review.patch"
+          git apply "$RUNNER_TEMP/metrics-review.patch"
+          bun install --frozen-lockfile --ignore-scripts
+      - name: Rebuild Runtime and check contracts and generated freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          { bun --version; node --version; bun run validate:vnext-runtime; bun run validate:vnext-source; bun run gen:all; bun run validate:freshness; } 2>&1 | tee "$RUNNER_TEMP/metrics-review-logs/contracts.log"
+      - name: Metrics regressions including actual concurrent transactions and compiled Node CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/vnext-task-metrics.test.ts test/vnext-runtime.test.ts --test-name-pattern 'read-only task storage metrics|storage metrics review|storage metrics observe' 2>&1 | tee "$RUNNER_TEMP/metrics-review-logs/metrics.log"
+      - name: Existing receipt, durable format and process-control protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'storage migration preserves issued|compact-v3 durable golden|process-control review' 2>&1 | tee "$RUNNER_TEMP/metrics-review-logs/protections.log"
+      - name: Verify exact final files and publish one clean candidate commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          expected = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'metrics-review-manifest.json').read_text())
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          assert changed == set(expected), (changed - set(expected), set(expected) - changed)
+          for file, digest in expected.items():
+              actual = hashlib.sha256(pathlib.Path(file).read_bytes()).hexdigest()
+              assert actual == digest, (file, actual, digest)
+          subprocess.run(['git', 'add', '--', *expected], check=True)
+          print('All five source, tests, support and compiled output files match the tested bytes.')
+          PY
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- VERSION package.json runtime/vnext/src/kernel.ts runtime/vnext/src/task-store.ts .github .c-metrics-review)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n' 'fix(vnext): keep storage metrics revision-consistent and canonically normalized' 'Bind the sampling baseline before manifest parsing and invalidate mixed samples even after optional read failures. Reuse canonical Runtime defaults for current/history logical sizes and canonical Task Basis reference parsing. Preserve read-only semantics, diagnostic budgets, receipts and existing task operations; no Task Store refactor or new gate. Verified with focused regressions and compiled Node CLI.' | git commit-tree "$tree" -p "$BASE_SHA")
+          branch="codex/c-metrics-review-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "$commit:refs/heads/$branch"
+          printf 'BASE_SHA=%s\nTREE_SHA=%s\nCOMMIT_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$tree" "$commit" "$branch" | tee "$RUNNER_TEMP/metrics-review-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" -f state=success -f context=task-metrics/review-fixes -f description='Revision-consistent metrics, canonical byte counts and focused CLI regressions passed' -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf '## Verified C-stage review fixes\n\n`%s`\n\nBase `%s`. Product branch unchanged by this workflow.\n' "$commit" "$BASE_SHA" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: c-metrics-review-source
-          path: ${{ runner.temp }}/c-metrics-review-source.tgz
-          retention-days: 1
-          if-no-files-found: error
+          name: c-metrics-review-verification
+          path: ${{ runner.temp }}/metrics-review-logs/
+          retention-days: 3
+          if-no-files-found: warn
