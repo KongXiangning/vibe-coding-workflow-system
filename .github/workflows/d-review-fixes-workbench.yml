@@ -1,35 +1,127 @@
-name: D review fixes workbench
+name: D review fixes focused verification
 on:
   push:
     branches: [codex/d-review-fixes-work-20260919]
     paths: [.github/workflows/d-review-fixes-workbench.yml]
 permissions:
   contents: read
+concurrency:
+  group: d-review-fixes-20260919
+  cancel-in-progress: false
 jobs:
-  export:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: 320704d3e3d2a956fff5663887e37fd00886e6e7
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 320704d3e3d2a956fff5663887e37fd00886e6e7
-          persist-credentials: false
-      - name: Export baseline excluding source-only incident material
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Apply pinned guidance changes and generalized replacements
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 320704d3e3d2a956fff5663887e37fd00886e6e7
-          target="$RUNNER_TEMP/d-review-source"
-          mkdir -p "$target"
-          git archive HEAD | tar -x -C "$target"
-          rm -rf "$target/docs/ops/validation-selection"
-          printf '%s\n' 320704d3e3d2a956fff5663887e37fd00886e6e7 > "$RUNNER_TEMP/source-revision.txt"
-          tar -czf "$RUNNER_TEMP/d-review-source.tgz" -C "$target" .
+          mkdir -p "$RUNNER_TEMP/d-review-logs"
+          cp .d-review-fixes/manifest.json "$RUNNER_TEMP/d-review-manifest.json"
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib
+          encoded = ''.join(pathlib.Path(f'.d-review-fixes/patch-{i}.b64').read_text().strip() for i in (1, 2))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '10b23fbbc1f2d39ab18c1f3f9b80976edb86393365e38f5d7360cbe37bbfa1e9'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'd-review.patch').write_bytes(patch)
+          PY
+          git checkout --detach "$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          # New material is transported as additions, never as a diff containing
+          # removed private excerpts. Only this known source-only directory is replaced.
+          python3 - <<'PY'
+          import pathlib
+          directory = pathlib.Path('docs/ops/validation-selection')
+          expected = {'README.md','implementation-evidence.md','replay-prompts.md','reviewer-guide.md','rollout-incident.json'}
+          assert {p.name for p in directory.iterdir()} == expected
+          for name in expected:
+              p = directory/name
+              assert p.is_file() and not p.is_symlink()
+              p.unlink()
+          PY
+          git apply --check "$RUNNER_TEMP/d-review.patch"
+          git apply "$RUNNER_TEMP/d-review.patch"
+          git add -N docs/ops/validation-selection/selection-patterns.json
+          bun install --frozen-lockfile --ignore-scripts
+      - name: Focused guidance and publication boundary guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'preserves P-12|keeps public selection examples|keeps execute-step focused|requires prepare-task to map' 2>&1 | tee "$RUNNER_TEMP/d-review-logs/guards.log"
+      - name: Contracts, unchanged Runtime, generation and freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          { bun run validate:vnext-source; bun run validate:vnext-runtime; bun run gen:all; bun run validate:freshness; } 2>&1 | tee "$RUNNER_TEMP/d-review-logs/contracts.log"
+          test -z "$(git diff --name-only -- runtime/vnext/src runtime/vnext/dist .workflow-system VERSION package.json)"
+      - name: Verify exact packaged guidance and source-only examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run scripts/build-vibe-governance-distribution.ts --out "$RUNNER_TEMP/d-review-package" 2>&1 | tee "$RUNNER_TEMP/d-review-logs/package.log"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          source = pathlib.Path.cwd()
+          package = pathlib.Path(os.environ['RUNNER_TEMP'], 'd-review-package')
+          bundle = package/'payload/vnext-bundle'
+          manifest = json.loads((bundle/'vnext-bundle.json').read_text())
+          paths = ['runtime/vnext/support/CONTEXT_API.md'] + [f'templates/vnext/skills/{name}.SKILL.md.tmpl' for name in ('prepare-task','review-draft','review-change','execute-step')]
+          for p in paths:
+              assert (source/p).read_bytes() == (bundle/p).read_bytes(), p
+              item = next(x for x in manifest['artifacts'] if x['source_path'] == p)
+              assert item['checksum'] == hashlib.sha256((source/p).read_bytes()).hexdigest(), p
+          for name in ('selection-patterns.json','rollout-incident.json','reviewer-guide.md','replay-prompts.md','implementation-evidence.md'):
+              assert not list(package.rglob(name)), name
+          print('Exact Skill/support payloads; evaluation material excluded. Not Agent efficacy testing.')
+          PY
+      - name: Match reviewed bytes and publish clean candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          expected = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'd-review-manifest.json').read_text())
+          changed = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
+          assert changed == set(expected), (changed-set(expected), set(expected)-changed)
+          for name, sha in expected.items():
+              p = pathlib.Path(name)
+              if sha is None:
+                  assert not p.exists(), name
+              else:
+                  assert p.is_file() and hashlib.sha256(p.read_bytes()).hexdigest() == sha, name
+          subprocess.run(['git','add','-A','--',*expected], check=True)
+          print('Ten exact output files and one excerpt deletion verified; no history erasure claimed.')
+          PY
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- runtime/vnext/src runtime/vnext/dist .workflow-system VERSION package.json .github .d-review-fixes)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n' 'fix(vnext): preserve justified validation sets and generalize public examples' 'Resolve D review wording conflicts using whole-set detection, obligations and cost; preserve existing breadth authority. Replace target-project excerpts with generalized source-only patterns. No Runtime/gate/schema changes and no Git history rewrite. Focused guidance, contracts and package checks passed; independent Agent efficacy remains pending.' | git commit-tree "$tree" -p "$BASE_SHA")
+          branch="codex/d-review-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "$commit:refs/heads/$branch"
+          printf 'BASE_SHA=%s\nCOMMIT_SHA=%s\nTREE_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$commit" "$tree" "$branch" | tee "$RUNNER_TEMP/d-review-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" -f state=success -f context=validation-selection/review-fixes -f description='Whole-set guidance and generalized material guards/package checks passed; not Agent efficacy' -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf '## Verified D review candidate\n\n`%s`\n\nNo product branch changed by this workflow. No history purge or Agent efficacy claim.\n' "$commit" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: d-review-source
-          path: |
-            ${{ runner.temp }}/d-review-source.tgz
-            ${{ runner.temp }}/source-revision.txt
-          retention-days: 1
-          if-no-files-found: error
+          name: d-review-focused-verification
+          path: ${{ runner.temp }}/d-review-logs/
+          retention-days: 3
+          if-no-files-found: warn
