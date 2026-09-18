@@ -52,29 +52,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bun test test/vnext-runtime.test.ts --test-name-pattern 'process-control' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/process.log"
+          # Multi-transaction CLI scenarios perform real synchronous disk writes.
+          # The first hosted run finished all assertions but exceeded Bun's 5s default.
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'process-control' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/process.log"
       - name: Existing identity, evidence and recovery protections
         shell: bash
         run: |
           set -euo pipefail
-          bun test test/vnext-runtime.test.ts --test-name-pattern 'shared minimum-sufficient validation matrix|validation contract enforces replacement selection|S2 rule success|S2 consumes reproduction|S2 static evidence|a confirmed same-plan test error|same-plan recovery rejects|runs the ordinary draft|enforces confirmation authority|Task Basis retains|commits active supersede|supersede preserves the exact|cannot replay supersede|blocks an incident-shaped|provides a canonical claim-evidence migration|does not let step-progress replace|close-task derives validation truth|atomically closes active' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/core.log"
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'shared minimum-sufficient validation matrix|validation contract enforces replacement selection|S2 rule success|S2 consumes reproduction|S2 static evidence|a confirmed same-plan test error|same-plan recovery rejects|runs the ordinary draft|enforces confirmation authority|Task Basis retains|commits active supersede|supersede preserves the exact|cannot replay supersede|blocks an incident-shaped|provides a canonical claim-evidence migration|does not let step-progress replace|close-task derives validation truth|atomically closes active' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/core.log"
       - name: Authorized continuation and same-plan retry
         shell: bash
         run: |
           set -euo pipefail
-          bun test test/vnext-runtime.test.ts --test-name-pattern 'E[1-9]|scope amendment' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/authority.log"
-          bun test test/vnext-runtime.test.ts --test-name-pattern 'S4 retries' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/retry.log"
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'E[1-9]|scope amendment' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/authority.log"
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'S4 retries' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/retry.log"
       - name: Scope and source contracts
         shell: bash
         run: |
           set -euo pipefail
-          bun test test/vnext-mutation-scope.test.ts --test-name-pattern 'Mutation Authority v2' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/scope.log"
-          bun test test/workflow-vnext-source.test.ts --test-name-pattern 'contract|template|generated|draft|evidence' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/source.log"
+          bun test --timeout 60000 test/vnext-mutation-scope.test.ts --test-name-pattern 'Mutation Authority v2' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/scope.log"
+          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'contract|template|generated|draft|evidence' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/source.log"
       - name: Fixed package installation and Node CLI behavior
         shell: bash
         run: |
           set -euo pipefail
-          bun test test/vnext-runtime.test.ts --test-name-pattern 'fixed tgz installed Node CLI supports same-envelope discovery' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/installed-cli.log"
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern 'fixed tgz installed Node CLI supports same-envelope discovery' 2>&1 | tee "$RUNNER_TEMP/phase-a-logs/installed-cli.log"
       - name: Bind final files and publish a clean verified candidate
         id: publish
         shell: bash
