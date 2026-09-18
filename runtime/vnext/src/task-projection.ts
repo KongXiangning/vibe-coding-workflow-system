@@ -7,6 +7,8 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse, stringify } from 'yaml';
+import { isDeepStrictEqual } from 'node:util';
+import { projectionV3Body, projectionV3Frontmatter } from './task-projection-v3';
 import type { TaskStoreObject, TaskStoreObjectReference, TaskStoreObjectType } from './task-store';
 
 type RecordValue = Record<string, any>;
@@ -19,7 +21,6 @@ export type PreparedTaskContent = {
 export const ACTIVE_TASK_FORMAT = 'compact-v3' as const;
 const DYNAMIC_SECTIONS = new Set(['任务信息', 'Task Information', '执行记录', 'Execution Log', '审查问题队列', 'Review Queue', '传播治理记录', 'Propagation Governance']);
 const SLOT_STATE = ['disposition', 'evidence_refs', 'report', 'prerequisite_receipt', 'user_decision'] as const;
-const HOT_FIELDS = ['schema_version', 'task_id', 'task_slug', 'workflow_status', 'lifecycle_state', 'active_step_id', 'active_step_status', 'finding_queue_revision', 'resume_requires_review', 'resume_review_reasons'];
 const HASH = /^[a-f0-9]{64}$/u;
 const isRecord = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
 const without = (value: RecordValue, keys: readonly string[]): RecordValue => Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)));
@@ -43,32 +44,6 @@ function bodyParts(body: string): Array<{ title: string; text: string }> {
   headings.forEach((h, i) => parts.push({ title: h[1]!.trim(), text: body.slice(h.index!, headings[i + 1]?.index ?? body.length) }));
   return parts;
 }
-function excerpt(value: unknown, max = 180): string {
-  return typeof value === 'string' ? value.replace(/[\r\n|`]/gu, ' ').slice(0, max) : '';
-}
-function previewBody(body: string, runtime: RecordValue): string {
-  const active = String(runtime.active_step_id ?? '');
-  const parts = bodyParts(body);
-  const steps = parts.find(p => ['实施步骤', 'Implementation Steps'].includes(p.title))?.text ?? '';
-  const step = steps.split(/(?=^###\s)/mu).find(s => new RegExp(`^###\\s+${active.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}(?:[\\s:：.、—-]|$)`, 'mu').test(s));
-  const basis = parts.find(p => ['任务输入依据', 'Task Basis'].includes(p.title));
-  const due = (Array.isArray(runtime.claim_evidence) ? runtime.claim_evidence : []).flatMap((claim: RecordValue) =>
-    (Array.isArray(claim.slots) ? claim.slots : []).filter((slot: RecordValue) => slot.due_step_id === active).map((slot: RecordValue) =>
-      `- ${excerpt(claim.claim_id, 64)} / ${excerpt(slot.slot_id, 64)} / ${excerpt(slot.check?.check_id, 64)}: ${excerpt(slot.report?.status ?? slot.disposition ?? 'missing', 64)}${slot.user_decision ? `; decision=${excerpt(slot.user_decision.kind ?? slot.user_decision.decision_id, 64)}` : ''}`));
-  return [
-    '# CURRENT_TASK', '',
-    '> Runtime-generated active projection. References select the complete immutable definition and state.',
-    '> This summary is not an execution grant. Use task-context/task-read for exact obligations, authority and evidence.', '',
-    '## 当前步骤', `- ${excerpt(active)}${step ? ` — ${excerpt(step.split(/\r?\n/u)[0]!.replace(/^###\s*/u, ''))}` : ''}`,
-    `- workflow: ${excerpt(runtime.workflow_status)}; lifecycle: ${excerpt(runtime.lifecycle_state)}; step: ${excerpt(runtime.active_step_status)}`, '',
-    '## 当前到期证据', ...(due.length ? due : ['- none; inspect task-context for prerequisites and remaining obligations']), '',
-    ...(basis ? [basis.text.trimEnd(), ''] : []),
-    '## 精确读取', '- `task-context`: current definition, step, gates and dependencies (paged).',
-    '- `task-read`: exact definition, state, report, review and historical material.',
-    '- `task-export`: complete retained aggregate; no audit history is discarded.', '',
-  ].join('\n');
-}
-
 /** Split stable definitions from changing state, and intern exact large values.
  * We preserve author-written Markdown verbatim; no heuristic semantic rewriting.
  */
@@ -113,8 +88,7 @@ export function prepareTaskProjection(expandedContent: string): PreparedTaskCont
     claim_states: claimStates, dynamic_body: dynamicBody,
   });
   const binding = { ...without(fm.task_store, ['projection']), format: ACTIVE_TASK_FORMAT, projection: { definition, state } };
-  const hot = Object.fromEntries(HOT_FIELDS.filter(k => runtime[k] !== undefined).map(k => [k, runtime[k]]));
-  const content = `---\n${stringify({ schema_version: fm.schema_version, kind: fm.kind, document_id: fm.document_id, task_store: binding, runtime_state: hot }).trimEnd()}\n---\n${previewBody(body, runtime)}`;
+  const content = `---\n${stringify(projectionV3Frontmatter(fm, runtime, binding)).trimEnd()}\n---\n${projectionV3Body(body, runtime)}`;
   const expanded = `---\n${stringify({ ...fm, task_store: binding, runtime_state: runtime }).trimEnd()}\n---\n${body}`;
   return { content, expandedContent: expanded, objects: [...objects.values()] };
 }
@@ -162,7 +136,7 @@ export function persistTaskProjection(prepared: PreparedTaskContent, filePath: s
 }
 
 export function expandTaskProjection(raw: string, filePath: string, relativePath: string, prepared?: PreparedTaskContent): PreparedTaskContent {
-  const { frontmatter: fm } = frontmatterOf(raw);
+  const { frontmatter: fm, body: navigation } = frontmatterOf(raw);
   if (fm.task_store?.format !== ACTIVE_TASK_FORMAT) return { content: raw, expandedContent: raw, objects: [] };
   const { root, directory } = location(filePath, relativePath, fm.document_id);
   if (fm.task_store.manifest_path !== `${path.posix.dirname(relativePath)}/task-data/${fm.document_id}/manifest.json`) return invalid('manifest identity mismatch');
@@ -214,9 +188,15 @@ export function expandTaskProjection(raw: string, filePath: string, relativePath
     return text;
   }).join('');
   const expandedContent = `---\n${stringify({ ...definition.frontmatter, task_store: fm.task_store, runtime_state: runtime }).trimEnd()}\n---\n${body}`;
-  // Also binds the small summary and hot fields: there is no independently
-  // editable duplicate authority hidden in the readable projection.
-  const rebuilt = prepareTaskProjection(expandedContent);
-  if (rebuilt.content !== raw) return invalid('projection differs from its selected material');
+  // Validate the frozen v3 model, not today's writer/serializer bytes. Roots,
+  // hot fields and navigation still cannot drift; YAML quotation, key order
+  // and line endings alone are not evidence of a changed logical task.
+  const binding = { schema_version: 1, kind: 'vnext-current-task-store-binding', format: 'compact-v3',
+    manifest_path: fm.task_store.manifest_path,
+    history: { execution_log: 'task-store', applied_proposals: 'task-store' }, projection };
+  if (!isDeepStrictEqual(fm, projectionV3Frontmatter(definition.frontmatter, runtime, binding))
+    || navigation.replace(/\r\n/gu, '\n') !== projectionV3Body(body, runtime).replace(/\r\n/gu, '\n')) {
+    return invalid('projection differs from its selected material');
+  }
   return { content: raw, expandedContent, objects: [...objects.values()] };
 }

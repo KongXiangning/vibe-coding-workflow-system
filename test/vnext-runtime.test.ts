@@ -5,7 +5,7 @@ import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governanc
 import { prepareSuccessor, semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
 import { commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from '../runtime/vnext/src/task-evolution-io';
 import { commitTaskStorageMigration, TaskStore, taskStoreDefinitionRevision } from '../runtime/vnext/src/task-store';
-import { projectionJson } from '../runtime/vnext/src/task-projection';
+import { expandTaskProjection, projectionJson } from '../runtime/vnext/src/task-projection';
 import { taskRead, taskContextMigrationPreview, taskContextMigrationCommit } from '../runtime/vnext/src/task-context';
 import { reviewPreimageBlobPath } from '../runtime/vnext/src/review-preimage-store';
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -5952,6 +5952,112 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
   });
 
+  test('compact-v3 durable golden is reader-versioned and independent of YAML writer spelling', () => {
+    const fixture = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/compact-v3/afeec7b.json'), 'utf8'));
+    expect(fixture.producer_commit).toBe('afeec7b8f7eed0cbf9c11dd74544582acb78c25f');
+    const root = archivedBaselineRoot();
+    const raw: string = fixture.current_task;
+    const header = /^---\n([\s\S]*?)\n---\n/u.exec(raw)!;
+    const frontmatter = parse(header[1]!);
+    const material = path.join(root, 'docs/workflow/task-data', frontmatter.document_id, 'objects');
+    fs.mkdirSync(material, { recursive: true });
+    for (const object of fixture.objects) {
+      const hash = crypto.createHash('sha256').update(projectionJson(object)).digest('hex');
+      fs.writeFileSync(path.join(material, `${hash}.json`), projectionJson(object) + '\n');
+    }
+    const read = (content: string) => expandTaskProjection(content, path.join(root, fixture.relative_path), fixture.relative_path);
+    const modelDigest = (expanded: string) => {
+      const match = /^---\n([\s\S]*?)\n---\n/u.exec(expanded)!;
+      const fm = parse(match[1]!); delete fm.task_store;
+      return crypto.createHash('sha256').update(projectionJson({ frontmatter: fm, body: expanded.slice(match[0].length) })).digest('hex');
+    };
+    expect(modelDigest(read(raw).expandedContent)).toBe(fixture.logical_digest);
+    // Simulate a future serializer without generating the expected input with
+    // prepareTaskProjection: JSON is valid YAML, reordered and differently quoted.
+    const reordered = Object.fromEntries(Object.entries(frontmatter).reverse());
+    const alternate = `---\n${JSON.stringify(reordered, null, 2)}\n---\n${raw.slice(header[0].length)}`.replace(/\n/g, '\r\n');
+    expect(modelDigest(read(alternate).expandedContent)).toBe(fixture.logical_digest);
+    const wrong = structuredClone(reordered) as any;
+    wrong.runtime_state.active_step_status = 'completed';
+    expect(() => read(`---\n${JSON.stringify(wrong)}\n---\n${raw.slice(header[0].length)}`)).toThrow('TASK_PROJECTION_INVALID');
+    expect(() => read(raw.replace('K1: missing', 'K1: passed'))).toThrow('TASK_PROJECTION_INVALID');
+    const object = fixture.objects.find((x: any) => x.object_type === 'definition');
+    const hash = crypto.createHash('sha256').update(projectionJson(object)).digest('hex');
+    fs.writeFileSync(path.join(material, `${hash}.json`), JSON.stringify({ ...object, payload: {} }));
+    expect(() => read(raw)).toThrow('TASK_PROJECTION_INVALID');
+  });
+
+  test('storage migration preserves issued draft and execution receipts without weakening stale detection', () => {
+    for (const format of ['inline', 'compact-v2']) {
+      const draft = singleStepSemanticDraft();
+      draft.mutation_scope.allowed = ['README.md'];
+      draft.implementation_steps[0]!.mutation_scope = ['README.md'];
+      draft.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+      const root = archivedBaselineRoot();
+      prepareDraft(root, draft);
+      useLegacyInlineCurrent(root);
+      if (format === 'compact-v2') {
+        const old = readCanonicalCurrentTask(root);
+        const fm = structuredClone(old.frontmatter);
+        delete fm.runtime_state.execution_log; delete fm.runtime_state.applied_proposals;
+        fm.task_store = { schema_version: 1, kind: 'vnext-current-task-store-binding', format,
+          manifest_path: `docs/workflow/task-data/${old.sourceTuple.document_id}/manifest.json`,
+          history: { execution_log: 'task-store', applied_proposals: 'task-store' } };
+        const raw = `---\n${stringify(fm).trimEnd()}\n---\n${old.body}`;
+        fs.writeFileSync(old.filePath, raw);
+        TaskStore.forCurrent(root, old as any).ensureInitialized({ ...old, raw, frontmatter: fm,
+          sourceTuple: { ...old.sourceTuple, revision: crypto.createHash('sha256').update(raw).digest('hex') } } as any);
+      }
+      // Refine through the real adapter to obtain a legitimately issued legacy
+      // receipt, not a handcrafted replacement for one invalidated by storage.
+      const refined = prepareDraft(root, draft);
+      const receipt = refined.confirmation_receipt!;
+      const before = readCanonicalCurrentTask(root);
+      expect(before.frontmatter.task_store?.format).not.toBe('compact-v3');
+      expect(taskContextMigrationCommit(root, before.sourceTuple.revision).status).toBe('committed');
+      const migrated = readCanonicalCurrentTask(root);
+      expect(migrated.runtimeState).toEqual(before.runtimeState);
+      expect(taskStoreDefinitionRevision(migrated as any)).toBe(taskStoreDefinitionRevision(before as any));
+      // A cold compiled CLI must consume the original receipt and support retry.
+      const confirmed = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'confirm-draft', { confirmation_receipt: receipt });
+      expect(confirmed.status, confirmed.stderr + confirmed.stdout).toBe(0);
+      expect(confirmed.json.status).toBe('success');
+      expect(confirmDraft(root, { confirmation_receipt: receipt }).status).toBe('no-op');
+      useLegacyInlineCurrent(root);
+      const preflight = preflightStep(root, { candidate_paths: ['README.md'] });
+      fs.writeFileSync(path.join(root, 'README.md'), 'Approved product edit after preflight.\n');
+      const preMigration = readCanonicalCurrentTask(root);
+      expect(taskContextMigrationCommit(root, preMigration.sourceTuple.revision).status).toBe('committed');
+      expect(readCanonicalCurrentTask(root).runtimeState).toEqual(preMigration.runtimeState);
+      const result = { preflight_receipt: preflight.receipt, actual_changed_paths: ['README.md'],
+        command_results: draft.implementation_steps[0]!.commands.map(item => ({ command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+        validation_results: draft.implementation_steps[0]!.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+        acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Keep the original first-touch baseline across representation migration' };
+      const recorded = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'record-step-result', result);
+      expect(recorded.status, recorded.stderr + recorded.stdout).toBe(0);
+      expect(recorded.json.status).toBe('success');
+      expect(() => recordStepResult(root, { ...result, note: 'Do not reuse the old source after a real result transaction' })).toThrow('EXECUTE_PREFLIGHT_STALE');
+      // Review context is another already-issued receipt, not a new checkpoint.
+      useLegacyInlineCurrent(root);
+      const context = reviewContext(root, {});
+      taskContextMigrationCommit(root, readCanonicalCurrentTask(root).sourceTuple.revision);
+      expect(recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [],
+        unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Consume original review without rebuilding its target' }).status).toBe('success');
+    }
+    // Same definition is insufficient: a real draft update invalidates the old
+    // receipt even when followed by storage migration and equal final content.
+    const root = archivedBaselineRoot(); const draft = singleStepSemanticDraft();
+    prepareDraft(root, draft); useLegacyInlineCurrent(root);
+    const first = prepareDraft(root, draft).confirmation_receipt!;
+    prepareDraft(root, { ...draft, goal: 'A changed user-approved draft' });
+    const last = prepareDraft(root, draft).confirmation_receipt!;
+    taskContextMigrationCommit(root, last.draft_revision);
+    expect(() => confirmDraft(root, { confirmation_receipt: first })).toThrow('DRAFT_REVISION_CONFLICT');
+    expect(() => confirmDraft(root, { confirmation_receipt: { ...last, draft_revision: 'f'.repeat(64) } })).toThrow('DRAFT_REVISION_CONFLICT');
+    expect(confirmDraft(root, { confirmation_receipt: last }).status).toBe('success');
+  });
+
   test('active task projection retains exact large definitions, evidence and standalone material without inline duplication', () => {
     const root = archivedBaselineRoot();
     const longObservation = ('业务观察：生产者写入后消费者读取同一条记录；不得用局部成功替代。'.repeat(75));
@@ -8040,12 +8146,16 @@ describe('vNext Phase 2 Runtime contract', () => {
     }).status).toBe('success');
 
     // A later execute invocation reads only canonical state; it does not need reviewer chat context.
+    useLegacyInlineCurrent(root);
     const repair = beginRepair(root, {
       candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'runtime/vnext/src/kernel.ts'],
     });
     fs.writeFileSync(path.join(root, 'runtime', 'vnext', 'src', 'prepare-task-adapter.ts'), 'repaired adapter\n', 'utf8');
     fs.writeFileSync(path.join(root, 'runtime', 'vnext', 'src', 'kernel.ts'), 'repaired kernel\n', 'utf8');
     expect(repair.receipt.repair_fingerprints).toHaveLength(2);
+    const repairing = readCanonicalCurrentTask(root);
+    expect(taskContextMigrationCommit(root, repairing.sourceTuple.revision).status).toBe('committed');
+    expect(readCanonicalCurrentTask(root).runtimeState).toEqual(repairing.runtimeState);
     expect(recordStepResult(root, {
       preflight_receipt: repair.receipt,
       actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'runtime/vnext/src/kernel.ts'],
@@ -8800,6 +8910,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     })).toThrow('RESUME_READINESS_REVISION_CONFLICT');
     expect(fs.readFileSync(resumeCurrent.filePath, 'utf8')).toBe(resumeBytes);
 
+    // A source-bound readiness observation survives only a representation change.
+    expect(taskContextMigrationCommit(resumeRoot, resumeCurrent.sourceTuple.revision).status).toBe('committed');
+    expect(readCanonicalCurrentTask(resumeRoot).runtimeState).toEqual(resumeCurrent.runtimeState);
     const cleared = clearResumeReview(resumeRoot, { readiness_receipt: readinessReceipt });
     expect(cleared.status).toBe('success');
     expect(readCanonicalCurrentTask(resumeRoot).runtimeState.resume_requires_review).toBe(false);
@@ -9100,6 +9213,11 @@ describe('vNext Phase 2 Runtime contract', () => {
       ],
       persistent_tests: 'none',
     });
+    // This is a static document-audit fixture, not an unplanned execution.
+    for (const claim of input.claim_evidence) for (const slot of claim.slots) {
+      slot.minimum_type = 'static-inspection';
+      slot.check!.method = 'static'; slot.check!.expected_result = 'accepted'; delete slot.check!.selection;
+    }
     const root = confirmedSemanticRoot(input);
     fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
     fs.appendFileSync(path.join(root, '.workflow-system/PROJECT_PROFILE.yaml'), '    - docs/audit.md\n    - docs/other.md\n');
@@ -9122,7 +9240,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     for (const claim of claims) for (const slot of claim.slots) {
       slot.disposition = 'newly-executed';
       slot.evidence_refs = ['independent-evidence.txt'];
-      slot.report = { result_id: `result-${slot.check!.check_id}`, status: 'passed', evidence_plan_revision: confirmed.runtimeState.evidence_plan_revision!,
+      slot.report = { result_id: `result-${slot.check!.check_id}`, status: slot.check!.expected_result, evidence_plan_revision: confirmed.runtimeState.evidence_plan_revision!,
         subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision, actual_method: slot.check!.method,
         environment: 'isolated audit fixture', assurance: 'caller-reported' };
     }
@@ -9152,8 +9270,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(dismissEvidenceChallenge(root, assessment).status).toBe('no-op');
     expect(readCanonicalCurrentTask(root).runtimeState.evidence_challenges?.[1]?.resolution?.kind).toBe('not-substantiated');
     expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence?.[1]?.slots[0]?.report?.result_id).toBe('result-K2');
-    const challengedCurrent = readCanonicalCurrentTask(root);
-    const challengedBytes = fs.readFileSync(challengedCurrent.filePath);
+    useLegacyInlineCurrent(root);
+    let challengedCurrent = readCanonicalCurrentTask(root);
+    let challengedBytes = fs.readFileSync(challengedCurrent.filePath);
     const candidateInput = { challenge_id: challengeId, correction_step: { id: 'S3-C1', description: 'Recheck challenged public cursor conclusion',
       mutation_scope: ['docs/audit.md'], required_evidence: ['Targeted public cursor observation'], commands: [] } };
     const candidate = prepareCorrectionReplan(root, candidateInput);
@@ -9161,6 +9280,11 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(challengedCurrent.sourceTuple.revision);
     expect(() => prepareCorrectionReplan(root, { ...candidateInput, correction_step: { ...candidateInput.correction_step, mutation_scope: ['src/login.ts'] } })).toThrow('REPLAN_SCOPE_EXPANSION');
     const receipt = candidate.candidate_receipt;
+    expect(taskContextMigrationCommit(root, receipt.source_revision).status).toBe('committed');
+    challengedCurrent = readCanonicalCurrentTask(root);
+    challengedBytes = fs.readFileSync(challengedCurrent.filePath);
+    const summary = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'validate', undefined);
+    expect(summary.status, summary.stderr + summary.stdout).toBe(0);
     const authorization = { approved_candidate_digest: receipt.candidate_digest, decision_source: 'user:explicit-correction',
       decision_text: 'Approve only S3-C1 correction of the challenged result before original S4; preserve all original audit obligations.',
       invalidation_reason: 'Independent counterevidence invalidates the old public cursor conclusion.' };

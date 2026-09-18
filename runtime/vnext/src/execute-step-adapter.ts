@@ -11,6 +11,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  taskSourceRevisionMatches,
   executeConfirmedArtifactRestore,
   listArtifactCheckpoints,
   GovernanceTransactionKernel,
@@ -647,11 +648,11 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
   };
 }
 
-function assertCurrentReceipt(current: CanonicalCurrentTask, stepPlan: StepPlan, receipt: AnyExecuteStepPreflightReceipt): void {
+function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepPlan: StepPlan, receipt: AnyExecuteStepPreflightReceipt): void {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
     fail('EXECUTE_PREFLIGHT_IDENTITY_CONFLICT', 'preflight receipt does not identify the current task document.');
   }
-  if (receipt.source_revision !== current.sourceTuple.revision) {
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) {
     const expectedRepairBookkeeping = receipt.kind === 'execute-step-repair-preflight/v1'
       && current.runtimeState.pending_review_result?.review_id === receipt.review_id
       && receipt.repair_fingerprints.every(fingerprint => {
@@ -1095,7 +1096,7 @@ export function extendPreflight(
   if (receipt.mode === 'default') assertOrdinaryPreflight(current, root);
   else assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
-  assertCurrentReceipt(current, stepPlan, receipt);
+  assertCurrentReceipt(root, current, stepPlan, receipt);
   const additionalTargets = pathList(source.additional_targets, 'additional_targets', false);
   if (additionalTargets.some(target => receipt.candidate_paths.includes(target))) {
     fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', 'additional_targets must not repeat an already preflighted path.');
@@ -1547,7 +1548,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   }
   assertExecutableTask(current);
   let stepPlan = currentStepPlan(current);
-  assertCurrentReceipt(current, stepPlan, receipt);
+  assertCurrentReceipt(root, current, stepPlan, receipt);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths', root, [], receipt.mode, receipt.execution_phase);
@@ -1926,7 +1927,7 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
         exactKeys(source, ['preflight_receipt'], 'apply-artifact-restore');
         const receipt = normalizePreflightReceipt(source.preflight_receipt);
         const current = readCanonicalCurrentTask(args.root);
-        assertCurrentReceipt(current, currentStepPlan(current), receipt);
+        assertCurrentReceipt(root, current, currentStepPlan(current), receipt);
         result = executeConfirmedArtifactRestore(args.root, current.sourceTuple.revision, receipt.step_id, receipt.candidate_paths, args.dryRun);
         break;
       }

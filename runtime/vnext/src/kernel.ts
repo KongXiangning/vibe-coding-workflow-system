@@ -29,7 +29,7 @@ import {
 } from './runtime-io';
 import { assertTaskHistoryForRevision, commitSupersedeWithHistory, commitTaskEvolutionWithHistory,
   publishPreparedSuccessor, recoverTaskEvolution, taskHistoryLocation } from './task-evolution-io';
-import { TaskStore, TaskStoreError, taskStorePaths, type TaskStoreManifest, type TaskStorePendingWrite } from './task-store';
+import { TaskStore, TaskStoreError, readStorageMigrationLineage, migrationSemanticModel, taskStorePaths, type TaskStoreManifest, type TaskStorePendingWrite } from './task-store';
 import {
   CURRENT_TASK_WORKFLOW_STATUSES,
   RESUME_REVIEW_REASON_ORDER,
@@ -2455,7 +2455,9 @@ function validateTaskStoreContract(value: unknown): void {
     material: 'immutable-content-addressed-definition-state-reports',
     history: 'preserve-exact-preimages-events-and-idempotency',
     legacy: 'read-without-rewrite-and-explicit-storage-migration',
-    admission: 'no-size-quota-or-business-transition' };
+    admission: 'no-size-quota-or-business-transition',
+    receipt_continuity: 'committed-storage-only-lineage-and-equal-logical-state',
+    wire_compatibility: 'frozen-v3-model-not-current-serializer-bytes' };
   if (digest(projection) !== digest(expected)) fail('RUNTIME_CONTRACT_INVALID', 'task projection must preserve the canonical aggregate and legacy semantics.');
 }
 
@@ -8317,6 +8319,23 @@ function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativ
   return { filePath, relativePath, raw, frontmatter, body, runtimeState, mutationAuthority, sourceTuple };
 }
 
+/** Business receipt compatibility only. Paging and optimistic writes retain
+ * their exact physical revisions. Both ends use the canonical parser so legacy
+ * omitted defaults and normalized enums cannot accidentally revoke receipts.
+ * All state, authority, identity and definition fields must still agree; a
+ * matching definition alone is insufficient to bridge a migration.
+ */
+export function taskSourceRevisionMatches(root: string, current: CanonicalCurrentTask, sourceRevision: string): boolean {
+  if (sourceRevision === current.sourceTuple.revision) return true;
+  const preimages = readStorageMigrationLineage(root, current, sourceRevision);
+  if (!preimages) return false;
+  const expected = digest(migrationSemanticModel(current));
+  return preimages.every(raw => {
+    const previous = parseCanonicalCurrentTaskContent(raw, current.filePath, current.relativePath);
+    return digest(migrationSemanticModel(previous)) === expected;
+  });
+}
+
 function hydrateCompactRuntimeHistory(root: string, current: CanonicalCurrentTask): void {
   const binding = current.frontmatter.task_store as CurrentTaskStoreBinding;
   const store = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
@@ -11427,7 +11446,7 @@ function correctionCandidateLocation(current: CanonicalCurrentTask, candidateDig
   return { filePath, relativePath: path.posix.join(path.posix.dirname(current.relativePath), 'task-candidates', current.sourceTuple.document_id, `${candidateDigest}.json`) };
 }
 
-function pendingCorrectionCandidates(current: CanonicalCurrentTask): Array<{ candidate_digest: string; candidate_path: string; valid: boolean }> {
+function pendingCorrectionCandidates(root: string, current: CanonicalCurrentTask): Array<{ candidate_digest: string; candidate_path: string; valid: boolean }> {
   const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
   if (!fs.existsSync(directory)) return [];
   const names = fs.readdirSync(directory).filter(item => /^[a-f0-9]{64}\.json$/u.test(item));
@@ -11438,7 +11457,7 @@ function pendingCorrectionCandidates(current: CanonicalCurrentTask): Array<{ can
     if (fs.existsSync(`${location.filePath}.discarded`)) return [];
     try {
       const value = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as CorrectionCandidate & { candidate_digest: string };
-      if (value.source_revision !== current.sourceTuple.revision || value.document_id !== current.sourceTuple.document_id) return [];
+      if (!taskSourceRevisionMatches(root, current, value.source_revision) || value.document_id !== current.sourceTuple.document_id) return [];
       const { candidate_digest: _marker, ...payload } = value;
       return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath,
         valid: value.candidate_digest === candidateDigest && digest(payload) === candidateDigest }];
@@ -12330,7 +12349,7 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
   }
   if (!['active', 'blocked_by_replan'].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== 'active') fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment commit requires active or blocked_by_replan + active.');
   if (current.runtimeState.resume_requires_review) fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment commit cannot clear a resume-review gate.');
-  if (current.sourceTuple.revision !== sourceRevision) fail('SCOPE_AMENDMENT_SOURCE_STALE', 'CURRENT_TASK changed after scope-amendment preparation.');
+  if (!taskSourceRevisionMatches(root, current, sourceRevision)) fail('SCOPE_AMENDMENT_SOURCE_STALE', 'CURRENT_TASK changed after scope-amendment preparation.');
   const basis = readCanonicalTaskBasis(root, current);
   if (basis.revision !== basisRevision || (current.runtimeState.evidence_plan_revision ?? oldPlanRevision) !== oldPlanRevision || digest(correctionObligations(current)) !== obligationsDigest) fail('SCOPE_AMENDMENT_OBLIGATIONS_STALE', 'Task Basis, plan revision, or old obligations changed after candidate preparation.');
   if (!fs.existsSync(location.filePath) || fs.existsSync(`${location.filePath}.discarded`)) fail('SCOPE_AMENDMENT_CANDIDATE_MISSING', 'Scope-amendment candidate is absent or discarded.');
@@ -12338,7 +12357,10 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
   if (saved.candidate_digest !== candidateDigest) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Candidate digest marker differs.');
   const { candidate_digest: _marker, ...storedCandidate } = saved;
   if (digest(storedCandidate) !== candidateDigest) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Candidate content changed after preparation.');
-  const rebuilt = buildScopeAmendmentCandidate(root, current, normalizeScopeAmendmentInput(saved.input, { allowExistingWildcardScope: true }));
+  // Rebuild the immutable candidate with its original source coordinate only
+  // after proving storage-only lineage. Publish against the physical current.
+  const candidateSource = { ...current, sourceTuple: { ...current.sourceTuple, revision: sourceRevision } };
+  const rebuilt = buildScopeAmendmentCandidate(root, candidateSource, normalizeScopeAmendmentInput(saved.input, { allowExistingWildcardScope: true }));
   const rebuiltAuthorityDiff = rebuilt.authority_diff ?? null;
   const rebuiltPersistentAdmissionPaths = rebuilt.persistent_test_admission
     ? { added_paths: rebuilt.persistent_test_admission.added.map(item => item.path) }
@@ -12767,7 +12789,7 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
   } else if (approval.reactivate_superseded !== undefined) {
     fail('REPLAN_CONFIRMATION_INVALID', 'An active task cannot carry superseded-reactivation approval.');
   }
-  if (current.sourceTuple.revision !== receipt.source_revision) fail('REPLAN_SOURCE_STALE', 'CURRENT_TASK changed after candidate preparation.');
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision as string)) fail('REPLAN_SOURCE_STALE', 'CURRENT_TASK changed after candidate preparation.');
   const basis = readCanonicalTaskBasis(root, current);
   if (basis.revision !== receipt.basis_revision || digest(correctionObligations(current)) !== receipt.obligations_digest) fail('REPLAN_OBLIGATIONS_STALE', 'Task Basis or old obligations changed after candidate preparation.');
   if (!fs.existsSync(location.filePath) || fs.existsSync(`${location.filePath}.discarded`)) fail('REPLAN_CANDIDATE_MISSING', 'Candidate is absent or discarded.');
@@ -12775,10 +12797,21 @@ function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options:
   if (saved.candidate_digest !== candidateDigest) fail('REPLAN_CANDIDATE_INVALID', 'Candidate digest marker differs.');
   const { candidate_digest: _marker, ...storedCandidate } = saved;
   if (digest(storedCandidate) !== candidateDigest) fail('REPLAN_CANDIDATE_INVALID', 'Candidate content changed after preparation.');
-  const rebuilt = buildCorrectionCandidate(root, current, normalizeCorrectionInput(saved.input));
+  // Preserve the user's exact candidate digest across storage-only changes.
+  const candidateSource = { ...current, sourceTuple: { ...current.sourceTuple, revision: receipt.source_revision as string } };
+  const rebuilt = buildCorrectionCandidate(root, candidateSource, normalizeCorrectionInput(saved.input));
   if (digest(rebuilt) !== candidateDigest || rebuilt.new_plan_revision !== receipt.new_plan_revision
     || rebuilt.old_obligations_digest !== receipt.obligations_digest || rebuilt.basis_revision !== receipt.basis_revision) {
     fail('REPLAN_CANDIDATE_STALE', 'Candidate no longer matches the Runtime-computed source, obligations, and evidence.');
+  }
+  // The confirmation history records today's physical predecessor. Carry
+  // proofs derived from the candidate source must reference that exact retained
+  // preimage; existing older proof origins are not rewritten.
+  if (receipt.source_revision !== current.sourceTuple.revision) {
+    rebuilt.carry_forward = rebuilt.carry_forward.map(proof => ({ ...proof,
+      old_source_revision: proof.old_source_revision === receipt.source_revision ? current.sourceTuple.revision : proof.old_source_revision,
+      receiving_source_revision: proof.receiving_source_revision === receipt.source_revision ? current.sourceTuple.revision : proof.receiving_source_revision,
+    }));
   }
   if (current.runtimeState.workflow_status !== 'blocked_by_replan' && current.runtimeState.active_step_status !== 'completed' && current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts.length) fail('REPLAN_ACTIVE_ATTEMPT_PRESENT', 'Suspend the retained current attempt before preparing its recovery.');
   const challenges = (current.runtimeState.evidence_challenges ?? []).filter(item => rebuilt.input.challenge_ids.includes(item.challenge_id));
@@ -12972,7 +13005,7 @@ export function executeConfirmedArtifactRestore(root: string, sourceRevision: st
   return withGovernanceWriteLock(root, () => {
     if (!dryRun) recoverPendingTaskStoreCommit(root);
     const current = readCanonicalCurrentTask(root);
-    if (current.sourceTuple.revision !== sourceRevision || current.runtimeState.active_step_id !== stepId) fail('ARTIFACT_RESTORE_STALE', 'Preflight task source changed.');
+    if (!taskSourceRevisionMatches(root, current, sourceRevision) || current.runtimeState.active_step_id !== stepId) fail('ARTIFACT_RESTORE_STALE', 'Preflight task source changed.');
     assertOrdinaryPreflight(current, root);
     const audit = current.runtimeState.execution_log.findLast(item => 'action' in item && item.action === 'commit-replan');
     if (!audit || !('candidate_digest' in audit) || !audit.candidate_digest) fail('ARTIFACT_RESTORE_UNAUTHORIZED', 'No confirmed recovery candidate.');
@@ -13094,8 +13127,11 @@ function challengeReportIsRetained(root: string, current: CanonicalCurrentTask, 
     // The selected challenges can refer to older reports than the one this
     // batch actually replaced. Preserve both relationships, using the verified
     // source preimage rather than caller-supplied lineage or current state.
-    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, candidate.source_revision, 'confirm-replan');
-    const historyPath = path.join(path.dirname(current.filePath), 'task-history', current.sourceTuple.document_id, `${candidate.source_revision}.json`);
+    const confirmation = current.runtimeState.execution_log.find(entry => 'action' in entry && entry.action === 'commit-replan' && entry.candidate_digest === digest(candidate));
+    if (!confirmation || !('source_revision' in confirmation)) fail('RECOVERY_HISTORY_CORRUPT', 'Recovery candidate has no committed confirmation source.');
+    const historyRevision = confirmation.source_revision;
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, historyRevision, 'confirm-replan');
+    const historyPath = path.join(path.dirname(current.filePath), 'task-history', current.sourceTuple.document_id, `${historyRevision}.json`);
     const history = JSON.parse(fs.readFileSync(safeRepositoryFile(root, path.relative(root, historyPath).replace(/\\/g, '/')), 'utf8'));
     const source = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, 'base64').toString('utf8'), current.filePath, current.relativePath);
     const replaced = source.runtimeState.claim_evidence?.find(item => item.claim_id === challenge.claim_id)?.slots.find(item => item.slot_id === challenge.slot_id)?.report;
@@ -13483,7 +13519,9 @@ function assertDraftTaskReplay(root: string, current: CanonicalCurrentTask, prop
     if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
       fail('RUNTIME_REPLAY_INCOMPLETE', 'confirm-draft replay no longer has the active + active tuple.');
     }
-    if (confirmDelta.draft_revision !== proposal.source_tuple.revision || audit.draft_revision !== confirmDelta.draft_revision) {
+    // The exact committed proposal/audit already binds the physical write source;
+    // its approved draft source may precede an admitted storage migration.
+    if (audit.draft_revision !== confirmDelta.draft_revision) {
       fail('RUNTIME_REPLAY_INCOMPLETE', 'confirm-draft replay no longer matches the exact draft revision.');
     }
   }
@@ -14009,7 +14047,7 @@ function applyTaskStateDelta(
       if (auth.document_id !== current.sourceTuple.document_id) {
         fail('DRAFT_IDENTITY_CONFLICT', `confirm-draft authority document_id ${auth.document_id} does not match current document ${current.sourceTuple.document_id}.`);
       }
-      if (auth.draft_revision !== current.sourceTuple.revision) {
+      if (!taskSourceRevisionMatches(root, current, auth.draft_revision)) {
         fail('DRAFT_REVISION_CONFLICT', `confirm-draft authority draft_revision ${auth.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
       }
     }
@@ -14019,7 +14057,7 @@ function applyTaskStateDelta(
     if (delta.task_id !== current.runtimeState.task_id || delta.task_slug !== current.runtimeState.task_slug || delta.document_id !== current.sourceTuple.document_id) {
       fail('DRAFT_IDENTITY_CONFLICT', 'confirm-draft identity does not match the current draft.');
     }
-    if (delta.draft_revision !== current.sourceTuple.revision) {
+    if (!taskSourceRevisionMatches(root, current, delta.draft_revision)) {
       fail('DRAFT_REVISION_CONFLICT', 'confirm-draft must bind the exact current draft source revision.');
     }
     if (current.runtimeState.active_step_status !== 'ready') {
@@ -14058,7 +14096,7 @@ function applyTaskStateDelta(
       if (auth.task_id !== current.runtimeState.task_id || auth.document_id !== current.sourceTuple.document_id) {
         fail('RESUME_READINESS_IDENTITY_CONFLICT', 'clear-resume-review-gate caller authority does not identify the current task document.');
       }
-      if (auth.source_revision !== current.sourceTuple.revision) {
+      if (!taskSourceRevisionMatches(root, current, auth.source_revision)) {
         fail('RESUME_READINESS_REVISION_CONFLICT', 'clear-resume-review-gate caller authority does not bind the exact current source revision.');
       }
     }
@@ -18305,7 +18343,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
           evidence_plan_revision: state.evidence_plan_revision ?? null,
           task_evolution_version: state.task_evolution_version ?? null,
           preservation_initialization_required: state.task_evolution_version !== 2,
-          pending_replan_candidates: pendingCorrectionCandidates(current),
+          pending_replan_candidates: pendingCorrectionCandidates(args.root, current),
           carried_evidence_slots: (state.evidence_carry_forward ?? []).map(item => ({ claim_id: item.claim_id, slot_id: item.slot_id, old_result_id: item.result_id })),
           unresolved_evidence_challenges: (state.evidence_challenges ?? []).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id, claim_id: item.claim_id, slot_id: item.slot_id, result_id: item.result_id, correction_step_id: item.correction_step_id })) },
       } : { status: 'success', source_tuple: current.sourceTuple, runtime_state: state, ...documentContext, ...(args.deep ? { validation_scope: 'aggregate-and-full-history', storage_validation: storageValidation } : {}) };

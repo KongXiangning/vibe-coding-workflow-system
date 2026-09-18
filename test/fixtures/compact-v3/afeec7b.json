@@ -1,0 +1,533 @@
+{
+  "producer_commit": "afeec7b8f7eed0cbf9c11dd74544582acb78c25f",
+  "relative_path": "docs/workflow/CURRENT_TASK.md",
+  "current_task": "---\nschema_version: 1\nkind: vnext-current-task\ndocument_id: doc-c747e71e76e1d7706de042ea\ntask_store:\n  schema_version: 1\n  kind: vnext-current-task-store-binding\n  format: compact-v3\n  manifest_path: docs/workflow/task-data/doc-c747e71e76e1d7706de042ea/manifest.json\n  history:\n    execution_log: task-store\n    applied_proposals: task-store\n  projection:\n    definition:\n      object_type: definition\n      sha256: 28e2d34860b74f81b49de866501b0a0fbadf3f2dd9bb039d4b316f64f2e2c9ab\n    state:\n      object_type: state\n      sha256: d8918e32a0808368fba450284096cb6474a4d6e40614b5c20cbe55de89b488d0\nruntime_state:\n  schema_version: 1\n  task_id: \"001\"\n  task_slug: add-the-prepare-task-runtime-adapter\n  workflow_status: draft\n  lifecycle_state: active\n  active_step_id: step-1\n  active_step_status: ready\n  finding_queue_revision: 0\n  resume_requires_review: false\n  resume_review_reasons: []\n---\n# CURRENT_TASK\n\n> Runtime-generated active projection. References select the complete immutable definition and state.\n> This summary is not an execution grant. Use task-context/task-read for exact obligations, authority and evidence.\n\n## 当前步骤\n- step-1\n- workflow: draft; lifecycle: active; step: ready\n\n## 当前到期证据\n- A1 / a1 / K1: missing\n\n## 任务输入依据\n\n- path: `docs/workflow/task-basis/TASK_BASIS-001.md`\n- revision: `56257336c9a72172e65605b98033fdf93715ae7f64902f52bb63646a111e0864`\n\n## 精确读取\n- `task-context`: current definition, step, gates and dependencies (paged).\n- `task-read`: exact definition, state, report, review and historical material.\n- `task-export`: complete retained aggregate; no audit history is discarded.\n",
+  "objects": [
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "definition",
+      "payload": {
+        "claim_definitions": [
+          {
+            "ref": {
+              "object_type": "other",
+              "sha256": "1642cd0c4ab3658159acbc64f2690eb4367b9d865f962914ab0e1705a79bf8ca"
+            }
+          }
+        ],
+        "frontmatter": {
+          "document_id": "doc-c747e71e76e1d7706de042ea",
+          "kind": "vnext-current-task",
+          "schema_version": 1
+        },
+        "kind": "vnext-active-definition/v1",
+        "sections": [
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "84cdf162c5c64c0efb5485754dfcd3827ec4270c01e3c17104d3465f7860d516"
+              }
+            }
+          },
+          {
+            "dynamic": 1
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "c870f1c09fc179a673ecfedddc549b99da2020edfe8ce861a88086db925892b7"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "94c33fff0791ebdf8c2ea64be1adc1b86d15661cde47f9df2ee6fa46ad539016"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "a137a9530d47e2b80f111e607f30c0c206769dd9a0239de55dcda51d30d151dc"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "6e9586ef4bc071a0cad28fb98c15a35e85dfc3929dab13108d0494ccc8482ab5"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "cbfa52fe6b4bfb73070bd0ec06e02a2c8ba1b4808d1d2eeaf57dda4b5c73d60b"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "1fdbed3a8ab25c5d4173e853e301ac0fc24f7b4fc4b5872a13c6396e3d9c904a"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "9ea067d016473cb07276ad0395bd6547b77134e1e9424e134acd8bbd2121f599"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "a276bff3bcce26e126ec53c8e7208932e856e700231f110bb0ebb872478958a3"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "f946df113721f5c9e87dd0b2e50f588c546eb97e188e198e6864efb6670e2db9"
+              }
+            }
+          },
+          {
+            "dynamic": 11
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "ac9c21c05738c9992e9d4d67c2ed895c21208d3fa92ac0c9641e676a7e98c705"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "62e0d984860998789e9d8ebe3215d39e361cde8d5ccc74aec8291565c1af8391"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "18f9578e0aa2da5ccb5f2320936c400aa7d22150bade9039f8fe131917313607"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "376a8617c880e4bbd09708dfa5f0af83529fff2052ed17d7e097456da335368c"
+              }
+            }
+          },
+          {
+            "text": {
+              "ref": {
+                "object_type": "other",
+                "sha256": "8f2fbd2692cf9344889a9bc4215bd0cd3ddf51d04470b49c2a4f6fba5c68a6f0"
+              }
+            }
+          },
+          {
+            "dynamic": 17
+          }
+        ]
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "state",
+      "payload": {
+        "claim_states": [
+          {
+            "claim_id": "A1",
+            "slots": [
+              {
+                "fields": {
+                  "disposition": {
+                    "value": "missing"
+                  },
+                  "evidence_refs": {
+                    "value": []
+                  },
+                  "report": {
+                    "value": null
+                  }
+                },
+                "slot_id": "a1"
+              }
+            ]
+          }
+        ],
+        "definition": {
+          "object_type": "definition",
+          "sha256": "28e2d34860b74f81b49de866501b0a0fbadf3f2dd9bb039d4b316f64f2e2c9ab"
+        },
+        "dynamic_body": {
+          "1": {
+            "ref": {
+              "object_type": "other",
+              "sha256": "0d37913fc969cfcd251b6e0eadd69902e260932d210d3a3492b30d9efaf314d9"
+            }
+          },
+          "11": {
+            "ref": {
+              "object_type": "other",
+              "sha256": "d2dc888b908fce6ee2ddcf316f13b1be881e9bb82c1d1fefeab40aec79e2a04b"
+            }
+          },
+          "17": {
+            "ref": {
+              "object_type": "other",
+              "sha256": "bd8085307518eff9e131d040e5024f10c83fb5eb52ee1556ac5766b950ec6c1c"
+            }
+          }
+        },
+        "kind": "vnext-active-state/v1",
+        "runtime": {
+          "active_step_id": {
+            "value": "step-1"
+          },
+          "active_step_status": {
+            "value": "ready"
+          },
+          "business_evidence_version": {
+            "value": 1
+          },
+          "claim_evidence_required": {
+            "value": true
+          },
+          "evidence_plan_revision": {
+            "value": "01bfd1c47f689b956768258d70e11b7b7d952d85d9fa613e00e6c1a50b8c26a1"
+          },
+          "finding_queue_revision": {
+            "value": 0
+          },
+          "findings": {
+            "value": []
+          },
+          "kind": {
+            "value": "vnext-current-task-runtime-state"
+          },
+          "lifecycle_state": {
+            "value": "active"
+          },
+          "pending_review_result": {
+            "value": null
+          },
+          "resume_requires_review": {
+            "value": false
+          },
+          "resume_review_reasons": {
+            "value": []
+          },
+          "review_coverage": {
+            "value": {
+              "base": {
+                "entries": [],
+                "kind": "runtime-file-manifest/v1",
+                "revision": "953ab64119b2d8f23c0f23468882cd552244814f8c603da87d027b38f88d8829"
+              },
+              "change_set_id": "change-set-01bfd1c47f689b956768258d70e11b7b",
+              "last_clean_revision": null,
+              "pending_paths": [],
+              "preimages": [],
+              "target": {
+                "entries": [],
+                "kind": "runtime-file-manifest/v1",
+                "revision": "953ab64119b2d8f23c0f23468882cd552244814f8c603da87d027b38f88d8829"
+              }
+            }
+          },
+          "review_cycle": {
+            "value": {
+              "active_repair_wave_id": null,
+              "counted_repair_wave_ids": [],
+              "cycle_phase": "discovery",
+              "id": "review-cycle-0",
+              "repair_round": 0,
+              "verification_new_finding_wave_id": null,
+              "verification_new_finding_wave_used": false
+            }
+          },
+          "schema_version": {
+            "value": 1
+          },
+          "task_evolution_version": {
+            "value": 2
+          },
+          "task_id": {
+            "value": "001"
+          },
+          "task_slug": {
+            "value": "add-the-prepare-task-runtime-adapter"
+          },
+          "workflow_status": {
+            "value": "draft"
+          }
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": {
+          "claim_id": "A1",
+          "claim_kind": "acceptance",
+          "requirement": "The semantic adapter persists and reads back a canonical draft",
+          "slots": [
+            {
+              "applicability": "current",
+              "check": {
+                "allowed_substitutes": [
+                  "isolated filesystem fixture"
+                ],
+                "boundary": "local",
+                "check_id": "K1",
+                "entry": "bun test test/vnext-runtime.test.ts",
+                "expected_observation": "The semantic adapter persists and reads back a canonical draft",
+                "expected_result": "passed",
+                "method": "execution",
+                "required_boundaries": [
+                  "Runtime transaction"
+                ],
+                "selection": {
+                  "breadth_basis": null,
+                  "breadth_reason": null,
+                  "breadth_source_ref": null,
+                  "granularity": "focused",
+                  "invocation": {
+                    "argv": [
+                      "bun",
+                      "test",
+                      "test/vnext-runtime.test.ts"
+                    ],
+                    "selector_arg_index": 2
+                  },
+                  "selection_reason": "The isolated Runtime fixture directly observes this local adapter claim.",
+                  "selector": "test/vnext-runtime.test.ts"
+                },
+                "subject_paths": [
+                  "src/login.ts"
+                ]
+              },
+              "due_step_id": "step-1",
+              "minimum_type": "focused-test",
+              "slot_id": "a1"
+            }
+          ],
+          "source_ref": "test:original-request"
+        }
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "# vNext CURRENT_TASK\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 任务信息\n\n- 任务 ID：001\n- 任务标题：Add the prepare-task Runtime adapter\n- 任务 slug：add-the-prepare-task-runtime-adapter\n- 当前状态：draft\n- 生命周期状态：active\n- 恢复需审查：false\n- 恢复审查原因：\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 任务输入依据\n\n- path: `docs/workflow/task-basis/TASK_BASIS-001.md`\n- revision: `56257336c9a72172e65605b98033fdf93715ae7f64902f52bb63646a111e0864`\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 背景与上下文\n\n### Goal\n\nAdd the prepare-task Runtime adapter\n\n### Out of scope\n\n- Do not refactor unrelated Runtime handlers\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 验收标准\n\n- [ ] The semantic adapter persists and reads back a canonical draft\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 允许修改范围\n\n### Read / discovery context\n\n- none\n\n### Allowed Files\n\n- `runtime/vnext/src/prepare-task-adapter.ts`\n\n### Conditional Files\n\n- none\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 禁止修改范围\n\n### Forbidden Files\n\n- `.git/**`\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 受影响的契约\n\n- none\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 已确认决策\n\n- Keep persistent tests in existing scope and regression sections\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 待确认问题\n\n- none\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 实现方案\n\n- step-1: Implement and verify the semantic adapter fixture\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 传播治理记录\n\n\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 实施步骤\n\n- step-1: Implement and verify the semantic adapter fixture\n  - purpose: Implement and verify the semantic adapter fixture\n  - mutation_scope: runtime/vnext/src/prepare-task-adapter.ts\n  - required_evidence: bun test test/vnext-runtime.test.ts passes\n  - review_checkpoint: required: Review this logical boundary against the confirmed task\n  - planned_command: bun test test/vnext-runtime.test.ts\n    - expected_repo_writes: none\n    - transformation_kind: localized\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 回归检查项\n\n### Test Strategy\n\n- mode: flexible\n- source: inferred-default\n- source_ref: prepare-task-default\n- task_classification: exploratory-or-infrastructure\n- rationale: The fixture exercises Runtime infrastructure before stable persistent assertions are introduced.\n\n### Validation Plan\n\n- [ ] Run the focused vNext Runtime test suite\n\n### Persistent Tests\n\n- none\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 回滚点\n\n- Revert only the current step changes if its required validation cannot pass.\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 设计约束\n\n\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 发布后验证\n\n\n\n"
+      },
+      "schema_version": 1
+    },
+    {
+      "document_id": "doc-c747e71e76e1d7706de042ea",
+      "kind": "vnext-task-object",
+      "object_type": "other",
+      "payload": {
+        "kind": "vnext-task-material/v1",
+        "value": "## 执行记录\n\n- Store-backed history is retained under task-data; use task-read for exact event, proposal, result, and report reads.\n- This section is a bounded navigation preview only; it is not the Runtime fact source.\n\n- create-draft | key=prepare-draft-commit-6111016bd36aaed8e15dd9d34e6f2a82d2da939000fe488f | at=2026-09-18T17:16:10.603Z\n\n"
+      },
+      "schema_version": 1
+    }
+  ],
+  "logical_digest": "64bcbc91f8e39c6ae09ad1c56f1e75eeccaeb63394bc8e4c29c00b11c4f5b98f"
+}

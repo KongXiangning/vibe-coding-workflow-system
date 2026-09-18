@@ -96,6 +96,8 @@ task_store:
     history: preserve-exact-preimages-events-and-idempotency
     legacy: read-without-rewrite-and-explicit-storage-migration
     admission: no-size-quota-or-business-transition
+    receipt_continuity: committed-storage-only-lineage-and-equal-logical-state
+    wire_compatibility: frozen-v3-model-not-current-serializer-bytes
 
 proposal:
   schema_version: 1

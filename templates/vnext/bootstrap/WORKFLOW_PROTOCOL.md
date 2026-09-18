@@ -381,6 +381,11 @@ belongs to the same canonical aggregate and is resolved through task-context /
 task-read before execution. Summary text never grants authority. Existing tasks
 remain readable; explicit representation-only task-storage-migration preserves
 the old raw source and complete logical semantics without replan or a size gate.
+Already-issued business receipts survive only a Runtime-proven storage-only
+lineage with unchanged logical semantics; no business transaction is treated as
+an equivalent source. Keep original receipts rather than repeating approval or
+preflight after admitted edits. The v3 presentation model is versioned; YAML
+emission changes alone do not invalidate intact historical material.
 Complete history remains in the bound task-data aggregate and is never treated
 as empty when the active preview is short.
 

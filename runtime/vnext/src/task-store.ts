@@ -2333,7 +2333,8 @@ export class TaskStore {
     refs.result = resultReference;
     if (proposalClaimEvidenceReference) refs['proposal-claim-evidence'] = proposalClaimEvidenceReference;
     if (proposalExecutionResultReference) refs['proposal-execution-result'] = proposalExecutionResultReference;
-    if (previous.current_representation !== currentRepresentation(input.after) && compactCurrent(input.after)) {
+    if (input.result.operation_kind === 'task-storage-migration'
+      || (previous.current_representation !== currentRepresentation(input.after) && compactCurrent(input.after))) {
       const locatorAlias = this.storeObject(
         input.after.sourceTuple.document_id,
         'history-material',
@@ -2756,7 +2757,7 @@ function compactAfter(current: TaskStoreCurrent, prepared: PreparedTaskContent):
     sourceTuple: { ...current.sourceTuple, revision: sha256(prepared.content) } };
 }
 
-function migrationSemanticModel(current: TaskStoreCurrent): unknown {
+export function migrationSemanticModel(current: TaskStoreCurrent): unknown {
   return {
     identity: {
       path: current.relativePath,
@@ -2764,6 +2765,7 @@ function migrationSemanticModel(current: TaskStoreCurrent): unknown {
       task_id: current.sourceTuple.task_id,
       task_slug: current.sourceTuple.task_slug,
     },
+    frontmatter: copyWithout(current.frontmatter ?? {}, ['task_store', 'runtime_state']),
     // The representation change removes only the two compatibility history
     // arrays from the canonical file. All other runtime state must compare
     // byte-for-byte at the normalized value level.
@@ -2776,6 +2778,34 @@ function hasLegacyInlineReviewPreimages(current: TaskStoreCurrent): boolean {
   const coverage = record(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
   return Array.isArray(coverage?.preimages)
     && coverage.preimages.some(item => record(item) && Object.prototype.hasOwnProperty.call(item, 'content_base64'));
+}
+
+/** Return exact preimages only for a committed storage-migration-only suffix.
+ * Storage proves the event lineage and physical bytes; the kernel must compare
+ * their normalized logical models using the same parser as the current task.
+ * A non-storage transaction, orphan or pending publication is never an alias.
+ */
+export function readStorageMigrationLineage(root: string, current: TaskStoreCurrent, sourceRevision: string): string[] | null {
+  if (!SHA256.test(sourceRevision)) return null;
+  const store = TaskStore.forCurrent(root, current);
+  const manifest = store.manifest;
+  if (!manifest || store.hasPendingCommit || manifest.head.source_revision !== current.sourceTuple.revision
+    || sha256(current.raw) !== current.sourceTuple.revision) return null;
+  let revision = current.sourceTuple.revision;
+  const preimages: string[] = [];
+  const events = store.listEvents(); // Validates the complete committed hash chain.
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]!;
+    if (event.resulting_source_revision !== revision || event.event_type !== 'storage-migration'
+      || event.operation_kind !== 'task-storage-migration' || !event.metadata.committed
+      || event.metadata.status !== 'success') return null;
+    const raw = store.readHistoryMaterial(event.source_revision);
+    if (raw === null || sha256(raw) !== event.source_revision) return null;
+    preimages.push(raw);
+    if (event.source_revision === sourceRevision) return preimages;
+    revision = event.source_revision;
+  }
+  return null;
 }
 
 export function previewTaskStorageMigration(root: string, current: TaskStoreCurrent): TaskStorageMigrationPreview {

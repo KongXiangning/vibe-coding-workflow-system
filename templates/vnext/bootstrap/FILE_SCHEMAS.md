@@ -609,6 +609,17 @@ using it. Missing/corrupt/uncommitted material or a head conflict cannot be
 silently replaced by the readable summary.
 
 Inline and compact-v2 tasks remain readable without automatic conversion.
+Compact-v3's parsed header and versioned navigation are checked against its
+immutable roots. Its reader does not require the current YAML serializer to
+reproduce historical bytes; the v3 layout remains frozen and has a retained
+golden fixture. This does not permit external edits of canonical bytes: manifest
+source hashes, object hashes, committed membership and hot-field equality remain.
+
+Issued business receipts retain validity across proved storage-only migrations,
+not across actual task transactions. The original receipt is consumed unchanged;
+physical write tuples and paged read coordinates remain exact. See CONTEXT_API.md
+for the in-flight receipt and candidate-history boundary.
+
 Explicit task-storage-migration also upgrades compact-v2 to compact-v3. It
 preserves the exact old file and history, definition semantics, user decisions,
 claim identities, failures, scope, review gates and budgets. No size limit or

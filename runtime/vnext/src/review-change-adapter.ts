@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  taskSourceRevisionMatches,
   MAX_REPAIR_ROUNDS,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   VNextRuntimeError,
@@ -688,7 +689,7 @@ function normalizeContextReceipt(value: unknown): ReviewContextReceipt {
 
 function assertCurrentContext(root: string, current: CanonicalCurrentTask, receipt: ReviewContextReceipt): StepExecutionLogEntry {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) fail('REVIEW_CONTEXT_STALE', 'review context belongs to a different task document.');
-  if (receipt.source_revision !== current.sourceTuple.revision) fail('REVIEW_CONTEXT_STALE', 'CURRENT_TASK changed after review context was issued.');
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) fail('REVIEW_CONTEXT_STALE', 'CURRENT_TASK changed after review context was issued.');
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CONTEXT_STALE', 'active step or review cycle changed after review context was issued.');
   const latest = latestRecordedExecution(current);
   if (latest.idempotency_key !== receipt.execution_id) fail('REVIEW_CONTEXT_STALE', 'recorded execution changed after review context was issued.');

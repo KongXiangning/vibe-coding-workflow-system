@@ -1,8 +1,9 @@
 import * as fs from 'node:fs';
+import { parse } from 'yaml';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, test } from 'bun:test';
-import { readCanonicalCurrentTask } from '../runtime/vnext/src/kernel';
+import { readCanonicalCurrentTask, taskSourceRevisionMatches } from '../runtime/vnext/src/kernel';
 import { taskRead } from '../runtime/vnext/src/task-context';
 import { TaskStore, commitTaskStorageMigration, digest, sha256, stableJson } from '../runtime/vnext/src/task-store';
 
@@ -18,6 +19,46 @@ function fixtureRoot(): string {
 }
 
 describe('vNext task aggregate store', () => {
+  test('receipt lineage follows multiple committed storage edges but never a business or corrupt edge', () => {
+    const root = fixtureRoot();
+    try {
+      const original = readCanonicalCurrentTask(root);
+      commitTaskStorageMigration(root, original as any, original.sourceTuple.revision);
+      const migrated = readCanonicalCurrentTask(root);
+      const store = TaskStore.forCurrent(root, migrated as any);
+      expect(taskSourceRevisionMatches(root, migrated as any, original.sourceTuple.revision)).toBe(true);
+      // Simulate a later version's storage-only YAML re-encoding through the
+      // existing aggregate publication API. No workflow state is changed.
+      const publish = (operation: string, indent: number) => {
+        const before = readCanonicalCurrentTask(root);
+        const header = /^---\n([\s\S]*?)\n---\n/u.exec(before.raw)!;
+        const raw = `---\n${JSON.stringify(parse(header[1]!), null, indent)}\n---\n${before.raw.slice(header[0].length)}`;
+        const after = { ...before, raw, sourceTuple: { ...before.sourceTuple, revision: sha256(raw) } };
+        const input = { before, after, proposal: { operation_kind: operation, idempotency_key: `encoding-${indent}` },
+          result: { operation_kind: operation, idempotency_key: `encoding-${indent}`, status: 'success', committed: true } };
+        store.stageCommit({ ...input, after_source_revision: after.sourceTuple.revision, write_targets: [after.relativePath] });
+        fs.writeFileSync(after.filePath, raw);
+        store.markCurrentPublished(after.sourceTuple.revision);
+        store.recordCommit(input);
+        return readCanonicalCurrentTask(root);
+      };
+      const twice = publish('task-storage-migration', 2);
+      expect(taskSourceRevisionMatches(root, twice as any, original.sourceTuple.revision)).toBe(true);
+      expect(taskSourceRevisionMatches(root, twice as any, migrated.sourceTuple.revision)).toBe(true);
+      expect(taskSourceRevisionMatches(root, twice as any, '0'.repeat(64))).toBe(false);
+      const changedModel = { ...twice, runtimeState: { ...twice.runtimeState, resume_requires_review: !twice.runtimeState.resume_requires_review } };
+      expect(taskSourceRevisionMatches(root, changedModel as any, original.sourceTuple.revision)).toBe(false);
+      const business = publish('task-state-transaction', 3);
+      // Even equal final logical content cannot bridge a non-storage event.
+      expect(taskSourceRevisionMatches(root, business as any, original.sourceTuple.revision)).toBe(false);
+      expect(store.deepValidate().status).toBe('valid');
+      const last = store.listEvents().at(-1)!;
+      const file = path.join(store.paths.events, `${String(last.sequence).padStart(12, '0')}-${last.event_hash}.json`);
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('task-state-transaction', 'task-storage-migration'));
+      expect(() => taskSourceRevisionMatches(root, business as any, original.sourceTuple.revision)).toThrow('TASK_STORE_EVENT_INVALID');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('deduplicates unchanged objects while retaining every event and old idempotency key', () => {
     const root = fixtureRoot();
     try {

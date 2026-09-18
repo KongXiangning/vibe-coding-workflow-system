@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  taskSourceRevisionMatches,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   TEST_STRATEGY_CLASSIFICATIONS,
   TEST_STRATEGY_MODES,
@@ -968,7 +969,7 @@ export function confirmDraft(root: string, input: unknown, options: RuntimeApply
   if (current.runtimeState.workflow_status !== 'draft' || current.runtimeState.lifecycle_state !== 'active') {
     fail('DRAFT_CONFIRMATION_BLOCKED', 'confirm-draft requires the current task to be draft + active.');
   }
-  if (receipt.draft_revision !== current.sourceTuple.revision) {
+  if (!taskSourceRevisionMatches(root, current, receipt.draft_revision)) {
     fail('DRAFT_REVISION_CONFLICT', `confirmation_receipt draft_revision ${receipt.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
   }
   const evidenceRefs = [`adapter:confirm-draft:${receipt.draft_revision.slice(0, 16)}`];
@@ -1009,7 +1010,7 @@ export function clearResumeReview(root: string, input: unknown, options: Runtime
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
     fail('RESUME_READINESS_IDENTITY_CONFLICT', 'readiness_receipt does not identify the current task document.');
   }
-  if (receipt.source_revision !== current.sourceTuple.revision) {
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) {
     fail('RESUME_READINESS_REVISION_CONFLICT', `readiness_receipt source_revision ${receipt.source_revision} does not match current revision ${current.sourceTuple.revision}.`);
   }
   if (!sameValue(receipt.reviewed_reasons, current.runtimeState.resume_review_reasons)) {
