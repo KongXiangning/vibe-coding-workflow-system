@@ -377,6 +377,39 @@ describe('vNext Phase 2 source contract', () => {
     expect(support).toContain('## Failure-oriented validation selection');
     expect(support).toContain('not mandatory Red/TDD');
     expect(support).toContain('not a fresh Agent');
+    // Whole-set guidance is a source contract, not proof of Agent selection quality.
+    expect(prepare).toContain('Optimize the whole validation set, not minimum granularity per check');
+    expect(prepare).toContain('preserve all\nobligations at no greater total cost');
+    expect(draftReview).toContain('Treat unjustified validation breadth');
+    expect(draftReview).toContain('Do not narrow away an explicit obligation');
+    expect(draftReview).toContain('including\nbatched selectors when supported');
+    expect(draftReview).toContain('convenience or one startup alone is not a');
+    expect(draftReview).toContain('not a new cost-advantage authority');
+    expect(draftReview).not.toContain('Treat validation wider than the claim');
+    expect(draftReview).not.toContain('Require narrowing before clean confirmation when an equally effective smaller');
+    expect(draftReview).not.toContain('reject a whole target or suite when an equally effective focused check is');
+    expect(support).toContain('A focused check does not cancel a separately required package regression');
+    expect(support).toContain('cost advantage is not a new authority enum');
+  });
+
+  test('keeps public selection examples generalized and distinct from execution evidence', () => {
+    // Source-only publication boundary: do not ship private task excerpts or treat
+    // explanatory patterns as observed results. This is not a target Runtime schema.
+    const directory = fixtureFile(ROOT, 'docs/ops/validation-selection');
+    expect(fs.existsSync(path.join(directory, 'rollout-incident.json'))).toBe(false);
+    const raw = fs.readFileSync(path.join(directory, 'selection-patterns.json'), 'utf8');
+    const patterns = JSON.parse(raw);
+    expect(Object.keys(patterns).sort()).toEqual(['cases', 'kind', 'limits', 'provenance', 'publication_scope', 'status']);
+    expect(patterns.kind).toBe('generalized-validation-selection-patterns');
+    expect(patterns.status).toBe('illustrative-not-execution-evidence');
+    expect(patterns.publication_scope).toBe('generalized-patterns-only');
+    for (const example of patterns.cases) {
+      expect(Object.keys(example).sort()).toEqual(['failure', 'id', 'insufficient_evidence', 'required_observation']);
+    }
+    expect(raw).not.toMatch(/\b[a-f0-9]{40,64}\b/u);
+    const readme = fs.readFileSync(path.join(directory, 'README.md'), 'utf8');
+    expect(readme).toContain('允许分析资料不等于允许将资料公开');
+    expect(readme).toContain('新提交的删除不清除旧 Git 历史');
   });
 
   test('requires the execute-step scope guard', () => {

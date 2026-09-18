@@ -782,7 +782,7 @@ function validateReviewDraftBoundary(content: string): void {
     'one exact `draft + active`',
     'governed_mutation_count: 0',
     'verdict: clean | findings | needs-user',
-    'Treat validation wider than the claim as a material evidence-plan finding',
+    'Treat unjustified validation breadth as a material evidence-plan finding',
     'Do not demand a full suite merely because it is',
   ];
   for (const term of requiredTerms) {

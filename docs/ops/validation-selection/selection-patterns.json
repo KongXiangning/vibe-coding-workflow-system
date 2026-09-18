@@ -1,0 +1,43 @@
+{
+  "kind": "generalized-validation-selection-patterns",
+  "status": "illustrative-not-execution-evidence",
+  "publication_scope": "generalized-patterns-only",
+  "provenance": "Generalized from previously reviewed failure patterns. Wording and identifiers are rewritten; this is neither the original task nor a runnable reconstruction.",
+  "cases": [
+    {
+      "id": "range-progress",
+      "failure": "A continuation rereads known data without filling the remaining gap.",
+      "required_observation": "An independently expected missing range is read and coverage advances toward the contract-defined terminal state.",
+      "insufficient_evidence": "A successful request, non-empty data, or an expected range copied from the defective implementation."
+    },
+    {
+      "id": "bounded-residency",
+      "failure": "Bounded input windows are accumulated into an unbounded live raw-data collection.",
+      "required_observation": "Observe the relevant raw-data lifetime or peak at fixed window size as input grows, separately from legitimate reducer/output state.",
+      "insufficient_evidence": "Small I/O windows, a small fixture, or correct final output alone."
+    },
+    {
+      "id": "in-flight-control",
+      "failure": "Cancellation or deadline is checked only before a long operation starts.",
+      "required_observation": "Change control during the relevant operation and bound subsequent work with a deterministic hook/clock, or use sufficient admitted static evidence.",
+      "insufficient_evidence": "Already-cancelled input or an uncontrolled sleep."
+    },
+    {
+      "id": "association-stability",
+      "failure": "Records crossing a processing boundary acquire incorrect ownership or unstable identities.",
+      "required_observation": "Make the fixture cross the boundary and compare exact independently expected ownership and identity across retry/overlap.",
+      "insufficient_evidence": "Non-empty identifiers or record existence."
+    },
+    {
+      "id": "consumer-and-report",
+      "failure": "The producer passes in isolation but its unmodified output cannot be consumed, or the report claims unobserved behavior.",
+      "required_observation": "Exercise the required real consumer path and match reported parameters and outcomes to the actual observation.",
+      "insufficient_evidence": "Rewriting the payload for the consumer, mocked success, or aggregate PASS counts."
+    }
+  ],
+  "limits": [
+    "No original task text, source locators, product paths, commands, source hashes, input data or verbatim review findings are included.",
+    "These patterns are not additional requirements or one mandatory test per case.",
+    "A real replay needs separately authorized source, requirements and fixtures; this file does not establish current acceptance or independent Agent efficacy."
+  ]
+}

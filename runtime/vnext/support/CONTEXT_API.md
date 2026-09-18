@@ -704,6 +704,20 @@ identified regression risk has sufficient evidence. One invocation may cover
 several observations, but actual reports must still bind the exact slots; neither
 merging tests nor multiplying case counts proves efficiency or sufficiency.
 
+**Optimize the whole set, not each check's granularity.** Include independently
+authorized user/project/release and contract/risk obligations, not just one claim's
+assertion. A focused check does not cancel a separately required package regression
+or release run. Prefer a narrower feasible set only when it preserves detection,
+required boundaries and all applicable obligations at no greater total cost.
+Consider batched selectors before widening a target just to share setup. A combined
+invocation needs a concrete comparison that includes unrelated cases, startup/run
+cost, maintenance and diagnosis; one startup or convenience alone is insufficient.
+Keep exact reports for every supported slot and the existing permitted breadth
+basis/source. Describe the comparison in `selection_reason` / `breadth_reason`;
+cost advantage is not a new authority enum, blanket waiver, or demand to benchmark
+plans during read-only review. Reject unjustified breadth, not a legitimate wider
+run merely because a focused selector exists.
+
 **Choose the observation boundary, not the most expensive test.** Local rules and
 finite function chains can use focused unit checks or admitted static proof.
 Producer/consumer, protocol, process or persistence behavior requires the relevant

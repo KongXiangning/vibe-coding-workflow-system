@@ -122,10 +122,12 @@ apply `draft-consistency-challenge` across these closed dimensions:
   codes, response shapes, normalization, stored data, and compatibility;
 - validation and Persistent Tests coverage for each material acceptance or
   decided observable behavior;
-- whether each execution check observes the claim through the smallest valid
-  scope: reject a whole target or suite when an equally effective focused check is
-  available, and require an explicit breadth reason and permitted basis when
-  `target`, E2E, or broad regression is proposed;
+- whether the validation set is minimum-sufficient for all required observations
+  and independently authorized user/project/release or contract/risk obligations;
+  prefer a narrower feasible set only when it preserves detection, boundaries and
+  those obligations without increasing total cost. A focused selector's existence
+  alone does not invalidate justified target/broad execution. Require an explicit
+  breadth reason and existing permitted basis for `target`, E2E or broad regression;
 - whether a business-flow claim retains required integration/flow evidence
   rather than being replaced by many local unit PASS results, whether E2E is
   actually admitted by its acceptance/low-cost/policy/user basis, and whether
@@ -214,14 +216,22 @@ independence and whether planned mocks/fixtures prove the promised boundary. Do 
 or completion evidence during draft review. Reports remain caller-reported;
 no Provider, authenticated human signature or AST enforcement is implied.
 
-Treat validation wider than the claim as a material evidence-plan finding, not a
-harmless safety margin. Require `prepare-task` to narrow it before a clean
-draft: whole target/suite requires its selection and breadth record, broad
-regression requires an allowed claim/risk/contract/release/policy/user basis,
-and E2E requires its own allowed basis. “Same target,” “previously green,” and
-“final step” do not establish necessity. A focused selector is preferred when
-the framework supports it. Do not demand a full suite merely because it is
-available.
+Treat unjustified validation breadth as a material evidence-plan finding, not a
+harmless safety margin. Assess the whole selected set, not minimum granularity per
+check. Preserve independently authorized user/project/release and contract/risk
+obligations even when a smaller check alone proves an acceptance claim. Target or
+broad execution still needs its existing selection/breadth basis and exact source;
+E2E retains its separate admission. Do not narrow away an explicit obligation.
+
+Compare feasible sets with equivalent detection and required boundaries, including
+batched selectors when supported. Shared setup can justify a combined invocation
+only with a concrete total-cost comparison accounting for unrelated cases,
+execution, maintenance and diagnosis; convenience or one startup alone is not a
+basis. Record the rationale using existing `selection_reason` / `breadth_reason`
+and a permitted basis/source, not a new cost-advantage authority. “Same target,”
+“previously green,” and “final step” do not establish necessity. Require narrowing
+when no independent obligation requires the broader set and a narrower feasible
+set preserves detection and boundaries at no greater total cost. Do not demand a full suite merely because it is available.
 
 Review the complete slot/check boundary → granularity → frozen invocation binding.
 Structured invocation binds literal argv/selector; opaque invocation freezes the
@@ -235,9 +245,9 @@ is `business-flow` + `focused`; a whole integration target is `business-flow` +
 Inspect the actual Task Basis, requirements, Contract, Decision or policy authority
 text, not just its existence. Release-gate E2E binds a real release/policy source;
 claim authority need not originate in a user decision.
-Require narrowing before clean confirmation when an equally effective smaller
-check exists. Apply the same review to new update/replan/recovery checks; legacy
-compatibility never exempts replacement identities. These are boundary choices,
+Apply that whole-set necessity and cost comparison before clean confirmation,
+including new update/replan/recovery checks; legacy compatibility never exempts
+replacement identities. These are boundary choices,
 not a unit < integration < E2E substitution hierarchy.
 
 
