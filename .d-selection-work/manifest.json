@@ -1,0 +1,13 @@
+{
+  "docs/ops/validation-selection/README.md": "15ef49f9787bf9050b25c0d282e566dd563bdbffedd4f2cda414aa2bd1e279ee",
+  "docs/ops/validation-selection/implementation-evidence.md": "26c7723b1d28f225293a2ec5803d29dc509c2bea6bf9ff1f1f500731b85eeae9",
+  "docs/ops/validation-selection/replay-prompts.md": "a1acf98f9b459b3e031f93a46f9d464d3fa290d6f52344802ce7798051ad8494",
+  "docs/ops/validation-selection/reviewer-guide.md": "c9ee999aeb30bef974bca234b585014f0a27fa575d15102433fbd12e857d56be",
+  "docs/ops/validation-selection/rollout-incident.json": "ec07a92aa8c6fde191fa3be16bde83021a039b63e872f0e45ef87f06bfbd8447",
+  "runtime/vnext/support/CONTEXT_API.md": "92d3cef642e32e3e2b06ac8618b147eb15a8d04acb59b1c9858fff1804ce7d62",
+  "templates/vnext/skills/execute-step.SKILL.md.tmpl": "4a6f392555caf587289f5e5d7b744b528f20f6923617ca70818bd4e2429a36c8",
+  "templates/vnext/skills/prepare-task.SKILL.md.tmpl": "8afb0855d895df24153c7008a894ab0eceda1067c9c87d3f3f8dbc848dcfb4b8",
+  "templates/vnext/skills/review-change.SKILL.md.tmpl": "ca418adc81645a0520431a6eca4a9d76625fb88e35d787f5072749596f715bb8",
+  "templates/vnext/skills/review-draft.SKILL.md.tmpl": "1a62a8d11f68c15ebe0c144ae432886eef5ed32f06fba2480e3d50c181c23628",
+  "test/workflow-vnext-source.test.ts": "e2ea91aa493477634c33f3c8fa8bef18dd86dbe036e3cb0b607e1ec3e2c9ebb9"
+}
