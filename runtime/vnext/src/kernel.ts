@@ -450,6 +450,40 @@ export type ClaimEvidenceSlot = {
   prerequisite_receipt?: { step_id: string; preflight_id: string; result_id: string; subject_snapshot: ReviewTarget } | null;
 };
 
+export const EVIDENCE_EXECUTION_SELECTION_SCOPES = [
+  'focused',
+  'target',
+  'integration',
+  'e2e',
+  'broad-regression',
+] as const;
+export type EvidenceExecutionSelectionScope = (typeof EVIDENCE_EXECUTION_SELECTION_SCOPES)[number];
+
+export const EVIDENCE_EXECUTION_BREADTH_BASES = [
+  'claim-risk-contract',
+  'acceptance-boundary',
+  'low-cost-evidence-insufficient',
+  'project-policy',
+  'release-gate',
+  'explicit-user',
+] as const;
+export type EvidenceExecutionBreadthBasis = (typeof EVIDENCE_EXECUTION_BREADTH_BASES)[number];
+
+/**
+ * A bounded declaration of why one execution command is sufficient for one
+ * claim slot. It deliberately describes selection; it does not model a test
+ * registry, coverage system, or a new test lifecycle.
+ */
+export type EvidenceExecutionSelection = {
+  scope: EvidenceExecutionSelectionScope;
+  claim_scope: 'local' | 'business-flow';
+  selector: string | null;
+  selection_reason: string;
+  breadth_reason: string | null;
+  breadth_basis: EvidenceExecutionBreadthBasis | null;
+  breadth_source_ref: string | null;
+};
+
 export type EvidenceCheck = {
   check_id: string;
   method: 'execution' | 'static' | 'human';
@@ -459,6 +493,7 @@ export type EvidenceCheck = {
   allowed_substitutes: string[];
   subject_paths: string[];
   expected_result: 'passed' | 'accepted' | 'expected-failure';
+  selection?: EvidenceExecutionSelection;
 };
 
 export type EvidenceReport = {
@@ -2542,9 +2577,12 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime extend-preflight semantics are invalid.');
   }
   const claimEvidenceContract = expectRecord(taskStateContract.claim_evidence, 'Runtime contract.proposal.task_state.claim_evidence');
-  expectExactKeys(claimEvidenceContract, ['stored_in', 'record_fields', 'slot_fields', 'complete_dispositions', 'incomplete_dispositions', 'completion_rule'], 'Runtime contract.proposal.task_state.claim_evidence');
+  expectExactKeys(claimEvidenceContract, ['stored_in', 'report_binding', 'record_fields', 'slot_fields', 'complete_dispositions', 'incomplete_dispositions', 'execution_selection', 'completion_rule'], 'Runtime contract.proposal.task_state.claim_evidence');
   if (claimEvidenceContract.stored_in !== 'canonical CURRENT_TASK.runtime_state') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence must be stored in the canonical CURRENT_TASK runtime state.');
+  }
+  if (claimEvidenceContract.report_binding !== 'exact-claim-slot-check-only; command pass never creates or satisfies another slot') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence reports must remain bound to one exact claim/slot/check.');
   }
   expectSetEqual(
     expectStringArray(claimEvidenceContract.record_fields, 'Runtime contract claim evidence record_fields'),
@@ -2566,6 +2604,32 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     ['missing', 'deferred', 'blocked'],
     'Runtime claim evidence incomplete dispositions',
   );
+  const executionSelection = expectRecord(claimEvidenceContract.execution_selection, 'Runtime contract claim evidence execution_selection');
+  expectExactKeys(executionSelection, ['fields', 'scopes', 'breadth_bases', 'freshness', 'command_binding', 'business_flow', 'e2e_admission', 'broad_admission'], 'Runtime contract claim evidence execution_selection');
+  expectSetEqual(
+    expectStringArray(executionSelection.fields, 'Runtime claim evidence execution selection fields'),
+    ['scope', 'claim_scope', 'selector', 'selection_reason', 'breadth_reason', 'breadth_basis', 'breadth_source_ref'],
+    'Runtime claim evidence execution selection fields',
+  );
+  expectSetEqual(
+    expectStringArray(executionSelection.scopes, 'Runtime claim evidence execution selection scopes'),
+    [...EVIDENCE_EXECUTION_SELECTION_SCOPES],
+    'Runtime claim evidence execution selection scopes',
+  );
+  expectSetEqual(
+    expectStringArray(executionSelection.breadth_bases, 'Runtime claim evidence execution selection breadth bases'),
+    [...EVIDENCE_EXECUTION_BREADTH_BASES],
+    'Runtime claim evidence execution selection breadth bases',
+  );
+  if (
+    executionSelection.freshness !== 'required-for-new-execution-checks'
+    || executionSelection.command_binding !== 'exact-due-step-planned-command'
+    || executionSelection.business_flow !== 'integration-or-e2e-required'
+    || executionSelection.e2e_admission !== 'acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-explicit-user'
+    || executionSelection.broad_admission !== 'claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime execution selection contract is invalid.');
+  }
   if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence completion must require a non-empty frozen plan with an acceptance claim and every planned slot with its evidence_refs.');
   }
@@ -3801,10 +3865,64 @@ function evidencePlanRevision(definition: DraftTaskDefinition, records: readonly
   return digest({ definition, claims: records.map(record => ({ ...record, slots: record.slots.map(evidenceSlotDefinition).sort((a, b) => a.slot_id.localeCompare(b.slot_id)) })).sort((a, b) => a.claim_id.localeCompare(b.claim_id)) });
 }
 
+function plannedCommandsForEvidence(definition: DraftTaskDefinition): Map<string, Set<string>> {
+  const commands = new Map<string, Set<string>>();
+  for (const step of parseImplementationSteps(definition.implementation_steps)) {
+    const entries = new Set<string>();
+    for (const match of (step.plan_text ?? '').matchAll(/^\s{2,}-\s+planned_command:\s*(.+?)\s*$/gmu)) {
+      entries.add(match[1]!.trim());
+    }
+    commands.set(step.id, entries);
+  }
+  return commands;
+}
+
+function assertExecutionSelection(check: EvidenceCheck, fresh: boolean): void {
+  if (check.method !== 'execution') {
+    if (check.selection !== undefined) fail('CLAIM_EVIDENCE_SELECTION_INVALID', 'only execution checks may declare test selection.');
+    return;
+  }
+  if (!check.selection) {
+    if (fresh) fail('CLAIM_EVIDENCE_SELECTION_REQUIRED', 'new execution checks require a frozen minimum-sufficient selection declaration.');
+    return;
+  }
+  const selection = check.selection;
+  const hasBreadth = selection.breadth_reason !== null || selection.breadth_basis !== null || selection.breadth_source_ref !== null;
+  if (selection.scope === 'focused') {
+    if (!selection.selector || hasBreadth || selection.claim_scope !== 'local') {
+      fail('CLAIM_EVIDENCE_SELECTION_INVALID', 'focused execution requires an exact selector for a local claim and no breadth justification.');
+    }
+    return;
+  }
+  if (selection.scope === 'target') {
+    if (selection.selector !== null || !selection.breadth_reason || !selection.breadth_basis || !selection.breadth_source_ref || selection.claim_scope !== 'local') {
+      fail('CLAIM_EVIDENCE_BREADTH_REQUIRED', 'whole-target execution requires a local claim, no precise selector, and an explicit breadth reason, basis, and source reference.');
+    }
+    return;
+  }
+  if (selection.scope === 'integration') {
+    if (hasBreadth) fail('CLAIM_EVIDENCE_SELECTION_INVALID', 'integration selection is itself the declared business-flow boundary; do not relabel it as broad regression.');
+    return;
+  }
+  if (!selection.breadth_reason || !selection.breadth_basis || !selection.breadth_source_ref) {
+    fail('CLAIM_EVIDENCE_BREADTH_REQUIRED', `${selection.scope} execution requires an explicit breadth reason, basis, and source reference.`);
+  }
+  if (selection.scope === 'e2e') {
+    if (!['acceptance-boundary', 'low-cost-evidence-insufficient', 'project-policy', 'explicit-user'].includes(selection.breadth_basis)) {
+      fail('CLAIM_EVIDENCE_E2E_UNAUTHORIZED', 'E2E execution requires an acceptance boundary, insufficient lower-cost evidence, project policy, or explicit user request.');
+    }
+    return;
+  }
+  if (!['claim-risk-contract', 'project-policy', 'release-gate', 'explicit-user'].includes(selection.breadth_basis)) {
+    fail('CLAIM_EVIDENCE_BROAD_UNAUTHORIZED', 'broad regression requires a claim/risk/contract basis, release gate, project policy, or explicit user request.');
+  }
+}
+
 export function assertEvidencePlan(definition: DraftTaskDefinition, records: readonly ClaimEvidenceRecord[], fresh = false): string {
   requireClaimEvidencePlan(records, 'evidence plan');
   requireAcceptanceClaim(records, 'evidence plan');
   const steps = parseImplementationSteps(definition.implementation_steps).map(step => step.id);
+  const plannedCommands = plannedCommandsForEvidence(definition);
   const ids = new Set<string>();
   const acceptance = records.filter(record => record.claim_kind === 'acceptance').map(record => record.requirement);
   const projected = definition.acceptance.split(/\r?\n/).map(line => line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/, '').trim()).filter(Boolean);
@@ -3817,6 +3935,13 @@ export function assertEvidencePlan(definition: DraftTaskDefinition, records: rea
       if (ids.has(check.check_id)) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'check_id must be unique across the task.');
       ids.add(check.check_id);
       if (check.subject_paths.some(p => p.includes('*') || /(?:^|\/)CURRENT_TASK\.md$/.test(p) || p.startsWith('.git/')) || new Set(check.subject_paths).size !== check.subject_paths.length) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'subject_paths must be exact unique product paths, excluding Runtime audit state.');
+      assertExecutionSelection(check, fresh);
+      if (fresh && check.method === 'execution' && !plannedCommands.get(slot.due_step_id!)?.has(check.entry)) {
+        fail('CLAIM_EVIDENCE_COMMAND_UNBOUND', `execution check ${check.check_id} must bind its due step's exact planned command.`);
+      }
+      if (check.selection?.claim_scope === 'business-flow' && !['integration', 'e2e'].includes(check.selection.scope)) {
+        fail('CLAIM_EVIDENCE_FLOW_REQUIRED', 'a business-flow claim requires integration or E2E evidence; focused, target, and broad regression checks cannot substitute for the flow.');
+      }
       if (record.claim_kind === 'acceptance' && (slot.applicability !== 'current' || check.expected_result === 'expected-failure')) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'positive acceptance requires current successful evidence.');
       if ((check.method === 'execution') !== (check.expected_result !== 'accepted')) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'execution requires passed/expected-failure; static/human requires accepted.');
       if (slot.applicability === 'before-step') {
@@ -3954,7 +4079,27 @@ export function validateClaimEvidence(value: unknown, location: string): ClaimEv
       const result: ClaimEvidenceSlot = { slot_id: slotId, minimum_type: minimumType, disposition, evidence_refs: evidenceRefs };
       if (slot.check !== undefined) {
         const check = expectRecord(slot.check, 'slot.check');
-        expectExactKeys(check, ['check_id', 'method', 'entry', 'expected_observation', 'required_boundaries', 'allowed_substitutes', 'subject_paths', 'expected_result'], 'slot.check');
+        expectExactKeys(check, ['check_id', 'method', 'entry', 'expected_observation', 'required_boundaries', 'allowed_substitutes', 'subject_paths', 'expected_result', ...['selection'].filter(key => key in check)], 'slot.check');
+        let selection: EvidenceExecutionSelection | undefined;
+        if (check.selection !== undefined) {
+          const rawSelection = expectRecord(check.selection, 'check.selection');
+          expectExactKeys(rawSelection, ['scope', 'claim_scope', 'selector', 'selection_reason', 'breadth_reason', 'breadth_basis', 'breadth_source_ref'], 'check.selection');
+          const scope = expectEnum(rawSelection.scope, EVIDENCE_EXECUTION_SELECTION_SCOPES, 'check.selection.scope');
+          const claimScope = expectEnum(rawSelection.claim_scope, ['local', 'business-flow'], 'check.selection.claim_scope');
+          const selector = rawSelection.selector === null ? null : expectText(rawSelection.selector, 'check.selection.selector');
+          const breadthReason = rawSelection.breadth_reason === null ? null : expectText(rawSelection.breadth_reason, 'check.selection.breadth_reason');
+          const breadthBasis = rawSelection.breadth_basis === null ? null : expectEnum(rawSelection.breadth_basis, EVIDENCE_EXECUTION_BREADTH_BASES, 'check.selection.breadth_basis');
+          const breadthSourceRef = rawSelection.breadth_source_ref === null ? null : expectText(rawSelection.breadth_source_ref, 'check.selection.breadth_source_ref');
+          selection = {
+            scope,
+            claim_scope: claimScope,
+            selector,
+            selection_reason: expectText(rawSelection.selection_reason, 'check.selection.selection_reason'),
+            breadth_reason: breadthReason,
+            breadth_basis: breadthBasis,
+            breadth_source_ref: breadthSourceRef,
+          };
+        }
         result.check = {
           check_id: expectString(check.check_id, 'check.check_id', CLAIM_ID_PATTERN),
           method: expectEnum(check.method, ['execution', 'static', 'human'], 'check.method'),
@@ -3964,6 +4109,7 @@ export function validateClaimEvidence(value: unknown, location: string): ClaimEv
           allowed_substitutes: expectStringArray(check.allowed_substitutes, 'check.allowed_substitutes', true, 256),
           subject_paths: expectStringArray(check.subject_paths, 'check.subject_paths', false, 256).map(p => normalizeRepoPath(p, 'check.subject_paths')),
           expected_result: expectEnum(check.expected_result, ['passed', 'accepted', 'expected-failure'], 'check.expected_result'),
+          ...(selection === undefined ? {} : { selection }),
         };
       }
       if (slot.due_step_id !== undefined) result.due_step_id = expectString(slot.due_step_id, 'slot.due_step_id', STEP_ID_PATTERN);

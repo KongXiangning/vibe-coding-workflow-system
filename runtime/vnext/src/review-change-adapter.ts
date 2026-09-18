@@ -397,6 +397,7 @@ function claimEvidenceSummary(value: ClaimEvidenceRecord): Record<string, unknow
     due_step_id: slot.due_step_id ?? null,
     before_step_id: slot.before_step_id ?? null,
     check_id: slot.check?.check_id ?? null,
+    execution_selection: slot.check?.selection ? { ...slot.check.selection } : null,
     result_id: slot.report?.result_id ?? null,
     report: evidenceReportSummary(slot.report),
     ...evidenceRefSummary(slot.evidence_refs),

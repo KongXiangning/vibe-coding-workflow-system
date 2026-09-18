@@ -240,6 +240,7 @@ proposal:
         first_touch: append-only-for-new-targets
     claim_evidence:
       stored_in: canonical CURRENT_TASK.runtime_state
+      report_binding: exact-claim-slot-check-only; command pass never creates or satisfies another slot
       record_fields:
         - claim_id
         - claim_kind
@@ -265,6 +266,33 @@ proposal:
         - missing
         - deferred
         - blocked
+      execution_selection:
+        fields:
+          - scope
+          - claim_scope
+          - selector
+          - selection_reason
+          - breadth_reason
+          - breadth_basis
+          - breadth_source_ref
+        scopes:
+          - focused
+          - target
+          - integration
+          - e2e
+          - broad-regression
+        breadth_bases:
+          - claim-risk-contract
+          - acceptance-boundary
+          - low-cost-evidence-insufficient
+          - project-policy
+          - release-gate
+          - explicit-user
+        freshness: required-for-new-execution-checks
+        command_binding: exact-due-step-planned-command
+        business_flow: integration-or-e2e-required
+        e2e_admission: acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-explicit-user
+        broad_admission: claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user
       completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites
     claim_evidence_migration:
       mode: default

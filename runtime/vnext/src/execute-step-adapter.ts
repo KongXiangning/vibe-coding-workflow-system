@@ -195,6 +195,15 @@ export type ExecuteStepEvidenceContext = {
     slot_id: string;
     check_id: string;
     subject_revision: string;
+    execution_selection: {
+      scope: string;
+      claim_scope: string;
+      selector: string | null;
+      selection_reason: string;
+      breadth_reason: string | null;
+      breadth_basis: string | null;
+      breadth_source_ref: string | null;
+    } | null;
     subject_snapshot: {
       kind: string;
       revision: string;
@@ -914,6 +923,7 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
       minimum_type: slot.minimum_type,
+      execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
       subject_revision: snapshot.revision,
       subject_snapshot: subjectSnapshotSummary(snapshot),
     };

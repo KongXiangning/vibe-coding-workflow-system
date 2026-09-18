@@ -122,6 +122,14 @@ apply `draft-consistency-challenge` across these closed dimensions:
   codes, response shapes, normalization, stored data, and compatibility;
 - validation and Persistent Tests coverage for each material acceptance or
   decided observable behavior;
+- whether each execution check observes the claim through the smallest valid
+  scope: reject a whole target or suite when a selector/focused check is
+  available, and require an explicit breadth reason and permitted basis when
+  `target`, E2E, or broad regression is proposed;
+- whether a business-flow claim retains required integration/flow evidence
+  rather than being replaced by many local unit PASS results, whether E2E is
+  actually admitted by its acceptance/low-cost/policy/user basis, and whether
+  the proposed oracle can detect the real business failure;
 - step-end executability in the current repository state, including whether a
   planned command can produce its claimed evidence at that point;
 - cross-step repairability, treating v1 step scopes as permissions rather than
@@ -190,6 +198,15 @@ binding, necessity and why existing evidence is insufficient. Review oracle
 independence and whether planned mocks/fixtures prove the promised boundary. Do not demand execution
 or completion evidence during draft review. Reports remain caller-reported;
 no Provider, authenticated human signature or AST enforcement is implied.
+
+Treat validation wider than the claim as a material evidence-plan finding, not a
+harmless safety margin. Require `prepare-task` to narrow it before a clean
+draft: whole target/suite requires its selection and breadth record, broad
+regression requires an allowed claim/risk/contract/release/policy/user basis,
+and E2E requires its own allowed basis. “Same target,” “previously green,” and
+“final step” do not establish necessity. A focused selector is preferred when
+the framework supports it. Do not demand a full suite merely because it is
+available.
 
 
 Check each checkpoint's explicit reason and policy against project requirements.

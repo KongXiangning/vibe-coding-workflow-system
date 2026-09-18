@@ -88,6 +88,37 @@ executable `CURRENT_TASK` draft containing:
 
 Use Runtime `file-context` to find/read relevant existing tests, helpers, fixtures and configuration before deciding reuse or new tests. Search results are candidates, not evidence of passing checks; unchanged reused tests need no creation/modification admission. For normal Runtime state inspection use `validate --summary`. Read `.workflow-system/runtime/support/CONTEXT_API.md` for inputs and limits.
 
+### Minimum-sufficient validation selection
+
+Choose validation in this order: first identify the exact observation each claim
+must produce, then select the smallest check set that can produce that
+observation. A matching test file, target, or suite is only a candidate; it
+does not make the complete target required. For local logic, a key function, or
+a bounded function chain, use a focused unit/function-chain check. When the
+framework supports a selector, record and run the exact selector rather than
+the containing file, target, or suite. If the only available execution is a
+larger target, declare it as `target` and record why that breadth is necessary;
+do not label it focused by convenience.
+
+For a claim that crosses component, protocol, persistence, process, or real
+business-data boundaries, preserve a `business-flow` slot and choose the
+necessary integration/flow command. A collection of unit PASS results cannot
+substitute for that flow observation. Do not add E2E by default: admit it only
+for a required real end-to-end acceptance boundary, demonstrably insufficient
+lower-cost evidence, project/release policy, or an explicit user request. Do
+not add broad regression by default either. It needs a concrete claim, risk,
+contract, release gate, project policy, or explicit user request; “more safe,”
+“same target,” “previously green,” and “final step” are not reasons.
+
+For every execution check, submit the frozen selection object bound to its one
+claim slot: `scope` (`focused`, `target`, `integration`, `e2e`, or
+`broad-regression`), `claim_scope` (`local` or `business-flow`), selector,
+selection reason, and, for target/E2E/broad execution, breadth reason and
+basis plus its exact Task Basis or policy source reference. Bind `check.entry` to the exact planned command of its due step. A
+command PASS never fills another claim slot automatically; each claim needs its
+own matching report and evidence. This is a selection declaration, not a test
+registry or a permission to create tests.
+
 ## Mutation Authority v2
 
 When the project profile declares `mutation_authority.domains`, select v2

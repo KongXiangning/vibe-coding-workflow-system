@@ -344,6 +344,8 @@ capabilities:
       - 'global/domain/permanent/schema invariants require confirmed owner_source contract or user authority, shared or critical impact, and existing evidence for an explicit Contract/Decision or user-owned design/contract decision'
       - 'initial/default acceptance and current-task exclusion must not be upgraded into a global/permanent restriction; confirmed current acceptance may control bounded task behavior but does not rewrite future design/baseline semantics unless an explicit contract/design decision changes them'
       - proposed minimum-sufficient evidence type and expected disposition
+      - 'execution selection is claim-bound and frozen: focused selector first for local logic; whole target, E2E, and broad regression require explicit scope/breadth reason and allowed basis'
+      - 'business-flow claims retain integration/flow evidence and cannot be completed by accumulated local unit PASS results'
       - 'evidence types may include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance'
       - 'evidence-plan decision: whether new evidence is needed, minimum-sufficient type, existing-check reuse, temporary exploration, and failure route'
       - 'prepare-task creates and persists a non-empty canonical CURRENT_TASK.runtime_state.claim_evidence plan with at least one acceptance claim; each claim has stable claim_id/claim_kind and each planned slot has slot_id, minimum_type, disposition, and evidence_refs'
@@ -375,6 +377,7 @@ capabilities:
     output_contract:
       - claim-bound minimum-sufficient evidence plan that separates validation from test creation
       - 'durable claim-bound evidence completion state consumed by task-complete and close-task; aggregate command success or free-text notes cannot substitute for a slot disposition and evidence_refs'
+      - 'minimum-sufficient execution selection with an exact due-step planned-command binding; a command PASS never automatically satisfies another claim slot'
       - 'invariant admission preserves semantic strength: bounded local/temporal mechanical claims remain reversible, while global/domain/permanent claims carry explicit authority and future-design conflict trace'
       - persistent-test not-admitted, admitted, deferred, or rejected decision separate from validation and existing-check reuse
       - 'admitted persistent tests only with an explicit owner, one of acceptance, regression, critical-invariant, or critical-risk, a behavioral or contract boundary assertion, and an expected failure disposition'
@@ -387,6 +390,8 @@ capabilities:
       - 'current acceptance conflicts with a documented future design/baseline and the stronger restriction has no explicit contract/design decision'
       - a proposed persistent test has no authorized owner or authority source
       - evidence is insufficient or unrelated to the claim
+      - 'a draft defaults from a related test file, target, or suite to whole-target validation without a smaller valid selection or an explicit breadth reason and basis'
+      - 'business-flow evidence is replaced by local/unit evidence, or E2E/broad regression lacks its allowed admission basis'
       - 'task-complete or close-task relies on aggregate command success, notes, or model summary instead of the durable claim-bound evidence slots'
       - an exploratory probe lacks a bounded duration, tool/run count, permitted temporary artifact locations, or cleanup/audit rule
       - 'a persistent test lacks an explicit owner, closed admission basis, concrete claim, existing-evidence insufficiency reason, behavioral or contract boundary assertion, or expected failure disposition'

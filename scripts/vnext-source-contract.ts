@@ -737,6 +737,11 @@ function validatePrepareTaskDraftBoundary(content: string): void {
     'Do not infer Red from step order',
     'TEST_STRATEGY_PREREQUISITE_UNSUPPORTED',
     'Persistent Tests may remain `none`',
+    '### Minimum-sufficient validation selection',
+    'A matching test file, target, or suite is only a candidate',
+    'A collection of unit PASS results cannot',
+    'Do not add E2E by default',
+    'command PASS never fills another claim slot automatically',
     'PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths',
     'Each policy entry must itself be an exact path or a literal directory prefix',
     'reject wildcard-bearing prefixes such as `*/**`',
@@ -769,6 +774,8 @@ function validateReviewDraftBoundary(content: string): void {
     'one exact `draft + active`',
     'governed_mutation_count: 0',
     'verdict: clean | findings | needs-user',
+    'Treat validation wider than the claim as a material evidence-plan finding',
+    'Do not demand a full suite merely because it is',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) {
@@ -797,6 +804,7 @@ function validateExecuteStepSemanticBoundary(content: string): void {
     'Runtime `complete-reviewed-step`',
     'completion cannot add evidence',
     'never supply or copy a review receipt',
+    'Do not substitute an unplanned write-capable command, full suite, whole target, broad regression, or E2E command',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) {
@@ -816,6 +824,7 @@ function validateReviewChangeSemanticBoundary(content: string): void {
     'For historical `test-red`, verify that only frozen test assets were admitted',
     'Do not repair code or advance the step',
     'recommendation must not invoke another public Skill',
+    'many PASS results, or one command PASS, do not increase assurance for an unrelated claim',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) fail(`review-change must preserve the semantic boundary term "${term}"`);
