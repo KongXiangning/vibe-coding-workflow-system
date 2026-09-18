@@ -1,0 +1,28 @@
+diff --git a/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md b/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md
+index 9476dd2..8fb120f 100644
+--- a/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md
++++ b/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md
+@@ -372,12 +372,17 @@ This additive storage contract preserves task identity, goal, acceptance,
+ authority, scope, test admission, review / repair budgets, and lifecycle
+ semantics. CURRENT_TASK.md remains the fixed human and Agent entrypoint. Its
+ single submission head selects the current source, definition, state, and
+-committed event range. The current body is a complete, governed presentation
+-of the confirmed definition and current workset; execution and idempotency
+-arrays are a compatibility hot-cache only. In compact v2 the current file
+-keeps a bounded history navigation preview; complete history remains in the
+-bound task-data aggregate and is never treated as empty when the preview is
+-short.
++committed event range. Inline and compact-v2 tasks retain their original
++complete definition presentation; execution and idempotency arrays are only a
++compatibility hot-cache. New compact-v3 tasks keep exact immutable definition
++and state references with current-step navigation in CURRENT_TASK, rather than
++repeating the complete plan, claims and reports inline. The referenced material
++belongs to the same canonical aggregate and is resolved through task-context /
++task-read before execution. Summary text never grants authority. Existing tasks
++remain readable; explicit representation-only task-storage-migration preserves
++the old raw source and complete logical semantics without replan or a size gate.
++Complete history remains in the bound task-data aggregate and is never treated
++as empty when the active preview is short.
+ 
+ The aggregate is stored under
+ <workflow_home>/task-data/<document_id>/ with a manifest, immutable
