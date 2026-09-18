@@ -22,7 +22,6 @@
 | §3.2、§5、§7.1 的全局 testcase/Red/Green 阶段及必须后续产品步骤 | 被 D1/D2 取代；使用 claim/slot/check 局部义务，纯测试资产首次通过合法，expected-failure 不能证明正向交付。 |
 | §2.7、§6、§10、§12/13 的新增 public review-testcase 与架构变更方案 | 本轮不采用；测试必要性、oracle、复用及边界审查放在既有 review-draft/review-change；保留 Target 核心，不新建公共入口。 |
 | §2.8/10/11、§7.2、§8 的可信执行凭证、全局 Test ID/catalog 前置 | 被 D2/D3 的最小边界取代；任务内稳定 ID、多槽实际调用、结构化 caller-reported 报告及对象适用性本期接通；完整 Provider/AST/全局 ID 后置，不声称来源标签能证明可信执行。 |
-| §8.4、§13 的 `required test set`、`previously-green impacted tests` 与 `final-step full regression` 默认扩张 | 被 Target Architecture P-12 与 PLAN D2 的 minimum-sufficient execution 取代。测试执行集合也必须最小必要；不得因同 target/suite、历史 Green、最终步骤或“全量更稳妥”自动扩大。宽回归/E2E 只有在具体 claim/risk、项目/发布 gate 或显式用户要求证明必要时才进入 required evidence。 |
 | §5/7/14 的逐步仪式化执行/评审建议 | 以 D4 为准：按风险/逻辑检查点；required review 必须覆盖累计相关变更，修复仍需同一逻辑目标 verification。 |
 | §2.12、§7.4 的环境 blocked 重试 | 保留问题判断，按 D5 在 dogfood 前完成最小同计划、有界、幂等重试；不构建通用恢复平台。 |
 | §2.13、§7.5 的滚动日志证据丢失暂缓 | 不再适用于新语义完成判断；必需证据摘要、累计评审边界和 retry 预算存 canonical task records，不依赖 256 条滚动日志。 |
