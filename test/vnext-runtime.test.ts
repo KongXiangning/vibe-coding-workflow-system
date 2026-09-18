@@ -5953,6 +5953,101 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
   });
 
+  test('storage metrics review invalidates samples when a real commit crosses the start or final sampling boundary', () => {
+    for (const timing of ['start', 'during', 'failure'] as const) {
+      const root = archivedBaselineRoot();
+      const draft = singleStepSemanticDraft();
+      prepareDraft(root, draft);
+      const current = readCanonicalCurrentTask(root);
+      const initial = taskStorageMetrics(root, current);
+      const originalManifest = Object.getOwnPropertyDescriptor(TaskStore.prototype, 'manifest')!;
+      const originalReadEvent = TaskStore.prototype.readEvent;
+      let injected = false;
+      const commitDuringRead = () => {
+        if (injected) return;
+        injected = true; // No recursion while the real transaction reads its store.
+        expect(prepareDraft(root, { ...draft, goal: draft.goal + ' Additional approved detail 中文'.repeat(12) }).status).toBe('success');
+      };
+      let sample: ReturnType<typeof taskStorageMetrics>;
+      try {
+        if (timing === 'start') Object.defineProperty(TaskStore.prototype, 'manifest', {
+          ...originalManifest,
+          get() {
+            const value = originalManifest.get!.call(this);
+            if (this.paths.root === root) commitDuringRead();
+            return value;
+          },
+        });
+        else TaskStore.prototype.readEvent = function(reference) {
+          const value = originalReadEvent.call(this, reference);
+          if (this.paths.root === root && !injected) {
+            commitDuringRead();
+            if (timing === 'failure') throw new Error('INJECTED_OPTIONAL_READ_FAILURE');
+          }
+          return value;
+        };
+        sample = taskStorageMetrics(root, current);
+      } finally {
+        Object.defineProperty(TaskStore.prototype, 'manifest', originalManifest);
+        TaskStore.prototype.readEvent = originalReadEvent;
+      }
+      expect(injected).toBe(true);
+      const after = readCanonicalCurrentTask(root);
+      expect(after.sourceTuple.revision).not.toBe(current.sourceTuple.revision);
+      expect(sample!.source_revision).toBe(current.sourceTuple.revision);
+      expect(sample!.status, timing).toBe('unavailable');
+      expect(sample!.coverage.notes).toContain('METRICS_SAMPLE_CHANGED');
+      for (const key of ['definition_bytes', 'claim_evidence_bytes', 'pending_review_bytes', 'execution_hot_state_bytes', 'logical_state_bytes',
+        'task_basis_bytes', 'aggregate_total_bytes', 'external_history_bytes', 'committed_material_bytes'] as const) expect(sample![key], key).toBeNull();
+      expect(sample!.physical_breakdown).toBeNull();
+      expect(sample!.previous_transaction_delta.status).toBe('unavailable');
+      expect(sample!.previous_transaction_delta.definition_bytes).toBeNull();
+      expect(sample!.previous_transaction_delta.committed_material_bytes).toBeNull();
+      // Only the injected business transaction writes. A fresh measurement and
+      // the compiled CLI are read-only and agree on the new, settled revision.
+      const store = TaskStore.forCurrent(root, after);
+      const manifest = fs.readFileSync(store.paths.manifest);
+      const eventCount = store.listEvents().length;
+      const fresh = taskStorageMetrics(root, after);
+      expect(fresh.status).toBe('complete');
+      expect(fresh.definition_bytes!).toBeGreaterThan(initial.definition_bytes!);
+      expect(taskStorageMetrics(root, current).status).toBe('unavailable');
+      expect(fresh.aggregate_total_bytes).toBe(store.measure().total_bytes);
+      const cli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+      expect(cli.status, cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout).storage_metrics).toEqual(fresh);
+      expect(fs.readFileSync(store.paths.manifest)).toEqual(manifest);
+      expect(fs.readFileSync(current.filePath, 'utf8')).toBe(after.raw);
+      expect(store.listEvents().length).toBe(eventCount);
+    }
+  });
+
+  test('storage metrics review uses canonical Task Basis references without imposing blank-line spelling', () => {
+    const root = archivedBaselineRoot();
+    prepareDraft(root, singleStepSemanticDraft());
+    useLegacyInlineCurrent(root);
+    const original = readCanonicalCurrentTask(root);
+    const basis = readCanonicalTaskBasis(root, original);
+    for (const heading of ['任务输入依据', 'Task Basis']) {
+      const raw = original.raw.replace(/## 任务输入依据\n\n- path:/u, `## ${heading}\n- path:`);
+      expect(raw).not.toBe(original.raw);
+      fs.writeFileSync(original.filePath, raw);
+      const current = readCanonicalCurrentTask(root);
+      expect(readCanonicalTaskBasis(root, current).content).toBe(basis.content);
+      const metrics = taskStorageMetrics(root, current);
+      expect(metrics.task_basis_bytes).toBe(Buffer.byteLength(basis.content, 'utf8'));
+      const cli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+      expect(cli.status, cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout).storage_metrics.task_basis_bytes).toBe(metrics.task_basis_bytes);
+      expect(fs.readFileSync(original.filePath, 'utf8')).toBe(raw);
+    }
+    // A present but malformed reference is unavailable, never "no link = 0".
+    fs.writeFileSync(original.filePath, original.raw.replace(/(- revision: `)[a-f0-9]{64}(`)/u, '$1invalid$2'));
+    const malformed = taskStorageMetrics(root, readCanonicalCurrentTask(root));
+    expect(malformed.task_basis_bytes).toBeNull();
+    expect(malformed.coverage.notes).toContain('TASK_BASIS_REFERENCE_INVALID');
+  });
+
   test('storage metrics observe draft, execution, review and migration without consuming receipts or writing data', () => {
     const draft = singleStepSemanticDraft({ goal: 'Observe 中文 task growth, not an arbitrary test count.' });
     draft.mutation_scope.allowed = ['README.md'];

@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse, stringify } from 'yaml';
+import { readTaskBasisReferenceFromBody, validateVNextRuntimeState } from './kernel';
 import { prepareTaskProjection } from './task-projection';
 import {
   TaskStore, sha256, stableJson, migrationSemanticModel, taskStoreDefinitionPayload,
@@ -53,12 +54,15 @@ function codeOf(error: unknown): string {
   return /^[A-Z][A-Z0-9_]+$/u.test(code) ? code : 'MEASUREMENT_UNAVAILABLE';
 }
 function logicalSizes(current: TaskStoreCurrent): LogicalSizes {
-  // Same representation normalization as migration, but no receipts are issued.
-  const hotCurrent = { ...current, runtimeState: omitted(current.runtimeState, ['execution_log', 'applied_proposals']) };
-  const normalized = migrationSemanticModel(hotCurrent) as RecordValue;
+  // Both the current task and historical wire input use the canonical defaults.
+  // Histories are outside this logical view: do not hydrate or validate them here.
+  // Unsupported historical state throws only into the diagnostic attempt wrapper.
+  const runtimeState = validateVNextRuntimeState(omitted(current.runtimeState, ['execution_log', 'applied_proposals']), { storeBackedHistory: true });
+  const normalizedCurrent = { ...current, runtimeState };
+  const normalized = migrationSemanticModel(normalizedCurrent) as RecordValue;
   const runtime = normalized.runtime_state;
   return {
-    definition_bytes: bytes(taskStoreDefinitionPayload(current, 'task-definition/v2')),
+    definition_bytes: bytes(taskStoreDefinitionPayload(normalizedCurrent, 'task-definition/v2')),
     claim_evidence_bytes: bytes(runtime.claim_evidence),
     pending_review_bytes: bytes(runtime.pending_review_result),
     execution_hot_state_bytes: bytes(omitted(runtime, ['claim_evidence', 'pending_review_result'])),
@@ -109,12 +113,9 @@ export function taskStorageMetrics(rootInput: string, current: TaskStoreCurrent)
     readBytes += safeStat(file).size;
     if (readBytes > LIMITS.read_bytes) unavailable('METRICS_READ_BUDGET');
   };
-  const basisReference = (body: string): { path: string; revision: string } | null => {
-    const m = /##\s+(?:任务输入依据|Task Basis)\s*\r?\n\s*\r?\n-\s*path:\s*`([^`]+)`\s*\r?\n-\s*revision:\s*`([a-f0-9]{64})`/mu.exec(body);
-    return m ? { path: m[1]!, revision: m[2]! } : null;
-  };
-  const basis = basisReference(current.body);
-  result.task_basis_bytes = basis === null ? 0 : attempt(() => {
+  // undefined means a malformed/unreadable reference; null alone means no link.
+  const basis = attempt(() => ({ reference: readTaskBasisReferenceFromBody(current.body) }))?.reference;
+  result.task_basis_bytes = basis === undefined ? null : basis === null ? 0 : attempt(() => {
     const file = path.resolve(root, basis.path.replace(/\\/gu, '/'));
     chargeRead(file);
     const content = fs.readFileSync(file);
@@ -122,14 +123,29 @@ export function taskStorageMetrics(rootInput: string, current: TaskStoreCurrent)
     return content.length;
   });
 
+  let verifySample: (() => void) | undefined;
   attempt(() => {
     const store = TaskStore.forCurrent(root, current);
-    const manifest = store.manifest;
-    if (!manifest) { note('NO_COMMITTED_AGGREGATE'); return; }
-    if (store.hasPendingCommit || manifest.head.source_revision !== current.sourceTuple.revision) return unavailable('METRICS_HEAD_NOT_SETTLED');
-    const manifestBytes = fs.readFileSync(store.paths.manifest, 'utf8');
+    const readManifest = () => {
+      if (!fs.existsSync(store.paths.manifest)) return null;
+      safeStat(store.paths.manifest);
+      return fs.readFileSync(store.paths.manifest, 'utf8');
+    };
+    // Capture the comparison baseline BEFORE the independently parsed manifest.
+    // A commit between those reads must not become the new sampling baseline.
+    const manifestBytes = readManifest();
     const sourceStat = safeStat(current.filePath);
-    const signature = (s: fs.Stats) => `${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+    const signature = (s: fs.Stats) => `${s.dev}:${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+    verifySample = () => {
+      if (store.hasPendingCommit || readManifest() !== manifestBytes
+        || signature(safeStat(current.filePath)) !== signature(sourceStat)) unavailable('METRICS_SAMPLE_CHANGED');
+    };
+    chargeRead(current.filePath);
+    if (sha256(fs.readFileSync(current.filePath)) !== current.sourceTuple.revision) return unavailable('METRICS_SAMPLE_CHANGED');
+    const manifest = store.manifest;
+    verifySample();
+    if (!manifest) { note('NO_COMMITTED_AGGREGATE'); return; }
+    if (manifest.head.source_revision !== current.sourceTuple.revision) return unavailable('METRICS_SAMPLE_CHANGED');
     const objects = new Map<string, ReturnType<TaskStore['readObject']>>();
     const getObject = (ref: TaskStoreObjectReference) => {
       if (!ref || !/^[a-f0-9]{64}$/u.test(ref.sha256)) return unavailable('METRICS_REFERENCE_INVALID');
@@ -283,8 +299,8 @@ export function taskStorageMetrics(rootInput: string, current: TaskStoreCurrent)
           if (sha256(candidate) === head.source_revision) oldRaw = candidate;
         });
         if (oldRaw) delta.active_projection_bytes = result.active_projection_bytes - Buffer.byteLength(oldRaw, 'utf8');
-        const priorBasis = basisReference(before.body);
-        if (stableJson(priorBasis) === stableJson(basis) && result.task_basis_bytes !== null) delta.task_basis_bytes = 0;
+        const priorBasis = readTaskBasisReferenceFromBody(before.body);
+        if (basis !== undefined && stableJson(priorBasis) === stableJson(basis) && result.task_basis_bytes !== null) delta.task_basis_bytes = 0;
         else if (priorBasis === null && result.task_basis_bytes !== null) delta.task_basis_bytes = result.task_basis_bytes;
         else if (priorBasis && result.task_basis_bytes !== null) attempt(() => {
           attempt(finishHistory);
@@ -326,10 +342,13 @@ export function taskStorageMetrics(rootInput: string, current: TaskStoreCurrent)
         result.external_history_bytes = committed - active; // non-selected committed objects + events, counted once
       } else note('LEGACY_CURRENT_MATERIAL_CLOSURE_UNAVAILABLE');
     });
-    // No locks, writes or retries: report a concurrent sample as unavailable.
-    if (store.hasPendingCommit || fs.readFileSync(store.paths.manifest, 'utf8') !== manifestBytes
-      || signature(safeStat(current.filePath)) !== signature(sourceStat)) return unavailable('METRICS_SAMPLE_CHANGED');
   });
+  // Also check after a partial diagnostic failure; an early return/throw must
+  // not bypass concurrent-head detection. No locks, writes or automatic retries.
+  if (verifySample) try { verifySample(); } catch (error) {
+    note(codeOf(error));
+    note('METRICS_SAMPLE_CHANGED');
+  }
   const delta = result.previous_transaction_delta;
   if (delta.previous_event_sequence !== null) {
     const fields = [...LOGICAL_KEYS, 'active_projection_bytes', 'task_basis_bytes', 'committed_material_bytes'] as const;
@@ -341,7 +360,11 @@ export function taskStorageMetrics(rootInput: string, current: TaskStoreCurrent)
   if (result.coverage.event_history !== 'complete' || result.coverage.physical_inventory !== 'complete'
     || (result.previous_transaction_delta.reason !== 'NO_PREVIOUS_EVENT' && result.previous_transaction_delta.status !== 'available')) result.status = 'partial';
   if (result.coverage.notes.includes('METRICS_SAMPLE_CHANGED')) {
-    result.status = 'unavailable'; result.aggregate_total_bytes = result.external_history_bytes = result.committed_material_bytes = null;
+    result.status = 'unavailable';
+    Object.assign(result, nullLogical());
+    result.task_basis_bytes = result.aggregate_total_bytes = result.external_history_bytes = result.committed_material_bytes = null;
+    result.coverage.event_history = result.coverage.physical_inventory = 'unavailable';
+    // Keep only the supplied source identity/physical length, not mixed counters.
     result.physical_breakdown = null; result.previous_transaction_delta = { ...result.previous_transaction_delta,
       status: 'unavailable', reason: 'METRICS_SAMPLE_CHANGED', ...nullLogical(), active_projection_bytes: null, task_basis_bytes: null, committed_material_bytes: null };
   }

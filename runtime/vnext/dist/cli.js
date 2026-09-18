@@ -3043,11 +3043,12 @@ function codeOf(error) {
   return /^[A-Z][A-Z0-9_]+$/u.test(code) ? code : "MEASUREMENT_UNAVAILABLE";
 }
 function logicalSizes(current) {
-  const hotCurrent = { ...current, runtimeState: omitted(current.runtimeState, ["execution_log", "applied_proposals"]) };
-  const normalized = migrationSemanticModel(hotCurrent);
+  const runtimeState = validateVNextRuntimeState(omitted(current.runtimeState, ["execution_log", "applied_proposals"]), { storeBackedHistory: true });
+  const normalizedCurrent = { ...current, runtimeState };
+  const normalized = migrationSemanticModel(normalizedCurrent);
   const runtime = normalized.runtime_state;
   return {
-    definition_bytes: bytes(taskStoreDefinitionPayload(current, "task-definition/v2")),
+    definition_bytes: bytes(taskStoreDefinitionPayload(normalizedCurrent, "task-definition/v2")),
     claim_evidence_bytes: bytes(runtime.claim_evidence),
     pending_review_bytes: bytes(runtime.pending_review_result),
     execution_hot_state_bytes: bytes(omitted(runtime, ["claim_evidence", "pending_review_result"])),
@@ -3137,12 +3138,8 @@ function taskStorageMetrics(rootInput, current) {
     if (readBytes > LIMITS.read_bytes)
       unavailable("METRICS_READ_BUDGET");
   };
-  const basisReference = (body) => {
-    const m = /##\s+(?:任务输入依据|Task Basis)\s*\r?\n\s*\r?\n-\s*path:\s*`([^`]+)`\s*\r?\n-\s*revision:\s*`([a-f0-9]{64})`/mu.exec(body);
-    return m ? { path: m[1], revision: m[2] } : null;
-  };
-  const basis = basisReference(current.body);
-  result.task_basis_bytes = basis === null ? 0 : attempt(() => {
+  const basis = attempt(() => ({ reference: readTaskBasisReferenceFromBody(current.body) }))?.reference;
+  result.task_basis_bytes = basis === undefined ? null : basis === null ? 0 : attempt(() => {
     const file = path5.resolve(root2, basis.path.replace(/\\/gu, "/"));
     chargeRead(file);
     const content = fs5.readFileSync(file);
@@ -3150,18 +3147,33 @@ function taskStorageMetrics(rootInput, current) {
       return unavailable("METRICS_BASIS_REVISION_MISMATCH");
     return content.length;
   });
+  let verifySample;
   attempt(() => {
     const store = TaskStore.forCurrent(root2, current);
+    const readManifest = () => {
+      if (!fs5.existsSync(store.paths.manifest))
+        return null;
+      safeStat(store.paths.manifest);
+      return fs5.readFileSync(store.paths.manifest, "utf8");
+    };
+    const manifestBytes = readManifest();
+    const sourceStat = safeStat(current.filePath);
+    const signature = (s) => `${s.dev}:${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+    verifySample = () => {
+      if (store.hasPendingCommit || readManifest() !== manifestBytes || signature(safeStat(current.filePath)) !== signature(sourceStat))
+        unavailable("METRICS_SAMPLE_CHANGED");
+    };
+    chargeRead(current.filePath);
+    if (sha2562(fs5.readFileSync(current.filePath)) !== current.sourceTuple.revision)
+      return unavailable("METRICS_SAMPLE_CHANGED");
     const manifest = store.manifest;
+    verifySample();
     if (!manifest) {
       note("NO_COMMITTED_AGGREGATE");
       return;
     }
-    if (store.hasPendingCommit || manifest.head.source_revision !== current.sourceTuple.revision)
-      return unavailable("METRICS_HEAD_NOT_SETTLED");
-    const manifestBytes = fs5.readFileSync(store.paths.manifest, "utf8");
-    const sourceStat = safeStat(current.filePath);
-    const signature = (s) => `${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+    if (manifest.head.source_revision !== current.sourceTuple.revision)
+      return unavailable("METRICS_SAMPLE_CHANGED");
     const objects = new Map;
     const getObject = (ref) => {
       if (!ref || !/^[a-f0-9]{64}$/u.test(ref.sha256))
@@ -3361,8 +3373,8 @@ ${before.body}`;
           });
         if (oldRaw)
           delta.active_projection_bytes = result.active_projection_bytes - Buffer.byteLength(oldRaw, "utf8");
-        const priorBasis = basisReference(before.body);
-        if (stableJson(priorBasis) === stableJson(basis) && result.task_basis_bytes !== null)
+        const priorBasis = readTaskBasisReferenceFromBody(before.body);
+        if (basis !== undefined && stableJson(priorBasis) === stableJson(basis) && result.task_basis_bytes !== null)
           delta.task_basis_bytes = 0;
         else if (priorBasis === null && result.task_basis_bytes !== null)
           delta.task_basis_bytes = result.task_basis_bytes;
@@ -3424,9 +3436,14 @@ ${before.body}`;
         } else
           note("LEGACY_CURRENT_MATERIAL_CLOSURE_UNAVAILABLE");
       });
-    if (store.hasPendingCommit || fs5.readFileSync(store.paths.manifest, "utf8") !== manifestBytes || signature(safeStat(current.filePath)) !== signature(sourceStat))
-      return unavailable("METRICS_SAMPLE_CHANGED");
   });
+  if (verifySample)
+    try {
+      verifySample();
+    } catch (error) {
+      note(codeOf(error));
+      note("METRICS_SAMPLE_CHANGED");
+    }
   const delta = result.previous_transaction_delta;
   if (delta.previous_event_sequence !== null) {
     const fields = [...LOGICAL_KEYS, "active_projection_bytes", "task_basis_bytes", "committed_material_bytes"];
@@ -3441,7 +3458,9 @@ ${before.body}`;
     result.status = "partial";
   if (result.coverage.notes.includes("METRICS_SAMPLE_CHANGED")) {
     result.status = "unavailable";
-    result.aggregate_total_bytes = result.external_history_bytes = result.committed_material_bytes = null;
+    Object.assign(result, nullLogical());
+    result.task_basis_bytes = result.aggregate_total_bytes = result.external_history_bytes = result.committed_material_bytes = null;
+    result.coverage.event_history = result.coverage.physical_inventory = "unavailable";
     result.physical_breakdown = null;
     result.previous_transaction_delta = {
       ...result.previous_transaction_delta,

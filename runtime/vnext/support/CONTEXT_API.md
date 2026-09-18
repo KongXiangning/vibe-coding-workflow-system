@@ -624,7 +624,11 @@ A `partial`/`unavailable` metrics result is diagnostic only, never an instructio
 to stop. Existing canonical integrity failures still have their usual behavior.
 
 All units are bytes. Physical sizes are regular-file lengths, not allocated disk
-blocks or token counts. Logical sizes are stable-key UTF-8 JSON views:
+blocks or token counts. Logical sizes are stable-key UTF-8 JSON views. Current and
+historical state use the same canonical Runtime defaults before comparison;
+storage migration alone does not add logical bytes for omitted legacy fields.
+Task Basis references use the canonical section parser, not a separate whitespace
+rule; malformed references are unavailable, while an absent link alone counts as zero:
 
 | Field | Exact accounting boundary |
 | --- | --- |
@@ -664,8 +668,11 @@ Additional diagnostic work has bounded inventory/event/object/material-read
 budgets, exposed in `coverage.limits`; exceeding them returns partial observations
 and reasons, not a task-size quota. These bounds do not claim to bound the existing
 canonical reader's own integrity/history hydration cost. Observations take no write
-lock; a detected concurrent head/publication change invalidates the sample instead
-of recording mixed-revision deltas. This is not an atomic filesystem snapshot.
+lock; the initial manifest/source baseline is checked against the supplied canonical
+revision, and rechecked even after partial diagnostic failure. A detected concurrent
+head/publication change clears logical/disk counters and deltas and returns
+`unavailable`; only the supplied source identity and its raw byte length remain.
+This is not an atomic filesystem snapshot.
 No history is deleted, no remote telemetry is sent, and no test is run to collect
 metrics. Preserve the task-data with real tasks for later longitudinal analysis;
 C supplies observation, not a claim that growth has already been optimized.

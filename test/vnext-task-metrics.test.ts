@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import { describe, expect, test } from 'bun:test';
 import { readCanonicalCurrentTask } from '../runtime/vnext/src/kernel';
-import { TaskStore, commitTaskStorageMigration, sha256 } from '../runtime/vnext/src/task-store';
+import { TaskStore, commitTaskStorageMigration, migrationSemanticModel, sha256 } from '../runtime/vnext/src/task-store';
 import { taskStorageMetrics } from '../runtime/vnext/src/task-storage-metrics';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -53,6 +53,28 @@ describe('read-only task storage metrics', () => {
       expect(taskStorageMetrics(root, current)).toEqual(m);
       expect(fs.readFileSync(file)).toEqual(before);
       expect(fs.existsSync(path.join(root, 'docs/workflow/task-data'))).toBe(false);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('storage metrics review normalizes missing legacy defaults before computing migration deltas', () => {
+    const root = fixtureRoot();
+    try {
+      // Real bootstrap wire input omits optional fields; do not round-trip it
+      // through the modern writer before testing its retained migration preimage.
+      const before = readCanonicalCurrentTask(root);
+      expect(before.frontmatter.runtime_state).not.toHaveProperty('claim_evidence');
+      const initial = taskStorageMetrics(root, before);
+      expect(commitTaskStorageMigration(root, before, before.sourceTuple.revision).status).toBe('committed');
+      const after = readCanonicalCurrentTask(root);
+      expect(migrationSemanticModel(after)).toEqual(migrationSemanticModel(before));
+      const measured = taskStorageMetrics(root, after);
+      expect(measured.previous_transaction_delta.event_type).toBe('storage-migration');
+      for (const key of ['definition_bytes', 'claim_evidence_bytes', 'pending_review_bytes', 'execution_hot_state_bytes', 'logical_state_bytes'] as const) {
+        expect(measured[key]).toBe(initial[key]);
+        expect(measured.previous_transaction_delta[key], key).toBe(0);
+      }
+      expect(measured.previous_transaction_delta.active_projection_bytes).toBe(measured.active_projection_bytes - initial.active_projection_bytes);
+      expect(measured.previous_transaction_delta.status).toBe('available');
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 
