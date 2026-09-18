@@ -1,0 +1,38 @@
+name: Process-control review workbench
+on:
+  push:
+    branches: [codex/process-control-review-work-20260918]
+    paths: [.github/workflows/process-control-review-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 96ada7cf86fe6ea275b8d5e349d52ad1434d9cdb
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Export exact source and test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 96ada7cf86fe6ea275b8d5e349d52ad1434d9cdb
+          bun install --frozen-lockfile --ignore-scripts
+          export_dir="$RUNNER_TEMP/vnext-review"
+          mkdir -p "$export_dir/source" "$export_dir/tools"
+          git archive HEAD | tar -x -C "$export_dir/source"
+          cp -a node_modules "$export_dir/source/node_modules"
+          cp "$(command -v bun)" "$export_dir/tools/bun"
+          git rev-parse HEAD > "$export_dir/source-revision.txt"
+          tar -czf "$RUNNER_TEMP/vnext-review.tgz" -C "$RUNNER_TEMP" vnext-review
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vnext-review-source
+          path: ${{ runner.temp }}/vnext-review.tgz
+          retention-days: 1
+          if-no-files-found: error
