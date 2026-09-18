@@ -1,0 +1,13 @@
+{
+  "runtime/vnext/support/CONTEXT_API.md": "30dc9f33e11d4f86740d9cbc1f33d5810757db49c41b247f2555b21e30700e26",
+  "scripts/vnext-source-contract.ts": "613992d6a66adad672a36542f9da860204dda6401ab394766d57a2a1dbd02bf7",
+  "templates/vnext/skills/prepare-task.SKILL.md.tmpl": "66c6b36b06bda5c9a02bc147cabcdcec6561cd458ee2c57fb254c19c8b798c5b",
+  "templates/vnext/skills/review-draft.SKILL.md.tmpl": "486d3c559ae5c38dee983605741cf942fed6a5f2de1aa57cb0d480d58cc654fc",
+  "test/workflow-vnext-source.test.ts": "66c7398625168b80fc288d732ec61b751c90ac7bcc795ded1fd91ee698a13ce7",
+  "docs/ops/validation-selection/README.md": "484b8f8ae101fd6dd49bde0533153c29840edc742928ee0a67b562d081994508",
+  "docs/ops/validation-selection/implementation-evidence.md": "e0623398093654bcd855d502251055365fe1f33157643c78cd432a9d318d3c38",
+  "docs/ops/validation-selection/replay-prompts.md": "b52c81b8e06af0138b1f7ffa7a0be077e722a499df14ae73543e67b430188bf1",
+  "docs/ops/validation-selection/reviewer-guide.md": "5f4c5adf65b7a712ff8d7c308bd119e5e53bea9dc322aa78f7845e4ae0ec3785",
+  "docs/ops/validation-selection/selection-patterns.json": "d8dbb9e380880c09af093a26b2d2f628e034a01308a729b322133465be2cee2b",
+  "docs/ops/validation-selection/rollout-incident.json": null
+}
