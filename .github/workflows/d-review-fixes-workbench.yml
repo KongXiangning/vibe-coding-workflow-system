@@ -1,0 +1,35 @@
+name: D review fixes workbench
+on:
+  push:
+    branches: [codex/d-review-fixes-work-20260919]
+    paths: [.github/workflows/d-review-fixes-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 320704d3e3d2a956fff5663887e37fd00886e6e7
+          persist-credentials: false
+      - name: Export baseline excluding source-only incident material
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 320704d3e3d2a956fff5663887e37fd00886e6e7
+          target="$RUNNER_TEMP/d-review-source"
+          mkdir -p "$target"
+          git archive HEAD | tar -x -C "$target"
+          rm -rf "$target/docs/ops/validation-selection"
+          printf '%s\n' 320704d3e3d2a956fff5663887e37fd00886e6e7 > "$RUNNER_TEMP/source-revision.txt"
+          tar -czf "$RUNNER_TEMP/d-review-source.tgz" -C "$target" .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: d-review-source
+          path: |
+            ${{ runner.temp }}/d-review-source.tgz
+            ${{ runner.temp }}/source-revision.txt
+          retention-days: 1
+          if-no-files-found: error
