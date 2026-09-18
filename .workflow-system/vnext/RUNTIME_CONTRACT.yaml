@@ -267,6 +267,9 @@ proposal:
         - deferred
         - blocked
       execution_selection:
+        invocation_kinds:
+          - structured
+          - opaque
         fields:
           - granularity
           - selector
@@ -291,9 +294,9 @@ proposal:
           - release-gate
           - explicit-user
         freshness: new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible
-        command_binding: canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command
+        command_binding: structured-argv-selector-or-verbatim-opaque-command-equals-entry-and-exact-due-step-planned-command; opaque-cannot-claim-focused
         business_flow: per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy
-        authority_binding: exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis
+        authority_binding: explicit-user-exact-task-basis; policy-and-release-canonical-repository-source; claim-bases-exact-current-claim-and-its-existing-task-basis-or-repository-source
         e2e_admission: acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user
         broad_admission: claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user
       completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites

@@ -6479,12 +6479,13 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(claimEvidenceContract.complete_dispositions, "Runtime contract claim evidence complete_dispositions"), ["existing", "reused", "newly-executed"], "Runtime claim evidence complete dispositions");
   expectSetEqual(expectStringArray2(claimEvidenceContract.incomplete_dispositions, "Runtime contract claim evidence incomplete_dispositions"), ["missing", "deferred", "blocked"], "Runtime claim evidence incomplete dispositions");
   const executionSelection = expectRecord2(claimEvidenceContract.execution_selection, "Runtime contract claim evidence execution_selection");
-  expectExactKeys2(executionSelection, ["fields", "check_boundaries", "granularities", "breadth_bases", "freshness", "command_binding", "business_flow", "authority_binding", "e2e_admission", "broad_admission"], "Runtime contract claim evidence execution_selection");
+  expectExactKeys2(executionSelection, ["fields", "invocation_kinds", "check_boundaries", "granularities", "breadth_bases", "freshness", "command_binding", "business_flow", "authority_binding", "e2e_admission", "broad_admission"], "Runtime contract claim evidence execution_selection");
+  expectSetEqual(expectStringArray2(executionSelection.invocation_kinds, "Runtime execution invocation kinds"), ["structured", "opaque"], "Runtime execution invocation kinds");
   expectSetEqual(expectStringArray2(executionSelection.fields, "Runtime claim evidence execution selection fields"), ["granularity", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref", "invocation"], "Runtime claim evidence execution selection fields");
   expectSetEqual(expectStringArray2(executionSelection.granularities, "Runtime claim evidence execution granularities"), [...EVIDENCE_EXECUTION_GRANULARITIES], "Runtime claim evidence execution granularities");
   expectSetEqual(expectStringArray2(executionSelection.check_boundaries, "Runtime claim evidence check boundaries"), [...EVIDENCE_CHECK_BOUNDARIES], "Runtime claim evidence check boundaries");
   expectSetEqual(expectStringArray2(executionSelection.breadth_bases, "Runtime claim evidence execution selection breadth bases"), [...EVIDENCE_EXECUTION_BREADTH_BASES], "Runtime claim evidence execution selection breadth bases");
-  if (executionSelection.freshness !== "new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible" || executionSelection.command_binding !== "canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command" || executionSelection.business_flow !== "per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy" || executionSelection.authority_binding !== "exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis" || executionSelection.e2e_admission !== "acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user" || executionSelection.broad_admission !== "claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user") {
+  if (executionSelection.freshness !== "new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible" || executionSelection.command_binding !== "structured-argv-selector-or-verbatim-opaque-command-equals-entry-and-exact-due-step-planned-command; opaque-cannot-claim-focused" || executionSelection.business_flow !== "per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy" || executionSelection.authority_binding !== "explicit-user-exact-task-basis; policy-and-release-canonical-repository-source; claim-bases-exact-current-claim-and-its-existing-task-basis-or-repository-source" || executionSelection.e2e_admission !== "acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user" || executionSelection.broad_admission !== "claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime execution selection contract is invalid.");
   }
   if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
@@ -7363,6 +7364,8 @@ function plannedCommandsForEvidence(definition) {
   return commands;
 }
 function evidenceInvocationCommand(invocation) {
+  if (invocation.kind === "opaque")
+    return invocation.command;
   if (!invocation.argv.length || invocation.argv.some((arg) => !arg || /[$`\r\n\0]/u.test(arg))) {
     fail3("CLAIM_EVIDENCE_INVOCATION_INVALID", "invocation needs literal nonempty arguments without shell expansion.");
   }
@@ -7378,27 +7381,28 @@ function unchangedEvidenceCheck(record4, slot, previous) {
     return false;
   return old.requirement === record4.requirement && old.source_ref === record4.source_ref && old.claim_kind === record4.claim_kind && old.boundary === record4.boundary && digest3(oldSlot.check) === digest3(slot.check);
 }
-function assertSelectionAuthority(selection, record4, definition, context) {
+function taskBasisHasSource(taskBasis, ref) {
+  return taskBasis.original_request.source === ref || taskBasis.user_decisions.some((item) => item.source === ref);
+}
+function assertSelectionAuthority(selection, record4, context) {
   const basis = selection.breadth_basis;
   const ref = selection.breadth_source_ref;
   if (!basis)
     return;
-  if (basis === "explicit-user" || basis === "project-policy") {
-    assertTestStrategySource(context.root, { ...readTestStrategyDefinition(definition), source: basis, source_ref: ref }, context.taskBasis);
+  if (basis === "explicit-user") {
+    if (!taskBasisHasSource(context.taskBasis, ref))
+      fail3("TEST_STRATEGY_INVALID", "explicit-user source_ref must equal an exact Task Basis source coordinate.");
     return;
   }
-  if (basis === "release-gate") {
-    const strategy = readTestStrategyDefinition(definition);
-    if (strategy.source !== "project-policy" || strategy.source_ref !== ref) {
-      fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "release-gate must bind the task test strategy's existing project-policy source.");
-    }
-    assertTestStrategySource(context.root, strategy, context.taskBasis);
+  if (basis === "project-policy" || basis === "release-gate") {
+    assertRepositoryAuthoritySource(context.root, ref);
     return;
   }
   if (ref !== record4.claim_id || basis === "acceptance-boundary" && record4.claim_kind !== "acceptance") {
     fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "claim/acceptance/insufficiency basis must reference this exact claim identity.");
   }
-  assertTestStrategySource(context.root, { ...readTestStrategyDefinition(definition), source: "explicit-user", source_ref: record4.source_ref }, context.taskBasis);
+  if (!taskBasisHasSource(context.taskBasis, record4.source_ref))
+    assertRepositoryAuthoritySource(context.root, record4.source_ref);
 }
 function assertExecutionSelection(check, required) {
   if (check.method !== "execution") {
@@ -7420,9 +7424,15 @@ function assertExecutionSelection(check, required) {
   if (!selection.invocation || evidenceInvocationCommand(selection.invocation) !== check.entry) {
     fail3("CLAIM_EVIDENCE_INVOCATION_UNBOUND", "selection invocation must produce the exact frozen check entry.");
   }
-  const selectorIndex = selection.invocation.selector_arg_index;
-  if (selection.selector === null ? selectorIndex !== null : selectorIndex === null || !Number.isInteger(selectorIndex) || selectorIndex < 1 || selection.invocation.argv[selectorIndex] !== selection.selector) {
-    fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector must equal the literal runner argument at selector_arg_index.");
+  if (selection.invocation.kind === "opaque") {
+    if (selection.granularity === "focused" || selection.selector !== null) {
+      fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "opaque invocation cannot prove focused selection; admit its actual target/broad granularity.");
+    }
+  } else {
+    const selectorIndex = selection.invocation.selector_arg_index;
+    if (selection.selector === null ? selectorIndex !== null : selectorIndex === null || !Number.isInteger(selectorIndex) || selectorIndex < 1 || selection.invocation.argv[selectorIndex] !== selection.selector) {
+      fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector must equal the literal runner argument at selector_arg_index.");
+    }
   }
   const hasBreadth = selection.breadth_reason !== null || selection.breadth_basis !== null || selection.breadth_source_ref !== null;
   if (selection.granularity === "focused") {
@@ -7480,7 +7490,7 @@ function assertEvidencePlan(definition, records, fresh = false, context) {
       if (isNew && check.selection?.breadth_basis) {
         if (!context)
           fail3("CLAIM_EVIDENCE_AUTHORITY_REQUIRED", "breadth admission requires canonical task authority context.");
-        assertSelectionAuthority(check.selection, record4, definition, context);
+        assertSelectionAuthority(check.selection, record4, context);
       }
       if (record4.claim_kind === "acceptance" && (slot.applicability !== "current" || check.expected_result === "expected-failure"))
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "positive acceptance requires current successful evidence.");
@@ -7634,12 +7644,19 @@ function validateClaimEvidence(value, location) {
           let invocation;
           if (rawSelection.invocation !== undefined) {
             const raw2 = expectRecord2(rawSelection.invocation, "selection.invocation");
-            expectExactKeys2(raw2, ["argv", "selector_arg_index"], "selection.invocation");
-            if (raw2.selector_arg_index !== null && (!Number.isInteger(raw2.selector_arg_index) || raw2.selector_arg_index < 1))
-              fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector_arg_index must be null or a positive integer.");
-            if (!Array.isArray(raw2.argv) || raw2.argv.length === 0)
-              fail3("CLAIM_EVIDENCE_INVOCATION_INVALID", "invocation.argv must be a nonempty ordered argument list.");
-            invocation = { argv: raw2.argv.map((arg, index2) => expectText(arg, `invocation.argv[${index2}]`)), selector_arg_index: raw2.selector_arg_index };
+            if (raw2.kind === "opaque") {
+              expectExactKeys2(raw2, ["kind", "command"], "selection.invocation");
+              invocation = { kind: "opaque", command: expectText(raw2.command, "invocation.command") };
+            } else {
+              expectExactKeys2(raw2, ["argv", "selector_arg_index", ..."kind" in raw2 ? ["kind"] : []], "selection.invocation");
+              if (raw2.kind !== undefined)
+                expectEnum(raw2.kind, ["structured"], "invocation.kind");
+              if (raw2.selector_arg_index !== null && (!Number.isInteger(raw2.selector_arg_index) || raw2.selector_arg_index < 1))
+                fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector_arg_index must be null or a positive integer.");
+              if (!Array.isArray(raw2.argv) || raw2.argv.length === 0)
+                fail3("CLAIM_EVIDENCE_INVOCATION_INVALID", "invocation.argv must be a nonempty ordered argument list.");
+              invocation = { ...raw2.kind === undefined ? {} : { kind: "structured" }, argv: raw2.argv.map((arg, index2) => expectText(arg, `invocation.argv[${index2}]`)), selector_arg_index: raw2.selector_arg_index };
+            }
           }
           const selector = rawSelection.selector === null ? null : expectText(rawSelection.selector, "check.selection.selector");
           const breadthReason = rawSelection.breadth_reason === null ? null : expectText(rawSelection.breadth_reason, "check.selection.breadth_reason");
@@ -8376,28 +8393,36 @@ function assertTestStrategySource(root, strategy, taskBasis) {
     return;
   }
   if (strategy.source === "explicit-user") {
-    const userSources = new Set([
-      taskBasis.original_request.source,
-      ...taskBasis.user_decisions.map((item) => item.source)
-    ]);
-    if (!userSources.has(strategy.source_ref)) {
+    if (!taskBasisHasSource(taskBasis, strategy.source_ref)) {
       fail3("TEST_STRATEGY_INVALID", "explicit-user source_ref must equal an exact Task Basis source coordinate.");
     }
     return;
   }
-  const normalized = normalizeRepoPath2(strategy.source_ref, "test_strategy.source_ref");
-  if (normalized !== strategy.source_ref || normalized.includes("*") || /^[A-Za-z]:[\\/]/u.test(normalized)) {
-    fail3("TEST_STRATEGY_INVALID", "project-policy source_ref must be one canonical repository-relative exact file path.");
+  assertRepositoryAuthoritySource(root, strategy.source_ref);
+}
+function assertRepositoryAuthoritySource(root, sourceRef) {
+  const [file, locator, ...extra] = sourceRef.split("#");
+  if (extra.length || locator === "")
+    fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "source reference must name a file and optionally one existing heading.");
+  const normalized = normalizeRepoPath2(file, "authority.source_ref");
+  if (normalized !== file || normalized.includes("*") || /^[A-Za-z]:[\\/]/u.test(normalized)) {
+    fail3("TEST_STRATEGY_INVALID", "authority source must be a canonical repository-relative file.");
   }
   const resolvedRoot = path10.resolve(root);
   const resolved = path10.resolve(resolvedRoot, ...normalized.split("/"));
   const relative7 = path10.relative(resolvedRoot, resolved);
   if (!relative7 || relative7.startsWith(`..${path10.sep}`) || path10.isAbsolute(relative7) || !fs9.existsSync(resolved) || !fs9.statSync(resolved).isFile()) {
-    fail3("TEST_STRATEGY_INVALID", `project-policy source_ref does not identify an existing project file: ${strategy.source_ref}.`);
+    fail3("TEST_STRATEGY_INVALID", `authority source does not identify an existing project file: ${sourceRef}.`);
   }
   const realRelative = path10.relative(fs9.realpathSync(resolvedRoot), fs9.realpathSync(resolved));
   if (!realRelative || realRelative.startsWith(`..${path10.sep}`) || path10.isAbsolute(realRelative)) {
-    fail3("TEST_STRATEGY_INVALID", "project-policy source cannot escape the repository through a symlink.");
+    fail3("TEST_STRATEGY_INVALID", "authority source cannot escape the repository through a symlink.");
+  }
+  if (locator !== undefined) {
+    const headings = [...fs9.readFileSync(resolved, "utf8").matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gmu)].map((match) => match[1]);
+    const matches = headings.filter((heading2) => heading2 === locator || heading2.startsWith(`${locator}:`) || heading2.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, "").replace(/\s/gu, "-") === locator);
+    if (matches.length !== 1)
+      fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "source heading/record identity must exist and be unambiguous.");
   }
 }
 function assertPreparedTestStrategy(root, definition, taskBasis) {

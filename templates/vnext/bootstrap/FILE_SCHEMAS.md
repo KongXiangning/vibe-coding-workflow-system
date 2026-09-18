@@ -197,15 +197,21 @@ are task-local, never inferred from wording or array positions.
   and `selection`. Boundary belongs to the check's evidence obligation, not the
   claim. A single claim may have a local rule slot and a business-flow slot.
 - Execution selection: `granularity: focused | target | broad-regression`,
-  `selector`, `selection_reason`, `invocation: {argv, selector_arg_index}`,
+  `selector`, `selection_reason`, `invocation`,
   `breadth_reason`, `breadth_basis`, `breadth_source_ref`. Boundary and granularity
   are independent: business-flow/focused selects an integration case;
   business-flow/target requires justified target execution. Every target/broad
   execution needs bound breadth authority; E2E needs its allowed authority even
-  when focused. Literal selector argv and the canonical invocation bind the
+  when focused. Structured invocation is `{kind: structured, argv, selector_arg_index}`
+  (kind may be omitted for compatibility). Opaque invocation is `{kind: opaque, command}`:
+  existing wrapper commands are frozen verbatim, cannot declare focused or a selector,
+  and use justified target/broad granularity. Structured literal selector argv or opaque command bind the
   exact check entry and due step planned command. Unchanged historical checks
   retain their original bytes (including old claim boundary and scope labels);
-  new/replacement checks must use the per-check orthogonal model.
+  new/replacement checks must use the per-check orthogonal model. Explicit-user
+  authority binds exact Task Basis sources; project-policy/release-gate bind canonical
+  repository sources. Claim-based authority binds the current claim and its existing
+  Task Basis or repository requirements/Contract/Decision source (optional #heading identity).
 - Report: `result_id`, `status: passed | failed | blocked | not-run | skipped |
   accepted | expected-failure`, `evidence_plan_revision`, `subject_revision`,
   `actual_method`, `environment`, `assurance: caller-reported`. Shared transaction

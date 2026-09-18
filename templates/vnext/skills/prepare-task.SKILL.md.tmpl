@@ -113,7 +113,7 @@ contract, release gate, project policy, or explicit user request; â€œmore safe,â
 For every execution check, submit the frozen selection object bound to its one
 claim slot: `granularity` (`focused`, `target`, or `broad-regression`), selector,
 selection reason, and, for target/E2E/broad execution, breadth reason and
-basis plus its exact Task Basis or policy source reference. Bind `check.entry` to the exact planned command of its due step. A
+basis plus its exact Task Basis, requirements, Contract, Decision or policy source reference. Bind `check.entry` to the exact planned command of its due step. A
 command PASS never fills another claim slot automatically; each claim needs its
 own matching report and evidence. This is a selection declaration, not a test
 registry or a permission to create tests.
@@ -132,20 +132,27 @@ Do not use legacy `scope`/`claim_scope` for new checks or infer a flow observati
 from broad unit PASS results.
 
 Every new execution check, including update-draft and replan/recovery replacement
-checks, supplies `invocation: {argv, selector_arg_index}`. Use the Runtime canonical
-literal argv rendering as `entry` and the due step's planned command. A non-null
-selector must equal the argv element at that positive index; no selector means
-a null index. Shell wrappers/expansion are not supported by this bounded format.
+checks, supplies a structured or opaque invocation. Structured invocation uses
+`{kind: structured, argv, selector_arg_index}` (omitted kind remains compatible).
+Its literal argv rendering binds `entry` and the due step's planned command;
+a selector must equal the argv element at that positive index, otherwise the index is null.
+Opaque invocation uses `{kind: opaque, command}` for npm scripts, PowerShell wrappers,
+custom launchers or environment setup, freezing the existing command verbatim.
+Opaque invocation cannot claim focused granularity or a selector: admit its actual
+target/broad granularity with the existing breadth justification. Do not require
+projects to rewrite wrappers into a Runtime CLI grammar.
 Do not declare a file/target as a focused case when unrelated cases also run;
 runner argument semantics and true granularity need review. Unchanged confirmed
 legacy checks remain usable; a new identity must satisfy the whole contract.
 
 Breadth authority is not free text: `explicit-user` references an exact source in
 Task Basis original_request/user_decisions; `project-policy` references an existing
-canonical repository-relative policy file. `release-gate` is restricted to that
-task's already selected project-policy Test Strategy source (including E2E).
+canonical repository-relative policy file. `release-gate` binds a real canonical
+release/policy source (including E2E), independently of the selected Test Strategy.
 Claim-risk, acceptance-boundary and lower-cost insufficiency reference the current
-claim ID, whose source must exist in Task Basis. Review that the source actually
+claim ID, whose existing authoritative source is an exact Task Basis source or
+canonical repository requirements/Contract/Decision source. Repository sources may
+use a file or file#heading identity; do not manufacture a user decision. Review that the source actually
 authorizes the proposed breadth; existence does not prove its natural-language
 meaning. Never invent a user decision, policy, release gate, or authority source.
 

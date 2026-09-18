@@ -5830,7 +5830,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const focused = singleStepSemanticDraft();
     const selected = focused.claim_evidence[0]!.slots[0]!.check!;
     selected.selection!.selector = 'owner survives reconnect';
-    selected.selection!.invocation = { argv: ['bun', 'test', 'test/vnext-runtime.test.ts', '--test-name-pattern', 'owner survives reconnect'], selector_arg_index: 4 };
+    selected.selection!.invocation = { kind: 'structured', argv: ['bun', 'test', 'test/vnext-runtime.test.ts', '--test-name-pattern', 'owner survives reconnect'], selector_arg_index: 4 };
     // The declared focused argv must not accompany the old whole-target entry.
     expect(() => prepareDraft(archivedBaselineRoot(), focused)).toThrow('CLAIM_EVIDENCE_INVOCATION_UNBOUND');
     selected.entry = 'bun test test/vnext-runtime.test.ts --test-name-pattern "owner survives reconnect"';
@@ -5889,14 +5889,65 @@ describe('vNext Phase 2 Runtime contract', () => {
     const e2e = release.claim_evidence[0]!.slots[0]!.check!.selection!;
     Object.assign(e2e, { breadth_basis: 'release-gate', breadth_source_ref: 'release-policy.md' });
     const releaseRoot = archivedBaselineRoot();
+    expect(() => prepareDraft(releaseRoot, release)).toThrow('TEST_STRATEGY_INVALID');
     fs.writeFileSync(path.join(releaseRoot, 'release-policy.md'), 'Release gate requires real end-to-end ticket validation.');
-    expect(() => prepareDraft(releaseRoot, release)).toThrow('CLAIM_EVIDENCE_AUTHORITY_INVALID');
-    release.test_strategy.source = 'project-policy'; release.test_strategy.source_ref = 'release-policy.md';
     const prepared = prepareDraft(releaseRoot, release);
     expect(prepared.status).toBe('success');
     expect(confirmDraft(releaseRoot, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
     Object.assign(e2e, { breadth_basis: null, breadth_source_ref: null, breadth_reason: null });
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+  });
+
+  test('opaque invocation freezes wrappers without granting focused metadata', () => {
+    for (const command of ['npm run test:ticket', 'pwsh -File scripts/test-ticket.ps1', 'TICKET_ENV=test ./scripts/test-ticket']) {
+      const draft = singleStepSemanticDraft();
+      const check = draft.claim_evidence[0]!.slots[0]!.check!;
+      check.entry = command;
+      draft.implementation_steps[0]!.commands[0]!.command = command;
+      Object.assign(check.selection!, { granularity: 'target', selector: null,
+        invocation: { kind: 'opaque', command }, breadth_reason: 'Existing launcher exposes only this ticket target.',
+        breadth_basis: 'explicit-user', breadth_source_ref: 'test:original-request' });
+      const root = archivedBaselineRoot();
+      const prepared = prepareDraft(root, draft);
+      expect(prepared.status).toBe('success');
+      expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+      expect(evidenceContext(root, {}).checks[0]).toMatchObject({ frozen_invocation: command,
+        execution_selection: { granularity: 'target', invocation: { kind: 'opaque', command } } });
+      check.selection!.granularity = 'focused';
+      check.selection!.selector = 'ticket_case';
+      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow('CLAIM_EVIDENCE_SELECTOR_UNBOUND');
+      check.selection!.granularity = 'target'; check.selection!.selector = null;
+      check.entry = 'npm run test:all';
+      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow('CLAIM_EVIDENCE_INVOCATION_UNBOUND');
+      check.entry = command; check.selection!.breadth_reason = null;
+      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+    }
+  });
+
+  test('authoritative claim sources retain requirements Contract and Decision identity without user decisions', () => {
+    for (const [basis, file, heading] of [
+      ['claim-risk-contract', 'CONTRACTS.md', 'C-1'],
+      ['acceptance-boundary', 'requirements.md', 'REQ-1'],
+      ['low-cost-evidence-insufficient', 'DECISIONS.md', 'AD-1'],
+    ] as const) {
+      const root = archivedBaselineRoot();
+      const draft = singleStepSemanticDraft();
+      const claim = draft.claim_evidence[0]!;
+      const selection = claim.slots[0]!.check!.selection!;
+      claim.source_ref = `${file}#${heading}`;
+      Object.assign(selection, { granularity: 'target', selector: null,
+        invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null },
+        breadth_reason: 'The authoritative requirement needs the launcher boundary.', breadth_basis: basis, breadth_source_ref: claim.claim_id });
+      expect(() => prepareDraft(root, draft)).toThrow('TEST_STRATEGY_INVALID');
+      fs.writeFileSync(path.join(root, file), `# ${heading}: Ticket boundary\nRequired observation crosses the ticket launcher.\n`);
+      expect(prepareDraft(root, draft).status).toBe('success');
+      claim.source_ref = `${file}#missing`;
+      expect(() => prepareDraft(archivedBaselineRoot(), draft)).toThrow();
+      expect(() => prepareDraft(root, draft)).toThrow('CLAIM_EVIDENCE_AUTHORITY_INVALID');
+      claim.source_ref = `${file}#${heading}`;
+      selection.breadth_basis = 'explicit-user'; selection.breadth_source_ref = claim.source_ref;
+      expect(() => prepareDraft(root, draft)).toThrow('TEST_STRATEGY_INVALID');
+    }
   });
 
   test('orthogonal evidence boundary and granularity admit focused flows but gate whole targets and focused E2E', () => {

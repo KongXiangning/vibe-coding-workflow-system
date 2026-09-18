@@ -131,6 +131,8 @@ consumes only that retained review and leaves the new continuation ready. This
 does not claim that the new continuation has executed or passed review.
 
 Execute `frozen_invocation` exactly; do not change its selector or expand its argv.
+For opaque invocation, execute the frozen command verbatim; do not rewrite or expand
+the wrapper. Both invocation forms use the same correction/replan path when insufficient.
 If it is insufficient, use existing correction/replan. Every replacement execution
 check must newly bind its own boundary, selection granularity, invocation and breadth authority;
 unchanged legacy-check compatibility does not transfer to a replacement identity.

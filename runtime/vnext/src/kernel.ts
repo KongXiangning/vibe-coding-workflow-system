@@ -472,6 +472,10 @@ export const EVIDENCE_EXECUTION_BREADTH_BASES = [
 ] as const;
 export type EvidenceExecutionBreadthBasis = (typeof EVIDENCE_EXECUTION_BREADTH_BASES)[number];
 
+export type EvidenceInvocation =
+  | { kind?: 'structured'; argv: string[]; selector_arg_index: number | null }
+  | { kind: 'opaque'; command: string };
+
 /**
  * A bounded declaration of why one execution command is sufficient for one
  * claim slot. It deliberately describes selection; it does not model a test
@@ -482,7 +486,7 @@ export type EvidenceExecutionSelection = {
   /** Read-only compatibility for frozen checks predating orthogonal dimensions. */
   scope?: LegacyEvidenceExecutionSelectionScope;
   claim_scope?: EvidenceCheckBoundary;
-  invocation?: { argv: string[]; selector_arg_index: number | null };
+  invocation?: EvidenceInvocation;
   selector: string | null;
   selection_reason: string;
   breadth_reason: string | null;
@@ -2614,7 +2618,8 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime claim evidence incomplete dispositions',
   );
   const executionSelection = expectRecord(claimEvidenceContract.execution_selection, 'Runtime contract claim evidence execution_selection');
-  expectExactKeys(executionSelection, ['fields', 'check_boundaries', 'granularities', 'breadth_bases', 'freshness', 'command_binding', 'business_flow', 'authority_binding', 'e2e_admission', 'broad_admission'], 'Runtime contract claim evidence execution_selection');
+  expectExactKeys(executionSelection, ['fields', 'invocation_kinds', 'check_boundaries', 'granularities', 'breadth_bases', 'freshness', 'command_binding', 'business_flow', 'authority_binding', 'e2e_admission', 'broad_admission'], 'Runtime contract claim evidence execution_selection');
+  expectSetEqual(expectStringArray(executionSelection.invocation_kinds, 'Runtime execution invocation kinds'), ['structured', 'opaque'], 'Runtime execution invocation kinds');
   expectSetEqual(
     expectStringArray(executionSelection.fields, 'Runtime claim evidence execution selection fields'),
     ['granularity', 'selector', 'selection_reason', 'breadth_reason', 'breadth_basis', 'breadth_source_ref', 'invocation'],
@@ -2633,9 +2638,9 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   if (
     executionSelection.freshness !== 'new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible'
-    || executionSelection.command_binding !== 'canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command'
+    || executionSelection.command_binding !== 'structured-argv-selector-or-verbatim-opaque-command-equals-entry-and-exact-due-step-planned-command; opaque-cannot-claim-focused'
     || executionSelection.business_flow !== 'per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy'
-    || executionSelection.authority_binding !== 'exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis'
+    || executionSelection.authority_binding !== 'explicit-user-exact-task-basis; policy-and-release-canonical-repository-source; claim-bases-exact-current-claim-and-its-existing-task-basis-or-repository-source'
     || executionSelection.e2e_admission !== 'acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user'
     || executionSelection.broad_admission !== 'claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user'
   ) {
@@ -3896,6 +3901,7 @@ export type EvidenceAdmissionContext = {
 
 /** Canonical display/execution command, not a shell parser or runner provider. */
 export function evidenceInvocationCommand(invocation: NonNullable<EvidenceExecutionSelection['invocation']>): string {
+  if (invocation.kind === 'opaque') return invocation.command;
   if (!invocation.argv.length || invocation.argv.some(arg => !arg || /[$`\r\n\0]/u.test(arg))) {
     fail('CLAIM_EVIDENCE_INVOCATION_INVALID', 'invocation needs literal nonempty arguments without shell expansion.');
   }
@@ -3914,30 +3920,28 @@ function unchangedEvidenceCheck(record: ClaimEvidenceRecord, slot: ClaimEvidence
     && digest(oldSlot.check) === digest(slot.check);
 }
 
-function assertSelectionAuthority(selection: EvidenceExecutionSelection, record: ClaimEvidenceRecord, definition: DraftTaskDefinition, context: EvidenceAdmissionContext): void {
+function taskBasisHasSource(taskBasis: TaskBasis, ref: string): boolean {
+  return taskBasis.original_request.source === ref || taskBasis.user_decisions.some(item => item.source === ref);
+}
+
+function assertSelectionAuthority(selection: EvidenceExecutionSelection, record: ClaimEvidenceRecord, context: EvidenceAdmissionContext): void {
   const basis = selection.breadth_basis;
   const ref = selection.breadth_source_ref!;
   if (!basis) return;
-  if (basis === 'explicit-user' || basis === 'project-policy') {
-    assertTestStrategySource(context.root, { ...readTestStrategyDefinition(definition), source: basis, source_ref: ref }, context.taskBasis);
+  if (basis === 'explicit-user') {
+    if (!taskBasisHasSource(context.taskBasis, ref)) fail('TEST_STRATEGY_INVALID', 'explicit-user source_ref must equal an exact Task Basis source coordinate.');
     return;
   }
-  if (basis === 'release-gate') {
-    // No separate release-source registry: only an already selected project policy
-    // can supply a release gate. Its meaning is still reviewed by the caller.
-    const strategy = readTestStrategyDefinition(definition);
-    if (strategy.source !== 'project-policy' || strategy.source_ref !== ref) {
-      fail('CLAIM_EVIDENCE_AUTHORITY_INVALID', 'release-gate must bind the task test strategy\'s existing project-policy source.');
-    }
-    assertTestStrategySource(context.root, strategy, context.taskBasis);
+  if (basis === 'project-policy' || basis === 'release-gate') {
+    assertRepositoryAuthoritySource(context.root, ref);
     return;
   }
   if (ref !== record.claim_id || (basis === 'acceptance-boundary' && record.claim_kind !== 'acceptance')) {
     fail('CLAIM_EVIDENCE_AUTHORITY_INVALID', 'claim/acceptance/insufficiency basis must reference this exact claim identity.');
   }
-  // The claim itself must trace to an actual Task Basis source, rather than a
-  // second invented string. Contract-specific authority can enter via Task Basis.
-  assertTestStrategySource(context.root, { ...readTestStrategyDefinition(definition), source: 'explicit-user', source_ref: record.source_ref! }, context.taskBasis);
+  // Preserve the claim's actual source kind: requirements/contracts/decisions
+  // are not user decisions. Existence and identity are structural, meaning is reviewed.
+  if (!taskBasisHasSource(context.taskBasis, record.source_ref!)) assertRepositoryAuthoritySource(context.root, record.source_ref!);
 }
 
 function assertExecutionSelection(check: EvidenceCheck, required: boolean): void {
@@ -3959,11 +3963,17 @@ function assertExecutionSelection(check: EvidenceCheck, required: boolean): void
   if (!selection.invocation || evidenceInvocationCommand(selection.invocation) !== check.entry) {
     fail('CLAIM_EVIDENCE_INVOCATION_UNBOUND', 'selection invocation must produce the exact frozen check entry.');
   }
-  const selectorIndex = selection.invocation.selector_arg_index;
-  if (selection.selector === null ? selectorIndex !== null
-    : selectorIndex === null || !Number.isInteger(selectorIndex) || selectorIndex < 1
-      || selection.invocation.argv[selectorIndex] !== selection.selector) {
-    fail('CLAIM_EVIDENCE_SELECTOR_UNBOUND', 'selector must equal the literal runner argument at selector_arg_index.');
+  if (selection.invocation.kind === 'opaque') {
+    if (selection.granularity === 'focused' || selection.selector !== null) {
+      fail('CLAIM_EVIDENCE_SELECTOR_UNBOUND', 'opaque invocation cannot prove focused selection; admit its actual target/broad granularity.');
+    }
+  } else {
+    const selectorIndex = selection.invocation.selector_arg_index;
+    if (selection.selector === null ? selectorIndex !== null
+      : selectorIndex === null || !Number.isInteger(selectorIndex) || selectorIndex < 1
+        || selection.invocation.argv[selectorIndex] !== selection.selector) {
+      fail('CLAIM_EVIDENCE_SELECTOR_UNBOUND', 'selector must equal the literal runner argument at selector_arg_index.');
+    }
   }
   const hasBreadth = selection.breadth_reason !== null || selection.breadth_basis !== null || selection.breadth_source_ref !== null;
   if (selection.granularity === 'focused') {
@@ -4015,7 +4025,7 @@ export function assertEvidencePlan(definition: DraftTaskDefinition, records: rea
       }
       if (isNew && check.selection?.breadth_basis) {
         if (!context) fail('CLAIM_EVIDENCE_AUTHORITY_REQUIRED', 'breadth admission requires canonical task authority context.');
-        assertSelectionAuthority(check.selection, record, definition, context);
+        assertSelectionAuthority(check.selection, record, context);
       }
       if (record.claim_kind === 'acceptance' && (slot.applicability !== 'current' || check.expected_result === 'expected-failure')) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'positive acceptance requires current successful evidence.');
       if ((check.method === 'execution') !== (check.expected_result !== 'accepted')) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'execution requires passed/expected-failure; static/human requires accepted.');
@@ -4166,10 +4176,16 @@ export function validateClaimEvidence(value: unknown, location: string): ClaimEv
           let invocation: EvidenceExecutionSelection['invocation'];
           if (rawSelection.invocation !== undefined) {
             const raw = expectRecord(rawSelection.invocation, 'selection.invocation');
-            expectExactKeys(raw, ['argv', 'selector_arg_index'], 'selection.invocation');
-            if (raw.selector_arg_index !== null && (!Number.isInteger(raw.selector_arg_index) || (raw.selector_arg_index as number) < 1)) fail('CLAIM_EVIDENCE_SELECTOR_UNBOUND', 'selector_arg_index must be null or a positive integer.');
-            if (!Array.isArray(raw.argv) || raw.argv.length === 0) fail('CLAIM_EVIDENCE_INVOCATION_INVALID', 'invocation.argv must be a nonempty ordered argument list.');
-            invocation = { argv: raw.argv.map((arg, index) => expectText(arg, `invocation.argv[${index}]`)), selector_arg_index: raw.selector_arg_index as number | null };
+            if (raw.kind === 'opaque') {
+              expectExactKeys(raw, ['kind', 'command'], 'selection.invocation');
+              invocation = { kind: 'opaque', command: expectText(raw.command, 'invocation.command') };
+            } else {
+              expectExactKeys(raw, ['argv', 'selector_arg_index', ...('kind' in raw ? ['kind'] : [])], 'selection.invocation');
+              if (raw.kind !== undefined) expectEnum(raw.kind, ['structured'], 'invocation.kind');
+              if (raw.selector_arg_index !== null && (!Number.isInteger(raw.selector_arg_index) || (raw.selector_arg_index as number) < 1)) fail('CLAIM_EVIDENCE_SELECTOR_UNBOUND', 'selector_arg_index must be null or a positive integer.');
+              if (!Array.isArray(raw.argv) || raw.argv.length === 0) fail('CLAIM_EVIDENCE_INVOCATION_INVALID', 'invocation.argv must be a nonempty ordered argument list.');
+              invocation = { ...(raw.kind === undefined ? {} : { kind: 'structured' as const }), argv: raw.argv.map((arg, index) => expectText(arg, `invocation.argv[${index}]`)), selector_arg_index: raw.selector_arg_index as number | null };
+            }
           }
           const selector = rawSelection.selector === null ? null : expectText(rawSelection.selector, 'check.selection.selector');
           const breadthReason = rawSelection.breadth_reason === null ? null : expectText(rawSelection.breadth_reason, 'check.selection.breadth_reason');
@@ -4945,28 +4961,37 @@ function assertTestStrategySource(root: string, strategy: TestStrategyDefinition
     return;
   }
   if (strategy.source === 'explicit-user') {
-    const userSources = new Set([
-      taskBasis.original_request.source,
-      ...taskBasis.user_decisions.map(item => item.source),
-    ]);
-    if (!userSources.has(strategy.source_ref)) {
+    if (!taskBasisHasSource(taskBasis, strategy.source_ref)) {
       fail('TEST_STRATEGY_INVALID', 'explicit-user source_ref must equal an exact Task Basis source coordinate.');
     }
     return;
   }
-  const normalized = normalizeRepoPath(strategy.source_ref, 'test_strategy.source_ref');
-  if (normalized !== strategy.source_ref || normalized.includes('*') || /^[A-Za-z]:[\\/]/u.test(normalized)) {
-    fail('TEST_STRATEGY_INVALID', 'project-policy source_ref must be one canonical repository-relative exact file path.');
+  assertRepositoryAuthoritySource(root, strategy.source_ref);
+}
+
+/** Resolve existing source coordinates, without inferring authority from their text. */
+function assertRepositoryAuthoritySource(root: string, sourceRef: string): void {
+  const [file, locator, ...extra] = sourceRef.split('#');
+  if (extra.length || locator === '') fail('CLAIM_EVIDENCE_AUTHORITY_INVALID', 'source reference must name a file and optionally one existing heading.');
+  const normalized = normalizeRepoPath(file!, 'authority.source_ref');
+  if (normalized !== file || normalized.includes('*') || /^[A-Za-z]:[\\/]/u.test(normalized)) {
+    fail('TEST_STRATEGY_INVALID', 'authority source must be a canonical repository-relative file.');
   }
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(resolvedRoot, ...normalized.split('/'));
   const relative = path.relative(resolvedRoot, resolved);
   if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
-    fail('TEST_STRATEGY_INVALID', `project-policy source_ref does not identify an existing project file: ${strategy.source_ref}.`);
+    fail('TEST_STRATEGY_INVALID', `authority source does not identify an existing project file: ${sourceRef}.`);
   }
   const realRelative = path.relative(fs.realpathSync(resolvedRoot), fs.realpathSync(resolved));
   if (!realRelative || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) {
-    fail('TEST_STRATEGY_INVALID', 'project-policy source cannot escape the repository through a symlink.');
+    fail('TEST_STRATEGY_INVALID', 'authority source cannot escape the repository through a symlink.');
+  }
+  if (locator !== undefined) {
+    const headings = [...fs.readFileSync(resolved, 'utf8').matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gmu)].map(match => match[1]!);
+    const matches = headings.filter(heading => heading === locator || heading.startsWith(`${locator}:`)
+      || heading.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').replace(/\s/gu, '-') === locator);
+    if (matches.length !== 1) fail('CLAIM_EVIDENCE_AUTHORITY_INVALID', 'source heading/record identity must exist and be unambiguous.');
   }
 }
 
