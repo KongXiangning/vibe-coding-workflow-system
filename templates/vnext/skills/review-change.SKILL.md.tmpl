@@ -122,6 +122,19 @@ material contested until assessed; dismissal requires evidence, not convenience.
 6. Send an ordinary verdict to Runtime `record-review-result` on stdin. For an earlier-result challenge, record the challenge or its evidence-bound dismissal through the corresponding Runtime action; a confirmed error requires correction. Do not create proposal or helper files in the project.
 7. Do not repair code or advance the step. A recommendation must not invoke another public Skill.
 
+Use **Failure-oriented validation selection** in
+`.workflow-system/runtime/support/CONTEXT_API.md` when assessing test effectiveness.
+Compare assertion changes with the authoritative expected behavior, not just the
+new implementation. A newly green oracle that now accepts the original defect is
+not a fix. Verify setup actually reaches the disputed boundary: multiple planned
+windows do not prove bounded live raw data, and cancellation before entry does not
+prove cancellation during I/O. Check exact associations/replay equality rather than
+non-empty fields. Ground each report claim in observed values and actual fixture
+parameters; distinguish caller reports from independently executed observations.
+Do not demand more tests, mandatory mutation testing or E2E when the existing
+minimum evidence already detects the relevant failure. Apply materiality and the
+existing repair scope, not a new gate for formatting or an inefficient extra PASS.
+
 Verify actual evidence against `frozen_invocation` and its selector arguments.
 For opaque invocation, compare the verbatim frozen command and inspect the wrapper's
 real boundary; opaque metadata cannot establish focused execution or oracle quality.

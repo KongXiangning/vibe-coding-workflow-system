@@ -676,3 +676,77 @@ This is not an atomic filesystem snapshot.
 No history is deleted, no remote telemetry is sent, and no test is run to collect
 metrics. Preserve the task-data with real tasks for later longitudinal analysis;
 C supplies observation, not a claim that growth has already been optimized.
+
+
+## Failure-oriented validation selection
+
+This is semantic guidance for prepare-task, read-only review-draft and
+review-change, not a Runtime field, new gate, test runner or mandatory test ladder.
+Use only the task-relevant branch of the guidance; do not turn it into a new
+checklist document or duplicate all acceptance text in CURRENT_TASK.
+
+**Select by detection, then cost.** Start with an authoritative business claim and
+one concrete violation grounded in that claim, an existing defect or an identified
+changed contract/risk. State what input/state transition would distinguish correct
+from wrong behavior, the independently expected result, and the cheapest boundary
+where that difference is observable. Only then search/read candidates. Confirm
+that the assertion and setup would distinguish them; names, non-empty output,
+coverage totals and historical PASS are insufficient. Input may use production
+helpers; the expected answer must not be computed by the same potentially defective
+logic. Do not create speculative failure obligations simply because they are easy
+to imagine.
+
+Reuse an adequate existing check. If it lacks the necessary assertion or setup,
+prefer a bounded change to that check under the existing test admission over a
+second overlapping check. Create a persistent test only through P-12 when existing
+evidence is insufficient. Stop adding checks when each required observation and
+identified regression risk has sufficient evidence. One invocation may cover
+several observations, but actual reports must still bind the exact slots; neither
+merging tests nor multiplying case counts proves efficiency or sufficiency.
+
+**Choose the observation boundary, not the most expensive test.** Local rules and
+finite function chains can use focused unit checks or admitted static proof.
+Producer/consumer, protocol, process or persistence behavior requires the relevant
+real path (for example write → persist → read), not isolated mock PASS results.
+One claim may need both a local rule and flow observation; it does not automatically
+need both. A backend-only change does not imply browser/device E2E. E2E needs the
+existing acceptance/risk/policy/user basis and an explanation of why cheaper
+observations are insufficient. Consider setup, runtime, flakiness and diagnosis,
+not a universal unit < integration < E2E ranking. Whole targets or suites need the
+existing concrete breadth basis; do not run them because they are convenient.
+
+**Match the oracle to the failure.** Apply these examples only when the corresponding
+behavior belongs to the claim; they are not additional requirements for every task:
+
+| Failure under consideration | Minimum discriminating observation | Insufficient surrogate |
+| --- | --- | --- |
+| Retry reads an already known range | Observe the next missing range and monotonic coverage until the expected terminal snapshot; allow contract-required overlap only | Request succeeds or returns non-empty data |
+| Windowing still retains full raw history | Observe peak live raw-data residency/lifetime at fixed window size as input grows, separately from legitimate reducer/output state | Each I/O window is small; final output is correct; small fixture fits memory |
+| Cancellation/deadline checked only at entry | Change control after entry into the long scan/I/O path; assert bounded further work and the correct terminal result, using deterministic hooks/clock where appropriate | Already-cancelled input or wall-clock sleep alone |
+| Incorrect cross-window associations/unstable keys | Ensure the fixture actually straddles a boundary; assert exact ownership and equality across retry/overlap against independent expectations | IDs/keys exist or are non-empty |
+| Producer output unusable by consumer | Feed the unmodified public output into the actual consumer and inspect the required persisted/re-read result | Mocked success, hand-rewritten cursor, private payload decoding |
+
+These observations describe semantic sufficiency, not default instrumentation or
+an instruction to add one test per row. A temporary probe, existing evidence or
+static proof may suffice when admitted; do not turn diagnostics into persistent
+tests by default. A memory assertion must name the resource it measures; raw-data
+boundedness does not imply constant output size or RSS. A sampled value that cannot
+observe the relevant lifetime is not proof of its maximum.
+
+**Review without adding a phase.** review-draft reads/plans; it never executes the
+candidate, seeds a mutation or demands final reports. For unwritten tests, require
+an intelligible independent oracle and feasible setup, not a fabricated successful
+run. review-change checks the actual code, fixture and evidence. A hypothetical
+counterexample is reasoning, not a measured failure. Actually running a pre-fix or
+fault-injection control can be useful when justified and already authorized, but
+is not mandatory Red/TDD, a new prerequisite or a universal mutation-testing duty.
+Report only the boundary and observations actually demonstrated. An exit code is
+not a substitute for a missing business observation. Strengthening a check must
+not rewrite the expected business behavior to match the defect.
+
+Use existing check/report fields for the selected observation, reason and evidence
+references. No new per-test ledger, quota, schema, receipt or approval is introduced.
+Source-template guards test guidance availability, not model comprehension. A
+curated reference answer or deterministic selection fixture is not a fresh Agent
+run; broader selection-effectiveness claims require retained independent runs or
+real target-project dogfood with the actual Skill/model/version and source context.

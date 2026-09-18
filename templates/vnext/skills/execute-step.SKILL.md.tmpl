@@ -112,6 +112,15 @@ when contradictions emerge during execution; preserve existing explicit decision
 9. Send declared actual changed paths, command results, validation results, and permitted acceptance evidence to Runtime `record-step-result` on stdin. Do not submit `outcome: test-red` without an admitted reproduction obligation (new executions use implemented and a bound expected-failure report). Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns phase/order enforcement, scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement.
 10. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again. When Runtime reports a risk-selected dynamic-review gate, obtain its fresh cumulative `review-change` result even if the ordinary checkpoint is not required. Do not add review merely because a low-risk private path was discovered. Runtime retains the existing required review and repair verification gates.
 
+For selected validation, preserve the independently specified expected outcome.
+A failing assertion is not permission to copy actual output into the oracle or
+regenerate an expected snapshot merely to make it green. Resolve requirement/fixture
+errors through the existing bounded repair/decision route. Record the observed
+business facts and actual fixture/selector in the existing report, not just exit
+status. Many incidental PASS results do not establish unobserved behavior. Stop
+once the planned necessary validation is complete; do not add an E2E or full-suite
+"confidence" run. These rules do not require pre-fix failure execution under flexible.
+
 If the fresh summary reports an unresolved evidence challenge, do not consume
 the challenged old result. Only the confirmed correction step may run. Record a
 new result ID for the exact challenged slot, then obtain a fresh clean review;

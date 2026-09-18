@@ -94,14 +94,34 @@ executable `CURRENT_TASK` draft containing:
 - **Validation plan**
 - **Persistent Tests** explicitly allowed to be created or modified
 
-Use Runtime `file-context` to find/read relevant existing tests, helpers, fixtures and configuration before deciding reuse or new tests. Search results are candidates, not evidence of passing checks; unchanged reused tests need no creation/modification admission. For normal Runtime state inspection use `validate --summary`. Read `.workflow-system/runtime/support/CONTEXT_API.md` for inputs and limits.
+Identify the business failure and required observation below before searching tests. Then use Runtime `file-context` to find/read relevant existing tests, helpers, fixtures and configuration before deciding reuse or new tests. Search results are candidates, not evidence of passing checks; unchanged reused tests need no creation/modification admission. For normal Runtime state inspection use `validate --summary`. Read `.workflow-system/runtime/support/CONTEXT_API.md` for inputs and limits.
 
 ### Minimum-sufficient validation selection
 
-Choose validation in this order: first identify the exact observation each claim
-must produce, then select the smallest check set that can produce that
-observation. A matching test file, target, or suite is only a candidate; it
-does not make the complete target required. For local logic, a key function, or
+Start from the authoritative claim, not the changed-file list or available suite:
+claim → concrete business failure → independently expected observation → necessary
+boundary → smallest effective existing check → justified expansion only if needed.
+For a known defect, identify the wrong observable outcome that must fail; for a new
+behavior, use a counterexample grounded in the requirement or an identified changed
+risk, not an invented catalog of hypothetical failures. Before selecting a candidate,
+read its assertion and fixture/control path, not just its name or prior PASS count.
+Ask: would this check fail for that wrong behavior, for the right reason?
+
+Use **Failure-oriented validation selection** in
+`.workflow-system/runtime/support/CONTEXT_API.md` for oracle, boundary and cost
+selection. Keep the analysis transient; express the result in existing
+`expected_observation`, `required_boundaries` and selection `reason`, with references
+rather than another copy of the requirement. Do not add a failure-model field,
+per-case approval, mandatory Red run, mutation test, or planning-time execution.
+
+Reuse an effective check first; strengthen an inadequate admitted check rather than
+adding a parallel test that proves the same thing. Retain only checks with a distinct
+required observation or identified regression risk; stop expanding once those are
+covered. Few test declarations or many cases in one test are not cost evidence.
+Static proof or another admitted non-test method may be sufficient; neither a new
+persistent test nor paired local/flow slots is mandatory for every claim.
+A matching test file, target, or suite is only a candidate; it does not make the
+complete target required. For local logic, a key function, or
 a bounded function chain, use a focused unit/function-chain check. When the
 framework supports a selector, record and run the exact selector rather than
 the containing file, target, or suite. If the only available execution is a

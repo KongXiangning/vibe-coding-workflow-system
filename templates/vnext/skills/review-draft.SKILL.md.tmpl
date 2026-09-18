@@ -123,7 +123,7 @@ apply `draft-consistency-challenge` across these closed dimensions:
 - validation and Persistent Tests coverage for each material acceptance or
   decided observable behavior;
 - whether each execution check observes the claim through the smallest valid
-  scope: reject a whole target or suite when a selector/focused check is
+  scope: reject a whole target or suite when an equally effective focused check is
   available, and require an explicit breadth reason and permitted basis when
   `target`, E2E, or broad regression is proposed;
 - whether a business-flow claim retains required integration/flow evidence
@@ -189,6 +189,21 @@ the repository. Set `terminal_boundary: public-entry-terminal/v1`, return to the
 caller, and stop.
 
 ## Business evidence boundary
+
+Independently reconstruct the expected business outcome from request/Contract,
+then challenge the proposed check with one relevant wrong behavior. Read the
+actual assertion, fixture and setup: would the wrong behavior still PASS? Explain
+that gap in the existing finding's impact/correction basis; do not accept a test
+name, selection reason, metadata completeness or suite count as proof of detection.
+For a not-yet-written test, assess its planned setup and independent expected
+observation; absent code or execution reports alone is not a draft finding.
+Use **Failure-oriented validation selection** in
+`.workflow-system/runtime/support/CONTEXT_API.md`. This is read-only reasoning,
+not permission to execute tests, seed mutations or demand a mandatory Red run.
+An equally cheap check with the same detection adds no required evidence. Prefer
+repairing an inadequate oracle to adding redundant tests, without changing the
+business requirement. Uncertainty about the expected behavior belongs to its
+existing source/user decision route, not to a fabricated expectation.
 
 Assess whether the draft's claim/slot/check plan can prove each declared real
 boundary at the intended step. Review planned methods, prerequisites and evidence

@@ -363,6 +363,20 @@ describe('vNext Phase 2 source contract', () => {
     expect(close).toContain('persistent-test disposition defaults to `persistent_test: false`');
     expect(lifecycle).toContain('preserve each claim\'s identity, owner, certainty, admitted evidence types, and completion state');
     expect(close).toContain('closure does not infer a new test from missing evidence');
+    // Guidance distribution guard only: these assertions do not evaluate an Agent.
+    const prepare = fs.readFileSync(fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'), 'utf8');
+    const draftReview = fs.readFileSync(fixtureFile(ROOT, 'templates/vnext/skills/review-draft.SKILL.md.tmpl'), 'utf8');
+    const support = fs.readFileSync(fixtureFile(ROOT, 'runtime/vnext/support/CONTEXT_API.md'), 'utf8');
+    for (const template of [prepare, draftReview, review]) expect(template).toContain('Failure-oriented validation selection');
+    expect(prepare.indexOf('Identify the business failure')).toBeLessThan(prepare.indexOf('use Runtime `file-context` to find/read'));
+    expect(prepare).toContain('would this check fail for that wrong behavior, for the right reason?');
+    expect(draftReview).toContain('would the wrong behavior still PASS?');
+    expect(draftReview).toContain('absent code or execution reports alone is not a draft finding');
+    expect(execute).toContain('not permission to copy actual output into the oracle');
+    expect(review).toContain('cancellation before entry does not');
+    expect(support).toContain('## Failure-oriented validation selection');
+    expect(support).toContain('not mandatory Red/TDD');
+    expect(support).toContain('not a fresh Agent');
   });
 
   test('requires the execute-step scope guard', () => {
