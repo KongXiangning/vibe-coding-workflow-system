@@ -517,6 +517,8 @@ export type EvidenceCheck = {
   method: 'execution' | 'static' | 'human';
   entry: string;
   expected_observation: string;
+  /** Exact due-step validation labels exclusively owned by this frozen check. */
+  validation_items?: string[];
   boundary?: EvidenceCheckBoundary;
   required_boundaries: string[];
   allowed_substitutes: string[];
@@ -2571,9 +2573,9 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const processControl = expectRecord(proposal.process_control, 'Runtime process_control');
   const processSemantics = {
     user_evidence: 'exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated',
-    waiver: 'user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; no-review-or-policy-bypass',
-    successor: 'explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; ordinary-confirmation-required',
-    validation_adjustment: 'replace-validation; one-read-only-check; preserve-observation-boundary-subjects-selector-authority-and-budgets; no-task-redefinition',
+    waiver: 'user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass',
+    successor: 'explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required',
+    validation_adjustment: 'replace-validation; one-read-only-check; preserve-observation-boundary-subjects-validation-ownership-exact-granularity-selector-authority-and-budgets; no-task-redefinition',
   };
   expectExactKeys(processControl, Object.keys(processSemantics), 'Runtime process_control');
   for (const [key, expected] of Object.entries(processSemantics)) {
@@ -4078,10 +4080,26 @@ function assertExecutionSelection(check: EvidenceCheck, required: boolean): void
   }
 }
 
+/** No inference from step membership or similar wording. Old plans may use an
+ * exact check entry as the validation label; descriptive labels need an explicit
+ * frozen owner. Two checks matching the same label are not exclusive ownership. */
+function validationItemOwners(records: readonly ClaimEvidenceRecord[], stepId: string, label: string): ClaimEvidenceSlot[] {
+  return records.flatMap(claim => claim.slots).filter(slot => slot.due_step_id === stepId && slot.check
+    && (slot.check.validation_items?.includes(label) || slot.check.entry === label));
+}
+
+function slotOwnsValidation(current: CanonicalCurrentTask, slot: ClaimEvidenceSlot, label: string): boolean {
+  const step = resolveCanonicalTaskStep(current).steps.find(item => item.id === slot.due_step_id);
+  const labels = (step?.required_evidence ?? '').split(';').map(item => item.trim()).filter(Boolean);
+  const owners = validationItemOwners(current.runtimeState.claim_evidence ?? [], slot.due_step_id!, label);
+  return labels.includes(label) && owners.length === 1 && owners[0] === slot;
+}
+
 export function assertEvidencePlan(definition: DraftTaskDefinition, records: readonly ClaimEvidenceRecord[], fresh = false, context?: EvidenceAdmissionContext): string {
   requireClaimEvidencePlan(records, 'evidence plan');
   requireAcceptanceClaim(records, 'evidence plan');
-  const steps = parseImplementationSteps(definition.implementation_steps).map(step => step.id);
+  const parsedEvidenceSteps = parseImplementationSteps(definition.implementation_steps);
+  const steps = parsedEvidenceSteps.map(step => step.id);
   const plannedCommands = plannedCommandsForEvidence(definition);
   const ids = new Set<string>();
   const acceptance = records.filter(record => record.claim_kind === 'acceptance').map(record => record.requirement);
@@ -4094,6 +4112,12 @@ export function assertEvidencePlan(definition: DraftTaskDefinition, records: rea
       if (!check || !slot.applicability || !steps.includes(slot.due_step_id!) || slot.minimum_type === 'planned-validation') fail('CLAIM_EVIDENCE_PLAN_INVALID', 'slots require a concrete check, applicability and valid due step.');
       if (ids.has(check.check_id)) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'check_id must be unique across the task.');
       ids.add(check.check_id);
+      const validationItems = check.validation_items ?? [];
+      const labels = (parsedEvidenceSteps.find(step => step.id === slot.due_step_id)?.required_evidence ?? '').split(';').map(item => item.trim()).filter(Boolean);
+      if (new Set(validationItems).size !== validationItems.length || validationItems.some(label => !labels.includes(label)
+        || validationItemOwners(records, slot.due_step_id!, label).length !== 1)) {
+        fail('CLAIM_EVIDENCE_VALIDATION_UNBOUND', 'Each declared validation item must be an exact due-step label exclusively owned by this check.');
+      }
       if (check.subject_paths.some(p => p.includes('*') || /(?:^|\/)CURRENT_TASK\.md$/.test(p) || p.startsWith('.git/')) || new Set(check.subject_paths).size !== check.subject_paths.length) fail('CLAIM_EVIDENCE_PLAN_INVALID', 'subject_paths must be exact unique product paths, excluding Runtime audit state.');
       const isNew = context ? !unchangedEvidenceCheck(record, slot, context.previous) : fresh;
       if (isNew && record.boundary !== undefined && !context?.previous.some(old => old.claim_id === record.claim_id && old.boundary === record.boundary)) {
@@ -4216,7 +4240,7 @@ function carryUserEvidenceDecision(root: string, current: CanonicalCurrentTask, 
 }
 
 /** A waiver can discharge only its frozen check and the user's exact selected
- * validation labels. It never waives implementation commands, other slots,
+ * exclusively owned validation labels. It never waives implementation commands, other slots,
  * required review, a prerequisite, or a command's repository write boundary. */
 export function applicableResultWaiver(
   root: string, current: CanonicalCurrentTask, stepId: string,
@@ -4227,7 +4251,7 @@ export function applicableResultWaiver(
   const candidates = slots.filter(slot => slot.due_step_id === stepId && slot.user_decision?.kind === 'waiver'
     && (!decisionId || slot.user_decision.decision_id === decisionId)
     && ('command' in result ? slot.check?.method === 'execution' && slot.check.entry === result.command
-      : slot.user_decision.validation_items?.includes(result.validation)));
+      : slot.user_decision.validation_items?.includes(result.validation) && slotOwnsValidation(current, slot, result.validation)));
   for (const slot of candidates) {
     assertUserEvidenceApplicable(root, current, slot);
     if ('command' in result) {
@@ -4355,7 +4379,7 @@ export function validateClaimEvidence(value: unknown, location: string): ClaimEv
       const result: ClaimEvidenceSlot = { slot_id: slotId, minimum_type: minimumType, disposition, evidence_refs: evidenceRefs };
       if (slot.check !== undefined) {
         const check = expectRecord(slot.check, 'slot.check');
-        expectExactKeys(check, ['check_id', 'method', 'entry', 'expected_observation', 'required_boundaries', 'allowed_substitutes', 'subject_paths', 'expected_result', ...['selection', 'boundary'].filter(key => key in check)], 'slot.check');
+        expectExactKeys(check, ['check_id', 'method', 'entry', 'expected_observation', 'required_boundaries', 'allowed_substitutes', 'subject_paths', 'expected_result', ...['selection', 'boundary', 'validation_items'].filter(key => key in check)], 'slot.check');
         let selection: EvidenceExecutionSelection | undefined;
         if (check.selection !== undefined) {
           const rawSelection = expectRecord(check.selection, 'check.selection');
@@ -4397,6 +4421,7 @@ export function validateClaimEvidence(value: unknown, location: string): ClaimEv
           method: expectEnum(check.method, ['execution', 'static', 'human'], 'check.method'),
           entry: expectText(check.entry, 'check.entry'),
           expected_observation: expectText(check.expected_observation, 'check.expected_observation'),
+          ...(check.validation_items === undefined ? {} : { validation_items: expectStringArray(check.validation_items, 'check.validation_items', true, MAX_EXECUTION_RESULT_ITEMS) }),
           ...(check.boundary === undefined ? {} : { boundary: expectEnum(check.boundary, EVIDENCE_CHECK_BOUNDARIES, 'check.boundary') }),
           required_boundaries: expectStringArray(check.required_boundaries, 'check.required_boundaries', false, 256),
           allowed_substitutes: expectStringArray(check.allowed_substitutes, 'check.allowed_substitutes', true, 256),
@@ -10989,13 +11014,16 @@ export function replaceValidation(root: string, rawInput: unknown, options: Runt
     const replacement = validateClaimEvidence([{ ...claim, slots: [{ ...target, check: input.replacement_check }] }])[0]!.slots[0]!.check!;
     if ((state.claim_evidence ?? []).some(c => c.slots.some(s => s.check?.check_id === replacement.check_id)) || old.method !== 'execution' || replacement.method !== 'execution') fail('VALIDATION_REPLACEMENT_ID_INVALID', 'An execution replacement requires a new check identity.');
     const semantics = (check: EvidenceCheck) => ({ method: check.method, boundary: check.boundary, expected_observation: check.expected_observation,
-      expected_result: check.expected_result, subject_paths: check.subject_paths, required_boundaries: check.required_boundaries, allowed_substitutes: check.allowed_substitutes });
-    const ranks = { focused: 0, target: 1, 'broad-regression': 2 };
+      expected_result: check.expected_result, subject_paths: check.subject_paths, required_boundaries: check.required_boundaries, allowed_substitutes: check.allowed_substitutes, validation_items: check.validation_items });
     const oldGranularity = old.selection?.granularity, newGranularity = replacement.selection?.granularity;
-    if (digest(semantics(old)) !== digest(semantics(replacement)) || !oldGranularity || !newGranularity
-      || ranks[newGranularity] > ranks[oldGranularity] || (old.selection?.selector && old.selection.selector !== replacement.selection?.selector)
-      || (newGranularity !== 'focused' && (old.selection?.breadth_basis !== replacement.selection?.breadth_basis || old.selection?.breadth_source_ref !== replacement.selection?.breadth_source_ref))) {
-      fail('VALIDATION_REPLACEMENT_WEAKENED', 'Preserve the observation, boundary, subjects, selector and breadth authority. A changed goal, broader execution or weaker evidence needs its explicit planning route.');
+    // Engineering replacement changes how the same check is invoked, not what
+    // it selects. Narrowing a target or rebinding focused E2E also changes that
+    // decision and belongs to the existing planning route.
+    if (digest(semantics(old)) !== digest(semantics(replacement)) || !oldGranularity || oldGranularity !== newGranularity
+      || old.selection?.selector !== replacement.selection?.selector
+      || old.selection?.breadth_basis !== replacement.selection?.breadth_basis
+      || old.selection?.breadth_source_ref !== replacement.selection?.breadth_source_ref) {
+      fail('VALIDATION_REPLACEMENT_WEAKENED', 'Preserve the observation, boundary, subjects, validation ownership, exact granularity, selector and breadth authority. Changed selection needs its explicit planning route.');
     }
     const definition = readDraftDefinitionFromBody(current.body);
     const block = implementationStepBlock(definition, state.active_step_id);
@@ -11006,7 +11034,9 @@ export function replaceValidation(root: string, rawInput: unknown, options: Runt
     if (claims.some(c => c.slots.some(s => s !== target && s.due_step_id === state.active_step_id && s.check?.entry === old.entry))) fail('VALIDATION_REPLACEMENT_SHARED_COMMAND', 'A shared invocation must retain every bound obligation; use a reviewed multi-check correction.');
     lines[indices[0]!] = lines[indices[0]!]!.replace(old.entry, replacement.entry);
     const evidenceIndex = lines.findIndex(line => /^\s*- required_evidence:/.test(line));
-    if (evidenceIndex >= 0) lines[evidenceIndex] = lines[evidenceIndex]!.split(old.entry).join(replacement.entry);
+    // Explicit validation labels are frozen obligation identities, not shell
+    // invocations. Keep them stable even when their wording includes the old CLI.
+    if (evidenceIndex >= 0 && !old.validation_items?.length) lines[evidenceIndex] = lines[evidenceIndex]!.split(old.entry).join(replacement.entry);
     definition.implementation_steps = definition.implementation_steps.replace(block, lines.join('\n'));
     target.check = replacement; target.report = null; target.evidence_refs = []; target.disposition = 'missing';
     const basis = readCanonicalTaskBasis(root, current);
@@ -13666,11 +13696,9 @@ function applyTaskStateDelta(
     }
     const validationItems = delta.validation_items ?? [];
     if (validationItems.length) {
-      const step = resolveCanonicalTaskStep(current).steps.find(item => item.id === slot.due_step_id);
-      const labels = (step?.required_evidence ?? '').split(';').map(item => item.trim()).filter(Boolean);
       if (delta.decision_kind !== 'waiver' || new Set(validationItems).size !== validationItems.length
-        || validationItems.some(item => !labels.includes(item))) {
-        fail('EVIDENCE_WAIVER_TARGET_INVALID', 'Only exact planned validation labels at this waived obligation’s due step may be included.');
+        || validationItems.some(item => !slotOwnsValidation(current, slot, item))) {
+        fail('EVIDENCE_WAIVER_TARGET_INVALID', 'Only exact planned validation labels exclusively bound to this frozen claim/slot/check may be waived.');
       }
     }
     const decision: UserEvidenceDecision = {
@@ -13857,7 +13885,28 @@ function applyTaskStateDelta(
       ...emptyDraftState,
       applied_proposals: appendAppliedProposal(emptyDraftState, proposal, current.sourceTuple.revision),
     };
-    const audit = makeDraftAudit(current, proposal, draftStateWithProposal, now);
+    let auditRecordedAt = now;
+    if (delta.predecessor) {
+      // The aggregate may have been prepared before publication failed. Keep
+      // the original audit time so an exact retry renders the same source hash,
+      // instead of making the immutable prepared store look externally edited.
+      const store = new TaskStore(root, delta.document_id);
+      const manifest = store.manifest;
+      if (manifest) {
+        const history = store.readExecutionLog();
+        const initial = history.length === 1 && isRecord(history[0]) ? history[0] : null;
+        if (manifest.task_id !== delta.task_id || manifest.task_slug !== delta.task_slug
+          || manifest.current_task_path !== current.relativePath || manifest.head.event_sequence !== 1
+          || digest(store.readAppliedProposals()) !== digest(draftStateWithProposal.applied_proposals)
+          || initial?.action !== 'create-draft' || initial.idempotency_key !== proposal.idempotency_key
+          || initial.source_revision !== current.sourceTuple.revision || typeof initial.recorded_at !== 'string'
+          || Number.isNaN(Date.parse(initial.recorded_at))) {
+          fail('SUCCESSOR_HISTORY_CONFLICT', 'An existing prepared successor aggregate must belong to this exact proposal and predecessor.');
+        }
+        auditRecordedAt = initial.recorded_at;
+      }
+    }
+    const audit = makeDraftAudit(current, proposal, draftStateWithProposal, auditRecordedAt);
     const next = { ...draftStateWithProposal, execution_log: appendExecutionLogEntry(draftStateWithProposal, audit) };
     return {
       next,
@@ -16857,7 +16906,21 @@ export class GovernanceTransactionKernel {
         const existingReference = readTaskBasisReferenceFromBody(current.body);
         const basisExists = fs.existsSync(taskBasisArtifact.filePath);
         if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'create-draft') {
-          if (basisExists) fail('TASK_BASIS_CONFLICT', `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
+          if (basisExists) {
+            // A successor publishes the predecessor snapshot and deterministic
+            // Basis before its aggregate. Retry may adopt those exact orphan
+            // prerequisites, never overwrite a different task's existing Basis.
+            // assertSuccessorDecision above already bound identity/source/Basis.
+            const predecessor = proposal.semantic_delta.predecessor;
+            const snapshotPath = predecessor ? safeRepositoryFile(this.root,
+              successorSnapshotPath(current.relativePath, predecessor.document_id, predecessor.source_revision)) : null;
+            const exactPreparedSuccessor = predecessor && snapshotPath
+              && fs.existsSync(snapshotPath) && fs.lstatSync(snapshotPath).isFile()
+              && fs.readFileSync(snapshotPath, 'utf8') === current.raw
+              && fs.lstatSync(taskBasisArtifact.filePath).isFile()
+              && fs.readFileSync(taskBasisArtifact.filePath, 'utf8') === taskBasisArtifact.content;
+            if (!exactPreparedSuccessor) fail('TASK_BASIS_CONFLICT', `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
+          }
         } else if (existingReference) {
           if (existingReference.path !== taskBasisArtifact.path) {
             fail('TASK_BASIS_REFERENCE_INVALID', 'CURRENT_TASK links a different task basis path than the draft transaction target.');

@@ -201,6 +201,7 @@ export type ExecuteStepEvidenceContext = {
     boundary: string | null;
     user_decision: import('./kernel').UserEvidenceDecision | null;
     frozen_invocation: string;
+    validation_items: string[];
     subject_revision: string;
     execution_selection: EvidenceExecutionSelection | null;
     subject_snapshot: {
@@ -924,6 +925,7 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
       boundary: slot.check.boundary ?? null,
       user_decision: slot.user_decision ? { ...slot.user_decision } : null,
       frozen_invocation: slot.check.entry,
+      validation_items: [...(slot.check.validation_items ?? [])],
       minimum_type: slot.minimum_type,
       execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
       subject_revision: snapshot.revision,

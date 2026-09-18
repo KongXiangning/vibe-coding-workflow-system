@@ -134,8 +134,10 @@ Execute `frozen_invocation` exactly; do not change its selector or expand its ar
 For opaque invocation, execute the frozen command verbatim. An engineering-only
 invocation adjustment uses internal `replace-validation` between attempts: submit
 source_revision, claim_id, slot_id, replaces_check_id, replacement_check and reason.
-The new ID must retain the exact observation, boundary, subjects, result, selector
-and breadth authority, never broaden granularity or writes. Runtime changes only
+The new ID must retain the exact observation, boundary, subjects, result,
+validation ownership, granularity, selector and breadth authority (including
+focused E2E). Neither narrower nor broader selection is an engineering-only
+replacement. Repository writes must remain none. Runtime changes only
 that read-only invocation, invalidates its result, preserves other applicable
 facts and retains the attempt budget. Record a failed/outstanding attempt first;
 a replacement never clears a finding, review gate or prerequisite. Shared-check

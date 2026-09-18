@@ -37,6 +37,7 @@ import {
   evaluateClaimEvidence,
   evaluateEvidenceSlotForContext,
   assertEvidencePlan,
+  applicableResultWaiver,
   evidenceContext,
   readDraftDefinitionFromBody,
   createReviewChangeDelta,
@@ -5949,13 +5950,172 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
   });
 
+  test('process-control review rejects validation selection changes through engineering replacement', () => {
+    for (const scenario of ['target-to-focused', 'broad-to-target', 'broad-to-focused', 'selector-change', 'e2e-authority-change']) {
+      const draft = singleStepSemanticDraft();
+      const check = draft.claim_evidence[0]!.slots[0]!.check!;
+      const selection = check.selection!;
+      draft.task_basis.user_decisions.push({ source: 'test:other-authority', verbatim: 'A separate verification decision, not an engineering invocation change.' });
+      if (scenario.startsWith('target-') || scenario.startsWith('broad-')) {
+        selection.granularity = scenario.startsWith('target-') ? 'target' : 'broad-regression';
+        selection.selector = null;
+        selection.invocation = { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null };
+      }
+      if (scenario === 'e2e-authority-change') check.boundary = 'e2e';
+      if (selection.granularity !== 'focused' || check.boundary === 'e2e') {
+        selection.breadth_reason = 'The exact original verification set was explicitly requested.';
+        selection.breadth_basis = 'explicit-user'; selection.breadth_source_ref = draft.task_basis.original_request.source;
+      }
+      const root = confirmedSemanticRoot(draft);
+      const before = readCanonicalCurrentTask(root);
+      const replacement = structuredClone(check); replacement.check_id = 'engineering-replacement';
+      if (scenario.endsWith('-focused')) {
+        replacement.selection!.granularity = 'focused'; replacement.selection!.selector = 'ticket_rule';
+        replacement.selection!.breadth_reason = null; replacement.selection!.breadth_basis = null; replacement.selection!.breadth_source_ref = null;
+        replacement.entry = 'bun test test/vnext-runtime.test.ts --test-name-pattern ticket_rule';
+        replacement.selection!.invocation = { argv: ['bun', 'test', 'test/vnext-runtime.test.ts', '--test-name-pattern', 'ticket_rule'], selector_arg_index: 4 };
+      } else if (scenario === 'broad-to-target') replacement.selection!.granularity = 'target';
+      else if (scenario === 'selector-change') {
+        replacement.entry = 'bun test test/other.test.ts'; replacement.selection!.selector = 'test/other.test.ts';
+        replacement.selection!.invocation = { argv: ['bun', 'test', 'test/other.test.ts'], selector_arg_index: 2 };
+      } else replacement.selection!.breadth_source_ref = 'test:other-authority';
+      expect(() => replaceValidation(root, { source_revision: before.sourceTuple.revision,
+        claim_id: draft.claim_evidence[0]!.claim_id, slot_id: draft.claim_evidence[0]!.slots[0]!.slot_id,
+        replaces_check_id: check.check_id, replacement_check: replacement, reason: 'Only the launcher should change.' }), scenario)
+        .toThrow('VALIDATION_REPLACEMENT_WEAKENED');
+      expect(readCanonicalCurrentTask(root).raw, scenario).toBe(before.raw);
+    }
+  });
+
+  test('process-control review waiver cannot claim an independent planned validation', () => {
+    const semantic = singleStepSemanticDraft();
+    const own = semantic.implementation_steps[0]!.validation[0]!;
+    const independent = 'Independent project policy verification';
+    const userClaim = semantic.claim_evidence[0]!;
+    userClaim.slots[0]!.check!.validation_items = [own];
+    const policy = structuredClone(userClaim);
+    policy.claim_id = 'Policy'; policy.claim_kind = 'invariant';
+    policy.slots[0]!.slot_id = 'policy'; policy.slots[0]!.check!.check_id = 'policy-check';
+    policy.slots[0]!.check!.method = 'static'; policy.slots[0]!.check!.expected_result = 'accepted';
+    policy.slots[0]!.check!.entry = 'Inspect independent policy'; delete policy.slots[0]!.check!.selection;
+    policy.slots[0]!.check!.validation_items = [independent];
+    semantic.claim_evidence.push(policy);
+    semantic.implementation_steps[0]!.validation.push(independent);
+    const duplicate = structuredClone(semantic); duplicate.claim_evidence[0]!.slots[0]!.check!.validation_items!.push(independent);
+    expect(() => prepareDraft(archivedBaselineRoot(), duplicate)).toThrow('CLAIM_EVIDENCE_VALIDATION_UNBOUND');
+    const invented = structuredClone(semantic); invented.claim_evidence[0]!.slots[0]!.check!.validation_items = ['Not planned'];
+    expect(() => prepareDraft(archivedBaselineRoot(), invented)).toThrow('CLAIM_EVIDENCE_VALIDATION_UNBOUND');
+    const root = confirmedSemanticRoot(semantic);
+    const before = readCanonicalCurrentTask(root);
+    const claim = before.runtimeState.claim_evidence![0]!; const slot = claim.slots[0]!;
+    const request = { claim_id: claim.claim_id, slot_id: slot.slot_id, check_id: slot.check!.check_id,
+      evidence_plan_revision: before.runtimeState.evidence_plan_revision!, subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision,
+      decision_source: 'conversation:waive-one-obligation', decision_text: 'Waive only my requested obligation; do not waive project policy.',
+      validation_items: [independent] };
+    for (const labels of [[independent], [own, independent]]) {
+      expect(recordUserEvidenceDecision(root, 'waiver', { ...request, validation_items: labels }))
+        .toMatchObject({ status: 'blocked', code: 'EVIDENCE_WAIVER_TARGET_INVALID' });
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+    }
+    const cli = path.join(ROOT, 'runtime/vnext/dist/cli.js');
+    const recorded = runInstalledRuntimeCli(cli, root, 'record-evidence-waiver', { ...request, validation_items: [own] });
+    expect(recorded.status, recorded.stderr + recorded.stdout).toBe(0);
+    expect(recorded.json.status).toBe('success');
+    expect(runInstalledRuntimeCli(cli, root, 'evidence-context', {}).json.checks[0].validation_items).toEqual([own]);
+    const current = readCanonicalCurrentTask(root);
+    const decision = current.runtimeState.claim_evidence![0]!.slots[0]!.user_decision!;
+    expect(applicableResultWaiver(root, current, 'step-1', { validation: own }, decision.decision_id)).toEqual(decision);
+    expect(applicableResultWaiver(root, current, 'step-1', { validation: independent }, decision.decision_id)).toBeNull();
+    // Recheck ownership at consumption too, even for pre-fix stored decisions.
+    decision.validation_items!.push(independent);
+    expect(applicableResultWaiver(root, current, 'step-1', { validation: independent }, decision.decision_id)).toBeNull();
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Independent policy validation failed; user risk decision must not hide it.');
+    expect(() => recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [], acceptance_evidence: [],
+      command_results: [{ command: slot.check!.entry, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: own, status: 'not-run', evidence_refs: ['evidence-report.txt'], waiver_decision_id: decision.decision_id },
+        { validation: independent, status: 'failed', evidence_refs: ['evidence-report.txt'], waiver_decision_id: decision.decision_id }],
+      outcome: 'implemented', note: 'An exact user waiver cannot cover the independent policy failure.' }))
+      .toThrow('EVIDENCE_WAIVER_RESULT_UNBOUND');
+    // No mandatory migration: an old check whose validation is its exact entry
+    // has a unique owner without the optional descriptive-label binding.
+    const legacy = singleStepSemanticDraft(); const entry = legacy.claim_evidence[0]!.slots[0]!.check!.entry;
+    legacy.implementation_steps[0]!.validation = [entry];
+    const legacyRoot = confirmedSemanticRoot(legacy); const legacyCurrent = readCanonicalCurrentTask(legacyRoot);
+    expect(recordUserEvidenceDecision(legacyRoot, 'waiver', { ...request, validation_items: [entry],
+      evidence_plan_revision: legacyCurrent.runtimeState.evidence_plan_revision!,
+      subject_revision: captureReviewTarget(legacyRoot, legacy.claim_evidence[0]!.slots[0]!.check!.subject_paths).revision }).status).toBe('success');
+  });
+
+  test('process-control review prepareSuccessor retries after real publication interruption', () => {
+    for (const interruption of ['before-aggregate', 'after-aggregate']) {
+      const root = confirmedSemanticRoot(singleStepSemanticDraft());
+      const original = readCanonicalCurrentTask(root); const originalBasis = readCanonicalTaskBasis(root, original);
+      expect(applyVNextRuntimeProposal(root, createLifecycleProposal(original, {
+        mode: 'supersede', delta: supersedeDelta(), idempotency_key: 'review-successor-supersede',
+        authority_evidence: evidence('active-task-owner', 'evidence-admission'), evidence_refs: ['test:evidence:supersede'],
+      })).status).toBe('success');
+      const before = readCanonicalCurrentTask(root);
+      const draft = singleStepSemanticDraft({ goal: 'Explicit replacement surviving a publication crash' });
+      const source = 'conversation:successor-crash'; const text = 'Retire the old obligations and prepare this new task; preserve unfinished history.';
+      draft.task_basis.user_decisions.push({ source, verbatim: text });
+      const predecessor = { task_id: before.runtimeState.task_id, document_id: before.sourceTuple.document_id,
+        source_revision: before.sourceTuple.revision, basis_revision: originalBasis.revision,
+        decision_source: source, decision_text: text, obligations: predecessorObligationKeys(before).map(prior_key => ({
+          prior_key, disposition: 'retired' as const, successor_claim_id: null, reason: 'Explicit retirement, not a PASS.' })) };
+      const request = { predecessor, draft };
+      const launcherRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-successor-crash-')); temporaryRoots.push(launcherRoot);
+      const launcher = path.join(launcherRoot, 'crash.ts');
+      fs.writeFileSync(launcher, `import { TaskStore } from ${JSON.stringify(path.join(ROOT, 'runtime/vnext/src/task-store.ts'))};
+  import { prepareSuccessor } from ${JSON.stringify(path.join(ROOT, 'runtime/vnext/src/prepare-task-adapter.ts'))};
+  const original = TaskStore.prototype.ensureInitialized;
+  TaskStore.prototype.ensureInitialized = function(current, ...args) {
+    if (current.sourceTuple.document_id !== ${JSON.stringify(before.sourceTuple.document_id)}) {
+      if (${JSON.stringify(interruption)} === 'after-aggregate') original.call(this, current, ...args);
+      throw new Error('injected aggregate publication interruption');
+    }
+    return original.call(this, current, ...args);
+  };
+  console.log(JSON.stringify(prepareSuccessor(${JSON.stringify(root)}, ${JSON.stringify(request)})));`);
+      const interrupted = spawnSync(process.execPath, [launcher], { encoding: 'utf8' });
+      expect(interrupted.status, interrupted.stderr + interrupted.stdout).toBe(0);
+      expect(JSON.parse(interrupted.stdout)).toMatchObject({ status: 'blocked', code: 'ATOMIC_COMMIT_FAILED' });
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      const nextBasis = path.join(path.dirname(originalBasis.filePath), `TASK_BASIS-${String(Number(before.runtimeState.task_id) + 1).padStart(3, '0')}.md`);
+      expect(fs.existsSync(nextBasis)).toBe(true);
+      const basisBytes = fs.readFileSync(nextBasis, 'utf8');
+      fs.writeFileSync(nextBasis, basisBytes + '\nConflicting request.');
+      expect(prepareSuccessor(root, request).code).toBe('TASK_BASIS_CONFLICT');
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      fs.writeFileSync(nextBasis, basisBytes);
+      if (interruption === 'after-aggregate') {
+        const changed = structuredClone(request); changed.draft.validation_plan.push('A different proposed verification plan');
+        expect(prepareSuccessor(root, changed).code).toBe('SUCCESSOR_HISTORY_CONFLICT');
+        expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      }
+      const retried = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'prepare-successor', request);
+      expect(retried.status, interruption + ': ' + retried.stderr + retried.stdout).toBe(0);
+      const prepared = retried.json;
+      expect(prepared.status, interruption + ': ' + JSON.stringify(prepared)).toBe('success');
+      const next = readCanonicalCurrentTask(root);
+      expect(next.runtimeState.workflow_status).toBe('draft');
+      expect(fs.readFileSync(nextBasis, 'utf8')).toBe(basisBytes);
+      expect(fs.readFileSync(originalBasis.filePath, 'utf8')).toBe(originalBasis.content);
+      expect(fs.readFileSync(path.join(root, successorSnapshotPath(before.relativePath, before.sourceTuple.document_id, before.sourceTuple.revision)), 'utf8')).toBe(before.raw);
+      expect(prepareSuccessor(root, request).status).toBe('no-op');
+      expect(() => preflightStep(root, { candidate_paths: [] })).toThrow();
+      expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt! }).status).toBe('success');
+    }
+  });
+
   test('process-control equivalent validation replacement retains task intent, prior decisions and retry accounting', () => {
     const semantic = singleStepSemanticDraft();
+    semantic.claim_evidence[0]!.slots[0]!.check!.validation_items = [...semantic.implementation_steps[0]!.validation];
     const claim = semantic.claim_evidence[0]!;
     const human = structuredClone(claim.slots[0]!);
     human.slot_id = 'manual'; human.check!.check_id = 'manual-check';
     human.check!.method = 'human'; human.check!.expected_result = 'accepted';
-    human.check!.entry = 'Inspect the user-visible result'; delete human.check!.selection;
+    human.check!.entry = 'Inspect the user-visible result'; delete human.check!.selection; delete human.check!.validation_items;
     claim.slots.push(human);
     const root = confirmedSemanticRoot(semantic);
     let current = readCanonicalCurrentTask(root);
@@ -5984,6 +6144,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const before = readDraftDefinitionFromBody(current.body);
     const beforeBasis = readCanonicalTaskBasis(root, current);
     const retainedAttempts = structuredClone(current.runtimeState.step_attempts!['step-1']!);
+    expect(() => replaceValidation(root, { ...request(), replacement_check: { ...replacement, validation_items: [] } })).toThrow('VALIDATION_REPLACEMENT_WEAKENED');
     const changedMeaning = { ...replacement, expected_observation: 'Weaken the acceptance condition' };
     expect(() => replaceValidation(root, { ...request(), replacement_check: changedMeaning })).toThrow('VALIDATION_REPLACEMENT_WEAKENED');
     const exact = request();
@@ -5997,6 +6158,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(after.sourceTuple.document_id).toBe(current.sourceTuple.document_id);
     expect(after.runtimeState.active_step_id).toBe('step-1');
     expect(after.runtimeState.claim_evidence![0]!.slots[0]!.check!.entry).toBe(replacement.entry);
+    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.check!.validation_items).toEqual(old.validation_items);
     expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report).toBeNull();
     expect(after.runtimeState.claim_evidence![0]!.slots[1]!.user_decision).toEqual(original.runtimeState.claim_evidence![0]!.slots[1]!.user_decision);
     expect(evaluateEvidenceSlotForContext(root, after, after.runtimeState.claim_evidence![0]!, after.runtimeState.claim_evidence![0]!.slots[1]!)).toEqual({ satisfied: true, reason: null });
@@ -6132,6 +6294,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('process-control risk decision skips only its bound verification and preserves real failures through retry', () => {
     const semantic = singleStepSemanticDraft();
+    semantic.claim_evidence[0]!.slots[0]!.check!.validation_items = [...semantic.implementation_steps[0]!.validation];
     const root = confirmedSemanticRoot(semantic);
     const preflight = preflightStep(root, { candidate_paths: [] });
     const command = preflight.current_step.commands[0]!.command;

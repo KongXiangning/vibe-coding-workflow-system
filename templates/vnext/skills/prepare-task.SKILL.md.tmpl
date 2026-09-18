@@ -401,7 +401,12 @@ current evidence obligation and accepts its unverified risk, use
 `record-evidence-waiver`. Bind the exact claim/slot/check, plan and observed subject
 revision from `evidence-context`, and retain the original decision source and
 verbatim text. Include only the exact related planned validation labels the user
-waived in `validation_items`. A generic “continue” is neither observation nor waiver.
+waived in `validation_items`. Use only labels exclusively owned by the frozen
+check's `validation_items`, or a label unambiguously identical to its entry;
+being in the same step is insufficient. Declare descriptive-label ownership
+when preparing the evidence plan, not while recording a waiver. Do not attach
+another slot's or independent policy's validation to a user-owned obligation.
+A generic “continue” is neither observation nor waiver.
 Do not ask for the same decision again or make the user construct a receipt.
 
 Runtime records both as caller-reported, not authenticated. A waiver preserves

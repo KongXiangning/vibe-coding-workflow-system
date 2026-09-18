@@ -400,6 +400,7 @@ function claimEvidenceSummary(value: ClaimEvidenceRecord): Record<string, unknow
     before_step_id: slot.before_step_id ?? null,
     check_id: slot.check?.check_id ?? null,
     frozen_invocation: slot.check?.entry ?? null,
+    validation_items: [...(slot.check?.validation_items ?? [])],
     boundary: slot.check?.boundary ?? null,
     required_observation: slot.check?.expected_observation ?? null,
     required_boundaries: slot.check?.required_boundaries ?? [],

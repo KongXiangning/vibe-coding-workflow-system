@@ -140,9 +140,9 @@ proposal:
       - repair_wave_id
   process_control:
     user_evidence: exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated
-    waiver: user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; no-review-or-policy-bypass
-    successor: explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; ordinary-confirmation-required
-    validation_adjustment: replace-validation; one-read-only-check; preserve-observation-boundary-subjects-selector-authority-and-budgets; no-task-redefinition
+    waiver: user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass
+    successor: explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required
+    validation_adjustment: replace-validation; one-read-only-check; preserve-observation-boundary-subjects-validation-ownership-exact-granularity-selector-authority-and-budgets; no-task-redefinition
   task_state:
     actions:
       - retry-step

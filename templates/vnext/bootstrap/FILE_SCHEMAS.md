@@ -196,6 +196,10 @@ are task-local, never inferred from wording or array positions.
   New execution checks also require `boundary: local | business-flow | e2e`
   and `selection`. Boundary belongs to the check's evidence obligation, not the
   claim. A single claim may have a local rule slot and a business-flow slot.
+  Optional `validation_items: string[]` freezes exclusive ownership of exact
+  `required_evidence` labels at this slot's due step. Labels must exist and must
+  not be claimed by another check. This is definition data, not a user decision;
+  recording a waiver cannot add or change it. Omission stays legacy-compatible.
 - Execution selection: `granularity: focused | target | broad-regression`,
   `selector`, `selection_reason`, `invocation`,
   `breadth_reason`, `breadth_basis`, `breadth_source_ref`. Boundary and granularity
@@ -636,7 +640,11 @@ They never convert a generic continuation request into new authority.
 
 Input: `claim_id`, `slot_id`, `check_id`, `evidence_plan_revision`,
 `subject_revision`, `decision_source`, `decision_text`; optional `validation_items`
-contains exact planned validation labels explicitly waived at the slot's due step.
+contains only exact due-step validation labels exclusively owned by the frozen
+check's `validation_items`. An unambiguous label identical to `check.entry` also
+has an exact owner without additional metadata. Step membership, similar text or
+having only one slot does not establish ownership. Ambiguous/unbound labels stay
+required; the task itself is not forced to migrate.
 The adapter supplies write paths and idempotency; users do not construct receipts.
 Runtime appends the exact statement to Task Basis and records dynamic
 `slot.user_decision = {kind, decision_id, decision_source, statement_sha256,
@@ -654,7 +662,8 @@ may be carried across a new plan only with Runtime-verified immutable history.
 
 Command/validation results may include `waiver_decision_id` with a truthful
 nonpassing status. Runtime verifies its exact current decision, due step, read-only
-check invocation or frozen validation label. Shared commands require all bound
+check invocation or exclusive frozen validation ownership, at both recording and
+result consumption (including decisions saved by earlier versions). Shared commands require all bound
 obligations waived. A user-waived failed attempt may use ordinary retry with the
 exact Task Basis path as resolution evidence; retry limits and fresh preflight
 remain. Required review/findings and implementation writes are not bypassed.
@@ -675,6 +684,12 @@ exact `<old_revision>.successor.md` snapshot, new Basis and fresh task aggregate
 before atomically switching CURRENT_TASK to the unexecuted new identity. Old Basis,
 reports, pending findings and partial product files remain untouched. An interrupted
 preparation can leave inert immutable artifacts; they are not an executable task.
+An exact retry may adopt the identical new Basis only with the retained exact
+predecessor snapshot. A prepared aggregate must match the same proposal digest,
+predecessor and destination identity; its original creation audit is reused to
+keep the rendered source hash stable. Different bytes or requests remain conflicts.
+These rules do not remove a concurrent/interrupted governance write lock; they
+apply once the ordinary publication lock can be acquired.
 The new draft still requires ordinary `confirm-draft` once, bound to its exact
 receipt; no old PASS/waiver/preflight is imported. Old outcome is superseded, not
 complete, and all retired/carried obligations remain auditable.
@@ -685,7 +700,9 @@ Input: `{source_revision, claim_id, slot_id, replaces_check_id,
 replacement_check, reason}`. This does not take a replacement task definition.
 Only one current, unconsumed, read-only execution invocation between attempts may
 change. Keep method, observation, expected result, boundary, subjects, required
-boundaries, substitutes, selector and breadth authority; never broaden granularity.
+boundaries, substitutes, validation ownership, exact granularity, selector and
+breadth authority (including focused E2E). Narrowing the selection also requires
+the existing planning route; this operation replaces invocation, not selection.
 Use a new check ID and the modern selection contract. Invalidate only that result;
 carry other applicable facts via immutable source proof. Preserve Goal, Acceptance,
 scope, task/document IDs, step order, Task Basis, findings, review and retry budgets.

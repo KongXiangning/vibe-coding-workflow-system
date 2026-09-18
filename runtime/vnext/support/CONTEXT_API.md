@@ -525,7 +525,9 @@ For explicit manual observation, use prepare-task's internal
 `record-human-acceptance`; for explicit unverified risk, `record-evidence-waiver`.
 Use exact claim/slot/check, plan and subject revision from `evidence-context` and
 the user's original source/text. The optional `validation_items` lists only exact
-related planned labels the user waived. Inputs and restrictions are defined in
+labels exclusively owned by the frozen check's `validation_items` (or an
+unambiguous label equal to its entry). A same-step label is not ownership. New
+ownership is admitted with the plan, never invented while recording the waiver. Inputs and restrictions are defined in
 FILE_SCHEMAS.md. Both are caller-reported and do not grant authenticated realign.
 Inspect `user_decision` in evidence/review/task context; never interpret waiver as
 execution PASS. `waiver_decision_id` on a truthful nonpassing result is verified
@@ -533,7 +535,8 @@ against that exact decision and cannot excuse an unrelated command or validation
 
 A local equivalent invocation adjustment uses execute-step's `replace-validation`
 with source_revision, claim_id, slot_id, replaces_check_id, replacement_check and
-reason. Preserve observation, boundary, subjects, selector, breadth, scope and
+reason. Preserve observation, boundary, subjects, validation ownership, exact
+granularity, selector, breadth authority (including focused E2E), scope and
 budgets. Read fresh context/preflight afterwards. It does not accept an entire
 task definition. Changed business obligations still use bounded correction.
 
@@ -541,6 +544,10 @@ An explicitly requested replacement after supersede uses prepare-task's
 `prepare-successor` with the exact predecessor identity/source/Basis, verbatim
 user decision and full old-obligation dispositions plus an ordinary new draft.
 Old unfinished state is retained; the new draft requires ordinary confirmation.
+After a publication exception, retry the identical request: exact prepared Basis
+and predecessor artifacts may be reused; an initialized aggregate retains its
+original creation audit. Different artifact bytes or proposal identities are
+conflicts, not permission to overwrite. Do not bypass a retained governance lock.
 Do not trigger supersede or successor merely because implementation needs repair.
 No public Skill invokes a following Skill on the user's behalf.
 

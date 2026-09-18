@@ -6472,9 +6472,9 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const processControl = expectRecord2(proposal.process_control, "Runtime process_control");
   const processSemantics = {
     user_evidence: "exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated",
-    waiver: "user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; no-review-or-policy-bypass",
-    successor: "explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; ordinary-confirmation-required",
-    validation_adjustment: "replace-validation; one-read-only-check; preserve-observation-boundary-subjects-selector-authority-and-budgets; no-task-redefinition"
+    waiver: "user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass",
+    successor: "explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required",
+    validation_adjustment: "replace-validation; one-read-only-check; preserve-observation-boundary-subjects-validation-ownership-exact-granularity-selector-authority-and-budgets; no-task-redefinition"
   };
   expectExactKeys2(processControl, Object.keys(processSemantics), "Runtime process_control");
   for (const [key, expected] of Object.entries(processSemantics)) {
@@ -7511,10 +7511,20 @@ function assertExecutionSelection(check, required) {
     fail3("CLAIM_EVIDENCE_BROAD_UNAUTHORIZED", "broad regression requires a claim/risk/contract basis, release gate, project policy, or explicit user request.");
   }
 }
+function validationItemOwners(records, stepId, label) {
+  return records.flatMap((claim) => claim.slots).filter((slot) => slot.due_step_id === stepId && slot.check && (slot.check.validation_items?.includes(label) || slot.check.entry === label));
+}
+function slotOwnsValidation(current, slot, label) {
+  const step = resolveCanonicalTaskStep(current).steps.find((item) => item.id === slot.due_step_id);
+  const labels = (step?.required_evidence ?? "").split(";").map((item) => item.trim()).filter(Boolean);
+  const owners = validationItemOwners(current.runtimeState.claim_evidence ?? [], slot.due_step_id, label);
+  return labels.includes(label) && owners.length === 1 && owners[0] === slot;
+}
 function assertEvidencePlan(definition, records, fresh = false, context) {
   requireClaimEvidencePlan(records, "evidence plan");
   requireAcceptanceClaim(records, "evidence plan");
-  const steps = parseImplementationSteps(definition.implementation_steps).map((step) => step.id);
+  const parsedEvidenceSteps = parseImplementationSteps(definition.implementation_steps);
+  const steps = parsedEvidenceSteps.map((step) => step.id);
   const plannedCommands = plannedCommandsForEvidence(definition);
   const ids = new Set;
   const acceptance = records.filter((record) => record.claim_kind === "acceptance").map((record) => record.requirement);
@@ -7531,6 +7541,11 @@ function assertEvidencePlan(definition, records, fresh = false, context) {
       if (ids.has(check.check_id))
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "check_id must be unique across the task.");
       ids.add(check.check_id);
+      const validationItems = check.validation_items ?? [];
+      const labels = (parsedEvidenceSteps.find((step) => step.id === slot.due_step_id)?.required_evidence ?? "").split(";").map((item) => item.trim()).filter(Boolean);
+      if (new Set(validationItems).size !== validationItems.length || validationItems.some((label) => !labels.includes(label) || validationItemOwners(records, slot.due_step_id, label).length !== 1)) {
+        fail3("CLAIM_EVIDENCE_VALIDATION_UNBOUND", "Each declared validation item must be an exact due-step label exclusively owned by this check.");
+      }
       if (check.subject_paths.some((p) => p.includes("*") || /(?:^|\/)CURRENT_TASK\.md$/.test(p) || p.startsWith(".git/")) || new Set(check.subject_paths).size !== check.subject_paths.length)
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "subject_paths must be exact unique product paths, excluding Runtime audit state.");
       const isNew = context ? !unchangedEvidenceCheck(record, slot, context.previous) : fresh;
@@ -7673,7 +7688,7 @@ function carryUserEvidenceDecision(root, current, claimId, slot, newPlan, operat
 }
 function applicableResultWaiver(root, current, stepId, result, decisionId) {
   const slots = (current.runtimeState.claim_evidence ?? []).flatMap((claim) => claim.slots);
-  const candidates = slots.filter((slot) => slot.due_step_id === stepId && slot.user_decision?.kind === "waiver" && (!decisionId || slot.user_decision.decision_id === decisionId) && ("command" in result ? slot.check?.method === "execution" && slot.check.entry === result.command : slot.user_decision.validation_items?.includes(result.validation)));
+  const candidates = slots.filter((slot) => slot.due_step_id === stepId && slot.user_decision?.kind === "waiver" && (!decisionId || slot.user_decision.decision_id === decisionId) && ("command" in result ? slot.check?.method === "execution" && slot.check.entry === result.command : slot.user_decision.validation_items?.includes(result.validation) && slotOwnsValidation(current, slot, result.validation)));
   for (const slot of candidates) {
     assertUserEvidenceApplicable(root, current, slot);
     if ("command" in result) {
@@ -7797,7 +7812,7 @@ function validateClaimEvidence(value, location) {
       const result = { slot_id: slotId, minimum_type: minimumType, disposition, evidence_refs: evidenceRefs };
       if (slot.check !== undefined) {
         const check = expectRecord2(slot.check, "slot.check");
-        expectExactKeys2(check, ["check_id", "method", "entry", "expected_observation", "required_boundaries", "allowed_substitutes", "subject_paths", "expected_result", ...["selection", "boundary"].filter((key) => (key in check))], "slot.check");
+        expectExactKeys2(check, ["check_id", "method", "entry", "expected_observation", "required_boundaries", "allowed_substitutes", "subject_paths", "expected_result", ...["selection", "boundary", "validation_items"].filter((key) => (key in check))], "slot.check");
         let selection;
         if (check.selection !== undefined) {
           const rawSelection = expectRecord2(check.selection, "check.selection");
@@ -7840,6 +7855,7 @@ function validateClaimEvidence(value, location) {
           method: expectEnum(check.method, ["execution", "static", "human"], "check.method"),
           entry: expectText(check.entry, "check.entry"),
           expected_observation: expectText(check.expected_observation, "check.expected_observation"),
+          ...check.validation_items === undefined ? {} : { validation_items: expectStringArray2(check.validation_items, "check.validation_items", true, MAX_EXECUTION_RESULT_ITEMS) },
           ...check.boundary === undefined ? {} : { boundary: expectEnum(check.boundary, EVIDENCE_CHECK_BOUNDARIES, "check.boundary") },
           required_boundaries: expectStringArray2(check.required_boundaries, "check.required_boundaries", false, 256),
           allowed_substitutes: expectStringArray2(check.allowed_substitutes, "check.allowed_substitutes", true, 256),
@@ -14033,12 +14049,12 @@ function replaceValidation(root, rawInput, options = {}) {
       expected_result: check.expected_result,
       subject_paths: check.subject_paths,
       required_boundaries: check.required_boundaries,
-      allowed_substitutes: check.allowed_substitutes
+      allowed_substitutes: check.allowed_substitutes,
+      validation_items: check.validation_items
     });
-    const ranks = { focused: 0, target: 1, "broad-regression": 2 };
     const oldGranularity = old.selection?.granularity, newGranularity = replacement.selection?.granularity;
-    if (digest3(semantics(old)) !== digest3(semantics(replacement)) || !oldGranularity || !newGranularity || ranks[newGranularity] > ranks[oldGranularity] || old.selection?.selector && old.selection.selector !== replacement.selection?.selector || newGranularity !== "focused" && (old.selection?.breadth_basis !== replacement.selection?.breadth_basis || old.selection?.breadth_source_ref !== replacement.selection?.breadth_source_ref)) {
-      fail3("VALIDATION_REPLACEMENT_WEAKENED", "Preserve the observation, boundary, subjects, selector and breadth authority. A changed goal, broader execution or weaker evidence needs its explicit planning route.");
+    if (digest3(semantics(old)) !== digest3(semantics(replacement)) || !oldGranularity || oldGranularity !== newGranularity || old.selection?.selector !== replacement.selection?.selector || old.selection?.breadth_basis !== replacement.selection?.breadth_basis || old.selection?.breadth_source_ref !== replacement.selection?.breadth_source_ref) {
+      fail3("VALIDATION_REPLACEMENT_WEAKENED", "Preserve the observation, boundary, subjects, validation ownership, exact granularity, selector and breadth authority. Changed selection needs its explicit planning route.");
     }
     const definition = readDraftDefinitionFromBody(current.body);
     const block = implementationStepBlock(definition, state.active_step_id);
@@ -14053,7 +14069,7 @@ function replaceValidation(root, rawInput, options = {}) {
       fail3("VALIDATION_REPLACEMENT_SHARED_COMMAND", "A shared invocation must retain every bound obligation; use a reviewed multi-check correction.");
     lines[indices[0]] = lines[indices[0]].replace(old.entry, replacement.entry);
     const evidenceIndex = lines.findIndex((line) => /^\s*- required_evidence:/.test(line));
-    if (evidenceIndex >= 0)
+    if (evidenceIndex >= 0 && !old.validation_items?.length)
       lines[evidenceIndex] = lines[evidenceIndex].split(old.entry).join(replacement.entry);
     definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
 `));
@@ -16924,10 +16940,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
     }
     const validationItems = delta.validation_items ?? [];
     if (validationItems.length) {
-      const step = resolveCanonicalTaskStep(current).steps.find((item) => item.id === slot.due_step_id);
-      const labels = (step?.required_evidence ?? "").split(";").map((item) => item.trim()).filter(Boolean);
-      if (delta.decision_kind !== "waiver" || new Set(validationItems).size !== validationItems.length || validationItems.some((item) => !labels.includes(item))) {
-        fail3("EVIDENCE_WAIVER_TARGET_INVALID", "Only exact planned validation labels at this waived obligation’s due step may be included.");
+      if (delta.decision_kind !== "waiver" || new Set(validationItems).size !== validationItems.length || validationItems.some((item) => !slotOwnsValidation(current, slot, item))) {
+        fail3("EVIDENCE_WAIVER_TARGET_INVALID", "Only exact planned validation labels exclusively bound to this frozen claim/slot/check may be waived.");
       }
     }
     const decision = {
@@ -17112,7 +17126,20 @@ function applyTaskStateDelta(root, current, proposal, now) {
       ...emptyDraftState,
       applied_proposals: appendAppliedProposal(emptyDraftState, proposal, current.sourceTuple.revision)
     };
-    const audit = makeDraftAudit(current, proposal, draftStateWithProposal, now);
+    let auditRecordedAt = now;
+    if (delta.predecessor) {
+      const store = new TaskStore(root, delta.document_id);
+      const manifest = store.manifest;
+      if (manifest) {
+        const history = store.readExecutionLog();
+        const initial = history.length === 1 && isRecord2(history[0]) ? history[0] : null;
+        if (manifest.task_id !== delta.task_id || manifest.task_slug !== delta.task_slug || manifest.current_task_path !== current.relativePath || manifest.head.event_sequence !== 1 || digest3(store.readAppliedProposals()) !== digest3(draftStateWithProposal.applied_proposals) || initial?.action !== "create-draft" || initial.idempotency_key !== proposal.idempotency_key || initial.source_revision !== current.sourceTuple.revision || typeof initial.recorded_at !== "string" || Number.isNaN(Date.parse(initial.recorded_at))) {
+          fail3("SUCCESSOR_HISTORY_CONFLICT", "An existing prepared successor aggregate must belong to this exact proposal and predecessor.");
+        }
+        auditRecordedAt = initial.recorded_at;
+      }
+    }
+    const audit = makeDraftAudit(current, proposal, draftStateWithProposal, auditRecordedAt);
     const next = { ...draftStateWithProposal, execution_log: appendExecutionLogEntry(draftStateWithProposal, audit) };
     return {
       next,
@@ -19869,8 +19896,13 @@ class GovernanceTransactionKernel {
         const existingReference = readTaskBasisReferenceFromBody(current.body);
         const basisExists = fs9.existsSync(taskBasisArtifact.filePath);
         if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "create-draft") {
-          if (basisExists)
-            fail3("TASK_BASIS_CONFLICT", `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
+          if (basisExists) {
+            const predecessor = proposal.semantic_delta.predecessor;
+            const snapshotPath = predecessor ? safeRepositoryFile(this.root, successorSnapshotPath(current.relativePath, predecessor.document_id, predecessor.source_revision)) : null;
+            const exactPreparedSuccessor = predecessor && snapshotPath && fs9.existsSync(snapshotPath) && fs9.lstatSync(snapshotPath).isFile() && fs9.readFileSync(snapshotPath, "utf8") === current.raw && fs9.lstatSync(taskBasisArtifact.filePath).isFile() && fs9.readFileSync(taskBasisArtifact.filePath, "utf8") === taskBasisArtifact.content;
+            if (!exactPreparedSuccessor)
+              fail3("TASK_BASIS_CONFLICT", `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
+          }
         } else if (existingReference) {
           if (existingReference.path !== taskBasisArtifact.path) {
             fail3("TASK_BASIS_REFERENCE_INVALID", "CURRENT_TASK links a different task basis path than the draft transaction target.");
@@ -26131,6 +26163,7 @@ function evidenceContext(root, input) {
       boundary: slot.check.boundary ?? null,
       user_decision: slot.user_decision ? { ...slot.user_decision } : null,
       frozen_invocation: slot.check.entry,
+      validation_items: [...slot.check.validation_items ?? []],
       minimum_type: slot.minimum_type,
       execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
       subject_revision: snapshot.revision,
@@ -27300,6 +27333,7 @@ function claimEvidenceSummary(value) {
     before_step_id: slot.before_step_id ?? null,
     check_id: slot.check?.check_id ?? null,
     frozen_invocation: slot.check?.entry ?? null,
+    validation_items: [...slot.check?.validation_items ?? []],
     boundary: slot.check?.boundary ?? null,
     required_observation: slot.check?.expected_observation ?? null,
     required_boundaries: slot.check?.required_boundaries ?? [],
