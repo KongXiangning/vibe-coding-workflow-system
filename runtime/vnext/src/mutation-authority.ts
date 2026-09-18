@@ -484,6 +484,14 @@ export function normalizeBlastRadiusAssessments(value: unknown): BlastRadiusAsse
   return result;
 }
 
+/** Existing assessment facts select review depth; omission/uncertainty stays conservative. */
+export function requiresDynamicReview(assessment: BlastRadiusAssessment): boolean {
+  const radius = assessment.blast_radius;
+  return assessment.disposition !== 'self-admit' || radius.locality !== 'local'
+    || radius.visibility !== 'private' || radius.cross_component_consumers !== 'none'
+    || radius.contract_impact !== 'none';
+}
+
 export function evaluateMutationAuthority(input: {
   root?: string;
   project: ProjectMutationAuthority;
@@ -551,7 +559,7 @@ export function evaluateMutationAuthority(input: {
       blockers.push(`MUTATION_AUTHORITY_EXPANSION_REQUIRED: ${target} was escalated by its blast-radius assessment`);
       continue;
     }
-    dynamicReviewRequired = true;
+    dynamicReviewRequired ||= requiresDynamicReview(assessment);
     decisions.push({ path: target, status: 'self-admitted', domain, reason: 'in-envelope expansion self-admitted with assessment', assessment, first_touch_state: touch });
   }
   return { status: blockers.length === 0 ? 'pass' : 'blocked', decisions, dynamic_review_required: dynamicReviewRequired, blockers };

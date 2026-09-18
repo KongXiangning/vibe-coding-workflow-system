@@ -338,7 +338,7 @@ transient create/delete history.
 
 ### P-14 — One task, admitted steps, and risk-based review checkpoints
 
-A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each v1 step executes only after admission of its bounded mutation scope; each v2 step executes inside the task authority envelope with its planned footprint as guidance, and both require the declared evidence. Review is placed at logical or risk boundaries rather than after every step; any v2 self-admitted footprint expansion adds a mandatory cumulative review even when the ordinary checkpoint is `not-required`; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / dynamic review / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
+A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each v1 step executes only after admission of its bounded mutation scope; each v2 step executes inside the task authority envelope with its planned footprint as guidance, and both require the declared evidence. Review is placed at logical or risk boundaries rather than after every step; v2 self-admitted footprint expansion adds cumulative review when the retained assessment shows shared/public/cross-component/contract impact; private local discovery with no consumers or contract impact adds no checkpoint, while old records retain their original review obligation; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / dynamic review / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
 
 ## 4. Recommended exposure model
 
@@ -1425,3 +1425,18 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 ## 17. Decision outcome
 
 The accepted target is a vNext architecture with eight daily intents, adaptive internal capabilities, independent read-only draft and change review, Review Convergence, Evidence Admission, `project-context-resolver`, `knowledge-admission-policy`, a shared Runtime transaction kernel, and Markdown/YAML canonical knowledge. Migration is idle-only and one-time: the Migration Pack performs offline conversion of old governance documents, after which the vNext Distribution is installed and old Skills are absent. vNext Skills do not understand the old protocol; an old or unsupported schema returns `migration-required` and stops.
+
+## Task-level process-control refinement (2026-09-18)
+
+A valid explicit user decision needs a legal task-level route, but never becomes a
+fabricated test result or retrospective task completion. Runtime records ordinary
+manual acceptance and narrowly scoped user-owned evidence waivers as caller-reported
+source/subject-bound facts. This is not the trusted administrative realign channel.
+Unverified accepted risk remains visible in context, results and archive.
+
+Routine implementation discovery and equivalent validation invocation changes
+preserve the current task's intent and obligations. Neither a local bug nor a
+review finding nor a launcher correction authorizes whole-task redesign.
+Supersede only records genuine invalidation; an explicitly requested successor
+gets a new identity and ordinary confirmation, with all predecessor obligations
+carried or explicitly retired and the old unfinished outcome preserved.

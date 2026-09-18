@@ -509,7 +509,7 @@ describe('vNext Mutation-oriented Scope', () => {
         assessments: [blastRadiusAssessment(target)],
       });
 
-      expect(result).toMatchObject({ status: 'pass', dynamic_review_required: true });
+      expect(result).toMatchObject({ status: 'pass', dynamic_review_required: false });
       expect(result.decisions[0]).toMatchObject({
         path: target,
         status: 'self-admitted',

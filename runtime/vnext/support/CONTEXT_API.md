@@ -518,3 +518,33 @@ Search defaults to 50 hits (maximum 200), uses the same byte budget, and stops a
 Install/upgrade prepares rg in the Installer staging transaction, preferring a verified project-local binary, then compatible PATH rg (14.1+ within major 14, or major 15), with a functional probe. Otherwise it downloads pinned 15.2.0 for Windows/Linux/macOS x64/arm64 and checks the built-in release SHA-256. Linux download uses musl. Managed files are under `.workflow-system/runtime/tools/rg/`; PATH reuse records no machine-specific absolute path. No system package manager, administrator privilege, or global PATH change is needed.
 
 Download/checksum/probe failure aborts installation before promotion. Old installations lacking rg receive `RG_DEPENDENCY_MISSING` from search; use the normal distribution upgrade route to prepare dependencies. Same-version upgrade also prepares a lost rg dependency when managed software is intact, retaining all ordinary upgrade admission and rollback checks; unrelated software drift is still rejected. Read-only calls never download. Other context operations do not require rg. An available rg does not make other installation dependencies offline-capable.
+
+## Process-control operations
+
+For explicit manual observation, use prepare-task's internal
+`record-human-acceptance`; for explicit unverified risk, `record-evidence-waiver`.
+Use exact claim/slot/check, plan and subject revision from `evidence-context` and
+the user's original source/text. The optional `validation_items` lists only exact
+related planned labels the user waived. Inputs and restrictions are defined in
+FILE_SCHEMAS.md. Both are caller-reported and do not grant authenticated realign.
+Inspect `user_decision` in evidence/review/task context; never interpret waiver as
+execution PASS. `waiver_decision_id` on a truthful nonpassing result is verified
+against that exact decision and cannot excuse an unrelated command or validation.
+
+A local equivalent invocation adjustment uses execute-step's `replace-validation`
+with source_revision, claim_id, slot_id, replaces_check_id, replacement_check and
+reason. Preserve observation, boundary, subjects, selector, breadth, scope and
+budgets. Read fresh context/preflight afterwards. It does not accept an entire
+task definition. Changed business obligations still use bounded correction.
+
+An explicitly requested replacement after supersede uses prepare-task's
+`prepare-successor` with the exact predecessor identity/source/Basis, verbatim
+user decision and full old-obligation dispositions plus an ordinary new draft.
+Old unfinished state is retained; the new draft requires ordinary confirmation.
+Do not trigger supersede or successor merely because implementation needs repair.
+No public Skill invokes a following Skill on the user's behalf.
+
+Authority-amendment continuations retain the original evidence check commands and
+their exact repository-write footprints when those obligations move to the new
+step. Runtime does not synthesize a shell command from an implementation note or
+make the caller repeat an already frozen validation plan merely to add permission.

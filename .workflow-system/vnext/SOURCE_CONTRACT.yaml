@@ -123,7 +123,7 @@ capabilities:
       - deterministic subset proof for every v2 command footprint; synthetic probe paths are not evidence of command safety
       - separate read/discovery matches that never become write permission
       - exact admitted paths, excluded targets, and source revision
-      - v2 dynamic expansion record with first-touch before-state and mandatory cumulative review flag
+      - v2 dynamic expansion record with first-touch before-state and risk-selected cumulative review flag
       - bounded widening requirement; changed goal, scope, or total authority routes to authority amendment, while same-envelope implementation discovery uses extend-preflight
       - separate persistent-test admission for an absent new test, including a typed P-12 decision even when no authority domain changes
       - authority-amendment settlement gate that blocks only an admitted preflight without its matching recorded execution result
@@ -355,7 +355,7 @@ capabilities:
       - 'a contested challenge may be dismissed only with a bound, hashed review assessment; dismissal retains the challenge and original report'
       - 'correction-replan-candidate/v2 supports conclusion-correction and execution-recovery with bounded targets, forward-fix/artifact-restore/mixed, complete obligation mapping, immutable executed definitions, new check identities, and revision-bound pending-step changes'
       - 'scope-amendment-candidate/v1 is an independent additive route: authority expansion consumes caller-reported explicit authorization for exact new paths, while an in-envelope absent persistent test uses the same infrastructure with a complete typed P-12 admission and authority_diff:none; both preserve pending review/findings/obligations/review baseline/budget and never change the legacy correction-replan/v2 permission_change:none semantics'
-      - 'Mutation Authority v2: the task authority envelope is the only hard mutation boundary; planned step targets are guidance, same-envelope expansion requires a bounded blast-radius assessment and review, and cross-domain authority changes require explicit amendment'
+      - 'Mutation Authority v2: the task authority envelope is the only hard mutation boundary; planned step targets are guidance, same-envelope expansion requires a bounded blast-radius assessment and risk-selected review (private local/no-consumer/no-contract-impact discovery adds no checkpoint), and cross-domain authority changes require explicit amendment'
       - 'Mutation Authority v2 distinguishes an existing in-envelope test file from an absent new persistent test; only the latter requires the existing P-12 admission record before creation'
       - 'review coverage stores only path/state/sha256 in canonical CURRENT_TASK; first-touch bytes are immutable raw content-addressed blobs resolved by sha256, and legacy inline preimages are readable and explicitly migrated before canonical compaction'
       - 'confirmation preserves task identity, original request, acceptance and total authority; binds source, Basis, candidate, evidence admission, restore plan and all old obligations; authorization remains caller-reported'
@@ -366,8 +366,10 @@ capabilities:
       - 'ingest-evidence stores bounded content-addressed bodies and source coordinates; path references alone do not preserve external evidence bodies'
       - 'only Runtime-derived carry-forward may satisfy an unchanged old report under a new plan; challenged, stale-subject and before-step receipts cannot be silently reused'
       - 'upgrade preserves the old CURRENT_TASK bytes; explicit initialize-preservation saves exact task and Task Basis preimages before adding a version marker, and missing or unknown protection versions cannot authorize task replacement'
-      - 'supersede preserves unfinished obligations but does not authorize a successor; prepare-draft from superseded fails with REPLACEMENT_OUTCOME_UNSUPPORTED until a non-completion replacement outcome exists'
-      - 'execute-step may update only disposition and evidence_refs for an existing plan; it cannot add, remove, or redefine claims or evidence slots'
+      - 'supersede preserves unfinished obligations and never authorizes a successor by itself; ordinary prepare-draft remains blocked, while explicit prepare-successor binds the retained predecessor, verbatim user decision, complete obligation disposition and a fresh draft that still needs ordinary confirmation'
+      - 'ordinary execute-step results preserve the frozen claim/slot/check plan; replace-validation may replace one read-only invocation under unchanged observation, boundary, subjects, selector, authority and retained budgets, without a whole-task replan'
+      - 'record-human-acceptance records an explicit Task Basis user observation for a frozen human check; record-evidence-waiver discharges only an exact user-owned current obligation without rewriting failed/missing reports as PASS; both are caller-reported and cannot authorize administrative realign'
+      - 'user evidence decisions remain source/subject/plan bound and visible in context and archive; raw progress cannot manufacture them, prerequisites and policy/contract obligations are not waived, and required review/findings remain intact'
       - 'legacy CURRENT_TASK documents remain readable but require prepare-task refinement/migration before task-complete or terminal close-task; aggregate command success cannot provide completion compatibility'
       - 'exploratory probe budget: duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule'
       - persistent-test policy, including default non-admission or user no-test deny

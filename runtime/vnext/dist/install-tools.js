@@ -3,7 +3,7 @@ var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, 
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
 // node_modules/fast-fifo/fixed-size.js
-var require_fixed_size = __commonJS((exports, module) => {
+var require_fixed_size = __commonJS(function(exports, module) {
   module.exports = class FixedFIFO {
     constructor(hwm) {
       if (!(hwm > 0) || (hwm - 1 & hwm) !== 0)
@@ -44,7 +44,7 @@ var require_fixed_size = __commonJS((exports, module) => {
 });
 
 // node_modules/fast-fifo/index.js
-var require_fast_fifo = __commonJS((exports, module) => {
+var require_fast_fifo = __commonJS(function(exports, module) {
   var FixedFIFO = require_fixed_size();
   module.exports = class FastFIFO {
     constructor(hwm) {
@@ -91,15 +91,15 @@ var require_fast_fifo = __commonJS((exports, module) => {
 });
 
 // node_modules/b4a/index.js
-var require_b4a = __commonJS((exports, module) => {
+var require_b4a = __commonJS(function(exports, module) {
   function isBuffer(value) {
     return Buffer.isBuffer(value) || value instanceof Uint8Array;
   }
   function isEncoding(encoding) {
     return Buffer.isEncoding(encoding);
   }
-  function alloc(size, fill2, encoding) {
-    return Buffer.alloc(size, fill2, encoding);
+  function alloc(size, fill, encoding) {
+    return Buffer.alloc(size, fill, encoding);
   }
   function allocUnsafe(size) {
     return Buffer.allocUnsafe(size);
@@ -247,7 +247,7 @@ var require_b4a = __commonJS((exports, module) => {
 });
 
 // node_modules/text-decoder/lib/pass-through-decoder.js
-var require_pass_through_decoder = __commonJS((exports, module) => {
+var require_pass_through_decoder = __commonJS(function(exports, module) {
   var b4a = require_b4a();
   module.exports = class PassThroughDecoder {
     constructor(encoding) {
@@ -266,7 +266,7 @@ var require_pass_through_decoder = __commonJS((exports, module) => {
 });
 
 // node_modules/text-decoder/lib/utf8-decoder.js
-var require_utf8_decoder = __commonJS((exports, module) => {
+var require_utf8_decoder = __commonJS(function(exports, module) {
   var b4a = require_b4a();
   module.exports = class UTF8Decoder {
     constructor() {
@@ -310,8 +310,8 @@ var require_utf8_decoder = __commonJS((exports, module) => {
       const end = data.byteLength - trailing;
       if (end > start)
         result += b4a.toString(data, "utf8", start, end);
-      for (let i2 = end;i2 < data.byteLength; i2++) {
-        const byte = data[i2];
+      for (let i = end;i < data.byteLength; i++) {
+        const byte = data[i];
         if (this.bytesNeeded === 0) {
           if (byte <= 127) {
             this.bytesSeen = 0;
@@ -344,7 +344,7 @@ var require_utf8_decoder = __commonJS((exports, module) => {
         }
         if (byte < this.lowerBoundary || byte > this.upperBoundary) {
           result += "�";
-          i2--;
+          i--;
           this._reset();
           continue;
         }
@@ -377,12 +377,12 @@ var require_utf8_decoder = __commonJS((exports, module) => {
     if (len <= start)
       return 0;
     const limit = Math.max(start, len - 4);
-    let i2 = len - 1;
-    while (i2 > limit && (data[i2] & 192) === 128)
-      i2--;
-    if (i2 < start)
+    let i = len - 1;
+    while (i > limit && (data[i] & 192) === 128)
+      i--;
+    if (i < start)
       return 0;
-    const byte = data[i2];
+    const byte = data[i];
     let needed;
     if (byte <= 127)
       return 0;
@@ -394,7 +394,7 @@ var require_utf8_decoder = __commonJS((exports, module) => {
       needed = 4;
     else
       return 0;
-    const available = len - i2;
+    const available = len - i;
     return available < needed ? available : 0;
   }
   function trailingBytesSeen(data) {
@@ -407,12 +407,12 @@ var require_utf8_decoder = __commonJS((exports, module) => {
     if ((last & 192) !== 128)
       return 1;
     const limit = Math.max(0, len - 4);
-    let i2 = len - 2;
-    while (i2 >= limit && (data[i2] & 192) === 128)
-      i2--;
-    if (i2 < 0)
+    let i = len - 2;
+    while (i >= limit && (data[i] & 192) === 128)
+      i--;
+    if (i < 0)
       return 1;
-    const first = data[i2];
+    const first = data[i];
     let needed;
     if (first >= 194 && first <= 223)
       needed = 2;
@@ -422,10 +422,10 @@ var require_utf8_decoder = __commonJS((exports, module) => {
       needed = 4;
     else
       return 1;
-    if (len - i2 !== needed)
+    if (len - i !== needed)
       return 1;
     if (needed >= 3) {
-      const second = data[i2 + 1];
+      const second = data[i + 1];
       if (first === 224 && second < 160)
         return 1;
       if (first === 237 && second > 159)
@@ -440,7 +440,7 @@ var require_utf8_decoder = __commonJS((exports, module) => {
 });
 
 // node_modules/text-decoder/index.js
-var require_text_decoder = __commonJS((exports, module) => {
+var require_text_decoder = __commonJS(function(exports, module) {
   var PassThroughDecoder = require_pass_through_decoder();
   var UTF8Decoder = require_utf8_decoder();
   module.exports = class TextDecoder2 {
@@ -501,7 +501,7 @@ var require_text_decoder = __commonJS((exports, module) => {
 });
 
 // node_modules/streamx/lib/errors.js
-var require_errors = __commonJS((exports, module) => {
+var require_errors = __commonJS(function(exports, module) {
   module.exports = class StreamError extends Error {
     constructor(msg, code, fn = StreamError) {
       super(msg);
@@ -510,17 +510,17 @@ var require_errors = __commonJS((exports, module) => {
         Error.captureStackTrace(this, fn);
       }
     }
-    static isStreamDestroyed(err2) {
-      return err2 && err2.code === "STREAM_DESTROYED";
+    static isStreamDestroyed(err) {
+      return err && err.code === "STREAM_DESTROYED";
     }
-    static isPrematureClose(err2) {
-      return err2 && err2.code === "PREMATURE_CLOSE";
+    static isPrematureClose(err) {
+      return err && err.code === "PREMATURE_CLOSE";
     }
-    static isAborted(err2) {
-      return err2 && err2.code === "ABORTED";
+    static isAborted(err) {
+      return err && err.code === "ABORTED";
     }
-    static isBadArgument(err2) {
-      return err2 && err2.code === "BAD_ARGUMENT";
+    static isBadArgument(err) {
+      return err && err.code === "BAD_ARGUMENT";
     }
     get name() {
       return "StreamError";
@@ -541,7 +541,7 @@ var require_errors = __commonJS((exports, module) => {
 });
 
 // node_modules/streamx/index.js
-var require_streamx = __commonJS((exports, module) => {
+var require_streamx = __commonJS(function(exports, module) {
   var { EventEmitter } = __require("events");
   var FIFO = require_fast_fifo();
   var TextDecoder2 = require_text_decoder();
@@ -828,10 +828,10 @@ var require_streamx = __commonJS((exports, module) => {
       const pending = [this.map !== null ? this.map(data) : data];
       while (this.buffered > 0)
         pending.push(this.shift());
-      for (let i2 = 0;i2 < pending.length - 1; i2++) {
-        const data2 = pending[i2];
-        this.buffered += this.byteLength(data2);
-        this.queue.push(data2);
+      for (let i = 0;i < pending.length - 1; i++) {
+        const data = pending[i];
+        this.buffered += this.byteLength(data);
+        this.queue.push(data);
       }
       this.push(pending[pending.length - 1]);
     }
@@ -957,9 +957,9 @@ var require_streamx = __commonJS((exports, module) => {
     finished() {
       this.pipeToFinished = true;
     }
-    done(stream, err2) {
-      if (err2)
-        this.error = err2;
+    done(stream, err) {
+      if (err)
+        this.error = err;
       if (stream === this.to) {
         this.to = null;
         if (this.from !== null) {
@@ -987,10 +987,10 @@ var require_streamx = __commonJS((exports, module) => {
     this.stream._duplexState |= READ_PIPE_DRAINED;
     this.updateCallback();
   }
-  function afterFinal(err2) {
+  function afterFinal(err) {
     const stream = this.stream;
-    if (err2)
-      stream.destroy(err2);
+    if (err)
+      stream.destroy(err);
     if ((stream._duplexState & DESTROY_STATUS) === 0) {
       stream._duplexState |= WRITE_DONE;
       stream.emit("finish");
@@ -1005,32 +1005,32 @@ var require_streamx = __commonJS((exports, module) => {
       this.updateNextTick();
     }
   }
-  function afterDestroy(err2) {
+  function afterDestroy(err) {
     const stream = this.stream;
-    if (!err2 && !StreamError.isStreamDestroyed(this.error))
-      err2 = this.error;
-    if (err2)
-      stream.emit("error", err2);
+    if (!err && !StreamError.isStreamDestroyed(this.error))
+      err = this.error;
+    if (err)
+      stream.emit("error", err);
     stream._duplexState |= DESTROYED;
     stream.emit("close");
     const rs = stream._readableState;
     const ws = stream._writableState;
     if (rs !== null && rs.pipeline !== null) {
-      rs.pipeline.done(stream, err2);
+      rs.pipeline.done(stream, err);
     }
     if (ws !== null) {
       while (ws.drains !== null && ws.drains.length > 0) {
         ws.drains.shift().resolve(false);
       }
       if (ws.pipeline !== null) {
-        ws.pipeline.done(stream, err2);
+        ws.pipeline.done(stream, err);
       }
     }
   }
-  function afterWrite(err2) {
+  function afterWrite(err) {
     const stream = this.stream;
-    if (err2)
-      stream.destroy(err2);
+    if (err)
+      stream.destroy(err);
     stream._duplexState &= WRITE_NOT_ACTIVE;
     if (this.drains !== null)
       tickDrains(this.drains);
@@ -1042,9 +1042,9 @@ var require_streamx = __commonJS((exports, module) => {
     }
     this.updateCallback();
   }
-  function afterRead(err2) {
-    if (err2)
-      this.stream.destroy(err2);
+  function afterRead(err) {
+    if (err)
+      this.stream.destroy(err);
     this.stream._duplexState &= READ_NOT_ACTIVE;
     if (this.readAhead === false && (this.stream._duplexState & READ_RESUMED) === 0) {
       this.stream._duplexState &= READ_NO_READ_AHEAD;
@@ -1064,17 +1064,17 @@ var require_streamx = __commonJS((exports, module) => {
     }
   }
   function tickDrains(drains) {
-    for (let i2 = 0;i2 < drains.length; i2++) {
-      if (--drains[i2].writes === 0) {
+    for (let i = 0;i < drains.length; i++) {
+      if (--drains[i].writes === 0) {
         drains.shift().resolve(true);
-        i2--;
+        i--;
       }
     }
   }
-  function afterOpen(err2) {
+  function afterOpen(err) {
     const stream = this.stream;
-    if (err2)
-      stream.destroy(err2);
+    if (err)
+      stream.destroy(err);
     if ((stream._duplexState & DESTROYING) === 0) {
       if ((stream._duplexState & READ_PRIMARY_STATUS) === 0) {
         stream._duplexState |= READ_PRIMARY;
@@ -1092,10 +1092,10 @@ var require_streamx = __commonJS((exports, module) => {
       stream._readableState.updateCallback();
     }
   }
-  function afterTransform(err2, data) {
+  function afterTransform(err, data) {
     if (data !== undefined && data !== null)
       this.push(data);
-    this._writableState.afterWrite(err2);
+    this._writableState.afterWrite(err);
   }
   function newListener(name) {
     if (this._readableState !== null) {
@@ -1153,18 +1153,18 @@ var require_streamx = __commonJS((exports, module) => {
     get destroying() {
       return (this._duplexState & DESTROY_STATUS) !== 0;
     }
-    destroy(err2) {
+    destroy(err) {
       if ((this._duplexState & DESTROY_STATUS) === 0) {
-        if (!err2)
-          err2 = StreamError.STREAM_DESTROYED();
+        if (!err)
+          err = StreamError.STREAM_DESTROYED();
         this._duplexState = (this._duplexState | DESTROYING) & NON_PRIMARY;
         if (this._readableState !== null) {
           this._readableState.highWaterMark = 0;
-          this._readableState.error = err2;
+          this._readableState.error = err;
         }
         if (this._writableState !== null) {
           this._writableState.highWaterMark = 0;
-          this._writableState.error = err2;
+          this._writableState.error = err;
         }
         this._duplexState |= PREDESTROYING;
         this._predestroy();
@@ -1203,7 +1203,7 @@ var require_streamx = __commonJS((exports, module) => {
         if (out.destroying)
           return;
         pipeline(src, out, noop);
-      }).catch((err2) => out.destroy(err2));
+      }).catch((err) => out.destroy(err));
       return out;
     }
     setEncoding(encoding) {
@@ -1276,11 +1276,11 @@ var require_streamx = __commonJS((exports, module) => {
         return this._fromAsyncIterator(data[asyncIterator](), opts);
       if (!Array.isArray(data))
         data = data === undefined ? [] : [data];
-      let i2 = 0;
+      let i = 0;
       return new Readable({
         ...opts,
         read(cb) {
-          this.push(i2 === data.length ? null : data[i2++]);
+          this.push(i === data.length ? null : data[i++]);
           cb(null);
         }
       });
@@ -1296,8 +1296,8 @@ var require_streamx = __commonJS((exports, module) => {
       let error = null;
       let promiseResolve = null;
       let promiseReject = null;
-      this.on("error", (err2) => {
-        error = err2;
+      this.on("error", (err) => {
+        error = err;
       });
       this.on("readable", onreadable);
       this.on("close", onclose);
@@ -1319,8 +1319,8 @@ var require_streamx = __commonJS((exports, module) => {
         return() {
           return destroy(null);
         },
-        throw(err2) {
-          return destroy(err2);
+        throw(err) {
+          return destroy(err);
         }
       };
       function onreadable() {
@@ -1343,14 +1343,14 @@ var require_streamx = __commonJS((exports, module) => {
         }
         promiseReject = promiseResolve = null;
       }
-      function destroy(err2) {
-        stream.destroy(err2);
+      function destroy(err) {
+        stream.destroy(err);
         return new Promise((resolve, reject) => {
           if (stream._duplexState & DESTROYED)
             return resolve({ value: undefined, done: true });
           stream.once("close", function() {
-            if (err2)
-              reject(err2);
+            if (err)
+              reject(err);
             else
               resolve({ value: undefined, done: true });
           });
@@ -1488,8 +1488,8 @@ var require_streamx = __commonJS((exports, module) => {
         cb(null);
       }
     }
-    destroy(err2) {
-      super.destroy(err2);
+    destroy(err) {
+      super.destroy(err);
       if (this._transformState.data !== null) {
         this._transformState.data = null;
         this._transformState.afterTransform();
@@ -1509,10 +1509,10 @@ var require_streamx = __commonJS((exports, module) => {
 
   class PassThrough extends Transform {
   }
-  function transformAfterFlush(err2, data) {
+  function transformAfterFlush(err, data) {
     const cb = this._transformState.afterFinal;
-    if (err2)
-      return cb(err2);
+    if (err)
+      return cb(err);
     if (data !== null && data !== undefined)
       this.push(data);
     this.push(null);
@@ -1520,9 +1520,9 @@ var require_streamx = __commonJS((exports, module) => {
   }
   function pipelinePromise(...streams) {
     return new Promise((resolve, reject) => {
-      return pipeline(...streams, (err2) => {
-        if (err2)
-          return reject(err2);
+      return pipeline(...streams, (err) => {
+        if (err)
+          return reject(err);
         resolve();
       });
     });
@@ -1535,12 +1535,12 @@ var require_streamx = __commonJS((exports, module) => {
     let src = all[0];
     let dest = null;
     let error = null;
-    for (let i2 = 1;i2 < all.length; i2++) {
-      dest = all[i2];
+    for (let i = 1;i < all.length; i++) {
+      dest = all[i];
       if (isStreamx(src)) {
         src.pipe(dest, onerror);
       } else {
-        errorHandle(src, true, i2 > 1, onerror);
+        errorHandle(src, true, i > 1, onerror);
         src.pipe(dest);
       }
       src = dest;
@@ -1548,9 +1548,9 @@ var require_streamx = __commonJS((exports, module) => {
     if (done) {
       let fin = false;
       const autoDestroy = isStreamx(dest) || !!(dest._writableState && dest._writableState.autoDestroy);
-      dest.on("error", (err2) => {
+      dest.on("error", (err) => {
         if (error === null)
-          error = err2;
+          error = err;
       });
       dest.on("finish", () => {
         fin = true;
@@ -1562,24 +1562,24 @@ var require_streamx = __commonJS((exports, module) => {
       }
     }
     return dest;
-    function errorHandle(s, rd, wr, onerror2) {
-      s.on("error", onerror2);
+    function errorHandle(s, rd, wr, onerror) {
+      s.on("error", onerror);
       s.on("close", onclose);
       function onclose() {
         if (rd && s._readableState && !s._readableState.ended) {
-          return onerror2(StreamError.PREMATURE_CLOSE());
+          return onerror(StreamError.PREMATURE_CLOSE());
         }
         if (wr && s._writableState && !s._writableState.ended) {
-          return onerror2(StreamError.PREMATURE_CLOSE());
+          return onerror(StreamError.PREMATURE_CLOSE());
         }
       }
     }
-    function onerror(err2) {
-      if (!err2 || error)
+    function onerror(err) {
+      if (!err || error)
         return;
-      error = err2;
+      error = err;
       for (const s of all) {
-        s.destroy(err2);
+        s.destroy(err);
       }
     }
   }
@@ -1605,8 +1605,8 @@ var require_streamx = __commonJS((exports, module) => {
     return !!stream._writableState && stream._writableState.ended;
   }
   function getStreamError(stream, opts = {}) {
-    const err2 = stream._readableState && stream._readableState.error || stream._writableState && stream._writableState.error;
-    return !opts.all && StreamError.isStreamDestroyed(err2) ? null : err2;
+    const err = stream._readableState && stream._readableState.error || stream._writableState && stream._writableState.error;
+    return !opts.all && StreamError.isStreamDestroyed(err) ? null : err;
   }
   function isReadStreamx(stream) {
     return isStreamx(stream) && stream.readable;
@@ -1648,7 +1648,7 @@ var require_streamx = __commonJS((exports, module) => {
 });
 
 // node_modules/tar-stream/headers.js
-var require_headers = __commonJS((exports) => {
+var require_headers = __commonJS(function(exports) {
   var b4a = require_b4a();
   var ZEROS = "0000000000000000000";
   var SEVENS = "7777777777777777777";
@@ -1683,13 +1683,13 @@ var require_headers = __commonJS((exports) => {
   exports.decodePax = function decodePax(buf) {
     const result = {};
     while (buf.length) {
-      let i2 = 0;
-      while (i2 < buf.length && buf[i2] !== 32)
-        i2++;
-      const len = parseInt(b4a.toString(buf.subarray(0, i2)), 10);
+      let i = 0;
+      while (i < buf.length && buf[i] !== 32)
+        i++;
+      const len = parseInt(b4a.toString(buf.subarray(0, i)), 10);
       if (!len)
         return result;
-      const b = b4a.toString(buf.subarray(i2 + 1, len - 1));
+      const b = b4a.toString(buf.subarray(i + 1, len - 1));
       const keyIndex = b.indexOf("=");
       if (keyIndex === -1)
         return result;
@@ -1707,11 +1707,11 @@ var require_headers = __commonJS((exports) => {
     if (b4a.byteLength(name) !== name.length)
       return null;
     while (b4a.byteLength(name) > 100) {
-      const i2 = name.indexOf("/");
-      if (i2 === -1)
+      const i = name.indexOf("/");
+      if (i === -1)
         return null;
-      prefix += prefix ? "/" + name.slice(0, i2) : name.slice(0, i2);
-      name = name.slice(i2 + 1);
+      prefix += prefix ? "/" + name.slice(0, i) : name.slice(0, i);
+      name = name.slice(i + 1);
     }
     if (b4a.byteLength(name) > 100 || b4a.byteLength(prefix) > 155)
       return null;
@@ -1865,8 +1865,8 @@ var require_headers = __commonJS((exports) => {
   }
   function cksum(block) {
     let sum = 8 * 32;
-    for (let i2 = 0;i2 < 148; i2++)
-      sum += block[i2];
+    for (let i = 0;i < 148; i++)
+      sum += block[i];
     for (let j = 156;j < 512; j++)
       sum += block[j];
     return sum;
@@ -1879,8 +1879,8 @@ var require_headers = __commonJS((exports) => {
   }
   function encodeSizeBin(num, buf, off) {
     buf[off] = 128;
-    for (let i2 = 11;i2 > 0; i2--) {
-      buf[off + i2] = num & 255;
+    for (let i = 11;i > 0; i--) {
+      buf[off + i] = num & 255;
       num = Math.floor(num / 256);
     }
   }
@@ -1900,9 +1900,9 @@ var require_headers = __commonJS((exports) => {
     else
       return null;
     const tuple = [];
-    let i2;
-    for (i2 = buf.length - 1;i2 > 0; i2--) {
-      const byte = buf[i2];
+    let i;
+    for (i = buf.length - 1;i > 0; i--) {
+      const byte = buf[i];
       if (positive)
         tuple.push(byte);
       else
@@ -1910,8 +1910,8 @@ var require_headers = __commonJS((exports) => {
     }
     let sum = 0;
     const l = tuple.length;
-    for (i2 = 0;i2 < l; i2++) {
-      sum += tuple[i2] * Math.pow(256, i2);
+    for (i = 0;i < l; i++) {
+      sum += tuple[i] * Math.pow(256, i);
     }
     return positive ? sum : -1 * sum;
   }
@@ -1944,7 +1944,7 @@ var require_headers = __commonJS((exports) => {
 });
 
 // node_modules/tar-stream/extract.js
-var require_extract = __commonJS((exports, module) => {
+var require_extract = __commonJS(function(exports, module) {
   var { Writable, Readable, getStreamError } = require_streamx();
   var FIFO = require_fast_fifo();
   var b4a = require_b4a();
@@ -2051,11 +2051,11 @@ var require_extract = __commonJS((exports, module) => {
       this._allowUnknownFormat = !!opts.allowUnknownFormat;
       this._unlockBound = this._unlock.bind(this);
     }
-    _unlock(err2) {
+    _unlock(err) {
       this._locked = false;
-      if (err2) {
-        this.destroy(err2);
-        this._continueWrite(err2);
+      if (err) {
+        this.destroy(err);
+        this._continueWrite(err);
         return;
       }
       this._update();
@@ -2066,8 +2066,8 @@ var require_extract = __commonJS((exports, module) => {
       this._offset = this._buffer.shifted;
       try {
         this._header = headers.decode(this._buffer.shift(512), this._filenameEncoding, this._allowUnknownFormat);
-      } catch (err2) {
-        this._continueWrite(err2);
+      } catch (err) {
+        this._continueWrite(err);
         return false;
       }
       if (!this._header)
@@ -2134,8 +2134,8 @@ var require_extract = __commonJS((exports, module) => {
       const buf = this._buffer.shift(this._header.size);
       try {
         this._decodeLongHeader(buf);
-      } catch (err2) {
-        this._continueWrite(err2);
+      } catch (err) {
+        this._continueWrite(err);
         return false;
       }
       return true;
@@ -2184,10 +2184,10 @@ var require_extract = __commonJS((exports, module) => {
       }
       this._continueWrite(null);
     }
-    _continueWrite(err2) {
+    _continueWrite(err) {
       const cb = this._callback;
       this._callback = noop;
-      cb(err2);
+      cb(err);
     }
     _write(data, cb) {
       this._callback = cb;
@@ -2214,8 +2214,8 @@ var require_extract = __commonJS((exports, module) => {
       let entryCallback = null;
       const extract = this;
       this.on("entry", onentry);
-      this.on("error", (err2) => {
-        error = err2;
+      this.on("error", (err) => {
+        error = err;
       });
       this.on("close", onclose);
       return {
@@ -2228,16 +2228,16 @@ var require_extract = __commonJS((exports, module) => {
         return() {
           return destroy(null);
         },
-        throw(err2) {
-          return destroy(err2);
+        throw(err) {
+          return destroy(err);
         }
       };
-      function consumeCallback(err2) {
+      function consumeCallback(err) {
         if (!entryCallback)
           return;
         const cb = entryCallback;
         entryCallback = null;
-        cb(err2);
+        cb(err);
       }
       function onnext(resolve, reject) {
         if (error) {
@@ -2276,15 +2276,15 @@ var require_extract = __commonJS((exports, module) => {
           promiseResolve({ value: undefined, done: true });
         promiseResolve = promiseReject = null;
       }
-      function destroy(err2) {
-        extract.destroy(err2);
-        consumeCallback(err2);
+      function destroy(err) {
+        extract.destroy(err);
+        consumeCallback(err);
         return new Promise((resolve, reject) => {
           if (extract.destroyed)
             return resolve({ value: undefined, done: true });
           extract.once("close", function() {
-            if (err2)
-              reject(err2);
+            if (err)
+              reject(err);
             else
               resolve({ value: undefined, done: true });
           });
@@ -2303,7 +2303,7 @@ var require_extract = __commonJS((exports, module) => {
 });
 
 // node_modules/tar-stream/constants.js
-var require_constants = __commonJS((exports, module) => {
+var require_constants = __commonJS(function(exports, module) {
   var constants = {
     S_IFMT: 61440,
     S_IFDIR: 16384,
@@ -2320,7 +2320,7 @@ var require_constants = __commonJS((exports, module) => {
 });
 
 // node_modules/tar-stream/pack.js
-var require_pack = __commonJS((exports, module) => {
+var require_pack = __commonJS(function(exports, module) {
   var { Readable, Writable, getStreamError } = require_streamx();
   var b4a = require_b4a();
   var constants = require_constants();
@@ -2351,12 +2351,12 @@ var require_pack = __commonJS((exports, module) => {
       if (this._pack._stream === this)
         this._continueOpen();
     }
-    _continuePack(err2) {
+    _continuePack(err) {
       if (this._callback === null)
         return;
       const callback = this._callback;
       this._callback = null;
-      callback(err2);
+      callback(err);
     }
     _continueOpen() {
       if (this._pack._stream === null)
@@ -2533,12 +2533,12 @@ var require_pack = __commonJS((exports, module) => {
       drain();
     }
     _predestroy() {
-      const err2 = getStreamError(this);
+      const err = getStreamError(this);
       if (this._stream)
-        this._stream.destroy(err2);
+        this._stream.destroy(err);
       while (this._pending.length) {
         const stream = this._pending.shift();
-        stream.destroy(err2);
+        stream.destroy(err);
         stream._continueOpen();
       }
       this._doDrain();
@@ -2631,25 +2631,25 @@ var x;
 var i;
 var hMap = function(cd, mb, r) {
   var s = cd.length;
-  var i2 = 0;
+  var i = 0;
   var l = new u16(mb);
-  for (;i2 < s; ++i2) {
-    if (cd[i2])
-      ++l[cd[i2] - 1];
+  for (;i < s; ++i) {
+    if (cd[i])
+      ++l[cd[i] - 1];
   }
   var le = new u16(mb);
-  for (i2 = 1;i2 < mb; ++i2) {
-    le[i2] = le[i2 - 1] + l[i2 - 1] << 1;
+  for (i = 1;i < mb; ++i) {
+    le[i] = le[i - 1] + l[i - 1] << 1;
   }
   var co;
   if (r) {
     co = new u16(1 << mb);
     var rvb = 15 - mb;
-    for (i2 = 0;i2 < s; ++i2) {
-      if (cd[i2]) {
-        var sv = i2 << 4 | cd[i2];
-        var r_1 = mb - cd[i2];
-        var v = le[cd[i2] - 1]++ << r_1;
+    for (i = 0;i < s; ++i) {
+      if (cd[i]) {
+        var sv = i << 4 | cd[i];
+        var r_1 = mb - cd[i];
+        var v = le[cd[i] - 1]++ << r_1;
         for (var m = v | (1 << r_1) - 1;v <= m; ++v) {
           co[rev[v] >> rvb] = sv;
         }
@@ -2657,9 +2657,9 @@ var hMap = function(cd, mb, r) {
     }
   } else {
     co = new u16(s);
-    for (i2 = 0;i2 < s; ++i2) {
-      if (cd[i2]) {
-        co[i2] = rev[le[cd[i2] - 1]++] >> 15 - cd[i2];
+    for (i = 0;i < s; ++i) {
+      if (cd[i]) {
+        co[i] = rev[le[cd[i] - 1]++] >> 15 - cd[i];
       }
     }
   }
@@ -2686,9 +2686,9 @@ var flrm = /* @__PURE__ */ hMap(flt, 9, 1);
 var fdrm = /* @__PURE__ */ hMap(fdt, 5, 1);
 var max = function(a) {
   var m = a[0];
-  for (var i2 = 1;i2 < a.length; ++i2) {
-    if (a[i2] > m)
-      m = a[i2];
+  for (var i = 1;i < a.length; ++i) {
+    if (a[i] > m)
+      m = a[i];
   }
   return m;
 };
@@ -2744,15 +2744,15 @@ var inflt = function(dat, st, buf, dict) {
   var noSt = st.i;
   if (noBuf)
     buf = new u8(sl * 3);
-  var cbuf = function(l2) {
+  var cbuf = function(l) {
     var bl = buf.length;
-    if (l2 > bl) {
-      var nbuf = new u8(Math.max(bl * 2, l2));
+    if (l > bl) {
+      var nbuf = new u8(Math.max(bl * 2, l));
       nbuf.set(buf);
       buf = nbuf;
     }
   };
-  var final = st.f || 0, pos = st.p || 0, bt = st.b || 0, lm = st.l, dm = st.d, lbt = st.m, dbt = st.n;
+  var final = st.f || 0, pos = st.p || 0, bt = st.b || 0, { l: lm, d: dm, m: lbt, n: dbt } = st;
   var tbts = sl * 8;
   do {
     if (!lm) {
@@ -2779,28 +2779,28 @@ var inflt = function(dat, st, buf, dict) {
         pos += 14;
         var ldt = new u8(tl);
         var clt = new u8(19);
-        for (var i2 = 0;i2 < hcLen; ++i2) {
-          clt[clim[i2]] = bits(dat, pos + i2 * 3, 7);
+        for (var i = 0;i < hcLen; ++i) {
+          clt[clim[i]] = bits(dat, pos + i * 3, 7);
         }
         pos += hcLen * 3;
         var clb = max(clt), clbmsk = (1 << clb) - 1;
         var clm = hMap(clt, clb, 1);
-        for (var i2 = 0;i2 < tl; ) {
+        for (var i = 0;i < tl; ) {
           var r = clm[bits(dat, pos, clbmsk)];
           pos += r & 15;
           var s = r >> 4;
           if (s < 16) {
-            ldt[i2++] = s;
+            ldt[i++] = s;
           } else {
             var c = 0, n = 0;
             if (s == 16)
-              n = 3 + bits(dat, pos, 3), pos += 2, c = ldt[i2 - 1];
+              n = 3 + bits(dat, pos, 3), pos += 2, c = ldt[i - 1];
             else if (s == 17)
               n = 3 + bits(dat, pos, 7), pos += 3;
             else if (s == 18)
               n = 11 + bits(dat, pos, 127), pos += 7;
             while (n--)
-              ldt[i2++] = c;
+              ldt[i++] = c;
           }
         }
         var lt = ldt.subarray(0, hLit), dt = ldt.subarray(hLit);
@@ -2838,8 +2838,8 @@ var inflt = function(dat, st, buf, dict) {
       } else {
         var add = sym - 254;
         if (sym > 264) {
-          var i2 = sym - 257, b = fleb[i2];
-          add = bits(dat, pos, (1 << b) - 1) + fl[i2];
+          var i = sym - 257, b = fleb[i];
+          add = bits(dat, pos, (1 << b) - 1) + fl[i];
           pos += b;
         }
         var d = dm[bits16(dat, pos) & dms], dsym = d >> 4;
@@ -2896,31 +2896,31 @@ try {
   tds = 1;
 } catch (e) {}
 var dutf8 = function(d) {
-  for (var r = "", i2 = 0;; ) {
-    var c = d[i2++];
+  for (var r = "", i = 0;; ) {
+    var c = d[i++];
     var eb = (c > 127) + (c > 223) + (c > 239);
-    if (i2 + eb > d.length)
-      return { s: r, r: slc(d, i2 - 1) };
+    if (i + eb > d.length)
+      return { s: r, r: slc(d, i - 1) };
     if (!eb)
       r += String.fromCharCode(c);
     else if (eb == 3) {
-      c = ((c & 15) << 18 | (d[i2++] & 63) << 12 | (d[i2++] & 63) << 6 | d[i2++] & 63) - 65536, r += String.fromCharCode(55296 | c >> 10, 56320 | c & 1023);
+      c = ((c & 15) << 18 | (d[i++] & 63) << 12 | (d[i++] & 63) << 6 | d[i++] & 63) - 65536, r += String.fromCharCode(55296 | c >> 10, 56320 | c & 1023);
     } else if (eb & 1)
-      r += String.fromCharCode((c & 31) << 6 | d[i2++] & 63);
+      r += String.fromCharCode((c & 31) << 6 | d[i++] & 63);
     else
-      r += String.fromCharCode((c & 15) << 12 | (d[i2++] & 63) << 6 | d[i2++] & 63);
+      r += String.fromCharCode((c & 15) << 12 | (d[i++] & 63) << 6 | d[i++] & 63);
   }
 };
 function strFromU8(dat, latin1) {
   if (latin1) {
     var r = "";
-    for (var i2 = 0;i2 < dat.length; i2 += 16384)
-      r += String.fromCharCode.apply(null, dat.subarray(i2, i2 + 16384));
+    for (var i = 0;i < dat.length; i += 16384)
+      r += String.fromCharCode.apply(null, dat.subarray(i, i + 16384));
     return r;
   } else if (td) {
     return td.decode(dat);
   } else {
-    var _a2 = dutf8(dat), s = _a2.s, r = _a2.r;
+    var _a = dutf8(dat), { s, r } = _a;
     if (r.length)
       err(8);
     return s;
@@ -2931,7 +2931,7 @@ var slzh = function(d, b) {
 };
 var zh = function(d, b, z) {
   var fnl = b2(d, b + 28), fn = strFromU8(d.subarray(b + 46, b + 46 + fnl), !(b2(d, b + 8) & 2048)), es = b + 46 + fnl, bs = b4(d, b + 20);
-  var _a2 = z && bs == 4294967295 ? z64e(d, es) : [bs, b4(d, b + 24), b4(d, b + 42)], sc = _a2[0], su = _a2[1], off = _a2[2];
+  var _a = z && bs == 4294967295 ? z64e(d, es) : [bs, b4(d, b + 24), b4(d, b + 42)], sc = _a[0], su = _a[1], off = _a[2];
   return [b2(d, b + 10), sc, su, fn, es + b2(d, b + 30) + b2(d, b + 32), off];
 };
 var z64e = function(d, b) {
@@ -2960,8 +2960,8 @@ function unzipSync(data, opts) {
     }
   }
   var fltr = opts && opts.filter;
-  for (var i2 = 0;i2 < c; ++i2) {
-    var _a2 = zh(data, o, z), c_2 = _a2[0], sc = _a2[1], su = _a2[2], fn = _a2[3], no = _a2[4], off = _a2[5], b = slzh(data, off);
+  for (var i = 0;i < c; ++i) {
+    var _a = zh(data, o, z), c_2 = _a[0], sc = _a[1], su = _a[2], fn = _a[3], no = _a[4], off = _a[5], b = slzh(data, off);
     o = no;
     if (!fltr || fltr({
       name: fn,
@@ -3030,12 +3030,12 @@ function resolveRg(root) {
     }
   } catch {}
   for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path.delimiter).filter(Boolean)) {
-    const command2 = path.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
-    if (!fs.existsSync(command2))
+    const command = path.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
+    if (!fs.existsSync(command))
       continue;
-    const version = probeRg(command2);
+    const version = probeRg(command);
     if (version)
-      return { command: command2, version, source: "path" };
+      return { command, version, source: "path" };
   }
   throw new Error("RG_DEPENDENCY_MISSING: install or upgrade the Runtime distribution to prepare ripgrep; read-only commands do not download tools.");
 }
@@ -3094,7 +3094,7 @@ async function extractRg(archive, asset) {
       binary = Buffer.from(entries[expected]);
   } else {
     const tar = $extract();
-    await new Promise((resolve2, reject) => {
+    await new Promise((resolve, reject) => {
       tar.on("entry", (header, stream, next) => {
         try {
           if (header.type !== "file" && header.type !== "directory")
@@ -3117,7 +3117,7 @@ async function extractRg(archive, asset) {
         }
       });
       tar.on("error", reject);
-      tar.on("finish", resolve2);
+      tar.on("finish", resolve);
       try {
         tar.end(gunzipSync(archive, { maxOutputLength: MAX_EXTRACTED }));
       } catch (error) {

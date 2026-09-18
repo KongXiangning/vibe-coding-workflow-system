@@ -127,3 +127,11 @@ signature or provider. Check P-12 owner/source, stable claim binding, necessity,
 existing-evidence insufficiency, oracle independence, weak assertions, and whether
 mock/fixture substitution contradicts the claimed boundary. No same-file AST
 or per-test semantic enforcement is implied.
+
+## Explicit user evidence and risk
+
+Separate verified/manual observations from obligations discharged by explicit
+user waiver. Keep missing/failed test facts and name accepted risks in the delivery
+summary; do not describe waived checks as all-green. Runtime rechecks the exact
+source and subjects and retains the decision in the archive. Existing required
+review, findings, prerequisites and release/rollback gates remain authoritative.

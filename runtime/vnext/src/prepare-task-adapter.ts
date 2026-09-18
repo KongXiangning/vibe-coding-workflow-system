@@ -33,6 +33,8 @@ import {
   prepareScopeAmendment,
   discardScopeAmendment,
   initializeTaskPreservation,
+  recordUserEvidenceDecision,
+  validateSuccessorDecision,
   readCanonicalCurrentTask,
   readCanonicalTaskBasis,
   readDraftDefinitionFromBody,
@@ -66,6 +68,9 @@ import { extractTaskIdentityFromCurrentTask } from './task-identity';
 
 export const PREPARE_TASK_ADAPTER_COMMANDS = [
   'prepare-draft',
+  'prepare-successor',
+  'record-human-acceptance',
+  'record-evidence-waiver',
   'confirm-draft',
   'clear-resume-review',
   'replan',
@@ -915,6 +920,32 @@ export function prepareDraft(root: string, input: unknown, options: RuntimeApply
   return withConfirmationReceipt(root, result, options);
 }
 
+/** Explicit non-completion replacement. Never called automatically by supersede. */
+export function prepareSuccessor(root: string, input: unknown, options: RuntimeApplyOptions = {}): PrepareDraftResult {
+  const request = record(input, 'prepare-successor');
+  exactKeys(request, ['predecessor', 'draft'], 'prepare-successor');
+  const predecessor = validateSuccessorDecision(request.predecessor);
+  const semantic = normalizeSemanticDraft(root, request.draft);
+  const current = readCanonicalCurrentTask(root);
+  const prior = current.runtimeState.execution_log.find(event => 'action' in event && event.action === 'create-draft' && event.predecessor);
+  if (prior && 'predecessor' in prior && sameValue(prior.predecessor, predecessor) && currentMatchesSemanticDraft(root, current, semantic)
+    && current.runtimeState.workflow_status === 'draft') {
+    return withConfirmationReceipt(root, semanticNoOp(current, prior.idempotency_key, 'This exact successor draft is already prepared; the predecessor remains unfinished.', options), options);
+  }
+  if (current.runtimeState.workflow_status !== 'superseded') fail('SUCCESSOR_STATE_INVALID', 'Prepare a successor only after an explicit, retained supersede. Do not invalidate an active task for a local correction.');
+  assertSemanticAuthority(root, semantic);
+  const taskId = allocateNextTaskId(root, current.runtimeState.task_id);
+  const proposal = createPrepareTaskDraftProposal(current, {
+    action: 'create-draft', predecessor, task_id: taskId, task_slug: taskSlug(semantic.goal), task_title: semantic.goal,
+    task_basis: semantic.task_basis, draft_definition: semanticDraftDefinition(semantic),
+    active_step_id: semantic.implementation_steps[0]!.id, claim_evidence: claimEvidence(semantic),
+    evidence_refs: [predecessor.decision_source],
+    idempotency_key: adapterIdempotencyKey('prepare-successor', { predecessor, semantic }),
+    authority_evidence: authority(current, taskId, ['user-confirmation', 'scope-admission', 'evidence-admission']),
+  });
+  return withConfirmationReceipt(root, verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options), options);
+}
+
 export function confirmDraft(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input, 'confirm-draft input');
   exactKeys(source, ['confirmation_receipt'], 'confirm-draft input');
@@ -1102,6 +1133,15 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
     const options = { dryRun: args.dryRun };
     let result: RuntimeResult;
     switch (args.command) {
+      case 'record-human-acceptance':
+        result = recordUserEvidenceDecision(args.root, 'human-acceptance', input, options);
+        break;
+      case 'record-evidence-waiver':
+        result = recordUserEvidenceDecision(args.root, 'waiver', input, options);
+        break;
+      case 'prepare-successor':
+        result = prepareSuccessor(args.root, input, options);
+        break;
       case 'prepare-draft':
         result = prepareDraft(args.root, input, options);
         break;

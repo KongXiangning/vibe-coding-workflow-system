@@ -504,7 +504,7 @@ function slotDefinitionV2(slot: Record<string, unknown>): Record<string, unknown
   // disposition/evidence_refs are execution state.  Including either in the
   // definition digest made a normal result write look like a replan and
   // caused context reuse to miss the intended definition version.
-  return copyWithout(slot, ['disposition', 'evidence_refs', 'report', 'prerequisite_receipt']);
+  return copyWithout(slot, ['disposition', 'evidence_refs', 'report', 'prerequisite_receipt', 'user_decision']);
 }
 
 function definitionSections(current: TaskStoreCurrent, includeDynamicSections: boolean): Array<{ title: string; text: string }> {

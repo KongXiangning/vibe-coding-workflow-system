@@ -410,3 +410,19 @@ validate --deep is the explicit full-history diagnostic. Storage migration is
 a separate preview -> exact source_revision confirmation -> commit action. It
 preserves exact legacy bytes, known history, and old locator aliases; a missing
 preimage remains explicitly missing.
+
+### Task-level user decisions and engineering adjustments
+
+Explicit human observations and risk waivers use the source-bound internal
+prepare-task commands defined in FILE_SCHEMAS.md. They are caller-reported:
+manual acceptance is not automated PASS, and waiver is not evidence. Critical
+invariants, prerequisites, policy, required review and findings are not bypassed.
+Local equivalent read-only validation adjustments use execute-step's internal
+replace-validation, preserving the task and its obligations. Low-risk private
+same-domain discoveries do not add a review beyond the confirmed checkpoint;
+elevated expansions retain cumulative review.
+
+Only a genuine task invalidation permits supersede. A later explicit replacement
+request may prepare a fresh successor with complete old-obligation disposition;
+it cannot erase unfinished facts or execute before ordinary draft confirmation.
+Supersede never automatically creates or approves a replacement.

@@ -22,6 +22,8 @@ import {
   assertOrdinaryPreflight,
   assertExecutionTargetAdmissions,
   assertBusinessEvidenceVersion,
+  assertExecutionResultWaivers,
+  replaceValidation,
   createStepPreflightProposal,
   createStepExtendPreflightProposal,
   createStepRetryProposal,
@@ -90,6 +92,7 @@ export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'artifact-checkpoints',
   'evidence-context',
   'retry-step',
+  'replace-validation',
   'begin-repair',
   'record-step-result',
   'complete-reviewed-step',
@@ -196,6 +199,7 @@ export type ExecuteStepEvidenceContext = {
     slot_id: string;
     check_id: string;
     boundary: string | null;
+    user_decision: import('./kernel').UserEvidenceDecision | null;
     frozen_invocation: string;
     subject_revision: string;
     execution_selection: EvidenceExecutionSelection | null;
@@ -918,6 +922,7 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
       boundary: slot.check.boundary ?? null,
+      user_decision: slot.user_decision ? { ...slot.user_decision } : null,
       frozen_invocation: slot.check.entry,
       minimum_type: slot.minimum_type,
       execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
@@ -1197,12 +1202,14 @@ type CommandResult = {
   observed_repo_writes: string[];
   evidence_refs: string[];
   expected_failure?: StepExpectedFailureEvidence;
+  waiver_decision_id?: string;
 };
 type ValidationResult = {
   validation: string;
   status: StepExecutionResultStatus;
   evidence_refs: string[];
   expected_failure?: StepExpectedFailureEvidence;
+  waiver_decision_id?: string;
 };
 type AcceptanceEvidence = StepAcceptanceEvidence;
 
@@ -1238,7 +1245,7 @@ function normalizeCommandResults(value: unknown): CommandResult[] {
       source,
       status === 'expected-failure'
         ? ['command', 'status', 'observed_repo_writes', 'evidence_refs', 'expected_failure']
-        : ['command', 'status', 'observed_repo_writes', 'evidence_refs'],
+        : ['command', 'status', 'observed_repo_writes', 'evidence_refs', ...(source.waiver_decision_id === undefined ? [] : ['waiver_decision_id'])],
       location,
     );
     const observedRepoWrites = pathList(source.observed_repo_writes, `${location}.observed_repo_writes`, true);
@@ -1247,6 +1254,7 @@ function normalizeCommandResults(value: unknown): CommandResult[] {
     }
     return {
       command: text(source.command, `${location}.command`),
+      ...(source.waiver_decision_id === undefined ? {} : { waiver_decision_id: text(source.waiver_decision_id, 'waiver_decision_id') }),
       status,
       observed_repo_writes: observedRepoWrites,
       evidence_refs: textList(source.evidence_refs, `${location}.evidence_refs`, status === 'not-run'),
@@ -1273,11 +1281,12 @@ function normalizeValidationResults(value: unknown): ValidationResult[] {
       source,
       status === 'expected-failure'
         ? ['validation', 'status', 'evidence_refs', 'expected_failure']
-        : ['validation', 'status', 'evidence_refs'],
+        : ['validation', 'status', 'evidence_refs', ...(source.waiver_decision_id === undefined ? [] : ['waiver_decision_id'])],
       location,
     );
     return {
       validation: text(source.validation, `${location}.validation`),
+      ...(source.waiver_decision_id === undefined ? {} : { waiver_decision_id: text(source.waiver_decision_id, 'waiver_decision_id') }),
       status,
       evidence_refs: textList(source.evidence_refs, `${location}.evidence_refs`, status === 'not-run'),
       ...(status === 'expected-failure'
@@ -1543,11 +1552,12 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   assertPathsAdmitted(current, stepPlan, actualChangedPaths, 'actual_changed_paths', root, [], receipt.mode, receipt.execution_phase);
   assertCommandResults(root, current, stepPlan, commandResults, receipt.execution_phase, receipt.mode);
   assertValidationResults(stepPlan, validationResults);
-  if (outcome === 'implemented' && commandResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure')) {
-    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned command to pass.');
+  assertExecutionResultWaivers(root, current, stepPlan.step.id, { command_results: commandResults, validation_results: validationResults });
+  if (outcome === 'implemented' && commandResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure' && !item.waiver_decision_id)) {
+    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires passing commands or exact user-waived validation commands.');
   }
-  if (outcome === 'implemented' && validationResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure')) {
-    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned validation to pass.');
+  if (outcome === 'implemented' && validationResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure' && !item.waiver_decision_id)) {
+    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires passing validation or exact user-waived validation; never report a waiver as PASS.');
   }
   if (outcome === 'test-red') {
     const resultStatuses = [...commandResults, ...validationResults].map(item => item.status);
@@ -1920,6 +1930,9 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
       }
       case 'evidence-context':
         result = evidenceContext(args.root, input);
+        break;
+      case 'replace-validation':
+        result = replaceValidation(args.root, input, { dryRun: args.dryRun });
         break;
       case 'retry-step':
         result = retryStep(args.root,input,{dryRun:args.dryRun});

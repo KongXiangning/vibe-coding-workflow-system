@@ -138,6 +138,11 @@ proposal:
     required:
       - review_cycle_id
       - repair_wave_id
+  process_control:
+    user_evidence: exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated
+    waiver: user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; no-review-or-policy-bypass
+    successor: explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; ordinary-confirmation-required
+    validation_adjustment: replace-validation; one-read-only-check; preserve-observation-boundary-subjects-selector-authority-and-budgets; no-task-redefinition
   task_state:
     actions:
       - retry-step
@@ -145,6 +150,7 @@ proposal:
       - extend-preflight
       - step-progress
       - consume-retained-review
+      - record-user-evidence
       - clear-resume-review-gate
       - create-draft
       - update-draft
@@ -235,7 +241,7 @@ proposal:
         retry_budget_change: forbidden
         continuation: forbidden
         replacement_receipt: required
-        review: cumulative-review-required-for-self-admitted-expansion
+        review: risk-selected-cumulative-review-for-self-admitted-expansion
         repair: same-evaluator-same-wave-no-retry-consumption
         first_touch: append-only-for-new-targets
     claim_evidence:
@@ -258,6 +264,7 @@ proposal:
         - check
         - report
         - prerequisite_receipt
+        - user_decision
       complete_dispositions:
         - existing
         - reused
@@ -299,7 +306,7 @@ proposal:
         authority_binding: explicit-user-exact-task-basis; policy-and-release-canonical-repository-source; claim-bases-exact-current-claim-and-its-existing-task-basis-or-repository-source
         e2e_admission: acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user
         broad_admission: claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user
-      completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites
+      completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports or exact applicable user waivers; waivers never imply PASS; close checks all slots and consumed prerequisites
     claim_evidence_migration:
       mode: default
       action: migrate-claim-evidence
@@ -440,6 +447,7 @@ proposal:
         - extend-preflight
         - evidence-context
         - retry-step
+        - replace-validation
         - begin-repair
         - record-step-result
         - complete-reviewed-step
@@ -508,6 +516,9 @@ proposal:
       input: stdin-json
       commands:
         - prepare-draft
+        - prepare-successor
+        - record-human-acceptance
+        - record-evidence-waiver
         - confirm-draft
         - clear-resume-review
         - replan
@@ -603,6 +614,7 @@ proposal:
         mark-replan-blocked: runtime-convergence
         clear-replan-block: runtime-convergence
     bound_actions:
+      - record-user-evidence
       - clear-resume-review-gate
       - create-draft
       - update-draft
@@ -909,7 +921,7 @@ mutation_authority:
     - blast_radius
     - evidence_refs
     - disposition
-  dynamic_review: mandatory-cumulative-review-for-self-admitted-expansion
+  dynamic_review: risk-selected-cumulative-review-for-self-admitted-expansion
   cross_envelope_error: MUTATION_AUTHORITY_EXPANSION_REQUIRED
   extension_action: execute-step:extend-preflight
   extension_identity: stable-execution-id-with-current-receipt-token

@@ -393,6 +393,8 @@ function claimEvidenceSummary(value: ClaimEvidenceRecord): Record<string, unknow
     slot_id: slot.slot_id,
     minimum_type: slot.minimum_type,
     disposition: slot.disposition,
+    user_decision: slot.user_decision ? { ...slot.user_decision } : null,
+    obligation_resolution: slot.user_decision?.kind === 'waiver' ? 'explicit-risk-decision-not-PASS' : 'evidence-required',
     applicability: slot.applicability ?? null,
     due_step_id: slot.due_step_id ?? null,
     before_step_id: slot.before_step_id ?? null,
@@ -430,6 +432,7 @@ function copyExecutionResult(value: StepExecutionResult | undefined): Record<str
   const commandResults = value.command_results.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({
     command: item.command,
     status: item.status,
+    ...(item.waiver_decision_id ? { waiver_decision_id: item.waiver_decision_id } : {}),
     ...observedWritesSummary(item.observed_repo_writes),
     ...evidenceRefSummary(item.evidence_refs),
     ...(item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }),
@@ -437,6 +440,7 @@ function copyExecutionResult(value: StepExecutionResult | undefined): Record<str
   const validationResults = value.validation_results.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({
     validation: item.validation,
     status: item.status,
+    ...(item.waiver_decision_id ? { waiver_decision_id: item.waiver_decision_id } : {}),
     ...evidenceRefSummary(item.evidence_refs),
     ...(item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }),
   }));

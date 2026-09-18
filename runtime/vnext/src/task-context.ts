@@ -375,6 +375,7 @@ function slotSummary(claim: AnyRecord, slot: AnyRecord): AnyRecord {
     subject_paths: Array.isArray(check?.subject_paths) ? check.subject_paths.filter(item => typeof item === 'string') : [],
     minimum_type: typeof slot.minimum_type === 'string' ? slot.minimum_type : null,
     disposition: typeof slot.disposition === 'string' ? slot.disposition : null,
+    user_decision: record(slot.user_decision) ? { ...slot.user_decision } : null,
     due_step_id: typeof slot.due_step_id === 'string' ? slot.due_step_id : null,
     before_step_id: typeof slot.before_step_id === 'string' ? slot.before_step_id : null,
     applicability: typeof slot.applicability === 'string' ? slot.applicability : null,

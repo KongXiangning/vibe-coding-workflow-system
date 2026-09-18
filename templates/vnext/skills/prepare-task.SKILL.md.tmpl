@@ -350,11 +350,15 @@ attempts, use `suspend-recovery` with source revision, reason and evidence first
 retain attempts and cumulative review baseline, then map unfinished obligations.
 Use `artifact-checkpoints` to select a precise baseline. `artifact-restore` or
 `mixed` candidates bind `restore_plan`; prepare and confirm never restore product
-files. See CONTEXT_API.md for the versioned schema. This Runtime rejects a successor draft
-from `superseded` with `REPLACEMENT_OUTCOME_UNSUPPORTED`; it has no non-completion
-replacement transition. Supersede alone never approves a new plan or completes
-the old task. Do not edit the
-canonical task, Task Basis or candidate to bypass confirmation.
+files. See CONTEXT_API.md for the versioned schema. Ordinary `prepare-draft` from
+`superseded` remains closed. Only an explicit user request to replace that task
+may use `prepare-successor`: bind the exact predecessor source and Task Basis,
+retain the verbatim decision, and account for every old slot/open finding as
+carried to a new claim or explicitly retired. Runtime keeps the predecessor
+superseded with its exact unfinished history; it creates a fresh unexecuted draft,
+not a completed old task. Use the normal draft confirmation once for that exact
+new plan. Never infer a replacement request from a bug, review finding or
+supersede alone; do not edit canonical task/Basis files to bypass these routes.
 
 When the user has already explicitly authorized a true v2 authority expansion
 for the current task, use the independent `amend-scope` route. It is reserved
@@ -388,6 +392,23 @@ task, expand v1 scope or v2 authority, implement later steps early, or change
 its Persistent Tests or Test Strategy. Same-authority v2 implementation
 discovery is the bounded exception described above and must be assessed and
 reviewed; changing the task authority still requires an explicit amendment.
+
+## Explicit task evidence decisions
+
+When the user states an actual manual observation for a frozen human check, use
+Runtime `record-human-acceptance`. When the user explicitly retires a user-owned
+current evidence obligation and accepts its unverified risk, use
+`record-evidence-waiver`. Bind the exact claim/slot/check, plan and observed subject
+revision from `evidence-context`, and retain the original decision source and
+verbatim text. Include only the exact related planned validation labels the user
+waived in `validation_items`. A generic “continue” is neither observation nor waiver.
+Do not ask for the same decision again or make the user construct a receipt.
+
+Runtime records both as caller-reported, not authenticated. A waiver preserves
+failed/missing reports and does not grant authority over policy, contracts,
+prerequisites, outstanding findings or review gates. Do not turn it into PASS.
+These operations do not redesign Goal, Acceptance, scope or steps and do not
+supersede the task. They do not relax the Trusted Authority Channel for realign.
 
 ## Required result
 

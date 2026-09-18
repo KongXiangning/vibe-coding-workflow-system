@@ -88,14 +88,14 @@ var MAX_SNAPSHOT_BYTES = 8 * MAX_OBJECT_BYTES;
 function hash(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
-function safeRepositoryFile(root, relative2) {
-  if (!relative2 || relative2.includes("\\") || relative2.startsWith("/") || relative2.includes(":") || relative2.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git" || /[. ]$/.test(part))) {
+function safeRepositoryFile(root, relative) {
+  if (!relative || relative.includes("\\") || relative.startsWith("/") || relative.includes(":") || relative.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git" || /[. ]$/.test(part))) {
     throw new Error("EVIDENCE_OBJECT_PATH_INVALID: expected a bounded repository-relative file.");
   }
   let cursor = path.resolve(root);
   if (fs.lstatSync(cursor).isSymbolicLink())
     throw new Error("EVIDENCE_OBJECT_PATH_INVALID: symbolic root.");
-  for (const part of relative2.split("/")) {
+  for (const part of relative.split("/")) {
     cursor = path.join(cursor, part);
     try {
       if (fs.lstatSync(cursor).isSymbolicLink())
@@ -121,12 +121,12 @@ function describeEvidenceObjects(root, paths) {
   if (unique.length > 128)
     throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: too many snapshot files.");
   let total = 0;
-  return unique.map((relative2) => {
-    const bytes = readBounded(safeRepositoryFile(root, relative2));
+  return unique.map((relative) => {
+    const bytes = readBounded(safeRepositoryFile(root, relative));
     total += bytes.length;
     if (total > MAX_SNAPSHOT_BYTES)
       throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: snapshot exceeds 8 MiB.");
-    return { path: relative2, sha256: hash(bytes), size: bytes.length };
+    return { path: relative, sha256: hash(bytes), size: bytes.length };
   });
 }
 function objectFile(root, currentPath, sha) {
@@ -200,16 +200,16 @@ function digest(value) {
     if (Array.isArray(item))
       return item.map(canonical);
     if (item && typeof item === "object")
-      return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, value2]) => [key, canonical(value2)]));
+      return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, value]) => [key, canonical(value)]));
     return item;
   }
   return crypto2.createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
-function assertProductPath(root, currentPath, relative3) {
-  const absolute = safeRepositoryFile(root, relative3);
+function assertProductPath(root, currentPath, relative) {
+  const absolute = safeRepositoryFile(root, relative);
   const home = path2.dirname(currentPath);
   const local = path2.relative(home, absolute).replace(/\\/g, "/");
-  if (relative3.includes("#") || relative3.toLowerCase() === ".gitmodules" || /^(TASKS|\.agents\/skills|\.claude\/skills|\.codex\/skills)(\/|$)/i.test(relative3) || /^\.workflow-system(\/|$)/i.test(relative3) || path2.resolve(home) !== path2.resolve(root) && local !== ".." && !local.startsWith("../") || !local.startsWith("../") && (/^(CURRENT_TASK|TASK_BASIS|STATUS|CONTRACTS|DECISIONS|LESSONS|PROJECT_PROFILE)([._/]|$)/i.test(local) || /^(task-history|task-candidates|evidence-objects|archive|archives|\.vnext)/i.test(local))) {
+  if (relative.includes("#") || relative.toLowerCase() === ".gitmodules" || /^(TASKS|\.agents\/skills|\.claude\/skills|\.codex\/skills)(\/|$)/i.test(relative) || /^\.workflow-system(\/|$)/i.test(relative) || path2.resolve(home) !== path2.resolve(root) && local !== ".." && !local.startsWith("../") || !local.startsWith("../") && (/^(CURRENT_TASK|TASK_BASIS|STATUS|CONTRACTS|DECISIONS|LESSONS|PROJECT_PROFILE)([._/]|$)/i.test(local) || /^(task-history|task-candidates|evidence-objects|archive|archives|\.vnext)/i.test(local))) {
     throw new Error("ARTIFACT_RESTORE_FORBIDDEN: governance and Runtime installation files cannot be restored.");
   }
   let parent = path2.dirname(absolute);
@@ -220,7 +220,7 @@ function assertProductPath(root, currentPath, relative3) {
   }
   for (const registry of ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"]) {
     const file = path2.join(root, registry);
-    if (fs2.existsSync(file) && fs2.readFileSync(file, "utf8").split(/\r?\n/).some((line) => line.includes(relative3) && !/^\s*[-#]*\s*(unfreeze|not frozen)/i.test(line)))
+    if (fs2.existsSync(file) && fs2.readFileSync(file, "utf8").split(/\r?\n/).some((line) => line.includes(relative) && !/^\s*[-#]*\s*(unfreeze|not frozen)/i.test(line)))
       throw new Error("ARTIFACT_FROZEN: path is in the freeze registry.");
   }
   if (fs2.existsSync(absolute)) {
@@ -495,12 +495,12 @@ function lockPathFor(currentPath) {
 }
 function assertSafeHistoryDirectory(currentPath, directory) {
   const workflowDirectory = path4.dirname(currentPath);
-  const relative4 = path4.relative(workflowDirectory, directory);
-  if (!relative4 || relative4.startsWith("..") || path4.isAbsolute(relative4)) {
+  const relative = path4.relative(workflowDirectory, directory);
+  if (!relative || relative.startsWith("..") || path4.isAbsolute(relative)) {
     throw new Error("TASK_HISTORY_PATH_INVALID: history must stay below the canonical workflow directory.");
   }
   let cursor = workflowDirectory;
-  for (const part of relative4.split(path4.sep)) {
+  for (const part of relative.split(path4.sep)) {
     cursor = path4.join(cursor, part);
     if (fs4.existsSync(cursor) && fs4.lstatSync(cursor).isSymbolicLink()) {
       throw new Error("TASK_HISTORY_PATH_INVALID: history path cannot traverse a symbolic link.");
@@ -603,8 +603,8 @@ function parseLock(content, currentPath) {
     if (typeof value.basis_path !== "string" || !value.basis_path || ![value.previous_basis_revision, value.next_basis_revision].every((item) => typeof item === "string" && /^[a-f0-9]{64}$/u.test(item))) {
       throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: evolution lock basis binding is invalid.");
     }
-    const relative4 = path4.relative(path4.dirname(currentPath), value.basis_path);
-    if (!relative4 || relative4.startsWith("..") || path4.isAbsolute(relative4))
+    const relative = path4.relative(path4.dirname(currentPath), value.basis_path);
+    if (!relative || relative.startsWith("..") || path4.isAbsolute(relative))
       throw new Error("TASK_EVOLUTION_RECOVERY_REQUIRED: Task Basis path escapes workflow directory.");
     assertSafeHistoryDirectory(currentPath, path4.dirname(value.basis_path));
   } else if (value.previous_basis_revision !== undefined || value.next_basis_revision !== undefined) {
@@ -763,6 +763,29 @@ function commitTaskEvolutionWithHistory(input, verifyNext, afterBasisPublished) 
 function commitSupersedeWithHistory(input, verifyNext) {
   return commitTaskEvolutionWithHistory({ ...input, operation: "supersede" }, verifyNext);
 }
+function publishPreparedSuccessor(currentPath, previousContent, nextContent, artifacts, prepareAggregate) {
+  if (fs4.readFileSync(currentPath, "utf8") !== previousContent) {
+    throw new Error("SUCCESSOR_SOURCE_STALE: predecessor changed before publication.");
+  }
+  for (const artifact of artifacts) {
+    if (fs4.existsSync(artifact.path)) {
+      if (!fs4.lstatSync(artifact.path).isFile() || fs4.readFileSync(artifact.path, "utf8") !== artifact.content) {
+        throw new Error("SUCCESSOR_HISTORY_CONFLICT: immutable prerequisite has different bytes.");
+      }
+      continue;
+    }
+    fs4.mkdirSync(path4.dirname(artifact.path), { recursive: true });
+    atomicReplace(artifact.path, artifact.content);
+    if (fs4.readFileSync(artifact.path, "utf8") !== artifact.content)
+      throw new Error("SUCCESSOR_READ_BACK_FAILED: prerequisite differs.");
+  }
+  prepareAggregate();
+  if (fs4.readFileSync(currentPath, "utf8") !== previousContent)
+    throw new Error("SUCCESSOR_SOURCE_STALE: predecessor changed while preparing dependencies.");
+  atomicReplace(currentPath, nextContent);
+  if (fs4.readFileSync(currentPath, "utf8") !== nextContent)
+    throw new Error("SUCCESSOR_READ_BACK_FAILED: published draft differs.");
+}
 
 // runtime/vnext/src/task-store.ts
 import * as crypto5 from "node:crypto";
@@ -793,20 +816,20 @@ function assertDigest(value) {
 function relativePath(root, target) {
   const resolvedRoot = path5.resolve(root);
   const resolvedTarget = path5.resolve(target);
-  const relative5 = path5.relative(resolvedRoot, resolvedTarget).replace(/\\/gu, "/");
-  if (!relative5 || relative5 === ".." || relative5.startsWith("../") || path5.isAbsolute(relative5)) {
+  const relative = path5.relative(resolvedRoot, resolvedTarget).replace(/\\/gu, "/");
+  if (!relative || relative === ".." || relative.startsWith("../") || path5.isAbsolute(relative)) {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_PATH_INVALID", "review preimage storage path escapes the project root.");
   }
-  return relative5;
+  return relative;
 }
 function assertNoSymlink(root, target) {
-  const relative5 = relativePath(root, target);
+  const relative = relativePath(root, target);
   let cursor = path5.resolve(root);
-  for (const component of relative5.split("/")) {
+  for (const component of relative.split("/")) {
     cursor = path5.join(cursor, component);
     try {
       if (fs5.lstatSync(cursor).isSymbolicLink()) {
-        throw new ReviewPreimageStoreError("REVIEW_BASELINE_PATH_INVALID", `review preimage storage traverses a symbolic link: ${relative5}`);
+        throw new ReviewPreimageStoreError("REVIEW_BASELINE_PATH_INVALID", `review preimage storage traverses a symbolic link: ${relative}`);
       }
     } catch (error) {
       if (error.code === "ENOENT")
@@ -821,44 +844,44 @@ function reviewPreimageDirectory(root) {
   assertNoSymlink(root, directory);
   return directory;
 }
-function reviewPreimageBlobPath(root, sha2562) {
-  const digest2 = assertDigest(sha2562);
+function reviewPreimageBlobPath(root, sha256) {
+  const digest = assertDigest(sha256);
   const directory = reviewPreimageDirectory(root);
-  const file = path5.join(directory, `${digest2}.blob`);
+  const file = path5.join(directory, `${digest}.blob`);
   assertNoSymlink(root, file);
   return file;
 }
-function verifyContent(digest2, content) {
-  if (sha2562(content) !== digest2) {
-    throw new ReviewPreimageStoreError("REVIEW_BASELINE_HASH_MISMATCH", `review preimage bytes do not match ${digest2}.`);
+function verifyContent(digest, content) {
+  if (sha2562(content) !== digest) {
+    throw new ReviewPreimageStoreError("REVIEW_BASELINE_HASH_MISMATCH", `review preimage bytes do not match ${digest}.`);
   }
 }
 function sha2562(content) {
   return crypto4.createHash("sha256").update(content).digest("hex");
 }
-function verifyExistingBlob(file, digest2, expected) {
+function verifyExistingBlob(file, digest, expected) {
   let stat;
   try {
     stat = fs5.lstatSync(file);
   } catch (error) {
     if (error.code === "ENOENT")
-      throw new ReviewPreimageStoreError("REVIEW_BASELINE_MISSING", `review preimage blob is missing: ${digest2}.blob`);
-    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob cannot be inspected: ${digest2}.blob`);
+      throw new ReviewPreimageStoreError("REVIEW_BASELINE_MISSING", `review preimage blob is missing: ${digest}.blob`);
+    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob cannot be inspected: ${digest}.blob`);
   }
   if (stat.isSymbolicLink() || !stat.isFile())
-    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob is not a regular file: ${digest2}.blob`);
+    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob is not a regular file: ${digest}.blob`);
   let content;
   try {
     content = fs5.readFileSync(file);
   } catch {
-    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob cannot be read: ${digest2}.blob`);
+    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `review preimage blob cannot be read: ${digest}.blob`);
   }
-  verifyContent(digest2, content);
+  verifyContent(digest, content);
   if (!content.equals(expected))
-    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `immutable review preimage blob conflicts with ${digest2}.blob`);
+    throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `immutable review preimage blob conflicts with ${digest}.blob`);
 }
-function persistReviewPreimage(root, digest2, content) {
-  const address = assertDigest(digest2);
+function persistReviewPreimage(root, digest, content) {
+  const address = assertDigest(digest);
   verifyContent(address, content);
   const directory = reviewPreimageDirectory(root);
   fs5.mkdirSync(directory, { recursive: true });
@@ -906,18 +929,18 @@ function persistReviewPreimage(root, digest2, content) {
 function persistReviewPreimageWrites(root, writes) {
   const unique = new Map;
   for (const write of writes) {
-    const digest2 = assertDigest(write.sha256);
-    const prior = unique.get(digest2);
+    const digest = assertDigest(write.sha256);
+    const prior = unique.get(digest);
     if (prior && !prior.equals(write.content)) {
-      throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `one execution produced conflicting bytes for ${digest2}.`);
+      throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `one execution produced conflicting bytes for ${digest}.`);
     }
-    unique.set(digest2, Buffer.from(write.content));
+    unique.set(digest, Buffer.from(write.content));
   }
-  for (const [digest2, content] of unique)
-    persistReviewPreimage(root, digest2, content);
+  for (const [digest, content] of unique)
+    persistReviewPreimage(root, digest, content);
 }
-function readReviewPreimageBlob(root, digest2) {
-  const address = assertDigest(digest2);
+function readReviewPreimageBlob(root, digest) {
+  const address = assertDigest(digest);
   const file = reviewPreimageBlobPath(root, address);
   let stat;
   try {
@@ -1086,19 +1109,19 @@ function taskStorePaths(rootInput, documentId) {
   };
 }
 function relativePath2(root, value) {
-  const relative6 = path6.relative(root, value).replace(/\\/gu, "/");
-  if (!relative6 || relative6.startsWith("../") || path6.isAbsolute(relative6)) {
+  const relative = path6.relative(root, value).replace(/\\/gu, "/");
+  if (!relative || relative.startsWith("../") || path6.isAbsolute(relative)) {
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", `path escapes project root: ${value}`);
   }
-  return relative6;
+  return relative;
 }
-function assertNoSymlink2(root, relative6) {
+function assertNoSymlink2(root, relative) {
   let cursor = path6.resolve(root);
-  for (const part of relative6.split("/").filter(Boolean)) {
+  for (const part of relative.split("/").filter(Boolean)) {
     cursor = path6.join(cursor, part);
     try {
       if (fs6.lstatSync(cursor).isSymbolicLink())
-        throw new TaskStoreError("TASK_STORE_PATH_INVALID", `task store path traverses a symbolic link: ${relative6}`);
+        throw new TaskStoreError("TASK_STORE_PATH_INVALID", `task store path traverses a symbolic link: ${relative}`);
     } catch (error) {
       if (error.code !== "ENOENT")
         throw error;
@@ -1172,7 +1195,7 @@ function slotDefinitionV1(slot) {
   return copyWithout(slot, ["report", "prerequisite_receipt"]);
 }
 function slotDefinitionV2(slot) {
-  return copyWithout(slot, ["disposition", "evidence_refs", "report", "prerequisite_receipt"]);
+  return copyWithout(slot, ["disposition", "evidence_refs", "report", "prerequisite_receipt", "user_decision"]);
 }
 function definitionSections(current, includeDynamicSections) {
   const dynamicTitles = new Set([
@@ -1293,9 +1316,9 @@ function committedObjectCacheKey(paths) {
 }
 function addObjectReferences(hashes, references) {
   for (const reference of references) {
-    const hash2 = refSha(reference);
-    if (hash2)
-      hashes.add(hash2);
+    const hash = refSha(reference);
+    if (hash)
+      hashes.add(hash);
   }
 }
 function loadCommittedObjectCache(paths, manifest) {
@@ -1342,13 +1365,13 @@ function loadIdempotencyEventCache(paths, manifest) {
   for (const event of committedEventFiles(paths, manifest, true)) {
     if (!event.idempotency_key || !event.proposal_digest)
       continue;
-    const relative6 = path6.posix.join(paths.relativeRoot, "events", `${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`);
+    const relative = path6.posix.join(paths.relativeRoot, "events", `${String(event.sequence).padStart(12, "0")}-${event.event_hash}.json`);
     const indexEntry = {
       idempotency_key: event.idempotency_key,
       operation_kind: event.operation_kind,
       proposal_digest: event.proposal_digest,
       source_revision: event.source_revision,
-      event_path: relative6,
+      event_path: relative,
       event_id: event.event_id,
       sequence: event.sequence,
       legacy: event.event_type === "legacy-import"
@@ -1479,14 +1502,14 @@ function readEventFile(paths, name) {
     throw new TaskStoreError("TASK_STORE_EVENT_INVALID", `event filename is invalid: ${name}`);
   const sequence = Number(match[1]);
   const eventHash = match[2];
-  const relative6 = path6.posix.join(paths.relativeRoot, "events", name);
+  const relative = path6.posix.join(paths.relativeRoot, "events", name);
   const file = path6.join(paths.events, name);
-  assertNoSymlink2(paths.root, relative6);
+  assertNoSymlink2(paths.root, relative);
   if (!fs6.existsSync(file))
-    throw new TaskStoreError("TASK_STORE_EVENT_MISSING", `event is missing: ${relative6}`);
-  const event = validateEvent(readJson(file), paths, relative6);
+    throw new TaskStoreError("TASK_STORE_EVENT_MISSING", `event is missing: ${relative}`);
+  const event = validateEvent(readJson(file), paths, relative);
   if (event.sequence !== sequence || event.event_hash !== eventHash) {
-    throw new TaskStoreError("TASK_STORE_EVENT_INVALID", `${relative6} filename does not match the event identity.`);
+    throw new TaskStoreError("TASK_STORE_EVENT_INVALID", `${relative} filename does not match the event identity.`);
   }
   return event;
 }
@@ -1542,7 +1565,7 @@ function committedEventFiles(paths, manifest, useCache = false) {
         firstError ??= error;
       }
     }
-    const matching = candidates.filter((event2) => event2.previous_event_hash === previous);
+    const matching = candidates.filter((event) => event.previous_event_hash === previous);
     if (matching.length > 1)
       throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", `committed event sequence ${sequence} has multiple valid successors.`);
     if (matching.length === 0) {
@@ -1672,8 +1695,8 @@ function taskBasisPayload(root, current) {
   if (!reference)
     return null;
   const file = path6.resolve(root, ...reference.path.split("/"));
-  const relative6 = relativePath2(path6.resolve(root), file);
-  assertNoSymlink2(path6.resolve(root), relative6);
+  const relative = relativePath2(path6.resolve(root), file);
+  assertNoSymlink2(path6.resolve(root), relative);
   if (!fs6.existsSync(file) || !fs6.statSync(file).isFile()) {
     return {
       schema_version: 1,
@@ -1717,14 +1740,14 @@ function historyMaterialPayloads(root, current) {
     if (!match)
       continue;
     const file = path6.join(directory, entry.name);
-    const relative6 = relativePath2(resolvedRoot, file);
-    assertNoSymlink2(resolvedRoot, relative6);
+    const relative = relativePath2(resolvedRoot, file);
+    assertNoSymlink2(resolvedRoot, relative);
     const bytes = fs6.readFileSync(file);
     payloads.push({
       schema_version: 1,
       kind: "task-history-material/v1",
       source_revision: match[1],
-      package_path: relative6,
+      package_path: relative,
       package_sha256: sha2563(bytes),
       package_bytes: bytes.length,
       package_base64: bytes.toString("base64")
@@ -1949,42 +1972,42 @@ class TaskStore {
       document_id: documentId,
       payload
     };
-    const hash2 = digest2(object);
-    const file = objectFile2(this.paths, hash2);
+    const hash = digest2(object);
+    const file = objectFile2(this.paths, hash);
     assertNoSymlink2(this.paths.root, relativePath2(this.paths.root, file));
     const content = `${stableJson(object)}
 `;
     const fileExists = fs6.existsSync(file);
-    const committedBefore = fileExists ? this.objectIsCommitted(hash2) : false;
+    const committedBefore = fileExists ? this.objectIsCommitted(hash) : false;
     if (fileExists) {
       if (fs6.readFileSync(file, "utf8") !== content) {
-        if (this.objectIsCommitted(hash2))
-          throw new TaskStoreError("TASK_STORE_OBJECT_CONFLICT", `existing object ${hash2} has different bytes.`);
+        if (this.objectIsCommitted(hash))
+          throw new TaskStoreError("TASK_STORE_OBJECT_CONFLICT", `existing object ${hash} has different bytes.`);
         fs6.rmSync(file, { force: true });
-        writePrecommitFile(file, content, () => this.objectIsCommitted(hash2), "TASK_STORE_OBJECT_CONFLICT", `object ${hash2}`);
+        writePrecommitFile(file, content, () => this.objectIsCommitted(hash), "TASK_STORE_OBJECT_CONFLICT", `object ${hash}`);
       }
     } else {
-      writePrecommitFile(file, content, () => this.objectIsCommitted(hash2), "TASK_STORE_OBJECT_CONFLICT", `object ${hash2}`);
+      writePrecommitFile(file, content, () => this.objectIsCommitted(hash), "TASK_STORE_OBJECT_CONFLICT", `object ${hash}`);
     }
     if (!committedBefore)
-      this.newlyReferencedObjects.add(hash2);
-    return objectRef(objectType, hash2);
+      this.newlyReferencedObjects.add(hash);
+    return objectRef(objectType, hash);
   }
   readObject(reference, expectedObjectType) {
-    const hash2 = refSha(reference);
-    if (!hash2)
+    const hash = refSha(reference);
+    if (!hash)
       throw new TaskStoreError("TASK_STORE_PATH_INVALID", "object reference is invalid.");
     const manifest = this.manifest;
-    if (!manifest || !loadCommittedObjectCache(this.paths, manifest).hashes.has(hash2)) {
-      throw new TaskStoreError("TASK_STORE_OBJECT_NOT_COMMITTED", `object ${hash2} is not acknowledged by the aggregate head.`);
+    if (!manifest || !loadCommittedObjectCache(this.paths, manifest).hashes.has(hash)) {
+      throw new TaskStoreError("TASK_STORE_OBJECT_NOT_COMMITTED", `object ${hash} is not acknowledged by the aggregate head.`);
     }
-    const file = objectFile2(this.paths, hash2);
+    const file = objectFile2(this.paths, hash);
     assertNoSymlink2(this.paths.root, relativePath2(this.paths.root, file));
     if (!fs6.existsSync(file))
-      throw new TaskStoreError("TASK_STORE_OBJECT_MISSING", `object ${hash2} is missing.`);
-    const object = validateObject(readJson(file), this.paths, hash2);
+      throw new TaskStoreError("TASK_STORE_OBJECT_MISSING", `object ${hash} is missing.`);
+    const object = validateObject(readJson(file), this.paths, hash);
     if (expectedObjectType !== undefined && object.object_type !== expectedObjectType) {
-      throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `object ${hash2} has type ${object.object_type}; expected ${expectedObjectType}.`);
+      throw new TaskStoreError("TASK_STORE_OBJECT_INVALID", `object ${hash} has type ${object.object_type}; expected ${expectedObjectType}.`);
     }
     return object;
   }
@@ -2092,7 +2115,7 @@ class TaskStore {
     for (let index = firstSequence;index < events.length; index += 1) {
       const event = events[index];
       if (event.event_type === "legacy-import") {
-        const legacyReference = Object.values(event.object_refs).find((reference2) => record2(reference2) && reference2.object_type === "legacy-current-task");
+        const legacyReference = Object.values(event.object_refs).find((reference) => record2(reference) && reference.object_type === "legacy-current-task");
         const reference = legacyReference ?? this.manifest?.object_refs.legacy_source;
         if (reference)
           history.push(...legacyExecutionLog(this.readObject(reference)));
@@ -2133,7 +2156,7 @@ class TaskStore {
       if (event.event_type === "storage-migration")
         continue;
       if (event.event_type === "legacy-import") {
-        const legacyReference = Object.values(event.object_refs).find((reference2) => record2(reference2) && reference2.object_type === "legacy-current-task");
+        const legacyReference = Object.values(event.object_refs).find((reference) => record2(reference) && reference.object_type === "legacy-current-task");
         const reference = legacyReference ?? this.manifest?.object_refs.legacy_source;
         if (reference)
           ledger.push(...legacyAppliedProposals(this.readObject(reference)));
@@ -2189,9 +2212,9 @@ class TaskStore {
         }
         return value;
       });
-      const entries2 = [...cached.entries, ...this.validateIndexEntries(additions, file, cached.entries.length)];
-      indexFileCaches.set(file, { fileSize: stat.size, modifiedAt: stat.mtimeMs, changedAt: stat.ctimeMs, format: "jsonl", entries: entries2 });
-      return entries2;
+      const entries = [...cached.entries, ...this.validateIndexEntries(additions, file, cached.entries.length)];
+      indexFileCaches.set(file, { fileSize: stat.size, modifiedAt: stat.mtimeMs, changedAt: stat.ctimeMs, format: "jsonl", entries });
+      return entries;
     }
     const raw = fs6.readFileSync(file, "utf8").trim();
     if (!raw)
@@ -2242,30 +2265,30 @@ class TaskStore {
     }
     return [...unique.values()];
   }
-  readEventPath(relative6) {
-    const normalized = normalizeRelative(relative6, "event reference");
+  readEventPath(relative) {
+    const normalized = normalizeRelative(relative, "event reference");
     if (!normalized.startsWith(`${this.paths.relativeRoot}/events/`))
       throw new TaskStoreError("TASK_STORE_PATH_INVALID", "event reference is outside this task store.");
-    const basename3 = path6.posix.basename(normalized);
-    const match = EVENT_FILE.exec(basename3);
+    const basename = path6.posix.basename(normalized);
+    const match = EVENT_FILE.exec(basename);
     if (!match)
-      throw new TaskStoreError("TASK_STORE_PATH_INVALID", `event filename is invalid: ${relative6}`);
+      throw new TaskStoreError("TASK_STORE_PATH_INVALID", `event filename is invalid: ${relative}`);
     const sequence = Number(match[1]);
     const eventHash = match[2];
     const manifest = this.manifest;
     if (!manifest)
-      throw new TaskStoreError("TASK_STORE_EVENT_NOT_COMMITTED", `event is not acknowledged by an aggregate head: ${relative6}`);
+      throw new TaskStoreError("TASK_STORE_EVENT_NOT_COMMITTED", `event is not acknowledged by an aggregate head: ${relative}`);
     if (sequence > manifest.head.event_sequence)
-      throw new TaskStoreError("TASK_STORE_EVENT_NOT_COMMITTED", `event is not acknowledged by the aggregate head: ${relative6}`);
-    const event = readEventFile(this.paths, basename3);
+      throw new TaskStoreError("TASK_STORE_EVENT_NOT_COMMITTED", `event is not acknowledged by the aggregate head: ${relative}`);
+    const event = readEventFile(this.paths, basename);
     const committed = committedEventFiles(this.paths, manifest, true).find((item) => item.sequence === sequence);
     if (!committed || committed.event_hash !== eventHash)
-      throw new TaskStoreError("TASK_STORE_EVENT_NOT_COMMITTED", `event is not part of the committed aggregate chain: ${relative6}`);
+      throw new TaskStoreError("TASK_STORE_EVENT_NOT_COMMITTED", `event is not part of the committed aggregate chain: ${relative}`);
     return event;
   }
   readEvent(reference) {
-    const relative6 = typeof reference === "string" ? reference : path6.posix.join(this.paths.relativeRoot, "events", `${String(reference.sequence).padStart(12, "0")}-${reference.event_hash}.json`);
-    return this.readEventPath(relative6);
+    const relative = typeof reference === "string" ? reference : path6.posix.join(this.paths.relativeRoot, "events", `${String(reference.sequence).padStart(12, "0")}-${reference.event_hash}.json`);
+    return this.readEventPath(relative);
   }
   listEvents() {
     const manifest = this.manifest;
@@ -2339,11 +2362,11 @@ class TaskStore {
     writePrecommitFile(file, content, () => this.eventIsCommitted(event.sequence), "TASK_STORE_EVENT_CONFLICT", `event ${event.event_id}`);
     return relativePath2(this.paths.root, file);
   }
-  objectIsCommitted(hash2) {
+  objectIsCommitted(hash) {
     const manifest = this.manifest;
     if (!manifest)
       return false;
-    return loadCommittedObjectCache(this.paths, manifest).hashes.has(hash2);
+    return loadCommittedObjectCache(this.paths, manifest).hashes.has(hash);
   }
   eventIsCommitted(sequence) {
     const manifest = this.manifest;
@@ -2775,7 +2798,7 @@ class TaskStore {
     }
     refs.current_snapshot = state;
     const executionEntries = newlyAppendedExecutionEntries(input.before, input.after);
-    executionEntries.forEach((entry, index2) => {
+    executionEntries.forEach((entry, index) => {
       const entryRecord = record2(entry) ? entry : null;
       const claimEvidenceReference = entryRecord && entryRecord.claim_evidence !== undefined ? this.storeObject(input.after.sourceTuple.document_id, "other", {
         schema_version: 1,
@@ -2784,11 +2807,11 @@ class TaskStore {
       }, input.after.sourceTuple.revision, input.recorded_at) : undefined;
       const executionResultReference = entryRecord && entryRecord.execution_result !== undefined ? this.storeObject(input.after.sourceTuple.document_id, "result", entryRecord.execution_result, input.after.sourceTuple.revision, input.recorded_at) : undefined;
       const executionEntryReference = this.storeObject(input.after.sourceTuple.document_id, "execution-log-entry", storedExecutionEntryPayload(entry, claimEvidenceReference, executionResultReference), input.after.sourceTuple.revision, input.recorded_at);
-      refs[`execution-log-entry:${String(index2).padStart(6, "0")}:${executionEntryReference.sha256}`] = executionEntryReference;
+      refs[`execution-log-entry:${String(index).padStart(6, "0")}:${executionEntryReference.sha256}`] = executionEntryReference;
       if (claimEvidenceReference)
-        refs[`execution-claim-evidence:${String(index2).padStart(6, "0")}:${claimEvidenceReference.sha256}`] = claimEvidenceReference;
+        refs[`execution-claim-evidence:${String(index).padStart(6, "0")}:${claimEvidenceReference.sha256}`] = claimEvidenceReference;
       if (executionResultReference)
-        refs[`execution-result:${String(index2).padStart(6, "0")}:${executionResultReference.sha256}`] = executionResultReference;
+        refs[`execution-result:${String(index).padStart(6, "0")}:${executionResultReference.sha256}`] = executionResultReference;
     });
     const stagedManifest = {
       ...previous,
@@ -3113,8 +3136,8 @@ function compactHistoryBody(body, executionLog) {
   const index = headings.findIndex((match) => ["执行记录", "Execution Log"].includes(match[1].trim()));
   if (index < 0)
     throw new TaskStoreError("TASK_STORE_MANIFEST_INVALID", "CURRENT_TASK is missing ## 执行记录 for compact migration.");
-  const heading2 = headings[index];
-  const contentStart = (heading2.index ?? 0) + heading2[0].length;
+  const heading = headings[index];
+  const contentStart = (heading.index ?? 0) + heading[0].length;
   const nextHeading = headings.slice(index + 1).find((match) => (match[0].match(/^#/u)?.[0].length ?? 2) <= 2);
   const contentEnd = nextHeading?.index ?? normalized.length;
   const previews = executionLog.filter(record2).slice(-8).map((item) => {
@@ -3499,14 +3522,14 @@ function scanMarkdownSections(body) {
       end: start + match[0].length
     });
   }
-  return headings.map((heading2, index) => {
+  return headings.map((heading, index) => {
     const contentStart = body.startsWith(`\r
-`, heading2.end) ? heading2.end + 2 : getLineContentStart(body, heading2.end);
-    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading2.level);
+`, heading.end) ? heading.end + 2 : getLineContentStart(body, heading.end);
+    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading.level);
     return {
-      title: heading2.title,
-      level: heading2.level,
-      heading_start: heading2.start,
+      title: heading.title,
+      level: heading.level,
+      heading_start: heading.start,
       content_start: contentStart,
       content_end: next?.start ?? body.length
     };
@@ -3658,7 +3681,7 @@ function parseScopeBucket(body, section, bucket) {
   return entries;
 }
 function parsePersistentTests(body, sections) {
-  const matches = sections.filter((section2) => PERSISTENT_TEST_HEADINGS.has(normalizeHeading(section2.title)));
+  const matches = sections.filter((section) => PERSISTENT_TEST_HEADINGS.has(normalizeHeading(section.title)));
   if (matches.length > 1)
     failInvalid("CURRENT_TASK contains duplicate Persistent Tests sections.");
   const section = matches[0];
@@ -3685,10 +3708,10 @@ function parsePersistentTests(body, sections) {
     }
     if (sawMarker)
       failInvalid("Persistent Tests mixes an empty marker with path declarations.");
-    const path8 = normalizeScopePattern(extractDeclarationPath(declaration).pattern, "Persistent Tests declaration");
-    if (path8.includes("*"))
-      failInvalid(`Persistent Tests declaration ${path8} must be an exact path.`);
-    entries.push(path8);
+    const path = normalizeScopePattern(extractDeclarationPath(declaration).pattern, "Persistent Tests declaration");
+    if (path.includes("*"))
+      failInvalid(`Persistent Tests declaration ${path} must be an exact path.`);
+    entries.push(path);
   }
   if (bulletCount === 0)
     failInvalid("Persistent Tests must explicitly list exact paths or declare none.");
@@ -3797,15 +3820,15 @@ function validateConditionalAuthorizations(value) {
       blockers.push(`conditional_authorizations[${index}] must be a mapping.`);
       continue;
     }
-    const record3 = raw;
-    const keys = Object.keys(record3).sort();
+    const record = raw;
+    const keys = Object.keys(record).sort();
     if (keys.join("|") !== ["authority", "evidence_refs", "pattern"].join("|")) {
       blockers.push(`conditional_authorizations[${index}] must contain exactly pattern, evidence_refs, and authority.`);
       continue;
     }
     let pattern;
     try {
-      pattern = normalizeScopePattern(String(record3.pattern ?? ""), `conditional_authorizations[${index}].pattern`);
+      pattern = normalizeScopePattern(String(record.pattern ?? ""), `conditional_authorizations[${index}].pattern`);
     } catch (error) {
       blockers.push(error instanceof Error ? error.message : String(error));
       continue;
@@ -3814,12 +3837,12 @@ function validateConditionalAuthorizations(value) {
       blockers.push(`conditional_authorizations[${index}].pattern must narrow to an exact target.`);
       continue;
     }
-    const evidenceRefs = record3.evidence_refs;
+    const evidenceRefs = record.evidence_refs;
     if (!Array.isArray(evidenceRefs) || evidenceRefs.length === 0 || evidenceRefs.some((item) => typeof item !== "string" || item.trim().length === 0)) {
       blockers.push(`conditional_authorizations[${index}].evidence_refs must be a non-empty list of references.`);
       continue;
     }
-    const authority = record3.authority;
+    const authority = record.authority;
     if (typeof authority !== "string" || authority.trim().length === 0) {
       blockers.push(`conditional_authorizations[${index}].authority must be non-empty.`);
       continue;
@@ -3833,15 +3856,15 @@ function validateConditionalAuthorizations(value) {
   return { authorizations, blockers };
 }
 function blockedResult(scope, inputPaths, transformationKind, blockers) {
-  const normalizedPaths = inputPaths.filter((path8) => typeof path8 === "string").map((path8) => path8.trim()).filter(Boolean);
+  const normalizedPaths = inputPaths.filter((path) => typeof path === "string").map((path) => path.trim()).filter(Boolean);
   return {
     status: "blocked",
     source_revision: scope.source_revision,
     transformation_kind: transformationKind,
     scope: scopeSummary(scope),
     changed_paths: normalizedPaths,
-    decisions: normalizedPaths.map((path8) => ({
-      path: path8,
+    decisions: normalizedPaths.map((path) => ({
+      path,
       classification: "invalid",
       mutation_admitted: false,
       matched_scope: [],
@@ -4143,7 +4166,7 @@ function auditCommandMutation(scope, input) {
   const expected = evaluateCommandWriteFootprint(scope, input);
   const observedWritePaths = Array.isArray(input?.observed_write_paths) ? input.observed_write_paths : [];
   const cleanupPerformed = input?.cleanup?.performed === true;
-  const cleanupPaths = Array.isArray(input?.cleanup?.paths) ? input.cleanup.paths.filter((path8) => typeof path8 === "string").map((path8) => path8.trim()).filter(Boolean) : [];
+  const cleanupPaths = Array.isArray(input?.cleanup?.paths) ? input.cleanup.paths.filter((path) => typeof path === "string").map((path) => path.trim()).filter(Boolean) : [];
   const auditedWritePaths = [...new Set([...observedWritePaths, ...cleanupPaths])];
   const cleanupBlockers = input?.cleanup !== undefined && typeof input.cleanup.performed !== "boolean" ? ["cleanup.performed must be a boolean when cleanup audit metadata is supplied."] : [];
   if (expected.status === "blocked") {
@@ -4253,15 +4276,15 @@ function stepSectionLines(body) {
 `).split(`
 `);
   const start = lines.findIndex((line) => {
-    const heading2 = headingInfo(line);
-    return heading2?.level === 2 && HEADING_ALIASES.has(heading2.title);
+    const heading = headingInfo(line);
+    return heading?.level === 2 && HEADING_ALIASES.has(heading.title);
   });
   if (start < 0)
     throw new TaskStepDefinitionError("TASK_STEPS_INVALID", "CURRENT_TASK is missing the implementation steps section.");
   let end = lines.length;
   for (let index = start + 1;index < lines.length; index += 1) {
-    const heading2 = headingInfo(lines[index]);
-    if (heading2 && heading2.level <= 2) {
+    const heading = headingInfo(lines[index]);
+    if (heading && heading.level <= 2) {
       end = index;
       break;
     }
@@ -4638,9 +4661,9 @@ function evaluateTaskAuthorityPattern(project, task, rawPattern, kind) {
 }
 function evaluateTaskMutationAuthorityPlan(input) {
   const declarations = [
-    ...input.planned_targets.map((path9) => ({ kind: "planned-target", path: path9 })),
-    ...input.command_write_targets.map((path9) => ({ kind: "command-write", path: path9 })),
-    ...input.persistent_test_paths.map((path9) => ({ kind: "persistent-test", path: path9 }))
+    ...input.planned_targets.map((path) => ({ kind: "planned-target", path })),
+    ...input.command_write_targets.map((path) => ({ kind: "command-write", path })),
+    ...input.persistent_test_paths.map((path) => ({ kind: "persistent-test", path }))
   ];
   const decisions = declarations.map((item) => evaluateTaskAuthorityPattern(input.project, input.task, item.path, item.kind));
   const blockers = decisions.filter((item) => !item.admitted).map((item) => `${item.kind}: ${item.path} — ${item.reason}`);
@@ -4671,7 +4694,7 @@ function validateAssessment(value, index) {
   if (!["local", "elevated", "high"].includes(String(locality)) || !["private", "shared", "public", "unknown"].includes(String(visibility)) || !["none", "present", "unknown"].includes(String(consumers)) || !["none", "possible", "known"].includes(String(contractImpact))) {
     fail("MUTATION_AUTHORITY_ASSESSMENT_INVALID", `blast_radius_assessments[${index}].blast_radius contains an unsupported classification.`);
   }
-  if (!Array.isArray(assessment.evidence_refs) || assessment.evidence_refs.length === 0 || assessment.evidence_refs.length > 64 || assessment.evidence_refs.some((value2) => typeof value2 !== "string" || !value2.trim())) {
+  if (!Array.isArray(assessment.evidence_refs) || assessment.evidence_refs.length === 0 || assessment.evidence_refs.length > 64 || assessment.evidence_refs.some((value) => typeof value !== "string" || !value.trim())) {
     fail("MUTATION_AUTHORITY_ASSESSMENT_INVALID", `blast_radius_assessments[${index}].evidence_refs must be non-empty.`);
   }
   const normalizedPath = normalizeAuthorityPath(target.path, `blast_radius_assessments[${index}].target.path`);
@@ -4687,7 +4710,7 @@ function validateAssessment(value, index) {
       cross_component_consumers: consumers,
       contract_impact: contractImpact
     },
-    evidence_refs: [...new Set(assessment.evidence_refs.map((value2) => value2.trim()))],
+    evidence_refs: [...new Set(assessment.evidence_refs.map((value) => value.trim()))],
     disposition: assessmentDisposition(assessment.disposition, index)
   };
 }
@@ -4705,6 +4728,10 @@ function normalizeBlastRadiusAssessments(value) {
   if (new Set(result.map((item) => item.target.path)).size !== result.length)
     fail("MUTATION_AUTHORITY_ASSESSMENT_INVALID", "blast_radius_assessments must contain one assessment per target path.");
   return result;
+}
+function requiresDynamicReview(assessment) {
+  const radius = assessment.blast_radius;
+  return assessment.disposition !== "self-admit" || radius.locality !== "local" || radius.visibility !== "private" || radius.cross_component_consumers !== "none" || radius.contract_impact !== "none";
 }
 function evaluateMutationAuthority(input) {
   const assessments = input.assessments ?? [];
@@ -4762,7 +4789,7 @@ function evaluateMutationAuthority(input) {
       blockers.push(`MUTATION_AUTHORITY_EXPANSION_REQUIRED: ${target} was escalated by its blast-radius assessment`);
       continue;
     }
-    dynamicReviewRequired = true;
+    dynamicReviewRequired ||= requiresDynamicReview(assessment);
     decisions.push({ path: target, status: "self-admitted", domain, reason: "in-envelope expansion self-admitted with assessment", assessment, first_touch_state: touch });
   }
   return { status: blockers.length === 0 ? "pass" : "blocked", decisions, dynamic_review_required: dynamicReviewRequired, blockers };
@@ -4780,45 +4807,45 @@ var EXECUTION_ADMISSION_CLASSIFICATIONS = [
   "blocked-non-executable-policy",
   "blocked-governance"
 ];
-function blocked(path9, classification, reason, domain = null, firstTouchState2, assessment) {
+function blocked(path, classification, reason, domain = null, firstTouchState, assessment) {
   return {
-    path: path9,
+    path,
     classification,
     admitted: false,
     dynamic_review_required: false,
     domain,
     reason,
-    ...firstTouchState2 === undefined ? {} : { first_touch_state: firstTouchState2 },
+    ...firstTouchState === undefined ? {} : { first_touch_state: firstTouchState },
     ...assessment === undefined ? {} : { assessment }
   };
 }
-function admitted(path9, classification, reason, domain, firstTouchState2, dynamicReviewRequired = false, assessment) {
+function admitted(path, classification, reason, domain, firstTouchState, dynamicReviewRequired = false, assessment) {
   return {
-    path: path9,
+    path,
     classification,
     admitted: true,
     dynamic_review_required: dynamicReviewRequired,
     domain,
     reason,
-    ...firstTouchState2 === undefined ? {} : { first_touch_state: firstTouchState2 },
+    ...firstTouchState === undefined ? {} : { first_touch_state: firstTouchState },
     ...assessment === undefined ? {} : { assessment }
   };
 }
 function blockerForDecision(target, decision, blockers) {
-  const firstTouchState2 = decision?.first_touch_state;
+  const firstTouchState = decision?.first_touch_state;
   const domain = decision?.domain ?? null;
   const assessment = decision?.assessment;
   const matchingBlocker = blockers.find((item) => item.includes(`: ${target}`)) ?? blockers.find((item) => item.includes(target));
   if (matchingBlocker?.startsWith("MUTATION_AUTHORITY_FORBIDDEN") || matchingBlocker?.startsWith("MUTATION_AUTHORITY_GOVERNANCE_BOUNDARY")) {
-    return blocked(target, "blocked-governance", decision?.reason ?? matchingBlocker, domain, firstTouchState2, assessment);
+    return blocked(target, "blocked-governance", decision?.reason ?? matchingBlocker, domain, firstTouchState, assessment);
   }
   if (matchingBlocker?.startsWith("PERSISTENT_TEST_UNADMITTED")) {
-    return blocked(target, "blocked-persistent-test", decision?.reason ?? matchingBlocker, domain, firstTouchState2, assessment);
+    return blocked(target, "blocked-persistent-test", decision?.reason ?? matchingBlocker, domain, firstTouchState, assessment);
   }
   if (decision?.reason.includes("blast-radius assessment") || decision?.reason.includes("assessment escalates")) {
-    return blocked(target, "blocked-assessment", decision.reason, domain, firstTouchState2, assessment);
+    return blocked(target, "blocked-assessment", decision.reason, domain, firstTouchState, assessment);
   }
-  return blocked(target, "blocked-authority", decision?.reason ?? matchingBlocker ?? "target is not admitted by the current mutation authority", domain, firstTouchState2, assessment);
+  return blocked(target, "blocked-authority", decision?.reason ?? matchingBlocker ?? "target is not admitted by the current mutation authority", domain, firstTouchState, assessment);
 }
 function strategyAdmission(input, target) {
   if (input.phase === "not-applicable") {
@@ -4874,7 +4901,7 @@ function evaluateV2(input, target) {
   }
   const isNewPersistentTest = (input.persistent_test_paths ?? []).includes(target) && decision.first_touch_state === "absent";
   const classification = decision.status === "self-admitted" ? "dynamic-self-admitted" : isNewPersistentTest ? "persistent-test-admitted" : "planned-admitted";
-  return admitted(target, classification, decision.reason, decision.domain, decision.first_touch_state, decision.status === "self-admitted", decision.assessment);
+  return admitted(target, classification, decision.reason, decision.domain, decision.first_touch_state, result.dynamic_review_required, decision.assessment);
 }
 function evaluateExecutionTargetAdmission(input) {
   let target;
@@ -5023,12 +5050,12 @@ function validateAuthorityEvidence(value) {
   if (!Array.isArray(value) || value.length === 0)
     fail2("BOOTSTRAP_AUTHORITY_MISSING", "authority_evidence must be non-empty.");
   return value.map((item, index) => {
-    const record4 = expectRecord(item, `authority_evidence[${index}]`);
-    expectExactKeys(record4, ["kind", "source", "subject"], `authority_evidence[${index}]`);
-    const kind = expectString(record4.kind, `authority_evidence[${index}].kind`);
+    const record = expectRecord(item, `authority_evidence[${index}]`);
+    expectExactKeys(record, ["kind", "source", "subject"], `authority_evidence[${index}]`);
+    const kind = expectString(record.kind, `authority_evidence[${index}].kind`);
     if (!["project-owner", "scope-admission", "evidence-admission", "dangerous-operation"].includes(kind))
       fail2("BOOTSTRAP_AUTHORITY_INVALID", `authority_evidence[${index}].kind is unsupported.`);
-    return { kind, source: expectString(record4.source, `authority_evidence[${index}].source`), subject: expectString(record4.subject, `authority_evidence[${index}].subject`) };
+    return { kind, source: expectString(record.source, `authority_evidence[${index}].source`), subject: expectString(record.subject, `authority_evidence[${index}].subject`) };
   });
 }
 function validateSemanticOperations(value, assets) {
@@ -5037,17 +5064,17 @@ function validateSemanticOperations(value, assets) {
   const assetPaths = new Set(assets.map((asset) => asset.path));
   const operations = [];
   for (const [index, item] of value.entries()) {
-    const record4 = expectRecord(item, `semantic_operations[${index}]`);
-    expectExactKeys(record4, ["operation_kind", "target_paths", "evidence_refs"], `semantic_operations[${index}]`);
-    const operationKind = expectString(record4.operation_kind, `semantic_operations[${index}].operation_kind`);
+    const record = expectRecord(item, `semantic_operations[${index}]`);
+    expectExactKeys(record, ["operation_kind", "target_paths", "evidence_refs"], `semantic_operations[${index}]`);
+    const operationKind = expectString(record.operation_kind, `semantic_operations[${index}].operation_kind`);
     if (!BOOTSTRAP_OPERATION_KINDS.includes(operationKind))
       fail2("BOOTSTRAP_SCHEMA_INVALID", `semantic_operations[${index}].operation_kind is unsupported.`);
-    const targetPaths = normalizePathArray(record4.target_paths, `semantic_operations[${index}].target_paths`);
+    const targetPaths = normalizePathArray(record.target_paths, `semantic_operations[${index}].target_paths`);
     for (const target of targetPaths) {
       if (!assetPaths.has(target))
         fail2("BOOTSTRAP_TARGET_CONFLICT", `semantic operation ${operationKind} targets an asset that is not in the generated set: ${target}`);
     }
-    const evidenceRefs = expectStringArray(record4.evidence_refs, `semantic_operations[${index}].evidence_refs`);
+    const evidenceRefs = expectStringArray(record.evidence_refs, `semantic_operations[${index}].evidence_refs`);
     operations.push({ operation_kind: operationKind, target_paths: targetPaths, evidence_refs: evidenceRefs });
   }
   if (new Set(operations.map((operation) => operation.operation_kind)).size !== operations.length)
@@ -5074,17 +5101,17 @@ function validateSemanticOperations(value, assets) {
   return operations;
 }
 function validateAsset(value, location) {
-  const record4 = expectRecord(value, location);
-  expectExactKeys(record4, ["path", "category", "content"], location);
-  const assetPath = normalizeRepoPath(expectString(record4.path, `${location}.path`), `${location}.path`);
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ["path", "category", "content"], location);
+  const assetPath = normalizeRepoPath(expectString(record.path, `${location}.path`), `${location}.path`);
   if (!isAllowedAssetPath(assetPath) || isForbiddenAssetPath(assetPath))
     fail2("BOOTSTRAP_TARGET_FORBIDDEN", `asset target is outside the bootstrap boundary: ${assetPath}`);
-  const category = expectString(record4.category, `${location}.category`);
+  const category = expectString(record.category, `${location}.category`);
   if (!BOOTSTRAP_ASSET_CATEGORIES.includes(category))
     fail2("BOOTSTRAP_SCHEMA_INVALID", `${location}.category is unsupported.`);
-  if (typeof record4.content !== "string")
+  if (typeof record.content !== "string")
     fail2("BOOTSTRAP_SCHEMA_INVALID", `${location}.content must be text.`);
-  return { path: assetPath, category, content: record4.content };
+  return { path: assetPath, category, content: record.content };
 }
 function validateTargetSet(proposal, assets) {
   const assetPaths = assets.map((asset) => asset.path);
@@ -5112,8 +5139,8 @@ function validateModeOperationBoundary(proposal) {
     fail2("BOOTSTRAP_BOUNDARY_VIOLATION", "inventory mode must not install host guidance.");
 }
 function validateBootstrapProjectProposal(value) {
-  const record4 = expectRecord(value, "bootstrap proposal");
-  expectExactKeys(record4, [
+  const record = expectRecord(value, "bootstrap proposal");
+  expectExactKeys(record, [
     "schema_version",
     "kind",
     "caller",
@@ -5135,36 +5162,36 @@ function validateBootstrapProjectProposal(value) {
     "delete_targets",
     "assets"
   ], "bootstrap proposal");
-  if (record4.schema_version !== VNEXT_BOOTSTRAP_PROPOSAL_SCHEMA_VERSION || record4.kind !== VNEXT_BOOTSTRAP_PROPOSAL_KIND || record4.caller !== "bootstrap-project")
+  if (record.schema_version !== VNEXT_BOOTSTRAP_PROPOSAL_SCHEMA_VERSION || record.kind !== VNEXT_BOOTSTRAP_PROPOSAL_KIND || record.caller !== "bootstrap-project")
     fail2("BOOTSTRAP_SCHEMA_INVALID", "bootstrap proposal envelope marker is invalid.");
-  const mode = expectString(record4.mode, "bootstrap proposal.mode");
+  const mode = expectString(record.mode, "bootstrap proposal.mode");
   if (!BOOTSTRAP_MODES.includes(mode))
     fail2("BOOTSTRAP_MODE_INVALID", `bootstrap mode must be one of ${BOOTSTRAP_MODES.join(", ")}.`);
-  const targetIdentity = expectString(record4.target_identity, "bootstrap proposal.target_identity");
+  const targetIdentity = expectString(record.target_identity, "bootstrap proposal.target_identity");
   if (!TARGET_IDENTITY_PATTERN.test(targetIdentity))
     fail2("BOOTSTRAP_IDENTITY_INVALID", "target_identity must be a 32-character lowercase SHA-256 prefix.");
-  const sourceRevision = expectString(record4.source_revision, "bootstrap proposal.source_revision");
-  const sourceTreeHash = expectString(record4.source_tree_hash, "bootstrap proposal.source_tree_hash");
+  const sourceRevision = expectString(record.source_revision, "bootstrap proposal.source_revision");
+  const sourceTreeHash = expectString(record.source_tree_hash, "bootstrap proposal.source_tree_hash");
   if (!SHA256_PATTERN.test(sourceTreeHash))
     fail2("BOOTSTRAP_SCHEMA_INVALID", "source_tree_hash must be SHA-256.");
-  const scopeDocument = expectString(record4.scope_document, "bootstrap proposal.scope_document");
-  const changedPaths = normalizePathArray(record4.changed_paths, "bootstrap proposal.changed_paths");
-  const conditionalAuthorizations = record4.conditional_authorizations === undefined ? [] : record4.conditional_authorizations;
-  const transformationKind = expectString(record4.transformation_kind, "bootstrap proposal.transformation_kind");
+  const scopeDocument = expectString(record.scope_document, "bootstrap proposal.scope_document");
+  const changedPaths = normalizePathArray(record.changed_paths, "bootstrap proposal.changed_paths");
+  const conditionalAuthorizations = record.conditional_authorizations === undefined ? [] : record.conditional_authorizations;
+  const transformationKind = expectString(record.transformation_kind, "bootstrap proposal.transformation_kind");
   if (transformationKind !== "localized" && transformationKind !== "inherently-broad")
     fail2("BOOTSTRAP_SCOPE_INVALID", "transformation_kind is unsupported.");
-  const authorityEvidence = validateAuthorityEvidence(record4.authority_evidence);
-  const preconditions = expectStringArray(record4.preconditions, "bootstrap proposal.preconditions");
-  const evidenceRefs = expectStringArray(record4.evidence_refs, "bootstrap proposal.evidence_refs");
-  const idempotencyKey = expectString(record4.idempotency_key, "bootstrap proposal.idempotency_key");
+  const authorityEvidence = validateAuthorityEvidence(record.authority_evidence);
+  const preconditions = expectStringArray(record.preconditions, "bootstrap proposal.preconditions");
+  const evidenceRefs = expectStringArray(record.evidence_refs, "bootstrap proposal.evidence_refs");
+  const idempotencyKey = expectString(record.idempotency_key, "bootstrap proposal.idempotency_key");
   if (!SAFE_KEY_PATTERN.test(idempotencyKey))
     fail2("BOOTSTRAP_SCHEMA_INVALID", "idempotency_key is invalid.");
-  const requestedWriteTargets = normalizePathArray(record4.requested_write_targets, "bootstrap proposal.requested_write_targets");
-  const requestedDirectoryTargets = normalizePathArray(record4.requested_directory_targets, "bootstrap proposal.requested_directory_targets", true);
-  const deleteTargets = normalizePathArray(record4.delete_targets, "bootstrap proposal.delete_targets", true);
-  if (!Array.isArray(record4.assets) || record4.assets.length === 0)
+  const requestedWriteTargets = normalizePathArray(record.requested_write_targets, "bootstrap proposal.requested_write_targets");
+  const requestedDirectoryTargets = normalizePathArray(record.requested_directory_targets, "bootstrap proposal.requested_directory_targets", true);
+  const deleteTargets = normalizePathArray(record.delete_targets, "bootstrap proposal.delete_targets", true);
+  if (!Array.isArray(record.assets) || record.assets.length === 0)
     fail2("BOOTSTRAP_SCHEMA_INVALID", "bootstrap proposal.assets must be non-empty.");
-  const assets = record4.assets.map((item, index) => validateAsset(item, `bootstrap proposal.assets[${index}]`));
+  const assets = record.assets.map((item, index) => validateAsset(item, `bootstrap proposal.assets[${index}]`));
   if (new Set(assets.map((asset) => asset.path)).size !== assets.length)
     fail2("BOOTSTRAP_TARGET_CONFLICT", "bootstrap proposal.assets must not contain duplicate paths.");
   const proposal = {
@@ -5180,7 +5207,7 @@ function validateBootstrapProjectProposal(value) {
     conditional_authorizations: conditionalAuthorizations,
     transformation_kind: transformationKind,
     authority_evidence: authorityEvidence,
-    semantic_operations: validateSemanticOperations(record4.semantic_operations, assets),
+    semantic_operations: validateSemanticOperations(record.semantic_operations, assets),
     preconditions,
     evidence_refs: evidenceRefs,
     idempotency_key: idempotencyKey,
@@ -5201,12 +5228,12 @@ function validateBootstrapProjectProposal(value) {
     fail2("BOOTSTRAP_SCOPE_BLOCKED", scopeResult.blockers.join(" "));
   return { proposal, scope: scopeResult };
 }
-function absoluteTarget(root, relativePath3) {
+function absoluteTarget(root, relativePath) {
   const resolvedRoot = path9.resolve(root);
-  const resolved = path9.resolve(resolvedRoot, ...relativePath3.split("/"));
+  const resolved = path9.resolve(resolvedRoot, ...relativePath.split("/"));
   const prefix = resolvedRoot.endsWith(path9.sep) ? resolvedRoot : `${resolvedRoot}${path9.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
-    fail2("BOOTSTRAP_PATH_INVALID", `target escapes project root: ${relativePath3}`);
+    fail2("BOOTSTRAP_PATH_INVALID", `target escapes project root: ${relativePath}`);
   return resolved;
 }
 function contentHash(content) {
@@ -5226,8 +5253,8 @@ function applyAtomicBootstrapTransaction(root, proposal, verify) {
       stagedFiles.push({ relative: asset.path, path: stagedPath });
     }
     const touched = stagedFiles.map((item) => item.relative);
-    for (const [index, relative6] of touched.entries()) {
-      const targetPath = absoluteTarget(resolvedRoot, relative6);
+    for (const [index, relative] of touched.entries()) {
+      const targetPath = absoluteTarget(resolvedRoot, relative);
       if (!fs8.existsSync(targetPath))
         continue;
       const backupPath = path9.join(stagingRoot, "backups", `${index}.bak`);
@@ -5463,7 +5490,7 @@ var MAX_CLAIM_EVIDENCE_RECORDS = 256;
 var MAX_CLAIM_EVIDENCE_SLOTS = 32;
 var MAX_REPLAN_SECTION_CONTENT_LENGTH = 32768;
 var MAX_REPAIR_ROUNDS = 3;
-var CLAIM_EVIDENCE_COMPLETION_RULE = "non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites";
+var CLAIM_EVIDENCE_COMPLETION_RULE = "non-empty acceptance-bearing frozen plan; due slots require bound successful reports or exact applicable user waivers; waivers never imply PASS; close checks all slots and consumed prerequisites";
 var DRAFT_CLAIM_EVIDENCE_REQUIREMENT = "required-and-non-empty-for-new-or-refined-drafts; must-include-an-acceptance-claim; legacy-documents-remain-readable-but-require-migration-before-terminal-completion";
 var CLOSE_TASK_CLAIM_EVIDENCE_RULE = "derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient";
 var MAX_REPAIR_ATTEMPTS = 2;
@@ -5554,13 +5581,16 @@ function currentExecutionDynamicExpansions(current, mode) {
   return (current.runtimeState.dynamic_expansions ?? []).filter((item) => dynamicExpansionMatchesExecution(item, active));
 }
 function dynamicReviewRequiredForCurrentExecution(current) {
+  const pending = new Set(current.runtimeState.review_coverage?.pending_paths ?? []);
+  if (current.runtimeState.dynamic_review_required === true && (current.runtimeState.dynamic_expansions ?? []).some((item) => item.review_required !== false && item.reviewed_by_review_id === undefined && pending.has(item.path)))
+    return true;
   const active = current.runtimeState.execution_preflight;
   if (!active || active.step_id !== current.runtimeState.active_step_id) {
     return current.runtimeState.dynamic_review_required === true;
   }
   const currentExpansions = currentExecutionDynamicExpansions(current);
   if (currentExpansions.length > 0)
-    return currentExpansions.some((item) => item.reviewed_by_review_id === undefined);
+    return currentExpansions.some((item) => item.review_required !== false && item.reviewed_by_review_id === undefined);
   const legacyCurrentExpansion = (current.runtimeState.dynamic_expansions ?? []).some((item) => item.execution_id === active.execution_id && item.step_id === active.step_id && item.mode === active.mode);
   return legacyCurrentExpansion ? current.runtimeState.dynamic_review_required === true : false;
 }
@@ -5608,10 +5638,10 @@ function expectNullableString(value, location, pattern) {
   return expectString2(value, location, pattern);
 }
 function expectText(value, location, maxLength = MAX_TEXT_LENGTH) {
-  const text2 = expectString2(value, location);
-  if (text2.length > maxLength)
+  const text = expectString2(value, location);
+  if (text.length > maxLength)
     fail3("RUNTIME_SCHEMA_INVALID", `${location} exceeds ${maxLength} characters.`);
-  return text2;
+  return text;
 }
 function expectEnum(value, allowed, location) {
   const normalized = expectString2(value, location);
@@ -5675,21 +5705,21 @@ function digest3(value) {
 function captureReviewTarget(root, paths) {
   const resolvedRoot = path10.resolve(root);
   const normalizedPaths = [...new Set(paths.map((item, index) => normalizeRepoPath2(item, `review_target.paths[${index}]`)))].sort();
-  const entries = normalizedPaths.map((relativePath3) => {
-    const filePath = path10.resolve(resolvedRoot, ...relativePath3.split("/"));
+  const entries = normalizedPaths.map((relativePath) => {
+    const filePath = path10.resolve(resolvedRoot, ...relativePath.split("/"));
     if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path10.sep}`)) {
-      fail3("RUNTIME_PATH_INVALID", `review target escapes the target root: ${relativePath3}`);
+      fail3("RUNTIME_PATH_INVALID", `review target escapes the target root: ${relativePath}`);
     }
     if (!fs9.existsSync(filePath))
-      return { path: relativePath3, state: "absent", sha256: null };
+      return { path: relativePath, state: "absent", sha256: null };
     const stat = fs9.lstatSync(filePath);
     if (stat.isSymbolicLink()) {
-      return { path: relativePath3, state: "symlink", sha256: sha2565(fs9.readlinkSync(filePath)) };
+      return { path: relativePath, state: "symlink", sha256: sha2565(fs9.readlinkSync(filePath)) };
     }
     if (!stat.isFile()) {
-      fail3("REVIEW_TARGET_INVALID", `review target must be a file, symlink, or absent path: ${relativePath3}`);
+      fail3("REVIEW_TARGET_INVALID", `review target must be a file, symlink, or absent path: ${relativePath}`);
     }
-    return { path: relativePath3, state: "file", sha256: sha2565(fs9.readFileSync(filePath)) };
+    return { path: relativePath, state: "file", sha256: sha2565(fs9.readFileSync(filePath)) };
   });
   return {
     kind: "runtime-file-manifest/v1",
@@ -5717,8 +5747,8 @@ function validateStepAttempts(value) {
     expectExactKeys2(ledger, ["evidence_plan_revision", "max_attempts", "attempts"], "step attempt ledger");
     if (ledger.max_attempts !== 3 || !Array.isArray(ledger.attempts) || !ledger.attempts.length || ledger.attempts.length > 3)
       fail3("RETRY_LEDGER_INVALID", "Attempt budget must be three including the initial execution.");
-    const attempts = ledger.attempts.map((raw2) => {
-      const item = expectRecord2(raw2, "attempt");
+    const attempts = ledger.attempts.map((raw) => {
+      const item = expectRecord2(raw, "attempt");
       expectExactKeys2(item, ["attempt_id", "idempotency_key", "request_digest", "status", "blocker", ...item.recovery === undefined ? [] : ["recovery"], "evidence_refs"], "attempt");
       let blocker = null;
       if (item.blocker !== null) {
@@ -5758,6 +5788,14 @@ function validateStepRepairDiagnosis(value) {
 function validateRetryResolution(root, current, delta, failure) {
   if (captureReviewTarget(root, failure.subject_snapshot.entries.map((e) => e.path)).revision !== failure.subject_snapshot.revision)
     fail3("RETRY_SUBJECT_STALE", "Declared code, fixture or check objects changed after failure; use authorized repair or replan.");
+  const failures = [...failure.execution_result.command_results, ...failure.execution_result.validation_results].filter((item) => item.status === "failed" || item.status === "blocked");
+  if (!delta.repair_diagnosis && failures.length && failures.every((item) => applicableResultWaiver(root, current, delta.step_id, item))) {
+    const basis = readCanonicalTaskBasis(root, current);
+    if (delta.blocker_resolution_refs.length !== 1 || delta.blocker_resolution_refs[0] !== basis.path) {
+      fail3("RETRY_RESOLUTION_REQUIRED", "Risk-accepted retry cites the exact retained Task Basis, not a fabricated repair result.");
+    }
+    return;
+  }
   if (delta.repair_diagnosis) {
     if (failure.kind !== "unknown")
       fail3("RETRY_DIAGNOSIS_REQUIRED", "Same-plan repair requires the retained non-environment failure.");
@@ -5776,8 +5814,8 @@ function validateRetryResolution(root, current, delta, failure) {
   if (failure.kind !== "environment" || [...failure.execution_result.command_results, ...failure.execution_result.validation_results].some((item) => item.status === "failed"))
     fail3("RETRY_DIAGNOSIS_REQUIRED", "Environment retry requires a recorded environment blocker without failed checks.");
   for (const ref of delta.blocker_resolution_refs) {
-    const relative7 = normalizeRepoPath2(ref, "blocker_resolution_ref");
-    const absolute = path10.resolve(root, relative7);
+    const relative = normalizeRepoPath2(ref, "blocker_resolution_ref");
+    const absolute = path10.resolve(root, relative);
     if (!fs9.existsSync(absolute) || !fs9.statSync(absolute).isFile() || fs9.statSync(absolute).size > 65536)
       fail3("RETRY_RESOLUTION_REQUIRED", "Resolution must be a retained bounded JSON report.");
     let parsed;
@@ -5812,8 +5850,8 @@ function validateReviewCoverage(value) {
   createReviewChangeDelta(base, target);
   if (!Array.isArray(source.preimages) || source.preimages.length !== base.entries.length)
     fail3("REVIEW_COVERAGE_INVALID", "preimages must cover the initial manifest.");
-  const preimages = source.preimages.map((value2, index) => {
-    const item = expectRecord2(value2, "preimage");
+  const preimages = source.preimages.map((value, index) => {
+    const item = expectRecord2(value, "preimage");
     const hasLegacyContent = Object.prototype.hasOwnProperty.call(item, "content_base64");
     expectExactKeys2(item, hasLegacyContent ? ["path", "state", "sha256", "content_base64"] : ["path", "state", "sha256"], "preimage");
     const entry = base.entries[index];
@@ -5851,13 +5889,15 @@ function validateDynamicExpansions(value) {
     const legacyIdentityKeys = ["execution_id", "preflight_id", "step_id", "mode"];
     const modernIdentityKeys = [...legacyIdentityKeys, "plan_revision", "change_set_id"];
     const reviewKeys = ["reviewed_by_review_id", "reviewed_at"];
-    expectExactKeys2(item, ["path", "domain", "assessment", "first_touch_state", "admitted_at", ...modernIdentityKeys.filter((key) => (key in item)), ...reviewKeys.filter((key) => (key in item))], `dynamic_expansions[${index}]`);
+    expectExactKeys2(item, ["path", "domain", "assessment", "first_touch_state", "admitted_at", ...modernIdentityKeys.filter((key) => (key in item)), ...reviewKeys.filter((key) => (key in item)), ..."review_required" in item ? ["review_required"] : []], `dynamic_expansions[${index}]`);
     let assessment;
     try {
       assessment = normalizeBlastRadiusAssessments([item.assessment])[0];
     } catch (error) {
       fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
     }
+    if (item.review_required === false && requiresDynamicReview(assessment))
+      fail3("MUTATION_AUTHORITY_ASSESSMENT_INVALID", "Elevated or uncertain expansion cannot omit dynamic review.");
     const target = normalizeAuthorityPath(item.path, `dynamic_expansions[${index}].path`);
     if (assessment.target.path !== target)
       fail3("RUNTIME_SCHEMA_INVALID", `dynamic_expansions[${index}] assessment target must match path.`);
@@ -5879,6 +5919,7 @@ function validateDynamicExpansions(value) {
       assessment,
       first_touch_state: expectEnum(item.first_touch_state, ["file", "absent"], `dynamic_expansions[${index}].first_touch_state`),
       admitted_at: expectString2(item.admitted_at, `dynamic_expansions[${index}].admitted_at`),
+      ...item.review_required === undefined ? {} : { review_required: expectBoolean(item.review_required, "expansion.review_required") },
       ...hasLegacyIdentity ? {
         execution_id: expectString2(item.execution_id, `dynamic_expansions[${index}].execution_id`, SAFE_KEY_PATTERN2),
         preflight_id: expectString2(item.preflight_id, `dynamic_expansions[${index}].preflight_id`, SAFE_KEY_PATTERN2),
@@ -6415,7 +6456,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   validateTaskContextContract(contract.task_context);
   validateTaskStoreContract(contract.task_store);
   const proposal = expectRecord2(contract.proposal, "Runtime contract.proposal");
-  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "task_state", "execute_step", "review_change", "prepare_task", "inbox_record", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
+  expectExactKeys2(proposal, ["schema_version", "kind", "caller", "operation_kinds", "source_tuple", "required_envelope", "finding_queue_admission", "finding_queue_repair", "process_control", "task_state", "execute_step", "review_change", "prepare_task", "inbox_record", "lifecycle", "close_task", "lesson_marker"], "Runtime contract.proposal");
   if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND)
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime proposal contract has an invalid envelope marker.");
   expectSetEqual(expectStringArray2(proposal.caller, "Runtime contract.proposal.caller"), ["execute-step", "review-change", "prepare-task", "task-lifecycle", "capture-work-item", "close-task"], "Runtime contract proposal callers");
@@ -6428,9 +6469,21 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   const findingQueueAdmission = expectRecord2(proposal.finding_queue_admission, "Runtime contract.proposal.finding_queue_admission");
   expectExactKeys2(findingQueueAdmission, ["required"], "Runtime contract.proposal.finding_queue_admission");
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
+  const processControl = expectRecord2(proposal.process_control, "Runtime process_control");
+  const processSemantics = {
+    user_evidence: "exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated",
+    waiver: "user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; no-review-or-policy-bypass",
+    successor: "explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; ordinary-confirmation-required",
+    validation_adjustment: "replace-validation; one-read-only-check; preserve-observation-boundary-subjects-selector-authority-and-budgets; no-task-redefinition"
+  };
+  expectExactKeys2(processControl, Object.keys(processSemantics), "Runtime process_control");
+  for (const [key, expected] of Object.entries(processSemantics)) {
+    if (processControl[key] !== expected)
+      fail3("RUNTIME_CONTRACT_INVALID", `Runtime process_control.${key} differs from its task-level semantics.`);
+  }
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
   expectExactKeys2(taskStateContract, ["actions", "execution_admission", "retry_step", "step_progress", "preflight", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
-  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "Runtime contract task-state actions");
+  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "Runtime contract task-state actions");
   const executionAdmissionContract = expectRecord2(taskStateContract.execution_admission, "Runtime contract.proposal.task_state.execution_admission");
   expectExactKeys2(executionAdmissionContract, ["evaluator", "question", "shared_by", "classifications", "mutation_order", "error_mapping", "semantic_boundary"], "Runtime contract.proposal.task_state.execution_admission");
   if (executionAdmissionContract.evaluator !== "runtime-owned-exact-target-admission/v1" || executionAdmissionContract.question !== "current-task-step-phase-target-assessment-may-enter-this-execution" || executionAdmissionContract.semantic_boundary !== "runtime-owns-structural-checks-agent-owns-blast-radius-judgment") {
@@ -6463,7 +6516,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(extensionPreflight, ["action", "required", "optional", "same_attempt", "plan_revision_change", "retry_budget_change", "continuation", "replacement_receipt", "review", "repair", "first_touch"], "Runtime contract.proposal.task_state.preflight.extension");
   expectSetEqual(expectStringArray2(extensionPreflight.required, "Runtime contract.proposal.task_state.preflight.extension.required"), ["current_preflight_id", "additional_targets", "blast_radius_assessments", "evidence_refs"], "Runtime extend-preflight required fields");
   expectSetEqual(expectStringArray2(extensionPreflight.optional, "Runtime contract.proposal.task_state.preflight.extension.optional", true), ["mode", "execution_id", "execution_phase", "repair_wave_id", "review_id"], "Runtime extend-preflight optional fields");
-  if (extensionPreflight.action !== "extend-preflight" || extensionPreflight.same_attempt !== true || extensionPreflight.plan_revision_change !== "forbidden" || extensionPreflight.retry_budget_change !== "forbidden" || extensionPreflight.continuation !== "forbidden" || extensionPreflight.replacement_receipt !== "required" || extensionPreflight.review !== "cumulative-review-required-for-self-admitted-expansion" || extensionPreflight.repair !== "same-evaluator-same-wave-no-retry-consumption" || extensionPreflight.first_touch !== "append-only-for-new-targets") {
+  if (extensionPreflight.action !== "extend-preflight" || extensionPreflight.same_attempt !== true || extensionPreflight.plan_revision_change !== "forbidden" || extensionPreflight.retry_budget_change !== "forbidden" || extensionPreflight.continuation !== "forbidden" || extensionPreflight.replacement_receipt !== "required" || extensionPreflight.review !== "risk-selected-cumulative-review-for-self-admitted-expansion" || extensionPreflight.repair !== "same-evaluator-same-wave-no-retry-consumption" || extensionPreflight.first_touch !== "append-only-for-new-targets") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime extend-preflight semantics are invalid.");
   }
   const claimEvidenceContract = expectRecord2(taskStateContract.claim_evidence, "Runtime contract.proposal.task_state.claim_evidence");
@@ -6475,7 +6528,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence reports must remain bound to one exact claim/slot/check.");
   }
   expectSetEqual(expectStringArray2(claimEvidenceContract.record_fields, "Runtime contract claim evidence record_fields"), ["claim_id", "claim_kind", "requirement", "source_ref", "slots"], "Runtime claim evidence record fields");
-  expectSetEqual(expectStringArray2(claimEvidenceContract.slot_fields, "Runtime contract claim evidence slot_fields"), ["slot_id", "minimum_type", "disposition", "evidence_refs", "due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt"], "Runtime claim evidence slot fields");
+  expectSetEqual(expectStringArray2(claimEvidenceContract.slot_fields, "Runtime contract claim evidence slot_fields"), ["slot_id", "minimum_type", "disposition", "evidence_refs", "due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt", "user_decision"], "Runtime claim evidence slot fields");
   expectSetEqual(expectStringArray2(claimEvidenceContract.complete_dispositions, "Runtime contract claim evidence complete_dispositions"), ["existing", "reused", "newly-executed"], "Runtime claim evidence complete dispositions");
   expectSetEqual(expectStringArray2(claimEvidenceContract.incomplete_dispositions, "Runtime contract claim evidence incomplete_dispositions"), ["missing", "deferred", "blocked"], "Runtime claim evidence incomplete dispositions");
   const executionSelection = expectRecord2(claimEvidenceContract.execution_selection, "Runtime contract claim evidence execution_selection");
@@ -6589,7 +6642,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   ], "Runtime contract.proposal.execute_step.semantic_adapter");
   if (executeStepAdapter.input !== "stdin-json")
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter input must remain stdin-json.");
-  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "extend-preflight", "evidence-context", "retry-step", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
+  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "extend-preflight", "evidence-context", "retry-step", "replace-validation", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
   const testStrategyExecution = expectRecord2(executeStepAdapter.test_strategy_execution, "Runtime contract.proposal.execute_step.semantic_adapter.test_strategy_execution");
   expectExactKeys2(testStrategyExecution, ["phase_source", "legacy_behavior", "test_first", "red_evidence", "non_red_outcome"], "Runtime contract execute-step test-strategy execution");
   const testFirstExecution = expectRecord2(testStrategyExecution.test_first, "Runtime contract execute-step test-first execution");
@@ -6632,7 +6685,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   ], "Runtime contract.proposal.prepare_task.semantic_adapter");
   if (prepareTaskAdapter.input !== "stdin-json")
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter input must remain stdin-json.");
-  expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "confirm-draft", "clear-resume-review", "replan", "prepare-replan", "confirm-replan", "discard-replan", "prepare-scope-amendment", "discard-scope-amendment", "initialize-preservation"], "Runtime contract prepare-task adapter commands");
+  expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "prepare-successor", "record-human-acceptance", "record-evidence-waiver", "confirm-draft", "clear-resume-review", "replan", "prepare-replan", "confirm-replan", "discard-replan", "prepare-scope-amendment", "discard-scope-amendment", "initialize-preservation"], "Runtime contract prepare-task adapter commands");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["task_basis", "goal", "acceptance", "out_of_scope", "design_decisions", "mutation_authority_version", "mutation_authority", "planned_mutation_targets", "test_strategy", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.optional_draft_fields, "prepare-task optional fields"), ["project_documents", "affected_contracts"], "prepare-task optional fields");
   if (prepareTaskAdapter.task_basis_storage !== "linked-TASK_BASIS-with-path-and-revision") {
@@ -6688,7 +6741,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (internalActionOwners["migrate-claim-evidence"] !== "runtime-compatibility" || internalActionOwners["mark-replan-blocked"] !== "runtime-convergence" || internalActionOwners["clear-replan-block"] !== "runtime-convergence") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task internal action ownership is invalid.");
   }
-  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, "mark-replan-blocked", "clear-replan-block", "commit-scope-amendment"], "Runtime contract prepare-task bound actions");
+  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", "record-user-evidence", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, "mark-replan-blocked", "clear-replan-block", "commit-scope-amendment"], "Runtime contract prepare-task bound actions");
   if (prepareTaskContract.draft_mode !== "default" || prepareTaskContract.confirm_mode !== "confirm")
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task draft/confirm modes are invalid.");
   expectSetEqual(expectStringArray2(prepareTaskContract.draft_actions, "Runtime contract.proposal.prepare_task.draft_actions"), ["create-draft", "update-draft"], "Runtime contract prepare-task draft actions");
@@ -6819,7 +6872,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(commandWriteFootprint.observation_limitations, "Runtime contract.mutation_scope.command_write_footprint.observation_limitations"), ["no-os-level-transient-write-history-proof"], "Runtime command write observation limitations");
   const mutationAuthorityContract = expectRecord2(contract.mutation_authority, "Runtime contract.mutation_authority");
   expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "planning_time_authority_proof", "command_glob_proof", "domain_map_lifecycle", "domain_map_revision", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "authority_amendment_execution_gate", "persistent_test_admission", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
-  if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "mandatory-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
+  if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "risk-selected-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime Mutation Authority v2 contract semantics are invalid.");
   }
   expectSetEqual(expectStringArray2(mutationAuthorityContract.project_domain_fields, "Runtime mutation authority project domain fields"), ["id", "roots"], "Runtime mutation authority project domain fields");
@@ -7000,76 +7053,76 @@ function validateAuthorityEvidence2(value) {
     fail3("RUNTIME_AUTHORITY_MISSING", "authority_evidence must be non-empty.");
   const result = [];
   for (const [index, raw] of value.entries()) {
-    const record4 = expectRecord2(raw, `authority_evidence[${index}]`);
-    const kind = expectEnum(record4.kind, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission", "dangerous-operation", "resume-review", "user-confirmation", "authorized-caller"], `authority_evidence[${index}].kind`);
-    const source = normalizeRepoPath2(expectString2(record4.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`);
-    const hasDraftBinding = "draft_revision" in record4;
-    const hasSourceBinding = "source_revision" in record4;
-    const hasCoordinateBinding = "task_id" in record4 || "document_id" in record4 || hasDraftBinding || hasSourceBinding;
+    const record = expectRecord2(raw, `authority_evidence[${index}]`);
+    const kind = expectEnum(record.kind, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission", "dangerous-operation", "resume-review", "user-confirmation", "authorized-caller"], `authority_evidence[${index}].kind`);
+    const source = normalizeRepoPath2(expectString2(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`);
+    const hasDraftBinding = "draft_revision" in record;
+    const hasSourceBinding = "source_revision" in record;
+    const hasCoordinateBinding = "task_id" in record || "document_id" in record || hasDraftBinding || hasSourceBinding;
     if (hasDraftBinding && hasSourceBinding) {
       fail3("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}] cannot bind both draft_revision and source_revision.`);
     }
     if (hasCoordinateBinding) {
       const revisionField = hasSourceBinding ? "source_revision" : "draft_revision";
-      const expectedKeys = "subject" in record4 ? ["kind", "source", "subject", "task_id", "document_id", revisionField] : ["kind", "source", "task_id", "document_id", revisionField];
-      expectExactKeys2(record4, expectedKeys, `authority_evidence[${index}]`);
-      const taskId = expectString2(record4.task_id, `authority_evidence[${index}].task_id`);
+      const expectedKeys = "subject" in record ? ["kind", "source", "subject", "task_id", "document_id", revisionField] : ["kind", "source", "task_id", "document_id", revisionField];
+      expectExactKeys2(record, expectedKeys, `authority_evidence[${index}]`);
+      const taskId = expectString2(record.task_id, `authority_evidence[${index}].task_id`);
       try {
         validateTaskId(taskId);
       } catch (error) {
         fail3("RUNTIME_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
       }
-      const documentId = expectString2(record4.document_id, `authority_evidence[${index}].document_id`);
+      const documentId = expectString2(record.document_id, `authority_evidence[${index}].document_id`);
       if (!DOCUMENT_ID_PATTERN.test(documentId))
         fail3("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}].document_id is invalid.`);
-      const authorityRevision = expectString2(record4[revisionField], `authority_evidence[${index}].${revisionField}`);
+      const authorityRevision = expectString2(record[revisionField], `authority_evidence[${index}].${revisionField}`);
       if (!/^[a-f0-9]{64}$/.test(authorityRevision))
         fail3("RUNTIME_SCHEMA_INVALID", `authority_evidence[${index}].${revisionField} must be SHA-256.`);
       result.push({
         kind,
         source,
-        subject: "subject" in record4 ? expectText(record4.subject, `authority_evidence[${index}].subject`, 256) : taskId,
+        subject: "subject" in record ? expectText(record.subject, `authority_evidence[${index}].subject`, 256) : taskId,
         task_id: taskId,
         document_id: documentId,
         [revisionField]: authorityRevision
       });
     } else {
-      expectExactKeys2(record4, ["kind", "source", "subject"], `authority_evidence[${index}]`);
+      expectExactKeys2(record, ["kind", "source", "subject"], `authority_evidence[${index}]`);
       result.push({
         kind,
         source,
-        subject: expectText(record4.subject, `authority_evidence[${index}].subject`, 256)
+        subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256)
       });
     }
   }
   return result;
 }
 function validateSourceTuple(value) {
-  const record4 = expectRecord2(value, "source_tuple");
-  expectExactKeys2(record4, ["path", "revision", "document_id", "task_id", "task_slug", "workflow_status", "lifecycle_state", "active_step_id", "active_step_status", "finding_queue_revision", "resume_requires_review", "resume_review_reasons"], "source_tuple");
-  const taskId = expectString2(record4.task_id, "source_tuple.task_id");
-  const taskSlug = expectString2(record4.task_slug, "source_tuple.task_slug");
+  const record = expectRecord2(value, "source_tuple");
+  expectExactKeys2(record, ["path", "revision", "document_id", "task_id", "task_slug", "workflow_status", "lifecycle_state", "active_step_id", "active_step_status", "finding_queue_revision", "resume_requires_review", "resume_review_reasons"], "source_tuple");
+  const taskId = expectString2(record.task_id, "source_tuple.task_id");
+  const taskSlug = expectString2(record.task_slug, "source_tuple.task_slug");
   try {
     validateTaskId(taskId);
     validateTaskSlug(taskSlug);
   } catch (error) {
     fail3("RUNTIME_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const documentId = expectString2(record4.document_id, "source_tuple.document_id");
+  const documentId = expectString2(record.document_id, "source_tuple.document_id");
   if (!DOCUMENT_ID_PATTERN.test(documentId))
     fail3("RUNTIME_SCHEMA_INVALID", "source_tuple.document_id is invalid.");
-  const revision = expectString2(record4.revision, "source_tuple.revision");
+  const revision = expectString2(record.revision, "source_tuple.revision");
   if (!/^[a-f0-9]{64}$/.test(revision))
     fail3("RUNTIME_SCHEMA_INVALID", "source_tuple.revision must be SHA-256.");
-  const workflowStatus = expectEnum(record4.workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, "source_tuple.workflow_status");
-  const lifecycleState = expectEnum(record4.lifecycle_state, TASK_LIFECYCLE_STATES, "source_tuple.lifecycle_state");
+  const workflowStatus = expectEnum(record.workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, "source_tuple.workflow_status");
+  const lifecycleState = expectEnum(record.lifecycle_state, TASK_LIFECYCLE_STATES, "source_tuple.lifecycle_state");
   try {
     validateCurrentTaskStatusTuple(workflowStatus, lifecycleState);
   } catch (error) {
     fail3("RUNTIME_STATE_CONFLICT", error instanceof Error ? error.message : String(error));
   }
-  const resumeRequiresReview = expectBoolean(record4.resume_requires_review, "source_tuple.resume_requires_review");
-  const rawResumeReasons = expectStringArray2(record4.resume_review_reasons, "source_tuple.resume_review_reasons", true, RESUME_REVIEW_REASON_ORDER.length);
+  const resumeRequiresReview = expectBoolean(record.resume_requires_review, "source_tuple.resume_requires_review");
+  const rawResumeReasons = expectStringArray2(record.resume_review_reasons, "source_tuple.resume_review_reasons", true, RESUME_REVIEW_REASON_ORDER.length);
   const resumeReviewReasons = normalizeResumeReviewReasons(rawResumeReasons);
   if (rawResumeReasons.join("|") !== resumeReviewReasons.join("|")) {
     fail3("RUNTIME_SCHEMA_INVALID", "source_tuple.resume_review_reasons must use the canonical closed-set order.");
@@ -7083,16 +7136,16 @@ function validateSourceTuple(value) {
     fail3("RUNTIME_STATE_CONFLICT", "suspended CURRENT_TASK state must remain behind a non-empty resume review gate.");
   }
   return {
-    path: normalizeRepoPath2(expectString2(record4.path, "source_tuple.path"), "source_tuple.path"),
+    path: normalizeRepoPath2(expectString2(record.path, "source_tuple.path"), "source_tuple.path"),
     revision,
     document_id: documentId,
     task_id: taskId,
     task_slug: taskSlug,
     workflow_status: workflowStatus,
     lifecycle_state: lifecycleState,
-    active_step_id: expectString2(record4.active_step_id, "source_tuple.active_step_id", STEP_ID_PATTERN2),
-    active_step_status: expectEnum(record4.active_step_status, STEP_STATUSES, "source_tuple.active_step_status"),
-    finding_queue_revision: expectInteger(record4.finding_queue_revision, "source_tuple.finding_queue_revision"),
+    active_step_id: expectString2(record.active_step_id, "source_tuple.active_step_id", STEP_ID_PATTERN2),
+    active_step_status: expectEnum(record.active_step_status, STEP_STATUSES, "source_tuple.active_step_status"),
+    finding_queue_revision: expectInteger(record.finding_queue_revision, "source_tuple.finding_queue_revision"),
     resume_requires_review: resumeRequiresReview,
     resume_review_reasons: resumeReviewReasons
   };
@@ -7115,9 +7168,9 @@ function validateReviewTarget(value, location) {
   if (!Array.isArray(target.entries) || target.entries.length > MAX_EXECUTION_RESULT_ITEMS) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.entries must be a bounded array.`);
   }
-  const entries = target.entries.map((value2, index) => {
+  const entries = target.entries.map((value, index) => {
     const entryLocation = `${location}.entries[${index}]`;
-    const entry = expectRecord2(value2, entryLocation);
+    const entry = expectRecord2(value, entryLocation);
     expectExactKeys2(entry, ["path", "state", "sha256"], entryLocation);
     const state = expectEnum(entry.state, ["file", "absent", "symlink"], `${entryLocation}.state`);
     const entryDigest = entry.sha256 === null ? null : expectString2(entry.sha256, `${entryLocation}.sha256`);
@@ -7155,9 +7208,9 @@ function validateReviewChangeDelta(value, location, base, target) {
   if (!Array.isArray(delta.entries) || delta.entries.length > MAX_EXECUTION_RESULT_ITEMS) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.entries must be a bounded array.`);
   }
-  const entries = delta.entries.map((value2, index) => {
+  const entries = delta.entries.map((value, index) => {
     const entryLocation = `${location}.entries[${index}]`;
-    const entry = expectRecord2(value2, entryLocation);
+    const entry = expectRecord2(value, entryLocation);
     expectExactKeys2(entry, ["path", "before_state", "before_sha256", "after_state", "after_sha256"], entryLocation);
     const beforeState = expectEnum(entry.before_state, ["file", "absent", "symlink"], `${entryLocation}.before_state`);
     const afterState = expectEnum(entry.after_state, ["file", "absent", "symlink"], `${entryLocation}.after_state`);
@@ -7237,7 +7290,7 @@ function validateStepExecutionResult(value, location) {
     const itemLocation = `${location}.command_results[${index}]`;
     const command = expectRecord2(item, itemLocation);
     const status = expectEnum(command.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
-    expectExactKeys2(command, status === "expected-failure" ? ["command", "status", "observed_repo_writes", "evidence_refs", "expected_failure"] : ["command", "status", "observed_repo_writes", "evidence_refs"], itemLocation);
+    expectExactKeys2(command, status === "expected-failure" ? ["command", "status", "observed_repo_writes", "evidence_refs", "expected_failure"] : ["command", "status", "observed_repo_writes", "evidence_refs", ...command.waiver_decision_id === undefined ? [] : ["waiver_decision_id"]], itemLocation);
     const evidenceRefs = expectStringArray2(command.evidence_refs, `${itemLocation}.evidence_refs`, status === "not-run", MAX_EVIDENCE_REFS);
     const observedRepoWrites = validateExecutionResultPaths(command.observed_repo_writes, `${itemLocation}.observed_repo_writes`);
     if (status === "not-run" && observedRepoWrites.length > 0) {
@@ -7246,6 +7299,7 @@ function validateStepExecutionResult(value, location) {
     const expectedFailure = status === "expected-failure" ? validateStepExpectedFailureEvidence(command.expected_failure, `${itemLocation}.expected_failure`) : undefined;
     return {
       command: expectText(command.command, `${itemLocation}.command`),
+      ...command.waiver_decision_id === undefined ? {} : { waiver_decision_id: expectString2(command.waiver_decision_id, "waiver_decision_id", SAFE_KEY_PATTERN2) },
       status,
       observed_repo_writes: observedRepoWrites,
       evidence_refs: evidenceRefs,
@@ -7263,10 +7317,11 @@ function validateStepExecutionResult(value, location) {
     const itemLocation = `${location}.validation_results[${index}]`;
     const validation = expectRecord2(item, itemLocation);
     const status = expectEnum(validation.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
-    expectExactKeys2(validation, status === "expected-failure" ? ["validation", "status", "evidence_refs", "expected_failure"] : ["validation", "status", "evidence_refs"], itemLocation);
+    expectExactKeys2(validation, status === "expected-failure" ? ["validation", "status", "evidence_refs", "expected_failure"] : ["validation", "status", "evidence_refs", ...validation.waiver_decision_id === undefined ? [] : ["waiver_decision_id"]], itemLocation);
     const expectedFailure = status === "expected-failure" ? validateStepExpectedFailureEvidence(validation.expected_failure, `${itemLocation}.expected_failure`) : undefined;
     return {
       validation: expectText(validation.validation, `${itemLocation}.validation`),
+      ...validation.waiver_decision_id === undefined ? {} : { waiver_decision_id: expectString2(validation.waiver_decision_id, "waiver_decision_id", SAFE_KEY_PATTERN2) },
       status,
       evidence_refs: expectStringArray2(validation.evidence_refs, `${itemLocation}.evidence_refs`, status === "not-run", MAX_EVIDENCE_REFS),
       ...expectedFailure ? { expected_failure: expectedFailure } : {}
@@ -7281,8 +7336,8 @@ function validateStepExecutionResult(value, location) {
   }) : validateStepAcceptanceEvidence(result.acceptance_evidence, `${location}.acceptance_evidence`);
   const blocker = result.blocker === null ? null : expectText(result.blocker, `${location}.blocker`);
   const statuses = [...commandResults, ...validationResults].map((item) => item.status);
-  if (outcome === "implemented" && (blocker !== null || statuses.some((status) => status !== "passed" && status !== "expected-failure"))) {
-    fail3("RUNTIME_STATE_CONFLICT", `${location}.implemented requires every planned result to pass and no blocker.`);
+  if (outcome === "implemented" && (blocker !== null || [...commandResults, ...validationResults].some((item) => item.status !== "passed" && item.status !== "expected-failure" && !item.waiver_decision_id))) {
+    fail3("RUNTIME_STATE_CONFLICT", `${location}.implemented requires passing results or exact retained waivers and no blocker.`);
   }
   if (outcome === "blocked" && (blocker === null || !statuses.some((status) => status === "failed" || status === "blocked"))) {
     fail3("RUNTIME_STATE_CONFLICT", `${location}.blocked requires a blocker and at least one failed or blocked result.`);
@@ -7346,11 +7401,11 @@ function validateEvidenceReport(value) {
   };
 }
 function evidenceSlotDefinition(slot) {
-  const { disposition, evidence_refs, report, prerequisite_receipt, ...definition } = slot;
+  const { disposition, evidence_refs, report, prerequisite_receipt, user_decision, ...definition } = slot;
   return definition;
 }
 function evidencePlanRevision(definition, records) {
-  return digest3({ definition, claims: records.map((record4) => ({ ...record4, slots: record4.slots.map(evidenceSlotDefinition).sort((a, b) => a.slot_id.localeCompare(b.slot_id)) })).sort((a, b) => a.claim_id.localeCompare(b.claim_id)) });
+  return digest3({ definition, claims: records.map((record) => ({ ...record, slots: record.slots.map(evidenceSlotDefinition).sort((a, b) => a.slot_id.localeCompare(b.slot_id)) })).sort((a, b) => a.claim_id.localeCompare(b.claim_id)) });
 }
 function plannedCommandsForEvidence(definition) {
   const commands = new Map;
@@ -7374,17 +7429,17 @@ function evidenceInvocationCommand(invocation) {
   }
   return invocation.argv.map((arg) => /^[\w./:=,@+\-]+$/u.test(arg) ? arg : JSON.stringify(arg)).join(" ");
 }
-function unchangedEvidenceCheck(record4, slot, previous) {
-  const old = previous.find((item) => item.claim_id === record4.claim_id);
+function unchangedEvidenceCheck(record, slot, previous) {
+  const old = previous.find((item) => item.claim_id === record.claim_id);
   const oldSlot = old?.slots.find((item) => item.slot_id === slot.slot_id);
   if (!old || !oldSlot)
     return false;
-  return old.requirement === record4.requirement && old.source_ref === record4.source_ref && old.claim_kind === record4.claim_kind && old.boundary === record4.boundary && digest3(oldSlot.check) === digest3(slot.check);
+  return old.requirement === record.requirement && old.source_ref === record.source_ref && old.claim_kind === record.claim_kind && old.boundary === record.boundary && digest3(oldSlot.check) === digest3(slot.check);
 }
 function taskBasisHasSource(taskBasis, ref) {
   return taskBasis.original_request.source === ref || taskBasis.user_decisions.some((item) => item.source === ref);
 }
-function assertSelectionAuthority(selection, record4, context) {
+function assertSelectionAuthority(selection, record, context) {
   const basis = selection.breadth_basis;
   const ref = selection.breadth_source_ref;
   if (!basis)
@@ -7398,11 +7453,11 @@ function assertSelectionAuthority(selection, record4, context) {
     assertRepositoryAuthoritySource(context.root, ref);
     return;
   }
-  if (ref !== record4.claim_id || basis === "acceptance-boundary" && record4.claim_kind !== "acceptance") {
+  if (ref !== record.claim_id || basis === "acceptance-boundary" && record.claim_kind !== "acceptance") {
     fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "claim/acceptance/insufficiency basis must reference this exact claim identity.");
   }
-  if (!taskBasisHasSource(context.taskBasis, record4.source_ref))
-    assertRepositoryAuthoritySource(context.root, record4.source_ref);
+  if (!taskBasisHasSource(context.taskBasis, record.source_ref))
+    assertRepositoryAuthoritySource(context.root, record.source_ref);
 }
 function assertExecutionSelection(check, required) {
   if (check.method !== "execution") {
@@ -7462,14 +7517,14 @@ function assertEvidencePlan(definition, records, fresh = false, context) {
   const steps = parseImplementationSteps(definition.implementation_steps).map((step) => step.id);
   const plannedCommands = plannedCommandsForEvidence(definition);
   const ids = new Set;
-  const acceptance = records.filter((record4) => record4.claim_kind === "acceptance").map((record4) => record4.requirement);
+  const acceptance = records.filter((record) => record.claim_kind === "acceptance").map((record) => record.requirement);
   const projected = definition.acceptance.split(/\r?\n/).map((line) => line.replace(/^\s*[-*]\s+(?:\[[ xX]\]\s*)?/, "").trim()).filter(Boolean);
   if (digest3(acceptance) !== digest3(projected))
     fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "acceptance must be the exact projection of acceptance claim requirements.");
-  for (const record4 of records) {
-    if (!record4.requirement || !record4.source_ref)
+  for (const record of records) {
+    if (!record.requirement || !record.source_ref)
       fail3("CLAIM_EVIDENCE_PLAN_INVALID", "claims require requirement and source_ref.");
-    for (const slot of record4.slots) {
+    for (const slot of record.slots) {
       const check = slot.check;
       if (!check || !slot.applicability || !steps.includes(slot.due_step_id) || slot.minimum_type === "planned-validation")
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "slots require a concrete check, applicability and valid due step.");
@@ -7478,10 +7533,12 @@ function assertEvidencePlan(definition, records, fresh = false, context) {
       ids.add(check.check_id);
       if (check.subject_paths.some((p) => p.includes("*") || /(?:^|\/)CURRENT_TASK\.md$/.test(p) || p.startsWith(".git/")) || new Set(check.subject_paths).size !== check.subject_paths.length)
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "subject_paths must be exact unique product paths, excluding Runtime audit state.");
-      const isNew = context ? !unchangedEvidenceCheck(record4, slot, context.previous) : fresh;
-      if (isNew && record4.boundary !== undefined && !context?.previous.some((old) => old.claim_id === record4.claim_id && old.boundary === record4.boundary)) {
+      const isNew = context ? !unchangedEvidenceCheck(record, slot, context.previous) : fresh;
+      if (isNew && record.boundary !== undefined && !context?.previous.some((old) => old.claim_id === record.claim_id && old.boundary === record.boundary)) {
         fail3("CLAIM_EVIDENCE_BOUNDARY_INVALID", "boundary belongs to each check, not a new claim.");
       }
+      if (isNew && slot.user_decision)
+        fail3("USER_EVIDENCE_ACTION_REQUIRED", "A new evidence definition cannot invent or inherit a user decision.");
       assertExecutionSelection(check, isNew);
       const bound = isNew || check.selection?.granularity !== undefined;
       if (bound && check.method === "execution" && !plannedCommands.get(slot.due_step_id)?.has(check.entry)) {
@@ -7490,9 +7547,9 @@ function assertEvidencePlan(definition, records, fresh = false, context) {
       if (isNew && check.selection?.breadth_basis) {
         if (!context)
           fail3("CLAIM_EVIDENCE_AUTHORITY_REQUIRED", "breadth admission requires canonical task authority context.");
-        assertSelectionAuthority(check.selection, record4, context);
+        assertSelectionAuthority(check.selection, record, context);
       }
-      if (record4.claim_kind === "acceptance" && (slot.applicability !== "current" || check.expected_result === "expected-failure"))
+      if (record.claim_kind === "acceptance" && (slot.applicability !== "current" || check.expected_result === "expected-failure"))
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "positive acceptance requires current successful evidence.");
       if (check.method === "execution" !== (check.expected_result !== "accepted"))
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "execution requires passed/expected-failure; static/human requires accepted.");
@@ -7523,7 +7580,7 @@ function assertEvidencePlan(definition, records, fresh = false, context) {
     }
   }
   const strategy = readTestStrategyDefinition(definition);
-  if (["test-first", "implementation-first"].includes(strategy.mode) && !records.some((record4) => record4.slots.some((slot) => slot.applicability === "before-step")))
+  if (["test-first", "implementation-first"].includes(strategy.mode) && !records.some((record) => record.slots.some((slot) => slot.applicability === "before-step")))
     fail3("TEST_STRATEGY_PREREQUISITE_UNSUPPORTED", "explicit ordering requires an approved before-step check.");
   assertPersistentTestAdmission(definition, records);
   return evidencePlanRevision(definition, records);
@@ -7537,15 +7594,113 @@ function assertPersistentTestAdmission(definition, records) {
     if (fields.some((field) => !values.get(field)) || !["acceptance", "regression", "critical-invariant", "critical-risk"].includes(values.get("basis")))
       fail3("PERSISTENT_TEST_ADMISSION_INVALID", `${testPath} requires P-12 source, necessity and assertion boundaries.`);
     const proves = [...block.matchAll(/^\s+- proves: (.+)$/gm)].map((match) => match[1].trim());
-    if (!proves.length || proves.some((id) => !records.some((record4) => record4.claim_id === id)))
+    if (!proves.length || proves.some((id) => !records.some((record) => record.claim_id === id)))
       fail3("PERSISTENT_TEST_ADMISSION_INVALID", `${testPath}.proves must bind stable claim IDs.`);
   }
 }
 function recoveryEvidenceContextRevision(root) {
-  return digest3([".workflow-system/PROJECT_PROFILE.yaml", ".workflow-system/vnext/RUNTIME_CONTRACT.yaml", ".workflow-system/runtime/package.json"].map((relative7) => {
-    const file = path10.resolve(root, relative7);
-    return { path: relative7, sha256: fs9.existsSync(file) ? sha2565(fs9.readFileSync(file)) : null };
+  return digest3([".workflow-system/PROJECT_PROFILE.yaml", ".workflow-system/vnext/RUNTIME_CONTRACT.yaml", ".workflow-system/runtime/package.json"].map((relative) => {
+    const file = path10.resolve(root, relative);
+    return { path: relative, sha256: fs9.existsSync(file) ? sha2565(fs9.readFileSync(file)) : null };
   }));
+}
+function validateUserEvidenceDecision(value) {
+  const d = expectRecord2(value, "user_decision");
+  expectExactKeys2(d, ["kind", "decision_id", "decision_source", "statement_sha256", "check_id", "evidence_plan_revision", "subject_revision", "recorded_at", "assurance", ...d.validation_items === undefined ? [] : ["validation_items"]], "user_decision");
+  expectEnum(d.assurance, ["caller-reported"], "user_decision.assurance");
+  return {
+    kind: expectEnum(d.kind, ["human-acceptance", "waiver"], "user_decision.kind"),
+    ...d.validation_items === undefined ? {} : { validation_items: expectStringArray2(d.validation_items, "user_decision.validation_items", true, MAX_EXECUTION_RESULT_ITEMS) },
+    decision_id: expectString2(d.decision_id, "decision_id", SAFE_KEY_PATTERN2),
+    decision_source: expectText(d.decision_source, "decision_source"),
+    statement_sha256: expectString2(d.statement_sha256, "statement_sha256", SHA256_PATTERN2),
+    check_id: expectString2(d.check_id, "check_id", CLAIM_ID_PATTERN),
+    evidence_plan_revision: expectString2(d.evidence_plan_revision, "evidence_plan_revision", SHA256_PATTERN2),
+    subject_revision: expectString2(d.subject_revision, "subject_revision", SHA256_PATTERN2),
+    recorded_at: expectString2(d.recorded_at, "recorded_at"),
+    assurance: "caller-reported"
+  };
+}
+function assertUserEvidenceApplicable(root, current, slot) {
+  const d = slot.user_decision;
+  if (!d || !slot.check || d.check_id !== slot.check.check_id) {
+    fail3("USER_EVIDENCE_STALE", "The user decision is not bound to this exact check and current evidence plan.");
+  }
+  if (d.evidence_plan_revision !== current.runtimeState.evidence_plan_revision) {
+    const owner = current.runtimeState.claim_evidence?.find((c) => c.slots.some((s) => s.slot_id === slot.slot_id && s.user_decision?.decision_id === d.decision_id));
+    const proof = (current.runtimeState.evidence_carry_forward ?? []).find((p) => p.claim_id === owner?.claim_id && p.slot_id === slot.slot_id && p.check_id === slot.check.check_id && p.user_decision_sha256 === digest3(d) && p.old_plan_revision === d.evidence_plan_revision && p.new_plan_revision === current.runtimeState.evidence_plan_revision);
+    if (!proof)
+      fail3("USER_EVIDENCE_STALE", "No unchanged-decision carry-forward proof exists for this plan.");
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proof.old_source_revision, proof.history_operation ?? "confirm-replan");
+    const file = path10.join(path10.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${proof.old_source_revision}.json`);
+    const history = JSON.parse(fs9.readFileSync(file, "utf8"));
+    const old = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
+    const oldSlot = old.runtimeState.claim_evidence?.find((c) => c.claim_id === proof.claim_id)?.slots.find((s) => s.slot_id === slot.slot_id);
+    if (digest3(oldSlot?.user_decision) !== digest3(d) || digest3(oldSlot?.check) !== digest3(slot.check))
+      fail3("USER_EVIDENCE_STALE", "The retained user decision or observation changed.");
+  }
+  const basis = readCanonicalTaskBasis(root, current).basis;
+  const statement = [basis.original_request, ...basis.user_decisions].find((item) => item.source === d.decision_source);
+  if (!statement || sha2565(statement.verbatim) !== d.statement_sha256)
+    fail3("USER_EVIDENCE_SOURCE_INVALID", "The exact user statement is not retained in the linked Task Basis.");
+  const snapshot = slot.prerequisite_receipt?.subject_snapshot ?? captureReviewTarget(root, slot.check.subject_paths);
+  if (snapshot.revision !== d.subject_revision)
+    fail3("USER_EVIDENCE_STALE", "The observed objects changed after the user decision.");
+  if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.slot_id === slot.slot_id && current.runtimeState.claim_evidence?.find((claim) => claim.claim_id === item.claim_id)?.slots.some((s) => s.slot_id === slot.slot_id && s.check?.check_id === slot.check?.check_id) && item.status !== "resolved"))
+    fail3("USER_EVIDENCE_CHALLENGED", "A user decision cannot silently discharge a retained evidence challenge.");
+}
+function carryUserEvidenceDecision(root, current, claimId, slot, newPlan, operation) {
+  assertUserEvidenceApplicable(root, current, slot);
+  const d = slot.user_decision;
+  const origin = current.runtimeState.evidence_carry_forward?.find((p) => p.claim_id === claimId && p.slot_id === slot.slot_id && p.new_plan_revision === current.runtimeState.evidence_plan_revision && p.user_decision_sha256 === digest3(d));
+  return {
+    kind: "evidence-carry-forward/v2",
+    old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
+    history_operation: origin ? origin.history_operation ?? "confirm-replan" : operation,
+    old_plan_revision: d.evidence_plan_revision,
+    new_plan_revision: newPlan,
+    receiving_source_revision: current.sourceTuple.revision,
+    context_revision: recoveryEvidenceContextRevision(root),
+    evidence_objects: [],
+    claim_id: claimId,
+    slot_id: slot.slot_id,
+    check_id: d.check_id,
+    result_id: d.decision_id,
+    report_sha256: digest3(slot.report ?? null),
+    subject_revision: d.subject_revision,
+    user_decision_sha256: digest3(d)
+  };
+}
+function applicableResultWaiver(root, current, stepId, result, decisionId) {
+  const slots = (current.runtimeState.claim_evidence ?? []).flatMap((claim) => claim.slots);
+  const candidates = slots.filter((slot) => slot.due_step_id === stepId && slot.user_decision?.kind === "waiver" && (!decisionId || slot.user_decision.decision_id === decisionId) && ("command" in result ? slot.check?.method === "execution" && slot.check.entry === result.command : slot.user_decision.validation_items?.includes(result.validation)));
+  for (const slot of candidates) {
+    assertUserEvidenceApplicable(root, current, slot);
+    if ("command" in result) {
+      const step = resolveCanonicalTaskStep(current).steps.find((item) => item.id === stepId);
+      const lines = (step?.plan_text ?? "").split(`
+`);
+      const indices = lines.flatMap((line, i) => line.trim() === `- planned_command: ${result.command}` ? [i] : []);
+      if (indices.length !== 1 || lines[indices[0] + 1]?.trim() !== "- expected_repo_writes: none")
+        continue;
+      const consumers = slots.filter((other) => other.due_step_id === stepId && other.check?.method === "execution" && other.check.entry === result.command);
+      if (consumers.some((other) => other.user_decision?.kind !== "waiver"))
+        continue;
+      for (const consumer of consumers)
+        assertUserEvidenceApplicable(root, current, consumer);
+    }
+    return slot.user_decision;
+  }
+  return null;
+}
+function assertExecutionResultWaivers(root, current, stepId, result) {
+  for (const item of [...result.command_results, ...result.validation_results]) {
+    if (!item.waiver_decision_id)
+      continue;
+    if (item.status === "passed" || item.status === "expected-failure" || !applicableResultWaiver(root, current, stepId, item, item.waiver_decision_id)) {
+      fail3("EVIDENCE_WAIVER_RESULT_UNBOUND", "A nonpassing result needs its exact retained, applicable user waiver; a waiver is not PASS.");
+    }
+  }
 }
 function assertEvidenceReportApplicable(root, current, slot) {
   const report = slot.report;
@@ -7555,30 +7710,34 @@ function assertEvidenceReportApplicable(root, current, slot) {
     fail3("CLAIM_EVIDENCE_INCOMPLETE", "An unresolved counterexample blocks this report even when its subject hash is unchanged.");
   }
   if (report.evidence_plan_revision !== current.runtimeState.evidence_plan_revision) {
-    const owner = (current.runtimeState.claim_evidence ?? []).find((record4) => record4.slots.some((item) => item.slot_id === slot.slot_id && item.report?.result_id === report.result_id));
+    const owner = (current.runtimeState.claim_evidence ?? []).find((record) => record.slots.some((item) => item.slot_id === slot.slot_id && item.report?.result_id === report.result_id));
     const proof = (current.runtimeState.evidence_carry_forward ?? []).find((item) => item.claim_id === owner?.claim_id && item.slot_id === slot.slot_id && item.check_id === slot.check.check_id && item.result_id === report.result_id && item.old_plan_revision === report.evidence_plan_revision && item.new_plan_revision === current.runtimeState.evidence_plan_revision && item.report_sha256 === digest3(report) && item.subject_revision === report.subject_revision);
     if (!proof || (current.runtimeState.evidence_challenges ?? []).some((item) => item.claim_id === proof.claim_id && item.slot_id === proof.slot_id && item.status !== "resolved")) {
       fail3("CLAIM_EVIDENCE_INCOMPLETE", "old-plan report has no applicable unchallenged Runtime carry-forward proof.");
     }
-    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proof.old_source_revision, "confirm-replan");
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proof.old_source_revision, proof.history_operation ?? "confirm-replan");
     const historyFile = path10.join(path10.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${proof.old_source_revision}.json`);
     const history = JSON.parse(fs9.readFileSync(historyFile, "utf8"));
     const previous = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
-    const oldSlot = previous.runtimeState.claim_evidence?.find((record4) => record4.claim_id === proof.claim_id)?.slots.find((item) => item.slot_id === proof.slot_id);
+    const oldSlot = previous.runtimeState.claim_evidence?.find((record) => record.claim_id === proof.claim_id)?.slots.find((item) => item.slot_id === proof.slot_id);
     if (previous.runtimeState.evidence_plan_revision !== proof.old_plan_revision || digest3(oldSlot?.report) !== proof.report_sha256 || digest3(oldSlot?.check) !== digest3(slot.check)) {
       fail3("EVIDENCE_CARRY_FORWARD_STALE", "immutable source does not contain the exact unchanged report and check.");
     }
     if (proof.kind === "evidence-carry-forward/v2") {
       if (proof.context_revision !== recoveryEvidenceContextRevision(root))
         fail3("EVIDENCE_CARRY_FORWARD_STALE", "Project configuration or installed Runtime context changed; reassess affected evidence.");
-      if (digest3(describeEvidenceObjects(root, slot.evidence_refs)) !== digest3(proof.evidence_objects))
+      if (!slot.user_decision && digest3(describeEvidenceObjects(root, slot.evidence_refs)) !== digest3(proof.evidence_objects))
         fail3("EVIDENCE_CARRY_FORWARD_STALE", "Evidence body changed; affected evidence needs reassessment.");
       for (const object of proof.evidence_objects)
         verifyEvidenceObject(root, current.filePath, object);
     }
   }
-  if (report.actual_method === "human")
-    fail3("EVIDENCE_AUTHORITY_UNSUPPORTED", "No authenticated human acceptance channel is bound; caller-reported human approval is insufficient.");
+  if (report.actual_method === "human") {
+    if (slot.user_decision?.kind !== "human-acceptance" || slot.user_decision.decision_id !== report.result_id) {
+      fail3("EVIDENCE_AUTHORITY_UNSUPPORTED", "Human evidence requires the explicit record-human-acceptance route; a raw report is not a user statement.");
+    }
+    assertUserEvidenceApplicable(root, current, slot);
+  }
   if (!slot.evidence_refs.length || slot.evidence_refs.some((ref) => {
     try {
       const p = normalizeRepoPath2(ref.split("#")[0], "evidence_ref");
@@ -7594,10 +7753,14 @@ function assertEvidenceReportApplicable(root, current, slot) {
   if (slot.prerequisite_receipt && (slot.prerequisite_receipt.result_id !== report.result_id || slot.prerequisite_receipt.step_id !== slot.before_step_id))
     fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "prerequisite receipt does not bind its original report.");
 }
-function assertEvidenceSlotSatisfied(root, current, record4, slot, closing) {
+function assertEvidenceSlotSatisfied(root, current, record, slot, closing) {
+  if (slot.user_decision?.kind === "waiver") {
+    assertUserEvidenceApplicable(root, current, slot);
+    return;
+  }
   assertEvidenceReportApplicable(root, current, slot);
   if (!isClaimEvidenceSlotComplete(slot) || slot.report.status !== slot.check.expected_result)
-    fail3("CLAIM_EVIDENCE_INCOMPLETE", `unsatisfied slot ${record4.claim_id}/${slot.slot_id}`);
+    fail3("CLAIM_EVIDENCE_INCOMPLETE", `unsatisfied slot ${record.claim_id}/${slot.slot_id}`);
   if (closing && slot.applicability === "before-step" && !slot.prerequisite_receipt)
     fail3("PREREQUISITE_REQUIRED", "prerequisite has not been consumed before execution.");
 }
@@ -7614,16 +7777,16 @@ function validateClaimEvidence(value, location) {
     fail3("CLAIM_EVIDENCE_INVALID", `${location} must be a bounded array of claim evidence records.`);
   }
   const records = value.map((raw, index) => {
-    const record4 = expectRecord2(raw, `${location}[${index}]`);
-    expectExactKeys2(record4, ["claim_id", "claim_kind", "slots", ...["requirement", "source_ref", "boundary"].filter((key) => (key in record4))], `${location}[${index}]`);
-    const claimId = expectString2(record4.claim_id, `${location}[${index}].claim_id`, CLAIM_ID_PATTERN);
-    const claimKind = expectEnum(record4.claim_kind, CLAIM_KINDS, `${location}[${index}].claim_kind`);
-    if (!Array.isArray(record4.slots) || record4.slots.length === 0 || record4.slots.length > MAX_CLAIM_EVIDENCE_SLOTS) {
+    const record = expectRecord2(raw, `${location}[${index}]`);
+    expectExactKeys2(record, ["claim_id", "claim_kind", "slots", ...["requirement", "source_ref", "boundary"].filter((key) => (key in record))], `${location}[${index}]`);
+    const claimId = expectString2(record.claim_id, `${location}[${index}].claim_id`, CLAIM_ID_PATTERN);
+    const claimKind = expectEnum(record.claim_kind, CLAIM_KINDS, `${location}[${index}].claim_kind`);
+    if (!Array.isArray(record.slots) || record.slots.length === 0 || record.slots.length > MAX_CLAIM_EVIDENCE_SLOTS) {
       fail3("CLAIM_EVIDENCE_INVALID", `${location}[${index}].slots must be a non-empty bounded array.`);
     }
-    const slots = record4.slots.map((rawSlot, slotIndex) => {
+    const slots = record.slots.map((rawSlot, slotIndex) => {
       const slot = expectRecord2(rawSlot, `${location}[${index}].slots[${slotIndex}]`);
-      expectExactKeys2(slot, ["slot_id", "minimum_type", "disposition", "evidence_refs", ...["due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt"].filter((key) => (key in slot))], `${location}[${index}].slots[${slotIndex}]`);
+      expectExactKeys2(slot, ["slot_id", "minimum_type", "disposition", "evidence_refs", ...["due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt", "user_decision"].filter((key) => (key in slot))], `${location}[${index}].slots[${slotIndex}]`);
       const slotId = expectString2(slot.slot_id, `${location}[${index}].slots[${slotIndex}].slot_id`, CLAIM_EVIDENCE_SLOT_ID_PATTERN);
       const minimumType = expectString2(slot.minimum_type, `${location}[${index}].slots[${slotIndex}].minimum_type`, CLAIM_EVIDENCE_TYPE_PATTERN);
       const disposition = expectEnum(slot.disposition, CLAIM_EVIDENCE_DISPOSITIONS, `${location}[${index}].slots[${slotIndex}].disposition`);
@@ -7643,19 +7806,19 @@ function validateClaimEvidence(value, location) {
           const dimensions = modern ? { granularity: expectEnum(rawSelection.granularity, EVIDENCE_EXECUTION_GRANULARITIES, "check.selection.granularity") } : { scope: expectEnum(rawSelection.scope, LEGACY_EVIDENCE_EXECUTION_SELECTION_SCOPES, "check.selection.scope"), claim_scope: expectEnum(rawSelection.claim_scope, EVIDENCE_CHECK_BOUNDARIES, "check.selection.claim_scope") };
           let invocation;
           if (rawSelection.invocation !== undefined) {
-            const raw2 = expectRecord2(rawSelection.invocation, "selection.invocation");
-            if (raw2.kind === "opaque") {
-              expectExactKeys2(raw2, ["kind", "command"], "selection.invocation");
-              invocation = { kind: "opaque", command: expectText(raw2.command, "invocation.command") };
+            const raw = expectRecord2(rawSelection.invocation, "selection.invocation");
+            if (raw.kind === "opaque") {
+              expectExactKeys2(raw, ["kind", "command"], "selection.invocation");
+              invocation = { kind: "opaque", command: expectText(raw.command, "invocation.command") };
             } else {
-              expectExactKeys2(raw2, ["argv", "selector_arg_index", ..."kind" in raw2 ? ["kind"] : []], "selection.invocation");
-              if (raw2.kind !== undefined)
-                expectEnum(raw2.kind, ["structured"], "invocation.kind");
-              if (raw2.selector_arg_index !== null && (!Number.isInteger(raw2.selector_arg_index) || raw2.selector_arg_index < 1))
+              expectExactKeys2(raw, ["argv", "selector_arg_index", ..."kind" in raw ? ["kind"] : []], "selection.invocation");
+              if (raw.kind !== undefined)
+                expectEnum(raw.kind, ["structured"], "invocation.kind");
+              if (raw.selector_arg_index !== null && (!Number.isInteger(raw.selector_arg_index) || raw.selector_arg_index < 1))
                 fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector_arg_index must be null or a positive integer.");
-              if (!Array.isArray(raw2.argv) || raw2.argv.length === 0)
+              if (!Array.isArray(raw.argv) || raw.argv.length === 0)
                 fail3("CLAIM_EVIDENCE_INVOCATION_INVALID", "invocation.argv must be a nonempty ordered argument list.");
-              invocation = { ...raw2.kind === undefined ? {} : { kind: "structured" }, argv: raw2.argv.map((arg, index2) => expectText(arg, `invocation.argv[${index2}]`)), selector_arg_index: raw2.selector_arg_index };
+              invocation = { ...raw.kind === undefined ? {} : { kind: "structured" }, argv: raw.argv.map((arg, index) => expectText(arg, `invocation.argv[${index}]`)), selector_arg_index: raw.selector_arg_index };
             }
           }
           const selector = rawSelection.selector === null ? null : expectText(rawSelection.selector, "check.selection.selector");
@@ -7693,6 +7856,8 @@ function validateClaimEvidence(value, location) {
         result.before_step_id = expectString2(slot.before_step_id, "slot.before_step_id", STEP_ID_PATTERN2);
       if (slot.report !== undefined)
         result.report = slot.report === null ? null : validateEvidenceReport(slot.report);
+      if (slot.user_decision !== undefined)
+        result.user_decision = validateUserEvidenceDecision(slot.user_decision);
       if (slot.prerequisite_receipt !== undefined) {
         if (slot.prerequisite_receipt === null)
           result.prerequisite_receipt = null;
@@ -7716,18 +7881,18 @@ function validateClaimEvidence(value, location) {
       claim_id: claimId,
       claim_kind: claimKind,
       slots,
-      ...record4.requirement === undefined ? {} : { requirement: expectText(record4.requirement, "claim.requirement") },
-      ...record4.source_ref === undefined ? {} : { source_ref: expectText(record4.source_ref, "claim.source_ref") },
-      ...record4.boundary === undefined ? {} : { boundary: expectEnum(record4.boundary, ["local", "business-flow", "e2e"], "claim.boundary") }
+      ...record.requirement === undefined ? {} : { requirement: expectText(record.requirement, "claim.requirement") },
+      ...record.source_ref === undefined ? {} : { source_ref: expectText(record.source_ref, "claim.source_ref") },
+      ...record.boundary === undefined ? {} : { boundary: expectEnum(record.boundary, ["local", "business-flow", "e2e"], "claim.boundary") }
     };
   });
-  if (new Set(records.map((record4) => record4.claim_id)).size !== records.length) {
+  if (new Set(records.map((record) => record.claim_id)).size !== records.length) {
     fail3("CLAIM_EVIDENCE_INVALID", `${location} must have unique claim_id values.`);
   }
   return records;
 }
 function claimEvidenceRefs(records) {
-  return [...new Set(records.flatMap((record4) => record4.slots.flatMap((slot) => slot.evidence_refs)))];
+  return [...new Set(records.flatMap((record) => record.slots.flatMap((slot) => slot.evidence_refs)))];
 }
 function isClaimEvidenceSlotComplete(slot) {
   return COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition) && slot.evidence_refs.length > 0;
@@ -7753,16 +7918,16 @@ function evaluateClaimEvidence(records, context) {
     return incomplete;
   const completion = { validation_complete: true, acceptance_satisfied: true };
   const completingCorrection = due_step_id === current.runtimeState.active_step_id && current.runtimeState.evidence_challenges?.some((challenge) => challenge.status === "invalidated" && challenge.correction_step_id === due_step_id);
-  for (const record4 of records) {
-    const dueSlots = record4.slots.filter((slot) => steps.indexOf(slot.due_step_id) <= dueIndex);
+  for (const record of records) {
+    const dueSlots = record.slots.filter((slot) => steps.indexOf(slot.due_step_id) <= dueIndex);
     for (const slot of dueSlots) {
-      if (completingCorrection && slot.due_step_id !== due_step_id && slot.before_step_id !== due_step_id && current.runtimeState.evidence_challenges?.some((challenge) => challenge.status === "contested" && challenge.correction_step_id === null && challenge.claim_id === record4.claim_id && challenge.slot_id === slot.slot_id))
+      if (completingCorrection && slot.due_step_id !== due_step_id && slot.before_step_id !== due_step_id && current.runtimeState.evidence_challenges?.some((challenge) => challenge.status === "contested" && challenge.correction_step_id === null && challenge.claim_id === record.claim_id && challenge.slot_id === slot.slot_id))
         continue;
       try {
-        assertEvidenceSlotSatisfied(root, current, record4, slot, due_step_id === undefined);
+        assertEvidenceSlotSatisfied(root, current, record, slot, due_step_id === undefined);
       } catch {
         completion.validation_complete = false;
-        if (record4.claim_kind === "acceptance")
+        if (record.claim_kind === "acceptance")
           completion.acceptance_satisfied = false;
       }
     }
@@ -7782,7 +7947,7 @@ function requireClaimEvidencePlan(records, location, missingCode = "CLAIM_EVIDEN
   return [...records];
 }
 function requireAcceptanceClaim(records, location) {
-  if (!records.some((record4) => record4.claim_kind === "acceptance")) {
+  if (!records.some((record) => record.claim_kind === "acceptance")) {
     fail3("CLAIM_EVIDENCE_ACCEPTANCE_REQUIRED", `${location} must include at least one acceptance claim; invariant evidence cannot substitute for acceptance evidence.`);
   }
 }
@@ -7793,7 +7958,7 @@ function assertClaimEvidencePlanPreserved(planned, proposed, location) {
   if (planned.length !== proposed.length) {
     fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", `${location} cannot add or remove planned claims during step progress.`);
   }
-  const proposedByClaim = new Map(proposed.map((record4) => [record4.claim_id, record4]));
+  const proposedByClaim = new Map(proposed.map((record) => [record.claim_id, record]));
   for (const plannedRecord of planned) {
     const proposedRecord = proposedByClaim.get(plannedRecord.claim_id);
     if (!proposedRecord || proposedRecord.claim_kind !== plannedRecord.claim_kind || proposedRecord.requirement !== plannedRecord.requirement || proposedRecord.source_ref !== plannedRecord.source_ref || proposedRecord.boundary !== plannedRecord.boundary) {
@@ -7805,6 +7970,9 @@ function assertClaimEvidencePlanPreserved(planned, proposed, location) {
     const proposedBySlot = new Map(proposedRecord.slots.map((slot) => [slot.slot_id, slot]));
     for (const plannedSlot of plannedRecord.slots) {
       const proposedSlot = proposedBySlot.get(plannedSlot.slot_id);
+      if (digest3(proposedSlot?.user_decision ?? null) !== digest3(plannedSlot.user_decision ?? null)) {
+        fail3("USER_EVIDENCE_ACTION_REQUIRED", "Ordinary progress cannot create, delete or change a user decision.");
+      }
       if (!proposedSlot || digest3(evidenceSlotDefinition(proposedSlot)) !== digest3(evidenceSlotDefinition(plannedSlot))) {
         fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", `${location} must preserve evidence slot ${plannedRecord.claim_id}/${plannedSlot.slot_id} and its minimum type.`);
       }
@@ -7815,8 +7983,8 @@ function assertClaimEvidencePlanPreserved(planned, proposed, location) {
   }
 }
 function validateStepReviewReceipt(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, [
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, [
     "cycle_id",
     "cycle_phase",
     "change_set_id",
@@ -7825,8 +7993,8 @@ function validateStepReviewReceipt(value, location) {
     "admitted_fingerprints",
     "evidence_refs"
   ], location);
-  const cyclePhase = expectEnum(record4.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`);
-  const admittedFingerprints = expectStringArray2(record4.admitted_fingerprints, `${location}.admitted_fingerprints`, true, MAX_FINDINGS).map((fingerprint, index) => {
+  const cyclePhase = expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`);
+  const admittedFingerprints = expectStringArray2(record.admitted_fingerprints, `${location}.admitted_fingerprints`, true, MAX_FINDINGS).map((fingerprint, index) => {
     if (!FINGERPRINT_PATTERN.test(fingerprint))
       fail3("RUNTIME_SCHEMA_INVALID", `${location}.admitted_fingerprints[${index}] has an invalid fingerprint.`);
     return fingerprint;
@@ -7835,39 +8003,39 @@ function validateStepReviewReceipt(value, location) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.discovery receipts must not carry admitted fingerprints.`);
   }
   return {
-    cycle_id: expectString2(record4.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN2),
+    cycle_id: expectString2(record.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN2),
     cycle_phase: cyclePhase,
-    change_set_id: expectString2(record4.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2),
-    review_target_revision: expectString2(record4.review_target_revision, `${location}.review_target_revision`, /^[a-f0-9]{64}$/u),
-    verdict: expectEnum(record4.verdict, ["clean"], `${location}.verdict`),
+    change_set_id: expectString2(record.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2),
+    review_target_revision: expectString2(record.review_target_revision, `${location}.review_target_revision`, /^[a-f0-9]{64}$/u),
+    verdict: expectEnum(record.verdict, ["clean"], `${location}.verdict`),
     admitted_fingerprints: admittedFingerprints,
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location}.evidence_refs`)
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
   };
 }
 function validateReviewFindingCandidate(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["fingerprint", "category", "file", "failure_condition", "required_behavior", "root_cause_status", "evidence_refs"], location);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["fingerprint", "category", "file", "failure_condition", "required_behavior", "root_cause_status", "evidence_refs"], location);
   return {
-    fingerprint: expectString2(record4.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
-    category: expectText(record4.category, `${location}.category`, 256),
-    file: normalizeRepoPath2(expectString2(record4.file, `${location}.file`), `${location}.file`),
-    failure_condition: expectText(record4.failure_condition, `${location}.failure_condition`),
-    required_behavior: expectText(record4.required_behavior, `${location}.required_behavior`, 512),
-    root_cause_status: expectEnum(record4.root_cause_status, ["confirmed", "bounded"], `${location}.root_cause_status`),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location}.evidence_refs`)
+    fingerprint: expectString2(record.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    category: expectText(record.category, `${location}.category`, 256),
+    file: normalizeRepoPath2(expectString2(record.file, `${location}.file`), `${location}.file`),
+    failure_condition: expectText(record.failure_condition, `${location}.failure_condition`),
+    required_behavior: expectText(record.required_behavior, `${location}.required_behavior`, 512),
+    root_cause_status: expectEnum(record.root_cause_status, ["confirmed", "bounded"], `${location}.root_cause_status`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
   };
 }
 function validateReviewBlocker(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["code", "summary", "next_route"], location);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["code", "summary", "next_route"], location);
   return {
-    code: expectString2(record4.code, `${location}.code`, SAFE_KEY_PATTERN2),
-    summary: expectText(record4.summary, `${location}.summary`),
-    next_route: expectEnum(record4.next_route, REVIEW_BLOCKER_ROUTES, `${location}.next_route`)
+    code: expectString2(record.code, `${location}.code`, SAFE_KEY_PATTERN2),
+    summary: expectText(record.summary, `${location}.summary`),
+    next_route: expectEnum(record.next_route, REVIEW_BLOCKER_ROUTES, `${location}.next_route`)
   };
 }
 function validatePendingReviewResult(value, location, includeRecordedAt) {
-  const record4 = expectRecord2(value, location);
+  const record = expectRecord2(value, location);
   const keys = [
     "kind",
     "review_id",
@@ -7882,25 +8050,25 @@ function validatePendingReviewResult(value, location, includeRecordedAt) {
     "unresolved_fingerprints",
     "evidence_refs",
     "blocker",
-    ...record4.test_assessment === undefined ? [] : ["test_assessment"],
+    ...record.test_assessment === undefined ? [] : ["test_assessment"],
     ...includeRecordedAt ? ["recorded_at"] : []
   ];
-  expectExactKeys2(record4, keys, location);
-  if (record4.kind !== "review-result/v1")
+  expectExactKeys2(record, keys, location);
+  if (record.kind !== "review-result/v1")
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.kind must be review-result/v1.`);
-  if (!Array.isArray(record4.findings) || record4.findings.length > MAX_FINDINGS) {
+  if (!Array.isArray(record.findings) || record.findings.length > MAX_FINDINGS) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.findings must be a bounded array.`);
   }
-  const findings = record4.findings.map((item, index) => validateReviewFindingCandidate(item, `${location}.findings[${index}]`));
+  const findings = record.findings.map((item, index) => validateReviewFindingCandidate(item, `${location}.findings[${index}]`));
   if (new Set(findings.map((item) => item.fingerprint)).size !== findings.length) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.findings fingerprints must be unique.`);
   }
-  const unresolvedFingerprints = expectStringArray2(record4.unresolved_fingerprints, `${location}.unresolved_fingerprints`, true, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location}.unresolved_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const unresolvedFingerprints = expectStringArray2(record.unresolved_fingerprints, `${location}.unresolved_fingerprints`, true, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location}.unresolved_fingerprints[${index}]`, FINGERPRINT_PATTERN));
   if (new Set(unresolvedFingerprints).size !== unresolvedFingerprints.length) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.unresolved_fingerprints must be unique.`);
   }
-  const verdict = expectEnum(record4.verdict, REVIEW_RESULT_VERDICTS, `${location}.verdict`);
-  const blocker = record4.blocker === null ? null : validateReviewBlocker(record4.blocker, `${location}.blocker`);
+  const verdict = expectEnum(record.verdict, REVIEW_RESULT_VERDICTS, `${location}.verdict`);
+  const blocker = record.blocker === null ? null : validateReviewBlocker(record.blocker, `${location}.blocker`);
   if (verdict === "clean" && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker !== null)) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location} clean result must not contain findings or a blocker.`);
   }
@@ -7911,22 +8079,22 @@ function validatePendingReviewResult(value, location, includeRecordedAt) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location} blocked result requires only a blocker.`);
   }
   const result = {
-    ...record4.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(record4.test_assessment) },
+    ...record.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(record.test_assessment) },
     kind: "review-result/v1",
-    review_id: expectString2(record4.review_id, `${location}.review_id`, SAFE_KEY_PATTERN2),
-    execution_id: expectString2(record4.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN2),
-    step_id: expectString2(record4.step_id, `${location}.step_id`, STEP_ID_PATTERN2),
-    cycle_id: expectString2(record4.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN2),
-    cycle_phase: expectEnum(record4.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
-    change_set_id: expectString2(record4.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2),
-    review_target_revision: expectString2(record4.review_target_revision, `${location}.review_target_revision`, /^[a-f0-9]{64}$/u),
+    review_id: expectString2(record.review_id, `${location}.review_id`, SAFE_KEY_PATTERN2),
+    execution_id: expectString2(record.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN2),
+    step_id: expectString2(record.step_id, `${location}.step_id`, STEP_ID_PATTERN2),
+    cycle_id: expectString2(record.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN2),
+    cycle_phase: expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
+    change_set_id: expectString2(record.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2),
+    review_target_revision: expectString2(record.review_target_revision, `${location}.review_target_revision`, /^[a-f0-9]{64}$/u),
     verdict,
     findings,
     unresolved_fingerprints: unresolvedFingerprints,
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location}.evidence_refs`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
     blocker
   };
-  return includeRecordedAt ? { ...result, recorded_at: expectString2(record4.recorded_at, `${location}.recorded_at`) } : result;
+  return includeRecordedAt ? { ...result, recorded_at: expectString2(record.recorded_at, `${location}.recorded_at`) } : result;
 }
 var REPLAN_REPLACEMENT_FIELDS = [
   "background_context",
@@ -7990,25 +8158,25 @@ function normalizeReplacementSectionContent(value, location) {
   return normalized;
 }
 function validatePartialDiffDisposition(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["reusable", "rollback_required", "stop_propagation"], location);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["reusable", "rollback_required", "stop_propagation"], location);
   return {
-    reusable: expectStringArray2(record4.reusable, `${location}.reusable`, true, MAX_EVIDENCE_REFS),
-    rollback_required: expectStringArray2(record4.rollback_required, `${location}.rollback_required`, true, MAX_EVIDENCE_REFS),
-    stop_propagation: expectStringArray2(record4.stop_propagation, `${location}.stop_propagation`, true, MAX_EVIDENCE_REFS)
+    reusable: expectStringArray2(record.reusable, `${location}.reusable`, true, MAX_EVIDENCE_REFS),
+    rollback_required: expectStringArray2(record.rollback_required, `${location}.rollback_required`, true, MAX_EVIDENCE_REFS),
+    stop_propagation: expectStringArray2(record.stop_propagation, `${location}.stop_propagation`, true, MAX_EVIDENCE_REFS)
   };
 }
 function validateReplanReplacementDefinition(value, location) {
-  const record4 = expectRecord2(value, location);
-  const hasAuthorityVersion = "mutation_authority_version" in record4;
-  const hasAuthority = "mutation_authority" in record4;
+  const record = expectRecord2(value, location);
+  const hasAuthorityVersion = "mutation_authority_version" in record;
+  const hasAuthority = "mutation_authority" in record;
   if (hasAuthorityVersion !== hasAuthority) {
     fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${location} must provide mutation_authority_version and mutation_authority together.`);
   }
-  expectExactKeys2(record4, [...REPLAN_REPLACEMENT_FIELDS, ...hasAuthority ? ["mutation_authority_version", "mutation_authority"] : []], location);
+  expectExactKeys2(record, [...REPLAN_REPLACEMENT_FIELDS, ...hasAuthority ? ["mutation_authority_version", "mutation_authority"] : []], location);
   const result = {};
   for (const field of REPLAN_REPLACEMENT_FIELDS) {
-    const raw = record4[field];
+    const raw = record[field];
     if (raw === null && ["design_constraints", "post_release_validation", "propagation_governance"].includes(field)) {
       result[field] = null;
       continue;
@@ -8019,11 +8187,11 @@ function validateReplanReplacementDefinition(value, location) {
   }
   if (hasAuthority) {
     try {
-      if (record4.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+      if (record.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
         fail3("MUTATION_AUTHORITY_VERSION_UNSUPPORTED", `${location}.mutation_authority_version must be 2.`);
       }
       result.mutation_authority_version = MUTATION_AUTHORITY_VERSION;
-      result.mutation_authority = normalizeTaskMutationAuthority(record4.mutation_authority);
+      result.mutation_authority = normalizeTaskMutationAuthority(record.mutation_authority);
     } catch (error) {
       if (error instanceof MutationAuthorityError)
         fail3(error.code, error.message);
@@ -8410,8 +8578,8 @@ function assertRepositoryAuthoritySource(root, sourceRef) {
   }
   const resolvedRoot = path10.resolve(root);
   const resolved = path10.resolve(resolvedRoot, ...normalized.split("/"));
-  const relative7 = path10.relative(resolvedRoot, resolved);
-  if (!relative7 || relative7.startsWith(`..${path10.sep}`) || path10.isAbsolute(relative7) || !fs9.existsSync(resolved) || !fs9.statSync(resolved).isFile()) {
+  const relative = path10.relative(resolvedRoot, resolved);
+  if (!relative || relative.startsWith(`..${path10.sep}`) || path10.isAbsolute(relative) || !fs9.existsSync(resolved) || !fs9.statSync(resolved).isFile()) {
     fail3("TEST_STRATEGY_INVALID", `authority source does not identify an existing project file: ${sourceRef}.`);
   }
   const realRelative = path10.relative(fs9.realpathSync(resolvedRoot), fs9.realpathSync(resolved));
@@ -8420,7 +8588,7 @@ function assertRepositoryAuthoritySource(root, sourceRef) {
   }
   if (locator !== undefined) {
     const headings = [...fs9.readFileSync(resolved, "utf8").matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gmu)].map((match) => match[1]);
-    const matches = headings.filter((heading2) => heading2 === locator || heading2.startsWith(`${locator}:`) || heading2.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, "").replace(/\s/gu, "-") === locator);
+    const matches = headings.filter((heading) => heading === locator || heading.startsWith(`${locator}:`) || heading.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, "").replace(/\s/gu, "-") === locator);
     if (matches.length !== 1)
       fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "source heading/record identity must exist and be unambiguous.");
   }
@@ -8451,7 +8619,7 @@ function executionPhaseForCurrentStep(current, strategy = resolveTestStrategyExe
   const resolution = resolveCanonicalTaskStep(current);
   const currentStepId = resolution.current.id;
   const currentStepIndex = resolution.index;
-  const hasPendingReproduction = (current.runtimeState.claim_evidence ?? []).some((record4) => record4.slots.some((slot) => {
+  const hasPendingReproduction = (current.runtimeState.claim_evidence ?? []).some((record) => record.slots.some((slot) => {
     if (slot.due_step_id !== currentStepId || slot.applicability !== "before-step" || slot.prerequisite_receipt || slot.check?.expected_result !== "expected-failure" || !slot.before_step_id)
       return false;
     const beforeStepIndex = resolution.steps.findIndex((step) => step.id === slot.before_step_id);
@@ -8489,21 +8657,21 @@ function assertTestStrategyExecutionTransition(current, delta) {
     fail3("TEST_STRATEGY_SEQUENCE_INVALID", "test-red requires admitted reproduction evidence (S2) and cannot complete positive acceptance.");
   }
 }
-function validateDraftTaskIdentityFields(record4, location, requireTitle = true) {
-  const taskId = expectString2(record4.task_id, `${location}.task_id`);
-  const taskSlug = expectString2(record4.task_slug, `${location}.task_slug`);
+function validateDraftTaskIdentityFields(record, location, requireTitle = true) {
+  const taskId = expectString2(record.task_id, `${location}.task_id`);
+  const taskSlug = expectString2(record.task_slug, `${location}.task_slug`);
   try {
     validateTaskId(taskId);
     validateTaskSlug(taskSlug);
   } catch (error) {
     fail3("RUNTIME_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const documentId = expectString2(record4.document_id, `${location}.document_id`);
+  const documentId = expectString2(record.document_id, `${location}.document_id`);
   if (!DOCUMENT_ID_PATTERN.test(documentId))
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.document_id is invalid.`);
   if (!requireTitle)
     return { task_id: taskId, task_slug: taskSlug, document_id: documentId };
-  const taskTitle = expectText(record4.task_title, `${location}.task_title`, 512);
+  const taskTitle = expectText(record.task_title, `${location}.task_title`, 512);
   if (/[\r\n]/u.test(taskTitle))
     fail3("RUNTIME_IDENTITY_INVALID", `${location}.task_title must be a single line.`);
   if (/^\{\{[^{}]+\}\}$/.test(taskTitle))
@@ -8617,66 +8785,83 @@ function assertReviewExecutionEligible(current, execution) {
   }
 }
 function validateTaskStateDelta(value) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  const kind = expectEnum(record4.kind, ["task-state"], "semantic_delta.kind");
-  const action = expectEnum(record4.action, ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "semantic_delta.action");
-  if (action === "consume-retained-review") {
-    expectExactKeys2(record4, ["kind", "action", "step_id", "review_receipt", "evidence_refs"], "consume-retained-review");
+  const record = expectRecord2(value, "semantic_delta");
+  const kind = expectEnum(record.kind, ["task-state"], "semantic_delta.kind");
+  const action = expectEnum(record.action, ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "semantic_delta.action");
+  if (action === "record-user-evidence") {
+    expectExactKeys2(record, ["kind", "action", "decision_kind", "claim_id", "slot_id", "check_id", "evidence_plan_revision", "subject_revision", "decision_source", "decision_text", "evidence_refs", ...record.validation_items === undefined ? [] : ["validation_items"]], "record-user-evidence");
     return {
       kind,
       action,
-      step_id: expectString2(record4.step_id, "step_id", STEP_ID_PATTERN2),
-      review_receipt: validateStepReviewReceipt(record4.review_receipt, "semantic_delta.review_receipt"),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      decision_kind: expectEnum(record.decision_kind, ["human-acceptance", "waiver"], "decision_kind"),
+      claim_id: expectString2(record.claim_id, "claim_id", CLAIM_ID_PATTERN),
+      slot_id: expectString2(record.slot_id, "slot_id", CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+      check_id: expectString2(record.check_id, "check_id", CLAIM_ID_PATTERN),
+      evidence_plan_revision: expectString2(record.evidence_plan_revision, "evidence_plan_revision", SHA256_PATTERN2),
+      subject_revision: expectString2(record.subject_revision, "subject_revision", SHA256_PATTERN2),
+      decision_source: expectText(record.decision_source, "decision_source"),
+      decision_text: expectVerbatim(record.decision_text, "decision_text", 32768),
+      ...record.validation_items === undefined ? {} : { validation_items: expectStringArray2(record.validation_items, "validation_items", true, MAX_EXECUTION_RESULT_ITEMS) },
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs")
+    };
+  }
+  if (action === "consume-retained-review") {
+    expectExactKeys2(record, ["kind", "action", "step_id", "review_receipt", "evidence_refs"], "consume-retained-review");
+    return {
+      kind,
+      action,
+      step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2),
+      review_receipt: validateStepReviewReceipt(record.review_receipt, "semantic_delta.review_receipt"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "retry-step") {
-    expectExactKeys2(record4, ["kind", "action", "step_id", "blocked_attempt_id", "blocker_resolution_refs", ...record4.repair_diagnosis === undefined ? [] : ["repair_diagnosis"], "evidence_refs"], "retry-step");
-    return { kind, action, step_id: expectString2(record4.step_id, "step_id", STEP_ID_PATTERN2), blocked_attempt_id: expectString2(record4.blocked_attempt_id, "blocked_attempt_id", SAFE_KEY_PATTERN2), blocker_resolution_refs: validateEvidenceRefs(record4.blocker_resolution_refs, "blocker_resolution_refs"), ...record4.repair_diagnosis === undefined ? {} : { repair_diagnosis: validateStepRepairDiagnosis(record4.repair_diagnosis) }, evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs") };
+    expectExactKeys2(record, ["kind", "action", "step_id", "blocked_attempt_id", "blocker_resolution_refs", ...record.repair_diagnosis === undefined ? [] : ["repair_diagnosis"], "evidence_refs"], "retry-step");
+    return { kind, action, step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2), blocked_attempt_id: expectString2(record.blocked_attempt_id, "blocked_attempt_id", SAFE_KEY_PATTERN2), blocker_resolution_refs: validateEvidenceRefs(record.blocker_resolution_refs, "blocker_resolution_refs"), ...record.repair_diagnosis === undefined ? {} : { repair_diagnosis: validateStepRepairDiagnosis(record.repair_diagnosis) }, evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs") };
   }
   if (action === "record-step-preflight") {
-    expectExactKeys2(record4, [
+    expectExactKeys2(record, [
       "kind",
       "action",
       "step_id",
       "candidate_paths",
       "evidence_refs",
-      ...record4.blast_radius_assessments === undefined ? [] : ["blast_radius_assessments"],
-      ...record4.mode === undefined ? [] : ["mode"],
-      ...record4.execution_id === undefined ? [] : ["execution_id"],
-      ...record4.plan_revision === undefined ? [] : ["plan_revision"],
-      ...record4.execution_phase === undefined ? [] : ["execution_phase"],
-      ...record4.repair_fingerprints === undefined ? [] : ["repair_fingerprints"],
-      ...record4.repair_wave_id === undefined ? [] : ["repair_wave_id"],
-      ...record4.review_id === undefined ? [] : ["review_id"],
-      ...record4.review_target_paths === undefined ? [] : ["review_target_paths"],
-      ...record4.change_set_id === undefined ? [] : ["change_set_id"]
+      ...record.blast_radius_assessments === undefined ? [] : ["blast_radius_assessments"],
+      ...record.mode === undefined ? [] : ["mode"],
+      ...record.execution_id === undefined ? [] : ["execution_id"],
+      ...record.plan_revision === undefined ? [] : ["plan_revision"],
+      ...record.execution_phase === undefined ? [] : ["execution_phase"],
+      ...record.repair_fingerprints === undefined ? [] : ["repair_fingerprints"],
+      ...record.repair_wave_id === undefined ? [] : ["repair_wave_id"],
+      ...record.review_id === undefined ? [] : ["review_id"],
+      ...record.review_target_paths === undefined ? [] : ["review_target_paths"],
+      ...record.change_set_id === undefined ? [] : ["change_set_id"]
     ], "semantic_delta");
     let assessments;
-    if (record4.blast_radius_assessments !== undefined) {
+    if (record.blast_radius_assessments !== undefined) {
       try {
-        assessments = normalizeBlastRadiusAssessments(record4.blast_radius_assessments);
+        assessments = normalizeBlastRadiusAssessments(record.blast_radius_assessments);
       } catch (error) {
         fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
       }
     }
-    const mode = record4.mode === undefined ? undefined : expectEnum(record4.mode, VNEXT_EXECUTE_STEP_MODES, "mode");
-    const executionId = record4.execution_id === undefined ? undefined : expectString2(record4.execution_id, "execution_id", SAFE_KEY_PATTERN2);
-    const planRevision = record4.plan_revision === undefined ? undefined : expectString2(record4.plan_revision, "plan_revision", SHA256_PATTERN2);
-    const executionPhase = record4.execution_phase === undefined ? undefined : expectEnum(record4.execution_phase, ["flexible", "test-first", "red", "green", "implementation-first", "not-applicable", "legacy"], "execution_phase");
-    const repairFingerprints = record4.repair_fingerprints === undefined ? undefined : expectStringArray2(record4.repair_fingerprints, "repair_fingerprints", false, MAX_FINDINGS).map((item, index) => expectString2(item, `repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    const mode = record.mode === undefined ? undefined : expectEnum(record.mode, VNEXT_EXECUTE_STEP_MODES, "mode");
+    const executionId = record.execution_id === undefined ? undefined : expectString2(record.execution_id, "execution_id", SAFE_KEY_PATTERN2);
+    const planRevision = record.plan_revision === undefined ? undefined : expectString2(record.plan_revision, "plan_revision", SHA256_PATTERN2);
+    const executionPhase = record.execution_phase === undefined ? undefined : expectEnum(record.execution_phase, ["flexible", "test-first", "red", "green", "implementation-first", "not-applicable", "legacy"], "execution_phase");
+    const repairFingerprints = record.repair_fingerprints === undefined ? undefined : expectStringArray2(record.repair_fingerprints, "repair_fingerprints", false, MAX_FINDINGS).map((item, index) => expectString2(item, `repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
     if (repairFingerprints && new Set(repairFingerprints).size !== repairFingerprints.length)
       fail3("RUNTIME_SCHEMA_INVALID", "repair_fingerprints must be unique.");
-    const repairWaveId = record4.repair_wave_id === undefined ? undefined : expectString2(record4.repair_wave_id, "repair_wave_id", SAFE_KEY_PATTERN2);
-    const reviewId = record4.review_id === undefined ? undefined : expectString2(record4.review_id, "review_id", SAFE_KEY_PATTERN2);
-    const reviewTargetPaths = record4.review_target_paths === undefined ? undefined : expectStringArray2(record4.review_target_paths, "review_target_paths", true, 256).map((item) => normalizeRepoPath2(item, "review_target_paths"));
-    const changeSetId = record4.change_set_id === undefined ? undefined : expectString2(record4.change_set_id, "change_set_id", SAFE_KEY_PATTERN2);
+    const repairWaveId = record.repair_wave_id === undefined ? undefined : expectString2(record.repair_wave_id, "repair_wave_id", SAFE_KEY_PATTERN2);
+    const reviewId = record.review_id === undefined ? undefined : expectString2(record.review_id, "review_id", SAFE_KEY_PATTERN2);
+    const reviewTargetPaths = record.review_target_paths === undefined ? undefined : expectStringArray2(record.review_target_paths, "review_target_paths", true, 256).map((item) => normalizeRepoPath2(item, "review_target_paths"));
+    const changeSetId = record.change_set_id === undefined ? undefined : expectString2(record.change_set_id, "change_set_id", SAFE_KEY_PATTERN2);
     return {
       kind,
       action,
-      step_id: expectString2(record4.step_id, "step_id", STEP_ID_PATTERN2),
-      candidate_paths: expectStringArray2(record4.candidate_paths, "candidate_paths", true, 256).map((p) => normalizeRepoPath2(p, "candidate_paths")),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs"),
+      step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2),
+      candidate_paths: expectStringArray2(record.candidate_paths, "candidate_paths", true, 256).map((p) => normalizeRepoPath2(p, "candidate_paths")),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs"),
       ...assessments === undefined ? {} : { blast_radius_assessments: assessments },
       ...mode === undefined ? {} : { mode },
       ...executionId === undefined ? {} : { execution_id: executionId },
@@ -8690,7 +8875,7 @@ function validateTaskStateDelta(value) {
     };
   }
   if (action === "extend-preflight") {
-    expectExactKeys2(record4, [
+    expectExactKeys2(record, [
       "kind",
       "action",
       "step_id",
@@ -8698,55 +8883,60 @@ function validateTaskStateDelta(value) {
       "additional_targets",
       "blast_radius_assessments",
       "evidence_refs",
-      ...record4.mode === undefined ? [] : ["mode"],
-      ...record4.execution_id === undefined ? [] : ["execution_id"],
-      ...record4.execution_phase === undefined ? [] : ["execution_phase"]
+      ...record.mode === undefined ? [] : ["mode"],
+      ...record.execution_id === undefined ? [] : ["execution_id"],
+      ...record.execution_phase === undefined ? [] : ["execution_phase"]
     ], "semantic_delta");
     let assessments;
     try {
-      assessments = normalizeBlastRadiusAssessments(record4.blast_radius_assessments);
+      assessments = normalizeBlastRadiusAssessments(record.blast_radius_assessments);
     } catch (error) {
       fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
     }
-    const additionalTargets = expectStringArray2(record4.additional_targets, "additional_targets", false, 256).map((p) => normalizeRepoPath2(p, "additional_targets"));
-    const mode = record4.mode === undefined ? undefined : expectEnum(record4.mode, VNEXT_EXECUTE_STEP_MODES, "mode");
-    const executionId = record4.execution_id === undefined ? undefined : expectString2(record4.execution_id, "execution_id", SAFE_KEY_PATTERN2);
-    const executionPhase = record4.execution_phase === undefined ? undefined : expectEnum(record4.execution_phase, ["flexible", "test-first", "red", "green", "implementation-first", "not-applicable", "legacy"], "execution_phase");
+    const additionalTargets = expectStringArray2(record.additional_targets, "additional_targets", false, 256).map((p) => normalizeRepoPath2(p, "additional_targets"));
+    const mode = record.mode === undefined ? undefined : expectEnum(record.mode, VNEXT_EXECUTE_STEP_MODES, "mode");
+    const executionId = record.execution_id === undefined ? undefined : expectString2(record.execution_id, "execution_id", SAFE_KEY_PATTERN2);
+    const executionPhase = record.execution_phase === undefined ? undefined : expectEnum(record.execution_phase, ["flexible", "test-first", "red", "green", "implementation-first", "not-applicable", "legacy"], "execution_phase");
     return {
       kind,
       action,
-      step_id: expectString2(record4.step_id, "step_id", STEP_ID_PATTERN2),
-      current_preflight_id: expectString2(record4.current_preflight_id, "current_preflight_id", SAFE_KEY_PATTERN2),
+      step_id: expectString2(record.step_id, "step_id", STEP_ID_PATTERN2),
+      current_preflight_id: expectString2(record.current_preflight_id, "current_preflight_id", SAFE_KEY_PATTERN2),
       additional_targets: additionalTargets,
       blast_radius_assessments: assessments,
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "evidence_refs"),
       ...mode === undefined ? {} : { mode },
       ...executionId === undefined ? {} : { execution_id: executionId },
       ...executionPhase === undefined ? {} : { execution_phase: executionPhase }
     };
   }
   if (action === "create-draft" || action === "update-draft") {
-    const allowedKeys = ["kind", "action", "task_id", "task_slug", "document_id", "task_title", "task_basis", "draft_definition", "active_step_id", "evidence_refs", "claim_evidence"];
-    if (Object.keys(record4).some((key) => !allowedKeys.includes(key)))
+    const allowedKeys = ["kind", "action", "task_id", "task_slug", "document_id", "task_title", "task_basis", "draft_definition", "active_step_id", "evidence_refs", "claim_evidence", "predecessor"];
+    if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
       fail3("RUNTIME_SCHEMA_INVALID", "draft task-state semantic_delta contains unsupported fields.");
-    const identity = validateDraftTaskIdentityFields(record4, "semantic_delta", true);
-    const result2 = {
+    const identity = validateDraftTaskIdentityFields(record, "semantic_delta", true);
+    const result = {
       kind,
       action,
       ...identity,
-      task_basis: validateTaskBasis(record4.task_basis, "semantic_delta.task_basis"),
-      draft_definition: validateReplanReplacementDefinition(record4.draft_definition, "semantic_delta.draft_definition"),
-      active_step_id: expectString2(record4.active_step_id, "semantic_delta.active_step_id", STEP_ID_PATTERN2),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      task_basis: validateTaskBasis(record.task_basis, "semantic_delta.task_basis"),
+      draft_definition: validateReplanReplacementDefinition(record.draft_definition, "semantic_delta.draft_definition"),
+      active_step_id: expectString2(record.active_step_id, "semantic_delta.active_step_id", STEP_ID_PATTERN2),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
-    if (record4.claim_evidence !== undefined)
-      result2.claim_evidence = validateClaimEvidence(record4.claim_evidence, "semantic_delta.claim_evidence");
-    return result2;
+    if (record.predecessor !== undefined) {
+      if (action !== "create-draft")
+        fail3("SUCCESSOR_STATE_INVALID", "A predecessor is bound only when creating a new identity.");
+      result.predecessor = validateSuccessorDecision(record.predecessor);
+    }
+    if (record.claim_evidence !== undefined)
+      result.claim_evidence = validateClaimEvidence(record.claim_evidence, "semantic_delta.claim_evidence");
+    return result;
   }
   if (action === "confirm-draft") {
-    expectExactKeys2(record4, ["kind", "action", "task_id", "task_slug", "document_id", "draft_revision", "evidence_refs"], "semantic_delta");
-    const identity = validateDraftTaskIdentityFields(record4, "semantic_delta", false);
-    const draftRevision = expectString2(record4.draft_revision, "semantic_delta.draft_revision");
+    expectExactKeys2(record, ["kind", "action", "task_id", "task_slug", "document_id", "draft_revision", "evidence_refs"], "semantic_delta");
+    const identity = validateDraftTaskIdentityFields(record, "semantic_delta", false);
+    const draftRevision = expectString2(record.draft_revision, "semantic_delta.draft_revision");
     if (!/^[a-f0-9]{64}$/.test(draftRevision))
       fail3("RUNTIME_SCHEMA_INVALID", "semantic_delta.draft_revision must be SHA-256.");
     return {
@@ -8754,122 +8944,122 @@ function validateTaskStateDelta(value) {
       action,
       ...identity,
       draft_revision: draftRevision,
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "migrate-claim-evidence") {
-    expectExactKeys2(record4, ["kind", "action", "claim_evidence", "evidence_refs"], "semantic_delta");
+    expectExactKeys2(record, ["kind", "action", "claim_evidence", "evidence_refs"], "semantic_delta");
     return {
       kind,
       action,
-      claim_evidence: validateClaimEvidence(record4.claim_evidence, "semantic_delta.claim_evidence"),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      claim_evidence: validateClaimEvidence(record.claim_evidence, "semantic_delta.claim_evidence"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "clear-resume-review-gate") {
-    expectExactKeys2(record4, ["kind", "action", "evidence_refs"], "semantic_delta");
+    expectExactKeys2(record, ["kind", "action", "evidence_refs"], "semantic_delta");
     return {
       kind,
       action: "clear-resume-review-gate",
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "record-evidence-challenge") {
-    expectExactKeys2(record4, ["kind", "action", "claim_id", "slot_id", "result_id", "evidence_ref", "evidence_sha256", "reason", "evidence_refs"], "semantic_delta");
+    expectExactKeys2(record, ["kind", "action", "claim_id", "slot_id", "result_id", "evidence_ref", "evidence_sha256", "reason", "evidence_refs"], "semantic_delta");
     return {
       kind,
       action,
-      claim_id: expectString2(record4.claim_id, "claim_id", CLAIM_ID_PATTERN),
-      slot_id: expectString2(record4.slot_id, "slot_id", CLAIM_EVIDENCE_SLOT_ID_PATTERN),
-      result_id: expectString2(record4.result_id, "result_id", CLAIM_ID_PATTERN),
-      evidence_ref: normalizeRepoPath2(expectString2(record4.evidence_ref, "evidence_ref"), "evidence_ref"),
-      evidence_sha256: expectString2(record4.evidence_sha256, "evidence_sha256", /^[a-f0-9]{64}$/),
-      reason: expectString2(record4.reason, "reason"),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      claim_id: expectString2(record.claim_id, "claim_id", CLAIM_ID_PATTERN),
+      slot_id: expectString2(record.slot_id, "slot_id", CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+      result_id: expectString2(record.result_id, "result_id", CLAIM_ID_PATTERN),
+      evidence_ref: normalizeRepoPath2(expectString2(record.evidence_ref, "evidence_ref"), "evidence_ref"),
+      evidence_sha256: expectString2(record.evidence_sha256, "evidence_sha256", /^[a-f0-9]{64}$/),
+      reason: expectString2(record.reason, "reason"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "dismiss-evidence-challenge") {
-    expectExactKeys2(record4, ["kind", "action", "challenge_id", "evidence_ref", "evidence_sha256", "reason", "evidence_refs"], "semantic_delta");
+    expectExactKeys2(record, ["kind", "action", "challenge_id", "evidence_ref", "evidence_sha256", "reason", "evidence_refs"], "semantic_delta");
     return {
       kind,
       action,
-      challenge_id: expectString2(record4.challenge_id, "challenge_id", SAFE_KEY_PATTERN2),
-      evidence_ref: normalizeRepoPath2(expectString2(record4.evidence_ref, "evidence_ref"), "evidence_ref"),
-      evidence_sha256: expectString2(record4.evidence_sha256, "evidence_sha256", /^[a-f0-9]{64}$/),
-      reason: expectString2(record4.reason, "reason"),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      challenge_id: expectString2(record.challenge_id, "challenge_id", SAFE_KEY_PATTERN2),
+      evidence_ref: normalizeRepoPath2(expectString2(record.evidence_ref, "evidence_ref"), "evidence_ref"),
+      evidence_sha256: expectString2(record.evidence_sha256, "evidence_sha256", /^[a-f0-9]{64}$/),
+      reason: expectString2(record.reason, "reason"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "record-review-result") {
-    expectExactKeys2(record4, ["kind", "action", "review_result", "evidence_refs"], "semantic_delta");
+    expectExactKeys2(record, ["kind", "action", "review_result", "evidence_refs"], "semantic_delta");
     return {
       kind,
       action,
-      review_result: validatePendingReviewResult(record4.review_result, "semantic_delta.review_result", false),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      review_result: validatePendingReviewResult(record.review_result, "semantic_delta.review_result", false),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "mark-replan-blocked" || action === "clear-replan-block") {
-    expectExactKeys2(record4, ["kind", "action", "evidence_refs"], "semantic_delta");
+    expectExactKeys2(record, ["kind", "action", "evidence_refs"], "semantic_delta");
     return {
       kind,
       action,
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
   if (action === "commit-replan" || action === "commit-scope-amendment") {
     const allowedKeys = ["kind", "action", "task_basis", "replacement_definition", "active_step_id", "evidence_refs", "claim_evidence"];
-    if (Object.keys(record4).some((key) => !allowedKeys.includes(key)))
+    if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
       fail3("RUNTIME_SCHEMA_INVALID", "replan task-state semantic_delta contains unsupported fields.");
-    const result2 = {
+    const result = {
       kind,
       action,
-      task_basis: validateTaskBasis(record4.task_basis, "semantic_delta.task_basis"),
-      replacement_definition: validateReplanReplacementDefinition(record4.replacement_definition, "semantic_delta.replacement_definition"),
-      active_step_id: expectString2(record4.active_step_id, "semantic_delta.active_step_id", STEP_ID_PATTERN2),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      task_basis: validateTaskBasis(record.task_basis, "semantic_delta.task_basis"),
+      replacement_definition: validateReplanReplacementDefinition(record.replacement_definition, "semantic_delta.replacement_definition"),
+      active_step_id: expectString2(record.active_step_id, "semantic_delta.active_step_id", STEP_ID_PATTERN2),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
-    if (record4.claim_evidence !== undefined)
-      result2.claim_evidence = validateClaimEvidence(record4.claim_evidence, "semantic_delta.claim_evidence");
-    return result2;
+    if (record.claim_evidence !== undefined)
+      result.claim_evidence = validateClaimEvidence(record.claim_evidence, "semantic_delta.claim_evidence");
+    return result;
   }
-  const keys = Object.keys(record4);
+  const keys = Object.keys(record);
   if (keys.some((key) => !["kind", "action", "step_id", "status", "evidence_refs", "note", "repair_fingerprint", "repair_fingerprints", "repair_wave_id", "change_set_id", "review_receipt", "claim_evidence", "execution_result"].includes(key))) {
     fail3("RUNTIME_SCHEMA_INVALID", "task-state semantic_delta contains unsupported fields.");
   }
   const result = {
     kind,
     action: "step-progress",
-    step_id: expectString2(record4.step_id, "semantic_delta.step_id", STEP_ID_PATTERN2),
-    status: expectEnum(record4.status, STEP_STATUSES, "semantic_delta.status"),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+    step_id: expectString2(record.step_id, "semantic_delta.step_id", STEP_ID_PATTERN2),
+    status: expectEnum(record.status, STEP_STATUSES, "semantic_delta.status"),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
   };
-  if (record4.note !== undefined)
-    result.note = expectText(record4.note, "semantic_delta.note");
-  if (record4.repair_fingerprint !== undefined)
-    result.repair_fingerprint = expectString2(record4.repair_fingerprint, "semantic_delta.repair_fingerprint", FINGERPRINT_PATTERN);
-  if (record4.repair_fingerprints !== undefined) {
-    result.repair_fingerprints = expectStringArray2(record4.repair_fingerprints, "semantic_delta.repair_fingerprints", false, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `semantic_delta.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  if (record.note !== undefined)
+    result.note = expectText(record.note, "semantic_delta.note");
+  if (record.repair_fingerprint !== undefined)
+    result.repair_fingerprint = expectString2(record.repair_fingerprint, "semantic_delta.repair_fingerprint", FINGERPRINT_PATTERN);
+  if (record.repair_fingerprints !== undefined) {
+    result.repair_fingerprints = expectStringArray2(record.repair_fingerprints, "semantic_delta.repair_fingerprints", false, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `semantic_delta.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
     if (new Set(result.repair_fingerprints).size !== result.repair_fingerprints.length) {
       fail3("RUNTIME_SCHEMA_INVALID", "semantic_delta.repair_fingerprints must be unique.");
     }
   }
-  if (record4.repair_wave_id !== undefined)
-    result.repair_wave_id = expectString2(record4.repair_wave_id, "semantic_delta.repair_wave_id", SAFE_KEY_PATTERN2);
+  if (record.repair_wave_id !== undefined)
+    result.repair_wave_id = expectString2(record.repair_wave_id, "semantic_delta.repair_wave_id", SAFE_KEY_PATTERN2);
   if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined) {
     fail3("RUNTIME_SCHEMA_INVALID", "step-progress must not mix repair_fingerprint with repair_fingerprints.");
   }
   if (result.repair_fingerprints !== undefined !== (result.repair_wave_id !== undefined)) {
     fail3("RUNTIME_SCHEMA_INVALID", "repair_fingerprints and repair_wave_id must be supplied together.");
   }
-  if (record4.change_set_id !== undefined)
-    result.change_set_id = expectString2(record4.change_set_id, "semantic_delta.change_set_id", SAFE_KEY_PATTERN2);
-  if (record4.review_receipt !== undefined)
-    result.review_receipt = validateStepReviewReceipt(record4.review_receipt, "semantic_delta.review_receipt");
-  if (record4.claim_evidence !== undefined)
-    result.claim_evidence = validateClaimEvidence(record4.claim_evidence, "semantic_delta.claim_evidence");
-  if (record4.execution_result !== undefined)
-    result.execution_result = validateStepExecutionResult(record4.execution_result, "semantic_delta.execution_result");
+  if (record.change_set_id !== undefined)
+    result.change_set_id = expectString2(record.change_set_id, "semantic_delta.change_set_id", SAFE_KEY_PATTERN2);
+  if (record.review_receipt !== undefined)
+    result.review_receipt = validateStepReviewReceipt(record.review_receipt, "semantic_delta.review_receipt");
+  if (record.claim_evidence !== undefined)
+    result.claim_evidence = validateClaimEvidence(record.claim_evidence, "semantic_delta.claim_evidence");
+  if (record.execution_result !== undefined)
+    result.execution_result = validateStepExecutionResult(record.execution_result, "semantic_delta.execution_result");
   return result;
 }
 function validateLifecycleReasons(value, location) {
@@ -8881,9 +9071,9 @@ function validateLifecycleReasons(value, location) {
   return normalized;
 }
 function validateLifecycleDelta(value) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  const kind = expectEnum(record4.kind, ["lifecycle"], "semantic_delta.kind");
-  const action = expectEnum(record4.action, LIFECYCLE_MODES, "semantic_delta.action");
+  const record = expectRecord2(value, "semantic_delta");
+  const kind = expectEnum(record.kind, ["lifecycle"], "semantic_delta.kind");
+  const action = expectEnum(record.action, LIFECYCLE_MODES, "semantic_delta.action");
   if (action === "pause") {
     const allowedKeys = [
       "kind",
@@ -8901,20 +9091,20 @@ function validateLifecycleDelta(value) {
       "remaining_acceptance",
       "failed_checks"
     ];
-    if (Object.keys(record4).some((key) => !allowedKeys.includes(key)))
+    if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
       fail3("RUNTIME_SCHEMA_INVALID", "pause lifecycle semantic_delta contains unsupported fields.");
-    const lifecycleState = expectEnum(record4.lifecycle_state, ["paused_pending_closure", "paused_blocked"], "semantic_delta.lifecycle_state");
+    const lifecycleState = expectEnum(record.lifecycle_state, ["paused_pending_closure", "paused_blocked"], "semantic_delta.lifecycle_state");
     const common = {
       kind,
       action,
       lifecycle_state: lifecycleState,
-      suspension_reason: expectText(record4.suspension_reason, "semantic_delta.suspension_reason"),
-      task_start_base: expectText(record4.task_start_base, "semantic_delta.task_start_base"),
-      last_reviewed_checkpoint: expectText(record4.last_reviewed_checkpoint, "semantic_delta.last_reviewed_checkpoint"),
-      current_diff_review_target: expectText(record4.current_diff_review_target, "semantic_delta.current_diff_review_target"),
-      rollback_conditions: expectText(record4.rollback_conditions, "semantic_delta.rollback_conditions"),
-      resume_review_reasons: validateLifecycleReasons(record4.resume_review_reasons, "semantic_delta.resume_review_reasons"),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      suspension_reason: expectText(record.suspension_reason, "semantic_delta.suspension_reason"),
+      task_start_base: expectText(record.task_start_base, "semantic_delta.task_start_base"),
+      last_reviewed_checkpoint: expectText(record.last_reviewed_checkpoint, "semantic_delta.last_reviewed_checkpoint"),
+      current_diff_review_target: expectText(record.current_diff_review_target, "semantic_delta.current_diff_review_target"),
+      rollback_conditions: expectText(record.rollback_conditions, "semantic_delta.rollback_conditions"),
+      resume_review_reasons: validateLifecycleReasons(record.resume_review_reasons, "semantic_delta.resume_review_reasons"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
     try {
       validateCurrentTaskResumeGate(lifecycleState, true, common.resume_review_reasons);
@@ -8925,14 +9115,14 @@ function validateLifecycleDelta(value) {
       return {
         ...common,
         lifecycle_state: lifecycleState,
-        blocker_status: expectText(record4.blocker_status, "semantic_delta.blocker_status"),
-        blocking_evidence: expectText(record4.blocking_evidence, "semantic_delta.blocking_evidence"),
-        remaining_acceptance: expectText(record4.remaining_acceptance, "semantic_delta.remaining_acceptance"),
-        ...record4.failed_checks === undefined ? {} : { failed_checks: expectStringArray2(record4.failed_checks, "semantic_delta.failed_checks", false, 32) }
+        blocker_status: expectText(record.blocker_status, "semantic_delta.blocker_status"),
+        blocking_evidence: expectText(record.blocking_evidence, "semantic_delta.blocking_evidence"),
+        remaining_acceptance: expectText(record.remaining_acceptance, "semantic_delta.remaining_acceptance"),
+        ...record.failed_checks === undefined ? {} : { failed_checks: expectStringArray2(record.failed_checks, "semantic_delta.failed_checks", false, 32) }
       };
     }
     const forbiddenFields = ["blocker_status", "blocking_evidence", "remaining_acceptance", "failed_checks"];
-    if (forbiddenFields.some((field) => record4[field] !== undefined))
+    if (forbiddenFields.some((field) => record[field] !== undefined))
       fail3("RUNTIME_SCHEMA_INVALID", "paused_pending_closure must not carry paused_blocked-only evidence.");
     return common;
   }
@@ -8953,10 +9143,10 @@ function validateLifecycleDelta(value) {
       "environment_state",
       "recovery_strategy"
     ];
-    if (Object.keys(record4).some((key) => !allowedKeys.includes(key)))
+    if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
       fail3("RUNTIME_SCHEMA_INVALID", "interrupt lifecycle semantic_delta contains unsupported fields.");
-    const lifecycleState = expectEnum(record4.lifecycle_state, ["interrupted"], "semantic_delta.lifecycle_state");
-    const resumeReviewReasons = validateLifecycleReasons(record4.resume_review_reasons, "semantic_delta.resume_review_reasons");
+    const lifecycleState = expectEnum(record.lifecycle_state, ["interrupted"], "semantic_delta.lifecycle_state");
+    const resumeReviewReasons = validateLifecycleReasons(record.resume_review_reasons, "semantic_delta.resume_review_reasons");
     try {
       validateCurrentTaskResumeGate(lifecycleState, true, resumeReviewReasons);
     } catch (error) {
@@ -8966,54 +9156,54 @@ function validateLifecycleDelta(value) {
       kind,
       action,
       lifecycle_state: lifecycleState,
-      suspension_reason: expectText(record4.suspension_reason, "semantic_delta.suspension_reason"),
-      task_start_base: expectText(record4.task_start_base, "semantic_delta.task_start_base"),
-      last_reviewed_checkpoint: expectText(record4.last_reviewed_checkpoint, "semantic_delta.last_reviewed_checkpoint"),
-      current_diff_review_target: expectText(record4.current_diff_review_target, "semantic_delta.current_diff_review_target"),
-      rollback_conditions: expectText(record4.rollback_conditions, "semantic_delta.rollback_conditions"),
+      suspension_reason: expectText(record.suspension_reason, "semantic_delta.suspension_reason"),
+      task_start_base: expectText(record.task_start_base, "semantic_delta.task_start_base"),
+      last_reviewed_checkpoint: expectText(record.last_reviewed_checkpoint, "semantic_delta.last_reviewed_checkpoint"),
+      current_diff_review_target: expectText(record.current_diff_review_target, "semantic_delta.current_diff_review_target"),
+      rollback_conditions: expectText(record.rollback_conditions, "semantic_delta.rollback_conditions"),
       resume_review_reasons: resumeReviewReasons,
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs"),
-      checkpoint_evidence: expectText(record4.checkpoint_evidence, "semantic_delta.checkpoint_evidence"),
-      dirty_attribution: expectText(record4.dirty_attribution, "semantic_delta.dirty_attribution"),
-      environment_state: expectText(record4.environment_state, "semantic_delta.environment_state"),
-      recovery_strategy: expectText(record4.recovery_strategy, "semantic_delta.recovery_strategy")
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs"),
+      checkpoint_evidence: expectText(record.checkpoint_evidence, "semantic_delta.checkpoint_evidence"),
+      dirty_attribution: expectText(record.dirty_attribution, "semantic_delta.dirty_attribution"),
+      environment_state: expectText(record.environment_state, "semantic_delta.environment_state"),
+      recovery_strategy: expectText(record.recovery_strategy, "semantic_delta.recovery_strategy")
     };
   }
   if (action === "resume-paused" || action === "resume-interrupted") {
-    expectExactKeys2(record4, ["kind", "action", "artifact_kind", "recovery_package_path", "recovery_package_revision", "resume_review_reasons", "evidence_refs"], "semantic_delta");
-    const artifactKind = expectEnum(record4.artifact_kind, ["paused", "interrupted"], "semantic_delta.artifact_kind");
+    expectExactKeys2(record, ["kind", "action", "artifact_kind", "recovery_package_path", "recovery_package_revision", "resume_review_reasons", "evidence_refs"], "semantic_delta");
+    const artifactKind = expectEnum(record.artifact_kind, ["paused", "interrupted"], "semantic_delta.artifact_kind");
     if (action === "resume-paused" && artifactKind !== "paused" || action === "resume-interrupted" && artifactKind !== "interrupted") {
       fail3("RUNTIME_LIFECYCLE_EVIDENCE_INVALID", `${action} must target the matching ${action === "resume-paused" ? "paused" : "interrupted"} artifact kind.`);
     }
-    const recoveryPackageRevision = expectString2(record4.recovery_package_revision, "semantic_delta.recovery_package_revision");
+    const recoveryPackageRevision = expectString2(record.recovery_package_revision, "semantic_delta.recovery_package_revision");
     if (!/^[a-f0-9]{64}$/.test(recoveryPackageRevision))
       fail3("RUNTIME_SCHEMA_INVALID", "semantic_delta.recovery_package_revision must be SHA-256.");
     return {
       kind,
       action,
       artifact_kind: artifactKind,
-      recovery_package_path: normalizeRepoPath2(expectString2(record4.recovery_package_path, "semantic_delta.recovery_package_path"), "semantic_delta.recovery_package_path"),
+      recovery_package_path: normalizeRepoPath2(expectString2(record.recovery_package_path, "semantic_delta.recovery_package_path"), "semantic_delta.recovery_package_path"),
       recovery_package_revision: recoveryPackageRevision,
-      resume_review_reasons: validateLifecycleReasons(record4.resume_review_reasons, "semantic_delta.resume_review_reasons"),
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+      resume_review_reasons: validateLifecycleReasons(record.resume_review_reasons, "semantic_delta.resume_review_reasons"),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
     };
   }
-  expectExactKeys2(record4, ["kind", "action", "invalidation_kind", "invalidation_reason", "evidence_refs", "partial_diff_disposition"], "semantic_delta");
+  expectExactKeys2(record, ["kind", "action", "invalidation_kind", "invalidation_reason", "evidence_refs", "partial_diff_disposition"], "semantic_delta");
   return {
     kind,
     action: "supersede",
-    invalidation_kind: expectEnum(record4.invalidation_kind, ["goal", "scope", "acceptance"], "semantic_delta.invalidation_kind"),
-    invalidation_reason: expectText(record4.invalidation_reason, "semantic_delta.invalidation_reason"),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs"),
-    partial_diff_disposition: validatePartialDiffDisposition(record4.partial_diff_disposition, "semantic_delta.partial_diff_disposition")
+    invalidation_kind: expectEnum(record.invalidation_kind, ["goal", "scope", "acceptance"], "semantic_delta.invalidation_kind"),
+    invalidation_reason: expectText(record.invalidation_reason, "semantic_delta.invalidation_reason"),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs"),
+    partial_diff_disposition: validatePartialDiffDisposition(record.partial_diff_disposition, "semantic_delta.partial_diff_disposition")
   };
 }
 function validateFindingRecord(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["kind", "action", "cycle_phase", "finding_admission_wave_id", "finding"], location);
-  expectEnum(record4.kind, ["finding-queue"], `${location}.kind`);
-  expectEnum(record4.action, ["admit"], `${location}.action`);
-  const finding = expectRecord2(record4.finding, `${location}.finding`);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["kind", "action", "cycle_phase", "finding_admission_wave_id", "finding"], location);
+  expectEnum(record.kind, ["finding-queue"], `${location}.kind`);
+  expectEnum(record.action, ["admit"], `${location}.action`);
+  const finding = expectRecord2(record.finding, `${location}.finding`);
   const findingKeys = [
     "fingerprint",
     "category",
@@ -9036,8 +9226,8 @@ function validateFindingRecord(value, location) {
   const result = {
     kind: "finding-queue",
     action: "admit",
-    cycle_phase: expectEnum(record4.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
-    finding_admission_wave_id: expectString2(record4.finding_admission_wave_id, `${location}.finding_admission_wave_id`, SAFE_KEY_PATTERN2),
+    cycle_phase: expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
+    finding_admission_wave_id: expectString2(record.finding_admission_wave_id, `${location}.finding_admission_wave_id`, SAFE_KEY_PATTERN2),
     finding: {
       fingerprint: expectString2(finding.fingerprint, `${location}.finding.fingerprint`, FINGERPRINT_PATTERN),
       category: expectText(finding.category, `${location}.finding.category`, 256),
@@ -9060,26 +9250,26 @@ function validateFindingRecord(value, location) {
   return result;
 }
 function validateFindingAction(value) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  const action = expectEnum(record4.action, ["record-repair-attempt", "resolve", "defer", "reject"], "semantic_delta.action");
+  const record = expectRecord2(value, "semantic_delta");
+  const action = expectEnum(record.action, ["record-repair-attempt", "resolve", "defer", "reject"], "semantic_delta.action");
   const allowedKeys = action === "record-repair-attempt" ? ["kind", "action", "fingerprint", "review_cycle_id", "repair_wave_id", "evidence_refs", "note"] : ["kind", "action", "fingerprint", "evidence_refs", "note"];
-  if (Object.keys(record4).some((key) => !allowedKeys.includes(key)))
+  if (Object.keys(record).some((key) => !allowedKeys.includes(key)))
     fail3("RUNTIME_SCHEMA_INVALID", "finding-queue semantic_delta contains unsupported fields.");
   const result = action === "record-repair-attempt" ? {
     kind: "finding-queue",
     action,
-    fingerprint: expectString2(record4.fingerprint, "semantic_delta.fingerprint", FINGERPRINT_PATTERN),
-    review_cycle_id: expectString2(record4.review_cycle_id, "semantic_delta.review_cycle_id", SAFE_KEY_PATTERN2),
-    repair_wave_id: expectString2(record4.repair_wave_id, "semantic_delta.repair_wave_id", SAFE_KEY_PATTERN2),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+    fingerprint: expectString2(record.fingerprint, "semantic_delta.fingerprint", FINGERPRINT_PATTERN),
+    review_cycle_id: expectString2(record.review_cycle_id, "semantic_delta.review_cycle_id", SAFE_KEY_PATTERN2),
+    repair_wave_id: expectString2(record.repair_wave_id, "semantic_delta.repair_wave_id", SAFE_KEY_PATTERN2),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
   } : {
     kind: "finding-queue",
     action,
-    fingerprint: expectString2(record4.fingerprint, "semantic_delta.fingerprint", FINGERPRINT_PATTERN),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+    fingerprint: expectString2(record.fingerprint, "semantic_delta.fingerprint", FINGERPRINT_PATTERN),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
   };
-  if (record4.note !== undefined)
-    result.note = expectText(record4.note, "semantic_delta.note");
+  if (record.note !== undefined)
+    result.note = expectText(record.note, "semantic_delta.note");
   return result;
 }
 var CLOSURE_EVIDENCE_FIELDS = [
@@ -9094,8 +9284,8 @@ var CLOSURE_EVIDENCE_FIELDS = [
   "archive_path_verified"
 ];
 function validateClosureEvidence(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, CLOSURE_EVIDENCE_FIELDS, location);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, CLOSURE_EVIDENCE_FIELDS, location);
   const validateEvidenceGate = (raw, field) => {
     const gate = expectRecord2(raw, `${location}.${field}`);
     expectExactKeys2(gate, ["triggered", "complete", "evidence_refs"], `${location}.${field}`);
@@ -9108,36 +9298,36 @@ function validateClosureEvidence(value, location) {
     return { triggered, complete, evidence_refs: evidenceRefs };
   };
   return {
-    acceptance_satisfied: expectBoolean(record4.acceptance_satisfied, `${location}.acceptance_satisfied`),
-    validation_complete: expectBoolean(record4.validation_complete, `${location}.validation_complete`),
-    no_admitted_or_in_progress_findings: expectBoolean(record4.no_admitted_or_in_progress_findings, `${location}.no_admitted_or_in_progress_findings`),
-    no_unresolved_closure_blocker: expectBoolean(record4.no_unresolved_closure_blocker, `${location}.no_unresolved_closure_blocker`),
-    release_evidence: validateEvidenceGate(record4.release_evidence, "release_evidence"),
-    rollback_evidence: validateEvidenceGate(record4.rollback_evidence, "rollback_evidence"),
-    observation_evidence: validateEvidenceGate(record4.observation_evidence, "observation_evidence"),
-    remaining_risks_non_blocking: expectBoolean(record4.remaining_risks_non_blocking, `${location}.remaining_risks_non_blocking`),
-    archive_path_verified: expectBoolean(record4.archive_path_verified, `${location}.archive_path_verified`)
+    acceptance_satisfied: expectBoolean(record.acceptance_satisfied, `${location}.acceptance_satisfied`),
+    validation_complete: expectBoolean(record.validation_complete, `${location}.validation_complete`),
+    no_admitted_or_in_progress_findings: expectBoolean(record.no_admitted_or_in_progress_findings, `${location}.no_admitted_or_in_progress_findings`),
+    no_unresolved_closure_blocker: expectBoolean(record.no_unresolved_closure_blocker, `${location}.no_unresolved_closure_blocker`),
+    release_evidence: validateEvidenceGate(record.release_evidence, "release_evidence"),
+    rollback_evidence: validateEvidenceGate(record.rollback_evidence, "rollback_evidence"),
+    observation_evidence: validateEvidenceGate(record.observation_evidence, "observation_evidence"),
+    remaining_risks_non_blocking: expectBoolean(record.remaining_risks_non_blocking, `${location}.remaining_risks_non_blocking`),
+    archive_path_verified: expectBoolean(record.archive_path_verified, `${location}.archive_path_verified`)
   };
 }
 function validateDeliverySummary(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["goal", "actual_changes", "verification", "release_evidence", "rollback_evidence", "observation_evidence", "next_action"], location);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["goal", "actual_changes", "verification", "release_evidence", "rollback_evidence", "observation_evidence", "next_action"], location);
   return {
-    goal: expectText(record4.goal, `${location}.goal`, MAX_TEXT_LENGTH),
-    actual_changes: expectStringArray2(record4.actual_changes, `${location}.actual_changes`, false, 64),
-    verification: expectStringArray2(record4.verification, `${location}.verification`, false, 64),
-    release_evidence: expectStringArray2(record4.release_evidence, `${location}.release_evidence`, true, 64),
-    rollback_evidence: expectStringArray2(record4.rollback_evidence, `${location}.rollback_evidence`, true, 64),
-    observation_evidence: expectStringArray2(record4.observation_evidence, `${location}.observation_evidence`, true, 64),
-    next_action: expectText(record4.next_action, `${location}.next_action`, MAX_TEXT_LENGTH)
+    goal: expectText(record.goal, `${location}.goal`, MAX_TEXT_LENGTH),
+    actual_changes: expectStringArray2(record.actual_changes, `${location}.actual_changes`, false, 64),
+    verification: expectStringArray2(record.verification, `${location}.verification`, false, 64),
+    release_evidence: expectStringArray2(record.release_evidence, `${location}.release_evidence`, true, 64),
+    rollback_evidence: expectStringArray2(record.rollback_evidence, `${location}.rollback_evidence`, true, 64),
+    observation_evidence: expectStringArray2(record.observation_evidence, `${location}.observation_evidence`, true, 64),
+    next_action: expectText(record.next_action, `${location}.next_action`, MAX_TEXT_LENGTH)
   };
 }
 function validateLessonAdmission(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["decision", "candidate_refs", "evidence_refs"], location);
-  const decision = expectEnum(record4.decision, ["admit", "defer", "no-op"], `${location}.decision`);
-  const candidateRefs = expectStringArray2(record4.candidate_refs, `${location}.candidate_refs`, true, MAX_EVIDENCE_REFS);
-  const evidenceRefs = expectStringArray2(record4.evidence_refs, `${location}.evidence_refs`, true, MAX_EVIDENCE_REFS);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["decision", "candidate_refs", "evidence_refs"], location);
+  const decision = expectEnum(record.decision, ["admit", "defer", "no-op"], `${location}.decision`);
+  const candidateRefs = expectStringArray2(record.candidate_refs, `${location}.candidate_refs`, true, MAX_EVIDENCE_REFS);
+  const evidenceRefs = expectStringArray2(record.evidence_refs, `${location}.evidence_refs`, true, MAX_EVIDENCE_REFS);
   if (decision === "admit" && candidateRefs.length === 0)
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.candidate_refs must be non-empty when decision is admit.`);
   if (decision === "admit" && evidenceRefs.length === 0)
@@ -9172,15 +9362,15 @@ var KNOWLEDGE_CANDIDATE_KEYS = [
   "implementation_anchors"
 ];
 function validateImplementationAnchors(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["coverage", "source_revision", "anchors"], location);
-  const sourceRevision = expectString2(record4.source_revision, `${location}.source_revision`);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["coverage", "source_revision", "anchors"], location);
+  const sourceRevision = expectString2(record.source_revision, `${location}.source_revision`);
   if (sourceRevision.length > 256)
     fail3("IMPLEMENTATION_ANCHOR_INVALID", `${location}.source_revision exceeds 256 characters.`);
-  if (!Array.isArray(record4.anchors) || record4.anchors.length > 5) {
+  if (!Array.isArray(record.anchors) || record.anchors.length > 5) {
     fail3("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors must contain at most five anchors.`);
   }
-  const anchors = record4.anchors.map((raw, index) => {
+  const anchors = record.anchors.map((raw, index) => {
     const anchor = expectRecord2(raw, `${location}.anchors[${index}]`);
     const extra = Object.keys(anchor).filter((key) => !["path", "symbol", "role", "evidence_refs"].includes(key));
     const missing = ["path", "role", "evidence_refs"].filter((key) => !(key in anchor));
@@ -9208,24 +9398,24 @@ function validateImplementationAnchors(value, location) {
   if (new Set(anchorKeys).size !== anchorKeys.length)
     fail3("IMPLEMENTATION_ANCHOR_INVALID", `${location}.anchors must not contain duplicate path/symbol locators.`);
   return {
-    coverage: expectEnum(record4.coverage, ["observed", "verified-scope"], `${location}.coverage`),
+    coverage: expectEnum(record.coverage, ["observed", "verified-scope"], `${location}.coverage`),
     source_revision: sourceRevision,
     anchors
   };
 }
 function validateKnowledgeCandidate(value, location, expectedKind) {
-  const record4 = expectRecord2(value, location);
+  const record = expectRecord2(value, location);
   const allowedKeys = new Set(KNOWLEDGE_CANDIDATE_KEYS);
   const requiredKeys = KNOWLEDGE_CANDIDATE_KEYS.filter((key) => !["decisionContext", "systemicSeverity", "implementation_anchors"].includes(key));
-  const missing = requiredKeys.filter((key) => !(key in record4));
-  const extra = Object.keys(record4).filter((key) => !allowedKeys.has(key));
+  const missing = requiredKeys.filter((key) => !(key in record));
+  const extra = Object.keys(record).filter((key) => !allowedKeys.has(key));
   if (missing.length > 0 || extra.length > 0) {
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location} keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
   }
-  const kind = expectEnum(record4.kind, ["contract", "decision"], `${location}.kind`);
+  const kind = expectEnum(record.kind, ["contract", "decision"], `${location}.kind`);
   if (expectedKind !== undefined && kind !== expectedKind)
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.kind must be ${expectedKind}.`);
-  const sourceRefsRaw = record4.sourceRefs;
+  const sourceRefsRaw = record.sourceRefs;
   if (!Array.isArray(sourceRefsRaw) || sourceRefsRaw.length === 0 || sourceRefsRaw.length > 32)
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.sourceRefs must contain between one and 32 entries.`);
   const sourceRefs = sourceRefsRaw.map((raw, index) => {
@@ -9233,7 +9423,7 @@ function validateKnowledgeCandidate(value, location, expectedKind) {
     expectExactKeys2(sourceRef, ["locator", "revision"], `${location}.sourceRefs[${index}]`);
     return { locator: expectText(sourceRef.locator, `${location}.sourceRefs[${index}].locator`, 512), revision: expectText(sourceRef.revision, `${location}.sourceRefs[${index}].revision`, 256) };
   });
-  const applicabilityRecord = expectRecord2(record4.applicability, `${location}.applicability`);
+  const applicabilityRecord = expectRecord2(record.applicability, `${location}.applicability`);
   expectExactKeys2(applicabilityRecord, ["projectTypes", "pathsSymbolsOrSurfaces", "triggerConditions"], `${location}.applicability`);
   const applicability = {
     projectTypes: expectStringArray2(applicabilityRecord.projectTypes, `${location}.applicability.projectTypes`, true, 32),
@@ -9243,8 +9433,8 @@ function validateKnowledgeCandidate(value, location, expectedKind) {
   if (applicability.projectTypes.length === 0 && applicability.pathsSymbolsOrSurfaces.length === 0 && applicability.triggerConditions.length === 0) {
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.applicability must identify at least one project, surface, or trigger.`);
   }
-  const decisionContext = record4.decisionContext === undefined ? undefined : (() => {
-    const context = expectRecord2(record4.decisionContext, `${location}.decisionContext`);
+  const decisionContext = record.decisionContext === undefined ? undefined : (() => {
+    const context = expectRecord2(record.decisionContext, `${location}.decisionContext`);
     expectExactKeys2(context, ["alternatives", "constraints"], `${location}.decisionContext`);
     return {
       alternatives: expectStringArray2(context.alternatives, `${location}.decisionContext.alternatives`, false, 32),
@@ -9253,35 +9443,35 @@ function validateKnowledgeCandidate(value, location, expectedKind) {
   })();
   if (kind === "decision" && decisionContext === undefined)
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.decisionContext is required for a Decision.`);
-  const implementationAnchors = record4.implementation_anchors === undefined ? undefined : validateImplementationAnchors(record4.implementation_anchors, `${location}.implementation_anchors`);
+  const implementationAnchors = record.implementation_anchors === undefined ? undefined : validateImplementationAnchors(record.implementation_anchors, `${location}.implementation_anchors`);
   const candidate = {
-    candidateId: expectString2(record4.candidateId, `${location}.candidateId`, SAFE_KEY_PATTERN2),
+    candidateId: expectString2(record.candidateId, `${location}.candidateId`, SAFE_KEY_PATTERN2),
     kind,
-    fingerprint: expectString2(record4.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
-    statement: expectText(record4.statement, `${location}.statement`, MAX_TEXT_LENGTH),
+    fingerprint: expectString2(record.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    statement: expectText(record.statement, `${location}.statement`, MAX_TEXT_LENGTH),
     sourceRefs,
     applicability,
-    authoritySource: expectEnum(record4.authoritySource, ["user", "existing-contract", "accepted-decision", "verified-evidence", "none"], `${location}.authoritySource`),
-    stability: expectEnum(record4.stability, ["stable", "provisional", "exploratory"], `${location}.stability`),
-    evidenceRefs: validateEvidenceRefs(record4.evidenceRefs, `${location}.evidenceRefs`),
-    noveltyAgainst: expectStringArray2(record4.noveltyAgainst, `${location}.noveltyAgainst`, true, 32),
-    conflictSet: expectStringArray2(record4.conflictSet, `${location}.conflictSet`, true, 32),
-    supersedes: expectNullableString(record4.supersedes, `${location}.supersedes`, SAFE_KEY_PATTERN2),
-    reviewOrExpiryTrigger: expectNullableString(record4.reviewOrExpiryTrigger, `${location}.reviewOrExpiryTrigger`),
-    expectedConsumers: expectStringArray2(record4.expectedConsumers, `${location}.expectedConsumers`, false, 32),
+    authoritySource: expectEnum(record.authoritySource, ["user", "existing-contract", "accepted-decision", "verified-evidence", "none"], `${location}.authoritySource`),
+    stability: expectEnum(record.stability, ["stable", "provisional", "exploratory"], `${location}.stability`),
+    evidenceRefs: validateEvidenceRefs(record.evidenceRefs, `${location}.evidenceRefs`),
+    noveltyAgainst: expectStringArray2(record.noveltyAgainst, `${location}.noveltyAgainst`, true, 32),
+    conflictSet: expectStringArray2(record.conflictSet, `${location}.conflictSet`, true, 32),
+    supersedes: expectNullableString(record.supersedes, `${location}.supersedes`, SAFE_KEY_PATTERN2),
+    reviewOrExpiryTrigger: expectNullableString(record.reviewOrExpiryTrigger, `${location}.reviewOrExpiryTrigger`),
+    expectedConsumers: expectStringArray2(record.expectedConsumers, `${location}.expectedConsumers`, false, 32),
     ...decisionContext ? { decisionContext } : {},
-    ...record4.systemicSeverity === undefined ? {} : { systemicSeverity: expectEnum(record4.systemicSeverity, ["ordinary", "high"], `${location}.systemicSeverity`) },
+    ...record.systemicSeverity === undefined ? {} : { systemicSeverity: expectEnum(record.systemicSeverity, ["ordinary", "high"], `${location}.systemicSeverity`) },
     ...implementationAnchors ? { implementation_anchors: implementationAnchors } : {}
   };
   return candidate;
 }
 function validateKnowledgeAdmissionRecord(value, location, expectedKind) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["candidate", "disposition", "matched_knowledge_id", "reasons"], location);
-  const candidate = validateKnowledgeCandidate(record4.candidate, `${location}.candidate`, expectedKind);
-  const disposition = expectEnum(record4.disposition, KNOWLEDGE_ADMISSION_DISPOSITIONS, `${location}.disposition`);
-  const matchedKnowledgeId = expectNullableString(record4.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN2);
-  const reasons = expectStringArray2(record4.reasons, `${location}.reasons`, true, 32);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["candidate", "disposition", "matched_knowledge_id", "reasons"], location);
+  const candidate = validateKnowledgeCandidate(record.candidate, `${location}.candidate`, expectedKind);
+  const disposition = expectEnum(record.disposition, KNOWLEDGE_ADMISSION_DISPOSITIONS, `${location}.disposition`);
+  const matchedKnowledgeId = expectNullableString(record.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN2);
+  const reasons = expectStringArray2(record.reasons, `${location}.reasons`, true, 32);
   const durableDisposition = ["admit", "merge", "supersede"].includes(disposition);
   if (durableDisposition && reasons.length === 0) {
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.reasons must be non-empty for a durable admission.`);
@@ -9304,14 +9494,14 @@ function validateKnowledgeAdmissionRecord(value, location, expectedKind) {
   return { candidate, disposition, matched_knowledge_id: matchedKnowledgeId, reasons };
 }
 function validateKnowledgeAdmissionBundle(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["contracts", "decisions"], location);
-  if (!Array.isArray(record4.contracts) || record4.contracts.length > 32)
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["contracts", "decisions"], location);
+  if (!Array.isArray(record.contracts) || record.contracts.length > 32)
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.contracts must contain at most 32 records.`);
-  if (!Array.isArray(record4.decisions) || record4.decisions.length > 32)
+  if (!Array.isArray(record.decisions) || record.decisions.length > 32)
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.decisions must contain at most 32 records.`);
-  const contracts = record4.contracts.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.contracts[${index}]`, "contract"));
-  const decisions = record4.decisions.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.decisions[${index}]`, "decision"));
+  const contracts = record.contracts.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.contracts[${index}]`, "contract"));
+  const decisions = record.decisions.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.decisions[${index}]`, "decision"));
   if (new Set(contracts.map((item) => item.candidate.candidateId)).size !== contracts.length)
     fail3("KNOWLEDGE_ADMISSION_INVALID", `${location}.contracts candidate identity must be unique.`);
   if (new Set(decisions.map((item) => item.candidate.candidateId)).size !== decisions.length)
@@ -9322,23 +9512,23 @@ function emptyKnowledgeAdmissionBundle() {
   return { contracts: [], decisions: [] };
 }
 function validateKnowledgeProvenance(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "evidence_refs"], location);
-  const taskId = expectString2(record4.task_id, `${location}.task_id`);
-  const taskSlug = expectString2(record4.task_slug, `${location}.task_slug`);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "evidence_refs"], location);
+  const taskId = expectString2(record.task_id, `${location}.task_id`);
+  const taskSlug = expectString2(record.task_slug, `${location}.task_slug`);
   try {
     validateTaskId(taskId);
     validateTaskSlug(taskSlug);
   } catch (error) {
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", error instanceof Error ? error.message : String(error));
   }
-  const documentId = expectString2(record4.document_id, `${location}.document_id`);
-  const archiveRevision = expectString2(record4.archive_revision, `${location}.archive_revision`);
-  const sourceRevision = expectString2(record4.source_revision, `${location}.source_revision`);
+  const documentId = expectString2(record.document_id, `${location}.document_id`);
+  const archiveRevision = expectString2(record.archive_revision, `${location}.archive_revision`);
+  const sourceRevision = expectString2(record.source_revision, `${location}.source_revision`);
   if (!DOCUMENT_ID_PATTERN.test(documentId) || !SHA256_PATTERN2.test(archiveRevision) || !SHA256_PATTERN2.test(sourceRevision)) {
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", `${location} contains an invalid document or revision.`);
   }
-  const archivePath = normalizeRepoPath2(expectString2(record4.archive_path, `${location}.archive_path`), `${location}.archive_path`);
+  const archivePath = normalizeRepoPath2(expectString2(record.archive_path, `${location}.archive_path`), `${location}.archive_path`);
   if (!/^TASKS\/TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.test(archivePath))
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", `${location}.archive_path is not a canonical task archive path.`);
   return {
@@ -9348,21 +9538,21 @@ function validateKnowledgeProvenance(value, location) {
     archive_path: archivePath,
     archive_revision: archiveRevision,
     source_revision: sourceRevision,
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location}.evidence_refs`)
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
   };
 }
 function validateKnowledgeDelta(value, expectedKind) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  expectExactKeys2(record4, ["kind", "action", "knowledge_kind", "admission", "provenance", "evidence_refs"], "semantic_delta");
-  const knowledgeKind = expectEnum(record4.knowledge_kind, ["contract", "decision"], "semantic_delta.knowledge_kind");
+  const record = expectRecord2(value, "semantic_delta");
+  expectExactKeys2(record, ["kind", "action", "knowledge_kind", "admission", "provenance", "evidence_refs"], "semantic_delta");
+  const knowledgeKind = expectEnum(record.knowledge_kind, ["contract", "decision"], "semantic_delta.knowledge_kind");
   if (expectedKind !== undefined && knowledgeKind !== expectedKind)
     fail3("RUNTIME_SCHEMA_INVALID", `semantic_delta.knowledge_kind must be ${expectedKind}.`);
-  const admission = validateKnowledgeAdmissionRecord(record4.admission, "semantic_delta.admission", knowledgeKind);
+  const admission = validateKnowledgeAdmissionRecord(record.admission, "semantic_delta.admission", knowledgeKind);
   if (!["admit", "merge", "supersede"].includes(admission.disposition)) {
     fail3("KNOWLEDGE_ADMISSION_INVALID", "Only admitted, merged, or superseded knowledge may be submitted to a Runtime promotion operation.");
   }
-  const provenance = validateKnowledgeProvenance(record4.provenance, "semantic_delta.provenance");
-  const evidenceRefs = validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs");
+  const provenance = validateKnowledgeProvenance(record.provenance, "semantic_delta.provenance");
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
   const candidateEvidenceRefs = [
     ...admission.candidate.evidenceRefs,
     ...admission.candidate.implementation_anchors?.anchors.flatMap((anchor) => anchor.evidence_refs) ?? [],
@@ -9380,17 +9570,17 @@ function validateKnowledgeDelta(value, expectedKind) {
   };
 }
 function validateArchiveDelta(value) {
-  const record4 = expectRecord2(value, "semantic_delta");
+  const record = expectRecord2(value, "semantic_delta");
   const allowedKeys = ["kind", "action", "closure_evidence", "delivery_summary", "remaining_risks", "lesson_admission", "knowledge_admissions", "evidence_refs"];
-  const extra = Object.keys(record4).filter((key) => !allowedKeys.includes(key));
-  const required = allowedKeys.filter((key) => !["knowledge_admissions"].includes(key) && !(key in record4));
+  const extra = Object.keys(record).filter((key) => !allowedKeys.includes(key));
+  const required = allowedKeys.filter((key) => !["knowledge_admissions"].includes(key) && !(key in record));
   if (required.length > 0 || extra.length > 0) {
     fail3("RUNTIME_SCHEMA_INVALID", `semantic_delta keys mismatch; missing=[${required.join(", ")}], unexpected=[${extra.join(", ")}].`);
   }
-  const evidenceRefs = validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs");
-  const closureEvidence = validateClosureEvidence(record4.closure_evidence, "semantic_delta.closure_evidence");
-  const lessonAdmission = validateLessonAdmission(record4.lesson_admission, "semantic_delta.lesson_admission");
-  const knowledgeAdmissions = record4.knowledge_admissions === undefined ? emptyKnowledgeAdmissionBundle() : validateKnowledgeAdmissionBundle(record4.knowledge_admissions, "semantic_delta.knowledge_admissions");
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
+  const closureEvidence = validateClosureEvidence(record.closure_evidence, "semantic_delta.closure_evidence");
+  const lessonAdmission = validateLessonAdmission(record.lesson_admission, "semantic_delta.lesson_admission");
+  const knowledgeAdmissions = record.knowledge_admissions === undefined ? emptyKnowledgeAdmissionBundle() : validateKnowledgeAdmissionBundle(record.knowledge_admissions, "semantic_delta.knowledge_admissions");
   const referencedEvidence = [
     ...closureEvidence.release_evidence.evidence_refs,
     ...closureEvidence.rollback_evidence.evidence_refs,
@@ -9403,11 +9593,11 @@ function validateArchiveDelta(value) {
     fail3("RUNTIME_EVIDENCE_INVALID", "archive proposal evidence_refs must cover closure and lesson-admission evidence_refs.");
   }
   return {
-    kind: expectEnum(record4.kind, ["archive"], "semantic_delta.kind"),
-    action: expectEnum(record4.action, ["archive"], "semantic_delta.action"),
+    kind: expectEnum(record.kind, ["archive"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["archive"], "semantic_delta.action"),
     closure_evidence: closureEvidence,
-    delivery_summary: validateDeliverySummary(record4.delivery_summary, "semantic_delta.delivery_summary"),
-    remaining_risks: expectStringArray2(record4.remaining_risks, "semantic_delta.remaining_risks", true, 64),
+    delivery_summary: validateDeliverySummary(record.delivery_summary, "semantic_delta.delivery_summary"),
+    remaining_risks: expectStringArray2(record.remaining_risks, "semantic_delta.remaining_risks", true, 64),
     lesson_admission: lessonAdmission,
     knowledge_admissions: knowledgeAdmissions,
     evidence_refs: evidenceRefs
@@ -9416,51 +9606,51 @@ function validateArchiveDelta(value) {
 var LESSON_CATEGORIES = ["通用", "数据与存储", "前端与交互", "后端与服务", "测试与回归", "部署与运行时"];
 var LESSON_REQUIRED_SECTION_HEADINGS = ["使用规则", ...LESSON_CATEGORIES];
 function validateLessonCandidate(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["candidate_ref", "category", "scene", "conclusion", "trigger", "cause", "action", "consumer", "evidence_refs"], location);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["candidate_ref", "category", "scene", "conclusion", "trigger", "cause", "action", "consumer", "evidence_refs"], location);
   return {
-    candidate_ref: expectString2(record4.candidate_ref, `${location}.candidate_ref`, SAFE_KEY_PATTERN2),
-    category: expectEnum(record4.category, LESSON_CATEGORIES, `${location}.category`),
-    scene: expectText(record4.scene, `${location}.scene`),
-    conclusion: expectText(record4.conclusion, `${location}.conclusion`),
-    trigger: expectText(record4.trigger, `${location}.trigger`),
-    cause: expectText(record4.cause, `${location}.cause`),
-    action: expectText(record4.action, `${location}.action`),
-    consumer: expectText(record4.consumer, `${location}.consumer`),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location}.evidence_refs`)
+    candidate_ref: expectString2(record.candidate_ref, `${location}.candidate_ref`, SAFE_KEY_PATTERN2),
+    category: expectEnum(record.category, LESSON_CATEGORIES, `${location}.category`),
+    scene: expectText(record.scene, `${location}.scene`),
+    conclusion: expectText(record.conclusion, `${location}.conclusion`),
+    trigger: expectText(record.trigger, `${location}.trigger`),
+    cause: expectText(record.cause, `${location}.cause`),
+    action: expectText(record.action, `${location}.action`),
+    consumer: expectText(record.consumer, `${location}.consumer`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`)
   };
 }
 function validateProjectStatusDelta(value) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  expectExactKeys2(record4, ["kind", "action", "status", "summary", "completed_items", "remaining_risks", "next_checkpoint", "evidence_refs"], "semantic_delta");
+  const record = expectRecord2(value, "semantic_delta");
+  expectExactKeys2(record, ["kind", "action", "status", "summary", "completed_items", "remaining_risks", "next_checkpoint", "evidence_refs"], "semantic_delta");
   return {
-    kind: expectEnum(record4.kind, ["project-status"], "semantic_delta.kind"),
-    action: expectEnum(record4.action, ["sync"], "semantic_delta.action"),
-    status: expectEnum(record4.status, ["completed", "observing"], "semantic_delta.status"),
-    summary: expectText(record4.summary, "semantic_delta.summary"),
-    completed_items: expectStringArray2(record4.completed_items, "semantic_delta.completed_items", false, 64),
-    remaining_risks: expectStringArray2(record4.remaining_risks, "semantic_delta.remaining_risks", true, 64),
-    next_checkpoint: expectText(record4.next_checkpoint, "semantic_delta.next_checkpoint"),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs")
+    kind: expectEnum(record.kind, ["project-status"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["sync"], "semantic_delta.action"),
+    status: expectEnum(record.status, ["completed", "observing"], "semantic_delta.status"),
+    summary: expectText(record.summary, "semantic_delta.summary"),
+    completed_items: expectStringArray2(record.completed_items, "semantic_delta.completed_items", false, 64),
+    remaining_risks: expectStringArray2(record.remaining_risks, "semantic_delta.remaining_risks", true, 64),
+    next_checkpoint: expectText(record.next_checkpoint, "semantic_delta.next_checkpoint"),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs")
   };
 }
 function validateLessonRecordDelta(value) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  expectExactKeys2(record4, ["kind", "action", "candidates", "evidence_refs"], "semantic_delta");
-  if (!Array.isArray(record4.candidates) || record4.candidates.length === 0 || record4.candidates.length > 32) {
+  const record = expectRecord2(value, "semantic_delta");
+  expectExactKeys2(record, ["kind", "action", "candidates", "evidence_refs"], "semantic_delta");
+  if (!Array.isArray(record.candidates) || record.candidates.length === 0 || record.candidates.length > 32) {
     fail3("RUNTIME_SCHEMA_INVALID", "semantic_delta.candidates must contain between 1 and 32 candidates.");
   }
-  const candidates = record4.candidates.map((candidate, index) => validateLessonCandidate(candidate, `semantic_delta.candidates[${index}]`));
+  const candidates = record.candidates.map((candidate, index) => validateLessonCandidate(candidate, `semantic_delta.candidates[${index}]`));
   if (new Set(candidates.map((candidate) => candidate.candidate_ref)).size !== candidates.length) {
     fail3("RUNTIME_SCHEMA_INVALID", "semantic_delta.candidates must have unique candidate_ref values.");
   }
-  const evidenceRefs = validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs");
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
   if (!candidates.every((candidate) => candidate.evidence_refs.every((ref) => evidenceRefs.includes(ref)))) {
     fail3("RUNTIME_EVIDENCE_INVALID", "lesson-record proposal evidence_refs must cover every candidate evidence reference.");
   }
   return {
-    kind: expectEnum(record4.kind, ["lesson-record"], "semantic_delta.kind"),
-    action: expectEnum(record4.action, ["record"], "semantic_delta.action"),
+    kind: expectEnum(record.kind, ["lesson-record"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["record"], "semantic_delta.action"),
     candidates,
     evidence_refs: evidenceRefs
   };
@@ -9481,65 +9671,65 @@ function validateInboxItemId(value, location) {
   return itemId;
 }
 function validateInboxRecord(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["artifact_kind", "item_id", "title", "type", "source", "captured_at", "relation_to_current_task", "current_task_id", "description", "evidence", "suggested_next_action", "status"], location);
-  const title = expectText(record4.title, `${location}.title`, 512);
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["artifact_kind", "item_id", "title", "type", "source", "captured_at", "relation_to_current_task", "current_task_id", "description", "evidence", "suggested_next_action", "status"], location);
+  const title = expectText(record.title, `${location}.title`, 512);
   if (/[\r\n]/u.test(title) || /^\{\{[^{}]+\}\}$/.test(title)) {
     fail3("RUNTIME_IDENTITY_INVALID", `${location}.title must be a concrete single-line value.`);
   }
-  const capturedAt = expectString2(record4.captured_at, `${location}.captured_at`);
+  const capturedAt = expectString2(record.captured_at, `${location}.captured_at`);
   if (/[\r\n]/u.test(capturedAt) || Number.isNaN(Date.parse(capturedAt))) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.captured_at must be a parseable timestamp.`);
   }
-  const currentTaskId = expectString2(record4.current_task_id, `${location}.current_task_id`);
+  const currentTaskId = expectString2(record.current_task_id, `${location}.current_task_id`);
   try {
     validateTaskId(currentTaskId);
   } catch (error) {
     fail3("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
   return {
-    artifact_kind: expectEnum(record4.artifact_kind, ["inbox_item"], `${location}.artifact_kind`),
-    item_id: validateInboxItemId(record4.item_id, `${location}.item_id`),
+    artifact_kind: expectEnum(record.artifact_kind, ["inbox_item"], `${location}.artifact_kind`),
+    item_id: validateInboxItemId(record.item_id, `${location}.item_id`),
     title,
-    type: expectEnum(record4.type, INBOX_ITEM_TYPES, `${location}.type`),
-    source: expectEnum(record4.source, INBOX_ITEM_SOURCES, `${location}.source`),
+    type: expectEnum(record.type, INBOX_ITEM_TYPES, `${location}.type`),
+    source: expectEnum(record.source, INBOX_ITEM_SOURCES, `${location}.source`),
     captured_at: capturedAt,
-    relation_to_current_task: expectEnum(record4.relation_to_current_task, ["unrelated"], `${location}.relation_to_current_task`),
+    relation_to_current_task: expectEnum(record.relation_to_current_task, ["unrelated"], `${location}.relation_to_current_task`),
     current_task_id: currentTaskId,
-    description: expectText(record4.description, `${location}.description`, MAX_INBOX_TEXT_LENGTH),
-    evidence: expectText(record4.evidence, `${location}.evidence`, MAX_INBOX_TEXT_LENGTH),
-    suggested_next_action: expectEnum(record4.suggested_next_action, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.suggested_next_action`),
-    status: expectEnum(record4.status, ["captured"], `${location}.status`)
+    description: expectText(record.description, `${location}.description`, MAX_INBOX_TEXT_LENGTH),
+    evidence: expectText(record.evidence, `${location}.evidence`, MAX_INBOX_TEXT_LENGTH),
+    suggested_next_action: expectEnum(record.suggested_next_action, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.suggested_next_action`),
+    status: expectEnum(record.status, ["captured"], `${location}.status`)
   };
 }
 function validateInboxRecordDelta(value) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  expectExactKeys2(record4, ["kind", "action", "item_slug", "record", "relation_evidence_refs", "duplicate_check", "proposed_owner", "target_path", "evidence_refs"], "semantic_delta");
-  const itemSlug = expectString2(record4.item_slug, "semantic_delta.item_slug");
+  const record = expectRecord2(value, "semantic_delta");
+  expectExactKeys2(record, ["kind", "action", "item_slug", "record", "relation_evidence_refs", "duplicate_check", "proposed_owner", "target_path", "evidence_refs"], "semantic_delta");
+  const itemSlug = expectString2(record.item_slug, "semantic_delta.item_slug");
   try {
     validateTaskSlug(itemSlug);
   } catch (error) {
     fail3("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const inboxRecord = validateInboxRecord(record4.record, "semantic_delta.record");
-  const relationEvidenceRefs = validateEvidenceRefs(record4.relation_evidence_refs, "semantic_delta.relation_evidence_refs");
-  const evidenceRefs = validateEvidenceRefs(record4.evidence_refs, "semantic_delta.evidence_refs");
+  const inboxRecord = validateInboxRecord(record.record, "semantic_delta.record");
+  const relationEvidenceRefs = validateEvidenceRefs(record.relation_evidence_refs, "semantic_delta.relation_evidence_refs");
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, "semantic_delta.evidence_refs");
   if (!relationEvidenceRefs.every((ref) => evidenceRefs.includes(ref))) {
     fail3("RUNTIME_EVIDENCE_INVALID", "semantic_delta.evidence_refs must cover every relation_evidence_refs entry.");
   }
-  const duplicateCheck = expectEnum(record4.duplicate_check, ["clear"], "semantic_delta.duplicate_check");
-  const proposedOwner = expectEnum(record4.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, "semantic_delta.proposed_owner");
+  const duplicateCheck = expectEnum(record.duplicate_check, ["clear"], "semantic_delta.duplicate_check");
+  const proposedOwner = expectEnum(record.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, "semantic_delta.proposed_owner");
   if (inboxRecord.suggested_next_action !== proposedOwner) {
     fail3("RUNTIME_RELATION_INVALID", "semantic_delta.proposed_owner must match record.suggested_next_action.");
   }
-  const targetPath = normalizeRepoPath2(expectString2(record4.target_path, "semantic_delta.target_path"), "semantic_delta.target_path");
+  const targetPath = normalizeRepoPath2(expectString2(record.target_path, "semantic_delta.target_path"), "semantic_delta.target_path");
   const targetMatch = INBOX_RECORD_PATH_PATTERN.exec(targetPath);
   if (!targetMatch || `${targetMatch[1]}-${targetMatch[2]}` !== inboxRecord.item_id || targetMatch[3] !== itemSlug) {
     fail3("RUNTIME_PATH_INVALID", "semantic_delta.target_path must be the canonical path derived from item_id and item_slug.");
   }
   return {
-    kind: expectEnum(record4.kind, ["inbox-record"], "semantic_delta.kind"),
-    action: expectEnum(record4.action, ["record"], "semantic_delta.action"),
+    kind: expectEnum(record.kind, ["inbox-record"], "semantic_delta.kind"),
+    action: expectEnum(record.action, ["record"], "semantic_delta.action"),
     item_slug: itemSlug,
     record: inboxRecord,
     relation_evidence_refs: relationEvidenceRefs,
@@ -9550,8 +9740,8 @@ function validateInboxRecordDelta(value) {
   };
 }
 function validateSemanticDelta(value, operationKind) {
-  const record4 = expectRecord2(value, "semantic_delta");
-  const kind = expectString2(record4.kind, "semantic_delta.kind");
+  const record = expectRecord2(value, "semantic_delta");
+  const kind = expectString2(record.kind, "semantic_delta.kind");
   if (operationKind === "task-state-transaction") {
     if (kind !== "task-state")
       fail3("RUNTIME_SCHEMA_INVALID", "task-state-transaction requires task-state semantic_delta.");
@@ -9594,7 +9784,7 @@ function validateSemanticDelta(value, operationKind) {
   }
   if (kind !== "finding-queue")
     fail3("RUNTIME_SCHEMA_INVALID", "finding-queue-transaction requires finding-queue semantic_delta.");
-  return record4.action === "admit" ? validateFindingRecord(value, "semantic_delta") : validateFindingAction(value);
+  return record.action === "admit" ? validateFindingRecord(value, "semantic_delta") : validateFindingAction(value);
 }
 function validateRuntimeProposal(value) {
   const proposal = expectRecord2(value, "proposal");
@@ -9613,8 +9803,9 @@ function validateRuntimeProposal(value) {
   const idempotencyKey = expectString2(proposal.idempotency_key, "proposal.idempotency_key", SAFE_KEY_PATTERN2);
   const requestedTargets = expectStringArray2(proposal.requested_write_targets, "proposal.requested_write_targets", false, 4).map((target, index) => normalizeRepoPath2(target, `proposal.requested_write_targets[${index}]`));
   const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
-  const writesTaskBasis = semanticDelta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan", "commit-scope-amendment"].includes(semanticDelta.action);
-  const targetCount = writesTaskBasis || operationKind === "lifecycle-transaction" && mode !== "supersede" || operationKind === "archive-transaction" ? 2 : 1;
+  const writesTaskBasis = semanticDelta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan", "commit-scope-amendment", "record-user-evidence"].includes(semanticDelta.action);
+  const isSuccessor = semanticDelta.kind === "task-state" && semanticDelta.action === "create-draft" && semanticDelta.predecessor !== undefined;
+  const targetCount = isSuccessor ? 3 : writesTaskBasis || operationKind === "lifecycle-transaction" && mode !== "supersede" || operationKind === "archive-transaction" ? 2 : 1;
   if (requestedTargets.length !== targetCount)
     fail3("RUNTIME_PATH_INVALID", `This Runtime proposal must name exactly ${targetCount} exact write target${targetCount === 1 ? "" : "s"}.`);
   if (writesTaskBasis) {
@@ -9627,8 +9818,8 @@ function validateRuntimeProposal(value) {
   if (operationKind === "task-state-transaction") {
     if (caller === "prepare-task") {
       if (mode === "default") {
-        if (semanticDelta.kind !== "task-state" || !["clear-resume-review-gate", "create-draft", "update-draft", ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
-          fail3("RUNTIME_CALLER_NOT_BOUND", "prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, or migrate-claim-evidence.");
+        if (semanticDelta.kind !== "task-state" || !["clear-resume-review-gate", "create-draft", "update-draft", "record-user-evidence", ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
+          fail3("RUNTIME_CALLER_NOT_BOUND", "prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, migrate-claim-evidence, or an explicit user-evidence decision.");
         }
         if (semanticDelta.kind === "task-state" && semanticDelta.action === "migrate-claim-evidence") {
           const requiredPreconditions = ["current-task-is-active", "legacy-claim-evidence-state", "acceptance-bearing-plan"];
@@ -9869,6 +10060,68 @@ function validateArchiveAuditLogEntry(value, location, taskId, taskSlug) {
     recorded_at: expectString2(value.recorded_at, `${location}.recorded_at`)
   };
 }
+function successorSnapshotPath(currentPath, documentId, revision) {
+  return path10.posix.join(path10.posix.dirname(currentPath), "task-history", documentId, `${revision}.successor.md`);
+}
+function validateSuccessorDecision(value) {
+  const d = expectRecord2(value, "successor decision");
+  expectExactKeys2(d, ["task_id", "document_id", "source_revision", "basis_revision", "decision_source", "decision_text", "obligations"], "successor decision");
+  if (!Array.isArray(d.obligations) || d.obligations.length > 256)
+    fail3("SUCCESSOR_OBLIGATIONS_INVALID", "The predecessor obligation map must be bounded.");
+  const obligations = d.obligations.map((raw) => {
+    const row = expectRecord2(raw, "successor obligation");
+    expectExactKeys2(row, ["prior_key", "disposition", "successor_claim_id", "reason"], "successor obligation");
+    return {
+      prior_key: expectText(row.prior_key, "prior_key"),
+      disposition: expectEnum(row.disposition, ["carry-forward", "retired"], "disposition"),
+      successor_claim_id: row.successor_claim_id === null ? null : expectString2(row.successor_claim_id, "successor_claim_id", CLAIM_ID_PATTERN),
+      reason: expectText(row.reason, "reason")
+    };
+  });
+  if (new Set(obligations.map((row) => row.prior_key)).size !== obligations.length)
+    fail3("SUCCESSOR_OBLIGATIONS_INVALID", "A predecessor obligation must be disposed exactly once.");
+  const taskId = expectText(d.task_id, "task_id");
+  validateTaskId(taskId);
+  return {
+    task_id: taskId,
+    document_id: expectString2(d.document_id, "document_id", DOCUMENT_ID_PATTERN),
+    source_revision: expectString2(d.source_revision, "source_revision", SHA256_PATTERN2),
+    basis_revision: expectString2(d.basis_revision, "basis_revision", SHA256_PATTERN2),
+    decision_source: expectText(d.decision_source, "decision_source"),
+    decision_text: expectVerbatim(d.decision_text, "decision_text", 32768),
+    obligations
+  };
+}
+function predecessorObligationKeys(current) {
+  return [
+    ...(current.runtimeState.claim_evidence ?? []).flatMap((claim) => claim.slots.map((slot) => `claim:${claim.claim_id}/slot:${slot.slot_id}`)),
+    ...current.runtimeState.findings.filter((f) => !["resolved", "rejected"].includes(f.status)).map((f) => `finding:${f.fingerprint}`)
+  ].sort();
+}
+function assertSuccessorDecision(root, current, delta) {
+  const d = delta.predecessor;
+  if (delta.action !== "create-draft" || current.runtimeState.workflow_status !== "superseded" || current.runtimeState.lifecycle_state !== "active")
+    fail3("SUCCESSOR_STATE_INVALID", "Only an already superseded task can have an explicitly requested successor.");
+  if (d.task_id !== current.runtimeState.task_id || d.document_id !== current.sourceTuple.document_id || d.source_revision !== current.sourceTuple.revision)
+    fail3("SUCCESSOR_SOURCE_STALE", "The successor decision must bind the exact superseded predecessor.");
+  const priorBasis = readCanonicalTaskBasis(root, current);
+  if (priorBasis.revision !== d.basis_revision)
+    fail3("SUCCESSOR_SOURCE_STALE", "The predecessor Task Basis changed.");
+  if (!current.runtimeState.execution_log.some((e) => ("action" in e) && e.action === "supersede"))
+    fail3("SUCCESSOR_STATE_INVALID", "A superseded status alone does not establish a retained invalidation.");
+  const statement = [delta.task_basis.original_request, ...delta.task_basis.user_decisions].find((item) => item.source === d.decision_source);
+  if (!statement || statement.verbatim !== d.decision_text)
+    fail3("SUCCESSOR_AUTHORITY_INVALID", "Retain the exact user replacement decision in the new Task Basis; do not infer it from supersede.");
+  const expected = predecessorObligationKeys(current);
+  if (digest3(expected) !== digest3(d.obligations.map((row) => row.prior_key).sort()))
+    fail3("SUCCESSOR_OBLIGATIONS_INVALID", "Every old claim slot and open finding needs an explicit carry-forward or retirement decision.");
+  for (const row of d.obligations) {
+    if (row.disposition === "carry-forward" ? !delta.claim_evidence?.some((c) => c.claim_id === row.successor_claim_id) : row.successor_claim_id !== null)
+      fail3("SUCCESSOR_OBLIGATIONS_INVALID", "Carried obligations must name a new claim; retired obligations remain only in predecessor history.");
+  }
+  if (delta.claim_evidence?.some((c) => c.slots.some((slot) => slot.report || slot.user_decision || slot.prerequisite_receipt || COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition))))
+    fail3("SUCCESSOR_EVIDENCE_INVALID", "A successor starts with unexecuted obligations; old PASS and waivers never transfer automatically.");
+}
 function validateDraftAuditLogEntry(value, location, taskId, taskSlug) {
   const action = expectEnum(value.action, DRAFT_AUDIT_ACTIONS, `${location}.action`);
   const requiredKeys = [
@@ -9892,7 +10145,7 @@ function validateDraftAuditLogEntry(value, location, taskId, taskSlug) {
     "evidence_refs",
     "recorded_at"
   ];
-  const conditionalKeys = action === "confirm-draft" ? ["draft_revision"] : ["definition_digest", "claim_evidence_digest"];
+  const conditionalKeys = action === "confirm-draft" ? ["draft_revision"] : ["definition_digest", "claim_evidence_digest", "predecessor"];
   const requiredConditionalKeys = action === "confirm-draft" ? ["draft_revision"] : ["definition_digest"];
   const extra = Object.keys(value).filter((key) => !requiredKeys.includes(key) && !conditionalKeys.includes(key));
   const missing = [...requiredKeys, ...requiredConditionalKeys].filter((key) => !(key in value));
@@ -9938,7 +10191,7 @@ function validateDraftAuditLogEntry(value, location, taskId, taskSlug) {
     if (value.operation_kind !== "task-state-transaction" || value.caller !== "prepare-task" || value.mode !== "default") {
       fail3("RUNTIME_STATE_CONFLICT", `${location} ${action} audit has an invalid operation binding.`);
     }
-    const expectedFromIdentity = action === "create-draft" ? ["closed", "archived"] : ["draft", "active"];
+    const expectedFromIdentity = action === "create-draft" ? value.predecessor === undefined ? ["closed", "archived"] : ["superseded", "active"] : ["draft", "active"];
     if (fromWorkflowStatus !== expectedFromIdentity[0] || fromLifecycleState !== expectedFromIdentity[1] || toWorkflowStatus !== "draft" || toLifecycleState !== "active") {
       fail3("RUNTIME_STATE_CONFLICT", `${location} ${action} audit has an invalid transition.`);
     }
@@ -9968,6 +10221,7 @@ function validateDraftAuditLogEntry(value, location, taskId, taskSlug) {
       authority_evidence: authorityEvidence,
       evidence_refs: evidenceRefs,
       definition_digest: definitionDigest,
+      ...value.predecessor === undefined ? {} : { predecessor: validateSuccessorDecision(value.predecessor) },
       ...claimEvidenceDigest === undefined ? {} : { claim_evidence_digest: claimEvidenceDigest },
       recorded_at: recordedAt
     };
@@ -10088,14 +10342,14 @@ function validateClaimEvidenceMigrationAuditLogEntry(value, location, taskId, ta
   };
 }
 function validateExecutionLogEntry(value, location, taskId, taskSlug) {
-  const record4 = expectRecord2(value, location);
-  if (record4.action === "migrate-claim-evidence")
-    return validateClaimEvidenceMigrationAuditLogEntry(record4, location, taskId, taskSlug);
-  if (DRAFT_AUDIT_ACTIONS.includes(record4.action))
-    return validateDraftAuditLogEntry(record4, location, taskId, taskSlug);
-  if (record4.action === "archive")
-    return validateArchiveAuditLogEntry(record4, location, taskId, taskSlug);
-  if ("action" in record4) {
+  const record = expectRecord2(value, location);
+  if (record.action === "migrate-claim-evidence")
+    return validateClaimEvidenceMigrationAuditLogEntry(record, location, taskId, taskSlug);
+  if (DRAFT_AUDIT_ACTIONS.includes(record.action))
+    return validateDraftAuditLogEntry(record, location, taskId, taskSlug);
+  if (record.action === "archive")
+    return validateArchiveAuditLogEntry(record, location, taskId, taskSlug);
+  if ("action" in record) {
     const requiredKeys = [
       "action",
       "idempotency_key",
@@ -10115,18 +10369,18 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
       "recorded_at"
     ];
     const optionalKeys = ["partial_diff_disposition", "invalidation_kind", "invalidation_reason", "candidate_digest", "correction_reason"];
-    const missing = requiredKeys.filter((key) => !(key in record4));
-    const extra = Object.keys(record4).filter((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key));
+    const missing = requiredKeys.filter((key) => !(key in record));
+    const extra = Object.keys(record).filter((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key));
     if (missing.length > 0 || extra.length > 0) {
       fail3("RUNTIME_SCHEMA_INVALID", `${location} audit keys mismatch; missing=[${missing.join(", ")}], unexpected=[${extra.join(", ")}].`);
     }
-    const action = expectEnum(record4.action, REPLAN_AUDIT_ACTIONS, `${location}.action`);
-    const operationKind = expectEnum(record4.operation_kind, ["task-state-transaction", "lifecycle-transaction"], `${location}.operation_kind`);
-    const caller = expectEnum(record4.caller, ["prepare-task", "task-lifecycle"], `${location}.caller`);
-    const mode = expectString2(record4.mode, `${location}.mode`);
-    const entryTaskId = expectString2(record4.task_id, `${location}.task_id`);
-    const entryTaskSlug = expectString2(record4.task_slug, `${location}.task_slug`);
-    const documentId = expectString2(record4.document_id, `${location}.document_id`);
+    const action = expectEnum(record.action, REPLAN_AUDIT_ACTIONS, `${location}.action`);
+    const operationKind = expectEnum(record.operation_kind, ["task-state-transaction", "lifecycle-transaction"], `${location}.operation_kind`);
+    const caller = expectEnum(record.caller, ["prepare-task", "task-lifecycle"], `${location}.caller`);
+    const mode = expectString2(record.mode, `${location}.mode`);
+    const entryTaskId = expectString2(record.task_id, `${location}.task_id`);
+    const entryTaskSlug = expectString2(record.task_slug, `${location}.task_slug`);
+    const documentId = expectString2(record.document_id, `${location}.document_id`);
     if (!DOCUMENT_ID_PATTERN.test(documentId))
       fail3("RUNTIME_SCHEMA_INVALID", `${location}.document_id is invalid.`);
     try {
@@ -10137,24 +10391,24 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     }
     if (entryTaskId !== taskId || entryTaskSlug !== taskSlug)
       fail3("RUNTIME_STATE_CONFLICT", `${location} identity does not match runtime_state.`);
-    const fromWorkflowStatus = expectEnum(record4.from_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.from_workflow_status`);
-    const fromLifecycleState = expectEnum(record4.from_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.from_lifecycle_state`);
-    const toWorkflowStatus = expectEnum(record4.to_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.to_workflow_status`);
-    const toLifecycleState = expectEnum(record4.to_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.to_lifecycle_state`);
+    const fromWorkflowStatus = expectEnum(record.from_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.from_workflow_status`);
+    const fromLifecycleState = expectEnum(record.from_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.from_lifecycle_state`);
+    const toWorkflowStatus = expectEnum(record.to_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.to_workflow_status`);
+    const toLifecycleState = expectEnum(record.to_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.to_lifecycle_state`);
     try {
       validateCurrentTaskStatusTuple(fromWorkflowStatus, fromLifecycleState);
       validateCurrentTaskStatusTuple(toWorkflowStatus, toLifecycleState);
     } catch (error) {
       fail3("RUNTIME_STATE_CONFLICT", error instanceof Error ? error.message : String(error));
     }
-    const sourceRevision = expectString2(record4.source_revision, `${location}.source_revision`);
+    const sourceRevision = expectString2(record.source_revision, `${location}.source_revision`);
     if (!/^[a-f0-9]{64}$/.test(sourceRevision))
       fail3("RUNTIME_SCHEMA_INVALID", `${location}.source_revision must be SHA-256.`);
-    const authorityEvidence = validateAuthorityEvidence2(record4.authority_evidence);
-    const evidenceRefs = validateEvidenceRefs(record4.evidence_refs, `${location}.evidence_refs`);
-    const recordedAt = expectString2(record4.recorded_at, `${location}.recorded_at`);
+    const authorityEvidence = validateAuthorityEvidence2(record.authority_evidence);
+    const evidenceRefs = validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`);
+    const recordedAt = expectString2(record.recorded_at, `${location}.recorded_at`);
     if (action === "supersede") {
-      if (record4.candidate_digest !== undefined || record4.correction_reason !== undefined)
+      if (record.candidate_digest !== undefined || record.correction_reason !== undefined)
         fail3("RUNTIME_SCHEMA_INVALID", `${location} supersede audit cannot bind a correction candidate.`);
       if (operationKind !== "lifecycle-transaction" || caller !== "task-lifecycle" || mode !== "supersede") {
         fail3("RUNTIME_STATE_CONFLICT", `${location} supersede audit has an invalid operation binding.`);
@@ -10162,15 +10416,15 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
       if (!["active", "blocked_by_replan"].includes(fromWorkflowStatus) || fromLifecycleState !== "active" || toWorkflowStatus !== "superseded" || toLifecycleState !== "active") {
         fail3("RUNTIME_STATE_CONFLICT", `${location} supersede audit has an invalid transition.`);
       }
-      if (record4.partial_diff_disposition === undefined || record4.invalidation_kind === undefined || record4.invalidation_reason === undefined) {
+      if (record.partial_diff_disposition === undefined || record.invalidation_kind === undefined || record.invalidation_reason === undefined) {
         fail3("RUNTIME_SCHEMA_INVALID", `${location} supersede audit must preserve invalidation and partial-diff evidence.`);
       }
-      const partialDiffDisposition = validatePartialDiffDisposition(record4.partial_diff_disposition, `${location}.partial_diff_disposition`);
-      const invalidationKind = expectEnum(record4.invalidation_kind, ["goal", "scope", "acceptance"], `${location}.invalidation_kind`);
-      const invalidationReason = expectText(record4.invalidation_reason, `${location}.invalidation_reason`);
+      const partialDiffDisposition = validatePartialDiffDisposition(record.partial_diff_disposition, `${location}.partial_diff_disposition`);
+      const invalidationKind = expectEnum(record.invalidation_kind, ["goal", "scope", "acceptance"], `${location}.invalidation_kind`);
+      const invalidationReason = expectText(record.invalidation_reason, `${location}.invalidation_reason`);
       return {
         action,
-        idempotency_key: expectString2(record4.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
+        idempotency_key: expectString2(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
         operation_kind: operationKind,
         caller,
         mode: "supersede",
@@ -10194,15 +10448,15 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     if (operationKind !== "task-state-transaction" || caller !== "prepare-task" || mode !== (scopeAmendment ? "amend-scope" : "replan")) {
       fail3("RUNTIME_STATE_CONFLICT", `${location} ${scopeAmendment ? "scope-amendment" : "replan"} audit has an invalid operation binding.`);
     }
-    if (record4.partial_diff_disposition !== undefined || record4.invalidation_kind !== undefined || record4.invalidation_reason !== undefined) {
+    if (record.partial_diff_disposition !== undefined || record.invalidation_kind !== undefined || record.invalidation_reason !== undefined) {
       fail3("RUNTIME_SCHEMA_INVALID", `${location} non-supersede audit must not carry supersede-only evidence.`);
     }
-    const candidateDigest = record4.candidate_digest === undefined ? undefined : expectString2(record4.candidate_digest, `${location}.candidate_digest`, /^[a-f0-9]{64}$/);
+    const candidateDigest = record.candidate_digest === undefined ? undefined : expectString2(record.candidate_digest, `${location}.candidate_digest`, /^[a-f0-9]{64}$/);
     if (!["commit-replan", "commit-scope-amendment"].includes(action) && candidateDigest !== undefined)
       fail3("RUNTIME_SCHEMA_INVALID", `${location} candidate digest belongs only to confirmed replans.`);
     if (action === "commit-scope-amendment" && candidateDigest === undefined)
       fail3("RUNTIME_SCHEMA_INVALID", `${location} scope amendment audit must bind a confirmed candidate digest.`);
-    const correctionReason = record4.correction_reason === undefined ? undefined : expectText(record4.correction_reason, `${location}.correction_reason`, 1024);
+    const correctionReason = record.correction_reason === undefined ? undefined : expectText(record.correction_reason, `${location}.correction_reason`, 1024);
     if (candidateDigest === undefined !== (correctionReason === undefined))
       fail3("RUNTIME_SCHEMA_INVALID", `${location} correction reason must bind an exact candidate digest.`);
     const expectedTransition = action === "mark-replan-blocked" ? ["active", "active", "blocked_by_replan", "active"] : action === "clear-replan-block" ? ["blocked_by_replan", "active", "active", "active"] : ["superseded", "active", "active", "active"];
@@ -10212,7 +10466,7 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     }
     return {
       action,
-      idempotency_key: expectString2(record4.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
+      idempotency_key: expectString2(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
       operation_kind: operationKind,
       caller,
       mode: scopeAmendment ? "amend-scope" : "replan",
@@ -10251,52 +10505,52 @@ function validateExecutionLogEntry(value, location, taskId, taskSlug) {
     "recorded_at"
   ];
   const optionalExecutionLogKeys = ["note", "repair_fingerprint", "repair_fingerprints", "repair_wave_id", "change_set_id", "checkpoint", "advancement", "next_step_id", "review_receipt", "claim_evidence", "execution_result"];
-  const missingExecutionLogKeys = executionLogKeys.filter((key) => !optionalExecutionLogKeys.includes(key) && !(key in record4));
-  const extraExecutionLogKeys = Object.keys(record4).filter((key) => !executionLogKeys.includes(key));
+  const missingExecutionLogKeys = executionLogKeys.filter((key) => !optionalExecutionLogKeys.includes(key) && !(key in record));
+  const extraExecutionLogKeys = Object.keys(record).filter((key) => !executionLogKeys.includes(key));
   if (missingExecutionLogKeys.length > 0 || extraExecutionLogKeys.length > 0)
     fail3("RUNTIME_SCHEMA_INVALID", `${location} keys mismatch; missing=[${missingExecutionLogKeys.join(", ")}], unexpected=[${extraExecutionLogKeys.join(", ")}].`);
   const result = {
-    idempotency_key: expectString2(record4.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
-    mode: expectEnum(record4.mode, VNEXT_EXECUTE_STEP_MODES, `${location}.mode`),
-    step_id: expectString2(record4.step_id, `${location}.step_id`, STEP_ID_PATTERN2),
-    status: expectEnum(record4.status, STEP_STATUSES, `${location}.status`),
-    evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location}.evidence_refs`),
-    recorded_at: expectString2(record4.recorded_at, `${location}.recorded_at`)
+    idempotency_key: expectString2(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
+    mode: expectEnum(record.mode, VNEXT_EXECUTE_STEP_MODES, `${location}.mode`),
+    step_id: expectString2(record.step_id, `${location}.step_id`, STEP_ID_PATTERN2),
+    status: expectEnum(record.status, STEP_STATUSES, `${location}.status`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+    recorded_at: expectString2(record.recorded_at, `${location}.recorded_at`)
   };
-  if (record4.note !== undefined && record4.note !== null)
-    result.note = expectText(record4.note, `${location}.note`);
-  if (record4.repair_fingerprint !== undefined) {
-    result.repair_fingerprint = expectString2(record4.repair_fingerprint, `${location}.repair_fingerprint`, FINGERPRINT_PATTERN);
+  if (record.note !== undefined && record.note !== null)
+    result.note = expectText(record.note, `${location}.note`);
+  if (record.repair_fingerprint !== undefined) {
+    result.repair_fingerprint = expectString2(record.repair_fingerprint, `${location}.repair_fingerprint`, FINGERPRINT_PATTERN);
     if (result.mode !== "repair")
       fail3("RUNTIME_STATE_CONFLICT", `${location}.repair_fingerprint is only valid for repair execution records.`);
   }
-  if (record4.repair_fingerprints !== undefined) {
-    result.repair_fingerprints = expectStringArray2(record4.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  if (record.repair_fingerprints !== undefined) {
+    result.repair_fingerprints = expectStringArray2(record.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
     if (new Set(result.repair_fingerprints).size !== result.repair_fingerprints.length)
       fail3("RUNTIME_SCHEMA_INVALID", `${location}.repair_fingerprints must be unique.`);
     if (result.mode !== "repair")
       fail3("RUNTIME_STATE_CONFLICT", `${location}.repair_fingerprints is only valid for repair execution records.`);
   }
-  if (record4.repair_wave_id !== undefined)
-    result.repair_wave_id = expectString2(record4.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN2);
+  if (record.repair_wave_id !== undefined)
+    result.repair_wave_id = expectString2(record.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN2);
   if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined)
     fail3("RUNTIME_STATE_CONFLICT", `${location} must not mix legacy and grouped repair fingerprints.`);
   if (result.repair_fingerprints !== undefined !== (result.repair_wave_id !== undefined))
     fail3("RUNTIME_STATE_CONFLICT", `${location}.repair_fingerprints and repair_wave_id must appear together.`);
-  if (record4.change_set_id !== undefined)
-    result.change_set_id = expectString2(record4.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2);
-  if (record4.checkpoint !== undefined)
-    result.checkpoint = expectEnum(record4.checkpoint, ["required", "not-required"], `${location}.checkpoint`);
-  if (record4.advancement !== undefined)
-    result.advancement = expectEnum(record4.advancement, STEP_ADVANCEMENT_OUTCOMES, `${location}.advancement`);
-  if (record4.next_step_id !== undefined)
-    result.next_step_id = expectNullableString(record4.next_step_id, `${location}.next_step_id`, STEP_ID_PATTERN2);
-  if (record4.review_receipt !== undefined)
-    result.review_receipt = validateStepReviewReceipt(record4.review_receipt, `${location}.review_receipt`);
-  if (record4.claim_evidence !== undefined)
-    result.claim_evidence = validateClaimEvidence(record4.claim_evidence, `${location}.claim_evidence`);
-  if (record4.execution_result !== undefined)
-    result.execution_result = validateStepExecutionResult(record4.execution_result, `${location}.execution_result`);
+  if (record.change_set_id !== undefined)
+    result.change_set_id = expectString2(record.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN2);
+  if (record.checkpoint !== undefined)
+    result.checkpoint = expectEnum(record.checkpoint, ["required", "not-required"], `${location}.checkpoint`);
+  if (record.advancement !== undefined)
+    result.advancement = expectEnum(record.advancement, STEP_ADVANCEMENT_OUTCOMES, `${location}.advancement`);
+  if (record.next_step_id !== undefined)
+    result.next_step_id = expectNullableString(record.next_step_id, `${location}.next_step_id`, STEP_ID_PATTERN2);
+  if (record.review_receipt !== undefined)
+    result.review_receipt = validateStepReviewReceipt(record.review_receipt, `${location}.review_receipt`);
+  if (record.claim_evidence !== undefined)
+    result.claim_evidence = validateClaimEvidence(record.claim_evidence, `${location}.claim_evidence`);
+  if (record.execution_result !== undefined)
+    result.execution_result = validateStepExecutionResult(record.execution_result, `${location}.execution_result`);
   if (result.review_receipt && result.status !== "completed")
     fail3("RUNTIME_STATE_CONFLICT", `${location}.review_receipt requires a completed execution record.`);
   if (result.advancement !== undefined) {
@@ -10316,16 +10570,16 @@ function validateEvidenceChallenge(value, location) {
   const item = expectRecord2(value, location);
   expectExactKeys2(item, ["challenge_id", "claim_id", "slot_id", "result_id", "evidence_ref", "evidence_sha256", "reason", "status", "source_revision", "correction_step_id", ..."resolution" in item ? ["resolution"] : []], location);
   const resolution = item.resolution === undefined ? undefined : (() => {
-    const value2 = expectRecord2(item.resolution, `${location}.resolution`);
-    expectExactKeys2(value2, ["kind", "evidence_ref", "evidence_sha256", "reason", "source_revision"], `${location}.resolution`);
-    if (value2.kind !== "not-substantiated")
+    const value = expectRecord2(item.resolution, `${location}.resolution`);
+    expectExactKeys2(value, ["kind", "evidence_ref", "evidence_sha256", "reason", "source_revision"], `${location}.resolution`);
+    if (value.kind !== "not-substantiated")
       fail3("RUNTIME_SCHEMA_INVALID", `${location}.resolution.kind is invalid.`);
     return {
       kind: "not-substantiated",
-      evidence_ref: normalizeRepoPath2(expectString2(value2.evidence_ref, `${location}.resolution.evidence_ref`), `${location}.resolution.evidence_ref`),
-      evidence_sha256: expectString2(value2.evidence_sha256, `${location}.resolution.evidence_sha256`, /^[a-f0-9]{64}$/),
-      reason: expectString2(value2.reason, `${location}.resolution.reason`),
-      source_revision: expectString2(value2.source_revision, `${location}.resolution.source_revision`, /^[a-f0-9]{64}$/)
+      evidence_ref: normalizeRepoPath2(expectString2(value.evidence_ref, `${location}.resolution.evidence_ref`), `${location}.resolution.evidence_ref`),
+      evidence_sha256: expectString2(value.evidence_sha256, `${location}.resolution.evidence_sha256`, /^[a-f0-9]{64}$/),
+      reason: expectString2(value.reason, `${location}.resolution.reason`),
+      source_revision: expectString2(value.source_revision, `${location}.resolution.source_revision`, /^[a-f0-9]{64}$/)
     };
   })();
   if (resolution && (item.status !== "resolved" || item.correction_step_id !== null))
@@ -10349,10 +10603,10 @@ function validateEvidenceChallenge(value, location) {
 function validateEvidenceCarryForward(value, location) {
   const item = expectRecord2(value, location);
   const v2 = item.kind === "evidence-carry-forward/v2";
-  expectExactKeys2(item, ["kind", "old_source_revision", "old_plan_revision", "new_plan_revision", "claim_id", "slot_id", "check_id", "result_id", "report_sha256", "subject_revision", ...v2 ? ["receiving_source_revision", "evidence_objects", "context_revision"] : []], location);
+  expectExactKeys2(item, ["kind", "old_source_revision", "old_plan_revision", "new_plan_revision", "claim_id", "slot_id", "check_id", "result_id", "report_sha256", "subject_revision", ...v2 ? ["receiving_source_revision", "evidence_objects", "context_revision"] : [], ...["history_operation", "user_decision_sha256"].filter((key) => (key in item))], location);
   if (!v2 && item.kind !== "evidence-carry-forward/v1")
     fail3("RUNTIME_SCHEMA_INVALID", `${location}.kind is invalid.`);
-  const hash3 = (key) => expectString2(item[key], `${location}.${key}`, /^[a-f0-9]{64}$/);
+  const hash = (key) => expectString2(item[key], `${location}.${key}`, /^[a-f0-9]{64}$/);
   if (v2 && (!Array.isArray(item.evidence_objects) || item.evidence_objects.length > 128))
     fail3("RUNTIME_SCHEMA_INVALID", "Evidence objects must be bounded.");
   const objects = v2 ? item.evidence_objects.map((raw) => {
@@ -10368,16 +10622,18 @@ function validateEvidenceCarryForward(value, location) {
   }) : undefined;
   return {
     kind: v2 ? "evidence-carry-forward/v2" : "evidence-carry-forward/v1",
-    ...v2 ? { receiving_source_revision: hash3("receiving_source_revision"), evidence_objects: objects, context_revision: hash3("context_revision") } : {},
-    old_source_revision: hash3("old_source_revision"),
-    old_plan_revision: hash3("old_plan_revision"),
-    new_plan_revision: hash3("new_plan_revision"),
+    ...v2 ? { receiving_source_revision: hash("receiving_source_revision"), evidence_objects: objects, context_revision: hash("context_revision") } : {},
+    ...item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ["confirm-replan", "replace-validation"], "history_operation") },
+    ...item.user_decision_sha256 === undefined ? {} : { user_decision_sha256: hash("user_decision_sha256") },
+    old_source_revision: hash("old_source_revision"),
+    old_plan_revision: hash("old_plan_revision"),
+    new_plan_revision: hash("new_plan_revision"),
     claim_id: expectString2(item.claim_id, `${location}.claim_id`, CLAIM_ID_PATTERN),
     slot_id: expectString2(item.slot_id, `${location}.slot_id`, CLAIM_EVIDENCE_SLOT_ID_PATTERN),
     check_id: expectString2(item.check_id, `${location}.check_id`, CLAIM_ID_PATTERN),
     result_id: expectString2(item.result_id, `${location}.result_id`, CLAIM_ID_PATTERN),
-    report_sha256: hash3("report_sha256"),
-    subject_revision: hash3("subject_revision")
+    report_sha256: hash("report_sha256"),
+    subject_revision: hash("subject_revision")
   };
 }
 function validateVNextRuntimeState(value, options = {}) {
@@ -10491,18 +10747,18 @@ function validateVNextRuntimeState(value, options = {}) {
   if (!options.storeBackedHistory && (!Array.isArray(appliedValue) || appliedValue.length > MAX_APPLIED_PROPOSALS))
     fail3("RUNTIME_SCHEMA_INVALID", "runtime_state.applied_proposals must be a bounded array.");
   const appliedProposals = options.storeBackedHistory ? [] : appliedValue.map((entry, index) => {
-    const record4 = expectRecord2(entry, `runtime_state.applied_proposals[${index}]`);
-    expectExactKeys2(record4, ["idempotency_key", "operation_kind", "proposal_digest", "source_revision"], `runtime_state.applied_proposals[${index}]`);
-    const proposalDigest2 = expectString2(record4.proposal_digest, `runtime_state.applied_proposals[${index}].proposal_digest`);
-    if (!/^[a-f0-9]{64}$/.test(proposalDigest2))
+    const record = expectRecord2(entry, `runtime_state.applied_proposals[${index}]`);
+    expectExactKeys2(record, ["idempotency_key", "operation_kind", "proposal_digest", "source_revision"], `runtime_state.applied_proposals[${index}]`);
+    const proposalDigest = expectString2(record.proposal_digest, `runtime_state.applied_proposals[${index}].proposal_digest`);
+    if (!/^[a-f0-9]{64}$/.test(proposalDigest))
       fail3("RUNTIME_SCHEMA_INVALID", `runtime_state.applied_proposals[${index}].proposal_digest must be SHA-256.`);
-    const sourceRevision = expectString2(record4.source_revision, `runtime_state.applied_proposals[${index}].source_revision`);
+    const sourceRevision = expectString2(record.source_revision, `runtime_state.applied_proposals[${index}].source_revision`);
     if (!/^[a-f0-9]{64}$/.test(sourceRevision))
       fail3("RUNTIME_SCHEMA_INVALID", `runtime_state.applied_proposals[${index}].source_revision must be SHA-256.`);
     return {
-      idempotency_key: expectString2(record4.idempotency_key, `runtime_state.applied_proposals[${index}].idempotency_key`, SAFE_KEY_PATTERN2),
-      operation_kind: expectEnum(record4.operation_kind, RUNTIME_OPERATION_KINDS, `runtime_state.applied_proposals[${index}].operation_kind`),
-      proposal_digest: proposalDigest2,
+      idempotency_key: expectString2(record.idempotency_key, `runtime_state.applied_proposals[${index}].idempotency_key`, SAFE_KEY_PATTERN2),
+      operation_kind: expectEnum(record.operation_kind, RUNTIME_OPERATION_KINDS, `runtime_state.applied_proposals[${index}].operation_kind`),
+      proposal_digest: proposalDigest,
       source_revision: sourceRevision
     };
   });
@@ -10610,16 +10866,16 @@ function scanMarkdownSections2(body) {
     const headingEnd = headingStart + match[0].length;
     headings.push({ title: match[2].trim(), level: match[1].length, headingStart, headingEnd });
   }
-  return headings.map((heading2, index) => {
-    const afterHeading = heading2.headingEnd;
+  return headings.map((heading, index) => {
+    const afterHeading = heading.headingEnd;
     const contentStart = body.startsWith(`\r
 `, afterHeading) ? afterHeading + 2 : body.startsWith(`
 `, afterHeading) ? afterHeading + 1 : afterHeading;
-    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading2.level);
+    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading.level);
     return {
-      title: heading2.title,
-      level: heading2.level,
-      headingStart: heading2.headingStart,
+      title: heading.title,
+      level: heading.level,
+      headingStart: heading.headingStart,
       contentStart,
       contentEnd: next?.headingStart ?? body.length
     };
@@ -11002,12 +11258,12 @@ function taskBasisRelativePath(currentTaskPath, taskId) {
   const directory = path10.posix.dirname(normalizeRepoPath2(currentTaskPath, "CURRENT_TASK source path"));
   return path10.posix.join(directory, "task-basis", `TASK_BASIS-${taskId}.md`);
 }
-function taskBasisFilePath(root, relativePath3) {
+function taskBasisFilePath(root, relativePath) {
   const resolvedRoot = path10.resolve(root);
-  const filePath = path10.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath3, "task basis path").split("/"));
-  const relative7 = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relative7 || relative7.startsWith("../") || path10.isAbsolute(relative7)) {
-    fail3("RUNTIME_PATH_INVALID", `task basis path escapes the target root: ${relativePath3}`);
+  const filePath = path10.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath, "task basis path").split("/"));
+  const relative = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relative || relative.startsWith("../") || path10.isAbsolute(relative)) {
+    fail3("RUNTIME_PATH_INVALID", `task basis path escapes the target root: ${relativePath}`);
   }
   return filePath;
 }
@@ -11033,11 +11289,11 @@ function renderTaskBasisContent(identity, basis) {
 `);
 }
 function materializeTaskBasis(root, current, identity, basis) {
-  const relativePath3 = taskBasisRelativePath(current.relativePath, identity.task_id);
+  const relativePath = taskBasisRelativePath(current.relativePath, identity.task_id);
   const content = renderTaskBasisContent(identity, basis);
   return {
-    path: relativePath3,
-    filePath: taskBasisFilePath(root, relativePath3),
+    path: relativePath,
+    filePath: taskBasisFilePath(root, relativePath),
     revision: sha2565(content),
     content,
     basis
@@ -11238,10 +11494,10 @@ function currentTaskPathForRoot(root) {
     fail3("RUNTIME_SOURCE_MISSING", `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
   const profile = loadProfile(profilePath);
   const filePath = getWorkflowDocPath(resolvedRoot, profile, "CURRENT_TASK.md");
-  const relativePath3 = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relativePath3 || relativePath3.startsWith("../") || path10.isAbsolute(relativePath3))
+  const relativePath = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relativePath || relativePath.startsWith("../") || path10.isAbsolute(relativePath))
     fail3("RUNTIME_PATH_INVALID", "CURRENT_TASK path escapes the target root.");
-  return { filePath, relativePath: relativePath3 || CURRENT_TASK_RELATIVE_FALLBACK };
+  return { filePath, relativePath: relativePath || CURRENT_TASK_RELATIVE_FALLBACK };
 }
 function walkMarkdownFiles(directory) {
   if (!fs9.existsSync(directory))
@@ -11321,10 +11577,10 @@ function validateCurrentTaskStoreBinding(value, documentId, location) {
     history: { execution_log: "task-store", applied_proposals: "task-store" }
   };
 }
-function parseCanonicalCurrentTaskContent(raw, filePath, relativePath3) {
-  const { frontmatter, body } = parseYamlFrontmatter(raw, relativePath3);
+function parseCanonicalCurrentTaskContent(raw, filePath, relativePath) {
+  const { frontmatter, body } = parseYamlFrontmatter(raw, relativePath);
   if (frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) {
-    fail3("MIGRATION_REQUIRED", `${relativePath3} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
+    fail3("MIGRATION_REQUIRED", `${relativePath} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
   }
   const authorityVersionPresent = frontmatter.mutation_authority_version !== undefined;
   const authorityValuePresent = frontmatter.mutation_authority !== undefined;
@@ -11337,28 +11593,28 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath3) {
     ...frontmatter.task_store === undefined ? [] : ["task_store"],
     ...authorityVersionPresent ? ["mutation_authority_version"] : [],
     ...authorityValuePresent ? ["mutation_authority"] : []
-  ], `${relativePath3} frontmatter`);
+  ], `${relativePath} frontmatter`);
   if (frontmatter.schema_version !== 1)
-    fail3("RUNTIME_SCHEMA_INVALID", `${relativePath3}.schema_version must be 1 for a vNext CURRENT_TASK document.`);
+    fail3("RUNTIME_SCHEMA_INVALID", `${relativePath}.schema_version must be 1 for a vNext CURRENT_TASK document.`);
   if (authorityMarkerPresent && authorityVersionPresent && ![1, MUTATION_AUTHORITY_VERSION].includes(frontmatter.mutation_authority_version)) {
-    fail3("MUTATION_AUTHORITY_VERSION_UNSUPPORTED", `${relativePath3}.mutation_authority_version must be 1 or 2.`);
+    fail3("MUTATION_AUTHORITY_VERSION_UNSUPPORTED", `${relativePath}.mutation_authority_version must be 1 or 2.`);
   }
   let mutationAuthority = null;
   if (frontmatter.mutation_authority_version === MUTATION_AUTHORITY_VERSION) {
     if (!authorityValuePresent)
-      fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath3}.mutation_authority is required when mutation_authority_version=2.`);
+      fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath}.mutation_authority is required when mutation_authority_version=2.`);
     try {
       mutationAuthority = normalizeTaskMutationAuthority(frontmatter.mutation_authority);
     } catch (error) {
       fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
     }
   } else if (authorityValuePresent) {
-    fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath3}.mutation_authority is only valid when mutation_authority_version=2.`);
+    fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath}.mutation_authority is only valid when mutation_authority_version=2.`);
   }
-  const documentId = expectString2(frontmatter.document_id, `${relativePath3}.document_id`);
+  const documentId = expectString2(frontmatter.document_id, `${relativePath}.document_id`);
   if (!DOCUMENT_ID_PATTERN.test(documentId))
-    fail3("RUNTIME_SCHEMA_INVALID", `${relativePath3}.document_id is invalid.`);
-  const storeBinding = frontmatter.task_store === undefined ? null : validateCurrentTaskStoreBinding(frontmatter.task_store, documentId, `${relativePath3}.task_store`);
+    fail3("RUNTIME_SCHEMA_INVALID", `${relativePath}.document_id is invalid.`);
+  const storeBinding = frontmatter.task_store === undefined ? null : validateCurrentTaskStoreBinding(frontmatter.task_store, documentId, `${relativePath}.task_store`);
   const runtimeState = validateVNextRuntimeState(frontmatter.runtime_state, { storeBackedHistory: storeBinding !== null });
   try {
     parseMutationScope(body, sha2565(raw));
@@ -11369,10 +11625,10 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath3) {
   }
   const bodyAuthority = parseMutationAuthoritySection(body);
   if (mutationAuthority !== null !== (bodyAuthority !== null)) {
-    fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath3} frontmatter and body must declare the same Mutation Authority v2 marker.`);
+    fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath} frontmatter and body must declare the same Mutation Authority v2 marker.`);
   }
   if (mutationAuthority && bodyAuthority && digest3(mutationAuthority) !== digest3(bodyAuthority.mutation_authority)) {
-    fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath3} frontmatter and body Mutation Authority values conflict.`);
+    fail3("MUTATION_AUTHORITY_SCHEMA_INVALID", `${relativePath} frontmatter and body Mutation Authority values conflict.`);
   }
   const identity = extractTaskIdentityFromCurrentTask(body);
   const bodyState = extractCurrentTaskStateFromCurrentTask(body);
@@ -11396,7 +11652,7 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath3) {
   }
   resolveTaskStepForState(body, runtimeState.active_step_id);
   const sourceTuple = {
-    path: relativePath3,
+    path: relativePath,
     revision: sha2565(raw),
     document_id: documentId,
     task_id: runtimeState.task_id,
@@ -11409,28 +11665,28 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath3) {
     resume_requires_review: runtimeState.resume_requires_review,
     resume_review_reasons: [...runtimeState.resume_review_reasons]
   };
-  return { filePath, relativePath: relativePath3, raw, frontmatter, body, runtimeState, mutationAuthority, sourceTuple };
+  return { filePath, relativePath, raw, frontmatter, body, runtimeState, mutationAuthority, sourceTuple };
 }
 function hydrateCompactRuntimeHistory(root, current) {
   const binding = current.frontmatter.task_store;
   const store = TaskStore.forCurrent(root, current);
-  let manifest2;
+  let manifest;
   try {
-    manifest2 = store.manifest;
+    manifest = store.manifest;
   } catch (error) {
     fail3("RUNTIME_STORAGE_RECOVERY_REQUIRED", error instanceof Error ? error.message : String(error));
   }
-  if (!manifest2)
+  if (!manifest)
     fail3("RUNTIME_STORAGE_RECOVERY_REQUIRED", "compact CURRENT_TASK has no committed task-store manifest; explicit storage recovery is required.");
   if (store.hasPendingCommit)
     fail3("RUNTIME_STORAGE_RECOVERY_REQUIRED", "task-store has a pending commit; recover it before reading or executing the task.");
-  if (binding.manifest_path !== `${manifest2.storage_root}/manifest.json`) {
+  if (binding.manifest_path !== `${manifest.storage_root}/manifest.json`) {
     fail3("RUNTIME_STORAGE_COMPACT_INVALID", "CURRENT_TASK task-store manifest path does not match the committed aggregate.");
   }
-  if (manifest2.current_representation !== "compact-v2" || manifest2.storage_format !== "vnext-task-store/v2") {
+  if (manifest.current_representation !== "compact-v2" || manifest.storage_format !== "vnext-task-store/v2") {
     fail3("RUNTIME_STORAGE_COMPACT_INVALID", "compact CURRENT_TASK is bound to a non-compact task-store manifest.");
   }
-  if (manifest2.head.source_revision !== current.sourceTuple.revision) {
+  if (manifest.head.source_revision !== current.sourceTuple.revision) {
     fail3("RUNTIME_STORAGE_RECOVERY_REQUIRED", "CURRENT_TASK and task-store manifest do not name the same committed source revision.");
   }
   const history = store.hydrateHistory(current);
@@ -11452,13 +11708,13 @@ function hydrateCompactRuntimeHistory(root, current) {
     fail3("RUNTIME_STORAGE_RECOVERY_REQUIRED", `compact task-store validation failed: ${validation.errors.join(" | ")}`);
 }
 function readCanonicalCurrentTask(root) {
-  const { filePath, relativePath: relativePath3 } = currentTaskPathForRoot(root);
+  const { filePath, relativePath } = currentTaskPathForRoot(root);
   assertGovernanceReadable(filePath);
   assertNoArtifactPublication(filePath);
   recoverTaskEvolution(filePath);
   if (!fs9.existsSync(filePath))
-    fail3("RUNTIME_SOURCE_MISSING", `CURRENT_TASK.md is missing: ${relativePath3}`);
-  const current = parseCanonicalCurrentTaskContent(fs9.readFileSync(filePath, "utf8"), filePath, relativePath3);
+    fail3("RUNTIME_SOURCE_MISSING", `CURRENT_TASK.md is missing: ${relativePath}`);
+  const current = parseCanonicalCurrentTaskContent(fs9.readFileSync(filePath, "utf8"), filePath, relativePath);
   if (current.mutationAuthority) {
     current.mutationAuthority = validateTaskMutationAuthority(root, current.mutationAuthority);
   }
@@ -11476,8 +11732,8 @@ function readCanonicalCurrentTask(root) {
   }
   return current;
 }
-function recoveryCurrentFromRaw(raw, filePath, relativePath3, runtimeState) {
-  const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath3);
+function recoveryCurrentFromRaw(raw, filePath, relativePath, runtimeState) {
+  const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath);
   if (!isRecord2(runtimeState))
     throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "pending commit is missing its exact runtime after-image.");
   parsed.runtimeState = runtimeState;
@@ -11487,17 +11743,17 @@ function recoveryCurrentFromRaw(raw, filePath, relativePath3, runtimeState) {
   return parsed;
 }
 function recoverPendingTaskStoreCommit(root) {
-  const { filePath, relativePath: relativePath3 } = currentTaskPathForRoot(root);
+  const { filePath, relativePath } = currentTaskPathForRoot(root);
   if (!fs9.existsSync(filePath))
     return;
   const raw = fs9.readFileSync(filePath, "utf8");
-  const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath3);
+  const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath);
   const store = TaskStore.forCurrent(root, parsed);
   const pending = store.pendingCommit;
   if (!isRecord2(pending))
     return;
-  const manifest2 = store.manifest;
-  if (!manifest2)
+  const manifest = store.manifest;
+  if (!manifest)
     throw new TaskStoreError("TASK_STORE_MANIFEST_INVALID", "pending task-store commit has no manifest to recover against.");
   const sequence = pending.sequence;
   const sourceRevision = pending.source_revision;
@@ -11505,8 +11761,8 @@ function recoverPendingTaskStoreCommit(root) {
   if (typeof sequence !== "number" || typeof sourceRevision !== "string" || typeof resultingRevision !== "string") {
     throw new TaskStoreError("TASK_STORE_MANIFEST_INVALID", "pending task-store commit has incomplete recovery coordinates.");
   }
-  if (manifest2.head.event_sequence > sequence || manifest2.head.event_sequence === sequence) {
-    if (manifest2.head.event_sequence !== sequence || manifest2.head.source_revision !== resultingRevision) {
+  if (manifest.head.event_sequence > sequence || manifest.head.event_sequence === sequence) {
+    if (manifest.head.event_sequence !== sequence || manifest.head.source_revision !== resultingRevision) {
       throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "pending task-store commit conflicts with the already-published aggregate head.");
     }
     if (parsed.sourceTuple.revision !== resultingRevision) {
@@ -11516,7 +11772,7 @@ function recoverPendingTaskStoreCommit(root) {
     store.clearPendingForNoCommit();
     return;
   }
-  if (manifest2.head.event_sequence !== sequence - 1 || manifest2.head.source_revision !== sourceRevision) {
+  if (manifest.head.event_sequence !== sequence - 1 || manifest.head.source_revision !== sourceRevision) {
     throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "pending task-store commit is not directly after the committed aggregate head.");
   }
   if (parsed.sourceTuple.revision === sourceRevision) {
@@ -11548,8 +11804,8 @@ function recoverPendingTaskStoreCommit(root) {
       afterRuntimeState = { ...afterRuntimeState, applied_proposals: [...persistedAppliedProposals, ...delta] };
     }
   }
-  const before = recoveryCurrentFromRaw(pending.before_raw, filePath, relativePath3, beforeRuntimeState);
-  const after = recoveryCurrentFromRaw(pending.after_raw, filePath, relativePath3, afterRuntimeState);
+  const before = recoveryCurrentFromRaw(pending.before_raw, filePath, relativePath, beforeRuntimeState);
+  const after = recoveryCurrentFromRaw(pending.after_raw, filePath, relativePath, afterRuntimeState);
   if (before.sourceTuple.revision !== sourceRevision || after.sourceTuple.revision !== resultingRevision || before.sourceTuple.document_id !== parsed.sourceTuple.document_id || after.sourceTuple.document_id !== parsed.sourceTuple.document_id) {
     throw new TaskStoreError("TASK_STORE_IDENTITY_CONFLICT", "pending task-store recovery images do not describe one task aggregate.");
   }
@@ -11612,26 +11868,26 @@ function workflowDocPathForRoot(root, file, missingCode = "RUNTIME_SOURCE_MISSIN
     fail3(missingCode, `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
   const profile = loadProfile(profilePath);
   const filePath = getWorkflowDocPath(resolvedRoot, profile, file);
-  const relativePath3 = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (!relativePath3 || relativePath3.startsWith("../") || path10.isAbsolute(relativePath3)) {
+  const relativePath = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+  if (!relativePath || relativePath.startsWith("../") || path10.isAbsolute(relativePath)) {
     fail3("RUNTIME_PATH_INVALID", `${file} path escapes the target root.`);
   }
-  return { filePath, relativePath: relativePath3 };
+  return { filePath, relativePath };
 }
 function archivePathForTask(root, current) {
-  let relativePath3;
+  let relativePath;
   try {
-    relativePath3 = getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, "archive");
+    relativePath = getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, "archive");
   } catch (error) {
     fail3("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
   const resolvedRoot = path10.resolve(root);
-  const filePath = path10.resolve(resolvedRoot, ...relativePath3.split("/"));
+  const filePath = path10.resolve(resolvedRoot, ...relativePath.split("/"));
   const relativeCheck = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath3 || relativeCheck.startsWith("../") || path10.isAbsolute(relativeCheck)) {
-    fail3("RUNTIME_PATH_INVALID", `archive path escapes the target root: ${relativePath3}`);
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path10.isAbsolute(relativeCheck)) {
+    fail3("RUNTIME_PATH_INVALID", `archive path escapes the target root: ${relativePath}`);
   }
-  return { filePath, relativePath: relativePath3 };
+  return { filePath, relativePath };
 }
 function canonicalInboxRecordTarget(root, delta) {
   const itemId = validateInboxItemId(delta.record.item_id, "semantic_delta.record.item_id");
@@ -11641,17 +11897,17 @@ function canonicalInboxRecordTarget(root, delta) {
   } catch (error) {
     fail3("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const relativePath3 = `TASKS/inbox/INBOX-${itemId}-${itemSlug}.md`;
-  if (delta.target_path !== relativePath3) {
+  const relativePath = `TASKS/inbox/INBOX-${itemId}-${itemSlug}.md`;
+  if (delta.target_path !== relativePath) {
     fail3("RUNTIME_PATH_INVALID", "inbox target_path is not the canonical identity-derived path.");
   }
   const resolvedRoot = path10.resolve(root);
-  const filePath = path10.resolve(resolvedRoot, ...relativePath3.split("/"));
+  const filePath = path10.resolve(resolvedRoot, ...relativePath.split("/"));
   const relativeCheck = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath3 || relativeCheck.startsWith("../") || path10.isAbsolute(relativeCheck)) {
-    fail3("RUNTIME_PATH_INVALID", `inbox path escapes the target root: ${relativePath3}`);
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path10.isAbsolute(relativeCheck)) {
+    fail3("RUNTIME_PATH_INVALID", `inbox path escapes the target root: ${relativePath}`);
   }
-  return { filePath, relativePath: relativePath3 };
+  return { filePath, relativePath };
 }
 function renderInboxTextBlock(value) {
   return value.replace(/\r\n?/g, `
@@ -11675,60 +11931,60 @@ function inboxRecordProvenance(proposal) {
 }
 function renderInboxRecord(proposal) {
   const delta = proposal.semantic_delta;
-  const record4 = delta.record;
+  const record = delta.record;
   const marker = `<!-- vNext inbox record: ${JSON.stringify(inboxRecordProvenance(proposal))} -->`;
   return [
-    `# INBOX-${record4.item_id}-${delta.item_slug}`,
+    `# INBOX-${record.item_id}-${delta.item_slug}`,
     "",
     marker,
     "",
-    `- artifact_kind: ${record4.artifact_kind}`,
-    `- item_id: ${record4.item_id}`,
-    `- title: ${record4.title}`,
-    `- type: ${record4.type}`,
-    `- source: ${record4.source}`,
-    `- captured_at: ${record4.captured_at}`,
-    `- relation_to_current_task: ${record4.relation_to_current_task}`,
-    `- current_task_id: ${record4.current_task_id}`,
+    `- artifact_kind: ${record.artifact_kind}`,
+    `- item_id: ${record.item_id}`,
+    `- title: ${record.title}`,
+    `- type: ${record.type}`,
+    `- source: ${record.source}`,
+    `- captured_at: ${record.captured_at}`,
+    `- relation_to_current_task: ${record.relation_to_current_task}`,
+    `- current_task_id: ${record.current_task_id}`,
     "- description: |",
-    renderInboxTextBlock(record4.description),
+    renderInboxTextBlock(record.description),
     "- evidence: |",
-    renderInboxTextBlock(record4.evidence),
-    `- suggested_next_action: ${record4.suggested_next_action}`,
-    `- status: ${record4.status}`,
+    renderInboxTextBlock(record.evidence),
+    `- suggested_next_action: ${record.suggested_next_action}`,
+    `- status: ${record.status}`,
     ""
   ].join(`
 `);
 }
 function validateInboxProvenance(value, location) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["idempotency_key", "proposal_digest", "source_revision", "source_task_id", "source_task_slug", "source_document_id", "relation_evidence_refs", "duplicate_check", "proposed_owner"], location);
-  const proposalDigest2 = expectString2(record4.proposal_digest, `${location}.proposal_digest`);
-  const sourceRevision = expectString2(record4.source_revision, `${location}.source_revision`);
-  if (!SHA256_PATTERN2.test(proposalDigest2) || !SHA256_PATTERN2.test(sourceRevision)) {
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["idempotency_key", "proposal_digest", "source_revision", "source_task_id", "source_task_slug", "source_document_id", "relation_evidence_refs", "duplicate_check", "proposed_owner"], location);
+  const proposalDigest = expectString2(record.proposal_digest, `${location}.proposal_digest`);
+  const sourceRevision = expectString2(record.source_revision, `${location}.source_revision`);
+  if (!SHA256_PATTERN2.test(proposalDigest) || !SHA256_PATTERN2.test(sourceRevision)) {
     fail3("INBOX_PROVENANCE_INVALID", `${location} contains an invalid proposal or source revision.`);
   }
-  const sourceTaskId = expectString2(record4.source_task_id, `${location}.source_task_id`);
-  const sourceTaskSlug = expectString2(record4.source_task_slug, `${location}.source_task_slug`);
+  const sourceTaskId = expectString2(record.source_task_id, `${location}.source_task_id`);
+  const sourceTaskSlug = expectString2(record.source_task_slug, `${location}.source_task_slug`);
   try {
     validateTaskId(sourceTaskId);
     validateTaskSlug(sourceTaskSlug);
   } catch (error) {
     fail3("INBOX_PROVENANCE_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const sourceDocumentId = expectString2(record4.source_document_id, `${location}.source_document_id`);
+  const sourceDocumentId = expectString2(record.source_document_id, `${location}.source_document_id`);
   if (!DOCUMENT_ID_PATTERN.test(sourceDocumentId))
     fail3("INBOX_PROVENANCE_INVALID", `${location}.source_document_id is invalid.`);
   return {
-    idempotency_key: expectString2(record4.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
-    proposal_digest: proposalDigest2,
+    idempotency_key: expectString2(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN2),
+    proposal_digest: proposalDigest,
     source_revision: sourceRevision,
     source_task_id: sourceTaskId,
     source_task_slug: sourceTaskSlug,
     source_document_id: sourceDocumentId,
-    relation_evidence_refs: validateEvidenceRefs(record4.relation_evidence_refs, `${location}.relation_evidence_refs`),
-    duplicate_check: expectEnum(record4.duplicate_check, ["clear"], `${location}.duplicate_check`),
-    proposed_owner: expectEnum(record4.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.proposed_owner`)
+    relation_evidence_refs: validateEvidenceRefs(record.relation_evidence_refs, `${location}.relation_evidence_refs`),
+    duplicate_check: expectEnum(record.duplicate_check, ["clear"], `${location}.duplicate_check`),
+    proposed_owner: expectEnum(record.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.proposed_owner`)
   };
 }
 function readInboxProvenanceMarkers(content, location) {
@@ -11754,19 +12010,19 @@ function scanInboxRecordFiles(root) {
   const resolvedRoot = path10.resolve(root);
   const inboxRoot = path10.join(resolvedRoot, "TASKS", "inbox");
   return walkMarkdownFiles(inboxRoot).map((filePath) => {
-    const relativePath3 = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-    const pathMatch = INBOX_RECORD_PATH_PATTERN.exec(relativePath3);
+    const relativePath = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
+    const pathMatch = INBOX_RECORD_PATH_PATTERN.exec(relativePath);
     const content = fs9.readFileSync(filePath, "utf8");
-    const provenance = readInboxProvenanceMarkers(content, relativePath3);
+    const provenance = readInboxProvenanceMarkers(content, relativePath);
     if (provenance.length > 0 && !pathMatch) {
-      fail3("INBOX_PATH_INVALID", `${relativePath3} contains vNext inbox provenance but is not a canonical inbox path.`);
+      fail3("INBOX_PATH_INVALID", `${relativePath} contains vNext inbox provenance but is not a canonical inbox path.`);
     }
     if (!pathMatch) {
-      fail3("INBOX_PATH_INVALID", `${relativePath3} is not a canonical vNext inbox record path.`);
+      fail3("INBOX_PATH_INVALID", `${relativePath} is not a canonical vNext inbox record path.`);
     }
     return {
       filePath,
-      relativePath: relativePath3,
+      relativePath,
       itemId: pathMatch ? `${pathMatch[1]}-${pathMatch[2]}` : null,
       provenance
     };
@@ -11893,11 +12149,11 @@ function requiredArchiveSections(raw) {
     "后续关联"
   ];
   const result = {};
-  for (const heading2 of requiredHeadings) {
-    const section = findUniqueMarkdownSection(sections, [heading2], 2);
+  for (const heading of requiredHeadings) {
+    const section = findUniqueMarkdownSection(sections, [heading], 2);
     if (!section)
-      fail3("ARCHIVE_INVALID", `canonical task archive is missing ## ${heading2}.`);
-    result[heading2] = section;
+      fail3("ARCHIVE_INVALID", `canonical task archive is missing ## ${heading}.`);
+    result[heading] = section;
   }
   return result;
 }
@@ -12167,6 +12423,7 @@ function renderArchiveDocument(current, proposal, delta, archiveRelativePath, cl
     `- acceptance_satisfied: ${String(closure.acceptance_satisfied)}`,
     `- validation_complete: ${String(closure.validation_complete)}`,
     ...renderArchiveList("verification", delta.delivery_summary.verification),
+    ...(current.runtimeState.claim_evidence ?? []).some((c) => c.slots.some((s) => s.user_decision)) ? renderArchiveList("explicit_user_evidence_decisions", (current.runtimeState.claim_evidence ?? []).flatMap((c) => c.slots.filter((s) => s.user_decision).map((s) => `${c.claim_id}/${s.slot_id}: ${s.user_decision.kind}; source=${s.user_decision.decision_source}; caller-reported; waiver is not tested PASS`))) : [],
     ...renderArchiveList("release_evidence", delta.delivery_summary.release_evidence),
     ...renderArchiveList("rollback_evidence", delta.delivery_summary.rollback_evidence),
     ...renderArchiveList("observation_evidence", delta.delivery_summary.observation_evidence),
@@ -12241,17 +12498,17 @@ function prepareArchiveTransaction(root, current, proposal, now) {
   const delta = proposal.semantic_delta;
   ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
   if (current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived") {
-    const { audit: audit2, receipt } = matchingArchiveReceipt(root, current);
-    if (digest3(delta) !== audit2.closure_delta_digest) {
+    const { audit, receipt } = matchingArchiveReceipt(root, current);
+    if (digest3(delta) !== audit.closure_delta_digest) {
       fail3("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation closure evidence does not match the committed archive receipt.");
     }
-    if (delta.lesson_admission.decision !== audit2.lesson_admission.decision || delta.lesson_admission.candidate_refs.join("|") !== audit2.lesson_admission.candidate_refs.join("|") || delta.lesson_admission.evidence_refs.join("|") !== audit2.lesson_admission.evidence_refs.join("|")) {
+    if (delta.lesson_admission.decision !== audit.lesson_admission.decision || delta.lesson_admission.candidate_refs.join("|") !== audit.lesson_admission.candidate_refs.join("|") || delta.lesson_admission.evidence_refs.join("|") !== audit.lesson_admission.evidence_refs.join("|")) {
       fail3("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation lesson admission does not match the committed archive receipt.");
     }
-    if (digest3(delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle()) !== digest3(audit2.knowledge_admissions)) {
+    if (digest3(delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle()) !== digest3(audit.knowledge_admissions)) {
       fail3("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation knowledge admission does not match the committed archive receipt.");
     }
-    if (receipt.sourceRevision !== audit2.source_revision)
+    if (receipt.sourceRevision !== audit.source_revision)
       fail3("ARCHIVE_PROVENANCE_MISMATCH", "archive source revision does not match the committed archive audit.");
     return null;
   }
@@ -12700,14 +12957,14 @@ function prepareProjectStatusTransaction(root, current, proposal) {
       if (!(error instanceof VNextRuntimeError) || error.code !== "STATUS_PROVENANCE_MISMATCH")
         throw error;
     }
-    const nextStatusContent2 = projectStatusDelta(originalStatusContent, proposal.semantic_delta, target.relativePath);
-    assertStatusProjection(nextStatusContent2, proposal.semantic_delta, target.relativePath);
+    const nextStatusContent = projectStatusDelta(originalStatusContent, proposal.semantic_delta, target.relativePath);
+    assertStatusProjection(nextStatusContent, proposal.semantic_delta, target.relativePath);
     return {
       statusFilePath: target.filePath,
       statusRelativePath: target.relativePath,
-      nextStatusContent: nextStatusContent2,
+      nextStatusContent,
       originalStatusContent,
-      statusRevision: sha2565(nextStatusContent2),
+      statusRevision: sha2565(nextStatusContent),
       archive: receipt
     };
   }
@@ -12819,40 +13076,40 @@ function readLessonMarkers(content, location) {
     } catch {
       fail3("LESSON_INVALID", `${location} contains an invalid vNext lesson provenance marker.`);
     }
-    const record4 = expectLessonRecord(parsed, `${location}.lesson_marker`);
-    const hasDisposition = "disposition" in record4;
+    const record = expectLessonRecord(parsed, `${location}.lesson_marker`);
+    const hasDisposition = "disposition" in record;
     if (hasDisposition) {
-      if (record4.disposition !== "reused") {
-        fail3("LESSON_INVALID", `${location}.lesson_marker has an invalid Lesson marker disposition: ${String(record4.disposition)}.`);
+      if (record.disposition !== "reused") {
+        fail3("LESSON_INVALID", `${location}.lesson_marker has an invalid Lesson marker disposition: ${String(record.disposition)}.`);
       }
-      expectLessonExactKeys(record4, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs", "disposition", "reused_candidate"], `${location}.lesson_marker`);
+      expectLessonExactKeys(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs", "disposition", "reused_candidate"], `${location}.lesson_marker`);
     } else {
-      expectLessonExactKeys(record4, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs"], `${location}.lesson_marker`);
+      expectLessonExactKeys(record, ["task_id", "task_slug", "document_id", "archive_path", "archive_revision", "source_revision", "candidate_ref", "candidate_digest", "evidence_refs"], `${location}.lesson_marker`);
     }
-    const archiveRevision = expectLessonString(record4.archive_revision, `${location}.lesson_marker.archive_revision`);
-    const sourceRevision = expectLessonString(record4.source_revision, `${location}.lesson_marker.source_revision`);
-    const candidateDigest = expectLessonString(record4.candidate_digest, `${location}.lesson_marker.candidate_digest`);
+    const archiveRevision = expectLessonString(record.archive_revision, `${location}.lesson_marker.archive_revision`);
+    const sourceRevision = expectLessonString(record.source_revision, `${location}.lesson_marker.source_revision`);
+    const candidateDigest = expectLessonString(record.candidate_digest, `${location}.lesson_marker.candidate_digest`);
     if (!SHA256_PATTERN2.test(archiveRevision) || !SHA256_PATTERN2.test(sourceRevision) || !SHA256_PATTERN2.test(candidateDigest)) {
       fail3("LESSON_INVALID", `${location} contains a non-canonical Lesson marker revision or digest.`);
     }
-    const candidateIdentity = validateLessonCandidateKey(record4, `${location}.lesson_marker`);
-    const taskSlug = validateLessonTaskSlug(record4.task_slug, `${location}.lesson_marker.task_slug`);
+    const candidateIdentity = validateLessonCandidateKey(record, `${location}.lesson_marker`);
+    const taskSlug = validateLessonTaskSlug(record.task_slug, `${location}.lesson_marker.task_slug`);
     const marker = {
       task_id: candidateIdentity.task_id,
       task_slug: taskSlug,
       document_id: candidateIdentity.document_id,
-      archive_path: normalizeRepoPath2(expectLessonString(record4.archive_path, `${location}.lesson_marker.archive_path`), `${location}.lesson_marker.archive_path`),
+      archive_path: normalizeRepoPath2(expectLessonString(record.archive_path, `${location}.lesson_marker.archive_path`), `${location}.lesson_marker.archive_path`),
       archive_revision: candidateIdentity.archive_revision,
       source_revision: sourceRevision,
       candidate_ref: candidateIdentity.candidate_ref,
       candidate_digest: candidateDigest,
-      evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location}.lesson_marker.evidence_refs`)
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.lesson_marker.evidence_refs`)
     };
     if (hasDisposition) {
-      if (!isRecord2(record4.reused_candidate)) {
+      if (!isRecord2(record.reused_candidate)) {
         fail3("LESSON_INVALID", `${location}.lesson_marker.reused_candidate must be a mapping.`);
       }
-      const reusedRecord = record4.reused_candidate;
+      const reusedRecord = record.reused_candidate;
       expectLessonExactKeys(reusedRecord, ["task_id", "document_id", "archive_revision", "candidate_ref"], `${location}.lesson_marker.reused_candidate`);
       marker.disposition = "reused";
       marker.reused_candidate = validateLessonCandidateKey(reusedRecord, `${location}.lesson_marker.reused_candidate`);
@@ -13018,7 +13275,7 @@ function readDurableLessonRecords(content, location) {
     if (!marker.reused_candidate) {
       fail3("LESSON_INVALID", `${location}.lesson[${index}] reuse marker is missing reused_candidate target.`);
     }
-    const matchingTargets = persistedRecords.filter((record4) => record4.marker.task_id === marker.reused_candidate.task_id && record4.marker.document_id === marker.reused_candidate.document_id && record4.marker.archive_revision === marker.reused_candidate.archive_revision && record4.marker.candidate_ref === marker.reused_candidate.candidate_ref);
+    const matchingTargets = persistedRecords.filter((record) => record.marker.task_id === marker.reused_candidate.task_id && record.marker.document_id === marker.reused_candidate.document_id && record.marker.archive_revision === marker.reused_candidate.archive_revision && record.marker.candidate_ref === marker.reused_candidate.candidate_ref);
     if (matchingTargets.length !== 1) {
       fail3("LESSON_PROVENANCE_MISMATCH", `${location}.lesson[${index}] references ${matchingTargets.length === 0 ? "missing" : "ambiguous"} persisted candidate target ${marker.reused_candidate.task_id}/${marker.reused_candidate.candidate_ref}.`);
     }
@@ -13039,9 +13296,9 @@ function readDurableLessonRecords(content, location) {
 }
 function readCanonicalLessonsDocument(content, location) {
   const sections = scanMarkdownSections2(content);
-  for (const heading2 of LESSON_REQUIRED_SECTION_HEADINGS) {
-    if (!findUniqueMarkdownSection(sections, [heading2], 2))
-      fail3("LESSON_INVALID", `${location} is missing the required ## ${heading2} section.`);
+  for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+    if (!findUniqueMarkdownSection(sections, [heading], 2))
+      fail3("LESSON_INVALID", `${location} is missing the required ## ${heading} section.`);
   }
   readDurableLessonRecords(content, location);
   return content;
@@ -13083,21 +13340,21 @@ function canonicalizeLessonsDocumentForBootstrap(content, location = "LESSONS.md
 `).trim() : "";
     output.push("## 使用规则", "", ...rulesBody.length > 0 ? rulesBody.split(`
 `) : [], "");
-    for (const heading2 of LESSON_CATEGORIES)
-      output.push(`## ${heading2}`, "", "- none", "");
+    for (const heading of LESSON_CATEGORIES)
+      output.push(`## ${heading}`, "", "- none", "");
     const reusableBody = content.slice(reusable.contentStart, reusable.contentEnd).replace(/\r\n?/g, `
 `).trim();
     output.push("## Reusable lessons", "", ...reusableBody.length > 0 ? reusableBody.split(`
 `) : [], "");
   } else {
-    for (const heading2 of LESSON_REQUIRED_SECTION_HEADINGS) {
-      const section = findUniqueMarkdownSection(sections, [heading2], 2);
+    for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+      const section = findUniqueMarkdownSection(sections, [heading], 2);
       if (!section)
-        fail3("LESSON_INVALID", `${location} is missing the required ## ${heading2} section.`);
+        fail3("LESSON_INVALID", `${location} is missing the required ## ${heading} section.`);
       canonicalSections.add(section.headingStart);
       const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, `
 `).trim();
-      output.push(`## ${heading2}`, "", ...body.length > 0 ? body.split(`
+      output.push(`## ${heading}`, "", ...body.length > 0 ? body.split(`
 `) : [], "");
     }
   }
@@ -13149,7 +13406,7 @@ function appendLessonReuseMarkers(content, reuseMarkers, availableRecords, locat
     if (!reuseMarker.reused_candidate) {
       fail3("LESSON_INVALID", `${location} reuse marker missing reused_candidate coordinates.`);
     }
-    const matchingTargets = availableRecords.filter((record4) => record4.marker.task_id === reuseMarker.reused_candidate.task_id && record4.marker.document_id === reuseMarker.reused_candidate.document_id && record4.marker.archive_revision === reuseMarker.reused_candidate.archive_revision && record4.marker.candidate_ref === reuseMarker.reused_candidate.candidate_ref);
+    const matchingTargets = availableRecords.filter((record) => record.marker.task_id === reuseMarker.reused_candidate.task_id && record.marker.document_id === reuseMarker.reused_candidate.document_id && record.marker.archive_revision === reuseMarker.reused_candidate.archive_revision && record.marker.candidate_ref === reuseMarker.reused_candidate.candidate_ref);
     if (matchingTargets.length !== 1) {
       fail3("LESSON_INVALID", `${location} target candidate for reuse ${reuseMarker.reused_candidate.task_id}/${reuseMarker.reused_candidate.candidate_ref} was not uniquely resolved (matches=${matchingTargets.length}).`);
     }
@@ -13200,20 +13457,20 @@ function prepareLessonRecordTransaction(root, current, proposal) {
     fail3("RUNTIME_SOURCE_MISSING", `LESSONS.md is missing: ${target.relativePath}`);
   const originalLessonsContent = fs9.readFileSync(target.filePath, "utf8");
   const sections = scanMarkdownSections2(originalLessonsContent);
-  for (const heading2 of LESSON_REQUIRED_SECTION_HEADINGS) {
-    if (!findUniqueMarkdownSection(sections, [heading2], 2))
-      fail3("LESSON_INVALID", `LESSONS.md is missing the required ## ${heading2} section.`);
+  for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+    if (!findUniqueMarkdownSection(sections, [heading], 2))
+      fail3("LESSON_INVALID", `LESSONS.md is missing the required ## ${heading} section.`);
   }
   const existingRecords = readDurableLessonRecords(originalLessonsContent, target.relativePath);
   const stagedSemanticTargets = new Map;
-  for (const record4 of existingRecords) {
-    if (record4.marker.disposition !== "reused") {
-      if (!stagedSemanticTargets.has(record4.marker.candidate_digest)) {
-        stagedSemanticTargets.set(record4.marker.candidate_digest, {
-          task_id: record4.marker.task_id,
-          document_id: record4.marker.document_id,
-          archive_revision: record4.marker.archive_revision,
-          candidate_ref: record4.marker.candidate_ref
+  for (const record of existingRecords) {
+    if (record.marker.disposition !== "reused") {
+      if (!stagedSemanticTargets.has(record.marker.candidate_digest)) {
+        stagedSemanticTargets.set(record.marker.candidate_digest, {
+          task_id: record.marker.task_id,
+          document_id: record.marker.document_id,
+          archive_revision: record.marker.archive_revision,
+          candidate_ref: record.marker.candidate_ref
         });
       }
     }
@@ -13221,7 +13478,7 @@ function prepareLessonRecordTransaction(root, current, proposal) {
   const newCandidates = [];
   const newReuseMarkers = [];
   for (const candidate of delta.candidates) {
-    const matchingRefs = existingRecords.filter((record4) => record4.marker.candidate_ref === candidate.candidate_ref && record4.marker.task_id === receipt.taskId);
+    const matchingRefs = existingRecords.filter((record) => record.marker.candidate_ref === candidate.candidate_ref && record.marker.task_id === receipt.taskId);
     if (matchingRefs.length > 1) {
       fail3("LESSON_INVALID", `LESSONS contains duplicate durable records for candidate ${candidate.candidate_ref}.`);
     }
@@ -13328,20 +13585,20 @@ function knowledgeCandidateSemanticDigest(candidate) {
   });
 }
 function validateDurableKnowledgeRecord(value, location, expectedKind) {
-  const record4 = expectRecord2(value, location);
-  expectExactKeys2(record4, ["schema_version", "knowledge_kind", "candidate_id", "candidate_fingerprint", "disposition", "matched_knowledge_id", "candidate", "provenance", "proposal_idempotency_key", "proposal_digest", "semantic_digest"], location);
-  if (record4.schema_version !== 1)
+  const record = expectRecord2(value, location);
+  expectExactKeys2(record, ["schema_version", "knowledge_kind", "candidate_id", "candidate_fingerprint", "disposition", "matched_knowledge_id", "candidate", "provenance", "proposal_idempotency_key", "proposal_digest", "semantic_digest"], location);
+  if (record.schema_version !== 1)
     fail3("KNOWLEDGE_RECORD_INVALID", `${location}.schema_version must be 1.`);
-  const knowledgeKind = expectEnum(record4.knowledge_kind, ["contract", "decision"], `${location}.knowledge_kind`);
+  const knowledgeKind = expectEnum(record.knowledge_kind, ["contract", "decision"], `${location}.knowledge_kind`);
   if (knowledgeKind !== expectedKind)
     fail3("KNOWLEDGE_RECORD_INVALID", `${location}.knowledge_kind must be ${expectedKind}.`);
-  const candidate = validateKnowledgeCandidate(record4.candidate, `${location}.candidate`, expectedKind);
-  const candidateId = expectString2(record4.candidate_id, `${location}.candidate_id`, SAFE_KEY_PATTERN2);
-  const candidateFingerprint = expectString2(record4.candidate_fingerprint, `${location}.candidate_fingerprint`, FINGERPRINT_PATTERN);
+  const candidate = validateKnowledgeCandidate(record.candidate, `${location}.candidate`, expectedKind);
+  const candidateId = expectString2(record.candidate_id, `${location}.candidate_id`, SAFE_KEY_PATTERN2);
+  const candidateFingerprint = expectString2(record.candidate_fingerprint, `${location}.candidate_fingerprint`, FINGERPRINT_PATTERN);
   if (candidateId !== candidate.candidateId || candidateFingerprint !== candidate.fingerprint)
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", `${location} candidate identity does not match the embedded candidate.`);
-  const disposition = expectEnum(record4.disposition, ["admit", "merge", "supersede"], `${location}.disposition`);
-  const matchedKnowledgeId = expectNullableString(record4.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN2);
+  const disposition = expectEnum(record.disposition, ["admit", "merge", "supersede"], `${location}.disposition`);
+  const matchedKnowledgeId = expectNullableString(record.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN2);
   if (disposition === "merge" && matchedKnowledgeId === null)
     fail3("KNOWLEDGE_RECORD_INVALID", `${location}.matched_knowledge_id is required for merge.`);
   if (disposition === "supersede" && (matchedKnowledgeId === null || candidate.supersedes !== matchedKnowledgeId))
@@ -13354,11 +13611,11 @@ function validateDurableKnowledgeRecord(value, location, expectedKind) {
   if (candidate.stability !== "stable" || candidate.conflictSet.length > 0 || candidate.evidenceRefs.length === 0) {
     fail3("KNOWLEDGE_RECORD_INVALID", `${location} durable record must contain stable, conflict-free candidate evidence.`);
   }
-  const provenance = validateKnowledgeProvenance(record4.provenance, `${location}.provenance`);
-  const proposalIdempotencyKey = expectString2(record4.proposal_idempotency_key, `${location}.proposal_idempotency_key`, SAFE_KEY_PATTERN2);
-  const proposalDigest2 = expectString2(record4.proposal_digest, `${location}.proposal_digest`);
-  const semanticDigest = expectString2(record4.semantic_digest, `${location}.semantic_digest`);
-  if (!SHA256_PATTERN2.test(proposalDigest2) || !SHA256_PATTERN2.test(semanticDigest))
+  const provenance = validateKnowledgeProvenance(record.provenance, `${location}.provenance`);
+  const proposalIdempotencyKey = expectString2(record.proposal_idempotency_key, `${location}.proposal_idempotency_key`, SAFE_KEY_PATTERN2);
+  const proposalDigest = expectString2(record.proposal_digest, `${location}.proposal_digest`);
+  const semanticDigest = expectString2(record.semantic_digest, `${location}.semantic_digest`);
+  if (!SHA256_PATTERN2.test(proposalDigest) || !SHA256_PATTERN2.test(semanticDigest))
     fail3("KNOWLEDGE_RECORD_INVALID", `${location} proposal and semantic digests must be SHA-256.`);
   if (semanticDigest !== knowledgeCandidateSemanticDigest(candidate))
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", `${location}.semantic_digest does not match the canonical candidate.`);
@@ -13372,29 +13629,29 @@ function validateDurableKnowledgeRecord(value, location, expectedKind) {
     candidate,
     provenance,
     proposal_idempotency_key: proposalIdempotencyKey,
-    proposal_digest: proposalDigest2,
+    proposal_digest: proposalDigest,
     semantic_digest: semanticDigest
   };
 }
-function renderDurableKnowledgeRecord(record4) {
-  const label = record4.knowledge_kind === "contract" ? "Contract" : "Decision";
-  const candidate = record4.candidate;
+function renderDurableKnowledgeRecord(record) {
+  const label = record.knowledge_kind === "contract" ? "Contract" : "Decision";
+  const candidate = record.candidate;
   const anchors = candidate.implementation_anchors;
   return [
     `### ${label}: ${candidate.candidateId}`,
     "",
-    `<!-- vNext ${record4.knowledge_kind} record: ${JSON.stringify(record4)} -->`,
+    `<!-- vNext ${record.knowledge_kind} record: ${JSON.stringify(record)} -->`,
     "",
     `- candidate_id: ${yamlScalar(candidate.candidateId)}`,
     `- fingerprint: ${yamlScalar(candidate.fingerprint)}`,
-    `- disposition: ${record4.disposition}`,
+    `- disposition: ${record.disposition}`,
     `- statement: ${yamlScalar(candidate.statement)}`,
     `- authority_source: ${yamlScalar(candidate.authoritySource)}`,
     `- applicability: ${JSON.stringify(candidate.applicability)}`,
     `- evidence_refs: ${JSON.stringify(candidate.evidenceRefs)}`,
     `- implementation_anchors: ${anchors ? JSON.stringify(anchors) : "none"}`,
-    `- provenance: ${JSON.stringify(record4.provenance)}`,
-    `- proposal_idempotency_key: ${yamlScalar(record4.proposal_idempotency_key)}`,
+    `- provenance: ${JSON.stringify(record.provenance)}`,
+    `- proposal_idempotency_key: ${yamlScalar(record.proposal_idempotency_key)}`,
     ""
   ].join(`
 `);
@@ -13412,9 +13669,9 @@ function readDurableKnowledgeRecords(content, location, expectedKind) {
     } catch {
       fail3("KNOWLEDGE_RECORD_INVALID", `${location} contains an invalid vNext knowledge marker.`);
     }
-    const record4 = validateDurableKnowledgeRecord(parsed, `${location}.${expectedKind}[${markers.length}]`, expectedKind);
-    const markerText = `<!-- vNext ${expectedKind} record: ${JSON.stringify(record4)} -->`;
-    if (countExactOccurrences(content, markerText) !== 1 || countExactOccurrences(content, renderDurableKnowledgeRecord(record4)) !== 1) {
+    const record = validateDurableKnowledgeRecord(parsed, `${location}.${expectedKind}[${markers.length}]`, expectedKind);
+    const markerText = `<!-- vNext ${expectedKind} record: ${JSON.stringify(record)} -->`;
+    if (countExactOccurrences(content, markerText) !== 1 || countExactOccurrences(content, renderDurableKnowledgeRecord(record)) !== 1) {
       fail3("KNOWLEDGE_PROVENANCE_MISMATCH", `${location}.${expectedKind}[${markers.length}] visible bytes do not match the canonical durable record.`);
     }
     const markerStart = content.indexOf(markerText);
@@ -13422,12 +13679,12 @@ function readDurableKnowledgeRecords(content, location, expectedKind) {
     if (!section || markerStart < section.contentStart || markerStart >= section.contentEnd) {
       fail3("KNOWLEDGE_RECORD_INVALID", `${location}.${expectedKind}[${markers.length}] is outside the canonical knowledge section.`);
     }
-    markers.push(record4);
+    markers.push(record);
   }
   for (const markerKind of ["contract", "decision"]) {
     const prefix = knowledgeMarkerPrefix(markerKind);
     const markerCount = countExactOccurrences(content, prefix);
-    const parsedCount = markers.filter((record4) => record4.knowledge_kind === markerKind).length;
+    const parsedCount = markers.filter((record) => record.knowledge_kind === markerKind).length;
     if (markerCount !== parsedCount) {
       fail3("KNOWLEDGE_RECORD_INVALID", `${location} contains a malformed or partially unreadable ${markerKind} record marker.`);
     }
@@ -13543,11 +13800,11 @@ function inspectKnowledgeRecordTransaction(root, current, proposal) {
   const originalContent = fs9.readFileSync(target.filePath, "utf8");
   const records = readDurableKnowledgeRecords(originalContent, target.relativePath, delta.knowledge_kind);
   const allRecords = scanKnowledgeRecords(root);
-  const sameIdempotency = allRecords.filter((record4) => record4.proposal_idempotency_key === proposal.idempotency_key);
-  if (sameIdempotency.some((record4) => JSON.stringify(record4) !== JSON.stringify(expectedRecord))) {
+  const sameIdempotency = allRecords.filter((record) => record.proposal_idempotency_key === proposal.idempotency_key);
+  if (sameIdempotency.some((record) => JSON.stringify(record) !== JSON.stringify(expectedRecord))) {
     fail3("IDEMPOTENCY_CONFLICT", "knowledge idempotency key is already durably bound to a different candidate or target.");
   }
-  const sameIdentity = records.filter((record4) => record4.candidate_id === expectedRecord.candidate_id);
+  const sameIdentity = records.filter((record) => record.candidate_id === expectedRecord.candidate_id);
   if (sameIdentity.length > 1)
     fail3("KNOWLEDGE_RECORD_INVALID", `knowledge target contains duplicate candidate identity ${expectedRecord.candidate_id}.`);
   if (sameIdentity.length === 1) {
@@ -13568,11 +13825,11 @@ function inspectKnowledgeRecordTransaction(root, current, proposal) {
     fail3("KNOWLEDGE_IDENTITY_CONFLICT", `${target.relativePath} contains different semantic or provenance content for ${expectedRecord.candidate_id}.`);
   }
   if (expectedRecord.disposition === "merge") {
-    const predecessor = records.find((record4) => record4.candidate_id === expectedRecord.matched_knowledge_id);
+    const predecessor = records.find((record) => record.candidate_id === expectedRecord.matched_knowledge_id);
     if (!predecessor)
       fail3("KNOWLEDGE_ADMISSION_INVALID", `knowledge merge target ${expectedRecord.matched_knowledge_id} is not durably present.`);
-    const semanticMatches2 = records.filter((record4) => record4.semantic_digest === expectedRecord.semantic_digest);
-    if (semanticMatches2.some((record4) => record4.candidate_id !== predecessor.candidate_id)) {
+    const semanticMatches = records.filter((record) => record.semantic_digest === expectedRecord.semantic_digest);
+    if (semanticMatches.some((record) => record.candidate_id !== predecessor.candidate_id)) {
       fail3("KNOWLEDGE_IDENTITY_CONFLICT", "knowledge merge semantic content already belongs to a different durable item.");
     }
     return {
@@ -13584,12 +13841,12 @@ function inspectKnowledgeRecordTransaction(root, current, proposal) {
       existing: false
     };
   }
-  const semanticMatches = records.filter((record4) => record4.semantic_digest === expectedRecord.semantic_digest);
+  const semanticMatches = records.filter((record) => record.semantic_digest === expectedRecord.semantic_digest);
   if (semanticMatches.length > 0) {
     return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
   }
   if (expectedRecord.disposition === "supersede") {
-    const predecessor = records.find((record4) => record4.candidate_id === expectedRecord.matched_knowledge_id);
+    const predecessor = records.find((record) => record.candidate_id === expectedRecord.matched_knowledge_id);
     if (!predecessor)
       fail3("KNOWLEDGE_ADMISSION_INVALID", `knowledge supersede target ${expectedRecord.matched_knowledge_id} is not durably present.`);
   }
@@ -13649,8 +13906,8 @@ function assertPreviousTaskReconciliationComplete(root, current, receipt) {
         fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation is incomplete: ${target.relativePath} does not exist.`);
       }
       const records = readDurableKnowledgeRecords(fs9.readFileSync(target.filePath, "utf8"), target.relativePath, knowledgeKind);
-      const exactIdentity = records.find((record4) => record4.candidate_id === admission.candidate.candidateId);
-      const equivalent = records.some((record4) => record4.semantic_digest === knowledgeCandidateSemanticDigest(admission.candidate));
+      const exactIdentity = records.find((record) => record.candidate_id === admission.candidate.candidateId);
+      const equivalent = records.some((record) => record.semantic_digest === knowledgeCandidateSemanticDigest(admission.candidate));
       if (exactIdentity) {
         if (JSON.stringify(exactIdentity.candidate) !== JSON.stringify(admission.candidate) || exactIdentity.candidate_fingerprint !== admission.candidate.fingerprint || exactIdentity.semantic_digest !== knowledgeCandidateSemanticDigest(admission.candidate) || exactIdentity.disposition !== admission.disposition || exactIdentity.matched_knowledge_id !== admission.matched_knowledge_id || exactIdentity.provenance.task_id !== receipt.taskId || exactIdentity.provenance.task_slug !== receipt.taskSlug || exactIdentity.provenance.document_id !== receipt.documentId || exactIdentity.provenance.archive_path !== receipt.relativePath || exactIdentity.provenance.archive_revision !== receipt.revision || exactIdentity.provenance.source_revision !== receipt.sourceRevision || !exactIdentity.provenance.evidence_refs.every((ref) => archiveEvidenceRefsForKnowledge(receipt).includes(ref))) {
           fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation provenance conflicts with the canonical archive.`);
@@ -13668,7 +13925,7 @@ function assertPreviousTaskReconciliationComplete(root, current, receipt) {
     const lessonsContent = fs9.readFileSync(lessonsTarget.filePath, "utf8");
     const existingRecords = readDurableLessonRecords(lessonsContent, lessonsTarget.relativePath);
     for (const candidateRef of receipt.lessonAdmission.candidate_refs) {
-      const matching = existingRecords.find((record4) => record4.marker.candidate_ref === candidateRef && record4.marker.task_id === receipt.taskId && record4.marker.task_slug === receipt.taskSlug && record4.marker.document_id === receipt.documentId && record4.marker.archive_path === receipt.relativePath && record4.marker.archive_revision === receipt.revision && record4.marker.source_revision === receipt.sourceRevision);
+      const matching = existingRecords.find((record) => record.marker.candidate_ref === candidateRef && record.marker.task_id === receipt.taskId && record.marker.task_slug === receipt.taskSlug && record.marker.document_id === receipt.documentId && record.marker.archive_path === receipt.relativePath && record.marker.archive_revision === receipt.revision && record.marker.source_revision === receipt.sourceRevision);
       if (!matching) {
         fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} lesson candidate ${candidateRef} has not been reconciled.`);
       }
@@ -13721,6 +13978,225 @@ function appendAppliedProposal(current, proposal, sourceRevision) {
 function appendExecutionLogEntry(current, entry) {
   const next = [...current.execution_log, entry];
   return current.__vnext_compact_history === true ? next : next.slice(-MAX_EXECUTION_LOG);
+}
+function replaceValidation(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => {
+    const input = expectRecord2(rawInput, "replace-validation");
+    expectExactKeys2(input, ["source_revision", "claim_id", "slot_id", "replaces_check_id", "replacement_check", "reason"], "replace-validation");
+    const sourceRevision = expectString2(input.source_revision, "source_revision", SHA256_PATTERN2);
+    const reason = expectText(input.reason, "reason");
+    if (!options.dryRun)
+      recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    const key = `replace-validation-${digest3({ document: current.sourceTuple.document_id, input }).slice(0, 40)}`;
+    const prior = current.runtimeState.applied_proposals.find((p) => p.idempotency_key === key);
+    if (prior) {
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, sourceRevision, "replace-validation");
+      return {
+        status: "no-op",
+        operation_kind: "task-state-transaction",
+        idempotency_key: key,
+        target_path: current.relativePath,
+        dry_run: !!options.dryRun,
+        committed: false,
+        message: "This exact engineering replacement was already committed.",
+        planned_writes: [],
+        governed_mutation_count: 0,
+        read_back_verified: true,
+        evidence_assurance: "caller-reported"
+      };
+    }
+    if (current.sourceTuple.revision !== sourceRevision)
+      fail3("VALIDATION_REPLACEMENT_STALE", "Read the current step again; the request names an older task revision.");
+    assertBusinessEvidenceVersion(current);
+    const state = current.runtimeState;
+    if (state.workflow_status !== "active" || state.lifecycle_state !== "active" || state.resume_requires_review || !["ready", "blocked"].includes(state.active_step_status) || state.pending_review_result)
+      fail3("VALIDATION_REPLACEMENT_STATE_INVALID", "Replace a verification between attempts, not during execution or pending review.");
+    if ((state.evidence_challenges ?? []).some((c) => c.status !== "resolved"))
+      fail3("EVIDENCE_CHALLENGE_UNRESOLVED", "A challenged obligation needs its existing correction owner, not engineering substitution.");
+    const ledger = state.step_attempts?.[state.active_step_id];
+    if (ledger?.attempts.at(-1)?.status === "preflighted")
+      fail3("EXECUTE_ATTEMPT_OUTSTANDING", "Record the current attempt before changing its verification.");
+    const claims = copyClaimEvidence(state.claim_evidence ?? []);
+    const claim = claims.find((c) => c.claim_id === input.claim_id);
+    const target = claim?.slots.find((s) => s.slot_id === input.slot_id);
+    const old = target?.check;
+    if (!claim || !target || !old || old.check_id !== input.replaces_check_id || target.due_step_id !== state.active_step_id || target.applicability !== "current" || target.user_decision || target.prerequisite_receipt)
+      fail3("VALIDATION_REPLACEMENT_TARGET_INVALID", "Engineering replacement preserves one current-step, unconsumed evidence obligation; it never overrides a user decision or prerequisite.");
+    const replacement = validateClaimEvidence([{ ...claim, slots: [{ ...target, check: input.replacement_check }] }])[0].slots[0].check;
+    if ((state.claim_evidence ?? []).some((c) => c.slots.some((s) => s.check?.check_id === replacement.check_id)) || old.method !== "execution" || replacement.method !== "execution")
+      fail3("VALIDATION_REPLACEMENT_ID_INVALID", "An execution replacement requires a new check identity.");
+    const semantics = (check) => ({
+      method: check.method,
+      boundary: check.boundary,
+      expected_observation: check.expected_observation,
+      expected_result: check.expected_result,
+      subject_paths: check.subject_paths,
+      required_boundaries: check.required_boundaries,
+      allowed_substitutes: check.allowed_substitutes
+    });
+    const ranks = { focused: 0, target: 1, "broad-regression": 2 };
+    const oldGranularity = old.selection?.granularity, newGranularity = replacement.selection?.granularity;
+    if (digest3(semantics(old)) !== digest3(semantics(replacement)) || !oldGranularity || !newGranularity || ranks[newGranularity] > ranks[oldGranularity] || old.selection?.selector && old.selection.selector !== replacement.selection?.selector || newGranularity !== "focused" && (old.selection?.breadth_basis !== replacement.selection?.breadth_basis || old.selection?.breadth_source_ref !== replacement.selection?.breadth_source_ref)) {
+      fail3("VALIDATION_REPLACEMENT_WEAKENED", "Preserve the observation, boundary, subjects, selector and breadth authority. A changed goal, broader execution or weaker evidence needs its explicit planning route.");
+    }
+    const definition = readDraftDefinitionFromBody(current.body);
+    const block = implementationStepBlock(definition, state.active_step_id);
+    if (!block)
+      fail3("VALIDATION_REPLACEMENT_TARGET_INVALID", "The frozen current step is missing.");
+    const lines = block.split(`
+`);
+    const indices = lines.flatMap((line, i) => line.trim() === `- planned_command: ${old.entry}` ? [i] : []);
+    if (indices.length !== 1 || lines[indices[0] + 1]?.trim() !== "- expected_repo_writes: none")
+      fail3("VALIDATION_REPLACEMENT_WRITES_FORBIDDEN", "This route only replaces one exact read-only planned check invocation.");
+    if (claims.some((c) => c.slots.some((s) => s !== target && s.due_step_id === state.active_step_id && s.check?.entry === old.entry)))
+      fail3("VALIDATION_REPLACEMENT_SHARED_COMMAND", "A shared invocation must retain every bound obligation; use a reviewed multi-check correction.");
+    lines[indices[0]] = lines[indices[0]].replace(old.entry, replacement.entry);
+    const evidenceIndex = lines.findIndex((line) => /^\s*- required_evidence:/.test(line));
+    if (evidenceIndex >= 0)
+      lines[evidenceIndex] = lines[evidenceIndex].split(old.entry).join(replacement.entry);
+    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
+`));
+    target.check = replacement;
+    target.report = null;
+    target.evidence_refs = [];
+    target.disposition = "missing";
+    const basis = readCanonicalTaskBasis(root, current);
+    const newPlan = assertEvidencePlan(definition, claims, false, { root, taskBasis: basis.basis, previous: state.claim_evidence ?? [] });
+    const carry = [];
+    for (const c of claims)
+      for (const slot of c.slots) {
+        if (slot === target || !slot.report && !slot.user_decision || !slot.check)
+          continue;
+        const before = state.claim_evidence.find((x) => x.claim_id === c.claim_id).slots.find((x) => x.slot_id === slot.slot_id);
+        if (before.user_decision) {
+          try {
+            carry.push(carryUserEvidenceDecision(root, current, c.claim_id, before, newPlan, "replace-validation"));
+          } catch {}
+          continue;
+        }
+        try {
+          assertEvidenceReportApplicable(root, current, before);
+        } catch {
+          continue;
+        }
+        const resultId = slot.report.result_id;
+        const origin = state.evidence_carry_forward?.find((p) => p.claim_id === c.claim_id && p.slot_id === slot.slot_id && p.new_plan_revision === state.evidence_plan_revision && p.result_id === resultId);
+        carry.push({
+          kind: "evidence-carry-forward/v2",
+          old_source_revision: origin?.old_source_revision ?? sourceRevision,
+          history_operation: origin ? origin.history_operation ?? "confirm-replan" : "replace-validation",
+          old_plan_revision: slot.report?.evidence_plan_revision ?? slot.user_decision.evidence_plan_revision,
+          new_plan_revision: newPlan,
+          receiving_source_revision: sourceRevision,
+          context_revision: recoveryEvidenceContextRevision(root),
+          evidence_objects: slot.user_decision ? [] : describeEvidenceObjects(root, slot.evidence_refs),
+          claim_id: c.claim_id,
+          slot_id: slot.slot_id,
+          check_id: slot.check.check_id,
+          result_id: resultId,
+          report_sha256: digest3(slot.report ?? null),
+          subject_revision: slot.report?.subject_revision ?? slot.user_decision.subject_revision,
+          ...slot.user_decision ? { user_decision_sha256: digest3(slot.user_decision) } : {}
+        });
+      }
+    const proposal = {
+      schema_version: 1,
+      kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+      operation_kind: "task-state-transaction",
+      caller: "execute-step",
+      mode: "default",
+      source_tuple: current.sourceTuple,
+      semantic_delta: { kind: "task-state", action: "replace-validation", ...input, reason },
+      evidence_refs: [],
+      idempotency_key: key,
+      requested_write_targets: [current.relativePath]
+    };
+    const stepAttempts = structuredClone(state.step_attempts ?? {});
+    for (const entry of Object.values(stepAttempts))
+      entry.evidence_plan_revision = newPlan;
+    if (ledger?.attempts.at(-1)?.status === "blocked") {
+      if (ledger.attempts.length >= ledger.max_attempts)
+        fail3("RETRY_BUDGET_EXHAUSTED", "Engineering replacement does not reset the existing attempt budget.");
+      stepAttempts[state.active_step_id].attempts.push({
+        attempt_id: `attempt-${digest3({ document: current.sourceTuple.document_id, plan: newPlan, step: state.active_step_id, n: ledger.attempts.length + 1 }).slice(0, 40)}`,
+        idempotency_key: key,
+        request_digest: digest3(input),
+        status: "ready",
+        blocker: null,
+        evidence_refs: [...ledger.attempts.at(-1).evidence_refs]
+      });
+    }
+    const next = {
+      ...state,
+      active_step_status: "ready",
+      claim_evidence: claims,
+      evidence_plan_revision: newPlan,
+      evidence_carry_forward: carry,
+      step_attempts: stepAttempts,
+      applied_proposals: appendAppliedProposal(state, proposal, sourceRevision)
+    };
+    delete next.execution_preflight;
+    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { replacementDefinition: definition });
+    const historyInput = {
+      currentPath: current.filePath,
+      previousContent: current.raw,
+      nextContent,
+      documentId: current.sourceTuple.document_id,
+      taskId: state.task_id,
+      basisPath: basis.filePath,
+      basisContent: basis.content,
+      operation: "replace-validation",
+      evidencePlanRevision: state.evidence_plan_revision
+    };
+    const history = taskHistoryLocation(historyInput);
+    const writes = [path10.posix.join(path10.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
+    if (options.dryRun)
+      return {
+        status: "success",
+        operation_kind: "task-state-transaction",
+        idempotency_key: key,
+        target_path: current.relativePath,
+        dry_run: true,
+        committed: false,
+        message: "Equivalent invocation replacement validated; task intent is unchanged.",
+        planned_writes: writes,
+        governed_mutation_count: 0,
+        read_back_verified: false,
+        evidence_assurance: "caller-reported"
+      };
+    for (const proof of carry)
+      preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
+    const staged = stageTaskEvolutionStoreCommit(root, current, nextContent, next, proposal, [{ path: history.path, content: history.content }, { path: current.filePath, content: nextContent }]);
+    try {
+      commitTaskEvolutionWithHistory(historyInput, (raw) => {
+        const parsed = parseCanonicalCurrentTaskContent(raw, current.filePath, current.relativePath);
+        if (parsed.runtimeState.evidence_plan_revision !== newPlan)
+          fail3("VALIDATION_REPLACEMENT_READ_BACK_FAILED", "Evidence plan read-back differs.");
+      });
+    } catch (error) {
+      if (fs9.readFileSync(current.filePath, "utf8") === current.raw)
+        clearPendingTaskStoreAfterRollback(root, current);
+      throw error;
+    }
+    completeTaskEvolutionStoreCommit(root, current, staged, proposal, { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: key });
+    return {
+      status: "success",
+      operation_kind: "task-state-transaction",
+      idempotency_key: key,
+      target_path: current.relativePath,
+      dry_run: false,
+      committed: true,
+      message: "One verification invocation replaced; task identity, obligations, history, scope and retry budget preserved.",
+      planned_writes: writes,
+      governed_mutation_count: 2,
+      read_back_verified: true,
+      previous_revision: sourceRevision,
+      resulting_revision: staged.sourceTuple.revision,
+      state: resultState(next),
+      evidence_assurance: "caller-reported"
+    };
+  });
 }
 function initializeTaskPreservation(root, rawInput, options = {}) {
   return withGovernanceWriteLock(root, () => initializeTaskPreservationLocked(root, rawInput, options));
@@ -13854,7 +14330,7 @@ function initializeTaskPreservationLocked(root, rawInput, options) {
     message: "Original task and Task Basis were preserved; versioned task protection is active."
   };
   try {
-    const manifest2 = completeTaskEvolutionStoreCommit(root, current, stagedAfter, idempotencyProposal, storeResult);
+    const manifest = completeTaskEvolutionStoreCommit(root, current, stagedAfter, idempotencyProposal, storeResult);
     const readBack = readCanonicalCurrentTask(root);
     return {
       status: "success",
@@ -13871,11 +14347,11 @@ function initializeTaskPreservationLocked(root, rawInput, options) {
       read_back_verified: true,
       evidence_assurance: "caller-reported",
       task_store: {
-        manifest_path: `${manifest2.storage_root}/manifest.json`,
-        source_revision: manifest2.head.source_revision,
-        definition_revision: manifest2.head.definition_revision,
-        state_revision: manifest2.head.state_revision,
-        event_sequence: manifest2.head.event_sequence
+        manifest_path: `${manifest.storage_root}/manifest.json`,
+        source_revision: manifest.head.source_revision,
+        definition_revision: manifest.head.definition_revision,
+        state_revision: manifest.head.state_revision,
+        event_sequence: manifest.head.event_sequence
       }
     };
   } catch (error) {
@@ -13985,17 +14461,17 @@ function normalizeCorrectionStep(raw, options = {}) {
     fail3("REPLAN_CORRECTION_INVALID", "Required evidence must use one line per item.");
   if (!Array.isArray(step.commands) || step.commands.length > 32)
     fail3("REPLAN_CORRECTION_INVALID", "Correction commands must be a bounded array.");
-  const commands = step.commands.map((raw2, index) => {
-    const command = expectRecord2(raw2, `correction_step.commands[${index}]`);
+  const commands = step.commands.map((raw, index) => {
+    const command = expectRecord2(raw, `correction_step.commands[${index}]`);
     expectExactKeys2(command, ["command", "expected_repo_writes"], `correction_step.commands[${index}]`);
-    const text2 = expectText(command.command, `correction_step.commands[${index}].command`, 2048);
-    if (/[\r\n]/u.test(text2))
+    const text = expectText(command.command, `correction_step.commands[${index}].command`, 2048);
+    if (/[\r\n]/u.test(text))
       fail3("REPLAN_CORRECTION_INVALID", "Command must be one line.");
     const writes = command.expected_repo_writes === "none" ? "none" : expectStringArray2(command.expected_repo_writes, `correction_step.commands[${index}].expected_repo_writes`, false, 32).map((item) => normalizeRepoPath2(item, "expected_repo_writes"));
     if (writes !== "none" && writes.some((item) => !mutationScope.includes(item) && !(options.allowExistingWildcardScope && mutationScope.some((pattern) => pattern.includes("*") && mutationScopePatternMatchesPath(item, pattern))))) {
       fail3("REPLAN_SCOPE_EXPANSION", "Command writes must be exact members of the correction step scope.");
     }
-    return { command: text2, expected_repo_writes: writes };
+    return { command: text, expected_repo_writes: writes };
   });
   return { id, description, mutation_scope: mutationScope, required_evidence: requiredEvidence, commands };
 }
@@ -14113,7 +14589,7 @@ function correctionObligations(current) {
     acceptance: definition.acceptance,
     scope: [definition.allowed_scope, definition.conditional_scope, definition.forbidden_scope],
     steps: steps.map((step) => ({ id: step.id, description: step.description, purpose: step.purpose, mutation_scope: step.mutation_scope, required_evidence: step.required_evidence, review_checkpoint: step.review_checkpoint, checkpoint_boundary: step.checkpoint_boundary })),
-    claims: (current.runtimeState.claim_evidence ?? []).map((record4) => ({ claim_id: record4.claim_id, claim_kind: record4.claim_kind, requirement: record4.requirement, source_ref: record4.source_ref, slots: record4.slots.map((slot) => ({
+    claims: (current.runtimeState.claim_evidence ?? []).map((record) => ({ claim_id: record.claim_id, claim_kind: record.claim_kind, requirement: record.requirement, source_ref: record.source_ref, slots: record.slots.map((slot) => ({
       slot_id: slot.slot_id,
       minimum_type: slot.minimum_type,
       due_step_id: slot.due_step_id,
@@ -14354,7 +14830,7 @@ function appendPersistentTestAdmissions(regressionChecks, admissions) {
     return regressionChecks;
   const normalized = regressionChecks.replace(/\r\n?/gu, `
 `);
-  const heading2 = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
+  const heading = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
   const render = (item) => [
     `- \`${item.path}\``,
     ...item.proves.map((proof) => `  - proves: ${proof}`),
@@ -14367,7 +14843,7 @@ function appendPersistentTestAdmissions(regressionChecks, admissions) {
     `  - failure_disposition: ${item.failure_disposition}`
   ];
   const additions = admissions.flatMap(render);
-  if (!heading2 || heading2.index === undefined)
+  if (!heading || heading.index === undefined)
     return `${normalized.trimEnd()}
 
 ### Persistent Tests
@@ -14375,7 +14851,7 @@ function appendPersistentTestAdmissions(regressionChecks, admissions) {
 ${additions.join(`
 `)}
 `;
-  const start = heading2.index + heading2[0].length;
+  const start = heading.index + heading[0].length;
   const nextHeading = /\n###\s+/gu.exec(normalized.slice(start));
   const end = nextHeading ? start + nextHeading.index : normalized.length;
   const section = normalized.slice(start, end).trim();
@@ -14403,7 +14879,7 @@ function appendLegacyPersistentTestPaths(regressionChecks, paths, claimIds = ["A
     return regressionChecks;
   const normalized = regressionChecks.replace(/\r\n?/gu, `
 `);
-  const heading2 = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
+  const heading = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
   const proof = claimIds[0] ?? "A1";
   const render = (item) => [
     `- \`${item}\``,
@@ -14417,7 +14893,7 @@ function appendLegacyPersistentTestPaths(regressionChecks, paths, claimIds = ["A
     "  - failure_disposition: block"
   ];
   const append = (items) => items.flatMap(render);
-  if (!heading2 || heading2.index === undefined)
+  if (!heading || heading.index === undefined)
     return `${normalized.trimEnd()}
 
 ### Persistent Tests
@@ -14425,7 +14901,7 @@ function appendLegacyPersistentTestPaths(regressionChecks, paths, claimIds = ["A
 ${append(paths).join(`
 `)}
 `;
-  const start = heading2.index + heading2[0].length;
+  const start = heading.index + heading[0].length;
   const nextHeading = /\n###\s+/gu.exec(normalized.slice(start));
   const end = nextHeading ? start + nextHeading.index : normalized.length;
   const section = normalized.slice(start, end).trim();
@@ -14502,8 +14978,8 @@ function assertScopeAmendmentPathSafe(root, current, paths) {
       fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path ${file} is already forbidden.`);
     }
     const absolute = path10.resolve(root, ...file.split("/"));
-    const relative7 = path10.relative(path10.resolve(root), absolute).replace(/\\/g, "/");
-    if (relative7 !== file || relative7.startsWith("../") || path10.isAbsolute(relative7))
+    const relative = path10.relative(path10.resolve(root), absolute).replace(/\\/g, "/");
+    if (relative !== file || relative.startsWith("../") || path10.isAbsolute(relative))
       fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path escapes the repository: ${file}.`);
     if (fs9.existsSync(absolute)) {
       const stat = fs9.lstatSync(absolute);
@@ -14638,12 +15114,31 @@ function buildScopeAmendmentCandidate(root, current, input) {
     fail3("SCOPE_AMENDMENT_STEP_INVALID", "Amendment step ID is invalid.");
   if (retainedStepIds.includes(amendmentStep.id))
     fail3("SCOPE_AMENDMENT_STEP_INVALID", "Amendment step ID must be new and must not reuse an old step.");
-  const normalizedStep = amendmentStep.commands.length > 0 ? amendmentStep : {
+  const commands = structuredClone(amendmentStep.commands);
+  const oldLines = (activeStep.plan_text ?? "").split(`
+`);
+  for (const record of current.runtimeState.claim_evidence ?? [])
+    for (const slot of record.slots) {
+      if (slot.due_step_id !== current.runtimeState.active_step_id || slot.check?.method !== "execution")
+        continue;
+      if (commands.some((item) => item.command === slot.check.entry))
+        continue;
+      const index = oldLines.findIndex((line) => line.trim() === `- planned_command: ${slot.check.entry}`);
+      const footprint = index < 0 ? null : /^\s*- expected_repo_writes:\s*(.+)$/u.exec(oldLines[index + 1] ?? "")?.[1];
+      if (!footprint)
+        fail3("CLAIM_EVIDENCE_COMMAND_UNBOUND", "Supply the existing check command and its exact footprint for this legacy continuation.");
+      const writes = footprint === "none" ? "none" : footprint.split(",").map((item) => item.trim());
+      commands.push({ command: slot.check.entry, expected_repo_writes: writes });
+    }
+  const normalizedStep = {
     ...amendmentStep,
     description: amendmentStep.description || `Apply the authorized scope amendment ${digestSeed.slice(0, 8)}`,
     required_evidence: amendmentStep.required_evidence.length > 0 ? amendmentStep.required_evidence : ["fresh execution result", "fresh review of the amended scope"],
-    commands: [{ command: `scope-amendment: repair and verify ${input.added_paths.join(", ")}`, expected_repo_writes: requiredPaths }]
+    commands
   };
+  if (commands.some((command) => command.expected_repo_writes !== "none" && command.expected_repo_writes.some((item) => !normalizedStep.mutation_scope.some((pattern) => pattern === item || mutationScopePatternMatchesPath(item, pattern))))) {
+    fail3("SCOPE_AMENDMENT_SCOPE_INVALID", "Retained validation writes must remain inside the explicitly retained or amended step scope.");
+  }
   const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
   if (current.mutationAuthority && persistentTestAdmissions.length > 0) {
     const claimIds = new Set(claims.map((item) => item.claim_id));
@@ -14670,14 +15165,15 @@ function buildScopeAmendmentCandidate(root, current, input) {
   };
   assertV2DraftDefinitionAuthority(root, amendedDefinition);
   assertPreparedTestStrategy(root, amendedDefinition, basis.basis);
-  for (const record4 of claims)
-    for (const slot of record4.slots) {
+  for (const record of claims)
+    for (const slot of record.slots) {
       if (slot.due_step_id === current.runtimeState.active_step_id) {
         slot.due_step_id = normalizedStep.id;
         slot.disposition = "missing";
         slot.evidence_refs = [];
         slot.report = null;
         delete slot.prerequisite_receipt;
+        delete slot.user_decision;
       }
       if (slot.before_step_id === current.runtimeState.active_step_id) {
         slot.before_step_id = normalizedStep.id;
@@ -14758,8 +15254,8 @@ function prepareScopeAmendment(root, rawInput, options = {}) {
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "A committed scope-amendment candidate changed after publication.");
       }
       if (scopeAmendmentRequestMatchesCandidate(input, priorCandidate)) {
-        const receipt2 = scopeAmendmentCandidateReceipt(priorCandidate, entry.candidate_digest);
-        const idempotencyKey = `scope-amendment-${digest3({ receipt: receipt2, authorization: input.authorization ? { decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } : null }).slice(0, 40)}`;
+        const receipt = scopeAmendmentCandidateReceipt(priorCandidate, entry.candidate_digest);
+        const idempotencyKey = `scope-amendment-${digest3({ receipt, authorization: input.authorization ? { decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } : null }).slice(0, 40)}`;
         return {
           status: "no-op",
           operation_kind: "task-state-transaction",
@@ -14773,7 +15269,7 @@ function prepareScopeAmendment(root, rawInput, options = {}) {
           read_back_verified: true,
           evidence_assurance: "caller-reported",
           candidate_path: priorLocation.relativePath,
-          candidate_receipt: receipt2,
+          candidate_receipt: receipt,
           state: resultState(current.runtimeState)
         };
       }
@@ -14789,9 +15285,9 @@ function prepareScopeAmendment(root, rawInput, options = {}) {
       const prior = fs9.readdirSync(directory).filter((name) => name.endsWith(".scope.json"));
       if (prior.length > 64)
         fail3("SCOPE_AMENDMENT_CANDIDATE_BUDGET_EXHAUSTED", "Too many retained scope-amendment candidates.");
-      const committed2 = new Set(current.runtimeState.execution_log.flatMap((entry) => ("action" in entry) && entry.action === "commit-scope-amendment" && entry.candidate_digest ? [`${entry.candidate_digest}.scope.json`] : []));
+      const committed = new Set(current.runtimeState.execution_log.flatMap((entry) => ("action" in entry) && entry.action === "commit-scope-amendment" && entry.candidate_digest ? [`${entry.candidate_digest}.scope.json`] : []));
       for (const name of prior) {
-        if (name === path10.basename(location.filePath) || fs9.existsSync(path10.join(directory, `${name}.discarded`)) || committed2.has(name))
+        if (name === path10.basename(location.filePath) || fs9.existsSync(path10.join(directory, `${name}.discarded`)) || committed.has(name))
           continue;
         fail3("SCOPE_AMENDMENT_CANDIDATE_CONFLICT", "Discard the existing unconfirmed scope-amendment candidate before preparing another.");
       }
@@ -15015,9 +15511,9 @@ function commitScopeAmendmentLocked(root, rawInput, options = {}) {
   }
   const storeResult = { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, message: "Scope amendment committed; prior review, findings, obligations, and budget were retained." };
   try {
-    const manifest2 = completeTaskEvolutionStoreCommit(root, current, stagedAfter, proposal, storeResult);
+    const manifest = completeTaskEvolutionStoreCommit(root, current, stagedAfter, proposal, storeResult);
     const readBack = readCanonicalCurrentTask(root);
-    return { status: "success", operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: false, committed: true, message: storeResult.message, planned_writes: plannedWrites, governed_mutation_count: 3, read_back_verified: readBack.raw === nextContent, previous_revision: current.sourceTuple.revision, resulting_revision: readBack.sourceTuple.revision, evidence_assurance: "caller-reported", state: resultState(readBack.runtimeState), task_store: { manifest_path: `${manifest2.storage_root}/manifest.json`, source_revision: manifest2.head.source_revision, definition_revision: manifest2.head.definition_revision, state_revision: manifest2.head.state_revision, event_sequence: manifest2.head.event_sequence } };
+    return { status: "success", operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: false, committed: true, message: storeResult.message, planned_writes: plannedWrites, governed_mutation_count: 3, read_back_verified: readBack.raw === nextContent, previous_revision: current.sourceTuple.revision, resulting_revision: readBack.sourceTuple.revision, evidence_assurance: "caller-reported", state: resultState(readBack.runtimeState), task_store: { manifest_path: `${manifest.storage_root}/manifest.json`, source_revision: manifest.head.source_revision, definition_revision: manifest.head.definition_revision, state_revision: manifest.head.state_revision, event_sequence: manifest.head.event_sequence } };
   } catch (error) {
     return { status: "blocked", operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: false, committed: true, message: `Scope amendment committed but task-store publication needs recovery: ${error instanceof Error ? error.message : String(error)}`, planned_writes: plannedWrites, governed_mutation_count: 3, read_back_verified: false, previous_revision: current.sourceTuple.revision, resulting_revision: stagedAfter.sourceTuple.revision, evidence_assurance: "caller-reported", code: error instanceof TaskStoreError ? error.code : "TASK_STORE_COMMIT_FAILED", state: resultState(stagedAfter.runtimeState) };
   }
@@ -15128,18 +15624,18 @@ function buildCorrectionCandidate(root, current, input) {
     corrected.report = null;
     delete corrected.prerequisite_receipt;
   }
-  const slots = records.flatMap((record4) => record4.slots.map((slot) => ({ record: record4, slot })));
+  const slots = records.flatMap((record) => record.slots.map((slot) => ({ record, slot })));
   const explicitMap = input.obligation_map;
   if ((input.mode === "execution-recovery" || input.pending_step_changes) && !explicitMap.length)
     fail3("RECOVERY_OBLIGATION_INVALID", "Execution or pending-plan recovery requires the complete old claim/slot obligation map.");
   if (explicitMap.length && (explicitMap.length !== slots.length || new Set(explicitMap.map((item) => `${item.claim_id}/${item.slot_id}`)).size !== slots.length))
     fail3("RECOVERY_OBLIGATION_INVALID", "Each old claim/slot must occur exactly once.");
   const newIds = new Set(allNewSteps.map((item) => item.id));
-  for (const { record: record4, slot } of slots) {
-    const mapping = explicitMap.find((item) => item.claim_id === record4.claim_id && item.slot_id === slot.slot_id);
+  for (const { record, slot } of slots) {
+    const mapping = explicitMap.find((item) => item.claim_id === record.claim_id && item.slot_id === slot.slot_id);
     if (explicitMap.length && !mapping)
       fail3("RECOVERY_OBLIGATION_INVALID", "Old obligation is missing.");
-    const targeted = executionTargets.some((execution) => execution.execution_result.acceptance_evidence.some((evidence) => !("acceptance" in evidence) && evidence.claim_id === record4.claim_id && evidence.slot_id === slot.slot_id));
+    const targeted = executionTargets.some((execution) => execution.execution_result.acceptance_evidence.some((evidence) => !("acceptance" in evidence) && evidence.claim_id === record.claim_id && evidence.slot_id === slot.slot_id));
     if (targeted && (!mapping || !newIds.has(mapping.due_step_id)))
       fail3("RECOVERY_OBLIGATION_INVALID", "Affected evidence must be assigned to a new execution or verification step.");
     if (!mapping)
@@ -15169,18 +15665,30 @@ function buildCorrectionCandidate(root, current, input) {
       slot.evidence_refs = [];
       slot.disposition = "missing";
       delete slot.prerequisite_receipt;
+      delete slot.user_decision;
       correctedSlots.add(slot);
     }
   }
   const newPlan = assertEvidencePlan(definition, records, false, { root, taskBasis: basis.basis, previous: current.runtimeState.claim_evidence ?? [] });
   const carry = [];
-  for (const record4 of records)
-    for (const slot of record4.slots) {
-      if (correctedSlots.has(slot) || !slot.report)
+  for (const record of records)
+    for (const slot of record.slots) {
+      if (correctedSlots.has(slot))
         continue;
-      if (unresolved.some((item) => item.claim_id === record4.claim_id && item.slot_id === slot.slot_id))
+      if (slot.user_decision) {
+        const oldSlot = current.runtimeState.claim_evidence?.find((c) => c.claim_id === record.claim_id)?.slots.find((s) => s.slot_id === slot.slot_id);
+        if (oldSlot && digest3(oldSlot.check) === digest3(slot.check)) {
+          try {
+            carry.push(carryUserEvidenceDecision(root, current, record.claim_id, oldSlot, newPlan, "confirm-replan"));
+          } catch {}
+        }
         continue;
-      const oldSlot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === record4.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
+      }
+      if (!slot.report)
+        continue;
+      if (unresolved.some((item) => item.claim_id === record.claim_id && item.slot_id === slot.slot_id))
+        continue;
+      const oldSlot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === record.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
       if (!oldSlot?.report || !slot.check)
         fail3("REPLAN_CARRY_FORWARD_INVALID", "Candidate evidence source changed.");
       if (!COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition)) {
@@ -15190,18 +15698,20 @@ function buildCorrectionCandidate(root, current, input) {
         continue;
       }
       assertEvidenceReportApplicable(root, current, oldSlot);
-      const origin = (current.runtimeState.evidence_carry_forward ?? []).find((item) => item.claim_id === record4.claim_id && item.slot_id === slot.slot_id && item.result_id === slot.report.result_id && item.new_plan_revision === current.runtimeState.evidence_plan_revision);
+      const origin = (current.runtimeState.evidence_carry_forward ?? []).find((item) => item.claim_id === record.claim_id && item.slot_id === slot.slot_id && item.result_id === slot.report.result_id && item.new_plan_revision === current.runtimeState.evidence_plan_revision);
       if (origin?.kind === "evidence-carry-forward/v1")
         fail3("EVIDENCE_CARRY_FORWARD_UPGRADE_REQUIRED", "The v1 source lacks preserved evidence bodies; revalidate this affected slot before carrying it again.");
       carry.push({
         kind: "evidence-carry-forward/v2",
         old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
+        ...origin?.history_operation ? { history_operation: origin.history_operation } : {},
+        ...slot.user_decision ? { user_decision_sha256: digest3(slot.user_decision) } : {},
         old_plan_revision: slot.report.evidence_plan_revision,
         new_plan_revision: newPlan,
         receiving_source_revision: current.sourceTuple.revision,
-        evidence_objects: describeEvidenceObjects(root, slot.evidence_refs),
+        evidence_objects: slot.user_decision ? [] : describeEvidenceObjects(root, slot.evidence_refs),
         context_revision: recoveryEvidenceContextRevision(root),
-        claim_id: record4.claim_id,
+        claim_id: record.claim_id,
         slot_id: slot.slot_id,
         check_id: slot.check.check_id,
         result_id: slot.report.result_id,
@@ -15224,24 +15734,24 @@ function buildCorrectionCandidate(root, current, input) {
     ])].sort(),
     retained_budget: { review_cycle: current.runtimeState.review_cycle, step_attempts: current.runtimeState.step_attempts ?? {} },
     source_tuple: current.sourceTuple,
-    evidence_admission: slots.map(({ record: record4, slot }) => ({
-      claim_id: record4.claim_id,
+    evidence_admission: slots.map(({ record, slot }) => ({
+      claim_id: record.claim_id,
       slot_id: slot.slot_id,
-      status: carry.some((item) => item.claim_id === record4.claim_id && item.slot_id === slot.slot_id) ? "reuse" : slot.report ? "contested" : "revalidate",
-      original_result_id: current.runtimeState.claim_evidence?.find((item) => item.claim_id === record4.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id)?.report?.result_id ?? null
+      status: carry.some((item) => item.claim_id === record.claim_id && item.slot_id === slot.slot_id) ? "reuse" : slot.report ? "contested" : "revalidate",
+      original_result_id: current.runtimeState.claim_evidence?.find((item) => item.claim_id === record.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id)?.report?.result_id ?? null
     })),
     restore_plan: restorePlan,
     result_validity: executionTargets.map((item) => ({ execution_id: item.idempotency_key, status: "affected", recovery_step_id: step.id })),
     historical_completion_refs: current.runtimeState.execution_log.flatMap((item) => !("action" in item) && item.status === "completed" ? [{ execution_id: item.idempotency_key, step_id: item.step_id, definition_revision: digest3(parseImplementationSteps(readDraftDefinitionFromBody(current.body).implementation_steps).find((old) => old.id === item.step_id)) }] : []),
-    obligation_map: slots.map(({ record: record4, slot }) => ({
-      claim_id: record4.claim_id,
+    obligation_map: slots.map(({ record, slot }) => ({
+      claim_id: record.claim_id,
       slot_id: slot.slot_id,
       due_step_id: slot.due_step_id,
-      ...explicitMap.find((item) => item.claim_id === record4.claim_id && item.slot_id === slot.slot_id)
+      ...explicitMap.find((item) => item.claim_id === record.claim_id && item.slot_id === slot.slot_id)
     })),
     evidence_objects: describeEvidenceObjects(root, [
       ...writes.filter((p) => fs9.existsSync(path10.resolve(root, p))),
-      ...(current.runtimeState.claim_evidence ?? []).flatMap((record4) => record4.slots.flatMap((slot) => slot.evidence_refs))
+      ...(current.runtimeState.claim_evidence ?? []).flatMap((record) => record.slots.flatMap((slot) => slot.evidence_refs))
     ]),
     source_revision: current.sourceTuple.revision,
     basis_revision: basis.revision,
@@ -15496,7 +16006,7 @@ function confirmCorrectionReplanLocked(root, rawInput, options) {
     operation: "confirm-replan",
     evidencePlanRevision: current.runtimeState.evidence_plan_revision,
     referencedEvidence: [...challengeRefs, ...rebuilt.carry_forward.flatMap((item) => {
-      const slot = rebuilt.claim_evidence.find((record4) => record4.claim_id === item.claim_id)?.slots.find((entry) => entry.slot_id === item.slot_id);
+      const slot = rebuilt.claim_evidence.find((record) => record.claim_id === item.claim_id)?.slots.find((entry) => entry.slot_id === item.slot_id);
       return slot?.evidence_refs ?? [];
     })]
   });
@@ -15559,7 +16069,7 @@ function confirmCorrectionReplanLocked(root, rawInput, options) {
     message: "Restricted correction confirmed; old obligations, original next step, and immutable preimage retained."
   };
   try {
-    const manifest2 = completeTaskEvolutionStoreCommit(root, current, stagedAfter, proposal, storeResult);
+    const manifest = completeTaskEvolutionStoreCommit(root, current, stagedAfter, proposal, storeResult);
     const readBack = readCanonicalCurrentTask(root);
     return {
       status: "success",
@@ -15577,11 +16087,11 @@ function confirmCorrectionReplanLocked(root, rawInput, options) {
       evidence_assurance: "caller-reported",
       state: resultState(readBack.runtimeState),
       task_store: {
-        manifest_path: `${manifest2.storage_root}/manifest.json`,
-        source_revision: manifest2.head.source_revision,
-        definition_revision: manifest2.head.definition_revision,
-        state_revision: manifest2.head.state_revision,
-        event_sequence: manifest2.head.event_sequence
+        manifest_path: `${manifest.storage_root}/manifest.json`,
+        source_revision: manifest.head.source_revision,
+        definition_revision: manifest.head.definition_revision,
+        state_revision: manifest.head.state_revision,
+        event_sequence: manifest.head.event_sequence
       }
     };
   } catch (error) {
@@ -15730,9 +16240,9 @@ function executeConfirmedArtifactRestore(root, sourceRevision, stepId, candidate
         return { status: "no-op", committed: false, evidence_assurance: "caller-reported", execution_kind: "revalidated", restored_paths: paths };
       const origin = restoreCompletionOrigin(root, current, candidate);
       if (origin) {
-        const completion2 = artifactRestoreCompletion(root, current, candidate, undefined, origin.id);
+        const completion = artifactRestoreCompletion(root, current, candidate, undefined, origin.id);
         if (!dryRun)
-          persistRestoreCompletion(completion2);
+          persistRestoreCompletion(completion);
         return {
           status: "success",
           committed: !dryRun,
@@ -15925,18 +16435,18 @@ function inheritedScopeAmendmentAttemptLedger(root, current, stepId) {
       const location = scopeAmendmentCandidateLocation(current, entry.candidate_digest);
       if (!fs9.existsSync(location.filePath))
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate is missing while inheriting an attempt budget.");
-      let candidate2;
+      let candidate;
       try {
-        candidate2 = JSON.parse(fs9.readFileSync(location.filePath, "utf8"));
+        candidate = JSON.parse(fs9.readFileSync(location.filePath, "utf8"));
       } catch (error) {
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", `Confirmed scope-amendment candidate cannot be read: ${error instanceof Error ? error.message : String(error)}`);
       }
-      const { candidate_digest: marker, ...candidateContent } = candidate2;
-      if (marker !== entry.candidate_digest || digest3(candidateContent) !== marker || candidate2.task_id !== current.runtimeState.task_id || candidate2.document_id !== current.sourceTuple.document_id) {
+      const { candidate_digest: marker, ...candidateContent } = candidate;
+      if (marker !== entry.candidate_digest || digest3(candidateContent) !== marker || candidate.task_id !== current.runtimeState.task_id || candidate.document_id !== current.sourceTuple.document_id) {
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate changed or belongs to another task.");
       }
-      if (candidate2.step_diff.inserted_step_id === childStepId) {
-        match = candidate2;
+      if (candidate.step_diff.inserted_step_id === childStepId) {
+        match = candidate;
         break;
       }
     }
@@ -15952,15 +16462,23 @@ function inheritedScopeAmendmentAttemptLedger(root, current, stepId) {
   fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Scope-amendment continuation ancestry exceeds the supported depth.");
 }
 function assertRecoveryHistory(root, current) {
+  for (const event of current.runtimeState.execution_log) {
+    if (!("action" in event) || event.action !== "create-draft" || !event.predecessor)
+      continue;
+    const d = event.predecessor;
+    const file = safeRepositoryFile(root, successorSnapshotPath(current.relativePath, d.document_id, d.source_revision));
+    if (sha2565(fs9.readFileSync(file, "utf8")) !== d.source_revision)
+      fail3("SUCCESSOR_HISTORY_CONFLICT", "The exact predecessor task must remain retained.");
+  }
   for (const entry of current.runtimeState.execution_log) {
     if (!("action" in entry) || !["commit-replan", "commit-scope-amendment"].includes(entry.action) || !("candidate_digest" in entry) || !entry.candidate_digest)
       continue;
     if (entry.action === "commit-scope-amendment") {
-      const location2 = scopeAmendmentCandidateLocation(current, entry.candidate_digest);
-      if (!fs9.existsSync(location2.filePath))
+      const location = scopeAmendmentCandidateLocation(current, entry.candidate_digest);
+      if (!fs9.existsSync(location.filePath))
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate is missing.");
-      const { candidate_digest: marker2, ...candidate2 } = JSON.parse(fs9.readFileSync(location2.filePath, "utf8"));
-      if (digest3(candidate2) !== marker2 || marker2 !== entry.candidate_digest || candidate2.task_id !== current.runtimeState.task_id || candidate2.document_id !== current.sourceTuple.document_id)
+      const { candidate_digest: marker, ...candidate } = JSON.parse(fs9.readFileSync(location.filePath, "utf8"));
+      if (digest3(candidate) !== marker || marker !== entry.candidate_digest || candidate.task_id !== current.runtimeState.task_id || candidate.document_id !== current.sourceTuple.document_id)
         fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate changed or belongs to another task.");
       assertScopeAmendmentHistoryForRevision(current, entry.source_revision);
       continue;
@@ -16079,6 +16597,7 @@ function makeDraftAudit(current, proposal, next, now) {
     return {
       ...base,
       definition_digest: digest3(draftDelta.draft_definition),
+      ...draftDelta.predecessor ? { predecessor: draftDelta.predecessor } : {},
       ...draftDelta.claim_evidence === undefined ? {} : { claim_evidence_digest: digest3(draftDelta.claim_evidence) }
     };
   }
@@ -16374,6 +16893,77 @@ function applyTaskStateDelta(root, current, proposal, now) {
   if (proposal.semantic_delta.kind !== "task-state")
     fail3("RUNTIME_SCHEMA_INVALID", "Expected task-state delta.");
   const delta = proposal.semantic_delta;
+  if (delta.action === "record-user-evidence") {
+    assertBusinessEvidenceVersion(current);
+    ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission", "user-confirmation"]);
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active")
+      fail3("USER_EVIDENCE_STATE_INVALID", "A task-scoped user decision requires the active confirmed task.");
+    const claim = current.runtimeState.claim_evidence?.find((item) => item.claim_id === delta.claim_id);
+    const slot = claim?.slots.find((item) => item.slot_id === delta.slot_id);
+    if (!claim || !slot?.check || slot.check.check_id !== delta.check_id)
+      fail3("USER_EVIDENCE_TARGET_INVALID", "The exact claim/slot/check must already be frozen.");
+    if (delta.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || captureReviewTarget(root, slot.check.subject_paths).revision !== delta.subject_revision)
+      fail3("USER_EVIDENCE_STALE", "The plan or observed objects changed; do not rebind the old user statement.");
+    if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.claim_id === claim.claim_id && item.slot_id === slot.slot_id && item.status !== "resolved"))
+      fail3("USER_EVIDENCE_CHALLENGED", "Resolve the counterexample through its retained owner; a user evidence decision does not dismiss it.");
+    const retained = readCanonicalTaskBasis(root, current);
+    const basis = structuredClone(retained.basis);
+    const prior = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta.decision_source);
+    if (prior && prior.verbatim !== delta.decision_text)
+      fail3("USER_EVIDENCE_SOURCE_INVALID", "An existing source coordinate cannot be assigned different user text.");
+    if (!prior)
+      basis.user_decisions.push({ source: delta.decision_source, verbatim: delta.decision_text });
+    if (delta.decision_kind === "human-acceptance") {
+      if (slot.check.method !== "human" || slot.check.expected_result !== "accepted")
+        fail3("USER_EVIDENCE_METHOD_INVALID", "A human observation satisfies only an admitted human check; it is not an execution PASS.");
+    } else {
+      const userOwned = [retained.basis.original_request, ...retained.basis.user_decisions].some((item) => item.source === claim.source_ref);
+      if (!userOwned || !["acceptance", "regression", "exploration"].includes(claim.claim_kind) || slot.applicability !== "current" || slot.check.expected_result === "expected-failure" || ["project-policy", "release-gate", "claim-risk-contract"].includes(slot.check.selection?.breadth_basis ?? "")) {
+        fail3("EVIDENCE_WAIVER_AUTHORITY_INVALID", "Only current user-owned evidence may be waived; prerequisites, invariants, contracts and release policy are not waived by this route.");
+      }
+    }
+    const validationItems = delta.validation_items ?? [];
+    if (validationItems.length) {
+      const step = resolveCanonicalTaskStep(current).steps.find((item) => item.id === slot.due_step_id);
+      const labels = (step?.required_evidence ?? "").split(";").map((item) => item.trim()).filter(Boolean);
+      if (delta.decision_kind !== "waiver" || new Set(validationItems).size !== validationItems.length || validationItems.some((item) => !labels.includes(item))) {
+        fail3("EVIDENCE_WAIVER_TARGET_INVALID", "Only exact planned validation labels at this waived obligation’s due step may be included.");
+      }
+    }
+    const decision = {
+      ...validationItems.length ? { validation_items: validationItems } : {},
+      kind: delta.decision_kind,
+      decision_id: proposal.idempotency_key,
+      decision_source: delta.decision_source,
+      statement_sha256: sha2565(delta.decision_text),
+      check_id: delta.check_id,
+      evidence_plan_revision: delta.evidence_plan_revision,
+      subject_revision: delta.subject_revision,
+      recorded_at: now,
+      assurance: "caller-reported"
+    };
+    const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
+    const target = claims.find((item) => item.claim_id === delta.claim_id).slots.find((item) => item.slot_id === delta.slot_id);
+    target.user_decision = decision;
+    if (delta.decision_kind === "human-acceptance") {
+      target.report = {
+        result_id: decision.decision_id,
+        status: "accepted",
+        actual_method: "human",
+        evidence_plan_revision: decision.evidence_plan_revision,
+        subject_revision: decision.subject_revision,
+        environment: "explicit user observation; source recorded in Task Basis",
+        assurance: "caller-reported"
+      };
+      target.disposition = "newly-executed";
+      target.evidence_refs = [...new Set([...slot.evidence_refs, retained.path])];
+    }
+    return { next: {
+      ...current.runtimeState,
+      claim_evidence: claims,
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
+    }, taskBasis: basis };
+  }
   if (delta.action === "migrate-claim-evidence") {
     ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
     ensureAnyAuthorityKind(proposal, ["active-task-owner", "user-confirmation", "authorized-caller"]);
@@ -16384,10 +16974,12 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail3("CLAIM_EVIDENCE_MIGRATION_NOT_APPLICABLE", "claim evidence migration cannot replace an existing structured claim_evidence plan.");
     }
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "migrate-claim-evidence claim_evidence");
+    if (claimEvidence.some((claim) => claim.slots.some((slot) => slot.user_decision)))
+      fail3("USER_EVIDENCE_ACTION_REQUIRED", "Legacy migration cannot invent user decisions.");
     requireAcceptanceClaim(claimEvidence, "migrate-claim-evidence claim_evidence");
     const legacyCommands = plannedCommandsForEvidence(readDraftDefinitionFromBody(current.body));
-    for (const record4 of claimEvidence)
-      for (const slot of record4.slots) {
+    for (const record of claimEvidence)
+      for (const slot of record.slots) {
         if (!legacyCommands.has(slot.due_step_id)) {
           fail3("CLAIM_EVIDENCE_PLAN_INVALID", "migrated evidence must be due at an existing legacy step.");
         }
@@ -16429,8 +17021,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (captureReviewTarget(root, reviewedExecution.execution_result.review_target.entries.map((item) => item.path)).revision !== pending.review_target_revision) {
       fail3("RETAINED_REVIEW_TARGET_STALE", "Product files changed after the retained clean review was recorded.");
     }
-    const openFindings2 = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status));
-    if (openFindings2.some((item) => !receipt.admitted_fingerprints.includes(item.fingerprint))) {
+    const openFindings = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status));
+    if (openFindings.some((item) => !receipt.admitted_fingerprints.includes(item.fingerprint))) {
       fail3("REVIEW_CONVERGENCE_REQUIRED", "A retained clean review cannot bypass an open finding.");
     }
     const {
@@ -16438,7 +17030,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       execution_preflight: _retainedExecutionPreflight,
       ...stateWithoutRetainedReview
     } = current.runtimeState;
-    const next2 = {
+    const next = {
       ...stateWithoutRetainedReview,
       pending_review_result: null,
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
@@ -16455,13 +17047,15 @@ function applyTaskStateDelta(root, current, proposal, now) {
         recorded_at: now
       })
     };
-    return { next: next2 };
+    return { next };
   }
   if (delta.action === "create-draft") {
     ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
     ensureAnyAuthorityKind(proposal, ["user-confirmation", "authorized-caller"]);
-    if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
-      fail3("DRAFT_CREATION_BLOCKED", "create-draft requires the current task to be closed + archived.");
+    if (delta.predecessor)
+      assertSuccessorDecision(root, current, delta);
+    else if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
+      fail3("DRAFT_CREATION_BLOCKED", "Ordinary create-draft requires closed + archived; a superseded predecessor needs the explicit successor route.");
     }
     const expectedTaskId = allocateNextTaskId(root, current.runtimeState.task_id);
     if (delta.task_id !== expectedTaskId) {
@@ -16470,7 +17064,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (delta.document_id === current.sourceTuple.document_id || collectTaskDocumentIds(root).has(delta.document_id)) {
       fail3("DOCUMENT_ID_COLLISION", "create-draft document_id must be fresh across canonical task artifacts.");
     }
-    if (current.runtimeState.task_id === "000") {
+    if (delta.predecessor) {} else if (current.runtimeState.task_id === "000") {
       const bootstrapArchive = archivePathForTask(root, current);
       if (fs9.existsSync(bootstrapArchive.filePath))
         fail3("TASK_ARCHIVE_CONFLICT", "bootstrap TASK-000 must not already have a canonical archive before the first ordinary draft.");
@@ -16519,9 +17113,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
       applied_proposals: appendAppliedProposal(emptyDraftState, proposal, current.sourceTuple.revision)
     };
     const audit = makeDraftAudit(current, proposal, draftStateWithProposal, now);
-    const next2 = { ...draftStateWithProposal, execution_log: appendExecutionLogEntry(draftStateWithProposal, audit) };
+    const next = { ...draftStateWithProposal, execution_log: appendExecutionLogEntry(draftStateWithProposal, audit) };
     return {
-      next: next2,
+      next,
       draftDefinition: delta.draft_definition,
       draftIdentity,
       draftDocumentId: delta.document_id,
@@ -16574,9 +17168,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);
-    const next2 = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
+    const next = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
     return {
-      next: next2,
+      next,
       replacementDefinition: delta.draft_definition,
       draftIdentity: {
         task_id: current.runtimeState.task_id,
@@ -16635,8 +17229,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeDraftAudit(current, proposal, nextWithoutAudit, now);
-    const next2 = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
-    return { next: next2, audit };
+    const next = { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) };
+    return { next, audit };
   }
   if (delta.action === "clear-resume-review-gate") {
     ensureAuthorityKinds(proposal, ["authorized-caller", "active-task-owner", "resume-review", "evidence-admission"]);
@@ -16873,15 +17467,15 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if ((recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3)
       fail3("RETRY_BUDGET_EXHAUSTED", "The same recovery problem has exhausted three retained failed attempts across plans.");
     ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
-    const executionMode2 = delta.mode ?? proposal.mode;
+    const executionMode = delta.mode ?? proposal.mode;
     if (delta.step_id !== current.runtimeState.active_step_id)
       fail3("ACTIVE_STEP_CONFLICT", "preflight must bind the current active step.");
-    if (executionMode2 === "default")
+    if (executionMode === "default")
       assertOrdinaryPreflight(current, root);
-    else if (executionMode2 !== "repair")
+    else if (executionMode !== "repair")
       fail3("RUNTIME_MODE_INVALID", "record-step-preflight mode is invalid.");
     assertTestStrategySequenceReady(current);
-    const step = resolveCanonicalTaskStep(current).steps.find((step2) => step2.id === delta.step_id);
+    const step = resolveCanonicalTaskStep(current).steps.find((step) => step.id === delta.step_id);
     const strategy = resolveTestStrategyExecutionContext(current);
     const executionPhase = resolveNewExecutionPhase(current, strategy, delta.execution_phase);
     const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
@@ -16890,11 +17484,11 @@ function applyTaskStateDelta(root, current, proposal, now) {
       step_mutation_scope: (step.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/gu, "")).filter(Boolean),
       assessments: delta.blast_radius_assessments ?? [],
       phase: executionPhase,
-      mode: executionMode2,
-      location: `${executionMode2} preflight candidates`
+      mode: executionMode,
+      location: `${executionMode} preflight candidates`
     });
-    assertExecutionAdmissionEvaluation(current, authorityEvaluation, `${executionMode2} preflight candidates`);
-    if (executionMode2 === "repair") {
+    assertExecutionAdmissionEvaluation(current, authorityEvaluation, `${executionMode} preflight candidates`);
+    if (executionMode === "repair") {
       const pending = current.runtimeState.pending_review_result;
       const repairFingerprints = delta.repair_fingerprints ?? [];
       if (!pending || pending.verdict !== "findings" || !delta.review_id || delta.review_id !== pending.review_id) {
@@ -16910,19 +17504,19 @@ function applyTaskStateDelta(root, current, proposal, now) {
       }
     }
     const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
-    if (executionMode2 === "default")
-      for (const record4 of claims)
-        for (const slot of record4.slots) {
+    if (executionMode === "default")
+      for (const record of claims)
+        for (const slot of record.slots) {
           if (slot.before_step_id !== delta.step_id || slot.prerequisite_receipt)
             continue;
-          assertEvidenceSlotSatisfied(root, current, record4, slot, false);
+          assertEvidenceSlotSatisfied(root, current, record, slot, false);
           slot.prerequisite_receipt = { step_id: delta.step_id, preflight_id: proposal.idempotency_key, result_id: slot.report.result_id, subject_snapshot: captureReviewTarget(root, slot.check.subject_paths) };
         }
     const coverageAdmission = registerReviewCoverage(root, current, delta.candidate_paths);
-    const coverage2 = coverageAdmission.coverage;
+    const coverage = coverageAdmission.coverage;
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
-    let stepAttempts2 = current.runtimeState.step_attempts;
-    if (executionMode2 === "default") {
+    let stepAttempts = current.runtimeState.step_attempts;
+    if (executionMode === "default") {
       const inherited = ledger === undefined ? inheritedScopeAmendmentAttemptLedger(root, current, delta.step_id) : null;
       const recovery = ledger?.attempts.at(-1)?.recovery;
       if (recovery && delta.candidate_paths.some((p) => !recovery.repair_paths.includes(p)))
@@ -16944,8 +17538,8 @@ function applyTaskStateDelta(root, current, proposal, now) {
           fail3("RETRY_BUDGET_EXHAUSTED", "The scope-amendment continuation has exhausted the retained attempt budget.");
         const inheritedLatest = inherited.ledger.attempts.at(-1);
         const continuationAttempts = inheritedLatest.status === "ready" ? [...inherited.ledger.attempts.slice(0, -1), { ...inheritedLatest, status: "preflighted" }] : [...inherited.ledger.attempts, initialLedger.attempts[0]];
-        stepAttempts2 = {
-          ...stepAttempts2,
+        stepAttempts = {
+          ...stepAttempts,
           [delta.step_id]: {
             evidence_plan_revision: current.runtimeState.evidence_plan_revision,
             max_attempts: inherited.ledger.max_attempts,
@@ -16953,20 +17547,21 @@ function applyTaskStateDelta(root, current, proposal, now) {
           }
         };
       } else if (!ledger) {
-        stepAttempts2 = { ...stepAttempts2, [delta.step_id]: initialLedger };
+        stepAttempts = { ...stepAttempts, [delta.step_id]: initialLedger };
       } else if (ledger.attempts.at(-1)?.status === "ready") {
-        stepAttempts2 = { ...stepAttempts2, [delta.step_id]: { ...ledger, attempts: ledger.attempts.map((attempt, index) => index === ledger.attempts.length - 1 ? { ...attempt, status: "preflighted" } : attempt) } };
+        stepAttempts = { ...stepAttempts, [delta.step_id]: { ...ledger, attempts: ledger.attempts.map((attempt, index) => index === ledger.attempts.length - 1 ? { ...attempt, status: "preflighted" } : attempt) } };
       }
     }
     const dynamicDecisions = authorityEvaluation?.decisions.filter((item) => item.classification === "dynamic-self-admitted") ?? [];
     const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
-    const executionId = delta.execution_id ?? `execution-${digest3({ proposal: proposal.idempotency_key, step: delta.step_id, mode: executionMode2 })}`;
+    const executionId = delta.execution_id ?? `execution-${digest3({ proposal: proposal.idempotency_key, step: delta.step_id, mode: executionMode })}`;
     const planRevision = delta.plan_revision ?? digest3({ step_id: delta.step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
-    const changeSetId = delta.change_set_id ?? coverage2.change_set_id;
+    const changeSetId = delta.change_set_id ?? coverage.change_set_id;
     const newExpansions = dynamicDecisions.filter((item) => !existingExpansions.some((existing) => existing.path === item.path && existing.execution_id === executionId && existing.step_id === delta.step_id && existing.plan_revision === planRevision && existing.change_set_id === changeSetId)).map((item) => ({
       path: item.path,
       domain: item.domain,
       assessment: item.assessment,
+      review_required: item.dynamic_review_required,
       first_touch_state: item.first_touch_state === "absent" ? "absent" : "file",
       admitted_at: now,
       execution_id: executionId,
@@ -16974,26 +17569,26 @@ function applyTaskStateDelta(root, current, proposal, now) {
       step_id: delta.step_id,
       plan_revision: planRevision,
       change_set_id: changeSetId,
-      mode: executionMode2
+      mode: executionMode
     }));
-    const executionPreflight = current.mutationAuthority || executionMode2 === "repair" ? {
+    const executionPreflight = current.mutationAuthority || executionMode === "repair" ? {
       execution_id: executionId,
       preflight_id: proposal.idempotency_key,
-      mode: executionMode2,
+      mode: executionMode,
       step_id: delta.step_id,
       plan_revision: planRevision,
       execution_phase: executionPhase,
       candidate_paths: [...delta.candidate_paths],
       change_set_id: changeSetId,
-      repair_fingerprints: executionMode2 === "repair" ? [...delta.repair_fingerprints ?? []] : null,
-      repair_wave_id: executionMode2 === "repair" ? delta.repair_wave_id : null,
-      review_id: executionMode2 === "repair" ? delta.review_id : null,
-      review_target_paths: executionMode2 === "repair" ? [...delta.review_target_paths] : null
+      repair_fingerprints: executionMode === "repair" ? [...delta.repair_fingerprints ?? []] : null,
+      repair_wave_id: executionMode === "repair" ? delta.repair_wave_id : null,
+      review_id: executionMode === "repair" ? delta.review_id : null,
+      review_target_paths: executionMode === "repair" ? [...delta.review_target_paths] : null
     } : undefined;
     return { next: {
       ...current.runtimeState,
-      review_coverage: coverage2,
-      ...stepAttempts2 ? { step_attempts: stepAttempts2 } : {},
+      review_coverage: coverage,
+      ...stepAttempts ? { step_attempts: stepAttempts } : {},
       claim_evidence: claims,
       ...authorityEvaluation ? {
         dynamic_review_required: current.runtimeState.dynamic_review_required === true || authorityEvaluation.dynamic_review_required,
@@ -17006,12 +17601,12 @@ function applyTaskStateDelta(root, current, proposal, now) {
   if (delta.action === "extend-preflight") {
     if (!current.mutationAuthority)
       fail3("MUTATION_AUTHORITY_VERSION_REQUIRED", "extend-preflight requires a Mutation Authority v2 task.");
-    const executionMode2 = delta.mode ?? proposal.mode;
-    if (executionMode2 !== "default" && executionMode2 !== "repair")
+    const executionMode = delta.mode ?? proposal.mode;
+    if (executionMode !== "default" && executionMode !== "repair")
       fail3("RUNTIME_MODE_INVALID", "extend-preflight mode is invalid.");
-    if (executionMode2 === "default" && (recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3)
+    if (executionMode === "default" && (recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3)
       fail3("RETRY_BUDGET_EXHAUSTED", "The same recovery problem has exhausted three retained failed attempts across plans.");
-    if (executionMode2 === "default")
+    if (executionMode === "default")
       assertOrdinaryPreflight(current, root);
     assertTestStrategySequenceReady(current);
     ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
@@ -17020,7 +17615,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     const activePreflight = current.runtimeState.execution_preflight;
     if (!activePreflight)
       fail3("EXECUTE_PREFLIGHT_REQUIRED", "extend-preflight requires the current stable execution identity.");
-    if (activePreflight.step_id !== delta.step_id || activePreflight.mode !== executionMode2) {
+    if (activePreflight.step_id !== delta.step_id || activePreflight.mode !== executionMode) {
       fail3("EXECUTE_PREFLIGHT_STALE", "extend-preflight does not bind the current execution mode and step.");
     }
     if (delta.current_preflight_id !== activePreflight.preflight_id)
@@ -17031,11 +17626,11 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail3("EXECUTE_PREFLIGHT_STALE", "extend-preflight does not bind the current execution phase.");
     const stepLedger = current.runtimeState.step_attempts?.[delta.step_id];
     const latestAttempt = stepLedger?.attempts.at(-1);
-    if (executionMode2 === "default" && (!stepLedger || !latestAttempt || latestAttempt.status !== "preflighted"))
+    if (executionMode === "default" && (!stepLedger || !latestAttempt || latestAttempt.status !== "preflighted"))
       fail3("EXECUTE_PREFLIGHT_REQUIRED", "extend-preflight requires the latest ordinary attempt to be preflighted.");
-    if (executionMode2 === "default" && latestAttempt && latestAttempt.idempotency_key !== delta.current_preflight_id)
+    if (executionMode === "default" && latestAttempt && latestAttempt.idempotency_key !== delta.current_preflight_id)
       fail3("EXECUTE_PREFLIGHT_STALE", "extend-preflight does not bind the latest ordinary preflight receipt.");
-    if (executionMode2 === "repair") {
+    if (executionMode === "repair") {
       const pending = current.runtimeState.pending_review_result;
       if (!activePreflight || activePreflight.review_id === null || activePreflight.repair_wave_id === null || activePreflight.change_set_id !== pending?.change_set_id || activePreflight.review_id !== pending?.review_id || pending?.verdict !== "findings") {
         fail3("REPAIR_PREFLIGHT_STALE", "repair extension requires the current Runtime repair-wave and review identity.");
@@ -17053,20 +17648,21 @@ function applyTaskStateDelta(root, current, proposal, now) {
       step_mutation_scope: (step.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/gu, "")).filter(Boolean),
       assessments: delta.blast_radius_assessments,
       phase: executionPhase,
-      mode: executionMode2,
-      location: `${executionMode2} preflight extension`
+      mode: executionMode,
+      location: `${executionMode} preflight extension`
     });
-    assertExecutionAdmissionEvaluation(current, authorityEvaluation, `${executionMode2} preflight extension`);
+    assertExecutionAdmissionEvaluation(current, authorityEvaluation, `${executionMode} preflight extension`);
     const coverageAdmission = extendReviewCoverage(root, current, delta.additional_targets);
-    const coverage2 = coverageAdmission.coverage;
+    const coverage = coverageAdmission.coverage;
     const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
-    const executionId = activePreflight?.execution_id ?? delta.execution_id ?? `execution-${digest3({ proposal: current.runtimeState.execution_preflight?.preflight_id ?? delta.current_preflight_id, step: delta.step_id, mode: executionMode2 })}`;
+    const executionId = activePreflight?.execution_id ?? delta.execution_id ?? `execution-${digest3({ proposal: current.runtimeState.execution_preflight?.preflight_id ?? delta.current_preflight_id, step: delta.step_id, mode: executionMode })}`;
     const planRevision = activePreflight?.plan_revision ?? digest3({ step_id: delta.step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
-    const changeSetId = activePreflight?.change_set_id ?? coverage2.change_set_id;
+    const changeSetId = activePreflight?.change_set_id ?? coverage.change_set_id;
     const newExpansions = authorityEvaluation.decisions.filter((item) => item.classification === "dynamic-self-admitted" && !existingExpansions.some((existing) => existing.path === item.path && existing.execution_id === executionId && existing.step_id === delta.step_id && existing.plan_revision === planRevision && existing.change_set_id === changeSetId)).map((item) => ({
       path: item.path,
       domain: item.domain,
       assessment: item.assessment,
+      review_required: item.dynamic_review_required,
       first_touch_state: item.first_touch_state === "absent" ? "absent" : "file",
       admitted_at: now,
       execution_id: executionId,
@@ -17074,13 +17670,13 @@ function applyTaskStateDelta(root, current, proposal, now) {
       step_id: delta.step_id,
       plan_revision: planRevision,
       change_set_id: changeSetId,
-      mode: executionMode2
+      mode: executionMode
     }));
     const updatedAttempts = stepLedger?.attempts.map((attempt, index) => index === stepLedger.attempts.length - 1 ? { ...attempt, idempotency_key: proposal.idempotency_key, evidence_refs: [...new Set([...attempt.evidence_refs, ...delta.evidence_refs])] } : attempt);
     const executionPreflight = {
       execution_id: executionId,
       preflight_id: proposal.idempotency_key,
-      mode: executionMode2,
+      mode: executionMode,
       step_id: delta.step_id,
       plan_revision: planRevision,
       execution_phase: executionPhase,
@@ -17093,10 +17689,10 @@ function applyTaskStateDelta(root, current, proposal, now) {
     };
     return { next: {
       ...current.runtimeState,
-      review_coverage: coverage2,
+      review_coverage: coverage,
       dynamic_review_required: current.runtimeState.dynamic_review_required === true || authorityEvaluation.dynamic_review_required,
       dynamic_expansions: [...existingExpansions, ...newExpansions],
-      ...executionMode2 === "default" && stepLedger && updatedAttempts ? { step_attempts: { ...current.runtimeState.step_attempts, [delta.step_id]: { ...stepLedger, attempts: updatedAttempts } } } : {},
+      ...executionMode === "default" && stepLedger && updatedAttempts ? { step_attempts: { ...current.runtimeState.step_attempts, [delta.step_id]: { ...stepLedger, attempts: updatedAttempts } } } : {},
       execution_preflight: executionPreflight,
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     }, reviewPreimageWrites: coverageAdmission.preimageWrites };
@@ -17182,6 +17778,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     fail3("REVIEWED_COMPLETION_EXECUTION_RESULT_FORBIDDEN", "reviewed step completion cannot record a new execution result or acceptance evidence.");
   }
   if (delta.execution_result !== undefined) {
+    assertExecutionResultWaivers(root, current, delta.step_id, delta.execution_result);
     if (!executionChangeSetId || delta.execution_result.change_set_id !== executionChangeSetId) {
       fail3("REVIEW_TARGET_CONFLICT", "execution_result must bind the step-progress Runtime change_set_id.");
     }
@@ -17229,11 +17826,11 @@ function applyTaskStateDelta(root, current, proposal, now) {
       fail3("CLAIM_EVIDENCE_AFTER_REVIEW", "reviewed step completion must preserve the claim evidence recorded before review.");
     }
   }
-  for (const record4 of transitionClaimEvidence)
-    for (const slot of record4.slots) {
-      const old = current.runtimeState.claim_evidence?.find((item) => item.claim_id === record4.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
+  for (const record of transitionClaimEvidence)
+    for (const slot of record.slots) {
+      const old = current.runtimeState.claim_evidence?.find((item) => item.claim_id === record.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
       if (slot.report && digest3(old) !== digest3(slot) && slot.check?.selection?.invocation) {
-        const exactResult = delta.execution_result?.acceptance_evidence.some((result) => !("acceptance" in result) && result.claim_id === record4.claim_id && result.slot_id === slot.slot_id && result.check_id === slot.check.check_id && digest3(result.report) === digest3(slot.report));
+        const exactResult = delta.execution_result?.acceptance_evidence.some((result) => !("acceptance" in result) && result.claim_id === record.claim_id && result.slot_id === slot.slot_id && result.check_id === slot.check.check_id && digest3(result.report) === digest3(slot.report));
         if (!exactResult)
           fail3("CLAIM_EVIDENCE_RESULT_UNBOUND", "A new execution report requires its exact invocation result; raw progress cannot invent evidence.");
       }
@@ -17266,16 +17863,16 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (result.status !== "expected-failure")
       continue;
     const entry = "command" in result ? result.command : result.validation;
-    const hasCurrentReproduction = transitionClaimEvidence.some((record4) => record4.claim_kind !== "acceptance" && record4.slots.some((slot) => {
+    const hasCurrentReproduction = transitionClaimEvidence.some((record) => record.claim_kind !== "acceptance" && record.slots.some((slot) => {
       if (slot.applicability !== "before-step" || slot.prerequisite_receipt || slot.check?.entry !== entry || slot.check.expected_result !== "expected-failure" || slot.report?.status !== "expected-failure")
         return false;
       const steps = resolveCanonicalTaskStep(current).steps.map((step) => step.id);
       if (steps.indexOf(delta.step_id) >= steps.indexOf(slot.before_step_id))
         return false;
-      const previous = current.runtimeState.claim_evidence?.find((claim) => claim.claim_id === record4.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
+      const previous = current.runtimeState.claim_evidence?.find((claim) => claim.claim_id === record.claim_id)?.slots.find((item) => item.slot_id === slot.slot_id);
       if (previous?.report?.result_id === slot.report.result_id)
         return false;
-      return (delta.execution_result?.acceptance_evidence ?? []).some((evidence) => !("acceptance" in evidence) && evidence.claim_id === record4.claim_id && evidence.slot_id === slot.slot_id && evidence.check_id === slot.check.check_id && evidence.report?.result_id === slot.report.result_id);
+      return (delta.execution_result?.acceptance_evidence ?? []).some((evidence) => !("acceptance" in evidence) && evidence.claim_id === record.claim_id && evidence.slot_id === slot.slot_id && evidence.check_id === slot.check.check_id && evidence.report?.result_id === slot.report.result_id);
     }));
     if (!hasCurrentReproduction)
       fail3("EXECUTE_EXPECTED_FAILURE_INVALID", "expected failure requires a new report for an unconsumed prerequisite check submitted by this execution before its constrained step.");
@@ -17283,7 +17880,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
   for (const result of delta.execution_result?.acceptance_evidence ?? []) {
     if ("acceptance" in result)
       fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "Legacy text-based evidence is readable history only; new results require claim/slot/check IDs.");
-    const slot = transitionClaimEvidence.find((claim) => claim.claim_id === result.claim_id)?.slots.find((slot2) => slot2.slot_id === result.slot_id);
+    const slot = transitionClaimEvidence.find((claim) => claim.claim_id === result.claim_id)?.slots.find((slot) => slot.slot_id === result.slot_id);
     if (!slot || slot.check?.check_id !== result.check_id || slot.minimum_type !== result.minimum_type || slot.disposition !== result.disposition || digest3(slot.report) !== digest3(result.report) || digest3(slot.evidence_refs) !== digest3(result.evidence_refs))
       fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "Execution reports must exactly match the persisted slot results.");
     if (slot.check.method === "execution" && slot.check.selection?.invocation && result.report) {
@@ -17697,19 +18294,19 @@ function requiredPackageField(fields, field, location) {
   return value.trim();
 }
 function packagePathForTask(root, taskId, taskSlug, artifactKind) {
-  let relativePath3;
+  let relativePath;
   try {
-    relativePath3 = getTaskArtifactPath(taskId, taskSlug, artifactKind);
+    relativePath = getTaskArtifactPath(taskId, taskSlug, artifactKind);
   } catch (error) {
     fail3("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const filePath = path10.resolve(path10.resolve(root), ...relativePath3.split("/"));
+  const filePath = path10.resolve(path10.resolve(root), ...relativePath.split("/"));
   const resolvedRoot = path10.resolve(root);
   const relativeCheck = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
-  if (relativeCheck !== relativePath3 || relativeCheck.startsWith("../") || path10.isAbsolute(relativeCheck)) {
-    fail3("RUNTIME_PATH_INVALID", `suspended package path escapes the target root: ${relativePath3}`);
+  if (relativeCheck !== relativePath || relativeCheck.startsWith("../") || path10.isAbsolute(relativeCheck)) {
+    fail3("RUNTIME_PATH_INVALID", `suspended package path escapes the target root: ${relativePath}`);
   }
-  return { filePath, relativePath: relativePath3 };
+  return { filePath, relativePath };
 }
 function replacePackageField(content, field, value) {
   const pattern = new RegExp(`^-\\s*${field.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\s*:\\s*[^\\r\\n]*$`, "gm");
@@ -17718,8 +18315,8 @@ function replacePackageField(content, field, value) {
     fail3("RUNTIME_SCHEMA_INVALID", `suspended package must contain exactly one ${field} field.`);
   return content.replace(pattern, `- ${field}: ${value}`);
 }
-function parseSuspendedPackage(root, current, relativePath3, expectedKind) {
-  const normalizedPath = normalizeRepoPath2(relativePath3, "suspended package path");
+function parseSuspendedPackage(root, current, relativePath, expectedKind) {
+  const normalizedPath = normalizeRepoPath2(relativePath, "suspended package path");
   const pathMatch = /^TASKS\/(paused|interrupted)\/TASK-([0-9]{3,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/.exec(normalizedPath);
   if (!pathMatch)
     fail3("RUNTIME_PATH_INVALID", `suspended package path is outside the paused/interrupted contract: ${normalizedPath}`);
@@ -18042,12 +18639,12 @@ function prepareLifecycleTransaction(root, current, proposal, now) {
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
     const audit = makeReplanAudit(current, proposal, nextWithoutAudit, now);
-    const next2 = {
+    const next = {
       ...nextWithoutAudit,
       execution_log: appendExecutionLogEntry(current.runtimeState, audit)
     };
-    const nextContent2 = renderCanonicalCurrentTask(current.frontmatter, current.body, next2, { audit });
-    return { next: next2, nextContent: nextContent2, audit };
+    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { audit });
+    return { next, nextContent, audit };
   }
   const target = assertRequestedLifecycleTargets(root, current, proposal);
   const packageFilePath = target.packageFilePath;
@@ -18059,7 +18656,7 @@ function prepareLifecycleTransaction(root, current, proposal, now) {
       fail3("LIFECYCLE_TRANSITION_INVALID", `${delta.action} requires the current task to be active + active.`);
     assertSiblingRecoveryIsReconciled(root, current, delta.action === "pause" ? "paused" : "interrupted");
     const originalPackageContent = prepareExistingPackageForReplacement(root, current, packageRelativePath, delta.action === "pause" ? "paused" : "interrupted");
-    const next2 = {
+    const next = {
       ...current.runtimeState,
       workflow_status: "suspended",
       lifecycle_state: delta.lifecycle_state,
@@ -18067,9 +18664,9 @@ function prepareLifecycleTransaction(root, current, proposal, now) {
       resume_review_reasons: [...delta.resume_review_reasons],
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     };
-    const nextContent2 = renderCanonicalCurrentTask(current.frontmatter, current.body, next2);
-    const nextPackageContent2 = renderSuspendedPackage(current, delta, delta.action === "pause" ? "paused" : "interrupted");
-    return { next: next2, nextContent: nextContent2, packageFilePath, packageRelativePath, nextPackageContent: nextPackageContent2, ...originalPackageContent === undefined ? {} : { originalPackageContent } };
+    const nextContent = renderCanonicalCurrentTask(current.frontmatter, current.body, next);
+    const nextPackageContent = renderSuspendedPackage(current, delta, delta.action === "pause" ? "paused" : "interrupted");
+    return { next, nextContent, packageFilePath, packageRelativePath, nextPackageContent, ...originalPackageContent === undefined ? {} : { originalPackageContent } };
   }
   ensureAuthorityKinds(proposal, ["resume-review", "evidence-admission"]);
   if (current.runtimeState.workflow_status !== "suspended")
@@ -18142,17 +18739,18 @@ function resultState(state, findingStatus, recoveryPackagePath) {
     finding_queue_revision: state.finding_queue_revision,
     review_cycle_id: state.review_cycle.id,
     repair_round: state.review_cycle.repair_round,
+    ...(state.claim_evidence ?? []).some((claim) => claim.slots.some((slot) => slot.user_decision?.kind === "waiver")) ? { recorded_evidence_waivers: (state.claim_evidence ?? []).flatMap((claim) => claim.slots.filter((slot) => slot.user_decision?.kind === "waiver").map((slot) => ({ claim_id: claim.claim_id, slot_id: slot.slot_id, decision_source: slot.user_decision.decision_source }))) } : {},
     ...findingStatus === undefined ? {} : { finding_status: findingStatus },
     ...recoveryPackagePath === undefined ? {} : { recovery_package_path: recoveryPackagePath }
   };
 }
-function exactPendingFileContent(root, relativePath3) {
-  const normalized = normalizeRepoPath2(relativePath3, "task-store pending write path");
+function exactPendingFileContent(root, relativePath) {
+  const normalized = normalizeRepoPath2(relativePath, "task-store pending write path");
   const resolvedRoot = path10.resolve(root);
   const filePath = path10.resolve(resolvedRoot, ...normalized.split("/"));
   const check = path10.relative(resolvedRoot, filePath).replace(/\\/g, "/");
   if (check !== normalized || check.startsWith("../") || path10.isAbsolute(check)) {
-    throw new TaskStoreError("TASK_STORE_PATH_INVALID", `pending write path escapes the project root: ${relativePath3}`);
+    throw new TaskStoreError("TASK_STORE_PATH_INVALID", `pending write path escapes the project root: ${relativePath}`);
   }
   if (!fs9.existsSync(filePath))
     return null;
@@ -18167,8 +18765,8 @@ function pendingWriteSetForOperations(root, operations) {
   const resolvedRoot = path10.resolve(root);
   const seen = new Set;
   return operations.map((operation) => {
-    const relativePath3 = path10.relative(resolvedRoot, path10.resolve(operation.path)).replace(/\\/g, "/");
-    const normalized = normalizeRepoPath2(relativePath3, "task-store pending write path");
+    const relativePath = path10.relative(resolvedRoot, path10.resolve(operation.path)).replace(/\\/g, "/");
+    const normalized = normalizeRepoPath2(relativePath, "task-store pending write path");
     if (seen.has(normalized))
       throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", `pending write set contains duplicate path ${normalized}.`);
     seen.add(normalized);
@@ -18201,20 +18799,20 @@ function stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, pr
 function completeTaskEvolutionStoreCommit(root, current, after, proposal, result) {
   const store = TaskStore.forCurrent(root, current);
   store.markCurrentPublished(after.sourceTuple.revision);
-  const manifest2 = store.recordCommit({
+  const manifest = store.recordCommit({
     before: current,
     after,
     proposal,
     result
   });
-  if (!manifest2 || manifest2.head.source_revision !== after.sourceTuple.revision) {
+  if (!manifest || manifest.head.source_revision !== after.sourceTuple.revision) {
     throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", "task-evolution store publication did not advance to the exact after-image.");
   }
   const readBack = readCanonicalCurrentTask(root);
   if (readBack.raw !== after.raw || readBack.sourceTuple.revision !== after.sourceTuple.revision) {
     throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", "task-evolution store publication read-back differs from the exact after-image.");
   }
-  return manifest2;
+  return manifest;
 }
 function reconcilePendingWriteSet(root, canonicalRevision, pending) {
   if (pending.write_set === undefined)
@@ -18712,7 +19310,7 @@ class GovernanceTransactionKernel {
       if (readBack !== plan.nextContent)
         throw new Error("canonical knowledge document read-back did not match the staged record.");
       const records = readDurableKnowledgeRecords(readBack, targetPath, proposal.semantic_delta.knowledge_kind);
-      if (!records.some((record4) => JSON.stringify(record4) === JSON.stringify(plan.record))) {
+      if (!records.some((record) => JSON.stringify(record) === JSON.stringify(plan.record))) {
         throw new Error("canonical knowledge read-back did not contain the admitted record.");
       }
       return buildResult("success", proposal, current, options, "knowledge promotion committed; canonical Contract/Decision read-back verified.", {
@@ -18770,9 +19368,9 @@ class GovernanceTransactionKernel {
           state: resultState(plan.next)
         });
       }
-      let stagedAfter2;
+      let stagedAfter;
       try {
-        stagedAfter2 = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
+        stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
           { path: current.filePath, content: plan.nextContent },
           { path: path10.join(this.root, ...historyPath.split("/")), content: historyContent }
         ]);
@@ -18785,12 +19383,12 @@ class GovernanceTransactionKernel {
       try {
         commitSupersedeWithHistory({ ...historyInput, ...basis ? { basisPath: basis.filePath, basisContent: basis.content } : {} }, (content) => {
           const parsed = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
-          readBack = stagedAfter2.frontmatter.task_store === undefined ? parsed : stagedAfter2;
+          readBack = stagedAfter.frontmatter.task_store === undefined ? parsed : stagedAfter;
           if (readBack.sourceTuple.revision !== nextRevision || readBack.runtimeState.workflow_status !== "superseded" || readBack.runtimeState.lifecycle_state !== "active") {
             throw new Error("supersede CURRENT_TASK read-back did not preserve the exact superseded + active state.");
           }
         });
-        if (stagedAfter2.sourceTuple.document_id === current.sourceTuple.document_id) {
+        if (stagedAfter.sourceTuple.document_id === current.sourceTuple.document_id) {
           TaskStore.forCurrent(this.root, current).markCurrentPublished(nextRevision);
         }
       } catch (error) {
@@ -18883,8 +19481,8 @@ class GovernanceTransactionKernel {
         try {
           const after = this.lastApplyAfter ?? this.readCurrentTask(this.root);
           const afterStore = TaskStore.forCurrent(this.root, after);
-          const manifest2 = before.sourceTuple.document_id === after.sourceTuple.document_id ? afterStore.recordCommit({ before, after, proposal: this.lastApplyProposal ?? rawProposal, result }) : afterStore.ensureInitialized(after);
-          if (manifest2) {
+          const manifest = before.sourceTuple.document_id === after.sourceTuple.document_id ? afterStore.recordCommit({ before, after, proposal: this.lastApplyProposal ?? rawProposal, result }) : afterStore.ensureInitialized(after);
+          if (manifest) {
             const verifiedAfter = this.readCurrentTask(this.root);
             if (verifiedAfter.raw !== after.raw || verifiedAfter.sourceTuple.revision !== after.sourceTuple.revision) {
               throw new Error("task-store publication read-back did not match the committed CURRENT_TASK after-image.");
@@ -18892,11 +19490,11 @@ class GovernanceTransactionKernel {
             return {
               ...result,
               task_store: {
-                manifest_path: `${manifest2.storage_root}/manifest.json`,
-                source_revision: manifest2.head.source_revision,
-                definition_revision: manifest2.head.definition_revision,
-                state_revision: manifest2.head.state_revision,
-                event_sequence: manifest2.head.event_sequence
+                manifest_path: `${manifest.storage_root}/manifest.json`,
+                source_revision: manifest.head.source_revision,
+                definition_revision: manifest.head.definition_revision,
+                state_revision: manifest.head.state_revision,
+                event_sequence: manifest.head.event_sequence
               }
             };
           }
@@ -18991,10 +19589,10 @@ class GovernanceTransactionKernel {
         assertRequestedInboxTargets(this.root, current, proposal);
       } else if (proposal.operation_kind === "archive-transaction" || proposal.operation_kind === "project-status-transaction" || proposal.operation_kind === "lesson-record-transaction" || proposal.operation_kind === "contract-candidate-commit" || proposal.operation_kind === "decision-record-transaction") {
         assertRequestedCloseTargets(this.root, current, proposal);
-      } else if (proposal.operation_kind === "task-state-transaction" && proposal.semantic_delta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan"].includes(proposal.semantic_delta.action)) {
+      } else if (proposal.operation_kind === "task-state-transaction" && proposal.semantic_delta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan", "record-user-evidence"].includes(proposal.semantic_delta.action)) {
         const taskId = proposal.semantic_delta.action === "create-draft" || proposal.semantic_delta.action === "update-draft" ? proposal.semantic_delta.task_id : current.runtimeState.task_id;
         const expectedBasisPath = taskBasisRelativePath(current.relativePath, taskId);
-        if (proposal.requested_write_targets.length !== 2 || proposal.requested_write_targets[0] !== current.relativePath || proposal.requested_write_targets[1] !== expectedBasisPath) {
+        if (proposal.requested_write_targets.length !== (proposal.semantic_delta.action === "create-draft" && proposal.semantic_delta.predecessor ? 3 : 2) || proposal.requested_write_targets.length === 3 && proposal.requested_write_targets[2] !== successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision) || proposal.requested_write_targets[0] !== current.relativePath || proposal.requested_write_targets[1] !== expectedBasisPath) {
           fail3("RUNTIME_PATH_INVALID", "draft proposal must target the exact canonical CURRENT_TASK and identity-derived task basis paths.");
         }
       } else if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== current.relativePath) {
@@ -19022,9 +19620,9 @@ class GovernanceTransactionKernel {
       if (inspectedPlan.existing) {
         return this.commitInboxRecordTransaction(current, inboxProposal, inspectedPlan, options);
       }
-      const conflictField2 = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
-      if (conflictField2) {
-        return buildResult("conflict", proposal, current, options, `canonical source tuple is stale at ${conflictField2}.`, {
+      const conflictField = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
+      if (conflictField) {
+        return buildResult("conflict", proposal, current, options, `canonical source tuple is stale at ${conflictField}.`, {
           target_path: inboxProposal.semantic_delta.target_path,
           code: "SOURCE_TUPLE_MISMATCH",
           previous_revision: current.sourceTuple.revision
@@ -19056,9 +19654,9 @@ class GovernanceTransactionKernel {
       if (inspectedPlan.existing) {
         return this.commitKnowledgeRecordTransaction(current, knowledgeProposal, inspectedPlan, options);
       }
-      const conflictField2 = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
-      if (conflictField2) {
-        return buildResult("conflict", proposal, current, options, `canonical source tuple is stale at ${conflictField2}.`, {
+      const conflictField = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
+      if (conflictField) {
+        return buildResult("conflict", proposal, current, options, `canonical source tuple is stale at ${conflictField}.`, {
           target_path: inspectedPlan.relativePath,
           code: "SOURCE_TUPLE_MISMATCH",
           previous_revision: current.sourceTuple.revision
@@ -19105,7 +19703,7 @@ class GovernanceTransactionKernel {
         code: error instanceof TaskStoreError ? error.code : "TASK_STORE_INIT_FAILED"
       });
     }
-    const proposalDigest2 = digest3(proposal);
+    const proposalDigest = digest3(proposal);
     const prior = current.runtimeState.applied_proposals.find((item) => item.idempotency_key === proposal.idempotency_key);
     let persistentPrior = null;
     try {
@@ -19117,7 +19715,7 @@ class GovernanceTransactionKernel {
     }
     const persistentReplayEligible = true;
     if (!prior && persistentPrior && persistentReplayEligible) {
-      if (persistentPrior.proposal_digest !== proposalDigest2) {
+      if (persistentPrior.proposal_digest !== proposalDigest) {
         return buildResult("conflict", proposal, current, options, "persistent idempotency index binds this key to different proposal bytes.", {
           code: "IDEMPOTENCY_CONFLICT",
           previous_revision: current.sourceTuple.revision
@@ -19159,7 +19757,7 @@ class GovernanceTransactionKernel {
       });
     }
     if (prior) {
-      if (prior.proposal_digest !== proposalDigest2) {
+      if (prior.proposal_digest !== proposalDigest) {
         return buildResult("conflict", proposal, current, options, "idempotency key was already used by a different proposal.", { code: "IDEMPOTENCY_CONFLICT", previous_revision: current.sourceTuple.revision });
       }
       if (proposal.operation_kind === "lifecycle-transaction") {
@@ -19296,6 +19894,10 @@ class GovernanceTransactionKernel {
         code: error instanceof VNextRuntimeError ? error.code : "TASK_BASIS_INVALID"
       });
     }
+    const successorSnapshot = proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "create-draft" && proposal.semantic_delta.predecessor ? { path: safeRepositoryFile(this.root, successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision)), content: current.raw } : null;
+    if (successorSnapshot && fs9.existsSync(successorSnapshot.path) && fs9.readFileSync(successorSnapshot.path, "utf8") !== successorSnapshot.content) {
+      return buildResult("blocked", proposal, current, options, "The retained predecessor snapshot conflicts with its exact source.", { code: "SUCCESSOR_HISTORY_CONFLICT" });
+    }
     let nextContent;
     try {
       if (current.runtimeState.task_evolution_version === 2 && proposal.semantic_delta.kind === "task-state") {
@@ -19359,7 +19961,8 @@ class GovernanceTransactionKernel {
     try {
       stagedAfter = this.stageCurrentTaskCommit(current, nextContent, transition.next, proposal, proposal.requested_write_targets, [
         { path: current.filePath, content: nextContent },
-        ...taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : []
+        ...taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : [],
+        ...successorSnapshot ? [successorSnapshot] : []
       ]);
     } catch (error) {
       return buildResult("blocked", proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
@@ -19367,10 +19970,19 @@ class GovernanceTransactionKernel {
       });
     }
     try {
-      executeWrites([
-        { path: current.filePath, content: nextContent },
-        ...taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : []
-      ], false, `vNext Runtime ${proposal.operation_kind} committed`);
+      if (successorSnapshot && taskBasisArtifact) {
+        publishPreparedSuccessor(current.filePath, current.raw, nextContent, [
+          successorSnapshot,
+          { path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }
+        ], () => {
+          TaskStore.forCurrent(this.root, stagedAfter).ensureInitialized(stagedAfter);
+        });
+      } else {
+        executeWrites([
+          { path: current.filePath, content: nextContent },
+          ...taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : []
+        ], false, `vNext Runtime ${proposal.operation_kind} committed`);
+      }
     } catch (error) {
       return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: "ATOMIC_COMMIT_FAILED" });
     }
@@ -19389,6 +20001,8 @@ class GovernanceTransactionKernel {
         const rollback = taskBasisArtifact ? rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask) : rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
         return buildResult("blocked", proposal, current, options, rollback.verified ? "Runtime read-back did not match the staged canonical document; rollback read-back verified." : `Runtime read-back did not match the staged canonical document; ${rollback.detail}`, { code: rollback.verified ? "READ_BACK_MISMATCH" : "ROLLBACK_FAILED" });
       }
+      if (successorSnapshot && fs9.readFileSync(successorSnapshot.path, "utf8") !== current.raw)
+        throw new Error("The predecessor snapshot did not retain the exact unfinished task.");
       if (taskBasisArtifact) {
         const basisReadBack = readCanonicalTaskBasis(this.root, readBack);
         if (basisReadBack.content !== taskBasisArtifact.content || basisReadBack.revision !== taskBasisArtifact.revision) {
@@ -19398,7 +20012,7 @@ class GovernanceTransactionKernel {
       }
       return buildResult("success", proposal, current, options, "typed proposal committed and canonical source read-back verified.", {
         committed: true,
-        governed_mutation_count: taskBasisArtifact ? 2 : 1,
+        governed_mutation_count: successorSnapshot ? 3 : taskBasisArtifact ? 2 : 1,
         previous_revision: current.sourceTuple.revision,
         resulting_revision: nextRevision,
         read_back_verified: true,
@@ -19679,6 +20293,42 @@ function createEvidenceChallengeDismissalProposal(current, input) {
     requested_write_targets: [current.relativePath]
   });
 }
+function recordUserEvidenceDecision(root, kind, input, options = {}) {
+  const value = expectRecord2(input, "user-evidence input");
+  expectExactKeys2(value, ["claim_id", "slot_id", "check_id", "evidence_plan_revision", "subject_revision", "decision_source", "decision_text", ...value.validation_items === undefined ? [] : ["validation_items"]], "user-evidence input");
+  const current = readCanonicalCurrentTask(root);
+  const basisPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
+  const delta = validateTaskStateDelta({ kind: "task-state", action: "record-user-evidence", decision_kind: kind, ...value, evidence_refs: [basisPath] });
+  const key = `user-evidence-${digest3({ task: current.sourceTuple.document_id, delta }).slice(0, 40)}`;
+  const proposal = {
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: ["active-task-owner", "evidence-admission", "user-confirmation"].map((kind) => ({
+      kind,
+      source: String(value.decision_source),
+      subject: current.runtimeState.task_id
+    })),
+    semantic_delta: delta,
+    preconditions: ["current-task-is-active", "exact-user-evidence-target"],
+    evidence_refs: [basisPath],
+    idempotency_key: key,
+    requested_write_targets: [current.relativePath, basisPath]
+  };
+  const previousSlot = current.runtimeState.claim_evidence?.find((c) => c.claim_id === value.claim_id)?.slots.find((s) => s.slot_id === value.slot_id);
+  if (previousSlot?.user_decision?.decision_id === key) {
+    try {
+      assertUserEvidenceApplicable(root, current, previousSlot);
+      return buildResult("no-op", proposal, current, options, "This exact user decision is already recorded; no evidence, status or budget changed.", { read_back_verified: true, resulting_revision: current.sourceTuple.revision });
+    } catch (error) {
+      return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : "USER_EVIDENCE_STALE" });
+    }
+  }
+  return applyVNextRuntimeProposal(root, proposal, options);
+}
 function createPrepareTaskResumeReviewProposal(current, input) {
   return validateRuntimeProposal({
     schema_version: 1,
@@ -19716,6 +20366,7 @@ function createPrepareTaskDraftProposal(current, input) {
     semantic_delta: {
       kind: "task-state",
       action: input.action,
+      ...input.predecessor ? { predecessor: input.predecessor } : {},
       task_id: input.task_id,
       task_slug: input.task_slug,
       document_id: documentId,
@@ -19729,7 +20380,11 @@ function createPrepareTaskDraftProposal(current, input) {
     preconditions: input.action === "create-draft" ? ["current-task-is-closed-and-archived", "next-unused-task-identity", "closed-draft-definition"] : ["current-task-is-draft-and-active", "same-task-identity", "closed-draft-definition"],
     evidence_refs: proposalEvidenceRefs,
     idempotency_key: input.idempotency_key,
-    requested_write_targets: [current.relativePath, taskBasisRelativePath(current.relativePath, input.task_id)]
+    requested_write_targets: [
+      current.relativePath,
+      taskBasisRelativePath(current.relativePath, input.task_id),
+      ...input.predecessor ? [successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision)] : []
+    ]
   });
 }
 function createPrepareTaskConfirmProposal(current, input) {
@@ -19871,8 +20526,8 @@ function parseCli(argv) {
 function resolveExternalProposalFile(root, proposalFile) {
   const resolvedRoot = path10.resolve(root);
   const resolvedProposal = path10.resolve(proposalFile);
-  const relative7 = path10.relative(resolvedRoot, resolvedProposal);
-  const insideProject = relative7 === "" || !relative7.startsWith(`..${path10.sep}`) && relative7 !== ".." && !path10.isAbsolute(relative7);
+  const relative = path10.relative(resolvedRoot, resolvedProposal);
+  const insideProject = relative === "" || !relative.startsWith(`..${path10.sep}`) && relative !== ".." && !path10.isAbsolute(relative);
   if (insideProject) {
     fail3("PROPOSAL_FILE_INSIDE_PROJECT", "proposal/helper files must not be created inside the target project; send the proposal on stdin or use an OS-temporary path outside the project.");
   }
@@ -19932,8 +20587,8 @@ function readScopeCheckInput(args) {
     const stdinContent = process.stdin.read();
     if (typeof stdinContent !== "string" && !Buffer.isBuffer(stdinContent))
       throw new Error("--paths-stdin did not receive newline-delimited paths on stdin.");
-    const text2 = typeof stdinContent === "string" ? stdinContent : stdinContent.toString("utf8");
-    changedPaths.push(...text2.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
+    const text = typeof stdinContent === "string" ? stdinContent : stdinContent.toString("utf8");
+    changedPaths.push(...text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean));
   }
   const persistentTestPaths = [...args.persistentTestPaths];
   if (args.persistentTestPathsFile) {
@@ -20082,22 +20737,22 @@ function normalizeRepoPath3(value, location) {
   }
   return normalized;
 }
-function resolveRepoPath(root, relativePath3, location) {
-  const normalized = normalizeRepoPath3(relativePath3, location);
+function resolveRepoPath(root, relativePath, location) {
+  const normalized = normalizeRepoPath3(relativePath, location);
   const resolvedRoot = path11.resolve(root);
   const resolved = path11.resolve(resolvedRoot, ...normalized.split("/"));
   const prefix = resolvedRoot.endsWith(path11.sep) ? resolvedRoot : `${resolvedRoot}${path11.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix)) {
-    throw new ScopedTreeHashError(`${location} escapes the target root: ${relativePath3}`);
+    throw new ScopedTreeHashError(`${location} escapes the target root: ${relativePath}`);
   }
   return resolved;
 }
 function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths = []) {
   const resolvedRoot = path11.resolve(root);
-  const included = [...new Set(includedRelativePaths.map((relativePath3) => normalizeRepoPath3(relativePath3, "scoped tree hash included path")))].sort((left, right) => left.localeCompare(right));
-  const ignored = new Set(ignoredRelativePaths.map((relativePath3) => normalizeRepoPath3(relativePath3, "scoped tree hash ignored path")));
+  const included = [...new Set(includedRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash included path")))].sort((left, right) => left.localeCompare(right));
+  const ignored = new Set(ignoredRelativePaths.map((relativePath) => normalizeRepoPath3(relativePath, "scoped tree hash ignored path")));
   const visited = new Set;
-  const hash3 = crypto10.createHash("sha256");
+  const hash = crypto10.createHash("sha256");
   const isMissingPathError = (error) => {
     if (!error || typeof error !== "object" || !("code" in error))
       return false;
@@ -20112,17 +20767,17 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
       throw error;
     }
   };
-  const record4 = (relativePath3, kind, value = "") => {
-    hash3.update(relativePath3);
-    hash3.update("\x00");
-    hash3.update(kind);
-    hash3.update("\x00");
-    hash3.update(value);
-    hash3.update(`
+  const record = (relativePath, kind, value = "") => {
+    hash.update(relativePath);
+    hash.update("\x00");
+    hash.update(kind);
+    hash.update("\x00");
+    hash.update(value);
+    hash.update(`
 `);
   };
-  const assertNoSymlinkParent = (relativePath3) => {
-    const parts = relativePath3.split("/");
+  const assertNoSymlinkParent = (relativePath) => {
+    const parts = relativePath.split("/");
     let current = resolvedRoot;
     for (let index = 0;index < parts.length - 1; index += 1) {
       current = path11.join(current, parts[index]);
@@ -20130,45 +20785,45 @@ function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths
       if (!status)
         return;
       if (status.isSymbolicLink()) {
-        throw new ScopedTreeHashError(`scoped tree hash cannot traverse a symbolic-link parent: ${relativePath3}`);
+        throw new ScopedTreeHashError(`scoped tree hash cannot traverse a symbolic-link parent: ${relativePath}`);
       }
       if (!status.isDirectory())
         return;
     }
   };
-  const visit = (relativePath3, fullPath) => {
-    if (ignored.has(relativePath3) || visited.has(relativePath3))
+  const visit = (relativePath, fullPath) => {
+    if (ignored.has(relativePath) || visited.has(relativePath))
       return;
     const status = lstatOrMissing(fullPath);
     if (!status) {
-      visited.add(relativePath3);
-      record4(relativePath3, "missing");
+      visited.add(relativePath);
+      record(relativePath, "missing");
       return;
     }
-    visited.add(relativePath3);
+    visited.add(relativePath);
     if (status.isSymbolicLink()) {
-      record4(relativePath3, "symlink", fs10.readlinkSync(fullPath));
+      record(relativePath, "symlink", fs10.readlinkSync(fullPath));
       return;
     }
     if (status.isDirectory()) {
-      record4(relativePath3, "directory");
+      record(relativePath, "directory");
       for (const name of fs10.readdirSync(fullPath).sort((left, right) => left.localeCompare(right))) {
-        visit(`${relativePath3}/${name}`, path11.join(fullPath, name));
+        visit(`${relativePath}/${name}`, path11.join(fullPath, name));
       }
       return;
     }
     if (status.isFile()) {
       const content = fs10.readFileSync(fullPath);
-      record4(relativePath3, "file", `${content.byteLength}\x00${sha2566(content)}`);
+      record(relativePath, "file", `${content.byteLength}\x00${sha2566(content)}`);
       return;
     }
-    record4(relativePath3, "special", String(status.mode));
+    record(relativePath, "special", String(status.mode));
   };
-  for (const relativePath3 of included) {
-    assertNoSymlinkParent(relativePath3);
-    visit(relativePath3, resolveRepoPath(resolvedRoot, relativePath3, "scoped tree hash included path"));
+  for (const relativePath of included) {
+    assertNoSymlinkParent(relativePath);
+    visit(relativePath, resolveRepoPath(resolvedRoot, relativePath, "scoped tree hash included path"));
   }
-  return hash3.digest("hex");
+  return hash.digest("hex");
 }
 
 // runtime/vnext/src/migration-provenance.ts
@@ -20195,10 +20850,10 @@ function file(value, current) {
     throw new Error("MIGRATION_DECISIONS_INVALID: unsafe path");
   if (current ? p !== "docs/workflow/CURRENT_TASK.md" : !p.startsWith("TASKS/paused/"))
     throw new Error("MIGRATION_DECISIONS_INVALID: path outside preservation scope");
-  const hash3 = text2(data.sha256);
-  if (!/^[a-f0-9]{64}$/.test(hash3))
+  const hash = text2(data.sha256);
+  if (!/^[a-f0-9]{64}$/.test(hash))
     throw new Error("MIGRATION_DECISIONS_INVALID: invalid SHA-256");
-  return { path: p, sha256: hash3, ...current ? { original_task_id: text2(data.original_task_id) } : {} };
+  return { path: p, sha256: hash, ...current ? { original_task_id: text2(data.original_task_id) } : {} };
 }
 function validateMigrationDecisions(value) {
   const data = object(value, ["schema_version", "target_root", "target_identity", "current_task", "current_task_disposition", "preserved_paused", "user_decision"]);
@@ -20242,10 +20897,10 @@ function validateMigrationAlignment(value) {
   const allowed = ["AGENTS.md", "CLAUDE.md", "package.json", ".workflow-system/PROJECT_PROFILE.yaml", "docs/workflow/WORKFLOW_GUIDE.md", "docs/workflow/DOCUMENT_CATALOG.md", "docs/workflow/STATUS.md"];
   const result = value.map((item) => {
     const data = object(item, ["path", "sha256", "backup_path"]);
-    const p = text2(data.path), hash3 = text2(data.sha256), backup = text2(data.backup_path);
-    if (!allowed.includes(p) || !/^[a-f0-9]{64}$/.test(hash3) || backup !== `.workflow-system/legacy/${hash3}/${p}`)
+    const p = text2(data.path), hash = text2(data.sha256), backup = text2(data.backup_path);
+    if (!allowed.includes(p) || !/^[a-f0-9]{64}$/.test(hash) || backup !== `.workflow-system/legacy/${hash}/${p}`)
       throw new Error("MIGRATION_ALIGNMENT_INVALID: backup binding mismatch");
-    return { path: p, sha256: hash3, backup_path: backup };
+    return { path: p, sha256: hash, backup_path: backup };
   });
   if (new Set(result.map((x) => x.path)).size !== result.length)
     throw new Error("MIGRATION_ALIGNMENT_INVALID: duplicate original");
@@ -20325,13 +20980,13 @@ function normalizeRepoPath4(value, location) {
   }
   return normalized;
 }
-function resolveRepoPath2(root, relative7, location) {
-  const normalized = normalizeRepoPath4(relative7, location);
+function resolveRepoPath2(root, relative, location) {
+  const normalized = normalizeRepoPath4(relative, location);
   const resolvedRoot = path12.resolve(root);
   const resolved = path12.resolve(resolvedRoot, ...normalized.split("/"));
   const prefix = resolvedRoot.endsWith(path12.sep) ? resolvedRoot : `${resolvedRoot}${path12.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
-    fail4(`${location} escapes the target root: ${relative7}`);
+    fail4(`${location} escapes the target root: ${relative}`);
   return resolved;
 }
 function readJson2(filePath, location) {
@@ -20359,16 +21014,16 @@ function readYaml(filePath, location) {
 function runtimeIdentity(value, location) {
   if (value === null)
     return null;
-  const record4 = expectRecord3(value, location);
-  expectExactKeys3(record4, ["kind", "package_path", "entrypoint", "package_version", "node_min_version", "package_lock_sha256", "entrypoint_sha256"], location);
-  const packageVersion = expectString3(record4.package_version, `${location}.package_version`);
-  const nodeMinVersion = expectString3(record4.node_min_version, `${location}.node_min_version`);
-  const packageLock = expectString3(record4.package_lock_sha256, `${location}.package_lock_sha256`);
-  const entrypoint = expectString3(record4.entrypoint_sha256, `${location}.entrypoint_sha256`);
+  const record = expectRecord3(value, location);
+  expectExactKeys3(record, ["kind", "package_path", "entrypoint", "package_version", "node_min_version", "package_lock_sha256", "entrypoint_sha256"], location);
+  const packageVersion = expectString3(record.package_version, `${location}.package_version`);
+  const nodeMinVersion = expectString3(record.node_min_version, `${location}.node_min_version`);
+  const packageLock = expectString3(record.package_lock_sha256, `${location}.package_lock_sha256`);
+  const entrypoint = expectString3(record.entrypoint_sha256, `${location}.entrypoint_sha256`);
   if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(packageVersion) || !/^>=\d+\.\d+\.\d+$/u.test(nodeMinVersion) || !SHA256_PATTERN3.test(packageLock) || !SHA256_PATTERN3.test(entrypoint)) {
     fail4(`${location} has invalid Runtime identity fields.`);
   }
-  if (record4.kind !== "project-local-node" || record4.package_path !== VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH || record4.entrypoint !== VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) {
+  if (record.kind !== "project-local-node" || record.package_path !== VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH || record.entrypoint !== VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) {
     fail4(`${location} does not declare the canonical project-local Runtime shape.`);
   }
   return {
@@ -20408,14 +21063,14 @@ function validateInstallState(value) {
   const managedFiles = value.managed_files.map((raw, index) => {
     const item = expectRecord3(raw, `INSTALL_STATE.json.managed_files[${index}]`);
     expectExactKeys3(item, ["path", "checksum", "category"], `INSTALL_STATE.json.managed_files[${index}]`);
-    const relative7 = normalizeRepoPath4(expectString3(item.path, `INSTALL_STATE.json.managed_files[${index}].path`), `INSTALL_STATE.json.managed_files[${index}].path`);
-    if (seen.has(relative7))
-      fail4(`INSTALL_STATE.json.managed_files contains duplicate path ${relative7}.`);
-    seen.add(relative7);
+    const relative = normalizeRepoPath4(expectString3(item.path, `INSTALL_STATE.json.managed_files[${index}].path`), `INSTALL_STATE.json.managed_files[${index}].path`);
+    if (seen.has(relative))
+      fail4(`INSTALL_STATE.json.managed_files contains duplicate path ${relative}.`);
+    seen.add(relative);
     const checksum = item.checksum === "" ? "" : expectString3(item.checksum, `INSTALL_STATE.json.managed_files[${index}].checksum`);
-    if (!SHA256_PATTERN3.test(checksum) && !(relative7 === COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH && checksum === ""))
+    if (!SHA256_PATTERN3.test(checksum) && !(relative === COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH && checksum === ""))
       fail4(`INSTALL_STATE.json.managed_files[${index}].checksum is invalid.`);
-    return { path: relative7, checksum, category: expectString3(item.category, `INSTALL_STATE.json.managed_files[${index}].category`) };
+    return { path: relative, checksum, category: expectString3(item.category, `INSTALL_STATE.json.managed_files[${index}].category`) };
   });
   const removed = expectStringArray3(value.removed_legacy_files, "INSTALL_STATE.json.removed_legacy_files", true).map((item, index) => normalizeRepoPath4(item, `INSTALL_STATE.json.removed_legacy_files[${index}]`));
   return { migration_pack_id: migrationPackId, bundle_id: bundleId, source_revision: sourceRevision, source_tree_hash: sourceTreeHash, target_identity: targetIdentity, runtime_distribution: runtime, installed_at: installedAt, managed_files: managedFiles, removed_legacy_files: removed };
@@ -20443,25 +21098,25 @@ function validateReceipt(value) {
 function canonicalDocumentId(kind, sourcePath, sourceSha) {
   return `doc-${sha2567(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`;
 }
-function validConversion(record4) {
-  if (record4.conversion_rule === CANONICAL_CONVERSION_RULE)
-    return record4.original_text_preserved === true;
-  if (record4.conversion_rule !== "canonical-verbatim-v2")
+function validConversion(record) {
+  if (record.conversion_rule === CANONICAL_CONVERSION_RULE)
+    return record.original_text_preserved === true;
+  if (record.conversion_rule !== "canonical-verbatim-v2")
     return false;
-  if (record4.original_text_preserved === true)
-    return record4.original_backup_path === undefined;
-  if (record4.original_text_preserved !== false)
+  if (record.original_text_preserved === true)
+    return record.original_backup_path === undefined;
+  if (record.original_text_preserved !== false)
     return false;
-  validateMigrationAlignment([{ path: record4.source_path, sha256: record4.source_sha256, backup_path: record4.original_backup_path }]);
+  validateMigrationAlignment([{ path: record.source_path, sha256: record.source_sha256, backup_path: record.original_backup_path }]);
   return true;
 }
-function canonicalArtifactIdentity(relativePath3, content) {
+function canonicalArtifactIdentity(relativePath, content) {
   let kind;
   let sourcePath;
   let sourceSha;
   let sourceRevision;
   let sourceTreeHash;
-  if (relativePath3 === ".workflow-system/PROJECT_PROFILE.yaml") {
+  if (relativePath === ".workflow-system/PROJECT_PROFILE.yaml") {
     let document;
     try {
       const parsed = parseDocument2(content, { uniqueKeys: true });
@@ -20488,28 +21143,28 @@ function canonicalArtifactIdentity(relativePath3, content) {
   } else {
     const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/u.exec(content);
     if (!match)
-      fail4(`migrated artifact ${relativePath3} is missing the canonical frontmatter envelope.`);
+      fail4(`migrated artifact ${relativePath} is missing the canonical frontmatter envelope.`);
     const parsed = parseDocument2(match[1], { uniqueKeys: true });
     const diagnostics = [...parsed.errors, ...parsed.warnings];
     if (diagnostics.length > 0)
-      fail4(`migrated artifact ${relativePath3} has invalid canonical frontmatter: ${diagnostics.map((item) => item.message).join("; ")}`);
-    const header = expectRecord3(parsed.toJS(), `migrated artifact ${relativePath3} frontmatter`);
-    expectExactKeys3(header, ["schema_version", "kind", "document_kind", "document_id", "source_path", "source_sha256", "legacy_source_revision", "legacy_source_tree_hash", "legacy_protocol_version", "conversion_rule", "original_text_preserved", "heading_index", "path_references", ...header.conversion_rule === "canonical-verbatim-v2" && header.original_text_preserved === false ? ["original_backup_path"] : []], `migrated artifact ${relativePath3} frontmatter`);
+      fail4(`migrated artifact ${relativePath} has invalid canonical frontmatter: ${diagnostics.map((item) => item.message).join("; ")}`);
+    const header = expectRecord3(parsed.toJS(), `migrated artifact ${relativePath} frontmatter`);
+    expectExactKeys3(header, ["schema_version", "kind", "document_kind", "document_id", "source_path", "source_sha256", "legacy_source_revision", "legacy_source_tree_hash", "legacy_protocol_version", "conversion_rule", "original_text_preserved", "heading_index", "path_references", ...header.conversion_rule === "canonical-verbatim-v2" && header.original_text_preserved === false ? ["original_backup_path"] : []], `migrated artifact ${relativePath} frontmatter`);
     if (header.schema_version !== CANONICAL_SCHEMA_VERSION || header.kind !== CANONICAL_DOCUMENT_KIND || !validConversion(header))
-      fail4(`migrated artifact ${relativePath3} does not carry the canonical Migration Pack provenance envelope.`);
-    const documentKind = expectString3(header.document_kind, `migrated artifact ${relativePath3}.document_kind`);
+      fail4(`migrated artifact ${relativePath} does not carry the canonical Migration Pack provenance envelope.`);
+    const documentKind = expectString3(header.document_kind, `migrated artifact ${relativePath}.document_kind`);
     if (!["governance-document", "task-archive", "target-owned-preserved"].includes(documentKind))
-      fail4(`migrated artifact ${relativePath3} has an unsupported document kind.`);
+      fail4(`migrated artifact ${relativePath} has an unsupported document kind.`);
     kind = documentKind;
-    sourcePath = normalizeRepoPath4(expectString3(header.source_path, `migrated artifact ${relativePath3}.source_path`), `migrated artifact ${relativePath3}.source_path`);
-    sourceSha = expectString3(header.source_sha256, `migrated artifact ${relativePath3}.source_sha256`);
-    sourceRevision = expectString3(header.legacy_source_revision, `migrated artifact ${relativePath3}.legacy_source_revision`);
-    sourceTreeHash = expectString3(header.legacy_source_tree_hash, `migrated artifact ${relativePath3}.legacy_source_tree_hash`);
+    sourcePath = normalizeRepoPath4(expectString3(header.source_path, `migrated artifact ${relativePath}.source_path`), `migrated artifact ${relativePath}.source_path`);
+    sourceSha = expectString3(header.source_sha256, `migrated artifact ${relativePath}.source_sha256`);
+    sourceRevision = expectString3(header.legacy_source_revision, `migrated artifact ${relativePath}.legacy_source_revision`);
+    sourceTreeHash = expectString3(header.legacy_source_tree_hash, `migrated artifact ${relativePath}.legacy_source_tree_hash`);
     if (header.document_id !== canonicalDocumentId(kind, sourcePath, sourceSha))
-      fail4(`migrated artifact ${relativePath3} document_id is not bound to its source identity.`);
+      fail4(`migrated artifact ${relativePath} document_id is not bound to its source identity.`);
   }
-  if (!SHA256_PATTERN3.test(sourceSha) || !SHA256_PATTERN3.test(sourceTreeHash) || sourcePath !== relativePath3)
-    fail4(`migrated artifact ${relativePath3} has an invalid or unbound source identity.`);
+  if (!SHA256_PATTERN3.test(sourceSha) || !SHA256_PATTERN3.test(sourceTreeHash) || sourcePath !== relativePath)
+    fail4(`migrated artifact ${relativePath} has an invalid or unbound source identity.`);
   return { stableId: `artifact-${sha2567(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`, sourceRevision, sourceTreeHash };
 }
 function validateCurrentTaskShape(root, currentTaskPath, runtimeInstalled) {
@@ -20532,9 +21187,9 @@ function validateCurrentTaskShape(root, currentTaskPath, runtimeInstalled) {
   const frontmatter = expectRecord3(parsed.toJS(), "current canonical CURRENT_TASK.md frontmatter");
   if (frontmatter.schema_version !== 1 || frontmatter.kind !== "vnext-current-task" || typeof frontmatter.document_id !== "string" || !CANONICAL_DOCUMENT_ID_PATTERN.test(frontmatter.document_id))
     fail4("current canonical CURRENT_TASK.md has an invalid vNext identity.");
-  for (const heading2 of ["## 任务信息", "## 验收标准", "## 允许修改范围", "## 实施步骤"])
-    if (!match[2].includes(heading2))
-      fail4(`current canonical CURRENT_TASK.md is missing required heading ${heading2}.`);
+  for (const heading of ["## 任务信息", "## 验收标准", "## 允许修改范围", "## 实施步骤"])
+    if (!match[2].includes(heading))
+      fail4(`current canonical CURRENT_TASK.md is missing required heading ${heading}.`);
 }
 function profileTargetIdentity(root, profile) {
   const project = expectRecord3(profile.project, "PROJECT_PROFILE.yaml.project");
@@ -20750,12 +21405,12 @@ function normalizeRelative2(value, location = "path") {
     fail5("BOOTSTRAP_SUPPORT_PATH_INVALID", `${location} must be a concrete repository-relative path.`);
   return normalized;
 }
-function targetPath(root, relative7) {
+function targetPath(root, relative) {
   const resolvedRoot = path13.resolve(root);
-  const resolved = path13.resolve(resolvedRoot, ...normalizeRelative2(relative7).split("/"));
+  const resolved = path13.resolve(resolvedRoot, ...normalizeRelative2(relative).split("/"));
   const prefix = resolvedRoot.endsWith(path13.sep) ? resolvedRoot : `${resolvedRoot}${path13.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
-    fail5("BOOTSTRAP_SUPPORT_PATH_INVALID", `target path escapes root: ${relative7}`);
+    fail5("BOOTSTRAP_SUPPORT_PATH_INVALID", `target path escapes root: ${relative}`);
   return resolved;
 }
 function readJsonObject2(filePath, location) {
@@ -20943,16 +21598,16 @@ function assertAuthorityDomainConfirmationMatchesCandidates(candidates, confirma
     }
   }
 }
-function readExistingDocument(root, relative7) {
-  const filePath = targetPath(root, relative7);
+function readExistingDocument(root, relative) {
+  const filePath = targetPath(root, relative);
   if (!fs12.existsSync(filePath))
     return null;
   if (!fs12.statSync(filePath).isFile())
-    fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative7} is not a regular governance document.`);
+    fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative} is not a regular governance document.`);
   return fs12.readFileSync(filePath, "utf8");
 }
-function readExistingMarkdownSection(root, relative7, title) {
-  const content = readExistingDocument(root, relative7);
+function readExistingMarkdownSection(root, relative, title) {
+  const content = readExistingDocument(root, relative);
   if (content === null)
     return [];
   const body = readCanonicalMarkdownSection(content, [title]);
@@ -20960,13 +21615,13 @@ function readExistingMarkdownSection(root, relative7, title) {
 `).split(`
 `);
 }
-function readExistingRuntimeDocument(relative7, reader) {
+function readExistingRuntimeDocument(relative, reader) {
   try {
     return reader();
   } catch (error) {
     if (error instanceof BootstrapSupportError)
       throw error;
-    fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative7} contains invalid canonical Runtime governance state: ${error instanceof Error ? error.message : String(error)}`);
+    fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative} contains invalid canonical Runtime governance state: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 function sameGovernanceFact(left, right) {
@@ -21021,15 +21676,15 @@ function hasMeaningfulImplementation(root) {
     return true;
   return names.some((name) => /\.(?:ts|tsx|js|jsx|py|go|rs|java|cs|php|rb|swift)$/iu.test(name));
 }
-function isVNextMarkerFile(root, relative7) {
-  const filePath = targetPath(root, relative7);
+function isVNextMarkerFile(root, relative) {
+  const filePath = targetPath(root, relative);
   if (!fs12.existsSync(filePath) || !fs12.statSync(filePath).isFile())
     return false;
   return /vnext|vNext/iu.test(fs12.readFileSync(filePath, "utf8").slice(0, 1600));
 }
-function isFrozenPath(root, relative7) {
-  const normalized = normalizeRelative2(relative7, "freeze check");
-  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file2) => targetPath(root, file2)).filter((file2) => fs12.existsSync(file2) && fs12.statSync(file2).isFile());
+function isFrozenPath(root, relative) {
+  const normalized = normalizeRelative2(relative, "freeze check");
+  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file) => targetPath(root, file)).filter((file) => fs12.existsSync(file) && fs12.statSync(file).isFile());
   for (const registry of registries) {
     if (fs12.readFileSync(registry, "utf8").split(/\r?\n/u).some((line) => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/iu.test(line)))
       return true;
@@ -21057,15 +21712,15 @@ function readBootstrapReceipt(root) {
   if (!Array.isArray(raw.managed_files) || raw.managed_files.length === 0)
     fail5("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", "BOOTSTRAP_RECEIPT.json.managed_files must be non-empty.");
   const managed = raw.managed_files.map((item, index) => {
-    const record4 = expectRecord4(item, `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
-    expectExactKeys4(record4, ["path", "checksum"], `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
-    const relative7 = normalizeRelative2(expectString4(record4.path, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].path`));
-    const checksum = expectString4(record4.checksum, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].checksum`);
+    const record = expectRecord4(item, `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
+    expectExactKeys4(record, ["path", "checksum"], `BOOTSTRAP_RECEIPT.json.managed_files[${index}]`);
+    const relative = normalizeRelative2(expectString4(record.path, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].path`));
+    const checksum = expectString4(record.checksum, `BOOTSTRAP_RECEIPT.json.managed_files[${index}].checksum`);
     if (!HASH64.test(checksum))
       fail5("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP_RECEIPT.json.managed_files[${index}].checksum is invalid.`);
-    if (relative7.startsWith(".workflow-system/runtime/") || relative7.startsWith(".agents/skills/") || relative7 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative7 === ".workflow-system/FILE_SCHEMAS.md" || relative7 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative7 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml")
-      fail5("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP receipt cannot own Distribution software: ${relative7}`);
-    return { path: relative7, checksum };
+    if (relative.startsWith(".workflow-system/runtime/") || relative.startsWith(".agents/skills/") || relative === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative === ".workflow-system/FILE_SCHEMAS.md" || relative === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml")
+      fail5("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", `BOOTSTRAP receipt cannot own Distribution software: ${relative}`);
+    return { path: relative, checksum };
   });
   if (new Set(managed.map((item) => item.path)).size !== managed.length)
     fail5("BOOTSTRAP_SUPPORT_RECEIPT_INVALID", "BOOTSTRAP_RECEIPT.json.managed_files contains duplicates.");
@@ -21084,28 +21739,28 @@ function readBootstrapReceipt(root) {
     recovery_boundary: "in-progress-marker"
   };
 }
-function isDistributionManagedPath(relative7) {
-  return relative7 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative7 === ".workflow-system/FILE_SCHEMAS.md" || relative7 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative7 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative7.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative7);
+function isDistributionManagedPath(relative) {
+  return relative === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative === ".workflow-system/FILE_SCHEMAS.md" || relative === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative);
 }
 function validateSkillFile(root, entry) {
-  const relative7 = `.agents/skills/${entry}/SKILL.md`;
-  const filePath = targetPath(root, relative7);
+  const relative = `.agents/skills/${entry}/SKILL.md`;
+  const filePath = targetPath(root, relative);
   if (!fs12.existsSync(filePath) || !fs12.statSync(filePath).isFile())
-    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `required Distribution Skill is missing: ${relative7}`);
+    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `required Distribution Skill is missing: ${relative}`);
   const content = fs12.readFileSync(filePath, "utf8");
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/u.exec(content);
   if (!match)
-    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative7} is missing Agent Skill frontmatter.`);
+    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative} is missing Agent Skill frontmatter.`);
   const document = parseDocument3(match[1], { uniqueKeys: true });
   const diagnostics = [...document.errors, ...document.warnings];
   if (diagnostics.length > 0)
-    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative7} frontmatter is invalid: ${diagnostics.map((item) => item.message).join("; ")}`);
-  const frontmatter = expectRecord4(document.toJS(), `${relative7} frontmatter`);
+    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative} frontmatter is invalid: ${diagnostics.map((item) => item.message).join("; ")}`);
+  const frontmatter = expectRecord4(document.toJS(), `${relative} frontmatter`);
   if (frontmatter.name !== entry || typeof frontmatter.description !== "string" || !frontmatter.description.trim())
-    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative7} must declare name=${entry} and a non-empty description.`);
-  const contract = expectRecord4(frontmatter.entry_contract, `${relative7}.entry_contract`);
+    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative} must declare name=${entry} and a non-empty description.`);
+  const contract = expectRecord4(frontmatter.entry_contract, `${relative}.entry_contract`);
   if (contract.entry !== entry)
-    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative7}.entry_contract.entry is not canonical.`);
+    fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative}.entry_contract.entry is not canonical.`);
 }
 function validateInstalledDistributionReadback(root) {
   const statePath = targetPath(root, DISTRIBUTION_STATE_RELATIVE_PATH);
@@ -21123,16 +21778,16 @@ function validateInstalledDistributionReadback(root) {
   if (!Array.isArray(raw.managed_files) || raw.managed_files.length === 0)
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "DISTRIBUTION_STATE.json.managed_files must be non-empty.");
   const managed = raw.managed_files.map((item, index) => {
-    const record4 = expectRecord4(item, `DISTRIBUTION_STATE.json.managed_files[${index}]`);
-    expectExactKeys4(record4, ["path", "checksum", "category"], `DISTRIBUTION_STATE.json.managed_files[${index}]`);
-    const relative7 = normalizeRelative2(expectString4(record4.path, `DISTRIBUTION_STATE.json.managed_files[${index}].path`));
-    const checksum = expectString4(record4.checksum, `DISTRIBUTION_STATE.json.managed_files[${index}].checksum`);
-    if (!isDistributionManagedPath(relative7) || !HASH64.test(checksum))
-      fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an invalid managed path/checksum: ${relative7}`);
-    const category = expectString4(record4.category, `DISTRIBUTION_STATE.json.managed_files[${index}].category`);
+    const record = expectRecord4(item, `DISTRIBUTION_STATE.json.managed_files[${index}]`);
+    expectExactKeys4(record, ["path", "checksum", "category"], `DISTRIBUTION_STATE.json.managed_files[${index}]`);
+    const relative = normalizeRelative2(expectString4(record.path, `DISTRIBUTION_STATE.json.managed_files[${index}].path`));
+    const checksum = expectString4(record.checksum, `DISTRIBUTION_STATE.json.managed_files[${index}].checksum`);
+    if (!isDistributionManagedPath(relative) || !HASH64.test(checksum))
+      fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an invalid managed path/checksum: ${relative}`);
+    const category = expectString4(record.category, `DISTRIBUTION_STATE.json.managed_files[${index}].category`);
     if (!["protocol", "schema", "skill", "runtime", "config"].includes(category))
-      fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an unsupported managed category: ${relative7}`);
-    return { path: relative7, checksum, category };
+      fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State contains an unsupported managed category: ${relative}`);
+    return { path: relative, checksum, category };
   }).sort((left, right) => left.path.localeCompare(right.path));
   if (new Set(managed.map((item) => item.path)).size !== managed.length)
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "DISTRIBUTION_STATE.json.managed_files contains duplicates.");
@@ -21153,10 +21808,10 @@ function validateInstalledDistributionReadback(root) {
     BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH,
     ...REQUIRED_SKILL_ENTRIES.map((entry) => `.agents/skills/${entry}/SKILL.md`)
   ];
-  for (const relative7 of required) {
-    const entry = managedMap.get(relative7);
+  for (const relative of required) {
+    const entry = managedMap.get(relative);
     if (!entry)
-      fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State does not admit required artifact: ${relative7}`);
+      fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State does not admit required artifact: ${relative}`);
   }
   const runtime = validateVNextRuntimeContract(root, true).runtime_distribution;
   if (runtime.package_version !== version)
@@ -21445,16 +22100,16 @@ function mergeAssets(...groups) {
   }
   return [...map.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
-function renderGovernanceDocument(file2, project, mode, facts, baseline, preservedBaselineKeys = [], existingGovernance = null) {
-  if (file2.endsWith("/CONTRACTS.md"))
+function renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys = [], existingGovernance = null) {
+  if (file.endsWith("/CONTRACTS.md"))
     return renderContracts(project, facts, existingGovernance?.contractRecordsSection);
-  if (file2.endsWith("/DECISIONS.md"))
+  if (file.endsWith("/DECISIONS.md"))
     return renderDecisions(project, mode, facts, false, existingGovernance?.decisionRecordsSection);
-  if (file2.endsWith("/STATUS.md"))
+  if (file.endsWith("/STATUS.md"))
     return renderStatus(project, mode, existingGovernance?.statusDocument);
-  if (file2.endsWith("/LESSONS.md"))
+  if (file.endsWith("/LESSONS.md"))
     return renderLessons(existingGovernance?.lessonsDocument);
-  if (file2.endsWith("/ROADMAP.md"))
+  if (file.endsWith("/ROADMAP.md"))
     return renderRoadmap(project, mode, baseline, preservedBaselineKeys);
   return renderWorkflowGuide(project);
 }
@@ -21465,14 +22120,14 @@ function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, 
   return [
     { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root), authorityDomainConfirmation) },
     { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs12.readFileSync(templatePath, "utf8") },
-    ...FULL_WORKFLOW_DOCS.map((file2) => ({ path: file2, category: "governance", content: renderGovernanceDocument(file2, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
+    ...FULL_WORKFLOW_DOCS.map((file) => ({ path: file, category: "governance", content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: "AGENTS.md", category: "governance", content: renderGuidance(project) },
     { path: "CLAUDE.md", category: "governance", content: renderGuidance(project) }
   ];
 }
 function makeModeAssets(root, project, mode, baseline, facts) {
   if (mode === "design") {
-    return mergeAssets(DESIGN_PATHS.map((file2) => ({ path: file2, category: "governance", content: renderDesignDocument(file2, baseline) })), [
+    return mergeAssets(DESIGN_PATHS.map((file) => ({ path: file, category: "governance", content: renderDesignDocument(file, baseline) })), [
       { path: "docs/workflow/BASELINES.md", category: "governance", content: renderBaselineDoc(baseline) },
       { path: "docs/workflow/ROADMAP.md", category: "governance", content: renderRoadmap(project, mode, baseline) },
       { path: "docs/workflow/DECISIONS.md", category: "governance", content: renderDecisions(project, mode, [], true) }
@@ -21494,7 +22149,7 @@ function renderScopeDocument(allowed) {
     "",
     "### Allowed Files",
     "",
-    ...allowed.map((file2) => `- \`${file2}\``),
+    ...allowed.map((file) => `- \`${file}\``),
     "",
     "### Conditional Files",
     "",
@@ -21548,22 +22203,22 @@ function normalizeBaseline(value) {
     fail5("BOOTSTRAP_SUPPORT_INPUT_INVALID", error instanceof Error ? error.message : String(error));
   }
 }
-function existingIsWorkflowOwned(root, relative7, receipt = null) {
-  const filePath = targetPath(root, relative7);
+function existingIsWorkflowOwned(root, relative, receipt = null) {
+  const filePath = targetPath(root, relative);
   if (!fs12.existsSync(filePath))
     return true;
-  if (isFrozenPath(root, relative7))
+  if (isFrozenPath(root, relative))
     return false;
-  if (relative7 === BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH && receipt)
+  if (relative === BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH && receipt)
     return true;
-  if (receipt?.managed_files.some((file2) => file2.path === relative7))
+  if (receipt?.managed_files.some((file) => file.path === relative))
     return true;
-  if (relative7.startsWith(".workflow-system/"))
-    return relative7 === PROJECT_PROFILE_RELATIVE_PATH;
-  if (relative7 === "AGENTS.md" || relative7 === "CLAUDE.md")
-    return isVNextMarkerFile(root, relative7);
-  if (relative7.startsWith("docs/workflow/") || relative7.startsWith("docs/designs/") || relative7.startsWith("docs/adoption/"))
-    return isVNextMarkerFile(root, relative7);
+  if (relative.startsWith(".workflow-system/"))
+    return relative === PROJECT_PROFILE_RELATIVE_PATH;
+  if (relative === "AGENTS.md" || relative === "CLAUDE.md")
+    return isVNextMarkerFile(root, relative);
+  if (relative.startsWith("docs/workflow/") || relative.startsWith("docs/designs/") || relative.startsWith("docs/adoption/"))
+    return isVNextMarkerFile(root, relative);
   return false;
 }
 function renderReceipt(mode, targetIdentity, project, host, source, inputFingerprint, assets) {
@@ -21619,16 +22274,16 @@ function classifyBootstrapTargetLocal(root, options = {}) {
     return { state: "conflicting", receipt, migration, reasons: [error instanceof Error ? error.message : String(error)] };
   }
   if (receipt) {
-    const drift = receipt.managed_files.filter((file2) => {
-      const filePath = targetPath(root, file2.path);
-      return !fs12.existsSync(filePath) || !fs12.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum;
+    const drift = receipt.managed_files.filter((file) => {
+      const filePath = targetPath(root, file.path);
+      return !fs12.existsSync(filePath) || !fs12.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum;
     });
-    return drift.length === 0 ? { state: "valid", receipt, migration, reasons: [] } : { state: "stale", receipt, migration, reasons: drift.map((file2) => `managed governance asset drifted: ${file2.path}`) };
+    return drift.length === 0 ? { state: "valid", receipt, migration, reasons: [] } : { state: "stale", receipt, migration, reasons: drift.map((file) => `managed governance asset drifted: ${file.path}`) };
   }
   if (migration.status === "valid")
     return { state: "governed", receipt: null, migration, reasons: ["the project was admitted by the completed Migration Pack provenance verifier; a Bootstrap Receipt is not required"] };
   const governanceSignals = [PROJECT_PROFILE_RELATIVE_PATH, CURRENT_TASK_RELATIVE_PATH, ...FULL_WORKFLOW_DOCS];
-  if (governanceSignals.some((relative7) => fs12.existsSync(targetPath(root, relative7))))
+  if (governanceSignals.some((relative) => fs12.existsSync(targetPath(root, relative))))
     return { state: "incomplete", receipt: null, migration, reasons: ["governance assets exist without Bootstrap transaction provenance"] };
   return { state: hasMeaningfulImplementation(root) ? "existing" : "empty", receipt: null, migration, reasons: [] };
 }
@@ -21693,13 +22348,13 @@ function modeBlockers(root, state, mode, options, baseline, facts, receipt, migr
 }
 function verifyReceiptReadBack(root, receipt, assets) {
   const expectedPaths = assets.filter((asset) => asset.path !== BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH).map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
-  const actualPaths = receipt.managed_files.map((file2) => file2.path).sort((left, right) => left.localeCompare(right));
+  const actualPaths = receipt.managed_files.map((file) => file.path).sort((left, right) => left.localeCompare(right));
   if (JSON.stringify(expectedPaths) !== JSON.stringify(actualPaths))
     fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed-file paths do not match the governance proposal.");
-  for (const file2 of receipt.managed_files) {
-    const filePath = targetPath(root, file2.path);
-    if (!fs12.existsSync(filePath) || !fs12.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum)
-      fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `Bootstrap governance asset read-back failed: ${file2.path}`);
+  for (const file of receipt.managed_files) {
+    const filePath = targetPath(root, file.path);
+    if (!fs12.existsSync(filePath) || !fs12.statSync(filePath).isFile() || fileHash(filePath) !== file.checksum)
+      fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `Bootstrap governance asset read-back failed: ${file.path}`);
   }
 }
 function verifyReceipt(root, receipt, assets) {
@@ -21786,11 +22441,11 @@ function prepareProposal(options, distribution, classification) {
   });
   assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: "config", content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
   const plannedWrites = assets.map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
-  for (const relative7 of plannedWrites) {
-    if (isFrozenPath(root, relative7))
-      fail5("BOOTSTRAP_SUPPORT_FROZEN_PATH", `Bootstrap cannot replace a frozen target: ${relative7}`);
-    if (!existingIsWorkflowOwned(root, relative7, classification.receipt))
-      fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `target-owned/native asset would be overwritten: ${relative7}`);
+  for (const relative of plannedWrites) {
+    if (isFrozenPath(root, relative))
+      fail5("BOOTSTRAP_SUPPORT_FROZEN_PATH", `Bootstrap cannot replace a frozen target: ${relative}`);
+    if (!existingIsWorkflowOwned(root, relative, classification.receipt))
+      fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `target-owned/native asset would be overwritten: ${relative}`);
   }
   const changedPaths = (options.changedPaths ?? []).map((value) => normalizeRelative2(value, "changed_paths")).sort((left, right) => left.localeCompare(right));
   const proposal = {
@@ -22102,6 +22757,9 @@ import * as fs13 from "fs";
 import * as path14 from "path";
 var PREPARE_TASK_ADAPTER_COMMANDS = [
   "prepare-draft",
+  "prepare-successor",
+  "record-human-acceptance",
+  "record-evidence-waiver",
   "confirm-draft",
   "clear-resume-review",
   "replan",
@@ -22542,8 +23200,8 @@ function semanticDigest(input) {
   return crypto13.createHash("sha256").update(JSON.stringify(input)).digest("hex");
 }
 function adapterIdempotencyKey(prefix, value) {
-  const digest5 = crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
-  return `${prefix}-${digest5.slice(0, 48)}`;
+  const digest = crypto13.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  return `${prefix}-${digest.slice(0, 48)}`;
 }
 function taskSlug(goal) {
   const ascii = goal.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 80).replace(/-+$/gu, "");
@@ -22747,12 +23405,12 @@ function prepareDraft(root, input, options = {}) {
     task_title: extractTaskIdentityFromCurrentTask(current.body).title,
     document_id: current.sourceTuple.document_id
   };
-  const digest5 = semanticDigest(semantic);
+  const digest = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey("prepare-draft", { task_id: identity.task_id, semantic });
   if (updating && currentMatchesSemanticDraft(root, current, semantic)) {
     return withConfirmationReceipt(root, semanticNoOp(current, retryKey, "The requested semantic draft already matches canonical CURRENT_TASK.", options), options);
   }
-  const evidenceRefs = [`adapter:prepare-draft:${digest5.slice(0, 16)}`];
+  const evidenceRefs = [`adapter:prepare-draft:${digest.slice(0, 16)}`];
   const proposal = createPrepareTaskDraftProposal(current, {
     action: creating ? "create-draft" : "update-draft",
     ...identity,
@@ -22770,6 +23428,36 @@ function prepareDraft(root, input, options = {}) {
   });
   const result = verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
   return withConfirmationReceipt(root, result, options);
+}
+function prepareSuccessor(root, input, options = {}) {
+  const request = record4(input, "prepare-successor");
+  exactKeys2(request, ["predecessor", "draft"], "prepare-successor");
+  const predecessor = validateSuccessorDecision(request.predecessor);
+  const semantic = normalizeSemanticDraft(root, request.draft);
+  const current = readCanonicalCurrentTask(root);
+  const prior = current.runtimeState.execution_log.find((event) => ("action" in event) && event.action === "create-draft" && event.predecessor);
+  if (prior && "predecessor" in prior && sameValue(prior.predecessor, predecessor) && currentMatchesSemanticDraft(root, current, semantic) && current.runtimeState.workflow_status === "draft") {
+    return withConfirmationReceipt(root, semanticNoOp(current, prior.idempotency_key, "This exact successor draft is already prepared; the predecessor remains unfinished.", options), options);
+  }
+  if (current.runtimeState.workflow_status !== "superseded")
+    fail6("SUCCESSOR_STATE_INVALID", "Prepare a successor only after an explicit, retained supersede. Do not invalidate an active task for a local correction.");
+  assertSemanticAuthority(root, semantic);
+  const taskId = allocateNextTaskId(root, current.runtimeState.task_id);
+  const proposal = createPrepareTaskDraftProposal(current, {
+    action: "create-draft",
+    predecessor,
+    task_id: taskId,
+    task_slug: taskSlug(semantic.goal),
+    task_title: semantic.goal,
+    task_basis: semantic.task_basis,
+    draft_definition: semanticDraftDefinition(semantic),
+    active_step_id: semantic.implementation_steps[0].id,
+    claim_evidence: claimEvidence(semantic),
+    evidence_refs: [predecessor.decision_source],
+    idempotency_key: adapterIdempotencyKey("prepare-successor", { predecessor, semantic }),
+    authority_evidence: authority(current, taskId, ["user-confirmation", "scope-admission", "evidence-admission"])
+  });
+  return withConfirmationReceipt(root, verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options), options);
 }
 function confirmDraft(root, input, options = {}) {
   const source = record4(input, "confirm-draft input");
@@ -22863,7 +23551,7 @@ function replan(root, input, options = {}) {
   assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
   const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);
-  const digest5 = semanticDigest(semantic);
+  const digest = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey("replan", { task_id: current.runtimeState.task_id, semantic });
   if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active" && currentMatchesSemanticDraft(root, current, semantic)) {
     return semanticNoOp(current, retryKey, "The requested replan already matches canonical CURRENT_TASK.", options);
@@ -22877,7 +23565,7 @@ function replan(root, input, options = {}) {
   if (current.runtimeState.workflow_status !== "superseded" || current.runtimeState.lifecycle_state !== "active") {
     fail6("REPLAN_STATE_INVALID", "replan requires an authorized superseded + active task.");
   }
-  const evidenceRefs = [`adapter:replan:${digest5.slice(0, 16)}`];
+  const evidenceRefs = [`adapter:replan:${digest.slice(0, 16)}`];
   const proposal = createPrepareTaskReplanProposal(current, {
     delta: {
       kind: "task-state",
@@ -22943,6 +23631,15 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
     const options = { dryRun: args.dryRun };
     let result;
     switch (args.command) {
+      case "record-human-acceptance":
+        result = recordUserEvidenceDecision(args.root, "human-acceptance", input, options);
+        break;
+      case "record-evidence-waiver":
+        result = recordUserEvidenceDecision(args.root, "waiver", input, options);
+        break;
+      case "prepare-successor":
+        result = prepareSuccessor(args.root, input, options);
+        break;
       case "prepare-draft":
         result = prepareDraft(args.root, input, options);
         break;
@@ -23114,16 +23811,16 @@ class Diff {
       }
     }
   }
-  addToPath(path15, added, removed, oldPosInc, options) {
-    const last = path15.lastComponent;
+  addToPath(path, added, removed, oldPosInc, options) {
+    const last = path.lastComponent;
     if (last && !options.oneChangePerToken && last.added === added && last.removed === removed) {
       return {
-        oldPos: path15.oldPos + oldPosInc,
+        oldPos: path.oldPos + oldPosInc,
         lastComponent: { count: last.count + 1, added, removed, previousComponent: last.previousComponent }
       };
     } else {
       return {
-        oldPos: path15.oldPos + oldPosInc,
+        oldPos: path.oldPos + oldPosInc,
         lastComponent: { count: 1, added, removed, previousComponent: last }
       };
     }
@@ -23193,9 +23890,9 @@ class Diff {
       if (!component.removed) {
         if (!component.added && this.useLongestToken) {
           let value = newTokens.slice(newPos, newPos + component.count);
-          value = value.map(function(value2, i) {
+          value = value.map(function(value, i) {
             const oldValue = oldTokens[oldPos + i];
-            return oldValue.length > value2.length ? oldValue : value2;
+            return oldValue.length > value.length ? oldValue : value;
           });
           component.value = this.join(value);
         } else {
@@ -23519,10 +24216,10 @@ function createTwoFilesPatch(oldFileName, newFileName, oldStr, newStr, oldHeader
     } }));
   }
 }
-function splitLines(text4) {
-  const hasTrailingNl = text4.endsWith(`
+function splitLines(text) {
+  const hasTrailingNl = text.endsWith(`
 `);
-  const result = text4.split(`
+  const result = text.split(`
 `).map((line) => line + `
 `);
   if (hasTrailingNl) {
@@ -23577,12 +24274,12 @@ function resolveRg(root) {
     }
   } catch {}
   for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path15.delimiter).filter(Boolean)) {
-    const command2 = path15.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
-    if (!fs14.existsSync(command2))
+    const command = path15.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
+    if (!fs14.existsSync(command))
       continue;
-    const version = probeRg(command2);
+    const version = probeRg(command);
     if (version)
-      return { command: command2, version, source: "path" };
+      return { command, version, source: "path" };
   }
   throw new Error("RG_DEPENDENCY_MISSING: install or upgrade the Runtime distribution to prepare ripgrep; read-only commands do not download tools.");
 }
@@ -23609,12 +24306,12 @@ function integer(value, fallback, min, max) {
 function contextPath(root, value) {
   if (typeof value !== "string" || !value || value.length > 1024 || /[\0\r\n]/u.test(value))
     throw new Error("CONTEXT_PATH_INVALID: expected a project-relative path.");
-  const relative8 = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path16.posix.isAbsolute(relative8) || /^[A-Za-z]:/u.test(relative8) || relative8.split("/").includes(".."))
+  const relative = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  if (path16.posix.isAbsolute(relative) || /^[A-Za-z]:/u.test(relative) || relative.split("/").includes(".."))
     throw new Error("CONTEXT_PATH_INVALID: path escapes project.");
-  const absolute = path16.resolve(root, relative8);
+  const absolute = path16.resolve(root, relative);
   let parent = path16.resolve(root);
-  for (const part of relative8.split("/").filter((part2) => part2 && part2 !== ".")) {
+  for (const part of relative.split("/").filter((part) => part && part !== ".")) {
     parent = path16.join(parent, part);
     try {
       if (fs15.lstatSync(parent).isSymbolicLink())
@@ -23624,7 +24321,7 @@ function contextPath(root, value) {
         throw error;
     }
   }
-  return { relative: relative8, absolute };
+  return { relative, absolute };
 }
 function decodeText(bytes) {
   if (bytes.includes(0))
@@ -23635,13 +24332,13 @@ function decodeText(bytes) {
     return null;
   }
 }
-function textPage(text4, input) {
+function textPage(text, input) {
   const startLine = integer(input.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
   const endLine = integer(input.end_line, Number.MAX_SAFE_INTEGER, startLine, Number.MAX_SAFE_INTEGER);
   let start = 0;
   let line = 1;
   while (line < startLine) {
-    const newline = text4.indexOf(`
+    const newline = text.indexOf(`
 `, start);
     if (newline < 0)
       throw new Error("CONTEXT_RANGE_INVALID: start_line is beyond the file.");
@@ -23649,13 +24346,13 @@ function textPage(text4, input) {
     line++;
   }
   let end = start;
-  while (line <= endLine && end < text4.length) {
-    const newline = text4.indexOf(`
+  while (line <= endLine && end < text.length) {
+    const newline = text.indexOf(`
 `, end);
-    end = newline < 0 ? text4.length : newline + 1;
+    end = newline < 0 ? text.length : newline + 1;
     line++;
   }
-  const bytes = Buffer.from(text4.slice(start, end));
+  const bytes = Buffer.from(text.slice(start, end));
   const offset = integer(input.offset, 0, 0, bytes.length);
   const budget = integer(input.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
   if (offset < bytes.length && (bytes[offset] & 192) === 128)
@@ -23665,26 +24362,26 @@ function textPage(text4, input) {
     pageEnd--;
   return { text: bytes.subarray(offset, pageEnd).toString("utf8"), start_line: startLine, offset, next_offset: pageEnd < bytes.length ? pageEnd : null, total_bytes: bytes.length, truncated: pageEnd < bytes.length };
 }
-function textDiff(file2, before, after) {
-  return createTwoFilesPatch(`before/${file2}`, `after/${file2}`, before, after, "", "", { context: 3, timeout: 200, maxEditLength: 20000 });
+function textDiff(file, before, after) {
+  return createTwoFilesPatch(`before/${file}`, `after/${file}`, before, after, "", "", { context: 3, timeout: 200, maxEditLength: 20000 });
 }
 function readFileContext(root, input) {
   const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line"]);
-  const file2 = contextPath(root, value.path);
-  const bytes = fs15.readFileSync(file2.absolute);
+  const file = contextPath(root, value.path);
+  const bytes = fs15.readFileSync(file.absolute);
   const revision = sha2569(bytes);
   if (value.sha256 !== undefined && value.sha256 !== revision)
     throw new Error("CONTEXT_STALE: file changed; start a fresh read.");
   if (value.offset !== undefined && value.offset !== 0 && value.sha256 === undefined)
     throw new Error("CONTEXT_INPUT_INVALID: continuation requires sha256.");
-  const text4 = decodeText(bytes);
+  const text = decodeText(bytes);
   return {
     status: "pass",
     operation_kind: "file-context",
     committed: false,
-    path: file2.relative,
+    path: file.relative,
     sha256: revision,
-    ...text4 === null ? { content_status: "binary-or-non-utf8", size_bytes: bytes.length } : { content_status: "text", ...textPage(text4, value) }
+    ...text === null ? { content_status: "binary-or-non-utf8", size_bytes: bytes.length } : { content_status: "text", ...textPage(text, value) }
   };
 }
 async function searchFileContext(root, input) {
@@ -23717,7 +24414,7 @@ async function searchFileContext(root, input) {
   let used = 0;
   let pending = Buffer.alloc(0);
   let stderr = "";
-  await new Promise((resolve15, reject) => {
+  await new Promise((resolve, reject) => {
     const child = spawn(rg.command, args, { cwd: root, windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     const stop = (reason) => {
       stopReason ??= reason;
@@ -23774,7 +24471,7 @@ async function searchFileContext(root, input) {
       clearTimeout(timer);
       if (code !== 0 && code !== 1 && !stopReason)
         stopReason = "search-error";
-      resolve15();
+      resolve();
     });
   });
   return {
@@ -23854,7 +24551,7 @@ function currentStore(root, current) {
 }
 function taskContextReferenceForCurrent(root, current, entry = "validate", mode = "default") {
   const store = currentStore(root, current);
-  const manifest2 = store.manifest;
+  const manifest = store.manifest;
   return {
     kind: "task-context-reference/v1",
     command: TASK_CONTEXT_OPERATION,
@@ -23862,7 +24559,7 @@ function taskContextReferenceForCurrent(root, current, entry = "validate", mode 
     mode,
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
-    definition_revision: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest2),
+    definition_revision: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest),
     state_revision: taskStoreStateRevision(asStoreCurrent(current)),
     manifest_path: `${store.paths.relativeRoot}/manifest.json`,
     read_only: true
@@ -23871,13 +24568,13 @@ function taskContextReferenceForCurrent(root, current, entry = "validate", mode 
 function manifestForContext(root, current) {
   const store = currentStore(root, current);
   try {
-    const manifest2 = store.manifest;
-    if (!manifest2)
+    const manifest = store.manifest;
+    if (!manifest)
       return null;
     const validation = store.validateCurrentAggregate(asStoreCurrent(current));
     if (validation.status !== "valid")
       throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", `current aggregate is not consistent with CURRENT_TASK: ${validation.errors.join(" | ")}`);
-    return manifest2;
+    return manifest;
   } catch (error) {
     if (error instanceof TaskStoreError)
       throw error;
@@ -23918,6 +24615,7 @@ function slotSummary(claim, slot) {
     subject_paths: Array.isArray(check?.subject_paths) ? check.subject_paths.filter((item) => typeof item === "string") : [],
     minimum_type: typeof slot.minimum_type === "string" ? slot.minimum_type : null,
     disposition: typeof slot.disposition === "string" ? slot.disposition : null,
+    user_decision: record5(slot.user_decision) ? { ...slot.user_decision } : null,
     due_step_id: typeof slot.due_step_id === "string" ? slot.due_step_id : null,
     before_step_id: typeof slot.before_step_id === "string" ? slot.before_step_id : null,
     applicability: typeof slot.applicability === "string" ? slot.applicability : null,
@@ -24022,21 +24720,21 @@ function reviewTarget(current) {
     last_clean_revision: coverage.last_clean_revision ?? null
   };
 }
-function storeNavigation(root, current, manifest2) {
+function storeNavigation(root, current, manifest) {
   const paths = taskStorePaths(root, current.sourceTuple.document_id);
   return {
     manifest_path: `${paths.relativeRoot}/manifest.json`,
-    available: manifest2 !== null,
-    event_count: manifest2?.counts.events ?? 0,
-    object_count: manifest2?.counts.objects ?? 0,
-    first_event_sequence: manifest2?.head.event_range.first ?? null,
-    last_event_sequence: manifest2?.head.event_range.last ?? null,
-    last_event_id: manifest2?.head.event_id ?? null,
-    last_event_hash: manifest2?.head.event_hash ?? null,
+    available: manifest !== null,
+    event_count: manifest?.counts.events ?? 0,
+    object_count: manifest?.counts.objects ?? 0,
+    first_event_sequence: manifest?.head.event_range.first ?? null,
+    last_event_sequence: manifest?.head.event_range.last ?? null,
+    last_event_id: manifest?.head.event_id ?? null,
+    last_event_hash: manifest?.head.event_hash ?? null,
     history_query: { kind: "events", reference: `${paths.relativeRoot}/events/` }
   };
 }
-function contextOverview(root, current, manifest2) {
+function contextOverview(root, current, manifest) {
   const state = current.runtimeState;
   const ledger = record5(state.step_attempts) && record5(state.step_attempts[state.active_step_id]) ? state.step_attempts[state.active_step_id] : null;
   const latest = latestExecution(current);
@@ -24134,16 +24832,16 @@ function contextOverview(root, current, manifest2) {
       dynamic_expansion_count: state.dynamic_expansions?.length ?? 0
     },
     latest_execution: latestIndex,
-    storage: storeNavigation(root, current, manifest2)
+    storage: storeNavigation(root, current, manifest)
   };
 }
-function operationBlocks(root, current, entry, mode, definitionReused, manifest2) {
-  const definitionAlgorithm = manifest2?.definition_revision_algorithm;
+function operationBlocks(root, current, entry, mode, definitionReused, manifest) {
+  const definitionAlgorithm = manifest?.definition_revision_algorithm;
   const definition = taskStoreDefinitionPayload(asStoreCurrent(current), definitionAlgorithm);
   const blocks = [];
   const add = (id, required, value) => blocks.push({ id, required, value });
   if (!definitionReused)
-    add("current-definition", true, { revision: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest2), ...definition });
+    add("current-definition", true, { revision: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest), ...definition });
   add("current-step", true, currentStep(current));
   add("mutation-authority", true, current.mutationAuthority === null ? { version: null, domains: [], exact_exceptions: [], forbidden: [], legacy_mode: true } : {
     version: 2,
@@ -24182,7 +24880,7 @@ function operationBlocks(root, current, entry, mode, definitionReused, manifest2
   add("latest-execution", true, latestExecution(current));
   if (entry === "review-change" || entry === "review-context" || entry === "review" || entry.includes("review") || mode === "review")
     add("cumulative-review-target", true, reviewTarget(current));
-  add("history-navigation", false, storeNavigation(root, current, manifest2));
+  add("history-navigation", false, storeNavigation(root, current, manifest));
   return { blocks, required: blocks.filter((block) => block.required).map((block) => block.id), optional: blocks.filter((block) => !block.required).map((block) => block.id) };
 }
 function fits(base, maxBytes) {
@@ -24202,10 +24900,10 @@ function jsonChunk(serialized, offset, base, block, maxBytes, fitsPage) {
   let best = 0;
   while (low <= high) {
     const middle = Math.floor((low + high) / 2);
-    const end2 = utf8Boundary(bytes, offset + middle);
-    const candidateBlock = { ...block, value: undefined, encoding: "json", text: bytes.subarray(offset, end2).toString("utf8"), byte_offset: offset, total_bytes: bytes.length, truncated: end2 < bytes.length };
+    const end = utf8Boundary(bytes, offset + middle);
+    const candidateBlock = { ...block, value: undefined, encoding: "json", text: bytes.subarray(offset, end).toString("utf8"), byte_offset: offset, total_bytes: bytes.length, truncated: end < bytes.length };
     const candidate = { ...base, blocks: [...prefix, candidateBlock] };
-    if (fits(candidate, maxBytes) && (fitsPage === undefined || fitsPage(candidateBlock, end2))) {
+    if (fits(candidate, maxBytes) && (fitsPage === undefined || fitsPage(candidateBlock, end))) {
       best = middle;
       low = middle + 1;
     } else
@@ -24231,8 +24929,8 @@ function contextPage(root, current, input) {
   const entry = typeof input.entry === "string" && input.entry.trim() ? input.entry.trim() : typeof input.operation === "string" && input.operation.trim() ? input.operation.trim() : "validate";
   const mode = typeof input.mode === "string" && input.mode.trim() ? input.mode.trim() : "default";
   const maxBytes = integer(input.max_bytes, 16 * 1024, 256, 64 * 1024);
-  const manifest2 = manifestForContext(root, current);
-  const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest2);
+  const manifest = manifestForContext(root, current);
+  const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest);
   const stateRevision = taskStoreStateRevision(asStoreCurrent(current));
   const visibleRevision = input.visible_definition_revision ?? input.known_definition_revision;
   const definitionReused = input.definition_visible === true && visibleRevision === definitionRevision;
@@ -24250,10 +24948,10 @@ function contextPage(root, current, input) {
     storage_manifest_path: `${taskStorePaths(root, current.sourceTuple.document_id).relativeRoot}/manifest.json`
   };
   const selection = { entry, mode, required: [], optional: [], definition_reused: definitionReused };
-  const built = operationBlocks(root, current, entry, mode, definitionReused, manifest2);
+  const built = operationBlocks(root, current, entry, mode, definitionReused, manifest);
   selection.required = built.required;
   selection.optional = built.optional;
-  const overview = contextOverview(root, current, manifest2);
+  const overview = contextOverview(root, current, manifest);
   const base = {
     status: "success",
     operation_kind: TASK_CONTEXT_OPERATION,
@@ -24360,10 +25058,10 @@ function readHistoryMaterial(root, current, sourceRevision) {
   const stored = currentStore(root, current).readHistoryMaterial(sourceRevision);
   if (stored !== null)
     return stored;
-  const file2 = taskStoreHistoryPath(root, asStoreCurrent(current), sourceRevision);
-  if (fs16.existsSync(file2)) {
+  const file = taskStoreHistoryPath(root, asStoreCurrent(current), sourceRevision);
+  if (fs16.existsSync(file)) {
     try {
-      const parsed = JSON.parse(fs16.readFileSync(file2, "utf8"));
+      const parsed = JSON.parse(fs16.readFileSync(file, "utf8"));
       if (parsed.kind === "vnext-task-definition-history" && parsed.source_revision === sourceRevision && typeof parsed.current_task_base64 === "string") {
         const raw = Buffer.from(parsed.current_task_base64, "base64").toString("utf8");
         if (sha25610(raw) !== sourceRevision)
@@ -24375,8 +25073,8 @@ function readHistoryMaterial(root, current, sourceRevision) {
         throw new Error(`TASK_READ_HISTORY_INVALID: ${error.message}`);
     }
   }
-  const manifest2 = currentStore(root, current).manifest;
-  const legacyReference = manifest2?.object_refs.legacy_source;
+  const manifest = currentStore(root, current).manifest;
+  const legacyReference = manifest?.object_refs.legacy_source;
   if (legacyReference) {
     const legacy = currentStore(root, current).readObject(legacyReference);
     if (record5(legacy.payload) && legacy.payload.source_revision === sourceRevision && typeof legacy.payload.raw_base64 === "string") {
@@ -24433,10 +25131,10 @@ function resolvedRead(root, current, input, expectedContentRevision) {
   const eventPath = input.event_path ?? (typeof ref.path === "string" ? ref.path : undefined);
   const reference = typeof rawRef === "string" ? rawRef : eventPath ?? objectSha ?? kind ?? "definition";
   if (kind === "manifest") {
-    const manifest2 = aggregateManifest;
-    if (!manifest2)
+    const manifest = aggregateManifest;
+    if (!manifest)
       throw new Error("TASK_READ_MANIFEST_MISSING: task store has not been initialized.");
-    return { kind, reference: "manifest", required: true, value: manifest2, encoding: "json" };
+    return { kind, reference: "manifest", required: true, value: manifest, encoding: "json" };
   }
   if (objectSha !== undefined && kind !== undefined && kind !== "object" && !["definition", "state", "current-snapshot"].includes(kind)) {
     if (!/^[a-f0-9]{64}$/u.test(objectSha))
@@ -24456,16 +25154,16 @@ function resolvedRead(root, current, input, expectedContentRevision) {
   if (kind === "definition" || kind === undefined && objectSha === undefined && eventPath === undefined && input.path === undefined) {
     if (objectSha !== undefined)
       return { kind, reference: objectSha, required: true, value: store.readObject(objectSha, "definition"), encoding: "json" };
-    const manifest2 = aggregateManifest;
-    if (manifest2)
-      return { kind: "definition", reference: manifest2.object_refs.definition.sha256, required: true, value: store.readObject(manifest2.object_refs.definition, "definition"), encoding: "json" };
+    const manifest = aggregateManifest;
+    if (manifest)
+      return { kind: "definition", reference: manifest.object_refs.definition.sha256, required: true, value: store.readObject(manifest.object_refs.definition, "definition"), encoding: "json" };
     return { kind: "definition", reference: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), aggregateManifest), required: true, value: taskStoreDefinitionPayload(asStoreCurrent(current), aggregateManifest?.definition_revision_algorithm), encoding: "json" };
   }
   if (kind === "state" || kind === "current-snapshot") {
-    const manifest2 = aggregateManifest;
-    if (!manifest2)
+    const manifest = aggregateManifest;
+    if (!manifest)
       throw new Error("TASK_READ_MANIFEST_MISSING: task store has not been initialized.");
-    const refValue = objectSha !== undefined ? { sha256: objectSha, object_type: kind } : kind === "state" ? manifest2.object_refs.state : manifest2.object_refs.current_snapshot;
+    const refValue = objectSha !== undefined ? { sha256: objectSha, object_type: kind } : kind === "state" ? manifest.object_refs.state : manifest.object_refs.current_snapshot;
     return { kind, reference: refValue.sha256, required: true, value: store.readObject(refValue, kind), encoding: "json" };
   }
   if (kind === "claim-evidence") {
@@ -24498,10 +25196,10 @@ function resolvedRead(root, current, input, expectedContentRevision) {
     return { kind: "events", reference: `${store.paths.relativeRoot}/events`, required: false, value: events, encoding: "json" };
   }
   if (kind === "legacy-current-task") {
-    const manifest2 = aggregateManifest;
-    if (!manifest2?.object_refs.legacy_source)
+    const manifest = aggregateManifest;
+    if (!manifest?.object_refs.legacy_source)
       throw new Error("TASK_READ_OBJECT_MISSING: legacy source object is unavailable.");
-    return { kind, reference: manifest2.object_refs.legacy_source.sha256, required: true, value: store.readObject(manifest2.object_refs.legacy_source, "legacy-current-task"), encoding: "json" };
+    return { kind, reference: manifest.object_refs.legacy_source.sha256, required: true, value: store.readObject(manifest.object_refs.legacy_source, "legacy-current-task"), encoding: "json" };
   }
   if (kind === "history-material") {
     const sourceRevision = input.source_revision ?? (typeof ref.source_revision === "string" ? ref.source_revision : undefined);
@@ -24530,25 +25228,25 @@ function resolvedRead(root, current, input, expectedContentRevision) {
     return { kind, reference: sourceRevision, required: true, value: readHistoryMaterial(root, current, sourceRevision), encoding: "utf8" };
   }
   if (input.path) {
-    const file2 = contextPath(root, input.path);
-    if (!fs16.existsSync(file2.absolute))
-      throw new Error(`TASK_READ_PATH_MISSING: ${file2.relative}`);
-    const result = readFileContext(root, { operation: "read", path: file2.relative, ...input.sha256 ?? expectedContentRevision ? { sha256: input.sha256 ?? expectedContentRevision } : {} });
+    const file = contextPath(root, input.path);
+    if (!fs16.existsSync(file.absolute))
+      throw new Error(`TASK_READ_PATH_MISSING: ${file.relative}`);
+    const result = readFileContext(root, { operation: "read", path: file.relative, ...input.sha256 ?? expectedContentRevision ? { sha256: input.sha256 ?? expectedContentRevision } : {} });
     const contentRevision = typeof result.sha256 === "string" ? result.sha256 : undefined;
     if (expectedContentRevision !== undefined && contentRevision !== expectedContentRevision)
       throw new Error("TASK_READ_STALE: file content revision changed; start a fresh task-read.");
-    return { kind: "file", reference: file2.relative, required: true, value: result, encoding: "json", ...contentRevision ? { content_revision: contentRevision } : {} };
+    return { kind: "file", reference: file.relative, required: true, value: result, encoding: "json", ...contentRevision ? { content_revision: contentRevision } : {} };
   }
   throw new Error("TASK_READ_INPUT_INVALID: provide a precise object, event, history, or file reference.");
 }
 function taskReadPage(root, current, input) {
   const maxBytes = integer(input.max_bytes, 16 * 1024, 256, 64 * 1024);
   const continuation = parseContinuation(input.continuation, "task-read-page/v1");
-  const manifest2 = currentStore(root, current).manifest;
+  const manifest = currentStore(root, current).manifest;
   if (continuation && continuation.source_revision !== current.sourceTuple.revision) {
     throw new Error("TASK_READ_STALE: source revision changed; start a fresh task-read.");
   }
-  const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest2);
+  const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest);
   const stateRevision = taskStoreStateRevision(asStoreCurrent(current));
   if (continuation && (continuation.source_revision !== current.sourceTuple.revision || continuation.definition_revision !== definitionRevision || continuation.state_revision !== stateRevision))
     throw new Error("TASK_READ_STALE: source, definition, or state revision changed; start a fresh task-read.");
@@ -24585,13 +25283,13 @@ function taskReadPage(root, current, input) {
   };
   const makePage = (end) => {
     const safeEnd = utf8Boundary(serializedBytes, end);
-    const text4 = serializedBytes.subarray(offset, safeEnd).toString("utf8");
+    const text = serializedBytes.subarray(offset, safeEnd).toString("utf8");
     const complete = safeEnd === serializedBytes.length;
     const includeJsonValue = complete && offset === 0 && serializedBytes.length <= maxBytes;
     return {
       ...base,
       status: complete ? "success" : "partial",
-      returned_bytes: byteLength(text4),
+      returned_bytes: byteLength(text),
       complete_for_operation: complete,
       continuation: complete ? null : {
         kind: "task-read-page/v1",
@@ -24602,7 +25300,7 @@ function taskReadPage(root, current, input) {
         byte_offset: safeEnd,
         ...resolved.content_revision ? { content_revision: resolved.content_revision } : {}
       },
-      ...includeJsonValue && resolved.encoding === "json" ? { value: resolved.value } : { text: text4, encoding: resolved.encoding },
+      ...includeJsonValue && resolved.encoding === "json" ? { value: resolved.value } : { text, encoding: resolved.encoding },
       receipt: {
         kind: TASK_READ_RECEIPT_KIND,
         document_id: current.sourceTuple.document_id,
@@ -24611,17 +25309,17 @@ function taskReadPage(root, current, input) {
         state_revision: stateRevision,
         reference,
         returned_offset: offset,
-        returned_bytes: byteLength(text4),
+        returned_bytes: byteLength(text),
         complete_for_operation: complete,
         ...resolved.content_revision ? { content_revision: resolved.content_revision } : {}
       }
     };
   };
   if (offset === serializedBytes.length) {
-    const result2 = makePage(offset);
-    if (!fits(result2, maxBytes))
+    const result = makePage(offset);
+    if (!fits(result, maxBytes))
       throw new Error("TASK_READ_BUDGET_EXHAUSTED: read receipt metadata exceeds the requested page budget.");
-    return result2;
+    return result;
   }
   let low = offset + 1;
   let high = serializedBytes.length;
@@ -24699,13 +25397,13 @@ function taskStoreExportPage(root, input = {}) {
   };
   const makePage = (end) => {
     const safeEnd = utf8Boundary(serialized, end);
-    const text4 = serialized.subarray(offset, safeEnd).toString("utf8");
+    const text = serialized.subarray(offset, safeEnd).toString("utf8");
     const complete = safeEnd === serialized.length;
     return {
       ...base,
       status: complete ? "success" : "partial",
-      returned_bytes: byteLength(text4),
-      text: text4,
+      returned_bytes: byteLength(text),
+      text,
       complete_for_operation: complete,
       continuation: complete ? null : {
         kind: "task-export-page/v1",
@@ -24721,16 +25419,16 @@ function taskStoreExportPage(root, input = {}) {
         definition_revision: definitionRevision,
         state_revision: stateRevision,
         returned_offset: offset,
-        returned_bytes: byteLength(text4),
+        returned_bytes: byteLength(text),
         complete_for_operation: complete
       }
     };
   };
   if (offset === serialized.length) {
-    const result2 = makePage(offset);
-    if (!fits(result2, maxBytes))
+    const result = makePage(offset);
+    if (!fits(result, maxBytes))
       throw new Error("TASK_EXPORT_BUDGET_EXHAUSTED: export receipt metadata exceeds the requested page budget.");
-    return result2;
+    return result;
   }
   let low = offset + 1;
   let high = serialized.length;
@@ -24820,6 +25518,7 @@ var EXECUTE_STEP_ADAPTER_COMMANDS = [
   "artifact-checkpoints",
   "evidence-context",
   "retry-step",
+  "replace-validation",
   "begin-repair",
   "record-step-result",
   "complete-reviewed-step"
@@ -24991,8 +25690,8 @@ function currentStepPlan(current) {
     commands: parsePlannedCommands(current, resolution.current.id)
   };
 }
-function stepAdmitsExactPath(file2, stepScope) {
-  return stepScope.some((pattern) => mutationScopePatternMatchesPath(file2, pattern));
+function stepAdmitsExactPath(file, stepScope) {
+  return stepScope.some((pattern) => mutationScopePatternMatchesPath(file, pattern));
 }
 function stepAdmitsFootprintTarget(target, stepScope) {
   return target.includes("*") ? stepScope.includes(target) : stepAdmitsExactPath(target, stepScope);
@@ -25029,10 +25728,10 @@ function assertCommandPlansAdmitted(root, current, stepPlan, assessments = [], p
       command_write_targets: commandWrites,
       persistent_test_paths: []
     });
-    const blocked2 = evaluation.decisions.find((item) => !item.admitted);
-    if (blocked2) {
-      const command = stepPlan.commands.find((item) => item.expected_repo_writes !== "none" && item.expected_repo_writes.includes(blocked2.path));
-      fail7(mutationAuthorityPlanBlockerCode(blocked2), `planned command${command ? ` "${command.command}"` : ""} is outside the v2 authority envelope: ${evaluation.blockers.join(" ")}`);
+    const blocked = evaluation.decisions.find((item) => !item.admitted);
+    if (blocked) {
+      const command = stepPlan.commands.find((item) => item.expected_repo_writes !== "none" && item.expected_repo_writes.includes(blocked.path));
+      fail7(mutationAuthorityPlanBlockerCode(blocked), `planned command${command ? ` "${command.command}"` : ""} is outside the v2 authority envelope: ${evaluation.blockers.join(" ")}`);
     }
     return;
   }
@@ -25120,9 +25819,9 @@ function normalizePreflightReceipt(value) {
     ], "preflight_receipt");
     if (source.mode !== "repair")
       fail7("EXECUTE_ADAPTER_INPUT_INVALID", "repair preflight receipt mode must be repair.");
-    const sourceRevision2 = text4(source.source_revision, "preflight_receipt.source_revision", 64);
-    const planRevision2 = text4(source.plan_revision, "preflight_receipt.plan_revision", 64);
-    if (!SHA256_PATTERN4.test(sourceRevision2) || !SHA256_PATTERN4.test(planRevision2))
+    const sourceRevision = text4(source.source_revision, "preflight_receipt.source_revision", 64);
+    const planRevision = text4(source.plan_revision, "preflight_receipt.plan_revision", 64);
+    if (!SHA256_PATTERN4.test(sourceRevision) || !SHA256_PATTERN4.test(planRevision))
       fail7("EXECUTE_ADAPTER_INPUT_INVALID", "preflight receipt revisions must be SHA-256 values.");
     return {
       kind: "execute-step-repair-preflight/v1",
@@ -25130,9 +25829,9 @@ function normalizePreflightReceipt(value) {
       ...source.execution_id === undefined ? {} : { execution_id: text4(source.execution_id, "preflight_receipt.execution_id", 128) },
       task_id: text4(source.task_id, "preflight_receipt.task_id", 128),
       document_id: text4(source.document_id, "preflight_receipt.document_id", 128),
-      source_revision: sourceRevision2,
+      source_revision: sourceRevision,
       step_id: text4(source.step_id, "preflight_receipt.step_id", 128),
-      plan_revision: planRevision2,
+      plan_revision: planRevision,
       mode: "repair",
       test_strategy_mode: testStrategyMode(source.test_strategy_mode, "preflight_receipt.test_strategy_mode"),
       execution_phase: executionPhase(source.execution_phase, "preflight_receipt.execution_phase"),
@@ -25430,6 +26129,7 @@ function evidenceContext(root, input) {
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
       boundary: slot.check.boundary ?? null,
+      user_decision: slot.user_decision ? { ...slot.user_decision } : null,
       frozen_invocation: slot.check.entry,
       minimum_type: slot.minimum_type,
       execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
@@ -25717,13 +26417,14 @@ function normalizeCommandResults(value) {
     const location = `command_results[${index}]`;
     const source = record6(item, location);
     const status = resultStatus(source.status, `${location}.status`);
-    exactKeys3(source, status === "expected-failure" ? ["command", "status", "observed_repo_writes", "evidence_refs", "expected_failure"] : ["command", "status", "observed_repo_writes", "evidence_refs"], location);
+    exactKeys3(source, status === "expected-failure" ? ["command", "status", "observed_repo_writes", "evidence_refs", "expected_failure"] : ["command", "status", "observed_repo_writes", "evidence_refs", ...source.waiver_decision_id === undefined ? [] : ["waiver_decision_id"]], location);
     const observedRepoWrites = pathList(source.observed_repo_writes, `${location}.observed_repo_writes`, true);
     if (status === "not-run" && observedRepoWrites.length > 0) {
       fail7("EXECUTE_ADAPTER_INPUT_INVALID", `${location}.not-run command must not report repository writes.`);
     }
     return {
       command: text4(source.command, `${location}.command`),
+      ...source.waiver_decision_id === undefined ? {} : { waiver_decision_id: text4(source.waiver_decision_id, "waiver_decision_id") },
       status,
       observed_repo_writes: observedRepoWrites,
       evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, status === "not-run"),
@@ -25743,9 +26444,10 @@ function normalizeValidationResults(value) {
     const location = `validation_results[${index}]`;
     const source = record6(item, location);
     const status = resultStatus(source.status, `${location}.status`);
-    exactKeys3(source, status === "expected-failure" ? ["validation", "status", "evidence_refs", "expected_failure"] : ["validation", "status", "evidence_refs"], location);
+    exactKeys3(source, status === "expected-failure" ? ["validation", "status", "evidence_refs", "expected_failure"] : ["validation", "status", "evidence_refs", ...source.waiver_decision_id === undefined ? [] : ["waiver_decision_id"]], location);
     return {
       validation: text4(source.validation, `${location}.validation`),
+      ...source.waiver_decision_id === undefined ? {} : { waiver_decision_id: text4(source.waiver_decision_id, "waiver_decision_id") },
       status,
       evidence_refs: textList2(source.evidence_refs, `${location}.evidence_refs`, status === "not-run"),
       ...status === "expected-failure" ? { expected_failure: normalizeExpectedFailure(source.expected_failure, `${location}.expected_failure`) } : {}
@@ -25762,7 +26464,7 @@ function normalizeAcceptanceEvidence(value) {
 function updateClaimEvidence(current, evidence) {
   const plan = structuredClone(current.runtimeState.claim_evidence ?? []);
   for (const item of evidence) {
-    const slot = plan.find((claim) => claim.claim_id === item.claim_id)?.slots.find((slot2) => slot2.slot_id === item.slot_id);
+    const slot = plan.find((claim) => claim.claim_id === item.claim_id)?.slots.find((slot) => slot.slot_id === item.slot_id);
     if (!slot || slot.check?.check_id !== item.check_id || slot.minimum_type !== item.minimum_type)
       fail7("CLAIM_EVIDENCE_PLAN_CONFLICT", "result must identify the exact frozen claim/slot/check and type.");
     if (slot.prerequisite_receipt)
@@ -25788,7 +26490,7 @@ function assertObservedWithinExpected(command, observed) {
     return;
   }
   const expectedWrites = command.expected_repo_writes;
-  const outside = observed.filter((file2) => !expectedWrites.some((pattern) => mutationScopePatternMatchesPath(file2, pattern)));
+  const outside = observed.filter((file) => !expectedWrites.some((pattern) => mutationScopePatternMatchesPath(file, pattern)));
   if (outside.length > 0) {
     fail7("COMMAND_OBSERVED_WRITE_BLOCKED", `command "${command.command}" wrote outside its prepared footprint: ${outside.join(", ")}.`);
   }
@@ -25940,7 +26642,7 @@ function recordStepResult(root, input, options = {}) {
   }
   const outcome = source.outcome;
   const note = nullableText(source.note, "note");
-  const unplannedActual = actualChangedPaths.filter((file2) => !receipt.candidate_paths.includes(file2));
+  const unplannedActual = actualChangedPaths.filter((file) => !receipt.candidate_paths.includes(file));
   if (unplannedActual.length > 0) {
     fail7("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `actual_changed_paths were not admitted by preflight: ${unplannedActual.join(", ")}.`);
   }
@@ -25949,8 +26651,8 @@ function recordStepResult(root, input, options = {}) {
   if (digest5(receipt.review_base.entries.map((item) => item.path)) !== digest5(expectedBasePaths)) {
     fail7("EXECUTE_PREFLIGHT_STALE", "preflight review base does not cover the exact review target path set.");
   }
-  const reviewTarget2 = captureReviewTarget(root, reviewTargetPaths);
-  const changeDelta = createReviewChangeDelta(receipt.review_base, reviewTarget2);
+  const reviewTarget = captureReviewTarget(root, reviewTargetPaths);
+  const changeDelta = createReviewChangeDelta(receipt.review_base, reviewTarget);
   const detectedChangedPaths = changeDelta.entries.map((item) => item.path);
   if (digest5([...actualChangedPaths].sort()) !== digest5(detectedChangedPaths)) {
     fail7("EXECUTE_RESULT_CHANGE_DELTA_CONFLICT", `actual_changed_paths must match Runtime-detected changes: ${detectedChangedPaths.join(", ") || "none"}.`);
@@ -25964,7 +26666,7 @@ function recordStepResult(root, input, options = {}) {
     acceptance_evidence: acceptanceEvidence,
     change_set_id: receipt.change_set_id,
     review_base: receipt.review_base,
-    review_target: reviewTarget2,
+    review_target: reviewTarget,
     change_delta: changeDelta,
     outcome,
     note
@@ -25983,18 +26685,19 @@ function recordStepResult(root, input, options = {}) {
   assertPathsAdmitted(current, stepPlan, actualChangedPaths, "actual_changed_paths", root, [], receipt.mode, receipt.execution_phase);
   assertCommandResults(root, current, stepPlan, commandResults, receipt.execution_phase, receipt.mode);
   assertValidationResults(stepPlan, validationResults);
-  if (outcome === "implemented" && commandResults.some((item) => item.status !== "passed" && item.status !== "expected-failure")) {
-    fail7("EXECUTE_RESULT_BLOCKED", "implemented requires every planned command to pass.");
+  assertExecutionResultWaivers(root, current, stepPlan.step.id, { command_results: commandResults, validation_results: validationResults });
+  if (outcome === "implemented" && commandResults.some((item) => item.status !== "passed" && item.status !== "expected-failure" && !item.waiver_decision_id)) {
+    fail7("EXECUTE_RESULT_BLOCKED", "implemented requires passing commands or exact user-waived validation commands.");
   }
-  if (outcome === "implemented" && validationResults.some((item) => item.status !== "passed" && item.status !== "expected-failure")) {
-    fail7("EXECUTE_RESULT_BLOCKED", "implemented requires every planned validation to pass.");
+  if (outcome === "implemented" && validationResults.some((item) => item.status !== "passed" && item.status !== "expected-failure" && !item.waiver_decision_id)) {
+    fail7("EXECUTE_RESULT_BLOCKED", "implemented requires passing validation or exact user-waived validation; never report a waiver as PASS.");
   }
   if (outcome === "test-red") {
     const resultStatuses = [...commandResults, ...validationResults].map((item) => item.status);
     if (strategy.phase !== "red") {
       fail7("TEST_STRATEGY_SEQUENCE_INVALID", `outcome=test-red is not valid during phase=${strategy.phase}.`);
     }
-    if (!resultStatuses.some((status2) => status2 === "expected-failure") || resultStatuses.some((status2) => status2 !== "passed" && status2 !== "expected-failure")) {
+    if (!resultStatuses.some((status) => status === "expected-failure") || resultStatuses.some((status) => status !== "passed" && status !== "expected-failure")) {
       fail7("EXECUTE_EXPECTED_FAILURE_INVALID", "test-red requires at least one expected-failure result and permits only passed companion results.");
     }
     if (acceptanceEvidence.length > 0) {
@@ -26017,7 +26720,7 @@ function recordStepResult(root, input, options = {}) {
     }
   }
   const evidenceRefs = allEvidenceRefs(commandResults, validationResults, acceptanceEvidence);
-  const claimEvidence2 = updateClaimEvidence(current, acceptanceEvidence);
+  const claimEvidence = updateClaimEvidence(current, acceptanceEvidence);
   const executionResult = {
     ...receipt.execution_id ? { execution_id: receipt.execution_id } : {},
     ...receipt.kind === "execute-step-preflight/v1" && receipt.attempt_id ? { attempt_id: receipt.attempt_id } : {},
@@ -26025,7 +26728,7 @@ function recordStepResult(root, input, options = {}) {
     outcome,
     change_set_id: receipt.change_set_id,
     review_base: receipt.review_base,
-    review_target: reviewTarget2,
+    review_target: reviewTarget,
     change_delta: changeDelta,
     actual_changed_paths: detectedChangedPaths,
     command_results: commandResults.map((item) => ({
@@ -26068,7 +26771,7 @@ function recordStepResult(root, input, options = {}) {
     ...note ? { note } : {},
     ...receipt.kind === "execute-step-repair-preflight/v1" ? { repair_fingerprints: receipt.repair_fingerprints, repair_wave_id: receipt.repair_wave_id } : receipt.repair_fingerprint ? { repair_fingerprint: receipt.repair_fingerprint } : {},
     change_set_id: receipt.change_set_id,
-    ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 },
+    ...claimEvidence === undefined ? {} : { claim_evidence: claimEvidence },
     execution_result: executionResult
   });
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
@@ -26149,8 +26852,8 @@ function completeReviewedStep(root, input, options = {}) {
     if (currentTarget.revision !== pending.review_target_revision) {
       fail7("REVIEW_TARGET_STALE", "product files changed after the clean review was recorded.");
     }
-    const repairLogs2 = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
-    const repaired = [...new Set(repairLogs2.flatMap((item) => [
+    const repairLogs = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === stepId && item.mode === "repair");
+    const repaired = [...new Set(repairLogs.flatMap((item) => [
       ...item.repair_fingerprints ?? [],
       ...item.repair_fingerprint ? [item.repair_fingerprint] : []
     ]))];
@@ -26180,14 +26883,14 @@ function completeReviewedStep(root, input, options = {}) {
   }
   if (retainedReview) {
     assertExecutableTask(current);
-    const proposal2 = createRetainedReviewConsumptionProposal(current, {
+    const proposal = createRetainedReviewConsumptionProposal(current, {
       step_id: stepId,
       review_receipt: reviewReceipt,
       evidence_refs: [...reviewReceipt.evidence_refs],
       idempotency_key: resultKey,
       authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "evidence-admission"])
     });
-    return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal2, options), options);
+    return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
   }
   const stepPlan = currentStepPlan(current);
   if (reviewReceipt.cycle_id !== current.runtimeState.review_cycle.id) {
@@ -26215,10 +26918,10 @@ function completeReviewedStep(root, input, options = {}) {
   if (unverifiedOpen.length > 0) {
     fail7("REVIEW_CONVERGENCE_REQUIRED", `open findings are not covered by the clean review receipt: ${unverifiedOpen.map((item) => item.fingerprint).join(", ")}.`);
   }
-  const claimEvidence2 = current.runtimeState.claim_evidence;
+  const claimEvidence = current.runtimeState.claim_evidence;
   const resolution = resolveTaskStep(current.body, stepId);
   const finalEvidenceContext = hasRemainingCorrectionTargets(current, stepId) ? { root, current, due_step_id: stepId } : { root, current };
-  if (resolution.next === null && (!claimEvidence2 || !evaluateClaimEvidence(claimEvidence2, finalEvidenceContext).validation_complete)) {
+  if (resolution.next === null && (!claimEvidence || !evaluateClaimEvidence(claimEvidence, finalEvidenceContext).validation_complete)) {
     fail7("CLAIM_EVIDENCE_INCOMPLETE", "the final step cannot complete until every frozen acceptance-evidence slot has evidence.");
   }
   const sourceRevision = current.sourceTuple.revision;
@@ -26241,7 +26944,7 @@ function completeReviewedStep(root, input, options = {}) {
     review_receipt: reviewReceipt,
     change_set_id: reviewReceipt.change_set_id,
     ...note ? { note } : {},
-    ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 }
+    ...claimEvidence === undefined ? {} : { claim_evidence: claimEvidence }
   });
   if (previewedFindingResolution) {
     if (readCanonicalCurrentTask(root).sourceTuple.revision !== sourceRevision) {
@@ -26316,6 +27019,9 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
       }
       case "evidence-context":
         result = evidenceContext(args.root, input);
+        break;
+      case "replace-validation":
+        result = replaceValidation(args.root, input, { dryRun: args.dryRun });
         break;
       case "retry-step":
         result = retryStep(args.root, input, { dryRun: args.dryRun });
@@ -26414,16 +27120,16 @@ function recordEvidenceChallenge(root, input, options = {}) {
   };
   if (!SHA256_PATTERN5.test(challenge.evidence_sha256))
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "evidence_sha256 must be a lowercase SHA-256 digest.");
-  const idempotencyKey2 = `evidence-challenge-${digest6({ document_id: current.sourceTuple.document_id, ...challenge }).slice(0, 40)}`;
+  const idempotencyKey = `evidence-challenge-${digest6({ document_id: current.sourceTuple.document_id, ...challenge }).slice(0, 40)}`;
   const existing = (current.runtimeState.evidence_challenges ?? []).find((item) => item.claim_id === challenge.claim_id && item.slot_id === challenge.slot_id && item.result_id === challenge.result_id && item.evidence_sha256 === challenge.evidence_sha256);
   if (existing) {
     if (existing.evidence_ref !== challenge.evidence_ref || existing.reason !== challenge.reason)
       fail8("EVIDENCE_CHALLENGE_DUPLICATE", "The same result and material are already bound to a different challenge description.");
-    return semanticNoOp3(current, idempotencyKey2, "The exact challenge is already recorded.", options);
+    return semanticNoOp3(current, idempotencyKey, "The exact challenge is already recorded.", options);
   }
   const proposal = createEvidenceChallengeProposal(current, {
     ...challenge,
-    idempotency_key: idempotencyKey2,
+    idempotency_key: idempotencyKey,
     authority_evidence: authority3(current)
   });
   return applyVNextRuntimeProposal(root, proposal, options);
@@ -26486,15 +27192,15 @@ function dismissEvidenceChallenge(root, input, options = {}) {
   if (!SHA256_PATTERN5.test(assessment.evidence_sha256))
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "evidence_sha256 must be a lowercase SHA-256 digest.");
   const existing = current.runtimeState.evidence_challenges?.find((item) => item.challenge_id === assessment.challenge_id);
-  const idempotencyKey2 = `evidence-challenge-dismissal-${digest6({ document_id: current.sourceTuple.document_id, ...assessment }).slice(0, 40)}`;
+  const idempotencyKey = `evidence-challenge-dismissal-${digest6({ document_id: current.sourceTuple.document_id, ...assessment }).slice(0, 40)}`;
   if (existing?.resolution) {
     if (existing.resolution.evidence_ref !== assessment.evidence_ref || existing.resolution.evidence_sha256 !== assessment.evidence_sha256 || existing.resolution.reason !== assessment.reason)
       fail8("EVIDENCE_CHALLENGE_ALREADY_RESOLVED", "Challenge was resolved by a different assessment.");
-    return semanticNoOp3(current, idempotencyKey2, "The exact challenge assessment is already recorded.", options);
+    return semanticNoOp3(current, idempotencyKey, "The exact challenge assessment is already recorded.", options);
   }
   const proposal = createEvidenceChallengeDismissalProposal(current, {
     ...assessment,
-    idempotency_key: idempotencyKey2,
+    idempotency_key: idempotencyKey,
     authority_evidence: authority3(current)
   });
   return applyVNextRuntimeProposal(root, proposal, options);
@@ -26587,6 +27293,8 @@ function claimEvidenceSummary(value) {
     slot_id: slot.slot_id,
     minimum_type: slot.minimum_type,
     disposition: slot.disposition,
+    user_decision: slot.user_decision ? { ...slot.user_decision } : null,
+    obligation_resolution: slot.user_decision?.kind === "waiver" ? "explicit-risk-decision-not-PASS" : "evidence-required",
     applicability: slot.applicability ?? null,
     due_step_id: slot.due_step_id ?? null,
     before_step_id: slot.before_step_id ?? null,
@@ -26610,11 +27318,11 @@ function claimEvidenceSummary(value) {
     slots_truncated: value.slots.length > MAX_CONTEXT_ENTRIES
   };
 }
-function eventReference(root, current, idempotencyKey2) {
+function eventReference(root, current, idempotencyKey) {
   const store = TaskStore.forCurrent(root, current);
   if (!store.manifest)
     return null;
-  const match = store.lookupIdempotency(idempotencyKey2);
+  const match = store.lookupIdempotency(idempotencyKey);
   return match ? { kind: "event", event_path: match.event_path } : null;
 }
 function copyExecutionResult(value) {
@@ -26624,6 +27332,7 @@ function copyExecutionResult(value) {
   const commandResults = value.command_results.slice(0, MAX_CONTEXT_ENTRIES).map((item) => ({
     command: item.command,
     status: item.status,
+    ...item.waiver_decision_id ? { waiver_decision_id: item.waiver_decision_id } : {},
     ...observedWritesSummary(item.observed_repo_writes),
     ...evidenceRefSummary(item.evidence_refs),
     ...item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }
@@ -26631,6 +27340,7 @@ function copyExecutionResult(value) {
   const validationResults = value.validation_results.slice(0, MAX_CONTEXT_ENTRIES).map((item) => ({
     validation: item.validation,
     status: item.status,
+    ...item.waiver_decision_id ? { waiver_decision_id: item.waiver_decision_id } : {},
     ...evidenceRefSummary(item.evidence_refs),
     ...item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }
   }));
@@ -26697,7 +27407,7 @@ function reviewContext(root, input) {
     fail8("TASK_STEP_METADATA_INCOMPLETE", `step ${resolution.current.id} is not reviewable because its metadata is incomplete.`);
   }
   const scope = parseMutationScope(current.body, current.sourceTuple.revision);
-  const admitted2 = phase === "verification" ? current.runtimeState.findings.filter((item) => item.review_cycle_id === current.runtimeState.review_cycle.id && ["admitted", "in-progress"].includes(item.status)) : [];
+  const admitted = phase === "verification" ? current.runtimeState.findings.filter((item) => item.review_cycle_id === current.runtimeState.review_cycle.id && ["admitted", "in-progress"].includes(item.status)) : [];
   const definition = readDraftDefinitionFromBody(current.body);
   const plannedMutationTargets = stepScope(resolution.current.planned_mutation_targets ?? resolution.current.mutation_scope, `step ${resolution.current.id} planned_mutation_targets`);
   const receipt = {
@@ -26709,23 +27419,23 @@ function reviewContext(root, input) {
     execution_id: execution.idempotency_key,
     cycle_id: current.runtimeState.review_cycle.id,
     cycle_phase: phase,
-    admitted_fingerprints: admitted2.map((item) => item.fingerprint)
+    admitted_fingerprints: admitted.map((item) => item.fingerprint)
   };
   const executionEvidenceRefs = boundedList(execution.evidence_refs);
   const unexpandedPaths = boundedList(execution.execution_result.change_delta.entries.slice(1).map((item) => item.path));
   const persistentTests = scope.persistent_tests === null ? null : boundedList(scope.persistent_tests);
   const expandedMutationTargets = boundedValues(currentExecutionDynamicExpansions(current));
-  const claimEvidence2 = boundedValues(current.runtimeState.claim_evidence ?? []);
-  const claimSummaries = claimEvidence2.values.map(claimEvidenceSummary);
-  const admittedFindings = boundedValues(admitted2);
-  const nestedSlotsTruncated = claimEvidence2.values.some((item) => item.slots.length > MAX_CONTEXT_ENTRIES);
+  const claimEvidence = boundedValues(current.runtimeState.claim_evidence ?? []);
+  const claimSummaries = claimEvidence.values.map(claimEvidenceSummary);
+  const admittedFindings = boundedValues(admitted);
+  const nestedSlotsTruncated = claimEvidence.values.some((item) => item.slots.length > MAX_CONTEXT_ENTRIES);
   const executionResult = copyExecutionResult(execution.execution_result);
   const executionResultTruncated = containsTruncation(executionResult);
   const requiredUnexpanded = [
     ...unexpandedPaths.truncated ? ["cumulative-review-target"] : [],
     ...executionResultTruncated ? ["recorded-execution"] : [],
     ...persistentTests?.truncated ? ["persistent-tests"] : [],
-    ...claimEvidence2.truncated || nestedSlotsTruncated ? ["claim-evidence"] : [],
+    ...claimEvidence.truncated || nestedSlotsTruncated ? ["claim-evidence"] : [],
     ...admittedFindings.truncated ? ["admitted-findings"] : [],
     ...expandedMutationTargets.truncated ? ["dynamic-expansions"] : []
   ];
@@ -26780,8 +27490,8 @@ function reviewContext(root, input) {
     persistent_tests_count: persistentTests?.total ?? 0,
     persistent_tests_truncated: persistentTests?.truncated ?? false,
     claim_evidence: claimSummaries,
-    claim_evidence_count: claimEvidence2.total,
-    claim_evidence_truncated: claimEvidence2.truncated || nestedSlotsTruncated,
+    claim_evidence_count: claimEvidence.total,
+    claim_evidence_truncated: claimEvidence.truncated || nestedSlotsTruncated,
     claim_evidence_read_reference: { command: "task-read", kind: "claim-evidence", required: true },
     admitted_findings: admittedFindings.values.map((item) => ({
       fingerprint: item.fingerprint,
@@ -26799,14 +27509,14 @@ function reviewContext(root, input) {
     receipt
   };
 }
-function reviewFilePage(root, current, execution, file2, view, input) {
+function reviewFilePage(root, current, execution, file, view, input) {
   if (!["before", "after", "diff"].includes(view))
     fail8("CONTEXT_INPUT_INVALID", "view must be before, after or diff.");
-  const target = execution.execution_result.review_target.entries.find((item) => item.path === file2);
+  const target = execution.execution_result.review_target.entries.find((item) => item.path === file);
   if (!target)
     fail8("REVIEW_PATH_OUTSIDE_TARGET", "path is not part of this cumulative review target.");
-  const preimage = current.runtimeState.review_coverage?.preimages.find((item) => item.path === file2);
-  const base = { path: file2, view, target_revision: execution.execution_result.review_target.revision };
+  const preimage = current.runtimeState.review_coverage?.preimages.find((item) => item.path === file);
+  const base = { path: file, view, target_revision: execution.execution_result.review_target.revision };
   if (!preimage && view !== "after")
     return { ...base, content_status: "baseline-unavailable" };
   if (target.state === "symlink" || preimage?.state === "symlink")
@@ -26822,7 +27532,7 @@ function reviewFilePage(root, current, execution, file2, view, input) {
       throw error;
     }
   }
-  const after = target.state === "file" ? fs18.readFileSync(contextPath(root, file2).absolute) : Buffer.alloc(0);
+  const after = target.state === "file" ? fs18.readFileSync(contextPath(root, file).absolute) : Buffer.alloc(0);
   if (target.state === "file" && sha2569(after) !== target.sha256)
     fail8("REVIEW_TARGET_STALE", "file changed while reading review context.");
   if (preimage?.state === "file" && sha2569(before) !== preimage.sha256)
@@ -26831,16 +27541,16 @@ function reviewFilePage(root, current, execution, file2, view, input) {
   const right = decodeText(after);
   if (view !== "after" && left === null || view !== "before" && right === null)
     return { ...base, content_status: "binary-or-non-utf8" };
-  let text6;
+  let text;
   if (view === "before")
-    text6 = left;
+    text = left;
   else if (view === "after")
-    text6 = right;
+    text = right;
   else
-    text6 = textDiff(file2, left, right);
-  if (text6 === undefined)
+    text = textDiff(file, left, right);
+  if (text === undefined)
     return { ...base, content_status: "diff-budget-exceeded", next_read: ["before", "after"] };
-  return { ...base, content_status: "text", before_state: preimage?.state ?? null, after_state: target.state, ...textPage(text6, input) };
+  return { ...base, content_status: "text", before_state: preimage?.state ?? null, after_state: target.state, ...textPage(text, input) };
 }
 function reviewRead(root, input) {
   const value = contextInput(input, ["context_receipt", "path", "view", "offset", "max_bytes", "start_line", "end_line"]);
@@ -26848,12 +27558,12 @@ function reviewRead(root, input) {
   assertReviewableTask(current);
   const receipt = normalizeContextReceipt(value.context_receipt);
   const execution = assertCurrentContext(root, current, receipt);
-  const file2 = repoPath(value.path, "path");
+  const file = repoPath(value.path, "path");
   return {
     status: "pass",
     operation_kind: "review-read",
     committed: false,
-    ...reviewFilePage(root, current, execution, file2, String(value.view ?? "diff"), value)
+    ...reviewFilePage(root, current, execution, file, String(value.view ?? "diff"), value)
   };
 }
 function normalizeContextReceipt(value) {
@@ -27200,11 +27910,11 @@ runner.then((exitCode) => {
   process.exitCode = exitCode;
 });
 export {
-  runTaskContextCli,
-  runReviewChangeAdapterCli,
-  runPrepareTaskAdapterCli,
-  runExecuteStepAdapterCli,
-  runCli,
+  runBootstrapCli,
   runBootstrapSupportCli,
-  runBootstrapCli
+  runCli,
+  runExecuteStepAdapterCli,
+  runPrepareTaskAdapterCli,
+  runReviewChangeAdapterCli,
+  runTaskContextCli
 };

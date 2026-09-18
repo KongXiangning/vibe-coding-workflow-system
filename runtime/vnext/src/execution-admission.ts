@@ -213,7 +213,7 @@ function evaluateV2(input: ExecutionAdmissionInput, target: string): ExecutionTa
     decision.reason,
     decision.domain,
     decision.first_touch_state,
-    decision.status === 'self-admitted',
+    result.dynamic_review_required,
     decision.assessment,
   );
 }

@@ -45,9 +45,11 @@ Review the cumulative task delta at the current checkpoint. Do not modify code, 
 
 ## Operating rules
 
-The v1-only reviewability restriction below does not apply to a v2 dynamic
-footprint expansion: Runtime makes that cumulative review mandatory even when
-the ordinary step checkpoint is not-required.
+The v1-only reviewability restriction below does not apply when Runtime requires
+cumulative review for an elevated v2 dynamic footprint expansion, even when the
+ordinary step checkpoint is not-required. A private local discovery with no
+consumers or contract impact does not add a checkpoint; ordinary required review
+and existing unreviewed elevated changes still apply.
 
 Start with a fresh `validate --summary`, then call the read-only
 `task-context(entry:"review-context", mode:"review")` and follow every required
@@ -102,7 +104,7 @@ source_locator and body, then cite the returned immutable evidence_ref/SHA-256.
 Do not create helper files or request arbitrary absolute-path reads. Keep disputed
 material contested until assessed; dismissal requires evidence, not convenience.
 
-1. For an ordinary checkpoint, ask Runtime `review-context` for the successful `implemented` or `test-red` execution awaiting a required review checkpoint, the semantic boundary of Runtime-recorded cumulative change set, complete file index and bounded text diff, acceptance, validation evidence, the v1 mutation scope or v2 authority envelope, planned targets, current-execution dynamic expansions, Persistent Tests, and any admitted findings. The index and summaries are delivered in bounded form; if `complete_for_operation` is false, read every named block through `task-read`/`review-read` before judging the change. A summary omission is not a clean result. Review only that target and context. A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable. For a v2 dynamic expansion, the cumulative review is mandatory even when the ordinary step checkpoint is `not-required`; a clean review consumes only the expansions bound to this execution identity and retains their review association in history. For new counterevidence to a previously completed result, inspect the exact claim/slot/result and retained source, then use `record-evidence-challenge` with a repository-relative evidence file and its SHA-256. This records `contested`, not an automatic invalidation or a new review verdict. If a contested challenge is demonstrably not substantiated, use `dismiss-evidence-challenge` with a hashed assessment file explaining why; retain the old report and challenge. Do not call `record-review-result` for a nonexistent current execution.
+1. For an ordinary checkpoint, ask Runtime `review-context` for the successful `implemented` or `test-red` execution awaiting a required review checkpoint, the semantic boundary of Runtime-recorded cumulative change set, complete file index and bounded text diff, acceptance, validation evidence, the v1 mutation scope or v2 authority envelope, planned targets, current-execution dynamic expansions, Persistent Tests, and any admitted findings. The index and summaries are delivered in bounded form; if `complete_for_operation` is false, read every named block through `task-read`/`review-read` before judging the change. A summary omission is not a clean result. Review only that target and context. A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable. When Runtime classifies a v2 expansion as requiring dynamic review, that cumulative review is mandatory even when the ordinary step checkpoint is `not-required`; a clean review consumes only the expansions bound to this execution identity and retains their review association in history. For new counterevidence to a previously completed result, inspect the exact claim/slot/result and retained source, then use `record-evidence-challenge` with a repository-relative evidence file and its SHA-256. This records `contested`, not an automatic invalidation or a new review verdict. If a contested challenge is demonstrably not substantiated, use `dismiss-evidence-challenge` with a hashed assessment file explaining why; retain the old report and challenge. Do not call `record-review-result` for a nonexistent current execution.
 2. Check step compliance, planned-vs-actual footprint, authority admission, every dynamic assessment, implementation or test correctness, acceptance coverage, validation evidence, unauthorized persistent-test changes, and regression risk. For historical `test-red`, verify that only frozen test assets were admitted, the assertions encode the required behavior, and the recorded failure is caused by missing behavior rather than syntax, type, import, fixture, tool, unrelated-test, or environment failure; Red carries no final acceptance evidence. New flexible execution requires no Red; explicit prerequisites use S2 bound reports and consumption receipts and must not be waived by review.
 3. In discovery, report all clear repairable findings together. In verification, verify the admitted findings and affected regression surface; report any newly discovered issue without widening the repair yourself.
 4. Return exactly one verdict:
@@ -129,3 +131,15 @@ actual authorization for broad execution, including release-gate E2E.
 Return the Runtime-recorded `review-result`, inspected review target, findings or blocker, evidence, and at most one `next_route` recommendation for a later caller invocation. Then stop.
 
 terminal_boundary: public-entry-terminal/v1
+
+## Task decisions and proportional review
+
+Read any frozen `user_decision` and result `waiver_decision_id`. Distinguish an
+explicit manual observation from an unverified risk decision and from execution
+PASS. Check that the cited user words address exactly those obligations; source
+binding is caller-reported, not authenticated. A waiver does not resolve findings
+or remove a required review. Engineering invocation replacement must preserve the
+business observation and test selection; do not turn a local adjustment into a
+whole-task redesign. A low-risk private discovery adds no new checkpoint, but
+shared/public/contract-impact expansions and existing repair gates still require
+review. Do not create findings merely because a legitimate internal route was used.
