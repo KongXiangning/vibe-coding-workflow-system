@@ -1,0 +1,28 @@
+name: C metrics review workbench
+on:
+  push:
+    branches: [codex/c-metrics-review-work-20260919]
+    paths: [.github/workflows/c-metrics-review-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: a37115df5cb97dae969582e8c9570653cd0cd20a
+          persist-credentials: false
+      - name: Export exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = a37115df5cb97dae969582e8c9570653cd0cd20a
+          git archive HEAD | gzip > "$RUNNER_TEMP/c-metrics-review-source.tgz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: c-metrics-review-source
+          path: ${{ runner.temp }}/c-metrics-review-source.tgz
+          retention-days: 1
+          if-no-files-found: error
