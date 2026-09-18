@@ -1,0 +1,38 @@
+name: Task metrics workbench
+on:
+  push:
+    branches: [codex/task-metrics-work-20260919]
+    paths: [.github/workflows/task-metrics-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: f11bbe360492d093fd4eed193f1b0c212ffedfdf
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Export source and test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = f11bbe360492d093fd4eed193f1b0c212ffedfdf
+          bun install --frozen-lockfile --ignore-scripts
+          target="$RUNNER_TEMP/c-metrics"
+          mkdir -p "$target/source" "$target/tools"
+          git archive HEAD | tar -x -C "$target/source"
+          cp -a node_modules "$target/source/node_modules"
+          cp "$(command -v bun)" "$target/tools/bun"
+          git rev-parse HEAD > "$target/source-revision.txt"
+          tar -czf "$RUNNER_TEMP/c-metrics.tgz" -C "$RUNNER_TEMP" c-metrics
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: c-metrics-source
+          path: ${{ runner.temp }}/c-metrics.tgz
+          retention-days: 1
+          if-no-files-found: error
