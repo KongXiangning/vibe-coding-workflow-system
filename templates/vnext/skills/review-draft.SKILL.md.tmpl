@@ -208,11 +208,13 @@ and E2E requires its own allowed basis. “Same target,” “previously green,�
 the framework supports it. Do not demand a full suite merely because it is
 available.
 
-Review the complete claim boundary → selection → canonical invocation binding.
+Review the complete slot/check boundary → granularity → canonical invocation binding.
 Check that selector arguments really narrow this runner, integration observes the
 declared business-flow boundary, and any runner granularity limitation is real.
-Local claims needing a larger integration invocation use justified `target`, not
-an integration relabel. Inspect the actual Task Basis/policy authority text, not
+The same claim may require local rule and business-flow slots. Focused integration
+is `business-flow` + `focused`; a whole integration target is `business-flow` +
+`target` and still requires breadth authority. Focused E2E still needs E2E authority.
+Inspect the actual Task Basis/policy authority text, not
 just its existence; release-gate E2E must bind the selected project policy.
 Require narrowing before clean confirmation when an equally effective smaller
 check exists. Apply the same review to new update/replan/recovery checks; legacy

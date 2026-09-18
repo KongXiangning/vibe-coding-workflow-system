@@ -5511,13 +5511,15 @@ var CLAIM_EVIDENCE_DISPOSITIONS = [
   "deferred",
   "blocked"
 ];
-var EVIDENCE_EXECUTION_SELECTION_SCOPES = [
+var LEGACY_EVIDENCE_EXECUTION_SELECTION_SCOPES = [
   "focused",
   "target",
   "integration",
   "e2e",
   "broad-regression"
 ];
+var EVIDENCE_CHECK_BOUNDARIES = ["local", "business-flow", "e2e"];
+var EVIDENCE_EXECUTION_GRANULARITIES = ["focused", "target", "broad-regression"];
 var EVIDENCE_EXECUTION_BREADTH_BASES = [
   "claim-risk-contract",
   "acceptance-boundary",
@@ -6472,16 +6474,17 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (claimEvidenceContract.report_binding !== "exact-claim-slot-check-only; command pass never creates or satisfies another slot") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence reports must remain bound to one exact claim/slot/check.");
   }
-  expectSetEqual(expectStringArray2(claimEvidenceContract.record_fields, "Runtime contract claim evidence record_fields"), ["claim_id", "claim_kind", "requirement", "source_ref", "boundary", "slots"], "Runtime claim evidence record fields");
+  expectSetEqual(expectStringArray2(claimEvidenceContract.record_fields, "Runtime contract claim evidence record_fields"), ["claim_id", "claim_kind", "requirement", "source_ref", "slots"], "Runtime claim evidence record fields");
   expectSetEqual(expectStringArray2(claimEvidenceContract.slot_fields, "Runtime contract claim evidence slot_fields"), ["slot_id", "minimum_type", "disposition", "evidence_refs", "due_step_id", "applicability", "before_step_id", "check", "report", "prerequisite_receipt"], "Runtime claim evidence slot fields");
   expectSetEqual(expectStringArray2(claimEvidenceContract.complete_dispositions, "Runtime contract claim evidence complete_dispositions"), ["existing", "reused", "newly-executed"], "Runtime claim evidence complete dispositions");
   expectSetEqual(expectStringArray2(claimEvidenceContract.incomplete_dispositions, "Runtime contract claim evidence incomplete_dispositions"), ["missing", "deferred", "blocked"], "Runtime claim evidence incomplete dispositions");
   const executionSelection = expectRecord2(claimEvidenceContract.execution_selection, "Runtime contract claim evidence execution_selection");
-  expectExactKeys2(executionSelection, ["fields", "scopes", "breadth_bases", "freshness", "command_binding", "business_flow", "authority_binding", "e2e_admission", "broad_admission"], "Runtime contract claim evidence execution_selection");
-  expectSetEqual(expectStringArray2(executionSelection.fields, "Runtime claim evidence execution selection fields"), ["scope", "claim_scope", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref", "invocation"], "Runtime claim evidence execution selection fields");
-  expectSetEqual(expectStringArray2(executionSelection.scopes, "Runtime claim evidence execution selection scopes"), [...EVIDENCE_EXECUTION_SELECTION_SCOPES], "Runtime claim evidence execution selection scopes");
+  expectExactKeys2(executionSelection, ["fields", "check_boundaries", "granularities", "breadth_bases", "freshness", "command_binding", "business_flow", "authority_binding", "e2e_admission", "broad_admission"], "Runtime contract claim evidence execution_selection");
+  expectSetEqual(expectStringArray2(executionSelection.fields, "Runtime claim evidence execution selection fields"), ["granularity", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref", "invocation"], "Runtime claim evidence execution selection fields");
+  expectSetEqual(expectStringArray2(executionSelection.granularities, "Runtime claim evidence execution granularities"), [...EVIDENCE_EXECUTION_GRANULARITIES], "Runtime claim evidence execution granularities");
+  expectSetEqual(expectStringArray2(executionSelection.check_boundaries, "Runtime claim evidence check boundaries"), [...EVIDENCE_CHECK_BOUNDARIES], "Runtime claim evidence check boundaries");
   expectSetEqual(expectStringArray2(executionSelection.breadth_bases, "Runtime claim evidence execution selection breadth bases"), [...EVIDENCE_EXECUTION_BREADTH_BASES], "Runtime claim evidence execution selection breadth bases");
-  if (executionSelection.freshness !== "new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible" || executionSelection.command_binding !== "canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command" || executionSelection.business_flow !== "claim-boundary-equals-selection; integration-requires-business-flow; e2e-is-not-a-higher-test-level" || executionSelection.authority_binding !== "exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis" || executionSelection.e2e_admission !== "acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user" || executionSelection.broad_admission !== "claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user") {
+  if (executionSelection.freshness !== "new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible" || executionSelection.command_binding !== "canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command" || executionSelection.business_flow !== "per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy" || executionSelection.authority_binding !== "exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis" || executionSelection.e2e_admission !== "acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user" || executionSelection.broad_admission !== "claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime execution selection contract is invalid.");
   }
   if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
@@ -7373,7 +7376,7 @@ function unchangedEvidenceCheck(record4, slot, previous) {
   const oldSlot = old?.slots.find((item) => item.slot_id === slot.slot_id);
   if (!old || !oldSlot)
     return false;
-  return old.requirement === record4.requirement && old.source_ref === record4.source_ref && old.claim_kind === record4.claim_kind && (old.boundary === undefined || old.boundary === record4.boundary) && digest3(oldSlot.check) === digest3(slot.check);
+  return old.requirement === record4.requirement && old.source_ref === record4.source_ref && old.claim_kind === record4.claim_kind && old.boundary === record4.boundary && digest3(oldSlot.check) === digest3(slot.check);
 }
 function assertSelectionAuthority(selection, record4, definition, context) {
   const basis = selection.breadth_basis;
@@ -7409,8 +7412,11 @@ function assertExecutionSelection(check, required) {
     return;
   }
   const selection = check.selection;
-  if (!required && !selection.invocation)
+  if (!required && selection.granularity === undefined)
     return;
+  if (!selection.granularity || selection.scope !== undefined || selection.claim_scope !== undefined || !check.boundary) {
+    fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "new execution checks require check.boundary and orthogonal selection.granularity; legacy scope labels are read-only.");
+  }
   if (!selection.invocation || evidenceInvocationCommand(selection.invocation) !== check.entry) {
     fail3("CLAIM_EVIDENCE_INVOCATION_UNBOUND", "selection invocation must produce the exact frozen check entry.");
   }
@@ -7419,33 +7425,24 @@ function assertExecutionSelection(check, required) {
     fail3("CLAIM_EVIDENCE_SELECTOR_UNBOUND", "selector must equal the literal runner argument at selector_arg_index.");
   }
   const hasBreadth = selection.breadth_reason !== null || selection.breadth_basis !== null || selection.breadth_source_ref !== null;
-  if (selection.scope === "focused") {
-    if (!selection.selector || hasBreadth || selection.claim_scope !== "local") {
-      fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "focused execution requires an exact selector for a local claim and no breadth justification.");
+  if (selection.granularity === "focused") {
+    if (!selection.selector || check.boundary !== "e2e" && hasBreadth) {
+      fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "focused execution requires an exact selector; only E2E needs additional authority at focused granularity.");
     }
-    return;
-  }
-  if (selection.scope === "target") {
-    if (selection.selector !== null || !selection.breadth_reason || !selection.breadth_basis || !selection.breadth_source_ref || selection.claim_scope !== "local") {
-      fail3("CLAIM_EVIDENCE_BREADTH_REQUIRED", "whole-target execution requires a local claim, no precise selector, and an explicit breadth reason, basis, and source reference.");
-    }
-    return;
-  }
-  if (selection.scope === "integration") {
-    if (hasBreadth || selection.claim_scope !== "business-flow")
-      fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "integration requires a business-flow claim; local runner granularity limitations must use justified target scope.");
-    return;
+    if (check.boundary !== "e2e")
+      return;
+  } else if (selection.selector !== null) {
+    fail3("CLAIM_EVIDENCE_SELECTION_INVALID", "target and broad-regression granularity cannot claim a focused selector.");
   }
   if (!selection.breadth_reason || !selection.breadth_basis || !selection.breadth_source_ref) {
-    fail3("CLAIM_EVIDENCE_BREADTH_REQUIRED", `${selection.scope} execution requires an explicit breadth reason, basis, and source reference.`);
+    fail3("CLAIM_EVIDENCE_BREADTH_REQUIRED", "target/broad granularity and every E2E boundary require an explicit reason, basis, and source reference.");
   }
-  if (selection.scope === "e2e") {
+  if (check.boundary === "e2e") {
     if (!["acceptance-boundary", "low-cost-evidence-insufficient", "project-policy", "release-gate", "explicit-user"].includes(selection.breadth_basis)) {
       fail3("CLAIM_EVIDENCE_E2E_UNAUTHORIZED", "E2E execution requires an acceptance boundary, insufficient lower-cost evidence, project policy, bound release gate, or explicit user request.");
     }
-    return;
   }
-  if (!["claim-risk-contract", "project-policy", "release-gate", "explicit-user"].includes(selection.breadth_basis)) {
+  if (selection.granularity === "broad-regression" && !["claim-risk-contract", "project-policy", "release-gate", "explicit-user"].includes(selection.breadth_basis)) {
     fail3("CLAIM_EVIDENCE_BROAD_UNAUTHORIZED", "broad regression requires a claim/risk/contract basis, release gate, project policy, or explicit user request.");
   }
 }
@@ -7472,19 +7469,13 @@ function assertEvidencePlan(definition, records, fresh = false, context) {
       if (check.subject_paths.some((p) => p.includes("*") || /(?:^|\/)CURRENT_TASK\.md$/.test(p) || p.startsWith(".git/")) || new Set(check.subject_paths).size !== check.subject_paths.length)
         fail3("CLAIM_EVIDENCE_PLAN_INVALID", "subject_paths must be exact unique product paths, excluding Runtime audit state.");
       const isNew = context ? !unchangedEvidenceCheck(record4, slot, context.previous) : fresh;
+      if (isNew && record4.boundary !== undefined && !context?.previous.some((old) => old.claim_id === record4.claim_id && old.boundary === record4.boundary)) {
+        fail3("CLAIM_EVIDENCE_BOUNDARY_INVALID", "boundary belongs to each check, not a new claim.");
+      }
       assertExecutionSelection(check, isNew);
-      const bound = isNew || !!check.selection?.invocation;
+      const bound = isNew || check.selection?.granularity !== undefined;
       if (bound && check.method === "execution" && !plannedCommands.get(slot.due_step_id)?.has(check.entry)) {
         fail3("CLAIM_EVIDENCE_COMMAND_UNBOUND", `execution check ${check.check_id} must bind its due step's exact planned command.`);
-      }
-      if (bound && check.method === "execution" && (!record4.boundary || record4.boundary !== check.selection?.claim_scope)) {
-        fail3("CLAIM_EVIDENCE_BOUNDARY_INVALID", "new execution selection must equal its claim boundary.");
-      }
-      if (bound && check.selection?.claim_scope === "e2e" && check.selection.scope !== "e2e") {
-        fail3("CLAIM_EVIDENCE_BOUNDARY_INVALID", "real end-to-end claims require explicit E2E admission.");
-      }
-      if (bound && check.selection?.claim_scope === "business-flow" && !["integration", "e2e"].includes(check.selection.scope)) {
-        fail3("CLAIM_EVIDENCE_FLOW_REQUIRED", "a business-flow claim requires integration or E2E evidence; focused, target, and broad regression checks cannot substitute for the flow.");
       }
       if (isNew && check.selection?.breadth_basis) {
         if (!context)
@@ -7633,13 +7624,13 @@ function validateClaimEvidence(value, location) {
       const result = { slot_id: slotId, minimum_type: minimumType, disposition, evidence_refs: evidenceRefs };
       if (slot.check !== undefined) {
         const check = expectRecord2(slot.check, "slot.check");
-        expectExactKeys2(check, ["check_id", "method", "entry", "expected_observation", "required_boundaries", "allowed_substitutes", "subject_paths", "expected_result", ...["selection"].filter((key) => (key in check))], "slot.check");
+        expectExactKeys2(check, ["check_id", "method", "entry", "expected_observation", "required_boundaries", "allowed_substitutes", "subject_paths", "expected_result", ...["selection", "boundary"].filter((key) => (key in check))], "slot.check");
         let selection;
         if (check.selection !== undefined) {
           const rawSelection = expectRecord2(check.selection, "check.selection");
-          expectExactKeys2(rawSelection, ["scope", "claim_scope", "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref", ..."invocation" in rawSelection ? ["invocation"] : []], "check.selection");
-          const scope = expectEnum(rawSelection.scope, EVIDENCE_EXECUTION_SELECTION_SCOPES, "check.selection.scope");
-          const claimScope = expectEnum(rawSelection.claim_scope, ["local", "business-flow", "e2e"], "check.selection.claim_scope");
+          const modern = "granularity" in rawSelection;
+          expectExactKeys2(rawSelection, [...modern ? ["granularity"] : ["scope", "claim_scope"], "selector", "selection_reason", "breadth_reason", "breadth_basis", "breadth_source_ref", ..."invocation" in rawSelection ? ["invocation"] : []], "check.selection");
+          const dimensions = modern ? { granularity: expectEnum(rawSelection.granularity, EVIDENCE_EXECUTION_GRANULARITIES, "check.selection.granularity") } : { scope: expectEnum(rawSelection.scope, LEGACY_EVIDENCE_EXECUTION_SELECTION_SCOPES, "check.selection.scope"), claim_scope: expectEnum(rawSelection.claim_scope, EVIDENCE_CHECK_BOUNDARIES, "check.selection.claim_scope") };
           let invocation;
           if (rawSelection.invocation !== undefined) {
             const raw2 = expectRecord2(rawSelection.invocation, "selection.invocation");
@@ -7655,8 +7646,7 @@ function validateClaimEvidence(value, location) {
           const breadthBasis = rawSelection.breadth_basis === null ? null : expectEnum(rawSelection.breadth_basis, EVIDENCE_EXECUTION_BREADTH_BASES, "check.selection.breadth_basis");
           const breadthSourceRef = rawSelection.breadth_source_ref === null ? null : expectText(rawSelection.breadth_source_ref, "check.selection.breadth_source_ref");
           selection = {
-            scope,
-            claim_scope: claimScope,
+            ...dimensions,
             selector,
             selection_reason: expectText(rawSelection.selection_reason, "check.selection.selection_reason"),
             breadth_reason: breadthReason,
@@ -7670,6 +7660,7 @@ function validateClaimEvidence(value, location) {
           method: expectEnum(check.method, ["execution", "static", "human"], "check.method"),
           entry: expectText(check.entry, "check.entry"),
           expected_observation: expectText(check.expected_observation, "check.expected_observation"),
+          ...check.boundary === undefined ? {} : { boundary: expectEnum(check.boundary, EVIDENCE_CHECK_BOUNDARIES, "check.boundary") },
           required_boundaries: expectStringArray2(check.required_boundaries, "check.required_boundaries", false, 256),
           allowed_substitutes: expectStringArray2(check.allowed_substitutes, "check.allowed_substitutes", true, 256),
           subject_paths: expectStringArray2(check.subject_paths, "check.subject_paths", false, 256).map((p) => normalizeRepoPath2(p, "check.subject_paths")),
@@ -15141,8 +15132,9 @@ function buildCorrectionCandidate(root, current, input) {
         fail3("RECOVERY_CHECK_ID_REUSED", "Replacement check needs a new identity and the exact superseded check reference.");
       if (slot.check.required_boundaries.some((boundary) => !mapping.check.required_boundaries.includes(boundary)) || slot.check.subject_paths.some((p) => !mapping.check.subject_paths.includes(p)))
         fail3("RECOVERY_CHECK_WEAKENED", "Existing required boundaries and subjects cannot be removed by recovery.");
+      if (slot.check.boundary !== undefined && mapping.check.boundary !== slot.check.boundary)
+        fail3("RECOVERY_CHECK_WEAKENED", "Replacement checks must preserve the evidence obligation boundary.");
       slot.check = mapping.check;
-      record4.boundary ??= mapping.check.selection?.claim_scope;
     }
     if (targeted || mapping.check || mapping.due_step_id !== slot.due_step_id) {
       if (!newIds.has(mapping.due_step_id))
@@ -25402,7 +25394,7 @@ function evidenceContext(root, input) {
       claim_id: claim.claim_id,
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
-      claim_boundary: claim.boundary ?? null,
+      boundary: slot.check.boundary ?? null,
       frozen_invocation: slot.check.entry,
       minimum_type: slot.minimum_type,
       execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
@@ -26565,6 +26557,7 @@ function claimEvidenceSummary(value) {
     before_step_id: slot.before_step_id ?? null,
     check_id: slot.check?.check_id ?? null,
     frozen_invocation: slot.check?.entry ?? null,
+    boundary: slot.check?.boundary ?? null,
     required_observation: slot.check?.expected_observation ?? null,
     required_boundaries: slot.check?.required_boundaries ?? [],
     execution_selection: slot.check?.selection ? { ...slot.check.selection } : null,
@@ -26577,7 +26570,6 @@ function claimEvidenceSummary(value) {
     claim_kind: value.claim_kind,
     requirement: value.requirement,
     source_ref: value.source_ref,
-    boundary: value.boundary ?? null,
     slots,
     slot_count: value.slots.length,
     slots_truncated: value.slots.length > MAX_CONTEXT_ENTRIES

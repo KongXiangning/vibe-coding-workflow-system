@@ -111,21 +111,25 @@ contract, release gate, project policy, or explicit user request; “more safe,�
 “same target,” “previously green,” and “final step” are not reasons.
 
 For every execution check, submit the frozen selection object bound to its one
-claim slot: `scope` (`focused`, `target`, `integration`, `e2e`, or
-`broad-regression`), `claim_scope` (`local`, `business-flow`, or `e2e`), selector,
+claim slot: `granularity` (`focused`, `target`, or `broad-regression`), selector,
 selection reason, and, for target/E2E/broad execution, breadth reason and
 basis plus its exact Task Basis or policy source reference. Bind `check.entry` to the exact planned command of its due step. A
 command PASS never fills another claim slot automatically; each claim needs its
 own matching report and evidence. This is a selection declaration, not a test
 registry or a permission to create tests.
 
-Freeze the chain claim → required observation → claim `boundary` → selection
-→ actual invocation → exact result. Claim `boundary` must equal `claim_scope`.
-Test types are not a unit < integration < E2E hierarchy. `integration` requires
-`business-flow` and a real cross-component/protocol/persistence/process/data-flow
-observation. A local claim with unavoidable integration runner granularity uses
-`target` with concrete lower-cost-evidence insufficiency and breadth authority;
-renaming the check integration does not grant breadth.
+Freeze the chain claim → slot/check required observation → check `boundary`
+→ selection granularity → actual invocation → exact result. Boundary belongs to
+the evidence obligation, never to a new claim: use `local`, `business-flow`, or
+`e2e` on each check. One claim can have a local rule slot and a business-flow
+slot; both observations must be satisfied independently.
+Boundary and granularity are orthogonal. `business-flow` + `focused` selects one
+integration case; `business-flow` + `target` runs an integration target and needs
+an explicit breadth reason and authority. All target/broad execution needs that
+justification regardless of boundary. E2E always needs its allowed authority,
+including focused E2E. Test types are not a unit < integration < E2E hierarchy.
+Do not use legacy `scope`/`claim_scope` for new checks or infer a flow observation
+from broad unit PASS results.
 
 Every new execution check, including update-draft and replan/recovery replacement
 checks, supplies `invocation: {argv, selector_arg_index}`. Use the Runtime canonical
@@ -401,10 +405,10 @@ must not invoke another public Skill.
 ## Structured business evidence
 
 Submit claim_evidence instead of an acceptance text array. Each stable claim ID
-binds requirement/source_ref/boundary and concrete slots with globally task-unique check IDs.
+binds requirement/source_ref and concrete slots with globally task-unique check IDs.
 Each slot has due_step_id, applicability, method/entry/expected observation,
 required real boundaries, permitted substitutes, exact subject_paths and expected
-result. Use distinct rule and flow slots when the confirmed requirement crosses
+result, plus each check's own boundary and execution granularity. Use distinct rule and flow slots when the confirmed requirement crosses
 those boundaries. Do not use planned-validation. New slots start missing with no
 report or imported receipt; Runtime renders Acceptance from acceptance claims.
 

@@ -246,7 +246,6 @@ proposal:
         - claim_kind
         - requirement
         - source_ref
-        - boundary
         - slots
       slot_fields:
         - slot_id
@@ -269,19 +268,20 @@ proposal:
         - blocked
       execution_selection:
         fields:
-          - scope
-          - claim_scope
+          - granularity
           - selector
           - selection_reason
           - breadth_reason
           - breadth_basis
           - breadth_source_ref
           - invocation
-        scopes:
+        check_boundaries:
+          - local
+          - business-flow
+          - e2e
+        granularities:
           - focused
           - target
-          - integration
-          - e2e
           - broad-regression
         breadth_bases:
           - claim-risk-contract
@@ -292,7 +292,7 @@ proposal:
           - explicit-user
         freshness: new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible
         command_binding: canonical-argv-and-selector-index-equals-entry-and-exact-due-step-planned-command
-        business_flow: claim-boundary-equals-selection; integration-requires-business-flow; e2e-is-not-a-higher-test-level
+        business_flow: per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy
         authority_binding: exact-task-basis-source-or-existing-canonical-project-policy; release-gate-requires-selected-project-policy; claim-bases-require-current-claim-and-task-basis
         e2e_admission: acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user
         broad_admission: claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user
