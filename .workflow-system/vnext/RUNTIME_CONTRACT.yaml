@@ -308,7 +308,7 @@ proposal:
         - evidence_refs
       from: active + active legacy-or-empty-plan
       to: active + active
-      mutation: install one non-empty acceptance-bearing frozen claim_evidence plan; do not change task semantics
+      mutation: reconstruct legacy claim/slot/check identities; execution entries must equal existing planned commands at their original due steps; modern selection metadata is not required
       preserves:
         - TASK_ID
         - TASK_SLUG

@@ -465,6 +465,21 @@ function taskProposal(root: string, overrides: Partial<Parameters<typeof createT
   });
 }
 
+function legacyMigrationRoot(state: RuntimeState = makeRuntimeState()): string {
+  const root = makeRoot(state);
+  const current = readCanonicalCurrentTask(root);
+  fs.writeFileSync(current.filePath, fs.readFileSync(current.filePath, 'utf8').replace(
+    `- ${state.active_step_id}: implement runtime`,
+    [`- ${state.active_step_id}: implement runtime`, '  - purpose: preserve original validation',
+      '  - mutation_scope: runtime/**', '  - required_evidence: original validation result', '  - review_checkpoint: required: original step evidence',
+      '  - planned_command: bun test test/vnext-runtime.test.ts',
+      '- legacy-other: existing other step', '  - purpose: preserve other validation',
+      '  - mutation_scope: runtime/**', '  - required_evidence: other validation result', '  - review_checkpoint: required: other step evidence',
+      '  - planned_command: bun test test/other.test.ts'].join('\n'),
+  ));
+  return root;
+}
+
 function claimEvidenceMigrationProposal(root: string, claimEvidence = completeClaimEvidence(), idempotencyKey = 'legacy-claim-evidence-migration'): RuntimeProposal {
   return createPrepareTaskClaimEvidenceMigrationProposal(readCanonicalCurrentTask(root), {
     claim_evidence: claimEvidence,
@@ -1593,9 +1608,26 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('provides a canonical claim-evidence migration for legacy active tasks without changing task semantics', () => {
-    const root = makeRoot();
+    const root = legacyMigrationRoot();
     const before = readCanonicalCurrentTask(root);
     const plan = completeClaimEvidence();
+    delete plan[0]!.slots[0]!.check!.boundary;
+    // Shared legacy fixture: reconstruction is allowed without selection metadata,
+    // but missing/wrong due steps and new or widened commands are not migration.
+    for (const [step, command, code] of [
+      ['missing-step', 'bun test test/vnext-runtime.test.ts', 'CLAIM_EVIDENCE_PLAN_INVALID'],
+      ['legacy-other', 'bun test test/vnext-runtime.test.ts', 'CLAIM_EVIDENCE_COMMAND_UNBOUND'],
+      ['step-1', 'bun test', 'CLAIM_EVIDENCE_COMMAND_UNBOUND'],
+      ['step-1', 'bun run test:e2e', 'CLAIM_EVIDENCE_COMMAND_UNBOUND'],
+    ]) {
+      const invalid = structuredClone(plan);
+      invalid[0]!.slots[0]!.due_step_id = step!;
+      invalid[0]!.slots[0]!.check!.entry = command!;
+      const bytes = fs.readFileSync(before.filePath, 'utf8');
+      expect(applyVNextRuntimeProposal(root, claimEvidenceMigrationProposal(root, invalid, 'reject-migration-expansion')))
+        .toMatchObject({ status: 'blocked', code });
+      expect(fs.readFileSync(before.filePath, 'utf8')).toBe(bytes);
+    }
     const migration = claimEvidenceMigrationProposal(root, plan, 'legacy-claim-evidence-migration-active');
 
     const result = applyVNextRuntimeProposal(root, migration);
@@ -1653,7 +1685,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('claim-only migration cannot silently upgrade legacy completion semantics', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = legacyMigrationRoot(makeRuntimeState({ active_step_status: 'completed' }));
 
     expect(applyVNextRuntimeProposal(root, claimEvidenceMigrationProposal(root, completeClaimEvidence(), 'legacy-claim-evidence-migration-completed')).status).toBe('success');
     const preview = previewCloseTask(root, archiveDelta());

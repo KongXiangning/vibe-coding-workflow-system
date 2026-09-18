@@ -2666,7 +2666,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (claimEvidenceMigrationContract.from !== 'active + active legacy-or-empty-plan' || claimEvidenceMigrationContract.to !== 'active + active') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence migration transition is invalid.');
   }
-  if (claimEvidenceMigrationContract.mutation !== 'install one non-empty acceptance-bearing frozen claim_evidence plan; do not change task semantics') {
+  if (claimEvidenceMigrationContract.mutation !== 'reconstruct legacy claim/slot/check identities; execution entries must equal existing planned commands at their original due steps; modern selection metadata is not required') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence migration mutation boundary is invalid.');
   }
   expectSetEqual(
@@ -13229,6 +13229,18 @@ function applyTaskStateDelta(
     }
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, 'migrate-claim-evidence claim_evidence');
     requireAcceptanceClaim(claimEvidence, 'migrate-claim-evidence claim_evidence');
+    // Migration reconstructs identities for frozen legacy validation, not a new
+    // execution plan. Do not require modern selection metadata, but never grant
+    // commands (or move them between steps) that the old plan did not authorize.
+    const legacyCommands = plannedCommandsForEvidence(readDraftDefinitionFromBody(current.body));
+    for (const record of claimEvidence) for (const slot of record.slots) {
+      if (!legacyCommands.has(slot.due_step_id!)) {
+        fail('CLAIM_EVIDENCE_PLAN_INVALID', 'migrated evidence must be due at an existing legacy step.');
+      }
+      if (slot.check?.method === 'execution' && !legacyCommands.get(slot.due_step_id!)!.has(slot.check.entry)) {
+        fail('CLAIM_EVIDENCE_COMMAND_UNBOUND', 'migration may only reconstruct an exact existing planned command at its original due step.');
+      }
+    }
     const nextWithoutAudit: RuntimeState = {
       ...current.runtimeState,
       workflow_status: 'active',

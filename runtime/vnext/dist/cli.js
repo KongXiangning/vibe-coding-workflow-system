@@ -6500,7 +6500,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (claimEvidenceMigrationContract.from !== "active + active legacy-or-empty-plan" || claimEvidenceMigrationContract.to !== "active + active") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence migration transition is invalid.");
   }
-  if (claimEvidenceMigrationContract.mutation !== "install one non-empty acceptance-bearing frozen claim_evidence plan; do not change task semantics") {
+  if (claimEvidenceMigrationContract.mutation !== "reconstruct legacy claim/slot/check identities; execution entries must equal existing planned commands at their original due steps; modern selection metadata is not required") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime claim evidence migration mutation boundary is invalid.");
   }
   expectSetEqual(expectStringArray2(claimEvidenceMigrationContract.preserves, "Runtime contract claim evidence migration preserves"), ["TASK_ID", "TASK_SLUG", "document_id", "goal", "scope", "acceptance", "implementation steps", "active step/status", "execution history", "findings", "review state", "lifecycle tuple"], "Runtime claim evidence migration preserved fields");
@@ -16385,6 +16385,16 @@ function applyTaskStateDelta(root, current, proposal, now) {
     }
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "migrate-claim-evidence claim_evidence");
     requireAcceptanceClaim(claimEvidence, "migrate-claim-evidence claim_evidence");
+    const legacyCommands = plannedCommandsForEvidence(readDraftDefinitionFromBody(current.body));
+    for (const record4 of claimEvidence)
+      for (const slot of record4.slots) {
+        if (!legacyCommands.has(slot.due_step_id)) {
+          fail3("CLAIM_EVIDENCE_PLAN_INVALID", "migrated evidence must be due at an existing legacy step.");
+        }
+        if (slot.check?.method === "execution" && !legacyCommands.get(slot.due_step_id).has(slot.check.entry)) {
+          fail3("CLAIM_EVIDENCE_COMMAND_UNBOUND", "migration may only reconstruct an exact existing planned command at its original due step.");
+        }
+      }
     const nextWithoutAudit = {
       ...current.runtimeState,
       workflow_status: "active",
