@@ -1,0 +1,42 @@
+name: Process-control isolated workbench
+on:
+  push:
+    branches: [codex/process-control-work-20260918]
+    paths: [.github/workflows/process-control-workbench.yml]
+permissions:
+  contents: read
+concurrency:
+  group: process-control-workbench-20260918
+  cancel-in-progress: false
+jobs:
+  export-workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: daf731e459115d6f051c46722f0f8bb25d9115b8
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: latest
+      - name: Prepare pinned source and local test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = daf731e459115d6f051c46722f0f8bb25d9115b8
+          bun install --frozen-lockfile --ignore-scripts
+          export_dir="$RUNNER_TEMP/vnext-process-control"
+          mkdir -p "$export_dir/source" "$export_dir/tools"
+          git archive HEAD | tar -x -C "$export_dir/source"
+          cp -a node_modules "$export_dir/source/node_modules"
+          cp "$(command -v bun)" "$export_dir/tools/bun"
+          bun --version > "$export_dir/tools/bun-version.txt"
+          git rev-parse HEAD > "$export_dir/source-revision.txt"
+          tar -czf "$RUNNER_TEMP/vnext-process-control.tgz" -C "$RUNNER_TEMP" vnext-process-control
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vnext-process-control-source
+          path: ${{ runner.temp }}/vnext-process-control.tgz
+          retention-days: 1
+          if-no-files-found: error
