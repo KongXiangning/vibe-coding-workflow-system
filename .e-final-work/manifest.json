@@ -1,0 +1,16 @@
+{
+  ".workflow-system/vnext/RUNTIME_CONTRACT.yaml": "772daf674fda8c364ca184b61c8f0f8fac08499eb203ade1de51a2529c893431",
+  ".workflow-system/vnext/SOURCE_CONTRACT.yaml": "95a784f8ac96c909fa381f9390d11c7ffc704fa9c9f8fe09d953799d9801a15c",
+  "docs/designs/vnext-business-evidence/PLAN.md": "3c60c469191fbc86b2400b525fdc6aeda208c672ff7d8f0e7690c103356437ac",
+  "docs/designs/vnext-design-convergence.md": "fc8a82cb14a9cb52eecd9b53e86fe8d89fd933feff41a64674e0391604a46af4",
+  "docs/designs/workflow-vnext-implementation-blueprint.md": "dfe30580656c18254c17e515915939667c2381732f6167886f5ae35f6138001c",
+  "docs/designs/workflow-vnext-target-architecture.md": "379754cb084e5575b1c56f8375c7f980e20dbafc71a01bcc4c723b51c88ff12c",
+  "docs/designs/workflow-vnext-test-strategy-runtime-review-discussion.md": "08f1ccd3d4c6db666bc71af14a442a77367d58b141047fc3380196ca395ed9f0",
+  "runtime/vnext/dist/cli.js": "5b35642cca40434a712e49fc488798d7613806f755f1a9567e6e36c580cceb96",
+  "runtime/vnext/src/kernel.ts": "d6fea915c64641c121ccdfff716736f18547207950b4faef66a863daec4b5dbb",
+  "runtime/vnext/support/CONTEXT_API.md": "48db3544b753c53fa65c43d455dc6b566d3a3cb2395ebad60d41488a9a1f24ba",
+  "templates/vnext/bootstrap/FILE_SCHEMAS.md": "d79c9adc03958020515fc1778d56962eb3888596b8d95dc19f9734fb4ea47867",
+  "templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md": "7e079d49c553183b149e0596eedb23c4ad0162c396f45eb0c8c31fea82ccaaee",
+  "templates/vnext/skills/debug-task.SKILL.md.tmpl": "760fbc921d1bdf61bf142cd9772b89589a4b464b71e77b984f2a7d64fe6dd80a",
+  "test/workflow-vnext-source.test.ts": "ba9b44f3409c9b9f61cd7416cbaefb5395fc30e04efeb520c0152ad1f08e9923"
+}
