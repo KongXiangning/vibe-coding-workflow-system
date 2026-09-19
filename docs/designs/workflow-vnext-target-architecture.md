@@ -2,8 +2,8 @@
 
 - Phase: `Target Architecture`
 - Status: `Accepted final design`
-- Date: `2026-09-08`
-- Behavior impact: `adds an independent read-only draft review entry`
+- Date: `2026-09-19`
+- Behavior impact: `converges the implemented A–E workflow semantics; no new public entry, lifecycle state, or workflow layer`
 - Design references:
   - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
   - [`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md)
@@ -776,7 +776,7 @@ Each review invocation terminates with one observable verdict from `clean`, `fin
 
 ### 8.6 Persistence boundary
 
-Review-cycle state may remain ephemeral only while no cross-turn or cross-session handoff occurs. Before repair, pause, interruption, delegation, or session end, the logical diff target, cycle phase, admitted fingerprints, attempt counters, remaining budget, and evidence revision must be proposed into the existing canonical task/finding records through Runtime. Conversation memory and a facade-local cache are not authority. The exact `CURRENT_TASK` schema extension is deferred to a later protocol task; no parallel review database is allowed.
+Review-cycle state may remain ephemeral only while no cross-turn or cross-session handoff occurs. Before repair, pause, interruption, delegation, or session end, the logical diff target, cycle phase, admitted fingerprints, attempt counters, remaining budget, and evidence revision must be proposed into the existing canonical task/finding records through Runtime. Conversation memory and a facade-local cache are not authority. The current Runtime persists this durable boundary in the existing canonical task/finding/review state, including `runtime_state.review_cycle`; no parallel review database or future shadow task schema is required.
 
 ## 9. Evidence admission policy
 
@@ -1221,7 +1221,7 @@ proposal:
 - The kernel stores no durable shadow state; idempotency and conflicts derive from canonical sources and proposal identity.
 - Partial writes and success-shaped failure are forbidden.
 
-The exact command/API syntax remains deferred until this architecture is confirmed.
+Concrete command/API syntax is implemented by the current Runtime/Distribution contracts but is intentionally non-normative at this architecture layer.
 
 ### 13.3 Current task-evolution actions and proposal boundaries
 
@@ -1407,12 +1407,14 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 6. A coherent task owns a small set of admitted steps; review checkpoints are risk-based, while repair verification remains mandatory.
 7. The guarded macro transitions in §12.1 may execute automatically only under an authorized end-to-end request and must stop at user-owned authority changes.
 8. Draft creation/refinement remain in the existing `task-state-transaction`; draft confirmation is the only explicit status promotion and adds no public daily entry.
-9. The common Runtime transaction kernel plus exact typed handlers direction is accepted; exact CLI/API syntax remains deferred.
+9. The common Runtime transaction kernel plus exact typed handlers direction is accepted; concrete CLI/API syntax is implementation-specific and governed by the current Runtime/Distribution contracts rather than frozen by this architecture.
 
-### 16.3 Deferred implementation details
+### 16.3 Implementation details intentionally non-normative at this architecture layer
+
+The current product already has concrete implementations for several items below. They are deliberately not frozen as Target Architecture invariants and may evolve through their owning Runtime/Distribution/protocol contracts without changing the architectural principles above:
 
 - Runtime command/API syntax and implementation language details;
-- target manifest schema/file layout;
+- concrete Runtime/Distribution manifest schema and file layout;
 - project-context index/cache implementation and canonical knowledge-document schema details;
 - Migration Pack command/package syntax, conversion report layout, and version-number allocation;
 - registry and host discoverability mechanics;

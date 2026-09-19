@@ -3485,7 +3485,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (expectInteger(reviewCycleContract.verification_new_finding_wave_max, 'Runtime contract review-cycle verification_new_finding_wave_max', 0, 1) !== 1) {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must allow at most one verification new-finding admission wave per review cycle.');
   }
-  if (canonical.source_of_truth !== 'same-canonical-CURRENT_TASK-document' || canonical.legacy_schema_behavior !== 'migration-required') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must keep CURRENT_TASK as the only state source and stop on legacy schema.');
+  if (canonical.source_of_truth !== 'CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate' || canonical.legacy_schema_behavior !== 'migration-required') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must keep the CURRENT_TASK head and its selected immutable roots as one canonical task aggregate and stop on legacy schema.');
   const concurrency = expectRecord(contract.concurrency, 'Runtime contract.concurrency');
   expectExactKeys(concurrency, ['model', 'concurrent_state_changing_writers', 'stale_detection'], 'Runtime contract.concurrency');
   if (

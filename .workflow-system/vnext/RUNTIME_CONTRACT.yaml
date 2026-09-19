@@ -1086,7 +1086,7 @@ canonical_current_task:
       repair_round_max: 3
       same_repair_wave_counts_once: true
       verification_new_finding_wave_max: 1
-  source_of_truth: same-canonical-CURRENT_TASK-document
+  source_of_truth: CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate
   legacy_schema_behavior: migration-required
 
 concurrency:

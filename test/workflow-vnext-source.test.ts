@@ -461,7 +461,17 @@ describe('vNext Phase 2 source contract', () => {
     expect(debug).toContain('may recommend a fresh successor only when the caller has an explicit replacement request');
     expect(debug).not.toContain('A task already `superseded` may recommend `prepare-task:replan`');
     expect(runtimeContract).toContain('changed_goal_scope_acceptance: bounded-correction-amendment-or-supersede-successor');
+    expect(runtimeContract).toContain('source_of_truth: CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate');
+    expect(runtimeContract).not.toContain('source_of_truth: same-canonical-CURRENT_TASK-document');
     expect(sourceContract).toContain('minimum-sufficient whole evidence set by detection, real boundary, and total cost');
+
+    expect(target).toContain('- Date: `2026-09-19`');
+    expect(target).toContain('Concrete command/API syntax is implemented by the current Runtime/Distribution contracts but is intentionally non-normative');
+    expect(target).toContain('Implementation details intentionally non-normative at this architecture layer');
+    expect(target).toContain('including `runtime_state.review_cycle`');
+    expect(target).not.toContain('The exact `CURRENT_TASK` schema extension is deferred to a later protocol task');
+    expect(target).not.toContain('exact CLI/API syntax remains deferred');
+    expect(target).not.toContain('### 16.3 Deferred implementation details');
 
     expect(convergence).toContain('P-01 — public entry represents intent');
     expect(convergence).toContain('P-12 — minimum-sufficient evidence');
