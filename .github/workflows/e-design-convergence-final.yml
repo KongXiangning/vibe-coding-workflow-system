@@ -31,7 +31,7 @@ jobs:
           python3 - <<'PY'
           import base64, hashlib, lzma, os, pathlib
           root = pathlib.Path('.e-final-work')
-          encoded = ''.join((root / f'patch-{i}.b64').read_text().strip() for i in range(1, 7))
+          encoded = ''.join((root / name).read_text().strip() for name in ('patch-1.b64','patch-2.b64','patch-3.b64','patch-4a.b64','patch-4b.b64','patch-5.b64','patch-6.b64'))
           patch = lzma.decompress(base64.b64decode(encoded, validate=True))
           expected = os.environ['PATCH_SHA256']
           actual = hashlib.sha256(patch).hexdigest()
