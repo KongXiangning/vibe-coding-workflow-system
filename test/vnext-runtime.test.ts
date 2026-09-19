@@ -11235,7 +11235,7 @@ describe('vNext Phase 2 Runtime contract', () => {
           description: 'Add the explicitly admitted QA regression test',
           mutation_scope: [unconventional],
           required_evidence: ['fresh unconventional regression execution and review'],
-          commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: [unconventional] }],
+          commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
         },
       });
       expect(prepared.status).toBe('success');
@@ -11251,7 +11251,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       expect(recordStepResult(root, {
         preflight_receipt: fresh.receipt,
         actual_changed_paths: [unconventional],
-        command_results: fresh.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [unconventional], evidence_refs: evidence.evidence_refs })),
+        command_results: fresh.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
         validation_results: fresh.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
         acceptance_evidence: [evidence], outcome: 'implemented', note: 'Create the explicitly admitted unconventional regression test.',
       }).status).toBe('success');
@@ -11899,7 +11899,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         description: 'Apply and verify the explicitly authorized Rust protocol continuation',
         mutation_scope: [rustTarget],
         required_evidence: ['fresh installed cross-domain execution and review'],
-        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: [rustTarget] }],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
       },
     });
     expect(amended.status).toBe(0);
@@ -11922,7 +11922,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const result = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
       preflight_receipt: preflight.json.receipt,
       actual_changed_paths: [rustTarget],
-      command_results: currentStep.commands.map(command => ({ command: command.command, status: 'passed', observed_repo_writes: [rustTarget], evidence_refs: ['evidence-report.txt'] })),
+      command_results: currentStep.commands.map(command => ({ command: command.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
       validation_results: currentStep.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
       acceptance_evidence: installedAcceptanceEvidence(evidenceContext.json),
       outcome: 'implemented',
