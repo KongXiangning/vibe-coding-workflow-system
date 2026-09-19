@@ -1,0 +1,41 @@
+name: E convergence follow-up verification
+on:
+  push:
+    branches: [codex/e-convergence-followup-work-20260919]
+    paths: [.github/workflows/e-convergence-followup.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: e0cebe5ee05e8c688b25fcf30331f600f7085230
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Validate final owner-route wording
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = e0cebe5ee05e8c688b25fcf30331f600f7085230
+          bun install --frozen-lockfile --ignore-scripts
+          bun run validate:vnext-source
+          bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'keeps E convergence aligned with implemented A-D boundaries'
+          bun run gen:all
+          bun run validate:freshness
+          git diff --check
+          test -z "$(git diff --name-only)"
+      - name: Bind focused success to candidate
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/e0cebe5ee05e8c688b25fcf30331f600f7085230"             -f state=success             -f context=vnext/e-convergence-followup             -f description='Final bounded owner-route wording and generated freshness passed'             -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
