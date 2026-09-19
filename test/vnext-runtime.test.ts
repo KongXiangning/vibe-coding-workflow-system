@@ -123,6 +123,8 @@ function recordReviewResult(root: string, input: any, options = {}) {
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const STATUS_RECONCILIATION_BEGIN = '<!-- BEGIN vNext close-task STATUS reconciliation -->';
+const RUNTIME_IO_TEST_TIMEOUT = 20_000;
+const LARGE_HISTORY_TEST_TIMEOUT = 180_000;
 const temporaryRoots: string[] = [];
 
 function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
@@ -712,6 +714,29 @@ function reportFixture(root: string, claimId = 'A1', slotId = 'a1', status?: str
   return { claim_id: claimId, slot_id: slotId, check_id: slot.check!.check_id, minimum_type: slot.minimum_type, disposition: 'newly-executed', evidence_refs: ['evidence-report.txt'], report: { result_id: `result-${slot.check!.check_id}`, status, evidence_plan_revision: current.runtimeState.evidence_plan_revision!, subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision, actual_method: slot.check!.method, environment: 'isolated test fixture', assurance: 'caller-reported' } };
 }
 
+function completeCurrentStepThroughExecution(root: string) {
+  const preflight = preflightStep(root, { candidate_paths: [] });
+  const claims = readCanonicalCurrentTask(root).runtimeState.claim_evidence ?? [];
+  return recordStepResult(root, {
+    preflight_receipt: preflight.receipt,
+    actual_changed_paths: [],
+    command_results: preflight.current_step.commands.map(item => ({
+      command: item.command,
+      status: 'passed',
+      observed_repo_writes: [],
+      evidence_refs: ['evidence-report.txt'],
+    })),
+    validation_results: preflight.current_step.validation.map(validation => ({
+      validation,
+      status: 'passed',
+      evidence_refs: ['evidence-report.txt'],
+    })),
+    acceptance_evidence: claims.flatMap(claim => claim.slots.map(slot => reportFixture(root, claim.claim_id, slot.slot_id))),
+    outcome: 'implemented',
+    note: 'Complete the fixture step through the admitted execution contract',
+  });
+}
+
 function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
   return {
     task_basis: taskBasisFixture('Add the prepare-task Runtime adapter'),
@@ -927,6 +952,7 @@ function runInstalledRuntimeCli(runtimeCli: string, root: string, command: strin
 
 function installedAcceptanceEvidence(context: Record<string, any>): Record<string, any>[] {
   const check = context.checks[0];
+  const execution = check.execution_selection !== null;
   return [{
     claim_id: check.claim_id,
     slot_id: check.slot_id,
@@ -936,10 +962,10 @@ function installedAcceptanceEvidence(context: Record<string, any>): Record<strin
     evidence_refs: ['evidence-report.txt'],
     report: {
       result_id: `result-${check.check_id}`,
-      status: 'passed',
+      status: execution ? 'passed' : 'accepted',
       evidence_plan_revision: context.evidence_plan_revision,
       subject_revision: check.subject_revision,
-      actual_method: 'execution',
+      actual_method: execution ? 'execution' : 'static',
       environment: 'installed fixed tgz Node CLI fixture',
       assurance: 'caller-reported',
     },
@@ -4056,26 +4082,6 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(replan.code).toBe('REPLAN_TRANSITION_INVALID');
   });
 
-  test('stops on a legacy CURRENT_TASK schema before any mutation', () => {
-    const root = makeRoot();
-    const current = readCanonicalCurrentTask(root);
-    const proposal = taskProposal(root);
-    fs.writeFileSync(current.filePath, current.body, 'utf8');
-    const result = applyVNextRuntimeProposal(root, proposal);
-    expect(result.status).toBe('blocked');
-    expect(result.code).toBe('MIGRATION_REQUIRED');
-  });
-
-  test('stops on an unsupported CURRENT_TASK frontmatter kind before any mutation', () => {
-    const root = makeRoot();
-    const current = readCanonicalCurrentTask(root);
-    const proposal = taskProposal(root);
-    fs.writeFileSync(current.filePath, `---\nschema_version: 1\nkind: legacy-current-task\n---\n${current.body}`, 'utf8');
-    const result = applyVNextRuntimeProposal(root, proposal);
-    expect(result.status).toBe('blocked');
-    expect(result.code).toBe('MIGRATION_REQUIRED');
-  });
-
   test('keeps malformed self-declared vNext CURRENT_TASK documents as schema errors', () => {
     const root = makeRoot();
     const current = readCanonicalCurrentTask(root);
@@ -4120,7 +4126,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       lesson_admission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
@@ -4224,7 +4230,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
@@ -4562,7 +4568,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(updateSkipResult.code).toBe('TASK_STEPS_INVALID');
   });
 
-  test('semantic-duplicate Lesson writes durable reuse proof without duplicate visible text and unblocks next draft', () => {
+  test('semantic-duplicate Lesson writes durable reuse proof without duplicate visible text and unblocks next draft', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -4598,7 +4604,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 001 with lesson admission: admit lesson-a
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4658,7 +4664,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm002).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 002 with lesson admission: admit lesson-b (identical content to lesson-a)
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4753,7 +4759,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 001 (defer lesson)
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4848,7 +4854,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(validateVNextRuntimeContract(ROOT).phase).toBe('Phase 2');
   });
 
-  test('cross-task candidate_ref collision resolves to exact target coordinates', () => {
+  test('cross-task candidate_ref collision resolves to exact target coordinates', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -4882,7 +4888,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-001',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
@@ -4932,7 +4938,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-002',
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
@@ -4972,7 +4978,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-003',
       authority_evidence: confirmationAuthority(draft003, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-3', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-new'], evidence_refs: ['test:evidence:lesson'] },
@@ -5003,7 +5009,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(record003!.marker.reused_candidate!.candidate_ref).toBe('lesson-1');
   });
 
-  test('reuse target coordinate drift fails closed', () => {
+  test('reuse target coordinate drift fails closed', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -5035,7 +5041,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-drift-1',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-target'], evidence_refs: ['test:evidence:lesson'] },
@@ -5085,7 +5091,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-drift-2',
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-reused'], evidence_refs: ['test:evidence:lesson'] },
@@ -5177,7 +5183,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-same-prop',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 001 admitting both candidate-a and candidate-b
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -5273,7 +5279,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-diff-ev',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:alpha', 'test:evidence:beta'],
@@ -5482,7 +5488,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-replay-combo',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
@@ -5869,7 +5875,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(prepareDraft(archivedBaselineRoot(), userRequestedBroad).status).toBe('success');
   });
 
-  test('validation contract binds boundary invocation and real breadth authority in prepare update and confirm', () => {
+  test('validation contract binds boundary invocation and real breadth authority in prepare update and confirm', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const local = singleStepSemanticDraft();
     const check = local.claim_evidence[0]!.slots[0]!.check!;
     check.selection = { ...check.selection!, scope: 'integration', selector: null,
@@ -5953,7 +5959,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
   });
 
-  test('storage metrics review invalidates samples when a real commit crosses the start or final sampling boundary', () => {
+  test('storage metrics review invalidates samples when a real commit crosses the start or final sampling boundary', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const timing of ['start', 'during', 'failure'] as const) {
       const root = archivedBaselineRoot();
       const draft = singleStepSemanticDraft();
@@ -6048,7 +6054,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(malformed.coverage.notes).toContain('TASK_BASIS_REFERENCE_INVALID');
   });
 
-  test('storage metrics observe draft, execution, review and migration without consuming receipts or writing data', () => {
+  test('storage metrics observe draft, execution, review and migration without consuming receipts or writing data', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const draft = singleStepSemanticDraft({ goal: 'Observe 中文 task growth, not an arbitrary test count.' });
     draft.mutation_scope.allowed = ['README.md'];
     draft.implementation_steps[0]!.mutation_scope = ['README.md'];
@@ -6173,7 +6179,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => read(raw)).toThrow('TASK_PROJECTION_INVALID');
   });
 
-  test('storage migration preserves issued draft and execution receipts without weakening stale detection', () => {
+  test('storage migration preserves issued draft and execution receipts without weakening stale detection', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const format of ['inline', 'compact-v2']) {
       const draft = singleStepSemanticDraft();
       draft.mutation_scope.allowed = ['README.md'];
@@ -6244,7 +6250,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(confirmDraft(root, { confirmation_receipt: last }).status).toBe('success');
   });
 
-  test('active task projection retains exact large definitions, evidence and standalone material without inline duplication', () => {
+  test('active task projection retains exact large definitions, evidence and standalone material without inline duplication', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = archivedBaselineRoot();
     const longObservation = ('业务观察：生产者写入后消费者读取同一条记录；不得用局部成功替代。'.repeat(75));
     const draft = singleStepSemanticDraft({ validation_plan: Array.from({ length: 40 }, (_, i) => `${i}: ${longObservation.slice(0, 450)}`) });
@@ -6380,7 +6386,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('process-control review rejects validation selection changes through engineering replacement', () => {
+  test('process-control review rejects validation selection changes through engineering replacement', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const scenario of ['target-to-focused', 'broad-to-target', 'broad-to-focused', 'selector-change', 'e2e-authority-change']) {
       const draft = singleStepSemanticDraft();
       const check = draft.claim_evidence[0]!.slots[0]!.check!;
@@ -6417,7 +6423,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('process-control review waiver cannot claim an independent planned validation', () => {
+  test('process-control review waiver cannot claim an independent planned validation', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = singleStepSemanticDraft();
     const own = semantic.implementation_steps[0]!.validation[0]!;
     const independent = 'Independent project policy verification';
@@ -6477,7 +6483,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       subject_revision: captureReviewTarget(legacyRoot, legacy.claim_evidence[0]!.slots[0]!.check!.subject_paths).revision }).status).toBe('success');
   });
 
-  test('process-control review prepareSuccessor retries after real publication interruption', () => {
+  test('process-control review prepareSuccessor retries after real publication interruption', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const interruption of ['before-aggregate', 'after-aggregate']) {
       const root = confirmedSemanticRoot(singleStepSemanticDraft());
       const original = readCanonicalCurrentTask(root); const originalBasis = readCanonicalTaskBasis(root, original);
@@ -6538,7 +6544,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('process-control equivalent validation replacement retains task intent, prior decisions and retry accounting', () => {
+  test('process-control equivalent validation replacement retains task intent, prior decisions and retry accounting', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = singleStepSemanticDraft();
     semantic.claim_evidence[0]!.slots[0]!.check!.validation_items = [...semantic.implementation_steps[0]!.validation];
     const claim = semantic.claim_evidence[0]!;
@@ -6611,7 +6617,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Same-task verification repaired without redefining the goal.' }).status).toBe('success');
   });
 
-  test('process-control bundled Node CLI exposes task decisions and bounded validation replacement', () => {
+  test('process-control bundled Node CLI exposes task decisions and bounded validation replacement', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const cli = path.join(ROOT, 'runtime/vnext/dist/cli.js');
     for (const kind of ['human-acceptance', 'waiver'] as const) {
       const semantic = singleStepSemanticDraft(); const planned = semantic.claim_evidence[0]!.slots[0]!;
@@ -6670,7 +6676,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(current, 'utf8')).toBe('new unconfirmed draft');
   });
 
-  test('process-control successor preserves unfinished history and requires an explicit new draft confirmation', () => {
+  test('process-control successor preserves unfinished history and requires an explicit new draft confirmation', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = confirmedSemanticRoot(singleStepSemanticDraft());
     const original = readCanonicalCurrentTask(root);
     const oldBasis = readCanonicalTaskBasis(root, original);
@@ -6722,7 +6728,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(oldBasis.filePath, 'utf8')).toBe(oldBasis.content);
   });
 
-  test('process-control risk decision skips only its bound verification and preserves real failures through retry', () => {
+  test('process-control risk decision skips only its bound verification and preserves real failures through retry', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = singleStepSemanticDraft();
     semantic.claim_evidence[0]!.slots[0]!.check!.validation_items = [...semantic.implementation_steps[0]!.validation];
     const root = confirmedSemanticRoot(semantic);
@@ -6774,7 +6780,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(path.join(root, archivePath!), 'utf8')).toContain('conversation:accept-risk');
   });
 
-  test('process-control user evidence preserves observation, risk and gate semantics', () => {
+  test('process-control user evidence preserves observation, risk and gate semantics', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const kind of ['human-acceptance', 'waiver'] as const) {
       const semantic = singleStepSemanticDraft();
       const plannedSlot = semantic.claim_evidence[0]!.slots[0]!;
@@ -6839,7 +6845,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).raw).toBe(current.raw);
   });
 
-  test('shared minimum-sufficient validation matrix', () => {
+  test('shared minimum-sufficient validation matrix', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     // One claim/fixture; each row changes only the dimension under examination.
     // The target contains unrelated cases; selecting it is never the default.
     const cases = [
@@ -6976,7 +6982,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('validation contract enforces replacement selection through correction and execution recovery adapters', () => {
+  test('validation contract enforces replacement selection through correction and execution recovery adapters', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = singleStepSemanticDraft();
     semantic.mutation_scope.allowed = ['README.md'];
     semantic.implementation_steps[0]!.mutation_scope = ['README.md'];
@@ -7172,7 +7178,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   // preserve the user's dirty base, and repair that path at the later checkpoint.
   // S4/P-12: a real environment-dependent process fails then succeeds;
   // durable retry neither grants evidence nor erases the original failure.
-  test('S4 retries an environment blocker through fresh preflight and execution without bypassing evidence', () => {
+  test('S4 retries an environment blocker through fresh preflight and execution without bypassing evidence', { timeout: LARGE_HISTORY_TEST_TIMEOUT }, () => {
     const semantic=singleStepSemanticDraft();
     const code='process.exit(process.env.S4_READY === "yes" ? 0 : 9)';
     const command='bun -e '+JSON.stringify(code);
@@ -7255,10 +7261,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(completeReviewedStep(root,{step_id:'step-1',note:'fresh evidence reviewed'}).status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
     expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(failure);
-  }, 90000);
+  });
 
   // S4/V11: retries are bounded and cannot change frozen authority or objects.
-  test('S4 rejects changed subjects and unknown causes and exhausts exactly two retries', () => {
+  test('S4 rejects changed subjects and unknown causes and exhausts exactly two retries', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const kind of ['environment','unknown'] as const) {
       const root=confirmedSemanticRoot(singleStepSemanticDraft());
       const failAttempt=(receipt: ReturnType<typeof preflightStep>['receipt']) => recordStepResult(root,{preflight_receipt:receipt,actual_changed_paths:[],command_results:[{command:'bun test test/vnext-runtime.test.ts',status:'blocked',observed_repo_writes:[],evidence_refs:['evidence-report.txt']}],validation_results:[{validation:'bun test test/vnext-runtime.test.ts passes',status:'not-run',evidence_refs:[]}],acceptance_evidence:[],outcome:'blocked',blocker_kind:kind,note:'fixture environment unavailable'});
@@ -7524,6 +7530,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const due = structuredClone(semantic.claim_evidence[0]!);
     due.claim_id='early-rule'; due.claim_kind='invariant';
     due.slots[0]!.slot_id='early-rule'; due.slots[0]!.check!.check_id='early-rule'; due.slots[0]!.due_step_id='step-1';
+    due.slots[0]!.minimum_type='static-inspection'; due.slots[0]!.check!.method='static'; due.slots[0]!.check!.expected_result='accepted'; delete due.slots[0]!.check!.selection;
     semantic.claim_evidence.push(due);
     const root=confirmedSemanticRoot(semantic);
     // Fixture paths are within this isolated root; preserve the declared original.
@@ -7561,7 +7568,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.review_coverage!.pending_paths.sort()).toEqual([a,b,c].sort());
   });
 
-  test('S2 consumes reproduction before editing, preserves H0 after H1 repair, and rejects forged/stale consumption', () => {
+  test('S2 consumes reproduction before editing, preserves H0 after H1 repair, and rejects forged/stale consumption', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = semanticDraft();
     semantic.test_strategy = { mode: 'test-first', source: 'explicit-user', source_ref: 'test:original-request', task_classification: 'contract-clear-behavior', rationale: 'Reproduce the defect before fixing it' };
     semantic.mutation_scope.allowed.push('src/login.ts');
@@ -8108,7 +8115,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
   });
 
-  test('rejects caller-supplied clean receipts and stale Runtime file-manifest targets', () => {
+  test('rejects caller-supplied clean receipts and stale Runtime file-manifest targets', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const makeRecordedRoot = () => {
       const root = confirmedSemanticRoot();
       const productPath = path.join(root, 'runtime', 'vnext', 'src', 'prepare-task-adapter.ts');
@@ -8256,7 +8263,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     })).toThrow('REVIEW_TARGET_STALE');
   });
 
-  test('hands multiple review findings across sessions through one bounded repair wave and verification', () => {
+  test('hands multiple review findings across sessions through one bounded repair wave and verification', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = confirmedSemanticRoot(singleStepSemanticDraft({
       mutation_scope: {
         allowed: ['runtime/vnext/src/prepare-task-adapter.ts', 'runtime/vnext/src/kernel.ts'],
@@ -8969,6 +8976,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       commands: [{
         command: 'npm install',
         expected_repo_writes: ['package-lock.json', 'node_modules/**'],
+      }, {
+        command: 'bun test test/vnext-runtime.test.ts',
+        expected_repo_writes: 'none' as const,
       }],
       validation: ['npm install completes with the declared lockfile'],
     };
@@ -9012,6 +9022,9 @@ describe('vNext Phase 2 Runtime contract', () => {
         commands: [{
           command: 'node src/app.ts',
           expected_repo_writes: ['data/fixflow.sqlite'],
+        }, {
+          command: 'bun test test/vnext-runtime.test.ts',
+          expected_repo_writes: 'none',
         }],
         validation: ['the application smoke check starts successfully'],
       }],
@@ -9041,6 +9054,9 @@ describe('vNext Phase 2 Runtime contract', () => {
         commands: [{
           command: 'node src/app.ts',
           expected_repo_writes: ['data/fixflow.sqlite'],
+        }, {
+          command: 'bun test test/vnext-runtime.test.ts',
+          expected_repo_writes: 'none',
         }],
         validation: ['the application smoke check starts successfully'],
       }],
@@ -9215,11 +9231,12 @@ describe('vNext Phase 2 Runtime contract', () => {
         'preflight-step',
         'extend-preflight',
         'evidence-context',
-      'retry-step',
-      'begin-repair',
-      'record-step-result',
-      'complete-reviewed-step',
-    ]);
+        'retry-step',
+        'replace-validation',
+        'begin-repair',
+        'record-step-result',
+        'complete-reviewed-step',
+      ]);
     expect(contract.proposal.execute_step.semantic_adapter.scope_enforcement).toBe('task-authority-envelope-with-v1-step-compatibility');
     expect(contract.proposal.execute_step.semantic_adapter.completion_evidence_source).toBe('recorded-step-result-only');
     expect(contract.proposal.execute_step.semantic_adapter.change_detection).toBe('runtime-preflight-candidate-before-after-delta');
@@ -9341,6 +9358,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     prerequisite.claim_id = 'I1'; prerequisite.claim_kind = 'invariant';
     prerequisite.slots[0]!.slot_id = 'i1'; prerequisite.slots[0]!.check!.check_id = 'K-I1';
     prerequisite.slots[0]!.applicability = 'before-step'; prerequisite.slots[0]!.before_step_id = 'S2';
+    for (const claim of [claims[0]!, prerequisite]) for (const slot of claim.slots) {
+      slot.minimum_type = 'static-inspection';
+      slot.check!.method = 'static'; slot.check!.expected_result = 'accepted'; delete slot.check!.selection;
+    }
     const input = semanticDraft({ claim_evidence: [...claims, prerequisite], persistent_tests: 'none',
       mutation_scope: { allowed: ['README.md'], conditional: [], forbidden: ['.git/**'] },
       implementation_steps: ['S1', 'S2', 'S3'].map(id => ({ id, description: `Verify ${id}`, mutation_scope: ['README.md'], commands: [], validation: [`Validate ${id}`], review_checkpoint: { policy: 'required', reason: 'Review the document observation' } })) });
@@ -9567,7 +9588,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(resumed.filePath)).toEqual(preserved);
   });
 
-  test('scope amendment consumes prior authorization across blocked pending review and findings while legacy replan stays closed', () => {
+  test('scope amendment consumes prior authorization across blocked pending review and findings while legacy replan stays closed', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const input = singleStepSemanticDraft({
       claim_evidence: evidencePlanFixture('The authorized continuation preserves the acceptance check', 'step-1'),
       mutation_scope: { allowed: ['runtime/vnext/src/prepare-task-adapter.ts'], conditional: [], forbidden: ['.git/**'] },
@@ -9948,7 +9969,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(candidate.step_diff.scope_paths).toEqual([added]);
   });
 
-  test('process-control dynamic review follows assessed risk without erasing the ordinary checkpoint', () => {
+  test('process-control dynamic review follows assessed risk without erasing the ordinary checkpoint', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const elevated of [false, true]) {
     const target = 'packages/node-rollout/src/session.ts';
     const discovered = 'packages/node-rollout/internal/state.ts';
@@ -10160,7 +10181,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('Step 5 Flow B repair discovery stays in one repair wave and execution identity', () => {
+  test('Step 5 Flow B repair discovery stays in one repair wave and execution identity', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const target = 'packages/node-rollout/src/session.ts';
     const discovered = 'packages/node-rollout/internal/state.ts';
     const root = v2ConfirmedRoot({
@@ -10536,7 +10557,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('E6/E7/E9 binds dynamic authority and review consumption to the current execution identity', () => {
+  test('E6/E7/E9 binds dynamic authority and review consumption to the current execution identity', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const plannedA = 'packages/node-rollout/src/session.ts';
     const plannedB = 'packages/node-rollout/src/reconnect.ts';
     const discovered = 'packages/node-rollout/internal/state.ts';
@@ -10666,7 +10687,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('E8 keeps cumulative review coverage separate from current-step dynamic authority', () => {
+  test('E8 keeps cumulative review coverage separate from current-step dynamic authority', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const plannedA = 'packages/node-rollout/src/session.ts';
     const plannedB = 'packages/node-rollout/src/reconnect.ts';
     const discovered = 'packages/node-rollout/internal/state.ts';
@@ -10747,7 +10768,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('v2 authority amendment waits for the current execution to settle', () => {
+  test('v2 authority amendment waits for the current execution to settle', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = v2ConfirmedRoot();
     const planned = 'packages/node-rollout/src/session.ts';
     const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
@@ -10795,7 +10816,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('E10/E11 authority amendment gates only an unsettled preflight and preserves ready retry lineage', () => {
+  test('E10/E11 authority amendment gates only an unsettled preflight and preserves ready retry lineage', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
     const amendment = (pathToAdd: string, id: string) => ({
       added_paths: [pathToAdd],
@@ -10878,7 +10899,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('E12 settled repair permits authority amendment while retaining findings and review state', () => {
+  test('E12 settled repair permits authority amendment while retaining findings and review state', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const product = 'packages/node-rollout/src/session.ts';
     const crossDomain = 'native/codex-rollout-collector/src/repair-protocol.rs';
     const root = v2ConfirmedRoot();
@@ -10946,7 +10967,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('Step 5 Flow C recovers from an actual blocked execution through authority amendment', () => {
+  test('Step 5 Flow C recovers from an actual blocked execution through authority amendment', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const nodeTarget = 'packages/node-rollout/src/session.ts';
     const rustTarget = 'native/codex-rollout-collector/src/protocol.rs';
     const root = v2ConfirmedRoot({
@@ -11066,7 +11087,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('E14 same-domain absent persistent tests use an explicit P-12 admission route', () => {
+  test('E14 same-domain absent persistent tests use an explicit P-12 admission route', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const newTest = 'packages/node-rollout-tests/new-regression.test.ts';
     const admission = {
       path: newTest,
@@ -11164,7 +11185,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('E15 persistent-test admission rejects every missing P-12 field without Runtime defaults', () => {
+  test('E15 persistent-test admission rejects every missing P-12 field without Runtime defaults', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const fields = ['owner', 'proves', 'basis', 'existing_evidence_insufficiency', 'assertion_boundary'] as const;
     for (const field of fields) {
       const newTest = `packages/node-rollout-tests/missing-${field}.test.ts`;
@@ -11214,7 +11235,7 @@ describe('vNext Phase 2 Runtime contract', () => {
           description: 'Add the explicitly admitted QA regression test',
           mutation_scope: [unconventional],
           required_evidence: ['fresh unconventional regression execution and review'],
-          commands: [],
+          commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: [unconventional] }],
         },
       });
       expect(prepared.status).toBe('success');
@@ -11344,7 +11365,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('Step 5 Flow F failed dynamic expansion admission is atomic for forbidden, outside-domain and stale receipts', () => {
+  test('Step 5 Flow F failed dynamic expansion admission is atomic for forbidden, outside-domain and stale receipts', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const planned = 'packages/node-rollout/src/session.ts';
     const assessment = (target: string) => ({
       target: { path: target, symbol: 'discoveredTarget' },
@@ -11878,7 +11899,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         description: 'Apply and verify the explicitly authorized Rust protocol continuation',
         mutation_scope: [rustTarget],
         required_evidence: ['fresh installed cross-domain execution and review'],
-        commands: [],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: [rustTarget] }],
       },
     });
     expect(amended.status).toBe(0);

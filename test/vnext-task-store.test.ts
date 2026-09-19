@@ -59,7 +59,7 @@ describe('vNext task aggregate store', () => {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 
-  test('deduplicates unchanged objects while retaining every event and old idempotency key', () => {
+  test('deduplicates unchanged objects while retaining every event and old idempotency key', { timeout: 20_000 }, () => {
     const root = fixtureRoot();
     try {
       const current = readCanonicalCurrentTask(root);

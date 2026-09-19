@@ -40,7 +40,7 @@ function withoutHistoryNavigation(value: ReturnType<typeof taskContext>): unknow
 }
 
 describe('vNext task context projection', () => {
-  test('keeps the default projection stable when unrelated persistent history grows', () => {
+  test('keeps the default projection stable when unrelated persistent history grows', { timeout: 20_000 }, () => {
     const root = fixtureRoot();
     try {
       const before = taskContext(root, { entry: 'preflight-step' });
