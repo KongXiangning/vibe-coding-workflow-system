@@ -1,0 +1,36 @@
+name: E convergence fix workbench
+on:
+  push:
+    branches: [codex/e-convergence-fix-work-20260919]
+    paths: [.github/workflows/e-convergence-fix-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 4633c90f6e1fa2fbde7faf0398d5df725634be72
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Export exact source and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 4633c90f6e1fa2fbde7faf0398d5df725634be72
+          bun install --frozen-lockfile --ignore-scripts
+          target="$RUNNER_TEMP/e-fix-source"
+          mkdir -p "$target"
+          git archive HEAD | tar -x -C "$target"
+          cp -a node_modules "$target/node_modules"
+          tar -czf "$RUNNER_TEMP/e-fix-source.tgz" -C "$target" .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e-fix-source
+          path: ${{ runner.temp }}/e-fix-source.tgz
+          retention-days: 1
+          if-no-files-found: error
