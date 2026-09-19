@@ -1,0 +1,38 @@
+name: E design convergence source export
+on:
+  push:
+    branches: [codex/e-design-convergence-final-20260919]
+    paths: [.github/workflows/e-design-convergence-final.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: c21c8c8702ea69e7f81dfa35021bf390c8837e2f
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - name: Export exact source and validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = c21c8c8702ea69e7f81dfa35021bf390c8837e2f
+          bun install --frozen-lockfile --ignore-scripts
+          target="$RUNNER_TEMP/e-final"
+          mkdir -p "$target/source" "$target/tools"
+          git archive HEAD | tar -x -C "$target/source"
+          cp -a node_modules "$target/source/node_modules"
+          cp "$(command -v bun)" "$target/tools/bun"
+          printf '%s\n' c21c8c8702ea69e7f81dfa35021bf390c8837e2f > "$target/source-revision.txt"
+          tar -czf "$RUNNER_TEMP/e-final.tgz" -C "$RUNNER_TEMP" e-final
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e-final-source
+          path: ${{ runner.temp }}/e-final.tgz
+          retention-days: 1
+          if-no-files-found: error
