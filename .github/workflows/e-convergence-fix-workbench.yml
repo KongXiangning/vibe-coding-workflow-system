@@ -1,36 +1,105 @@
-name: E convergence fix workbench
+name: E convergence seam verification
 on:
   push:
     branches: [codex/e-convergence-fix-work-20260919]
-    paths: [.github/workflows/e-convergence-fix-workbench.yml]
+    paths:
+      - .github/workflows/e-convergence-fix-workbench.yml
 permissions:
   contents: read
 jobs:
-  export:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: 4633c90f6e1fa2fbde7faf0398d5df725634be72
+      PATCH_SHA256: 62485df82b4cb769e4b7bb8a643ebe4cd5e147171a6a1676eb45d8695ee5a80a
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 4633c90f6e1fa2fbde7faf0398d5df725634be72
-          persist-credentials: false
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.2
-      - name: Export exact source and dependencies
+      - name: Apply exact reviewed seam patch
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 4633c90f6e1fa2fbde7faf0398d5df725634be72
+          mkdir -p "$RUNNER_TEMP/e-fix-logs"
+          cp .e-fix-work/e-fix.patch "$RUNNER_TEMP/e-fix.patch"
+          test "$(sha256sum "$RUNNER_TEMP/e-fix.patch" | awk '{print $1}')" = "$PATCH_SHA256"
+          git checkout --detach "$BASE_SHA"
+          git apply --check "$RUNNER_TEMP/e-fix.patch"
+          git apply "$RUNNER_TEMP/e-fix.patch"
           bun install --frozen-lockfile --ignore-scripts
-          target="$RUNNER_TEMP/e-fix-source"
-          mkdir -p "$target"
-          git archive HEAD | tar -x -C "$target"
-          cp -a node_modules "$target/node_modules"
-          tar -czf "$RUNNER_TEMP/e-fix-source.tgz" -C "$target" .
+      - name: Validate Runtime contract and E source convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            bun run validate:vnext-runtime
+            bun run validate:vnext-source
+            bun test --timeout 60000 test/workflow-vnext-source.test.ts --test-name-pattern 'keeps E convergence aligned with implemented A-D boundaries'
+          } 2>&1 | tee "$RUNNER_TEMP/e-fix-logs/focused.log"
+      - name: Regenerate and verify freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            bun run gen:all
+            bun run validate:freshness
+            git diff --check
+          } 2>&1 | tee "$RUNNER_TEMP/e-fix-logs/generation.log"
+      - name: Verify exact mutation boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, subprocess
+          expected = {
+            '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
+            'docs/designs/workflow-vnext-target-architecture.md',
+            'runtime/vnext/src/kernel.ts',
+            'runtime/vnext/dist/cli.js',
+            'test/workflow-vnext-source.test.ts',
+          }
+          changed = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
+          assert changed == expected, (sorted(changed-expected), sorted(expected-changed))
+          target = pathlib.Path('docs/designs/workflow-vnext-target-architecture.md').read_text()
+          runtime = pathlib.Path('.workflow-system/vnext/RUNTIME_CONTRACT.yaml').read_text()
+          kernel = pathlib.Path('runtime/vnext/src/kernel.ts').read_text()
+          assert 'source_of_truth: CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate' in runtime
+          assert 'same-canonical-CURRENT_TASK-document' not in runtime
+          assert 'CURRENT_TASK head and its selected immutable roots as one canonical task aggregate' in kernel
+          assert 'The exact `CURRENT_TASK` schema extension is deferred to a later protocol task' not in target
+          assert 'exact CLI/API syntax remains deferred' not in target
+          assert '### 16.3 Deferred implementation details' not in target
+          assert '- Date: `2026-09-19`' in target
+          assert pathlib.Path('VERSION').read_text().strip() == '0.20.1'
+          assert not pathlib.Path('docs/ops/validation-selection/rollout-incident.json').exists()
+          PY
+      - name: Publish one clean candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git add --             .workflow-system/vnext/RUNTIME_CONTRACT.yaml             docs/designs/workflow-vnext-target-architecture.md             runtime/vnext/src/kernel.ts             runtime/vnext/dist/cli.js             test/workflow-vnext-source.test.ts
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n'             'fix(vnext): align canonical aggregate wording and close E deferred seams'             'Align the Runtime Contract with compact-v3 canonical head plus selected immutable roots, and replace implemented-but-deferred Target Architecture wording with intentionally non-normative implementation boundaries. No task-store, lifecycle, selection, version, or target-project behavior is expanded.'             | git commit-tree "$tree" -p "$BASE_SHA")
+          candidate_branch="codex/e-convergence-fix-verified-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          git push origin "$commit:refs/heads/$candidate_branch"
+          printf 'BASE_SHA=%s\nCOMMIT_SHA=%s\nTREE_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$commit" "$tree" "$candidate_branch" | tee "$RUNNER_TEMP/e-fix-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit"             -f state=success             -f context=vnext/e-convergence-seam-fix             -f description='Canonical aggregate contract and deferred-design seam checks passed'             -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: e-fix-source
-          path: ${{ runner.temp }}/e-fix-source.tgz
-          retention-days: 1
-          if-no-files-found: error
+          name: e-convergence-seam-verification
+          path: ${{ runner.temp }}/e-fix-logs/
+          retention-days: 3
+          if-no-files-found: warn
