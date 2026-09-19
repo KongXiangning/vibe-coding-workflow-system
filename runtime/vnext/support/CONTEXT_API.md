@@ -253,14 +253,17 @@ Use the current entry's existing result and Runtime input, not a new conflict fi
   confirmation while unresolved choices remain. Replan still needs its existing
   lifecycle prerequisite; authorization does not bypass a frozen task revision.
 - **Execute:** resolve the comparison before preflight/writes where possible. If
-  it remains unresolved, return it in `change-result.blocker` with the user/replan
-  recommendation and stop the affected execution. If already executing, preserve
-  actual writes and results; `record-step-result` may record `outcome: blocked` with
-  the conflict in `note` only when an actual planned command/validation is failed
-  or blocked. Never invent a check result or classify a requirement conflict as
-  an environment failure to unlock retry. Otherwise return the blocker without
-  claiming a Runtime state transition. An authorized correction outside the frozen
-  plan must go through replan before implementation.
+  it remains unresolved, return it in `change-result.blocker` with the exact owner
+  route and stop the affected execution: unresolved user-owned behavior returns to
+  the user; additive write authority uses `prepare-task:amend-scope`; a
+  source-determined bounded correction uses the supported correction/replan
+  candidate; genuine goal/scope/acceptance invalidation uses lifecycle supersede
+  and only a later explicit replacement request may prepare a fresh successor.
+  If already executing, preserve actual writes and results; `record-step-result`
+  may record `outcome: blocked` with the conflict in `note` only when an actual
+  planned command/validation is failed or blocked. Never invent a check result or
+  classify a requirement conflict as an environment failure to unlock retry.
+  Otherwise return the blocker without claiming a Runtime state transition.
 - **Review draft:** include saved references and independently selected sources.
   Use the existing `authority-conflict` finding with `source_refs`, `request_refs`,
   `draft_refs`, `impact`, and `correction_basis`. Use `needs-user` only for a remaining

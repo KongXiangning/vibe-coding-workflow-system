@@ -460,6 +460,10 @@ describe('vNext Phase 2 source contract', () => {
     expect(support).toContain('An explicit later replacement request uses');
     expect(debug).toContain('may recommend a fresh successor only when the caller has an explicit replacement request');
     expect(debug).not.toContain('A task already `superseded` may recommend `prepare-task:replan`');
+    expect(debug).not.toContain('optional user/replan recommendation');
+    expect(debug).toContain('Do not use generic replan as a substitute for that classification');
+    expect(support).not.toContain('with the user/replan recommendation');
+    expect(support).toContain('additive write authority uses `prepare-task:amend-scope`');
     expect(runtimeContract).toContain('changed_goal_scope_acceptance: bounded-correction-amendment-or-supersede-successor');
     expect(sourceContract).toContain('minimum-sufficient whole evidence set by detection, real boundary, and total cost');
 
