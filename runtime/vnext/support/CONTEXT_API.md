@@ -397,9 +397,13 @@ preflight.
 The legacy `prepare-task:prepare-replan` / `correction-replan/v2` route keeps
 `permission_change: none` and cannot consume a scope-amendment receipt.
 
-The current Runtime has no non-completion successor transition. A superseded
-task cannot create a new draft (`REPLACEMENT_OUTCOME_UNSUPPORTED`); keep its
-unfinished obligations visible instead of closing it as completed.
+Ordinary `prepare-draft` remains closed for a superseded task
+(`REPLACEMENT_OUTCOME_UNSUPPORTED`), so unfinished obligations cannot be hidden by
+pretending the predecessor completed. An explicit later replacement request uses
+the separate `prepare-successor` route described below: it keeps the predecessor
+superseded, binds every old slot/open finding to carry-forward or retirement, and
+creates a fresh unexecuted draft identity that still requires normal confirmation.
+Supersede by itself never authorizes that successor.
 
 Unchanged old reports remain unmodified and may satisfy a new plan only through
 Runtime-generated `evidence-carry-forward/v2` records. The old_source_revision and

@@ -1,6 +1,6 @@
 # Workflow vNext 测试策略、执行与评审机制讨论结论
 
-- **Status:** `Historical discussion / selected conclusions superseded by vnext-business-evidence / implementation pending`
+- **Status:** `Historical discussion / superseded where marked; implemented A–D behavior is summarized by E convergence`
 - **Date:** `2026-09-11`
 - **Scope:** `prepare-task、execute-step、review-testcase、review-change、Runtime 测试证据与测试复用`
 - **Behavior impact:** `proposal only; current Runtime 尚未完整实现本文方案`
@@ -11,6 +11,15 @@
   - [`workflow-vnext-target-architecture.md`](workflow-vnext-target-architecture.md)
   - [`workflow-vnext-implementation-blueprint.md`](workflow-vnext-implementation-blueprint.md)
   - [`workflow-vnext-phase1-prototype-assessment.md`](../product/workflow-vnext-phase1-prototype-assessment.md)
+
+## 2026-09-19 E：最终效力说明
+
+本文继续作为讨论历史保存，不能作为当前 Runtime/Skill 的实施指令。A–D 已实现后的现行原则以 Target Architecture、Runtime/Source Contract、Skill 和 `vnext-design-convergence.md` 为准。除下表已有替代项外，再明确两点：
+
+- minimum-sufficient 是**完整必要 evidence set** 的检出力/边界/总体成本判断，不是“每个 check 都必须最 focused”；合法的用户/项目/发布或契约/风险 breadth 不因存在 focused selector 而失效。
+- supersede 不再导向通用 same-task replacement；bounded correction、`amend-scope` 与显式 fresh successor 是不同执行出口。旧文中的 `review-testcase`、全局 Test ID/catalog、final full regression、默认强制 Red 和通用 same-task replan 均不得从历史段落恢复。
+
+本文后续所有“最终方案”“应新增”“必须”等措辞都受这一效力说明和 2026-09-11 替代表约束。
 
 ## 2026-09-11 S0：本轮方向替代范围
 

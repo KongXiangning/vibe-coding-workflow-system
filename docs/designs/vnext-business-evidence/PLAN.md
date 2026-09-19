@@ -6,6 +6,8 @@
 
 推荐包路径：`docs/designs/vnext-business-evidence/`。若实际位置不同，后续提示词使用实际位置，不要额外复制一份。本文是设计规格；HANDOFF 是本次重构的交接记录，二者都不代替产品 Runtime 的 canonical task state。
 
+> **2026-09-19 E 收敛说明：** 本文保留为业务证据重构的历史实施规格。A–D 已落地后的现行行为以 `workflow-vnext-target-architecture.md`、Runtime/Source Contract、Skill 与 `vnext-design-convergence.md` 为准。特别是：minimum-sufficient 评价完整 evidence set 而非逐 check 强制最窄粒度；合法用户/项目/发布宽验证义务必须保留；scope/验收/目标变化不再统一表述为 same-task `supersede/replan`，应按 bounded correction、`amend-scope` 或显式 fresh successor 分流。
+
 ## 0. 用户目标、原进度与本次纠偏
 
 用户不要求默认严格 TDD。目标是：避免一次简单功能甚至文案修改自动生成大量无价值测试；必要单元测试必须锚定已确认业务要求、契约、缺陷或相关关键风险；需要跨组件完成的业务目标不能靠局部测试全绿冒充可用；适合的业务流程需要实际验证。不是一律少测，也不是一律新增 E2E。
@@ -105,7 +107,7 @@ Runtime 强制已确认的定义、身份关联、范围、结果结构、版本
 
 一次运行可以支持多个已映射槽位，但不能因共享一条 evidence_ref 就自动满足所有 claim。类型之间不建立“E2E 永远比 unit 高，因此随便替代”的总序。
 
-minimum-sufficient 同时约束 required execution set。prepare-task 应先确定“为这个 claim 必须观察什么”，再选择能够产生该观察的最小检查集合；不得默认把整个测试文件、Cargo/Node test target、package test script、repository regression 或最终 full suite 作为 required evidence。只有存在明确的共享契约/关键风险/影响不确定性、适用的项目或发布 gate、或用户显式要求时，才把更宽回归纳入 required set，并记录为什么更窄的 focused unit、函数链或业务流程检查不足。为了方便而多跑、历史习惯、coverage 偏好或“顺便确认一下”不能单独构成准入理由。
+minimum-sufficient 同时约束 required execution set，而且评价的是**完整 evidence set 的检出力、真实边界与总体成本**，不是逐 check 强制最低 granularity。prepare-task 先确定“为这个 claim 必须观察什么”，再比较能够产生这些观察并保留独立用户/项目/发布义务的最小充分集合；不得默认把整个测试文件、Cargo/Node target、package script、repository regression 或最终 full suite 当成 required evidence。若一个较宽 invocation 以更低总体成本覆盖多个必要观察，或有独立的用户/项目/发布/契约/风险义务，可保留其合法 breadth；这不产生新的 authority 类型，仍需原有 basis/source。为了方便、历史习惯、coverage 偏好或“顺便确认一下”不能单独构成准入理由。
 
 执行型证据优先按实际 claim 边界选择：局部逻辑优先 focused unit/function-chain；跨组件业务语义优先真实 integration/business-flow；E2E 只在真实端到端边界本身属于验收内容或较低成本证据无法建立结论时使用。E2E 的高成本、环境脆弱性和诊断半径必须作为 admission 成本考虑，而不是最终步骤的默认仪式。
 
@@ -200,7 +202,7 @@ prepare-task 不再给每步硬编码 required；从已确认的风险/逻辑边
 
 retry 不能改变测试期望、跳过检查、修改 scope、清空 findings、沿用已失效 clean review 或直接把 blocked 改 completed。环境状态好转不代表业务已经验证通过。
 
-需要修改代码/fixture 时走已有 admitted execution/repair 权限；需要改变验收或范围才走 supersede/replan。证据不足、预算耗尽或需外部授权时阻断并说明真实后续路线，不伪造 finding 来解锁，不要求为一次临时故障重做整个任务。
+需要修改代码/fixture 时走已有 admitted execution/repair 权限。需要改变义务但不扩大总 authority 的历史结论/执行恢复走 bounded correction；已有明确 additive authority 决定走 `amend-scope`；真正 goal/scope/acceptance 失效可 supersede，而后续替代必须有显式用户请求并通过 fresh successor，而不是统一 whole-task replan。证据不足、预算耗尽或需外部授权时阻断并说明真实后续路线，不伪造 finding 来解锁，不要求为一次临时故障重做整个任务。
 
 ## 7. 最小版本与安全措施
 

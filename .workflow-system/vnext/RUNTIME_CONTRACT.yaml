@@ -881,7 +881,7 @@ mutation_scope:
     conventional_paths: runtime-classified
     nonconventional_paths: caller-declared
     legacy_missing_section: compatibility-unenforced
-  changed_goal_scope_acceptance: supersede-or-replan
+  changed_goal_scope_acceptance: bounded-correction-amendment-or-supersede-successor
   check_command: scope-check
   input:
     required:

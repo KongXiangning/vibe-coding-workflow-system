@@ -128,15 +128,19 @@ location, preserves or intentionally changes the confirmed contract, and has
 adequate consumer/regression validation. Uncertainty or competing plausible
 directions is `escalate`.
 
-Every self-admitted unplanned target sets `dynamic_review_required` and is
-included in cumulative review coverage. If the target is discovered after an
-ordinary preflight has already admitted another path, call the internal
-`extend-preflight` action with the current receipt, additional targets and
-assessments. Runtime captures each new target's before-state before first
-mutation, keeps the same task/step/attempt/plan revision, does not consume a
-retry slot or create a continuation, and returns a replacement receipt. The
-subsequent result must use that newest receipt. A clean cumulative
-`review-change` result is required before step completion.
+Every self-admitted unplanned target is retained in the execution-scoped
+expansion record. `dynamic_review_required` is true only when the retained
+assessment requires it: local/private/no-consumer/no-contract-impact discovery
+does not add a checkpoint by itself, while elevated, shared/public,
+cross-component, contract-impact or uncertain material requires cumulative
+review. If the target is discovered after an ordinary preflight has already
+admitted another path, call the internal `extend-preflight` action with the
+current receipt, additional targets and assessments regardless of review depth.
+Runtime captures each new target's before-state before first mutation, keeps the
+same task/step/attempt/plan revision, does not consume a retry slot or create a
+continuation, and returns a replacement receipt. The subsequent result must use
+that newest receipt. A clean cumulative `review-change` result is required only
+when the ordinary checkpoint or the retained expansion assessment requires it.
 
 Before a v2 draft becomes a confirmed definition, Runtime proves all declared
 `planned_mutation_targets`, exact command writes, bounded command footprints,

@@ -344,7 +344,7 @@ capabilities:
       - 'global/domain/permanent/schema invariants require confirmed owner_source contract or user authority, shared or critical impact, and existing evidence for an explicit Contract/Decision or user-owned design/contract decision'
       - 'initial/default acceptance and current-task exclusion must not be upgraded into a global/permanent restriction; confirmed current acceptance may control bounded task behavior but does not rewrite future design/baseline semantics unless an explicit contract/design decision changes them'
       - proposed minimum-sufficient evidence type and expected disposition
-      - 'execution selection is claim-bound and frozen: focused selector first for local logic; whole target, E2E, and broad regression require explicit scope/breadth reason and allowed basis'
+      - 'execution selection is claim-bound and frozen: choose the minimum-sufficient whole evidence set by detection, real boundary, and total cost; focused is preferred only when equally effective and no broader independently authorized obligation is lost; target, E2E, and broad regression require explicit scope/breadth reason and allowed basis'
       - 'business-flow claims retain integration/flow evidence and cannot be completed by accumulated local unit PASS results'
       - 'evidence types may include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance'
       - 'evidence-plan decision: whether new evidence is needed, minimum-sufficient type, existing-check reuse, temporary exploration, and failure route'

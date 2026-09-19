@@ -119,15 +119,19 @@ duplicative, or contract-breaking. An elevated/high target may still be
 self-admitted when its root-cause and regression/consumer evidence is strong;
 uncertainty or multiple plausible directions escalates to the user.
 
-Every self-admitted planned-footprint expansion sets
-`dynamic_review_required` and enters cumulative review coverage. If discovery
-happens after another path has already been modified, the Agent calls the
-internal `execute-step:extend-preflight` action with the current receipt,
-additional targets, assessments and evidence references. Runtime captures the
-new paths' before-state before first touch, returns a replacement receipt,
-keeps the same attempt and plan revision, does not consume retry budget, and
-does not create a continuation. Results must use the newest receipt. A clean
-cumulative `review-change` is mandatory before completion.
+Every self-admitted planned-footprint expansion is retained in audit, but
+`dynamic_review_required` is selected from the assessment rather than from the
+fact that the target was unplanned. A local/private/no-consumer/no-contract-impact
+self-admission adds no checkpoint by itself; elevated, shared/public,
+cross-component, contract-impact or uncertain expansion retains cumulative
+review. If discovery happens after another path has already been modified, the
+Agent calls the internal `execute-step:extend-preflight` action with the current
+receipt, additional targets, assessments and evidence references regardless of
+review depth. Runtime captures the new paths' before-state before first touch,
+returns a replacement receipt, keeps the same attempt and plan revision, does
+not consume retry budget, and does not create a continuation. Results must use
+the newest receipt. A clean cumulative `review-change` is mandatory only when
+the retained assessment or ordinary checkpoint requires it.
 
 An existing test file inside the envelope follows ordinary expansion, while
 the assessment and review must cover oracle/reuse/boundary changes. A new

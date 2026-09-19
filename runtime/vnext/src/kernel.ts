@@ -3258,7 +3258,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || mutationScopeContract.ordinary_write_scope !== 'exact-file-or-file-plus-symbol'
     || mutationScopeContract.broad_glob_requires !== 'inherently-broad-transformation'
     || mutationScopeContract.conditional_expansion_requires !== 'evidence-and-authority'
-    || mutationScopeContract.changed_goal_scope_acceptance !== 'supersede-or-replan'
+    || mutationScopeContract.changed_goal_scope_acceptance !== 'bounded-correction-amendment-or-supersede-successor'
     || mutationScopeContract.check_command !== 'scope-check'
   ) {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime mutation scope contract must keep the frozen default-deny and read/write separation semantics.');

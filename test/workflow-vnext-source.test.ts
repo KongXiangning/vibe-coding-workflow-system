@@ -412,6 +412,64 @@ describe('vNext Phase 2 source contract', () => {
     expect(readme).toContain('新提交的删除不清除旧 Git 历史');
   });
 
+  test('keeps E convergence aligned with implemented A-D boundaries', () => {
+    const target = fs.readFileSync(
+      fixtureFile(ROOT, 'docs/designs/workflow-vnext-target-architecture.md'),
+      'utf8',
+    );
+    const convergence = fs.readFileSync(
+      fixtureFile(ROOT, 'docs/designs/vnext-design-convergence.md'),
+      'utf8',
+    );
+    const protocol = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md'),
+      'utf8',
+    );
+    const schemas = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/bootstrap/FILE_SCHEMAS.md'),
+      'utf8',
+    );
+    const support = fs.readFileSync(
+      fixtureFile(ROOT, 'runtime/vnext/support/CONTEXT_API.md'),
+      'utf8',
+    );
+    const debug = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/debug-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const runtimeContract = fs.readFileSync(
+      fixtureFile(ROOT, '.workflow-system/vnext/RUNTIME_CONTRACT.yaml'),
+      'utf8',
+    );
+    const sourceContract = fs.readFileSync(
+      fixtureFile(ROOT, '.workflow-system/vnext/SOURCE_CONTRACT.yaml'),
+      'utf8',
+    );
+
+    expect(target).toContain('### 3.1 A–D implementation convergence status');
+    expect(target).toContain('minimum-sufficient **whole evidence set**');
+    expect(target).toContain('explicit `prepare-successor`');
+    expect(target).toContain('local/private/no-consumer/no-contract-impact self-admission adds no checkpoint');
+    expect(target).toContain('`implemented-dogfood-pending`');
+    expect(target).not.toContain('Every unplanned self-admission sets `dynamic_review_required`');
+    expect(target).not.toContain('its only normal exit is a successful same-task `prepare-task:replan`');
+    expect(target).not.toContain('`review-change:report-only` changes terminal semantics');
+
+    expect(protocol).toContain('`dynamic_review_required` is selected from the assessment');
+    expect(schemas).toContain('local/private/no-consumer/no-contract-impact discovery');
+    expect(support).toContain('An explicit later replacement request uses');
+    expect(debug).toContain('may recommend a fresh successor only when the caller has an explicit replacement request');
+    expect(debug).not.toContain('A task already `superseded` may recommend `prepare-task:replan`');
+    expect(runtimeContract).toContain('changed_goal_scope_acceptance: bounded-correction-amendment-or-supersede-successor');
+    expect(sourceContract).toContain('minimum-sufficient whole evidence set by detection, real boundary, and total cost');
+
+    expect(convergence).toContain('P-01 — public entry represents intent');
+    expect(convergence).toContain('P-12 — minimum-sufficient evidence');
+    expect(convergence).toContain('Fresh-Agent minimum-sufficient selection');
+    expect(convergence).toContain('Longitudinal task storage growth');
+    expect(fs.existsSync(fixtureFile(ROOT, 'docs/ops/validation-selection/rollout-incident.json'))).toBe(false);
+  });
+
   test('requires the execute-step scope guard', () => {
     const root = copyFixture();
     replaceIn(
