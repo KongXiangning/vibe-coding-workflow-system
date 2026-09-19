@@ -57,7 +57,8 @@
 - 业务项目长期 legacy + vNext 共存、复杂 legacy fallback、所有 vNext reader 长期 version-aware——均不属于产品架构。
 - shadow runner、沙盒验证、12-case 自动对照和原型测试作为正式质量门——均降级为 experimental/reference。
 
-遇到旧 schema 时，当前 vNext 行为是：
+原型当时把旧 schema 约束为以下结果；该规则已被后续目标决策废弃，
+不能再作为当前 Runtime、Installer 或测试要求：
 
 ```text
 migration-required

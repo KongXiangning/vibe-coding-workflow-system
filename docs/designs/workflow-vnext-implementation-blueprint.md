@@ -131,7 +131,7 @@ read back canonical Markdown/YAML and return structured result
 
 其中：
 
-- `project-context-resolver` 只读并返回 source locator、authority、relevance、freshness、conflict 和 exclusion trace；不会把旧 schema 转成新 schema。
+- `project-context-resolver` 只读并返回 source locator、authority、relevance、freshness、conflict 和 exclusion trace；只接受受支持的 vNext schema，不把旧 schema 转成新 schema。识别旧项目或提供迁移提示不是其产品目标或验收要求，但实现可为内部安全保留检测。
 - adaptive depth 只决定可选规划与证据的深度，不能跳过 authority、scope、decision、dangerous、evidence 等必需 gate。
 - capability 之间可以共同评估或按需加载，不能再写成 `scope-review → implementation-review → contract-review` 一类 public BPM 链。
 - `review-change`、`validate-change`、`debug-task` 的 report-only 分支都必须有明确 terminal result，不得隐式发起 handoff 或写入状态。
@@ -566,7 +566,7 @@ recovery mode。
 
 ## 6. Migration Pack 与 vNext 的硬边界
 
-Migration Pack 不属于上面的 vNext entry 或 capability graph。它只在旧项目满足 idle precondition 时运行：
+Migration Pack 不属于上面的 vNext entry 或 capability graph，也不是 Runtime 在发现旧项目后给出的 fallback。只有用户或 operator 显式调用该独立工具时，它才检查旧项目是否满足 idle precondition：
 
 ```text
 old project is idle
@@ -608,14 +608,14 @@ old Markdown
 
 Pack 必须保留原始文本和权威事实，不要求 AI 重新理解历史语义；不得猜 Lesson 的 symbol 适用范围、语义重复关系、semantic tags 或 inferred merge/supersede。上述判断留给未来 vNext 的 `project-context-resolver` 和显式的 `knowledge-admission-policy`，而不是迁移时批量重写历史。
 
-`CURRENT_TASK` 不作热迁移输入：0.18.0 允许显式、身份/hash 绑定的旧完成认定，并备份原文；active finding repair 和 interrupted runtime state 仍拒绝。明确声明的 paused 文件原路径原字节保留，不转成 vNext 恢复状态，后续仅在用户单独请求后读取并确认新计划。检测到旧或不支持的 schema 时，vNext 只返回：
+`CURRENT_TASK` 不作热迁移输入：0.18.0 允许显式、身份/hash 绑定的旧完成认定，并备份原文；active finding repair 和 interrupted runtime state 仍拒绝。明确声明的 paused 文件原路径原字节保留，不转成 vNext 恢复状态，后续仅在用户单独请求后读取并确认新计划。正常 vNext Runtime 不以识别旧项目或返回迁移提示为产品目标和验收要求。只有输入已经声明为 vNext、但 schema/kind/version 非法或不受支持时，才沿用现有 schema validation fail closed：
 
 ```text
-migration-required
+existing vNext schema validation failure
 → stop
 ```
 
-vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期 version-aware reader 或业务项目双轨安装。
+vNext Skills 不负责理解或兼容旧协议；不存在 legacy fallback、长期 version-aware reader 或业务项目双轨安装。旧项目探测和迁移提示不作为 vNext Runtime 的产品承诺，是否为内部安全保留检测不由本目标架构禁止。显式迁移请求直接进入独立 Migration Pack，而不是依赖 vNext Runtime 的提示。
 
 0.18.0 的正常分发入口为 `migrate --root <target> --decisions-file <json>`，先用
 `--dry-run` 核对写入/删除清单。决定必须包含精确 target identity、旧 CURRENT_TASK
@@ -680,7 +680,7 @@ legacy compatibility layer。
 - Evidence-first、persistent-test 默认不准入、read/discovery 与 mutation authority 分离、v1 精确 write scope、v2 planned footprint guidance + in-envelope assessment/self-admission、risk-based review checkpoint、risk-selected dynamic expansion review (low-risk private/local discovery adds no checkpoint)、repair verification 和 durable step advancement 语义均已冻结；
 - 每一项治理持久化写入都映射到一个 exact Runtime handler，且没有 generic document editor；
 - 普通任务的 Contract / Decision final knowledge admission 在 `close-task` 中完成；archive 保存 admission provenance，Implementation Anchors 仅作为可选的 observed navigation hints，由未来消费者按当前代码实时验证和扩散；
-- Migration Pack 与 vNext runtime 完全分离，旧 schema 在 vNext 中只能得到 `migration-required → stop`；
+- Migration Pack 与 vNext Runtime 完全分离，只能由用户/operator 显式调用；旧项目识别或迁移提示不是 vNext Runtime 的产品目标或验收要求，只有自声明 vNext 的非法/不受支持 schema 才沿用现有 schema validation fail closed；
 - 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是 vNext Distribution，治理事实仍须通过独立 `bootstrap-project` Agent Skill 建立；Bootstrap 只建立/协调治理资产，Distribution software 由 Distribution lifecycle 单独拥有。
 - Phase 1A source validator 对三个模板、闭集 mode、零写入 review、引用闭合、内部 capability exposure 和旧 Skill 禁止规则有直接测试；测试不替代人工检查模板是否真正表达单一 intent。
 

@@ -81,6 +81,16 @@ The Task Store does not gain authority from physical existence alone. A proposal
 
 Historical discussion/HANDOFF material may retain old terminology as provenance when clearly marked superseded. It must not be used to reintroduce these rules into current contracts or installed Skills.
 
+The earlier rule that a normal vNext entry must recognize an old workflow-system
+schema and return `migration-required` is also superseded. Legacy detection,
+compatibility behavior, and migration reminders are not vNext Runtime product
+goals or acceptance requirements; the architecture neither requires nor forbids
+an implementation from recognizing such input for internal safety. The separate
+Migration Pack remains available through an explicit operator invocation. An
+input that declares itself as vNext but carries an invalid or unsupported vNext
+schema still fails closed through the existing schema-validation boundary; this
+decision introduces no new error category.
+
 ## 5. What E changed
 
 ### Architecture and design
