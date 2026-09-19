@@ -1,4 +1,4 @@
-name: E design convergence source export
+name: E design convergence focused verification
 on:
   push:
     branches: [codex/e-design-convergence-final-20260919]
@@ -6,33 +6,113 @@ on:
 permissions:
   contents: read
 jobs:
-  export:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: c21c8c8702ea69e7f81dfa35021bf390c8837e2f
+      PATCH_SHA256: 02367bb7e259fc0837a593a7b0eee598ff92878de91a28be9ca97f326736f50e
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: c21c8c8702ea69e7f81dfa35021bf390c8837e2f
-          persist-credentials: false
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.2
-      - name: Export exact source and validation dependencies
+      - name: Apply exact reviewed E convergence patch
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = c21c8c8702ea69e7f81dfa35021bf390c8837e2f
+          mkdir -p "$RUNNER_TEMP/e-logs"
+          cp .e-final-work/manifest.json "$RUNNER_TEMP/e-manifest.json"
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib
+          root = pathlib.Path('.e-final-work')
+          encoded = ''.join((root / f'patch-{i}.b64').read_text().strip() for i in range(1, 7))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          expected = os.environ['PATCH_SHA256']
+          actual = hashlib.sha256(patch).hexdigest()
+          assert actual == expected, (actual, expected)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'e.patch').write_bytes(patch)
+          PY
+          git checkout --detach "$BASE_SHA"
+          git apply --check "$RUNNER_TEMP/e.patch"
+          git apply "$RUNNER_TEMP/e.patch"
+          git add -N docs/designs/vnext-design-convergence.md
           bun install --frozen-lockfile --ignore-scripts
-          target="$RUNNER_TEMP/e-final"
-          mkdir -p "$target/source" "$target/tools"
-          git archive HEAD | tar -x -C "$target/source"
-          cp -a node_modules "$target/source/node_modules"
-          cp "$(command -v bun)" "$target/tools/bun"
-          printf '%s\n' c21c8c8702ea69e7f81dfa35021bf390c8837e2f > "$target/source-revision.txt"
-          tar -czf "$RUNNER_TEMP/e-final.tgz" -C "$RUNNER_TEMP" e-final
+      - name: Validate contracts and source convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            bun run validate:vnext-runtime
+            bun run validate:vnext-source
+            bun run validate:protocol
+            bun test --timeout 60000 test/workflow-vnext-source.test.ts
+          } 2>&1 | tee "$RUNNER_TEMP/e-logs/contracts-source.log"
+      - name: Validate A-D boundary protections used by E
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATTERN='freezes minimum-sufficient test selection|storage migration preserves issued draft and execution receipts|process-control review waiver|process-control equivalent validation replacement|process-control successor publication retains|process-control successor preserves unfinished|process-control rejects an incompatible human method|shared minimum-sufficient validation matrix|process-control dynamic review follows assessed risk'
+          bun test --timeout 60000 test/vnext-runtime.test.ts --test-name-pattern "$PATTERN" 2>&1 | tee "$RUNNER_TEMP/e-logs/runtime-protections.log"
+      - name: Validate bounded model-facing context protections
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun test --timeout 60000 test/vnext-task-context.test.ts --test-name-pattern 'keeps the default projection stable|paginates required Unicode context|binds task-read and task-export continuations' 2>&1 | tee "$RUNNER_TEMP/e-logs/context.log"
+          bun test --timeout 60000 test/vnext-task-store.test.ts --test-name-pattern 'keeps exact current/history reads bounded' 2>&1 | tee "$RUNNER_TEMP/e-logs/store.log"
+      - name: Regenerate and verify exact final bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run gen:all 2>&1 | tee "$RUNNER_TEMP/e-logs/generation.log"
+          bun run validate:freshness 2>&1 | tee "$RUNNER_TEMP/e-logs/freshness.log"
+          git diff --check
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          expected = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'e-manifest.json').read_text())
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          assert changed == set(expected), (sorted(changed-set(expected)), sorted(set(expected)-changed))
+          for path, digest in expected.items():
+              actual = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+              assert actual == digest, (path, actual, digest)
+          forbidden = {'VERSION', 'package.json'}
+          assert not (changed & forbidden), changed & forbidden
+          assert not any(p.startswith('.github/') or p.startswith('.e-final-work/') for p in changed)
+          assert not pathlib.Path('docs/ops/validation-selection/rollout-incident.json').exists()
+          print('Exact E convergence bytes and publication boundaries verified.')
+          PY
+      - name: Publish one clean candidate from the product parent
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t paths < <(python3 - <<'PY'
+          import json, os, pathlib
+          data = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'e-manifest.json').read_text())
+          for path in data: print(path)
+          PY
+          )
+          git add -- "${paths[@]}"
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only -- .github .e-final-work VERSION package.json)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n'             'docs(vnext): converge target architecture with implemented workflow'             'Phase E reconciles the target architecture and supporting design/source contracts with implemented A-D behavior. It preserves bounded user/model authority outlets, compact canonical task storage, bounded model-facing context, whole-set minimum-sufficient validation, and Mutation Authority v2 envelope semantics while recording dogfood-only limits. No new public entry, lifecycle state, gate, registry, quota, release, or target-project install is introduced.'             | git commit-tree "$tree" -p "$BASE_SHA")
+          branch="codex/e-convergence-verified-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git push origin "$commit:refs/heads/$branch"
+          printf 'BASE_SHA=%s\nCOMMIT_SHA=%s\nTREE_SHA=%s\nBRANCH=%s\n' "$BASE_SHA" "$commit" "$tree" "$branch" | tee "$RUNNER_TEMP/e-logs/candidate.txt"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit"             -f state=success             -f context=vnext/e-design-convergence             -f description='A-D design/source convergence and focused protections passed; dogfood effects remain pending'             -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
-          name: e-final-source
-          path: ${{ runner.temp }}/e-final.tgz
-          retention-days: 1
-          if-no-files-found: error
+          name: e-design-convergence-verification
+          path: ${{ runner.temp }}/e-logs/
+          retention-days: 3
+          if-no-files-found: warn
