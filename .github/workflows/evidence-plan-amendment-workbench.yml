@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          bun-version: 1.4.2
+          bun-version: 1.3.10
       - name: Verify transport and apply exact bounded amendment
         run: |
           set -euo pipefail
@@ -49,7 +49,7 @@ jobs:
             "$@" > "$RUNNER_TEMP/amend-logs/$name.log" 2>&1
             result=$?
             echo "$name=$result" | tee -a "$RUNNER_TEMP/amend-logs/summary.txt"
-            tail -80 "$RUNNER_TEMP/amend-logs/$name.log"
+            tail -100 "$RUNNER_TEMP/amend-logs/$name.log"
             if test "$result" -ne 0; then rc=1; fi
           }
           run_group runtime-contract bun run validate:vnext-runtime
@@ -76,7 +76,7 @@ jobs:
           mkdir -p "$dest"
           cp "$RUNNER_TEMP/amend-logs/"* "$dest/"
           cd "$RUNNER_TEMP/amend-evidence"
-          git add -- .amend-work/results
+          git add -f -- .amend-work/results
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "chore(dev): retain evidence amendment verification $GITHUB_RUN_ID"
