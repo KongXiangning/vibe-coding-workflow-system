@@ -355,6 +355,22 @@ evidence, then submit the caller/host readiness receipt bound to the exact task,
 document, source revision, and gate reasons through `clear-resume-review`. Do not
 redesign the task or reconstruct the receipt from current state.
 
+If the exact pending review is blocked with `REPAIR_BUDGET_EXHAUSTED`, do not
+route that state through correction replan: the pending review and in-progress
+findings are the repair authority that must be retained. After the user explicitly
+authorizes one additional bounded attempt for every currently exhausted finding,
+submit `extend-repair-budget` with exactly `{review_id, finding_fingerprints,
+additional_repair_attempts: 1, decision_source, decision_text}`. Runtime requires
+the exact pending review and exact exhausted set, appends the decision to Task
+Basis, increments each selected finding by one, and preserves attempts, statuses,
+review baseline, task definition, identity, and pending review. It never clears
+or resets the failed history. The default limits remain two attempts per finding
+and three repair waves per cycle; explicit extensions are capped at eight each.
+An unconsumed extension routes directly to `execute-step:repair`; the fresh repair
+result and verification consume it. A different or additional extension requires
+a later explicit decision after another real exhaustion. Without that decision,
+return the user-owned blocker and do not manufacture a replan candidate.
+
 In `confirm` mode, submit the user's explicit confirmation through
 `confirm-draft` with the exact confirmation receipt returned by the committed
 draft; do not reconstruct it from the current task. Report the result and stop.

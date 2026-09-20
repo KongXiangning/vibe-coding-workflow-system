@@ -181,7 +181,6 @@ function isBootstrapForbiddenDistributionPath(relative: string): boolean {
 
 function isBootstrapGovernancePath(relative: string): boolean {
   return relative === 'AGENTS.md'
-    || relative === 'CLAUDE.md'
     || relative === '.workflow-system/PROJECT_PROFILE.yaml'
     || relative.startsWith('docs/workflow/')
     || relative.startsWith('docs/designs/')

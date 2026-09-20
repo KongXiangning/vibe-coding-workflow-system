@@ -567,17 +567,14 @@ describe('workflow-runtime install', () => {
         expect(fs.existsSync(getWorkflowProfilePath(targetRoot))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'VERSION'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'AGENTS.md'))).toBe(true);
-        expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(true);
+        expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(false);
         expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, '.workflow-system', 'install-state.json'))).toBe(true);
         expect(fs.existsSync(path.join(targetRoot, 'scripts', 'workflow-runtime.ts'))).toBe(true);
         const agentsGuidance = fs.readFileSync(path.join(targetRoot, 'AGENTS.md'), 'utf8');
-        const claudeGuidance = fs.readFileSync(path.join(targetRoot, 'CLAUDE.md'), 'utf8');
         const bootstrapGuide = fs.readFileSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'), 'utf8');
         expect(agentsGuidance).toContain('/sync-host-guidance');
         expect(agentsGuidance).toContain('/realign-workflow-assets');
-        expect(claudeGuidance).toContain('/sync-host-guidance');
-        expect(claudeGuidance).toContain('/realign-workflow-assets');
         expect(bootstrapGuide).toContain('/legacy-inventory');
         expect(bootstrapGuide).toContain('/adopt-existing-project');
         expect(bootstrapGuide).toContain('/realign-workflow-assets');
@@ -600,7 +597,7 @@ describe('workflow-runtime install', () => {
         expect(fs.existsSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-adopt-existing-project', 'SKILL.md'))).toBe(true);
         const greenfieldInit = fs.readFileSync(path.join(targetRoot, '.codex', 'skills', 'workflow-system-greenfield-init', 'SKILL.md'), 'utf8');
         expect(greenfieldInit).toContain('AGENTS.md');
-        expect(greenfieldInit).toContain('CLAUDE.md');
+        expect(greenfieldInit).toContain('已有 `CLAUDE.md` 属于目标项目自有文件');
         expect(greenfieldInit).toContain('docs/workflow/CONTRACTS.md');
         expect(greenfieldInit).toContain('docs/workflow/STATUS.md');
         expect(greenfieldInit).toContain('docs/workflow/DECISIONS.md');
@@ -786,9 +783,27 @@ describe('workflow-runtime install', () => {
 
         expect(report.success).toBe(true);
         expect(fs.readFileSync(path.join(targetRoot, 'AGENTS.md'), 'utf8')).toBe('# existing agents\n');
-        expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(true);
-        expect(fs.readFileSync(path.join(targetRoot, 'CLAUDE.md'), 'utf8')).toContain('workflow-system guidance');
+        expect(fs.existsSync(path.join(targetRoot, 'CLAUDE.md'))).toBe(false);
         expect(fs.existsSync(path.join(targetRoot, 'docs', 'workflow', 'WORKFLOW_GUIDE.md'))).toBe(true);
+      });
+    });
+  });
+
+  test('installWorkflowBundle preserves an existing CLAUDE.md without maintaining it', () => {
+    withTempRoot(bundleOutDir => {
+      const packReport = packWorkflowBundle({ root: ROOT, outDir: bundleOutDir });
+      withTempRoot(targetRoot => {
+        const legacyClaude = '# Target-owned Claude guidance\n\nKeep this text unchanged.\n';
+        fs.writeFileSync(path.join(targetRoot, 'CLAUDE.md'), legacyClaude, 'utf8');
+
+        const report = installWorkflowBundle({
+          bundleDir: packReport.output_directory,
+          root: targetRoot,
+        });
+
+        expect(report.success).toBe(true);
+        expect(fs.readFileSync(path.join(targetRoot, 'CLAUDE.md'), 'utf8')).toBe(legacyClaude);
+        expect(fs.existsSync(path.join(targetRoot, 'AGENTS.md'))).toBe(true);
       });
     });
   });

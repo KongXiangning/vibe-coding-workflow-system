@@ -431,6 +431,14 @@ Explicit human observations and risk waivers use the source-bound internal
 prepare-task commands defined in FILE_SCHEMAS.md. They are caller-reported:
 manual acceptance is not automated PASS, and waiver is not evidence. Critical
 invariants, prerequisites, policy, required review and findings are not bypassed.
+An exact pending `REPAIR_BUDGET_EXHAUSTED` review remains owned by its findings,
+not correction replan. With an explicit caller-reported user decision,
+`prepare-task:extend-repair-budget` adds exactly one attempt to every and only
+currently exhausted finding, records the decision/audit, and preserves the task,
+pending review, attempts, baseline, and evidence obligations. The retained review
+then routes directly to `execute-step:repair`; without that decision it remains a
+user-owned blocker. Default limits do not change, and explicit extensions are
+bounded by the Runtime absolute limits.
 Local equivalent read-only validation adjustments use execute-step's internal
 replace-validation, preserving the task and its obligations. Low-risk private
 same-domain discoveries do not add a review beyond the confirmed checkpoint;

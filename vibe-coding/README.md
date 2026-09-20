@@ -175,7 +175,7 @@ bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --js
 bun run workflow:install --bundle $bundle.FullName --root $target --dry-run --json --replace-managed-drift --repair-bootstrap-drift
 ```
 
-这两个参数只放开对应管理面的覆盖 / 删除，不会重做项目事实盘点，也不会覆盖已存在的 `AGENTS.md` / `CLAUDE.md`：
+这两个参数只放开对应管理面的覆盖 / 删除，不会重做项目事实盘点，也不会覆盖已存在的 `AGENTS.md`；已有 `CLAUDE.md` 属于目标项目自有文件，升级时保持原样：
 
 - `--replace-managed-drift`：允许用 bundle 替换或裁剪 workflow-system 的核心管理文件，例如 `.workflow-system/FILE_SCHEMAS.md`、`.workflow-system/WORKFLOW_PROTOCOL.md`、runtime scripts、`templates/**` 等由上次 install-state 记录为 `replace-managed` 的文件。只在确认这些文件可以回到 bundle 版本时使用。
 - `--repair-bootstrap-drift`：允许重新渲染或裁剪 install 阶段预装的 bootstrap skills，例如 `.claude/skills/workflow-system-*/SKILL.md` 和 `.codex/skills/workflow-system-*/SKILL.md` 中的 5 个 bootstrap skill。它只修 bootstrap skill 安装面，不代表重新初始化目标项目。
@@ -220,7 +220,7 @@ bun run workflow:install --bundle $bundle.FullName --root $target --replace-mana
 
 ### 让目标项目完成 bootstrap / adoption
 
-`workflow:install` 会把 runtime、模板、协议文档和 bootstrap skills 装进目标项目，并且只会对**缺失**的 `AGENTS.md` / `CLAUDE.md` 做 scaffold-once；它**不会**覆盖已存在的宿主指引文件，也不会自动完成项目事实盘点或治理基线接管。
+`workflow:install` 会把 runtime、模板、协议文档和 bootstrap skills 装进目标项目，并且只会对**缺失**的 `AGENTS.md` 做 scaffold-once；已有 `CLAUDE.md` 不会被创建、覆盖或删除，也不会自动完成项目事实盘点或治理基线接管。
 
 为了避免目标项目在 install 后“看不到下一步该做什么”，install 现在还会额外留下一份**最小本地指引**：
 
@@ -239,12 +239,12 @@ bun run workflow:install --bundle $bundle.FullName --root $target --replace-mana
 - **如果目标项目里已经有旧路径或混排的 workflow 资产**：先执行 `/realign-workflow-assets`，再继续下一步
 - **已有项目**：`/legacy-inventory` -> `/adopt-existing-project`
 
-其中 `realign-workflow-assets` 的职责不是重新初始化项目，而是把已经存在的 workflow 文档、runtime skills、`AGENTS.md` / `CLAUDE.md` 和 `.workflow-system/PROJECT_PROFILE.yaml` 对齐到当前 layout 规范，避免“文档位置搬了，但 skill 还按旧路径找”的漂移。
+其中 `realign-workflow-assets` 的职责不是重新初始化项目，而是把已经存在的 workflow 文档、runtime skills、`AGENTS.md` 和 `.workflow-system/PROJECT_PROFILE.yaml` 对齐到当前 layout 规范，避免“文档位置搬了，但 skill 还按旧路径找”的漂移；已有 `CLAUDE.md` 保持原样，不再由 workflow-system 维护。
 
 其中：
 
-- `workflow:install` 只会为缺失的 `AGENTS.md` / `CLAUDE.md` 补首版 scaffold
-- `greenfield-init` / `adopt-existing-project` 会再把这两份宿主指引文件补全到可用治理基线
+- `workflow:install` 只会为缺失的 `AGENTS.md` 补首版 scaffold
+- `greenfield-init` / `adopt-existing-project` 会再把 `AGENTS.md` 补全到可用治理基线；已有 `CLAUDE.md` 不在写入范围内
 
 完成 bootstrap / adoption 后，回到 **workflow-system 源仓库根目录** 执行。目标项目只提供 `.workflow-system/PROJECT_PROFILE.yaml` 和治理事实；不要为了 workflow-system 迁移在目标项目里执行 `bun install`、`bun run gen:all` 或 `workflow:sync`。
 
@@ -266,7 +266,7 @@ bun run workflow:health --root $target
 
 - `/sync-host-guidance`
 
-让 `AGENTS.md` 与 `CLAUDE.md` 保持同一治理基线。
+更新 `AGENTS.md`；已有 `CLAUDE.md` 不再由 workflow-system 同步或维护。
 
 ### 从 workflow-system 源仓库验证目标项目
 

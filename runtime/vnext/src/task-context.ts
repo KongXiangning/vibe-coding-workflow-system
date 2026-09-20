@@ -19,6 +19,8 @@ import {
 import {
   evaluateEvidenceSlotForContext,
   dynamicReviewRequiredForCurrentExecution,
+  repairBudgetContinuationForPendingReview,
+  repairBudgetExtensionTargets,
   readCanonicalCurrentTask,
   recoverPendingTaskStoreCommit,
   type CanonicalCurrentTask,
@@ -535,6 +537,11 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     ? state.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').length
     : 0;
   const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
+  const budgetContinuation = repairBudgetContinuationForPendingReview(current);
+  const budgetExhausted = pendingReview?.verdict === 'blocked'
+    && record(pendingReview.blocker)
+    && pendingReview.blocker.code === 'REPAIR_BUDGET_EXHAUSTED';
+  const budgetExtensionAvailable = budgetExhausted && repairBudgetExtensionTargets(current) !== null;
   const retainedCleanReview = pendingReview?.verdict === 'clean' && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === 'findings' && state.scope_amendment_pending_review_step_id !== undefined;
   const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current)
@@ -543,22 +550,34 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     && latest?.execution_result_status !== undefined;
   const nextEntry = state.resume_requires_review
     ? 'prepare-task:clear-resume-review'
-    : retainedCleanReview
-      ? 'execute-step:complete-reviewed-step'
-      : retainedFindingReview
-        ? 'execute-step:repair'
+    : budgetContinuation
+      ? 'execute-step:repair'
+      : budgetExtensionAvailable
+        ? 'prepare-task:extend-repair-budget'
+        : budgetExhausted
+          ? 'debug-task'
+          : retainedCleanReview
+            ? 'execute-step:complete-reviewed-step'
+            : retainedFindingReview
+              ? 'execute-step:repair'
+              : state.workflow_status === 'blocked_by_replan'
+                ? 'prepare-task:amend-scope'
+                : state.active_step_status === 'blocked'
+                  ? 'debug-task'
+                  : dynamicReviewReady
+                    ? 'review-change'
+                    : 'preflight-step';
+  const nextOptions = budgetContinuation
+    ? ['execute-step:repair']
+    : budgetExtensionAvailable
+      ? ['prepare-task:extend-repair-budget', 'debug-task']
+      : budgetExhausted
+        ? ['debug-task']
         : state.workflow_status === 'blocked_by_replan'
-          ? 'prepare-task:amend-scope'
+          ? ['prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
           : state.active_step_status === 'blocked'
-            ? 'debug-task'
-            : dynamicReviewReady
-              ? 'review-change'
-            : 'preflight-step';
-  const nextOptions = state.workflow_status === 'blocked_by_replan'
-    ? ['prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
-    : state.active_step_status === 'blocked'
-      ? ['debug-task', 'execute-step']
-      : [nextEntry];
+            ? ['debug-task', 'execute-step']
+            : [nextEntry];
   return {
     identity: {
       task_id: state.task_id,

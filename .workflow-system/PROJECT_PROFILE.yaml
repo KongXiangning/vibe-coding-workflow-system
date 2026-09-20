@@ -39,7 +39,6 @@ paths:
   documentation_files:
     - README.md
     - AGENTS.md
-    - CLAUDE.md
     - docs/workflow/*.md
     - docs/workflow/generated/workflow-docs/*.md
     - vibe-coding/README.md
@@ -92,7 +91,6 @@ boundaries:
   human_review_required:
     - README.md
     - AGENTS.md
-    - CLAUDE.md
     - vibe-coding/README.md
     - vibe-coding/vibe-coding-workflow.md
     - vibe-coding/vibe-coding-methodology.md
@@ -117,7 +115,6 @@ governance:
     - .workflow-system/WORKFLOW_PROTOCOL.md
     - .workflow-system/FILE_SCHEMAS.md
     - AGENTS.md
-    - CLAUDE.md
     - README.md
     - docs/workflow/*.md
     - docs/workflow/generated/workflow-docs/*.md

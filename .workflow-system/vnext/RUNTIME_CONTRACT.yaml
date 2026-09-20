@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.2
+  package_version: 0.20.5
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -538,6 +538,7 @@ proposal:
         - record-evidence-waiver
         - confirm-draft
         - clear-resume-review
+        - extend-repair-budget
         - replan
         - prepare-replan
         - confirm-replan
@@ -633,6 +634,7 @@ proposal:
     bound_actions:
       - record-user-evidence
       - clear-resume-review-gate
+      - extend-repair-budget
       - create-draft
       - update-draft
       - confirm-draft
@@ -658,6 +660,12 @@ proposal:
     scope_amendment_mode: amend-scope
     scope_amendment_actions:
       - commit-scope-amendment
+    repair_budget_extension:
+      route: extend-repair-budget
+      increment: exactly-one-attempt-for-each-exhausted-finding
+      eligibility: exact-pending-REPAIR_BUDGET_EXHAUSTED-review
+      preserves: pending-review-findings-attempt-counts-review-baseline-task-definition-and-identity
+      absolute_limits: eight-attempts-per-finding-and-eight-repair-rounds-per-cycle
     direct_replan_result: REPLAN_CONFIRMATION_REQUIRED
     task_history:
       initialization_preimage: exact-current-task-and-linked-task-basis-before-version-marker
@@ -1084,7 +1092,10 @@ canonical_current_task:
         - active_repair_wave_id
         - verification_new_finding_wave_used
         - verification_new_finding_wave_id
+      optional_fields:
+        - max_repair_rounds
       repair_round_max: 3
+      repair_round_extension_max: 8
       same_repair_wave_counts_once: true
       verification_new_finding_wave_max: 1
   source_of_truth: CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate
@@ -1337,7 +1348,6 @@ bootstrap_project:
       - docs/designs/
       - docs/adoption/
       - AGENTS.md
-      - CLAUDE.md
     forbidden_targets:
       - .git/
       - product source directories
@@ -1413,14 +1423,14 @@ bootstrap_project:
       atomic: true
       idempotence: fail-closed
       conflict_policy: fail-closed
-    - id: paired-host-guidance-transaction
+    - id: host-guidance-transaction
       status: bound
       binding: vnext-runtime
-      operation: paired-host-guidance-transaction
+      operation: host-guidance-transaction
       source_targets:
         - target host guidance
       write_targets:
-        - paired host guidance
+        - AGENTS.md
       allowed_callers:
         - bootstrap-project
       result_states:

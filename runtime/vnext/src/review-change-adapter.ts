@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   taskSourceRevisionMatches,
-  MAX_REPAIR_ROUNDS,
+  repairRoundLimit,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   VNextRuntimeError,
   applyVNextRuntimeProposal,
@@ -777,7 +777,7 @@ function convergenceBlocker(current: CanonicalCurrentTask, receipt: ReviewContex
   if (findings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
     return { code: 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED', summary: 'Verification found another new-finding wave after the one allowed wave was already used.', next_route: 'debug-task' };
   }
-  if (current.runtimeState.review_cycle.repair_round >= MAX_REPAIR_ROUNDS && (findings.length > 0 || unresolved.length > 0)) {
+  if (current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle) && (findings.length > 0 || unresolved.length > 0)) {
     return { code: 'REPAIR_BUDGET_EXHAUSTED', summary: 'The current review cycle has exhausted its repair-wave budget.', next_route: 'debug-task' };
   }
   const exhausted = unresolved.filter(fingerprint => {

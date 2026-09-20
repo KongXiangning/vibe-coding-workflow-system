@@ -948,7 +948,6 @@ function makeGovernanceAssets(root: string, project: { name: string; slug: strin
     { path: CURRENT_TASK_RELATIVE_PATH, category: 'generated', content: fs.readFileSync(templatePath, 'utf8') },
     ...FULL_WORKFLOW_DOCS.map(file => ({ path: file, category: 'governance' as const, content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: 'AGENTS.md', category: 'governance', content: renderGuidance(project) },
-    { path: 'CLAUDE.md', category: 'governance', content: renderGuidance(project) },
   ];
 }
 
@@ -993,7 +992,7 @@ function semanticOperations(assets: readonly BootstrapAsset[], mode: BootstrapMo
   add('decision-record-transaction', ['docs/workflow/DECISIONS.md']);
   add('contract-candidate-commit', ['docs/workflow/CONTRACTS.md']);
   add('project-status-transaction', ['docs/workflow/STATUS.md']);
-  add('paired-host-guidance-transaction', ['AGENTS.md', 'CLAUDE.md']);
+  add('host-guidance-transaction', ['AGENTS.md']);
   return operations;
 }
 
@@ -1022,7 +1021,7 @@ function existingIsWorkflowOwned(root: string, relative: string, receipt: Bootst
   if (relative === BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH && receipt) return true;
   if (receipt?.managed_files.some(file => file.path === relative)) return true;
   if (relative.startsWith('.workflow-system/')) return relative === PROJECT_PROFILE_RELATIVE_PATH;
-  if (relative === 'AGENTS.md' || relative === 'CLAUDE.md') return isVNextMarkerFile(root, relative);
+  if (relative === 'AGENTS.md') return isVNextMarkerFile(root, relative);
   if (relative.startsWith('docs/workflow/') || relative.startsWith('docs/designs/') || relative.startsWith('docs/adoption/')) return isVNextMarkerFile(root, relative);
   return false;
 }

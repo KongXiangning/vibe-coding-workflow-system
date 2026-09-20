@@ -109,7 +109,7 @@ const EXPECTED_ADMIN_RUNTIME_OPERATIONS: Record<AdminEntry, readonly string[]> =
     'contract-candidate-commit',
     'decision-record-transaction',
     'project-status-transaction',
-    'paired-host-guidance-transaction',
+    'host-guidance-transaction',
   ],
 };
 
@@ -211,7 +211,7 @@ const REQUIRED_RUNTIME_OPERATIONS = [
   'lesson-record-transaction',
   'contract-candidate-commit',
   'decision-record-transaction',
-  'paired-host-guidance-transaction',
+  'host-guidance-transaction',
 ] as const;
 
 const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
@@ -224,7 +224,7 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
   'lesson-record-transaction': ['close-task'],
   'contract-candidate-commit': ['bootstrap-project', 'close-task'],
   'decision-record-transaction': ['bootstrap-project', 'close-task'],
-  'paired-host-guidance-transaction': ['bootstrap-project'],
+  'host-guidance-transaction': ['bootstrap-project'],
 };
 
 const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
@@ -236,6 +236,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'review-change:default:record-evidence-challenge',
     'review-change:default:dismiss-evidence-challenge',
     'prepare-task:default:clear-resume-review-gate',
+    'prepare-task:default:extend-repair-budget',
     'prepare-task:default:create-draft',
     'prepare-task:default:update-draft',
     'prepare-task:confirm:confirm-draft',
@@ -289,7 +290,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'bootstrap-project:realign:decision',
     'close-task:default:decision',
   ],
-  'paired-host-guidance-transaction': [
+  'host-guidance-transaction': [
     'bootstrap-project:greenfield:host-guidance',
     'bootstrap-project:adopt:host-guidance',
     'bootstrap-project:realign:host-guidance',

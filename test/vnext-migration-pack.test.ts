@@ -221,6 +221,8 @@ describe('one-time vNext Migration Pack', () => {
     const host = '# Agents\r\n\r\n## workflow-system baseline\r\n- Run `/sync-host-guidance` and bun run gen:all.\r\n\r\n' + business +
       '\r\n## Available local skills\r\n1. `old`\r\n- 文件：`.codex/skills/workflow-system-create-current-task/SKILL.md`\r\n\r\n2. `private`\r\n- 文件：`.agents/skills/private/SKILL.md`\r\n';
     fs.writeFileSync(path.join(target, 'AGENTS.md'), host);
+    const legacyClaude = '# Target-owned Claude guidance\n\nKeep this file unchanged.\n';
+    fs.writeFileSync(path.join(target, 'CLAUDE.md'), legacyClaude);
     const pkg = { name: 'business', scripts: { 'workflow:health': 'bun run scripts/workflow-runtime.ts health', test: 'node --test' }, dependencies: { business: '1.2.3' } };
     fs.writeFileSync(path.join(target, 'package.json'), JSON.stringify(pkg));
     for (const name of ['workflow-system-create-current-task', 'private', 'capture-work-item']) {
@@ -236,6 +238,7 @@ describe('one-time vNext Migration Pack', () => {
     const beforeProfile = parse(fs.readFileSync(path.join(target, '.workflow-system/PROJECT_PROFILE.yaml'), 'utf8'));
     const pack = createMigrationPack({ sourceRoot: source, targetRoot: target, outDir: packDir });
     const hostArtifact = pack.artifacts.find(a => a.source_path === 'AGENTS.md')!;
+    expect(pack.artifacts.some(a => a.source_path === 'CLAUDE.md')).toBe(false);
     const historyArtifact = pack.artifacts.find(a => a.source_path === historyPath)!;
     expect(fs.readFileSync(path.join(packDir, historyArtifact.content_path), 'utf8').split('\n---\n')[1]).toBe(history + windowsLinks);
     expect(historyArtifact.path_references.find(r => r.raw.startsWith('JAVA_HOME='))?.kind).toBe('unclassified');
@@ -260,6 +263,7 @@ describe('one-time vNext Migration Pack', () => {
     expect(fs.readFileSync(path.join(target, 'AGENTS.md'), 'utf8')).toBe(host);
     expect(fs.existsSync(path.join(target, '.agents/skills/workflow-system-create-current-task/SKILL.md'))).toBe(true);
     expect(installMigrationPack(options).status).toBe('installed');
+    expect(fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf8')).toBe(legacyClaude);
     const afterHost = fs.readFileSync(path.join(target, 'AGENTS.md'), 'utf8');
     expect(afterHost).toContain(business);
     expect(afterHost).toContain('.agents/skills/private/SKILL.md');

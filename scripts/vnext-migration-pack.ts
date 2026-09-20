@@ -1425,7 +1425,7 @@ function canonicalizeArtifactContent(
   context?: AlignmentContext,
   repositoryRoot?: string,
 ): string {
-  if (packVersion === 3 && ['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(sourcePath)) {
+  if (packVersion === 3 && ['AGENTS.md', 'package.json'].includes(sourcePath)) {
     if (!context) throw new MigrationPackError('PACK_INVALID', 'Missing alignment context');
     return alignLegacyText(sourcePath, content, context, originalBackupPath(sourcePath, sourceSha));
   }
@@ -1762,7 +1762,7 @@ function requiredDocumentPaths(targetRoot: string, profile: JsonObject): string[
 
 function alignmentContext(root: string): AlignmentContext {
   return {
-    host_files: ['AGENTS.md', 'CLAUDE.md', 'package.json'].filter(p => fs.existsSync(path.join(root, p))),
+    host_files: ['AGENTS.md', 'package.json'].filter(p => fs.existsSync(path.join(root, p))),
     workflow_documents: listFiles(path.join(root, 'docs/workflow')).map(p => path.relative(root, p).replace(/\\/g, '/'))
       .filter(p => p.endsWith('.md') && !p.includes('/generated/') && !p.endsWith('/SKILL_REGISTRY.md')).sort(),
   };
@@ -1773,7 +1773,7 @@ function validateAlignmentContext(value: unknown): AlignmentContext {
   expectExactKeys(data, ['host_files', 'workflow_documents'], 'alignment_context');
   const hosts = expectStringArray(data.host_files, 'alignment_context.host_files', true);
   const docs = expectStringArray(data.workflow_documents, 'alignment_context.workflow_documents', true);
-  if (hosts.some(p => !['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(p))
+  if (hosts.some(p => !['AGENTS.md', 'package.json'].includes(p))
     || docs.some(p => !p.startsWith('docs/workflow/') || normalizeRepoPath(p, 'alignment document') !== p || !p.endsWith('.md') || p.includes('/generated/') || p.endsWith('/SKILL_REGISTRY.md'))) {
     throw new MigrationPackError('PACK_INVALID', 'Alignment context exceeds current guidance scope');
   }
@@ -2430,7 +2430,7 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
   'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction', 'contract-candidate-commit', 'decision-record-transaction'],
-  'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'paired-host-guidance-transaction'],
+  'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'host-guidance-transaction'],
   'validate-change': [],
   'git-commit': [],
 };
@@ -3549,7 +3549,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     target_identity: pack.target.root_identity,
     runtime_distribution: runtimeDistribution,
     installed_at: now(),
-    managed_files: [...writes.map(write => ({ path: write.path, checksum: sha256(write.content), category: bundle.artifacts.find(artifact => artifact.target_path === write.path)?.category ?? (write.path.startsWith('.workflow-system/legacy/') ? 'preserved-original' : ['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(write.path) ? 'migration-alignment' : pack.decisions && write.path === legacyCurrentTaskBackup(pack.decisions) ? 'preserved-legacy-task' : 'migrated-document') })), { path: VNEXT_INSTALL_STATE_RELATIVE_PATH, checksum: '', category: 'vnext-install-state' }],
+    managed_files: [...writes.map(write => ({ path: write.path, checksum: sha256(write.content), category: bundle.artifacts.find(artifact => artifact.target_path === write.path)?.category ?? (write.path.startsWith('.workflow-system/legacy/') ? 'preserved-original' : ['AGENTS.md', 'package.json'].includes(write.path) ? 'migration-alignment' : pack.decisions && write.path === legacyCurrentTaskBackup(pack.decisions) ? 'preserved-legacy-task' : 'migrated-document') })), { path: VNEXT_INSTALL_STATE_RELATIVE_PATH, checksum: '', category: 'vnext-install-state' }],
     removed_legacy_files: removedLegacyPaths,
     legacy_compatibility: 'absent',
     recovery_boundary: 'in-progress-marker',
@@ -3566,7 +3566,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
     target_identity: pack.target.root_identity,
     runtime_distribution: runtimeDistribution,
     installed_at: installState.installed_at,
-    converted_artifact_ids: pack.artifacts.filter(artifact => !['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(artifact.source_path)).map(artifact => artifact.stable_id),
+    converted_artifact_ids: pack.artifacts.filter(artifact => !['AGENTS.md', 'package.json'].includes(artifact.source_path)).map(artifact => artifact.stable_id),
     legacy_compatibility: 'absent',
   };
   writes.push({ path: VNEXT_INSTALL_STATE_RELATIVE_PATH, content: JSON.stringify(installState, null, 2) + '\n' });
@@ -3636,7 +3636,7 @@ export function installMigrationPack(options: InstallPackOptions): MigrationOper
         const receiptPath = path.join(targetRoot, ...VNEXT_MIGRATION_RECEIPT_RELATIVE_PATH.split('/'));
         if (!fs.existsSync(receiptPath)) throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt was not promoted.');
         const installedReceipt = validateVNextMigrationReceipt(parseStrictJson(receiptPath), 'vNext migration receipt');
-        if (installedReceipt.migration_pack_id !== pack.pack_id || installedReceipt.bundle_id !== bundle.bundle_id || installedReceipt.target_identity !== pack.target.root_identity || JSON.stringify(installedReceipt.runtime_distribution) !== JSON.stringify(runtimeDistribution) || JSON.stringify(installedReceipt.converted_artifact_ids) !== JSON.stringify(pack.artifacts.filter(artifact => !['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(artifact.source_path)).map(artifact => artifact.stable_id))) {
+        if (installedReceipt.migration_pack_id !== pack.pack_id || installedReceipt.bundle_id !== bundle.bundle_id || installedReceipt.target_identity !== pack.target.root_identity || JSON.stringify(installedReceipt.runtime_distribution) !== JSON.stringify(runtimeDistribution) || JSON.stringify(installedReceipt.converted_artifact_ids) !== JSON.stringify(pack.artifacts.filter(artifact => !['AGENTS.md', 'package.json'].includes(artifact.source_path)).map(artifact => artifact.stable_id))) {
           throw new MigrationPackError('INSTALL_CONFLICT', 'vNext migration receipt read-back identity mismatch.');
         }
         if (phase2Runtime) {

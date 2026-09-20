@@ -74,7 +74,6 @@ artifact:
   current_projection_optional_field: original_backup_path
   current_projection_sources:
     - AGENTS.md
-    - CLAUDE.md
     - package.json
     - .workflow-system/PROJECT_PROFILE.yaml
     - docs/workflow/WORKFLOW_GUIDE.md

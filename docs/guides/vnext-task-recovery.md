@@ -66,6 +66,8 @@
 
 累计审查基线和未审 diff 不清零，新改动需要新审查。候选次数按稳定问题身份累计，原失败尝试及 finding repair budget 保留；跨恢复计划的同问题失败和修复 wave 继续计数。达到预算返回诊断/用户决定，不通过改文件名或恢复 ID 重试。
 
+当且仅当当前待审结果是 `REPAIR_BUDGET_EXHAUSTED`，可以在用户明确授权后调用 `prepare-task:extend-repair-budget`。输入绑定精确 `review_id`、当前周期中全部且仅限已耗尽的 `finding_fingerprints`、固定的 `additional_repair_attempts: 1`，以及决定来源和原文。Runtime 为每个 finding 只增加一次额度，并保留现有尝试次数、状态、pending review、累计审查基线、任务定义与身份；默认上限仍为每 finding 两次、每周期三个 repair wave，显式扩展的绝对上限均为八。扩展后同一 blocked review 直接路由到 `execute-step:repair`，新执行结果和验证审查照常消费；它不要求先清空 pending review/findings，也不生成 correction-replan candidate。
+
 0.19.1 会沿已确认候选的历史 execution 和后续步骤替代关系承接问题身份，包括旧 v2 候选；三次真实失败后，新恢复步骤的 preflight 仍拒绝。针对同一原报告的多个质疑可分批处理：保留原 result ID，通过已确认纠错结果建立关联，剩余质疑继续阻塞普通推进，每批都需新的结果与审查。
 
 ## 安装、升级和兼容

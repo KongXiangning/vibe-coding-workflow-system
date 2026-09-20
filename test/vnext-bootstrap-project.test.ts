@@ -108,13 +108,11 @@ function assertStatusContract(target: string): void {
 }
 
 function assertPublicEntryTerminalGuidance(target: string): void {
-  for (const file of ['AGENTS.md', 'CLAUDE.md']) {
-    const guidance = fs.readFileSync(path.join(target, file), 'utf8');
-    expect(guidance).toContain('public-entry-terminal/v1');
-    expect(guidance).toContain('return to the caller and stop');
-    expect(guidance).toContain('recommendation-only');
-    expect(guidance).toContain('must not invoke another public Skill');
-  }
+  const guidance = fs.readFileSync(path.join(target, 'AGENTS.md'), 'utf8');
+  expect(guidance).toContain('public-entry-terminal/v1');
+  expect(guidance).toContain('return to the caller and stop');
+  expect(guidance).toContain('recommendation-only');
+  expect(guidance).toContain('must not invoke another public Skill');
 }
 
 function assertCallerDrivenWorkflowGuide(target: string): void {
@@ -341,6 +339,7 @@ describe('vNext bootstrap-project', () => {
     const preview = buildBootstrapPlan(common);
     expect(preview.status).toBe('ready');
     expect(bootstrapProject({ ...common, write: true, changedPaths: preview.planned_writes }).status).toBe('installed');
+    expect(fs.existsSync(path.join(target, 'CLAUDE.md'))).toBe(false);
 
     const contracts = fs.readFileSync(path.join(target, 'docs', 'workflow', 'CONTRACTS.md'), 'utf8');
     const decisions = fs.readFileSync(path.join(target, 'docs', 'workflow', 'DECISIONS.md'), 'utf8');
@@ -374,6 +373,21 @@ describe('vNext bootstrap-project', () => {
     expect(bootstrapProject({ ...realignOptions, write: true, changedPaths: realign.planned_writes }).status).toBe('installed');
     expect(fs.readFileSync(path.join(target, 'docs', 'workflow', 'CONTRACTS.md'), 'utf8')).toContain('- project-name: Bootstrap: Project (source: source: caller)');
     expect(fs.readFileSync(path.join(target, 'docs', 'workflow', 'ROADMAP.md'), 'utf8')).toContain('- architecture');
+  });
+
+  test('preserves an existing CLAUDE.md without including it in vNext bootstrap writes', { timeout: 30000 }, () => {
+    const target = targetRoot();
+    const legacyClaude = '# Target-owned Claude guidance\n\nDo not rewrite this file.\n';
+    fs.writeFileSync(path.join(target, 'CLAUDE.md'), legacyClaude, 'utf8');
+    const common = options(target);
+    installDistributionFixture(target);
+
+    const preview = buildBootstrapPlan(common);
+    expect(preview.status).toBe('ready');
+    expect(preview.planned_writes).not.toContain('CLAUDE.md');
+    expect(preview.planned_writes).toContain('AGENTS.md');
+    expect(bootstrapProject({ ...common, write: true, changedPaths: preview.planned_writes }).status).toBe('installed');
+    expect(fs.readFileSync(path.join(target, 'CLAUDE.md'), 'utf8')).toBe(legacyClaude);
   });
 
   test('replays an older realign receipt without forcing its legacy Lessons layout through the new canonicalizer', { timeout: 30000 }, () => {

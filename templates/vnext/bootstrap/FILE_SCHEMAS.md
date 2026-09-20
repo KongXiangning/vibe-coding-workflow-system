@@ -268,6 +268,20 @@ acceptance always uses current successful evidence. Pending review routes to its
 existing consumer before any preflight write or replay; stale review targets
 block without clearing findings, receipts or budgets.
 
+An exact pending `REPAIR_BUDGET_EXHAUSTED` review has one bounded continuation
+transaction: `prepare-task:extend-repair-budget`. Its semantic input is
+`{review_id, finding_fingerprints, additional_repair_attempts: 1,
+decision_source, decision_text}`. The fingerprint set must equal every and only
+currently exhausted open finding in that review cycle. Runtime appends the exact
+caller-reported decision to Task Basis, increments each bound finding maximum by
+one, and retains its attempts/status plus the pending review, cumulative review
+baseline, task definition, and identity. The ordinary defaults remain two attempts
+per finding and three repair waves per cycle; an optional Runtime-owned
+`review_cycle.max_repair_rounds` records explicit extension, with absolute caps of
+eight attempts and eight waves. A matching unconsumed audit authorizes only the
+next exact `begin-repair`; different, stale, partial, reset, or bulk extensions
+fail closed. This route does not create a correction-replan candidate.
+
 Persistent Tests retain exact path + stable claim IDs in `proves`, plus `owner`,
 `owner_source`, `source_ref`, `basis` (acceptance/regression/critical-invariant/
 critical-risk), `existing_evidence_insufficiency`, `assertion_boundary`, and

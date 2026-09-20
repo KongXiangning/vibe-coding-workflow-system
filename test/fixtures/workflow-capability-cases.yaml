@@ -235,8 +235,8 @@ cases:
 
   - id: MR-R05
     kind: row
-    invariant: "Host guidance stays semantically paired, durable, and project-wide while preserving necessary host differences and target-owned content."
-    capability_refs: [public:sync-state/host-guidance, internal:source-authority-policy, internal:host-isolation-guard, internal:decision-authority-gate, runtime:paired-host-guidance-transaction]
+    invariant: "Host guidance stays durable and project-wide while preserving target-owned content."
+    capability_refs: [public:sync-state/host-guidance, internal:source-authority-policy, internal:host-isolation-guard, internal:decision-authority-gate, runtime:host-guidance-transaction]
     initial_state: { task_status: active, lifecycle_state: active, diff_target: not-applicable, evidence: [temporary-workaround-only] }
     invocation: { entry: sync-state, mode: host-guidance, legacy_alias: sync-host-guidance }
     expected: { guard: no-op, verdict: "Do not globalize a temporary workaround or rewrite target-owned host guidance.", writes: [], handoff: not-applicable, terminal_behavior: complete, diff_target: not-applicable, evidence: [non-durable-rule-rejected, host-files-unchanged] }

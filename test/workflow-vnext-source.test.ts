@@ -144,10 +144,10 @@ describe('vNext Phase 2 source contract', () => {
       'contract-candidate-commit',
       'decision-record-transaction',
       'finding-queue-transaction',
+      'host-guidance-transaction',
       'inbox-record-transaction',
       'lesson-record-transaction',
       'lifecycle-transaction',
-      'paired-host-guidance-transaction',
       'project-status-transaction',
       'task-state-transaction',
     ]);

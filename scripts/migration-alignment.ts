@@ -9,7 +9,7 @@ export function originalBackupPath(sourcePath: string, hash: string): string {
 }
 
 export function isAlignedPath(p: string): boolean {
-  return ['AGENTS.md', 'CLAUDE.md', 'package.json', '.workflow-system/PROJECT_PROFILE.yaml',
+  return ['AGENTS.md', 'package.json', '.workflow-system/PROJECT_PROFILE.yaml',
     'docs/workflow/WORKFLOW_GUIDE.md', 'docs/workflow/DOCUMENT_CATALOG.md', 'docs/workflow/STATUS.md'].includes(p);
 }
 
@@ -28,7 +28,7 @@ function profile(content: string, context: AlignmentContext): string {
     for (const field of fields) {
       const list = value[section]?.[field];
       if (Array.isArray(list)) value[section][field] = list.filter((p: unknown) => typeof p !== 'string'
-        || (!oldOwnedPath.test(p.replaceAll('\\', '/')) && (!['AGENTS.md', 'CLAUDE.md'].includes(p) || context.host_files.includes(p))));
+        || (!oldOwnedPath.test(p.replaceAll('\\', '/')) && (!['AGENTS.md'].includes(p) || context.host_files.includes(p))));
     }
   }
   if (value.paths?.workflow_template_directories?.length === 0) value.paths.existing_skill_template_patterns = [];
@@ -70,7 +70,7 @@ function guidance(content: string): string {
 }
 
 export function alignLegacyText(p: string, content: string, context: AlignmentContext, backup: string): string {
-  if (p === 'AGENTS.md' || p === 'CLAUDE.md') return guidance(content);
+  if (p === 'AGENTS.md') return guidance(content);
   if (p === '.workflow-system/PROJECT_PROFILE.yaml') return profile(content, context);
   if (p === 'package.json') {
     const value = JSON.parse(content);

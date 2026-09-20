@@ -39,6 +39,7 @@ import {
   createFindingQueueProposal,
   createReviewChangeDelta,
   currentDefinitionExecutionLog,
+  repairBudgetContinuationForPendingReview,
   reviewCycleForNextStep,
   cumulativeReviewExecution,
   createTaskStateProposal,
@@ -754,8 +755,9 @@ export function beginRepair(
   let current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   const pending = current.runtimeState.pending_review_result;
-  if (!pending || pending.verdict !== 'findings') {
-    fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires the current durable review result to contain findings.');
+  const budgetContinuation = repairBudgetContinuationForPendingReview(current);
+  if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null)) {
+    fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires findings or an explicitly authorized continuation of the exact budget-blocked review.');
   }
   const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item
     ? item
@@ -832,7 +834,7 @@ export function beginRepair(
     if (!options.dryRun) current = readCanonicalCurrentTask(root);
   }
 
-  const fingerprints = [...new Set([
+  const fingerprints = budgetContinuation?.finding_fingerprints ?? [...new Set([
     ...pending.unresolved_fingerprints,
     ...pending.findings.map(item => item.fingerprint),
   ])].sort();

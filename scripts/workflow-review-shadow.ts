@@ -373,7 +373,6 @@ const GOVERNED_EPHEMERAL_DENYLIST = [
   'docs/workflow/**',
   'TASKS/**',
   'AGENTS.md',
-  'CLAUDE.md',
   '.codex/**',
   '.claude/**',
   'scripts/**',

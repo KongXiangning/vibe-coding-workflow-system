@@ -805,7 +805,6 @@ function buildProfileScaffoldTemplate(): JsonObject {
       ],
       workflow_owned_paths: [
         'AGENTS.md',
-        'CLAUDE.md',
         '.workflow-system/**',
         'docs/workflow/**',
         'scripts/workflow-core.ts',
@@ -836,7 +835,6 @@ function buildProfileScaffoldTemplate(): JsonObject {
         WORKFLOW_PROTOCOL_RELATIVE_PATH,
         WORKFLOW_SCHEMAS_RELATIVE_PATH,
         'AGENTS.md',
-        'CLAUDE.md',
         'docs/workflow/SKILL_REGISTRY.md',
         'docs/workflow/DOCUMENT_CATALOG.md',
         'docs/workflow/BASELINES.md',
@@ -1200,7 +1198,7 @@ function renderProfileScaffold(root: string, bundle: WorkflowBundle, packageJson
   return template;
 }
 
-function buildHostGuidanceContent(root: string, profile: JsonObject, fileName: 'AGENTS.md' | 'CLAUDE.md'): string {
+function buildHostGuidanceContent(root: string, profile: JsonObject): string {
   const projectName = String(getRequiredPath(profile, 'project.name') ?? deriveProjectSlug(root));
   return [
     `# ${projectName} workflow-system guidance`,
@@ -1213,9 +1211,9 @@ function buildHostGuidanceContent(root: string, profile: JsonObject, fileName: '
     '- New project: `/design-baseline-init` -> `/greenfield-init`, and insert `/realign-workflow-assets` first if the repo already contains old workflow assets.',
     '- Existing project: `/legacy-inventory` -> `/adopt-existing-project`.',
     '- After bootstrap or workflow template changes, run generation from the workflow-system source repo with `WORKFLOW_SYSTEM_ROOT=<target-repo>`, then run `workflow:sync --root <target-repo>` and `workflow:health --root <target-repo>`.',
-    '- When project-wide AI collaboration rules, host instructions, or shared workflow commands change later, run `/sync-host-guidance` so `AGENTS.md` and `CLAUDE.md` stay aligned.',
+    '- When project-wide AI collaboration rules, host instructions, or shared workflow commands change later, run `/sync-host-guidance` to update `AGENTS.md`. Existing `CLAUDE.md` files are target-owned legacy guidance and are left untouched.',
     '',
-    `This file was scaffolded during workflow-system install so ${fileName === 'AGENTS.md' ? 'Codex-compatible agents' : 'Claude'} can start from the same governance baseline.`,
+    'This file was scaffolded during workflow-system install so Codex-compatible agents can start from the governance baseline.',
     '',
   ].join('\n');
 }
@@ -1262,13 +1260,13 @@ function buildBootstrapWorkflowGuideWrites(
 }
 
 function buildHostGuidanceWrites(root: string, profile: JsonObject): PlannedWrite[] {
-  return (['AGENTS.md', 'CLAUDE.md'] as const)
+  return (['AGENTS.md'] as const)
     .filter(fileName => !fs.existsSync(path.join(root, fileName)))
     .map(fileName => ({
       path: path.join(root, fileName),
       action: 'scaffold' as const,
       mode: 'scaffold-once',
-      content: buildHostGuidanceContent(root, profile, fileName),
+      content: buildHostGuidanceContent(root, profile),
     }));
 }
 

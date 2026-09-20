@@ -560,7 +560,7 @@ capabilities:
     trigger:
       - bootstrap or synchronization may touch a host guidance surface
     input_contract:
-      - target host and paired guidance paths
+      - target host guidance path
       - target-owned, native, frozen, and workflow-owned asset classification
       - explicit host selection and conflict evidence
     output_contract:
@@ -570,7 +570,7 @@ capabilities:
     stop_conditions:
       - host ownership cannot be established
       - a native or frozen asset would be overwritten
-      - paired host guidance would become semantically divergent
+      - host guidance ownership cannot be established
 
   - id: generation-atomicity-policy
     exposure: internal
@@ -616,6 +616,7 @@ runtime_operations:
       - review-change:default:record-evidence-challenge
       - review-change:default:dismiss-evidence-challenge
       - prepare-task:default:clear-resume-review-gate
+      - prepare-task:default:extend-repair-budget
       - prepare-task:default:create-draft
       - prepare-task:default:update-draft
       - prepare-task:confirm:confirm-draft
@@ -790,14 +791,14 @@ runtime_operations:
       - bootstrap-project:realign:decision
       - close-task:default:decision
 
-  - id: paired-host-guidance-transaction
+  - id: host-guidance-transaction
     status: bound
     binding: vnext-runtime
     implementation_phase: Phase 2
     source_targets:
       - target host guidance
     write_targets:
-      - paired host guidance
+      - AGENTS.md
     allowed_callers:
       - bootstrap-project
     bound_callers:

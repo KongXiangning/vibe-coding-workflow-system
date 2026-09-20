@@ -397,6 +397,35 @@ preflight.
 The legacy `prepare-task:prepare-replan` / `correction-replan/v2` route keeps
 `permission_change: none` and cannot consume a scope-amendment receipt.
 
+### Exact repair-budget continuation
+
+When `task-context.next_entry` is `prepare-task:extend-repair-budget`, the exact
+pending review is blocked by `REPAIR_BUDGET_EXHAUSTED`. This state is not eligible
+for correction replan because its pending review and open findings must remain the
+current repair authority. After an explicit user decision, call the prepare-task
+adapter command `extend-repair-budget` with:
+
+```json
+{
+  "review_id": "review-...",
+  "finding_fingerprints": ["finding-..."],
+  "additional_repair_attempts": 1,
+  "decision_source": "user:<stable-source>",
+  "decision_text": "<verbatim authorization>"
+}
+```
+
+The fingerprint array must contain every and only currently exhausted open
+finding in that pending review cycle. Runtime adds one maximum attempt to each,
+records a Task Basis decision and typed audit, and preserves prior attempts,
+statuses, pending review, review baseline, task definition, and identity. The
+ordinary defaults remain two attempts per finding and three repair waves per
+cycle; explicit extensions have absolute caps of eight each. On success the next
+entry is `execute-step:repair`, which consumes the retained review through a fresh
+execution and verification. An exact replay is a no-op; partial, stale, reset, or
+second unconsumed extensions fail closed. Without explicit authorization, stop at
+the user-owned blocker.
+
 Ordinary `prepare-draft` remains closed for a superseded task
 (`REPLACEMENT_OUTCOME_UNSUPPORTED`), so unfinished obligations cannot be hidden by
 pretending the predecessor completed. An explicit later replacement request uses
@@ -803,6 +832,11 @@ Agent/Runtime, never constructed by the user):
 method, expected observation/result, subjects, business/required boundaries,
 allowed substitutes and validation-label ownership. Selection granularity,
 selector and literal invocation may change through normal evidence admission.
+For a confirmed legacy check that predates the modern `boundary` and
+`selection` fields, Runtime may supply those missing fields during this
+amendment. Every obligation that the legacy check actually represented remains
+an exact comparison; compatibility does not permit changing its observation,
+required boundaries, subjects, result, substitutes or validation ownership.
 Every removed shared invocation must retain all its claim consumers; a command
 may split into several bound invocations or merge into an already planned
 read-only invocation. Include the affected current and future step invocations

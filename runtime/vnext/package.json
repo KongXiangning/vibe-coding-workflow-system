@@ -1,6 +1,6 @@
 {
   "name": "vibe-coding-vnext-runtime",
-  "version": "0.20.2",
+  "version": "0.20.5",
   "private": true,
   "type": "module",
   "engines": {

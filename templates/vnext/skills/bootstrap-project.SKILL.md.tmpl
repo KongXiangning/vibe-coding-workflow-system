@@ -49,7 +49,7 @@ entry_contract:
     - contract-candidate-commit
     - decision-record-transaction
     - project-status-transaction
-    - paired-host-guidance-transaction
+    - host-guidance-transaction
   stop_conditions:
     - target identity, mode precondition, or source authority is missing or conflicted
     - the target contains an unsupported legacy schema or an interrupted bootstrap marker

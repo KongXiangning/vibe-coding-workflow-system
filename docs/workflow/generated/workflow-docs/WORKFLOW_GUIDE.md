@@ -12,7 +12,7 @@
 
 | 目录 | 分类依据 | 典型文档 |
 | --- | --- | --- |
-| 根目录 | 宿主入口与系统控制文件，只保留 host/runtime 必须从根读取的入口 | `README.md`、`AGENTS.md`、`CLAUDE.md`、`.workflow-system/**` |
+| 根目录 | 宿主入口与系统控制文件，只保留 host/runtime 必须从根读取的入口 | `README.md`、`AGENTS.md`、`.workflow-system/**`；已有 `CLAUDE.md` 保持原样但不再由 workflow-system 维护 |
 | `docs/workflow/` | workflow 治理文档、目录索引、registry 与 source-repo reference render | `docs/workflow/DOCUMENT_CATALOG.md`、`docs/workflow/WORKFLOW_GUIDE.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/STATUS.md`、`generated/**` |
 | `docs/designs/` | 新项目设计基线与设计展开文档 | `architecture.md`、`database.md`、`domain-model.md`、`api-contracts.md` |
 | `docs/adoption/` | 老项目事实盘点、风险登记与接管材料 | `architecture-inventory.md`、`database-inventory.md`、`ADOPTION_REPORT.md` |
@@ -37,10 +37,10 @@
 | 场景 | 使用 skill | 主要读取 | 主要产出 |
 | --- | --- | --- | --- |
 | 新项目设计基线 | `/design-baseline-init` | 原始需求、用户目标、技术栈偏好、交付约束 | `docs/workflow/ROADMAP.md`、`docs/designs/architecture.md`、`docs/designs/database.md`、`docs/designs/**`、`docs/workflow/BASELINES.md` / `docs/workflow/DECISIONS.md` 草案 |
-| 对齐已有 workflow 资产 | `/realign-workflow-assets` | 当前 `.workflow-system/PROJECT_PROFILE.yaml`、已有 `docs/workflow/**` / `docs/designs/**` / `docs/adoption/**`、legacy root docs、runtime skill 目录、`AGENTS.md` / `CLAUDE.md` | 整理后的 workflow 文档目录、同步后的 runtime skills、更新后的 `AGENTS.md` / `CLAUDE.md` / `.workflow-system/PROJECT_PROFILE.yaml` |
-| 初始化新项目治理基线 | `/greenfield-init` | 已确认设计基线、用户目标、技术栈偏好、`.workflow-system/PROJECT_PROFILE.yaml` scaffold | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md` |
+| 对齐已有 workflow 资产 | `/realign-workflow-assets` | 当前 `.workflow-system/PROJECT_PROFILE.yaml`、已有 `docs/workflow/**` / `docs/designs/**` / `docs/adoption/**`、legacy root docs、runtime skill 目录、`AGENTS.md` | 整理后的 workflow 文档目录、同步后的 runtime skills、更新后的 `AGENTS.md` / `.workflow-system/PROJECT_PROFILE.yaml`；已有 `CLAUDE.md` 保持原样 |
+| 初始化新项目治理基线 | `/greenfield-init` | 已确认设计基线、用户目标、技术栈偏好、`.workflow-system/PROJECT_PROFILE.yaml` scaffold | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md` |
 | 老项目事实盘点 | `/legacy-inventory` | 由 profile / 仓库事实确定的代码目录、README/docs、package scripts、数据库和部署线索 | `docs/adoption/architecture-inventory.md`、`docs/adoption/database-inventory.md`、`docs/adoption/**`、`docs/workflow/ROADMAP.md` 缺口草案 |
-| 接管老项目治理基线 | `/adopt-existing-project` | `legacy-inventory` 产物、现有仓库事实、用户确认信息 | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`，必要时更新 `docs/adoption/ADOPTION_REPORT.md` |
+| 接管老项目治理基线 | `/adopt-existing-project` | `legacy-inventory` 产物、现有仓库事实、用户确认信息 | 首版 `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`docs/workflow/ROADMAP.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/BASELINES.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`，必要时更新 `docs/adoption/ADOPTION_REPORT.md`；已有 `CLAUDE.md` 保持原样 |
 | 执行当前任务编排 | `/execute-current-task` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/STATUS.md` | 自动进入 review-current-task → lock-scope → classify-decisions → plan-implementation → decompose-task → implement/review/regression 链 |
 | 创建任务包 | `/create-current-task` | `.workflow-system/PROJECT_PROFILE.yaml`、`docs/workflow/CONTRACTS.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`、用户需求 | `docs/workflow/CURRENT_TASK.md` |
 | 替代失效任务包 | `/supersede-current-task` | 旧 `docs/workflow/CURRENT_TASK.md`、`docs/workflow/STATUS.md`、`docs/workflow/DECISIONS.md`、`docs/workflow/CONTRACTS.md` | 当未完成任务包发生 scope invalidation 时，保留旧任务状态、未完成项和 partial diff 归属，并把新任务包送回 `review-current-task` |
@@ -68,7 +68,7 @@
 | 同步任务记录 | `/sync-current-task` | `docs/workflow/CURRENT_TASK.md`、本轮执行/验证事实 | 更新后的 `docs/workflow/CURRENT_TASK.md` |
 | 同步契约 | `/sync-contracts` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/CONTRACTS.md`、本轮稳定边界事实 | 新稳定边界记录 |
 | 同步决策 | `/sync-decisions` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/DECISIONS.md`、用户确认事实 | 新确认决策记录 |
-| 同步宿主指引 | `/sync-host-guidance` | `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、`CLAUDE.md`、以及已确认项目级约束 | 更新后的 `AGENTS.md` / `CLAUDE.md` |
+| 同步宿主指引 | `/sync-host-guidance` | `.workflow-system/PROJECT_PROFILE.yaml`、`AGENTS.md`、以及已确认项目级约束 | 更新后的 `AGENTS.md`；已有 `CLAUDE.md` 不变 |
 | 同步状态 | `/sync-status` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/STATUS.md`、验证事实 | 更新后的项目状态 |
 | 交付摘要 | `/prepare-delivery-summary` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/STATUS.md`、验证/同步事实 | 交付摘要内容，不自动写文件 |
 | 捕获经验 | `/capture-lessons` | `docs/workflow/CURRENT_TASK.md`、`docs/workflow/LESSONS.md`、验证/复盘事实 | `docs/workflow/LESSONS.md` 更新建议 |

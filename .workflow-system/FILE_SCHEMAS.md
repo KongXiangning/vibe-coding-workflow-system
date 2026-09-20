@@ -1105,8 +1105,8 @@ runtime_operations:
 - `installable` 固定为 `false`
 - `proposal_kind` 非空
 - `proposal_schema_ref` 固定为 `runtime-proposal-envelope`
-- `canonical_state_sources` 非空，Phase 0 闭集为五个 live governance docs、`AGENTS.md`、`CLAUDE.md`、`TASKS/{paused,interrupted,inbox}` 和 materialized canonical archive path；不得指向 derived cache、新状态数据库或宽泛 `TASKS`
-- `write_targets` 非空，Phase 0 闭集为：`docs/workflow/{CURRENT_TASK,STATUS,CONTRACTS,DECISIONS,LESSONS}.md`、`AGENTS.md`、`CLAUDE.md`、`TASKS/{paused,interrupted,inbox}/**`、`TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`；新增目标必须先修改 protocol/schema，不得用 `**`、`docs/**`、`TASKS/**` 等宽泛 pattern 绕过
+- `canonical_state_sources` 非空，Phase 0 闭集为五个 live governance docs、`AGENTS.md`、`TASKS/{paused,interrupted,inbox}` 和 materialized canonical archive path；不得指向 derived cache、新状态数据库或宽泛 `TASKS`
+- `write_targets` 非空，Phase 0 闭集为：`docs/workflow/{CURRENT_TASK,STATUS,CONTRACTS,DECISIONS,LESSONS}.md`、`AGENTS.md`、`TASKS/{paused,interrupted,inbox}/**`、`TASKS/TASK-{{TASK_ID}}-{{TASK_SLUG}}.md`；已有 `CLAUDE.md` 不属于当前 workflow-system 写入目标；新增目标必须先修改 protocol/schema，不得用 `**`、`docs/**`、`TASKS/**` 等宽泛 pattern 绕过
 - `write_policy` 固定为 `exact-allowlist`
 - `source_tuple_required` 与 `authority_evidence_required` 固定为 `true`
 - `conflict_key` 非空

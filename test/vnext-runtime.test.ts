@@ -8,7 +8,7 @@ import { prepareSuccessor, semanticDraftDefinition } from '../runtime/vnext/src/
 import { commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from '../runtime/vnext/src/task-evolution-io';
 import { commitTaskStorageMigration, TaskStore, taskStoreDefinitionRevision } from '../runtime/vnext/src/task-store';
 import { expandTaskProjection, projectionJson } from '../runtime/vnext/src/task-projection';
-import { taskRead, taskContextMigrationPreview, taskContextMigrationCommit } from '../runtime/vnext/src/task-context';
+import { taskContext, taskRead, taskContextMigrationPreview, taskContextMigrationCommit } from '../runtime/vnext/src/task-context';
 import { reviewPreimageBlobPath } from '../runtime/vnext/src/review-preimage-store';
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
@@ -35,6 +35,7 @@ import {
   clearResumeReview,
   captureReviewTarget,
   recordUserEvidenceDecision,
+  extendRepairBudget,
   replaceValidation,
   predecessorObligationKeys,
   successorSnapshotPath,
@@ -6523,6 +6524,28 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => prepareEvidencePlanAmendment(policyRoot, evidenceAmendmentRequest(policyRoot))).toThrow('EVIDENCE_AMENDMENT_POLICY_REQUIRED');
   }, 60000);
 
+  test('evidence-plan amendment migrates confirmed legacy checks when modern boundary and selection are added', () => {
+    const root = confirmedSemanticRoot(evidenceAmendmentDraft());
+    useLegacyInlineCurrent(root);
+    const legacy = readCanonicalCurrentTask(root);
+    const frontmatter = structuredClone(legacy.frontmatter) as any;
+    const check = frontmatter.runtime_state.claim_evidence[0].slots[0].check;
+    delete check.boundary;
+    delete check.selection;
+    fs.writeFileSync(legacy.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${legacy.body}`, 'utf8');
+
+    const request = evidenceAmendmentRequest(root);
+    request.replacements[0]!.replacement_check.boundary = 'business-flow';
+    const prepared = prepareEvidencePlanAmendment(root, request);
+
+    expect(prepared.status).toBe('success');
+    expect(prepared.candidate_path).toContain('.evidence.json');
+    const candidate = JSON.parse(fs.readFileSync(path.join(root, prepared.candidate_path), 'utf8')) as any;
+    expect(candidate.claim_evidence[0].slots[0].check.boundary).toBe('business-flow');
+    expect(candidate.claim_evidence[0].slots[0].check.selection.granularity).toBe('focused');
+    expect(readCanonicalCurrentTask(root).raw).toContain('check_id: K1');
+  });
+
   test('evidence-plan amendment retains old clean review as history and demands fresh verification', () => {
     const root = confirmedSemanticRoot(evidenceAmendmentDraft());
     const preflight = preflightStep(root, { candidate_paths: [] });
@@ -8607,6 +8630,134 @@ describe('vNext Phase 2 Runtime contract', () => {
     const complete = readCanonicalCurrentTask(root);
     expect(complete.runtimeState.findings.every(item => item.status === 'resolved')).toBe(true);
     expect(complete.runtimeState.pending_review_result).toBeNull();
+  });
+
+  test('extends only the exact exhausted repair budget and resumes the retained blocked review', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement and verify the bounded repair continuation',
+        mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }],
+        validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
+      fs.writeFileSync(product, content, 'utf8');
+      return recordStepResult(root, {
+        preflight_receipt: receipt,
+        actual_changed_paths: [file],
+        command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:repair-budget-command'] }],
+        validation_results: [{ validation, status: 'passed', evidence_refs: ['test:repair-budget-validation'] }],
+        acceptance_evidence: receipt.mode === 'default' ? [reportFixture(root)] : [],
+        outcome: 'implemented',
+        note: content.trim(),
+      });
+    };
+
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    expect(execute(initial.receipt, 'initial implementation\n').status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness',
+        file,
+        failure_condition: 'the bounded continuation still loses the required mapping',
+        required_behavior: 'retain the required mapping across the repair continuation',
+        root_cause_status: 'confirmed',
+        evidence_refs: ['test:repair-budget-finding'],
+      }],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:repair-budget-review'],
+      blocker: null,
+    }).status).toBe('success');
+    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+
+    for (const round of [1, 2]) {
+      const repair = beginRepair(root, { candidate_paths: [file] });
+      expect(execute(repair.receipt, `repair round ${round}\n`).status).toBe('success');
+      const verification = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: verification.receipt,
+        verdict: 'findings',
+        findings: [],
+        unresolved_fingerprints: [fingerprint],
+        evidence_refs: [`test:repair-budget-verification-${round}`],
+        blocker: null,
+      }).status).toBe('success');
+    }
+
+    const exhausted = readCanonicalCurrentTask(root);
+    const blockedReview = exhausted.runtimeState.pending_review_result!;
+    expect(blockedReview).toMatchObject({ verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' } });
+    expect(exhausted.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
+      status: 'in-progress', repair_attempts: 2, max_repair_attempts: 2,
+    });
+    expect(taskContext(root, {}).overview.next_entry).toBe('prepare-task:extend-repair-budget');
+    expect(() => beginRepair(root, { candidate_paths: [file] })).toThrow('REVIEW_FINDINGS_REQUIRED');
+
+    const authorization = {
+      review_id: blockedReview.review_id,
+      finding_fingerprints: [fingerprint],
+      additional_repair_attempts: 1,
+      decision_source: 'user:repair-budget-extension-regression',
+      decision_text: 'Authorize exactly one additional repair attempt for the exhausted finding while retaining task, review, and evidence obligations.',
+    };
+    expect(extendRepairBudget(root, { ...authorization, finding_fingerprints: ['finding-not-the-exhausted-target'] })).toMatchObject({
+      status: 'blocked', code: 'REPAIR_BUDGET_EXTENSION_TARGET_INVALID',
+    });
+    const extension = extendRepairBudget(root, authorization);
+    expect(extension).toMatchObject({ status: 'success' });
+    const extended = readCanonicalCurrentTask(root);
+    expect(extended.runtimeState.pending_review_result).toEqual(blockedReview);
+    expect(extended.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
+      status: 'in-progress', repair_attempts: 2, max_repair_attempts: 3,
+    });
+    expect(readCanonicalTaskBasis(root, extended).basis.user_decisions.at(-1)).toEqual({
+      source: authorization.decision_source,
+      verbatim: authorization.decision_text,
+    });
+    const extensionAudit = extended.runtimeState.execution_log.findLast(item => 'action' in item && item.action === 'extend-repair-budget');
+    expect(extensionAudit).toMatchObject({
+      action: 'extend-repair-budget',
+      review_id: blockedReview.review_id,
+      finding_budgets: [{ fingerprint, previous_max: 2, new_max: 3 }],
+      previous_max_repair_rounds: 3,
+      new_max_repair_rounds: 3,
+    });
+    expect(taskContext(root, {}).overview.next_entry).toBe('execute-step:repair');
+    expect(extendRepairBudget(root, {
+      ...authorization,
+      decision_source: 'user:second-unconsumed-extension',
+      decision_text: 'Attempt to add another budget before consuming the first extension.',
+    })).toMatchObject({ status: 'blocked', code: 'REPAIR_BUDGET_EXTENSION_TARGET_INVALID' });
+    const committedBytes = fs.readFileSync(extended.filePath, 'utf8');
+    expect(extendRepairBudget(root, authorization).status).toBe('no-op');
+    expect(fs.readFileSync(extended.filePath, 'utf8')).toBe(committedBytes);
+
+    const continuation = beginRepair(root, { candidate_paths: [file] });
+    expect(continuation.receipt.repair_fingerprints).toEqual([fingerprint]);
+    expect(execute(continuation.receipt, 'repair round 3\n').status).toBe('success');
+    const afterContinuation = readCanonicalCurrentTask(root);
+    expect(afterContinuation.runtimeState.pending_review_result).toBeNull();
+    expect(afterContinuation.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
+      status: 'in-progress', repair_attempts: 3, max_repair_attempts: 3,
+    });
+    const finalReview = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: finalReview.receipt,
+      verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:repair-budget-clean'], blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'bounded continuation verified' }).status).toBe('success');
   });
 
   test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', { timeout: 30000 }, () => {

@@ -63,7 +63,7 @@ export function validateMigrationPreservation(value: unknown, targetIdentity: un
 
 export function validateMigrationAlignment(value: unknown): Array<{ path: string; sha256: string; backup_path: string }> {
   if (!Array.isArray(value)) throw new Error('MIGRATION_ALIGNMENT_INVALID: expected original backup list');
-  const allowed = ['AGENTS.md', 'CLAUDE.md', 'package.json', '.workflow-system/PROJECT_PROFILE.yaml', 'docs/workflow/WORKFLOW_GUIDE.md', 'docs/workflow/DOCUMENT_CATALOG.md', 'docs/workflow/STATUS.md'];
+  const allowed = ['AGENTS.md', 'package.json', '.workflow-system/PROJECT_PROFILE.yaml', 'docs/workflow/WORKFLOW_GUIDE.md', 'docs/workflow/DOCUMENT_CATALOG.md', 'docs/workflow/STATUS.md'];
   const result = value.map(item => {
     const data = object(item, ['path', 'sha256', 'backup_path']);
     const p = text(data.path), hash = text(data.sha256), backup = text(data.backup_path);

@@ -26,7 +26,6 @@ reads:
   - docs/designs/
   - docs/adoption/
   - AGENTS.md
-  - CLAUDE.md
   - SKILL_REGISTRY.md
   - generated/workflow-docs/**
   - generated/workflow-skills/**
@@ -45,7 +44,6 @@ reads:
 writes:
   - .workflow-system/PROJECT_PROFILE.yaml
   - AGENTS.md
-  - CLAUDE.md
   - docs/workflow/
   - docs/designs/
   - docs/adoption/
@@ -75,11 +73,11 @@ must_check:
 stop_conditions:
   - 无法判定某个文件是 workflow 管理资产还是用户手写资产
   - 需要删除旧文件、覆盖分叉文档或 prune live runtime skills，但用户尚未确认
-  - ".workflow-system/PROJECT_PROFILE.yaml、host guidance 与现有治理文档相互冲突，无法判断谁是事实源"
+  - ".workflow-system/PROJECT_PROFILE.yaml、AGENTS.md 与现有治理文档相互冲突，无法判断谁是事实源"
 output:
   - 对账后的 workflow 资产清单
   - 更新后的 `.workflow-system/PROJECT_PROFILE.yaml`
-  - 更新后的 `AGENTS.md` / `CLAUDE.md`
+  - 更新后的 `AGENTS.md`；已有 `CLAUDE.md` 保持原样
   - 整理后的 `docs/workflow/`、`docs/designs/`、`docs/adoption/`
   - 已同步或已计划同步的 runtime skills
 handoff:
@@ -92,7 +90,7 @@ decision_policy:
 verification:
   - 所有 workflow 管理文档都落到 `docs/workflow/`、`docs/designs/`、`docs/adoption/` 的正确分类目录
   - runtime skill prune 只影响 `workflow-system-` 前缀目录
-  - "AGENTS.md、CLAUDE.md 与 .workflow-system/PROJECT_PROFILE.yaml 对同一套规则达成一致"
+  - "AGENTS.md 与 .workflow-system/PROJECT_PROFILE.yaml 对同一套规则达成一致；已有 CLAUDE.md 不在维护范围"
   - 如仍存在需要人工决定的差异，明确列出而不是静默跳过
 allowed-tools:
   - Read
@@ -111,13 +109,13 @@ asset_groups:
   - workflow governance docs
   - design baseline docs
   - adoption docs
-  - host guidance
+  - host guidance (`AGENTS.md` only)
   - runtime skills
 migration_rules:
   - 先做资产盘点和 add / replace / move / delete 计划，再执行写入
   - 优先搬迁或重渲染 workflow 管理文档，不做 silent delete
   - 删除或 prune 前必须确认该目标是 workflow 管理资产
-  - host runtime 同步后只允许删除 `workflow-system-` 前缀 orphan skills
+  - host runtime 同步后只允许删除 `workflow-system-` 前缀 orphan skills；不得删除或重写既有 `CLAUDE.md`
 runtime_sync_commands:
   - WORKFLOW_SYSTEM_ROOT=<target-repo> bun run gen:all
   - bun run workflow:sync --root <target-repo> --host claude --write
@@ -189,7 +187,7 @@ runtime_sync_commands:
 
 - 所有 workflow 管理文档都落到 `docs/workflow/`、`docs/designs/`、`docs/adoption/` 的正确分类目录
 - runtime skill prune 只影响 `workflow-system-` 前缀目录
-- `AGENTS.md`、`CLAUDE.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 对同一套规则达成一致
+- `AGENTS.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 对同一套规则达成一致；已有 `CLAUDE.md` 不在维护范围
 - 如仍存在需要人工决定的差异，明确列出而不是静默跳过
 
 ## Extension Fields
@@ -221,7 +219,7 @@ runtime_sync_commands:
 3. 如果同时发现旧路径和新路径文件，先比较内容。内容相同则可以安全归并；内容分叉则按 `handoff.failure` 停下，让用户决定覆盖、合并还是保留双份。
 4. runtime skill 整理优先复用 workflow-system 源仓库里的 `bun run workflow:sync --root <target-repo> --host ... --write`。这一步只允许 prune `workflow-system-` 前缀 orphan 目录，绝不删除宿主自己的原生 skill。
 5. 需要重渲染 generated docs 或 generated skills 时，回到 workflow-system 源仓库，设置 `WORKFLOW_SYSTEM_ROOT=<target-repo>` 后执行 `bun run gen:all`，再用 `--root <target-repo>` 同步宿主 runtime。不要在 target project 内为了 workflow-system 迁移执行 `bun install`，也不要手改 generated reference render。
-6. `AGENTS.md`、`CLAUDE.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 视为一个整体。只改其中一个会让宿主行为漂移，所以必须一起检查、一起更新。
+6. `AGENTS.md` 与 `.workflow-system/PROJECT_PROFILE.yaml` 是当前维护面。已有 `CLAUDE.md` 只作为目标项目自有历史文件保留，不读取、不覆盖、不删除。
 7. 这是 workflow 资产重排，不是业务实现。不要修改 `package.json`、`scripts/**` 或 `{{CODE_DIRECTORIES}}` 下的业务代码。
 8. 完成后给出清晰结果：哪些资产新增、哪些替换、哪些移动、哪些删除、哪些差异还需要人工决策。
 

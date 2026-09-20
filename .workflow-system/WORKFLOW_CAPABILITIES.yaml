@@ -346,7 +346,7 @@ public_entries:
       - id: host-guidance
         covers_stages: [phase-7-sync]
         capabilities: [source-authority-policy, host-isolation-guard, decision-authority-gate]
-        runtime_operations: [paired-host-guidance-transaction]
+        runtime_operations: [host-guidance-transaction]
         mutation: semantic-proposal
         terminal_behavior: complete
         authority_boundary: { protocol: validate, model: classify, user: confirm, runtime: validate-and-commit }
@@ -529,13 +529,13 @@ runtime_operations:
     idempotence: fail-closed
     conflict_policy: fail-closed
     result_states: [success, no-op, conflict, blocked]
-  - id: paired-host-guidance-transaction
+  - id: host-guidance-transaction
     exposure: runtime
     installable: false
     proposal_kind: durable-host-guidance-delta
     proposal_schema_ref: runtime-proposal-envelope
-    canonical_state_sources: [AGENTS.md, CLAUDE.md, docs/workflow/CONTRACTS.md]
-    write_targets: [AGENTS.md, CLAUDE.md]
+    canonical_state_sources: [AGENTS.md, docs/workflow/CONTRACTS.md]
+    write_targets: [AGENTS.md]
     write_policy: exact-allowlist
     source_tuple_required: true
     authority_evidence_required: true
@@ -607,7 +607,7 @@ compatibility_aliases:
   - { legacy_name: sync-contracts, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: contracts, required_capabilities: [source-authority-policy, decision-authority-gate, propagation-evidence-validator], runtime_operations: [contract-candidate-commit], migration_case: MR-R02, preserve_handoff: true, preserve_writes: true }
   - { legacy_name: sync-current-task, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: task, required_capabilities: [source-authority-policy, scope-guard], runtime_operations: [task-state-transaction], migration_case: MR-R03, preserve_handoff: true, preserve_writes: true }
   - { legacy_name: sync-decisions, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: decisions, required_capabilities: [source-authority-policy, decision-authority-gate], runtime_operations: [decision-record-transaction], migration_case: MR-R04, preserve_handoff: true, preserve_writes: true }
-  - { legacy_name: sync-host-guidance, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: host-guidance, required_capabilities: [source-authority-policy, host-isolation-guard, decision-authority-gate], runtime_operations: [paired-host-guidance-transaction], migration_case: MR-R05, preserve_handoff: true, preserve_writes: true }
+  - { legacy_name: sync-host-guidance, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: host-guidance, required_capabilities: [source-authority-policy, host-isolation-guard, decision-authority-gate], runtime_operations: [host-guidance-transaction], migration_case: MR-R05, preserve_handoff: true, preserve_writes: true }
   - { legacy_name: sync-review-findings, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: findings, required_capabilities: [finding-admission, owner-route-resolver, scope-guard], runtime_operations: [finding-queue-transaction], migration_case: MR-R06, preserve_handoff: true, preserve_writes: true }
   - { legacy_name: sync-status, exposure: compat, classification: runtime, status: active, installable: true, target_entry: sync-state, target_mode: status, required_capabilities: [source-authority-policy, release-evidence-gate], runtime_operations: [project-status-transaction], migration_case: MR-R07, preserve_handoff: true, preserve_writes: true }
 

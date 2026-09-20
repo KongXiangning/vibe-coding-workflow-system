@@ -32,7 +32,7 @@ export const BOOTSTRAP_OPERATION_KINDS = [
   'contract-candidate-commit',
   'decision-record-transaction',
   'project-status-transaction',
-  'paired-host-guidance-transaction',
+  'host-guidance-transaction',
 ] as const;
 export type BootstrapOperationKind = (typeof BOOTSTRAP_OPERATION_KINDS)[number];
 
@@ -174,7 +174,7 @@ export function computeBootstrapTargetIdentity(root: string): string {
 }
 
 function isAllowedAssetPath(value: string): boolean {
-  if (value === 'AGENTS.md' || value === 'CLAUDE.md') return true;
+  if (value === 'AGENTS.md') return true;
   return value === '.workflow-system/PROJECT_PROFILE.yaml'
     || value === '.workflow-system/vnext/BOOTSTRAP_RECEIPT.json'
     || value.startsWith('docs/workflow/')
@@ -233,10 +233,7 @@ function validateSemanticOperations(value: unknown, assets: readonly BootstrapAs
     ['contract-candidate-commit', ['docs/workflow/CONTRACTS.md']],
     ['project-status-transaction', ['docs/workflow/STATUS.md']],
   ]);
-  const hasAgents = assetPaths.has('AGENTS.md');
-  const hasClaude = assetPaths.has('CLAUDE.md');
-  if (hasAgents !== hasClaude) fail('BOOTSTRAP_BOUNDARY_VIOLATION', 'paired host guidance must include both AGENTS.md and CLAUDE.md.');
-  if (hasAgents) expected.set('paired-host-guidance-transaction', ['AGENTS.md', 'CLAUDE.md']);
+  if (assetPaths.has('AGENTS.md')) expected.set('host-guidance-transaction', ['AGENTS.md']);
   for (const [operationKind, targetPaths] of expected) {
     if (!targetPaths.every(target => assetPaths.has(target))) continue;
     const operation = operations.find(candidate => candidate.operation_kind === operationKind);
@@ -276,8 +273,8 @@ function validateModeOperationBoundary(proposal: BootstrapProjectProposal): void
   const kinds = new Set(proposal.semantic_operations.map(operation => operation.operation_kind));
   if (proposal.mode === 'design' && kinds.has('contract-candidate-commit')) fail('BOOTSTRAP_BOUNDARY_VIOLATION', 'design mode must not commit a locked Contract candidate.');
   if (proposal.mode === 'inventory' && kinds.has('contract-candidate-commit')) fail('BOOTSTRAP_BOUNDARY_VIOLATION', 'inventory mode must not commit a locked Contract candidate.');
-  if (proposal.mode === 'design' && kinds.has('paired-host-guidance-transaction')) fail('BOOTSTRAP_BOUNDARY_VIOLATION', 'design mode must not install host guidance.');
-  if (proposal.mode === 'inventory' && kinds.has('paired-host-guidance-transaction')) fail('BOOTSTRAP_BOUNDARY_VIOLATION', 'inventory mode must not install host guidance.');
+  if (proposal.mode === 'design' && kinds.has('host-guidance-transaction')) fail('BOOTSTRAP_BOUNDARY_VIOLATION', 'design mode must not install host guidance.');
+  if (proposal.mode === 'inventory' && kinds.has('host-guidance-transaction')) fail('BOOTSTRAP_BOUNDARY_VIOLATION', 'inventory mode must not install host guidance.');
 }
 
 export function validateBootstrapProjectProposal(value: unknown): BootstrapRuntimeValidation {

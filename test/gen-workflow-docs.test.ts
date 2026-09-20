@@ -336,7 +336,7 @@ describe('gen-workflow-docs', () => {
     expect(guide).toContain('Release evidence');
     expect(guide).toContain('workflow-system 不绑定部署平台');
     expect(guide).toContain('/sync-host-guidance');
-    expect(guide).toContain('AGENTS.md` / `CLAUDE.md');
+    expect(guide).toContain('已有 `CLAUDE.md` 保持原样');
   });
 
   test('workflow guide documents workflow asset realignment entrypoint', () => {
