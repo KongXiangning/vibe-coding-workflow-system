@@ -1,0 +1,666 @@
+125: export const VNEXT_RUNTIME_SCHEMA_VERSION = 1 as const;
+126: export const VNEXT_RUNTIME_PROPOSAL_KIND = 'vnext-runtime-proposal' as const;
+127: export const VNEXT_CURRENT_TASK_KIND = 'vnext-current-task' as const;
+128: export const VNEXT_RUNTIME_STATE_KIND = 'vnext-current-task-runtime-state' as const;
+129: export const VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH = '.workflow-system/vnext/RUNTIME_CONTRACT.yaml';
+130: export const VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH = '.workflow-system/runtime';
+131: export const VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH = '.workflow-system/runtime/dist/cli.js';
+132: export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/runtime/package.json';
+133: export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
+134: export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
+135: export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
+136: export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.2';
+138: export const RUNTIME_OPERATION_KINDS = [
+149: export type RuntimeOperationKind = (typeof RUNTIME_OPERATION_KINDS)[number];
+214: export const RUNTIME_RESULT_STATES = ['success', 'no-op', 'conflict', 'blocked'] as const;
+215: export type RuntimeResultState = (typeof RUNTIME_RESULT_STATES)[number];
+217: export const VNEXT_EXECUTE_STEP_MODES = ['default', 'repair'] as const;
+218: export type VNextExecuteStepMode = (typeof VNEXT_EXECUTE_STEP_MODES)[number];
+219: export const PREPARE_TASK_MODES = ['default', 'confirm', 'replan', 'amend-scope'] as const;
+220: export type PrepareTaskMode = (typeof PREPARE_TASK_MODES)[number];
+222: export const LIFECYCLE_MODES = ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'] as const;
+223: export type LifecycleMode = (typeof LIFECYCLE_MODES)[number];
+224: export const CLOSE_TASK_MODES = ['default'] as const;
+225: export type CloseTaskMode = (typeof CLOSE_TASK_MODES)[number];
+227: export const INBOX_ITEM_TYPES = ['requirement', 'idea', 'bug', 'chore', 'question'] as const;
+228: export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number];
+229: export const INBOX_ITEM_SOURCES = ['user', 'implementation', 'review', 'regression', 'root_cause', 'other'] as const;
+230: export type InboxItemSource = (typeof INBOX_ITEM_SOURCES)[number];
+231: export const INBOX_SUGGESTED_NEXT_ACTIONS = ['triage_later', 'ask_user'] as const;
+232: export type InboxSuggestedNextAction = (typeof INBOX_SUGGESTED_NEXT_ACTIONS)[number];
+234: export const REVIEW_CYCLE_PHASES = ['discovery', 'verification'] as const;
+235: export type ReviewCyclePhase = (typeof REVIEW_CYCLE_PHASES)[number];
+237: export const STEP_STATUSES = ['ready', 'in-progress', 'completed', 'blocked'] as const;
+238: export type StepStatus = (typeof STEP_STATUSES)[number];
+240: export const STEP_EXECUTION_RESULT_STATUSES = ['passed', 'expected-failure', 'failed', 'blocked', 'not-run'] as const;
+241: export type StepExecutionResultStatus = (typeof STEP_EXECUTION_RESULT_STATUSES)[number];
+243: export const FINDING_STATUSES = ['admitted', 'in-progress', 'resolved', 'deferred', 'rejected'] as const;
+244: export type FindingStatus = (typeof FINDING_STATUSES)[number];
+246: export const REPLAN_TASK_STATE_ACTIONS = ['mark-replan-blocked', 'clear-replan-block', 'commit-replan'] as const;
+247: export type ReplanTaskStateAction = (typeof REPLAN_TASK_STATE_ACTIONS)[number];
+249: export const DRAFT_TASK_STATE_ACTIONS = ['create-draft', 'update-draft', 'confirm-draft'] as const;
+250: export type DraftTaskStateAction = (typeof DRAFT_TASK_STATE_ACTIONS)[number];
+252: export const CLAIM_EVIDENCE_MIGRATION_ACTIONS = ['migrate-claim-evidence'] as const;
+253: export type ClaimEvidenceMigrationAction = (typeof CLAIM_EVIDENCE_MIGRATION_ACTIONS)[number];
+255: export const REVIEW_TASK_STATE_ACTIONS = ['record-review-result'] as const;
+256: export type ReviewTaskStateAction = (typeof REVIEW_TASK_STATE_ACTIONS)[number];
+258: export const DRAFT_AUDIT_ACTIONS = ['create-draft', 'update-draft', 'confirm-draft'] as const;
+259: export type DraftAuditAction = (typeof DRAFT_AUDIT_ACTIONS)[number];
+261: export const REPLAN_AUDIT_ACTIONS = [
+268: export type ReplanAuditAction = (typeof REPLAN_AUDIT_ACTIONS)[number];
+270: export const FINDING_ACTIONS = ['admit', 'record-repair-attempt', 'resolve', 'defer', 'reject'] as const;
+271: export type FindingAction = (typeof FINDING_ACTIONS)[number];
+273: export const STEP_ADVANCEMENT_OUTCOMES = [
+279: export type StepAdvancementOutcome = (typeof STEP_ADVANCEMENT_OUTCOMES)[number];
+295: export const MAX_REPAIR_ROUNDS = 3;
+299: export const MAX_REPAIR_ATTEMPTS = 2;
+314: export type AuthorityEvidence = {
+324: export type RuntimeSourceTuple = {
+339: export type PartialDiffDisposition = {
+345: export type ReplanReplacementDefinition = {
+365: export type DraftTaskDefinition = ReplanReplacementDefinition;
+367: export const TEST_STRATEGY_MODES = [
+373: export type TestStrategyMode = (typeof TEST_STRATEGY_MODES)[number];
+375: export const TEST_STRATEGY_SOURCES = [
+380: export type TestStrategySource = (typeof TEST_STRATEGY_SOURCES)[number];
+382: export const TEST_STRATEGY_CLASSIFICATIONS = [
+387: export type TestStrategyClassification = (typeof TEST_STRATEGY_CLASSIFICATIONS)[number];
+389: export type TestStrategyDefinition = {
+397: export type TestStrategyExecutionPhase = 'flexible' | 'test-first' | 'red' | 'green' | 'implementation-first' | 'not-applicable' | 'legacy';
+399: export type TestStrategyExecutionContext = {
+408: export type TaskBasisSource = {
+413: export type TaskBasis = {
+418: export type TaskBasisReference = {
+423: export const CLAIM_KINDS = [
+432: export type ClaimKind = (typeof CLAIM_KINDS)[number];
+434: export const CLAIM_EVIDENCE_DISPOSITIONS = [
+442: export type ClaimEvidenceDisposition = (typeof CLAIM_EVIDENCE_DISPOSITIONS)[number];
+445: export type UserEvidenceDecision = {
+459: export type ClaimEvidenceSlot = {
+481: export const EVIDENCE_CHECK_BOUNDARIES = ['local', 'business-flow', 'e2e'] as const;
+482: export type EvidenceCheckBoundary = (typeof EVIDENCE_CHECK_BOUNDARIES)[number];
+483: export const EVIDENCE_EXECUTION_GRANULARITIES = ['focused', 'target', 'broad-regression'] as const;
+485: export const EVIDENCE_EXECUTION_BREADTH_BASES = [
+493: export type EvidenceExecutionBreadthBasis = (typeof EVIDENCE_EXECUTION_BREADTH_BASES)[number];
+495: export type EvidenceInvocation =
+504: export type EvidenceExecutionSelection = {
+517: export type EvidenceCheck = {
+532: export type EvidenceReport = {
+542: export type EvidenceChallenge = {
+562: export type EvidenceCarryForward = {
+580: export type ClaimEvidenceRecord = {
+590: export type DraftTaskIdentity = {
+597: export type StepReviewReceipt = {
+607: export const REVIEW_RESULT_VERDICTS = ['clean', 'findings', 'blocked'] as const;
+608: export type ReviewResultVerdict = (typeof REVIEW_RESULT_VERDICTS)[number];
+610: export const REVIEW_BLOCKER_ROUTES = ['review-change', 'debug-task', 'prepare-task:replan', 'prepare-task:amend-scope', 'user'] as const;
+611: export type ReviewBlockerRoute = (typeof REVIEW_BLOCKER_ROUTES)[number];
+613: export type ReviewFindingCandidate = {
+623: export type ReviewBlocker = {
+629: export type TestAssessment = {
+633: export type ReviewCoverage = {
+640: export type MutationAuthorityExpansion = {
+660: export type ExecutionPreflightState = {
+675: export type PendingReviewResult = {
+693: export type ReviewTargetEntry = {
+699: export type ReviewTarget = {
+705: export type ReviewChangeDeltaEntry = {
+713: export type ReviewChangeDelta = {
+720: export type StepCommandResult = {
+729: export type StepValidationResult = {
+737: export type StepExpectedFailureEvidence = {
+743: export type StepAcceptanceEvidence = {
+753: export type StepExecutionResult = {
+769: export type TaskStepProgressDelta = {
+785: export type TaskStateDelta =
+922: export type ReplanDelta = Extract<TaskStateDelta, { action: 'commit-replan' }>;
+934: export type LifecycleDelta =
+971: export type SupersedeDelta = Extract<LifecycleDelta, { action: 'supersede' }>;
+973: export type FindingRecord = {
+993: export type FindingQueueDelta =
+1021: export type ReleaseClosureEvidence = {
+1027: export type ClosureEvidence = {
+1039: export type DeliverySummary = {
+1049: export type LessonAdmission = {
+1055: export type ArchiveDelta = {
+1066: export type KnowledgeAdmissionRecord = {
+1073: export type KnowledgeAdmissionBundle = {
+1078: export type KnowledgeProvenance = {
+1088: export type KnowledgeDelta = {
+1097: export type ProjectStatusDelta = {
+1108: export type LessonCandidate = {
+1120: export type LessonRecordDelta = {
+1127: export type InboxRecord = {
+1142: export type InboxRecordDelta = {
+1154: export type RuntimeSemanticDelta = TaskStateDelta | FindingQueueDelta | LifecycleDelta | ArchiveDelta | ProjectStatusDelta | LessonRecordDelta | InboxRecordDelta | KnowledgeDelta;
+1156: export type ReviewCycleState = {
+1166: export function createReviewCycleZero(): ReviewCycleState {
+1178: export type StepExecutionLogEntry = {
+1198: export type StepAdvancementResult = {
+1206: export type ReplanAuditLogEntry = {
+1230: export type ArchiveAuditLogEntry = {
+1254: export type SuccessorDecision = {
+1264: export type DraftAuditLogEntry = {
+1290: export type ClaimEvidenceMigrationAuditLogEntry = {
+1313: export type ExecutionLogEntry = StepExecutionLogEntry | DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | ArchiveAuditLogEntry;
+1316: export type RuntimeProposal = {
+1331: export type LifecycleProposal = RuntimeProposal & {
+1338: export type ArchiveProposal = RuntimeProposal & {
+1345: export type ProjectStatusProposal = RuntimeProposal & {
+1352: export type LessonRecordProposal = RuntimeProposal & {
+1359: export type KnowledgeProposal = RuntimeProposal & {
+1366: export type ContractCandidateProposal = KnowledgeProposal & {
+1371: export type DecisionRecordProposal = KnowledgeProposal & {
+1376: export type InboxRecordProposal = RuntimeProposal & {
+1383: export type StepRepairDiagnosis = { kind: 'same-plan-repair/v1'; status: 'confirmed'; owner: 'current-step'; failed_check: string; cause: string; repair_paths: string[] };
+1385: export type StepAttempt = {
+1392: export type StepAttemptLedger = { evidence_plan_revision: string; max_attempts: 3; attempts: StepAttempt[] };
+1394: export type RuntimeState = {
+1444: export type CurrentTaskStoreBinding = {
+1456: export type CanonicalCurrentTask = {
+1467: export type DynamicExpansionExecutionIdentity = Pick<
+1472: function hasModernDynamicExpansionIdentity(
+1485: export function dynamicExpansionMatchesExecution(
+1497: export function currentExecutionDynamicExpansions(
+1512: export function dynamicReviewRequiredForCurrentExecution(current: CanonicalCurrentTask): boolean {
+1533: export type RuntimeResult = {
+1575: export type RuntimeApplyOptions = {
+1580: export type VNextRuntimeContractValidationResult = {
+1611: function isRecord(value: unknown): value is AnyRecord {
+1615: function fail(code: string, message: string): never {
+1619: function expectRecord(value: unknown, location: string): AnyRecord {
+1624: function expectExactKeys(value: AnyRecord, expected: readonly string[], location: string): void {
+1636: function expectString(value: unknown, location: string, pattern?: RegExp): string {
+1647: function expectNullableString(value: unknown, location: string, pattern?: RegExp): string | null {
+1652: function expectText(value: unknown, location: string, maxLength = MAX_TEXT_LENGTH): string {
+1658: function expectEnum<T extends string>(value: unknown, allowed: readonly T[], location: string): T {
+1666: function expectBoolean(value: unknown, location: string): boolean {
+1671: function expectInteger(value: unknown, location: string, min = 0, max = Number.MAX_SAFE_INTEGER): number {
+1678: function expectStringArray(value: unknown, location: string, allowEmpty = false, maxLength = 128): string[] {
+1688: function expectSetEqual(actual: readonly string[], expected: readonly string[], location: string): void {
+1698: function normalizeRepoPath(value: string, location: string): string {
+1706: function sha256(value: string | Buffer): string {
+1710: function stableValue(value: unknown): unknown {
+1718: function digest(value: unknown): string {
+1722: export function captureReviewTarget(root: string, paths: readonly string[]): ReviewTarget {
+1747: function manifest(entries: ReviewTargetEntry[]): ReviewTarget {
+1752: export function createReviewTargetManifest(entries: ReviewTargetEntry[]): ReviewTarget {
+1756: export function nextStepAttemptId(current: CanonicalCurrentTask): string {
+1761: function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger> {
+1789: function retryRequestDigest(current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>): string {
+1793: export function reviewCycleForNextStep(previousCycleId: string, nextStepId: string, completionKey: string): ReviewCycleState {
+1800: function validateStepRepairDiagnosis(value: unknown): StepRepairDiagnosis {
+1807: function validateRetryResolution(root: string, current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>, failure: NonNullable<StepAttempt['blocker']>): void {
+1843: function emptyReviewCoverage(planRevision: string): ReviewCoverage {
+1851: function validateReviewCoverage(value: unknown): ReviewCoverage {
+1883: function validateDynamicExpansions(value: unknown): MutationAuthorityExpansion[] {
+1942: function validateExecutionPreflight(value: unknown, location = 'runtime_state.execution_preflight'): ExecutionPreflightState {
+1994: function normalizeReviewPreimages(preimages: readonly (ReviewTargetEntry & { content_base64?: string | null })[]): { entries: ReviewTargetEntry[]; writes: ReviewPreimageWrite[] } {
+2006: function reviewPreimageWrite(root: string, entry: ReviewTargetEntry): ReviewPreimageWrite | null {
+2014: function registerReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverageAdmission {
+2032: function extendReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverageAdmission {
+2057: function v2StepPlannedTargets(current: CanonicalCurrentTask): string[] {
+2072: export type CurrentExecutionAdmissionInput = {
+2082: function executionAdmissionErrorCode(
+2112: function resolveNewExecutionPhase(
+2130: export function evaluateCurrentExecutionTargetAdmissions(
+2188: export function assertExecutionTargetAdmissions(
+2198: function assertExecutionAdmissionEvaluation(
+2208: function assertStepProgressExecutionIdentity(
+2238: export function cumulativeReviewExecution(current: CanonicalCurrentTask, execution: StepExecutionLogEntry): StepExecutionLogEntry {
+2254: export function validateTestAssessment(value: unknown): TestAssessment {
+2261: export function createReviewChangeDelta(base: ReviewTarget, target: ReviewTarget): ReviewChangeDelta {
+2286: function parseYamlFrontmatter(content: string, location: string): { frontmatter: AnyRecord; body: string } {
+2303: function parseYamlMappingFile(filePath: string): AnyRecord {
+2323: function validateNodeMinimum(nodeMinVersion: string): void {
+2330: export function validateRuntimeEnvironment(nodeVersion = process.versions.node, nodeMinVersion = VNEXT_RUNTIME_NODE_MIN_VERSION): void {
+2344: function readJsonObject(filePath: string, code: string): AnyRecord {
+2355: function resolveRuntimeDistributionDirectory(root: string): { directory: string; installed: boolean } {
+2364: export function validateVNextRuntimeDistribution(root: string, contract: RuntimeDistributionContract, requireDependencies = false): VNextRuntimeContractValidationResult['runtime_distribution'] {
+2405: function validateRuntimeDistributionContract(value: unknown): RuntimeDistributionContract {
+2425: function validateTaskContextContract(value: unknown): void {
+2447: function validateTaskStoreContract(value: unknown): void {
+2469: function validateBootstrapRuntimeContract(value: unknown): string[] {
+2550: export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
+3585: function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
+3634: function validateSourceTuple(value: unknown): RuntimeSourceTuple {
+3690: function validateEvidenceRefs(value: unknown, location: string): string[] {
+3694: function validateExecutionResultPaths(value: unknown, location: string): string[] {
+3701: function validateReviewTarget(value: unknown, location: string): ReviewTarget {
+3739: export function validateRuntimeReviewTarget(value: unknown, location = 'review_target'): ReviewTarget {
+3743: function validateReviewChangeDelta(
+3795: function validateStepExpectedFailureEvidence(value: unknown, location: string): StepExpectedFailureEvidence {
+3808: function validateStepExecutionResult(value: unknown, location: string): StepExecutionResult {
+3942: export function validateStepAcceptanceEvidence(value: unknown, location: string): StepAcceptanceEvidence[] {
+3961: export function validateEvidenceReport(value: unknown): EvidenceReport {
+3975: function evidenceSlotDefinition(slot: ClaimEvidenceSlot) {
+3980: function evidencePlanRevision(definition: DraftTaskDefinition, records: readonly ClaimEvidenceRecord[]): string {
+3984: function plannedCommandsForEvidence(definition: DraftTaskDefinition): Map<string, Set<string>> {
+3996: export type EvidenceAdmissionContext = {
+4003: export function evidenceInvocationCommand(invocation: NonNullable<EvidenceExecutionSelection['invocation']>): string {
+4014: function unchangedEvidenceCheck(record: ClaimEvidenceRecord, slot: ClaimEvidenceSlot, previous: readonly ClaimEvidenceRecord[]): boolean {
+4023: function taskBasisHasSource(taskBasis: TaskBasis, ref: string): boolean {
+4027: function assertSelectionAuthority(selection: EvidenceExecutionSelection, record: ClaimEvidenceRecord, context: EvidenceAdmissionContext): void {
+4047: function assertExecutionSelection(check: EvidenceCheck, required: boolean): void {
+4103: function validationItemOwners(records: readonly ClaimEvidenceRecord[], stepId: string, label: string): ClaimEvidenceSlot[] {
+4108: function slotOwnsValidation(current: CanonicalCurrentTask, slot: ClaimEvidenceSlot, label: string): boolean {
+4115: export function assertEvidencePlan(definition: DraftTaskDefinition, records: readonly ClaimEvidenceRecord[], fresh = false, context?: EvidenceAdmissionContext): string {
+4180: function assertPersistentTestAdmission(definition: DraftTaskDefinition, records: readonly ClaimEvidenceRecord[]): void {
+4192: function recoveryEvidenceContextRevision(root: string): string {
+4199: function validateUserEvidenceDecision(value: unknown): UserEvidenceDecision {
+4217: function assertUserEvidenceApplicable(root: string, current: CanonicalCurrentTask, slot: ClaimEvidenceSlot): void {
+4244: function carryUserEvidenceDecision(root: string, current: CanonicalCurrentTask, claimId: string,
+4262: export function applicableResultWaiver(
+4288: export function assertExecutionResultWaivers(root: string, current: CanonicalCurrentTask, stepId: string,
+4299: function assertEvidenceReportApplicable(root: string, current: CanonicalCurrentTask, slot: ClaimEvidenceSlot): void {
+4343: function assertEvidenceSlotSatisfied(root: string, current: CanonicalCurrentTask, record: ClaimEvidenceRecord, slot: ClaimEvidenceSlot, closing: boolean): void {
+4360: export function evaluateEvidenceSlotForContext(
+4374: export function validateClaimEvidence(value: unknown, location: string): ClaimEvidenceRecord[] {
+4485: function claimEvidenceRefs(records: readonly ClaimEvidenceRecord[]): string[] {
+4489: function isClaimEvidenceSlotComplete(slot: ClaimEvidenceSlot): boolean {
+4498: export function hasRemainingCorrectionTargets(current: CanonicalCurrentTask, stepId: string): boolean {
+4504: export function evaluateClaimEvidence(records: readonly ClaimEvidenceRecord[], context: { root: string; current: CanonicalCurrentTask; due_step_id?: string }): ClaimEvidenceCompletion {
+4539: function copyClaimEvidence(records: readonly ClaimEvidenceRecord[]): ClaimEvidenceRecord[] {
+4543: function claimEvidenceStateEnabled(runtimeState: Pick<RuntimeState, 'claim_evidence_required' | 'claim_evidence'>): boolean {
+4547: function requireClaimEvidencePlan(
+4558: function requireAcceptanceClaim(records: readonly ClaimEvidenceRecord[], location: string): void {
+4564: function assertClaimEvidencePlanPreserved(
+4602: function validateStepReviewReceipt(value: unknown, location: string): StepReviewReceipt {
+4633: function validateReviewFindingCandidate(value: unknown, location: string): ReviewFindingCandidate {
+4651: function validateReviewBlocker(value: unknown, location: string): ReviewBlocker {
+4661: function validatePendingReviewResult(
+4748: function expectVerbatim(value: unknown, location: string, maxLength: number): string {
+4758: function validateTaskBasisSource(value: unknown, location: string): TaskBasisSource {
+4769: function validateTaskBasis(value: unknown, location: string): TaskBasis {
+4787: function normalizeReplacementSectionContent(value: string, location: string): string {
+4795: function validatePartialDiffDisposition(value: unknown, location: string): PartialDiffDisposition {
+4805: function validateReplanReplacementDefinition(value: unknown, location: string): ReplanReplacementDefinition {
+4844: function renderMutationAuthoritySectionContent(authority: TaskMutationAuthority): string {
+4853: function parseMutationAuthoritySection(body: string): Pick<ReplanReplacementDefinition, 'mutation_authority_version' | 'mutation_authority'> | null {
+4894: function testStrategySection(markdown: string, aliases: readonly string[], location: string): string {
+4900: export function readTestStrategyDefinition(definition: Pick<DraftTaskDefinition, 'regression_checks'>): TestStrategyDefinition {
+4950: export function readPersistentTestPaths(definition: Pick<DraftTaskDefinition, 'regression_checks'>): string[] {
+4976: function definitionAuthorityPatterns(definition: DraftTaskDefinition): { planned_targets: string[]; command_write_targets: string[] } {
+5022: export function assertV2DraftDefinitionAuthority(root: string, definition: DraftTaskDefinition): void {
+5048: function currentAuthorityDomainRevision(root: string, current: CanonicalCurrentTask): string | undefined {
+5057: function assertV2AuthorityDomainRevisionFreshForTransition(root: string, current: CanonicalCurrentTask, transition: string): void {
+5069: function strategyStepScopes(definition: DraftTaskDefinition): string[][] {
+5087: function definitionMutationScope(definition: DraftTaskDefinition): ReturnType<typeof parseMutationScope> {
+5118: export function nonExecutableChangePatterns(root: string): string[] {
+5166: function assertNonExecutableChangeScope(root: string, definition: DraftTaskDefinition, stepScopes: readonly string[][]): void {
+5193: function assertTestStrategySource(root: string, strategy: TestStrategyDefinition, taskBasis: TaskBasis): void {
+5210: function assertRepositoryAuthoritySource(root: string, sourceRef: string): void {
+5235: export function assertPreparedTestStrategy(root: string, definition: DraftTaskDefinition, taskBasis: TaskBasis): TestStrategyDefinition {
+5248: export function assertBusinessEvidenceVersion(current: CanonicalCurrentTask): void {
+5254: function executionPhaseForStrategy(strategy: TestStrategyDefinition): TestStrategyExecutionPhase {
+5264: export function executionPhaseForCurrentStep(
+5284: export function resolveTestStrategyExecutionContext(current: CanonicalCurrentTask): TestStrategyExecutionContext {
+5307: export function assertTestStrategySequenceReady(
+5316: function assertTestStrategyExecutionTransition(
+5326: function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle: true): DraftTaskIdentity;
+5327: function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle: false): Omit<DraftTaskIdentity, 'task_title'>;
+5328: function validateDraftTaskIdentityFields(record: AnyRecord, location: string, requireTitle = true): DraftTaskIdentity | Omit<DraftTaskIdentity, 'task_title'> {
+5346: function replacementStepIds(implementationSteps: string): string[] {
+5355: function assertReplacementActiveStep(activeStepId: string, implementationSteps: string): void {
+5368: function assertStrictDraftImplementationSteps(activeStepId: string, implementationSteps: string): TaskStepDefinition[] {
+5397: function resolveTaskStepForState(body: string, activeStepId: string): TaskStepResolution {
+5410: function resolveCanonicalTaskStep(current: CanonicalCurrentTask): TaskStepResolution {
+5414: function effectiveCheckpointPolicy(resolution: TaskStepResolution): TaskStepCheckpointPolicy {
+5425: export function assertReviewExecutionEligible(
+5481: function validateTaskStateDelta(value: unknown): TaskStateDelta {
+5731: function validateLifecycleReasons(value: unknown, location: string): ResumeReviewReason[] {
+5740: function validateLifecycleDelta(value: unknown): LifecycleDelta {
+5850: function validateFindingRecord(value: unknown, location: string): FindingQueueDelta & { action: 'admit' } {
+5903: function validateFindingAction(value: unknown): FindingQueueDelta & { action: Exclude<FindingAction, 'admit'> } {
+5941: function validateClosureEvidence(value: unknown, location: string): ClosureEvidence {
+5968: function validateDeliverySummary(value: unknown, location: string): DeliverySummary {
+5982: function validateLessonAdmission(value: unknown, location: string): LessonAdmission {
+6022: function validateImplementationAnchors(value: unknown, location: string): ImplementationAnchors {
+6063: function validateKnowledgeCandidate(value: unknown, location: string, expectedKind?: 'contract' | 'decision'): KnowledgeCandidate {
+6127: function validateKnowledgeAdmissionRecord(value: unknown, location: string, expectedKind: 'contract' | 'decision'): KnowledgeAdmissionRecord {
+6154: function validateKnowledgeAdmissionBundle(value: unknown, location: string): KnowledgeAdmissionBundle {
+6166: function emptyKnowledgeAdmissionBundle(): KnowledgeAdmissionBundle {
+6170: function validateKnowledgeProvenance(value: unknown, location: string): KnowledgeProvenance {
+6200: function validateKnowledgeDelta(value: unknown, expectedKind?: 'contract' | 'decision'): KnowledgeDelta {
+6227: function validateArchiveDelta(value: unknown): ArchiveDelta {
+6267: function validateLessonCandidate(value: unknown, location: string): LessonCandidate {
+6283: function validateProjectStatusDelta(value: unknown): ProjectStatusDelta {
+6298: function validateLessonRecordDelta(value: unknown): LessonRecordDelta {
+6320: function validateInboxItemId(value: unknown, location: string): string {
+6341: function validateInboxRecord(value: unknown, location: string): InboxRecord {
+6378: function validateInboxRecordDelta(value: unknown): InboxRecordDelta {
+6420: function validateSemanticDelta(value: unknown, operationKind: RuntimeOperationKind): RuntimeSemanticDelta {
+6459: export function validateRuntimeProposal(value: unknown): RuntimeProposal {
+6598: function validateFinding(value: unknown, location: string): FindingRecord {
+6626: function validateReviewCycle(value: unknown, location = 'runtime_state.review_cycle'): ReviewCycleState {
+6668: function validateArchiveAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): ArchiveAuditLogEntry {
+6737: export function successorSnapshotPath(currentPath: string, documentId: string, revision: string): string {
+6741: export function validateSuccessorDecision(value: unknown): SuccessorDecision {
+6762: export function predecessorObligationKeys(current: CanonicalCurrentTask): string[] {
+6767: function assertSuccessorDecision(root: string, current: CanonicalCurrentTask, delta: Extract<TaskStateDelta, { action: 'create-draft' | 'update-draft' }>): void {
+6784: function validateDraftAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): DraftAuditLogEntry {
+6905: function validateClaimEvidenceMigrationAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): ClaimEvidenceMigrationAuditLogEntry {
+6972: function validateExecutionLogEntry(value: unknown, location: string, taskId: string, taskSlug: string): ExecutionLogEntry {
+7168: function validateEvidenceChallenge(value: unknown, location: string): EvidenceChallenge {
+7200: function validateEvidenceCarryForward(value: unknown, location: string): EvidenceCarryForward {
+7228: export function validateVNextRuntimeState(value: unknown, options: { storeBackedHistory?: boolean } = {}): RuntimeState {
+7394: function replaceTaskInfoField(body: string, label: string, value: string): string {
+7402: function renderCurrentTaskLifecycleFields(body: string, runtimeState: RuntimeState): string {
+7448: function scanMarkdownSections(body: string): MarkdownSectionRange[] {
+7474: function findUniqueMarkdownSection(
+7495: export function readCanonicalMarkdownSection(
+7504: export type CanonicalGovernanceFact = {
+7513: function canonicalGovernanceFail(code: string, location: string, message: string): never {
+7517: export function normalizeCanonicalGovernanceInlineText(value: string, location: string, code = 'GOVERNANCE_INPUT_INVALID'): string {
+7532: export function normalizeCanonicalGovernanceKey(value: string, location: string, code = 'GOVERNANCE_INPUT_INVALID'): string {
+7540: export function normalizeCanonicalGovernanceFacts(
+7572: export function parseCanonicalGovernanceFactLines(lines: readonly string[], location: string): CanonicalGovernanceFact[] {
+7592: export function normalizeCanonicalBaselineEntries(
+7611: export function parseCanonicalBaselineKeys(lines: readonly string[], location: string): string[] {
+7624: function resolveReplanSectionRanges(body: string): Partial<Record<ReplanSectionKey, MarkdownSectionRange>> {
+7680: function replacementSectionValue(replacement: ReplanReplacementDefinition, key: ReplanSectionKey): string | null {
+7684: function replaceReplanDefinitionSections(body: string, replacement: ReplanReplacementDefinition): string {
+7719: function assertReplanDefinitionSections(body: string, replacement: ReplanReplacementDefinition): void {
+7747: function auditList(values: readonly string[]): string {
+7751: function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry, includeEmptyKnowledge = true): string {
+7806: function appendExecutionAuditToBody(body: string, audit: RuntimeAuditLogEntry): string {
+7815: function compactHistoryPreview(body: string, runtimeState: RuntimeState, audit?: RuntimeAuditLogEntry): string {
+7840: function assertExecutionAudit(root: string, current: CanonicalCurrentTask, audit: RuntimeAuditLogEntry): void {
+7872: function taskBasisRelativePath(currentTaskPath: string, taskId: string): string {
+7882: function taskBasisFilePath(root: string, relativePath: string): string {
+7892: function renderTaskBasisContent(identity: DraftTaskIdentity, basis: TaskBasis): string {
+7913: function materializeTaskBasis(
+7930: export function readTaskBasisReferenceFromBody(body: string): TaskBasisReference | null {
+7942: function renderTaskBasisReference(reference: TaskBasisReference): string {
+7946: function replaceTaskBasisReference(body: string, reference: TaskBasisReference): string {
+7960: function renderNewDraftBody(
+8067: function renderCanonicalCurrentTask(
+8147: function currentTaskPathForRoot(root: string): { filePath: string; relativePath: string } {
+8158: function walkMarkdownFiles(directory: string): string[] {
+8172: export function allocateNextTaskId(root: string, currentTaskId: string): string {
+8195: function collectTaskDocumentIds(root: string): Set<string> {
+8209: function generatedDraftDocumentId(identity: Pick<DraftTaskIdentity, 'task_id' | 'task_slug'>, sourceRevision: string): string {
+8213: function validateCurrentTaskStoreBinding(value: unknown, documentId: string, location: string): CurrentTaskStoreBinding {
+8239: function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativePath: string, prepared?: PreparedTaskContent): CanonicalCurrentTask {
+8333: export function taskSourceRevisionMatches(root: string, current: CanonicalCurrentTask, sourceRevision: string): boolean {
+8344: function hydrateCompactRuntimeHistory(root: string, current: CanonicalCurrentTask): void {
+8380: export function readCanonicalCurrentTask(root: string): CanonicalCurrentTask {
+8405: function recoveryCurrentFromRaw(
+8426: export function recoverPendingTaskStoreCommit(root: string): void {
+8523: export type CanonicalTaskBasis = TaskBasisArtifact & {
+8528: export function readCanonicalTaskBasis(root: string, current = readCanonicalCurrentTask(root)): CanonicalTaskBasis {
+8613: export type CloseTaskPreview = {
+8629: function workflowDocPathForRoot(root: string, file: string, missingCode = 'RUNTIME_SOURCE_MISSING'): { filePath: string; relativePath: string } {
+8642: function archivePathForTask(root: string, current: CanonicalCurrentTask): { filePath: string; relativePath: string } {
+8684: function canonicalInboxRecordTarget(root: string, delta: InboxRecordDelta): { filePath: string; relativePath: string } {
+8705: function renderInboxTextBlock(value: string): string {
+8709: function inboxRecordProvenance(proposal: InboxRecordProposal): InboxRecordProvenance {
+8724: function renderInboxRecord(proposal: InboxRecordProposal): string {
+8751: function validateInboxProvenance(value: unknown, location: string): InboxRecordProvenance {
+8786: function readInboxProvenanceMarkers(content: string, location: string): InboxRecordProvenance[] {
+8805: function scanInboxRecordFiles(root: string): InboxRecordFile[] {
+8828: function assertCanonicalInboxRecordContent(content: string, proposal: InboxRecordProposal, location: string): void {
+8842: function inspectInboxRecordTransaction(root: string, proposal: InboxRecordProposal): InboxRecordTransactionPlan {
+8871: function prepareInboxRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: InboxRecordProposal): InboxRecordTransactionPlan {
+8883: function yamlScalar(value: string): string {
+8888: function yamlStringArray(values: readonly string[]): string {
+8892: function readArchiveScalar(section: string, field: string, location: string): string {
+8907: function readArchiveArray(raw: string, location: string): string[] {
+8917: function readArchiveLessonAdmission(section: string, location: string): LessonAdmission {
+8927: function readArchiveKnowledgeAdmissions(section: string, location: string): KnowledgeAdmissionBundle {
+8941: function requiredArchiveSections(raw: string): Record<string, MarkdownSectionRange> {
+8961: function readCanonicalArchive(root: string, current: CanonicalCurrentTask, expectedPath?: string): ArchiveReceipt {
+9013: function archiveAudits(current: CanonicalCurrentTask): ArchiveAuditLogEntry[] {
+9017: function assertArchiveReceiptMatches(current: CanonicalCurrentTask, receipt: ArchiveReceipt, audit: ArchiveAuditLogEntry): void {
+9037: function matchingArchiveReceipt(root: string, current: CanonicalCurrentTask): { audit: ArchiveAuditLogEntry; receipt: ArchiveReceipt } {
+9050: function closureEligibilityBlockers(root: string, current: CanonicalCurrentTask, delta: ArchiveDelta, archiveAlreadyExists: boolean): string[] {
+9137: function assertArchiveReplay(root: string, current: CanonicalCurrentTask, proposal: ArchiveProposal): void {
+9153: function quotedSnapshot(raw: string): string {
+9157: function renderArchiveList(label: string, values: readonly string[]): string[] {
+9164: function renderArchiveDocument(
+9264: function makeArchiveAudit(
+9316: function prepareArchiveTransaction(root: string, current: CanonicalCurrentTask, proposal: ArchiveProposal, now: string): ArchiveTransactionPlan | null {
+9391: export type StatusReconciliationReceipt = StatusReceipt;
+9393: function renderStatusReconciliation(proposal: ProjectStatusProposal, delta: ProjectStatusDelta, archive: ArchiveReceipt): string {
+9414: function readStatusScalar(body: string, field: string, location: string): string {
+9429: function readStatusArray(body: string, field: string, location: string): string[] {
+9440: function statusDeltaFromReceipt(receipt: StatusReceipt): ProjectStatusDelta {
+9453: function readStatusReceipts(content: string, location: string): StatusReceipt[] {
+9499: function matchingStatusReceipt(content: string, location: string, archive: ArchiveReceipt): StatusReceipt | null {
+9511: function statusItemText(line: string): string | null {
+9519: function isStatusPlaceholderLine(line: string): boolean {
+9524: function validateStatusProjectionText(value: string, location: string): string {
+9531: function requiredStatusSection(content: string, sectionKey: StatusSectionKey, location: string): MarkdownSectionRange {
+9540: export function validateStatusDocument(content: string, location = 'STATUS.md'): void {
+9550: export function readStatusReconciliationReceipts(content: string, location = 'STATUS.md'): StatusReconciliationReceipt[] {
+9563: function assertStatusReceiptProjection(content: string, receipts: readonly StatusReceipt[], location: string): void {
+9594: export function readCanonicalStatusDocumentForBootstrap(content: string, location = 'STATUS.md'): StatusReconciliationReceipt[] {
+9600: function canonicalizeStatusOverviewLines(
+9628: export function canonicalizeStatusDocumentForBootstrap(
+9673: function readStatusSectionLines(content: string, sectionKey: StatusSectionKey, location: string): string[] {
+9679: function replaceStatusSectionBody(content: string, sectionKey: StatusSectionKey, lines: readonly string[], location: string): string {
+9685: function statusItemMatchCount(lines: readonly string[], item: string): number {
+9689: function projectStatusOverview(content: string, delta: ProjectStatusDelta, location: string): string {
+9705: function projectStatusCompletedItems(content: string, delta: ProjectStatusDelta, location: string): string {
+9736: function projectStatusRemainingRisks(content: string, delta: ProjectStatusDelta, location: string): string {
+9752: function projectStatusCheckpoint(content: string, delta: ProjectStatusDelta, location: string): string {
+9765: function projectStatusDelta(content: string, delta: ProjectStatusDelta, location: string): string {
+9772: function assertStatusProjection(content: string, delta: ProjectStatusDelta, location: string): void {
+9799: function appendStatusReconciliation(content: string, marker: string, location: string): string {
+9806: function prepareProjectStatusTransaction(root: string, current: CanonicalCurrentTask, proposal: ProjectStatusProposal): ProjectStatusTransactionPlan | null {
+9855: export type ReusedCandidateTarget = {
+9876: function lessonCandidateDigest(candidate: LessonCandidate): string {
+9888: function renderLessonMarker(candidate: LessonCandidate, archive: ArchiveReceipt): string {
+9902: function expectLessonRecord(value: unknown, location: string): AnyRecord {
+9907: function expectLessonExactKeys(value: AnyRecord, expected: readonly string[], location: string): void {
+9918: function expectLessonString(value: unknown, location: string, pattern?: RegExp): string {
+9929: function validateLessonTaskSlug(value: unknown, location: string): string {
+9939: function validateLessonCandidateKey(value: unknown, location: string): ReusedCandidateTarget {
+9964: export function readLessonMarkers(content: string, location: string): LessonMarker[] {
+10029: function renderLessonCandidate(candidate: LessonCandidate, archive: ArchiveReceipt): string {
+10042: export type DurableLessonRecord = {
+10047: function countExactOccurrences(content: string, value: string): number {
+10059: function renderLessonMarkerFromData(marker: LessonMarker): string {
+10083: function archiveReceiptFromLessonMarker(marker: LessonMarker): ArchiveReceipt {
+10102: function parseLessonRenderedScalar(raw: string, location: string): string {
+10115: function readLessonRenderedField(block: string, label: string, indent: string, location: string): string {
+10122: function readLessonRenderedEvidenceRefs(block: string, location: string): string[] {
+10134: function readDurableLessonRecord(content: string, marker: LessonMarker, location: string): DurableLessonRecord {
+10183: export function readDurableLessonRecords(content: string, location: string): DurableLessonRecord[] {
+10243: export function readCanonicalLessonsDocument(content: string, location: string): string {
+10252: function isLegacyBootstrapLessonsDocument(content: string, location: string): boolean {
+10269: export function readBootstrapLessonsDocument(content: string, location = 'LESSONS.md'): string {
+10278: export function canonicalizeLessonsDocumentForBootstrap(content: string, location = 'LESSONS.md'): string {
+10320: function appendLessonCandidates(content: string, candidates: readonly LessonCandidate[], archive: ArchiveReceipt, location: string): { content: string; candidateCount: number } {
+10342: function appendLessonReuseMarkers(
+10391: function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: LessonRecordProposal): LessonRecordTransactionPlan | null {
+10533: export type DurableKnowledgeRecord = {
+10556: function knowledgeTarget(root: string, knowledgeKind: 'contract' | 'decision'): { filePath: string; relativePath: string } {
+10560: function knowledgeSectionTitle(knowledgeKind: 'contract' | 'decision'): string {
+10564: function knowledgeMarkerPrefix(knowledgeKind: 'contract' | 'decision'): string {
+10568: function knowledgeCandidateSemanticDigest(candidate: KnowledgeCandidate): string {
+10581: function validateDurableKnowledgeRecord(value: unknown, location: string, expectedKind: 'contract' | 'decision'): DurableKnowledgeRecord {
+10627: function renderDurableKnowledgeRecord(record: DurableKnowledgeRecord): string {
+10650: export function readDurableKnowledgeRecords(content: string, location: string, expectedKind: 'contract' | 'decision'): DurableKnowledgeRecord[] {
+10692: export function readCanonicalDurableKnowledgeSection(
+10706: function appendKnowledgeSectionIfMissing(content: string, knowledgeKind: 'contract' | 'decision'): string {
+10714: function replaceDurableKnowledgeRecord(
+10729: function knowledgeAdmissionMatches(left: KnowledgeAdmissionRecord, right: KnowledgeAdmissionRecord): boolean {
+10733: function knowledgeProvenanceMatchesArchive(provenance: KnowledgeProvenance, archive: ArchiveReceipt, proposal: KnowledgeProposal): void {
+10754: function archiveEvidenceRefsForKnowledge(archive: ArchiveReceipt): string[] {
+10762: function durableKnowledgeRecordFromProposal(proposal: KnowledgeProposal, archive: ArchiveReceipt): DurableKnowledgeRecord {
+10781: function knowledgeAdmissionFromArchive(archive: ArchiveReceipt, knowledgeKind: 'contract' | 'decision', candidateId: string): KnowledgeAdmissionRecord {
+10788: function scanKnowledgeRecords(root: string): DurableKnowledgeRecord[] {
+10799: function inspectKnowledgeRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: KnowledgeProposal): KnowledgeRecordTransactionPlan {
+10870: function prepareKnowledgeRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: KnowledgeProposal): KnowledgeRecordTransactionPlan {
+10878: function assertRequestedInboxTargets(root: string, current: CanonicalCurrentTask, proposal: InboxRecordProposal): void {
+10886: function assertRequestedCloseTargets(root: string, current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+10911: function assertPreviousTaskReconciliationComplete(root: string, current: CanonicalCurrentTask, receipt: ArchiveReceipt): void {
+10971: function ensureAuthorityKinds(proposal: RuntimeProposal, required: readonly AuthorityEvidence['kind'][]): void {
+10977: function compareSourceTuple(expected: RuntimeSourceTuple, actual: RuntimeSourceTuple): string | null {
+11002: function appendAppliedProposal(
+11019: function appendExecutionLogEntry(current: RuntimeState, entry: ExecutionLogEntry): ExecutionLogEntry[] {
+11026: export function replaceValidation(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+11151: export function initializeTaskPreservation(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+11155: function initializeTaskPreservationLocked(root: string, rawInput: unknown, options: RuntimeApplyOptions): RuntimeResult {
+11321: export type CorrectionCandidateReceipt = {
+11331: function normalizeCorrectionInput(input: unknown): CorrectionCandidateInput {
+11387: function normalizeCorrectionStep(raw: unknown, options: { allowExistingWildcardScope?: boolean } = {}): CorrectionStepInput {
+11414: function validateEvidenceCheck(value: unknown, location: string): EvidenceCheck {
+11420: function executedStepIds(current: CanonicalCurrentTask): Set<string> {
+11427: function revisePendingSteps(current: CanonicalCurrentTask, definition: DraftTaskDefinition, revision: PendingStepRevision, recoverySteps: CorrectionStepInput[]): DraftTaskDefinition {
+11447: function correctionCandidateLocation(current: CanonicalCurrentTask, candidateDigest: string): { filePath: string; relativePath: string } {
+11454: function pendingCorrectionCandidates(root: string, current: CanonicalCurrentTask): Array<{ candidate_digest: string; candidate_path: string; valid: boolean }> {
+11475: function unconfirmedCorrectionCandidatePaths(current: CanonicalCurrentTask): string[] {
+11485: function pendingScopeAmendmentCandidates(current: CanonicalCurrentTask): Array<{ candidate_digest: string; candidate_path: string; valid: boolean }> {
+11505: function correctionObligations(current: CanonicalCurrentTask): unknown {
+11525: function insertCorrectionStep(definition: DraftTaskDefinition, activeStepId: string, step: CorrectionStepInput, append = false): DraftTaskDefinition {
+11561: export type PersistentTestAdmission = {
+11618: export type ScopeAmendmentCandidateReceipt = {
+11638: function normalizeScopeAmendmentInput(input: unknown, options: { allowExistingWildcardScope?: boolean } = {}): ScopeAmendmentCandidateInput {
+11700: function scopeAmendmentCandidateLocation(current: CanonicalCurrentTask, candidateDigest: string): { filePath: string; relativePath: string } {
+11707: function assertScopeAmendmentHistoryForRevision(current: CanonicalCurrentTask, sourceRevision: string): void {
+11722: function scopeAmendmentCandidateReceipt(candidate: ScopeAmendmentCandidate, candidateDigest: string): ScopeAmendmentCandidateReceipt {
+11734: function scopeAmendmentRequestMatchesCandidate(input: ScopeAmendmentCandidateInput, candidate: ScopeAmendmentCandidate): boolean {
+11757: function appendExactScopePaths(value: string, paths: readonly string[]): string {
+11770: function persistentTestAdmissionError(location: string, message: string): never {
+11774: function persistentTestAdmissionText(value: unknown, location: string, maxLength = 4096): string {
+11782: function persistentTestAdmissionStringArray(value: unknown, location: string): string[] {
+11790: function normalizePersistentTestAdmission(value: unknown, index: number): PersistentTestAdmission {
+11824: function appendPersistentTestAdmissions(regressionChecks: string, admissions: readonly PersistentTestAdmission[]): string {
+11862: function appendLegacyPersistentTestPaths(regressionChecks: string, paths: readonly string[], claimIds: readonly string[] = ['A1']): string {
+11896: function replaceScopeAmendmentStep(definition: DraftTaskDefinition, previousStepId: string, step: CorrectionStepInput, v2 = false): DraftTaskDefinition {
+11933: function assertScopeAmendmentPathSafe(root: string, current: CanonicalCurrentTask, paths: readonly string[]): void {
+11960: function executionResultRecordedForPreflight(
+11975: function assertV2AuthorityAmendmentExecutionSettled(current: CanonicalCurrentTask): void {
+11997: function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTask, input: ScopeAmendmentCandidateInput): ScopeAmendmentCandidate {
+12215: export function prepareScopeAmendment(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult & { candidate_receipt: ScopeAmendmentCandidateReceipt; candidate_path: string } {
+12311: function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+12495: export function discardScopeAmendment(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+12517: function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, input: CorrectionCandidateInput): CorrectionCandidate {
+12689: export function prepareCorrectionReplan(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult & { candidate_receipt: CorrectionCandidateReceipt; candidate_path: string } {
+12693: function prepareCorrectionReplanLocked(root: string, rawInput: unknown, options: RuntimeApplyOptions): RuntimeResult & { candidate_receipt: CorrectionCandidateReceipt; candidate_path: string } {
+12757: export function confirmCorrectionReplan(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+12761: function confirmCorrectionReplanLocked(root: string, rawInput: unknown, options: RuntimeApplyOptions): RuntimeResult {
+12934: export function discardCorrectionReplan(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+12938: function discardCorrectionReplanLocked(root: string, rawInput: unknown, options: RuntimeApplyOptions): RuntimeResult {
+12957: function artifactRestoreCompletion(root: string, current: CanonicalCurrentTask, candidate: CorrectionCandidate,
+12970: function restoreCompletionMatches(completion: ReturnType<typeof artifactRestoreCompletion>): boolean {
+12975: function restoreCompletionOrigin(root: string, current: CanonicalCurrentTask, candidate: CorrectionCandidate) {
+12984: function currentRestoreCompletion(root: string, current: CanonicalCurrentTask, candidate: CorrectionCandidate) {
+12993: function persistRestoreCompletion(completion: ReturnType<typeof artifactRestoreCompletion>): void {
+13002: function assertArtifactRestoreCompleted(root: string, current: CanonicalCurrentTask): void {
+13009: export function executeConfirmedArtifactRestore(root: string, sourceRevision: string, stepId: string, candidatePaths: string[], dryRun = false) {
+13046: export function listArtifactCheckpoints(root: string) {
+13059: export function currentDefinitionExecutionLog(current: CanonicalCurrentTask): ExecutionLogEntry[] {
+13073: function implementationStepBlock(definition: DraftTaskDefinition, stepId: string): string | undefined {
+13078: function confirmedRecoveryCandidates(current: CanonicalCurrentTask): CorrectionCandidate[] {
+13088: function recoveryOwnedStepIds(candidate: CorrectionCandidate): string[] {
+13092: function inheritedRecoveryProblemKeys(current: CanonicalCurrentTask, stepId: string): string[] {
+13113: function challengeReportIsRetained(root: string, current: CanonicalCurrentTask, challenge: EvidenceChallenge, currentResultId: string): boolean {
+13161: function recoveryProblemBudget(current: CanonicalCurrentTask): { failedAttempts: number; repairWaves: Set<string> } | null {
+13189: function inheritedScopeAmendmentAttemptLedger(root: string, current: CanonicalCurrentTask, stepId: string): { prior_step_id: string; ledger: StepAttemptLedger } | null {
+13232: function assertRecoveryHistory(root: string, current: CanonicalCurrentTask): void {
+13279: function makeReplanAudit(
+13329: function ensureAnyAuthorityKind(proposal: RuntimeProposal, allowed: readonly AuthorityEvidence['kind'][]): void {
+13335: function makeDraftAudit(
+13380: function makeClaimEvidenceMigrationAudit(
+13417: export function readDraftDefinitionFromBody(body: string): DraftTaskDefinition {
+13440: function assertNoUnresolvedDraftQuestions(body: string): void {
+13455: function assertDraftDefinitionReady(root: string, current: CanonicalCurrentTask): DraftTaskDefinition {
+13469: function expectedDraftReplayAudit(current: CanonicalCurrentTask, proposal: RuntimeProposal): DraftAuditLogEntry {
+13477: function assertDraftTaskReplay(root: string, current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+13535: function expectedClaimEvidenceMigrationReplayAudit(current: CanonicalCurrentTask, proposal: RuntimeProposal): ClaimEvidenceMigrationAuditLogEntry {
+13543: function assertClaimEvidenceMigrationReplay(root: string, current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+13571: function expectedReplanReplayAudit(current: CanonicalCurrentTask, proposal: RuntimeProposal): ReplanAuditLogEntry {
+13579: function assertNoLaterReplanAudit(current: CanonicalCurrentTask, audit: ReplanAuditLogEntry, failureCode = 'RUNTIME_REPLAY_INCOMPLETE'): void {
+13587: function expectedStepExecutionLog(current: CanonicalCurrentTask, proposal: RuntimeProposal): StepExecutionLogEntry {
+13595: function assertStepProgressReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+13629: function assertRetainedReviewReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+13646: function assertReviewResultReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+13658: function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+13730: function applyTaskStateDelta(
+14933: function applyFindingQueueDelta(
+15155: function packageText(value: unknown, location: string): string {
+15161: function extractSuspendedPackageFields(header: string, location: string): Record<string, string> {
+15172: function requiredPackageField(fields: Record<string, string>, field: string, location: string): string {
+15178: function packagePathForTask(root: string, taskId: string, taskSlug: string, artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>): { filePath: string; relativePath: string } {
+15194: function replacePackageField(content: string, field: string, value: string): string {
+15201: function parseSuspendedPackage(
+15326: function renderSuspendedPackage(current: CanonicalCurrentTask, delta: Extract<LifecycleDelta, { action: 'pause' | 'interrupt' }>, artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>): string {
+15365: function renderRehydratedPackage(packageArtifact: ParsedSuspendedPackage): string {
+15372: function assertSuspendedSourceMatchesSnapshot(current: CanonicalCurrentTask, snapshot: CanonicalCurrentTask): void {
+15398: function assertSuspendedGateMatchesPackage(current: CanonicalCurrentTask, packageArtifact: ParsedSuspendedPackage): void {
+15405: function lifecycleArtifactKind(delta: LifecycleDelta): Extract<TaskArtifactKind, 'paused' | 'interrupted'> | null {
+15412: function assertLifecycleReplayArtifacts(root: string, current: CanonicalCurrentTask, proposal: LifecycleProposal): void {
+15458: function assertSiblingRecoveryIsReconciled(
+15472: function prepareExistingPackageForReplacement(
+15489: function assertRequestedLifecycleTargets(root: string, current: CanonicalCurrentTask, proposal: LifecycleProposal): { packageFilePath?: string; packageRelativePath?: string } {
+15507: function prepareLifecycleTransaction(root: string, current: CanonicalCurrentTask, proposal: LifecycleProposal, now: string): LifecycleTransactionPlan {
+15598: function buildResult(
+15622: function resultState(
+15648: function exactPendingFileContent(root: string, relativePath: string): string | null {
+15663: function pendingWriteSetForOperations(root: string, operations: Array<{ path: string; content: string }>): TaskStorePendingWrite[] {
+15675: function stageTaskEvolutionStoreCommit(
+15708: function completeTaskEvolutionStoreCommit(
+15733: function reconcilePendingWriteSet(root: string, canonicalRevision: string, pending: Record<string, unknown>): void {
+15767: function clearPendingTaskStoreAfterRollback(root: string, current: CanonicalCurrentTask): void {
+15777: function fileRevisionForPath(filePath: string): string {
+15782: function rollbackCurrentTaskAndVerify(
+15817: function rollbackDraftTransactionAndVerify(
+15854: function rollbackLifecycleTransactionAndVerify(
+15897: function rollbackArchiveTransactionAndVerify(
+15930: function rollbackSingleFileAndVerify(filePath: string, originalContent: string, label: string): RollbackVerification {
+15940: function rollbackCreatedInboxRecordAndVerify(filePath: string): RollbackVerification {
+17196: export function applyVNextRuntimeProposal(root: string, proposal: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+17200: export function createTaskStateProposal(
+17252: export function createRetainedReviewConsumptionProposal(
+17284: export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: string): void {
+17315: export function createStepRetryProposal(current: CanonicalCurrentTask, input: {step_id:string;blocked_attempt_id:string;blocker_resolution_refs:string[];repair_diagnosis?:StepRepairDiagnosis;idempotency_key:string}): RuntimeProposal {
+17324: export function createStepPreflightProposal(
+17392: export function createStepExtendPreflightProposal(
+17433: export function createReviewResultProposal(
+17468: export function createEvidenceChallengeProposal(
+17507: export function createEvidenceChallengeDismissalProposal(
+17540: export function recordUserEvidenceDecision(root: string, kind: UserEvidenceDecision['kind'], input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+17567: export function createPrepareTaskResumeReviewProposal(
+17596: export function createPrepareTaskClaimEvidenceMigrationProposal(
+17630: export function createPrepareTaskDraftProposal(
+17685: export const createPrepareTaskCreateDraftProposal = createPrepareTaskDraftProposal;
+17687: export function createPrepareTaskUpdateDraftProposal(
+17694: export function createPrepareTaskConfirmProposal(
+17730: export function createPrepareTaskReplanProposal(
+17767: export function createPrepareTaskScopeAmendmentProposal(
+17798: export function createLifecycleProposal(
+17840: export function createFindingQueueProposal(
+17866: export function createArchiveProposal(
+17891: export const createArchiveTransactionProposal = createArchiveProposal;
+17893: export function createProjectStatusProposal(
+17919: export const createProjectStatusTransactionProposal = createProjectStatusProposal;
+17921: export function createLessonRecordProposal(
+17947: export const createLessonRecordTransactionProposal = createLessonRecordProposal;
+17949: export function knowledgeProvenanceFromArchive(root: string, current: CanonicalCurrentTask, evidence_refs: string[]): KnowledgeProvenance {
+17962: function createKnowledgeProposal(
+17997: export function createContractCandidateProposal(
+18010: export const createContractCandidateCommitProposal = createContractCandidateProposal;
+18012: export function createDecisionRecordProposal(
+18025: export const createDecisionRecordTransactionProposal = createDecisionRecordProposal;
+18027: export function createInboxRecordProposal(
+18052: export const createInboxRecordTransactionProposal = createInboxRecordProposal;
+18054: function rootForCurrentTask(current: CanonicalCurrentTask): string {
+18059: function previewDeltaInput(input: unknown): { delta: ArchiveDelta | null; error?: string } {
+18070: function previewCloseTaskForCurrent(current: CanonicalCurrentTask, input: unknown, root?: string): CloseTaskPreview {
+18136: export function previewCloseTask(current: CanonicalCurrentTask, input: unknown): CloseTaskPreview;
+18137: export function previewCloseTask(root: string, input: unknown): CloseTaskPreview;
+18138: export function previewCloseTask(currentOrRoot: CanonicalCurrentTask | string, input: unknown): CloseTaskPreview {
+18143: export const createCloseTaskPreview = previewCloseTask;
+18145: export type VNextRuntimeCliArguments = {
+18163: export function parseCli(argv: string[]): VNextRuntimeCliArguments {
+18205: export function resolveExternalProposalFile(root: string, proposalFile: string): string {
+18217: function readCliStringList(filePath: string, label: string): string[] {
+18232: function readCliConditionalAuthorizations(filePath: string): ConditionalScopeAuthorization[] {
+18242: function readCliCommandAudit(args: VNextRuntimeCliArguments): CommandMutationAuditInput {
+18262: function readScopeCheckInput(args: VNextRuntimeCliArguments): MutationScopeEvaluationInput {
+18286: function validateInstalledRuntimeForCli(root: string): void {
+18293: function requireBootstrappedProject(root: string): void {
+18310: export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {

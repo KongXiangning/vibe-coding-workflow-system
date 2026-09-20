@@ -1,0 +1,2000 @@
+    '',
+    '### Read / discovery context',
+    '',
+    '- none',
+    '',
+    '### Allowed Files',
+    '',
+    definition.allowed_scope,
+    '',
+    '### Conditional Files',
+    '',
+    definition.conditional_scope,
+    '',
+    '## 禁止修改范围',
+    '',
+    '### Forbidden Files',
+    '',
+    definition.forbidden_scope,
+    '',
+    '## 受影响的契约',
+    '',
+    definition.affected_contracts,
+    '',
+    '## 已确认决策',
+    '',
+    definition.confirmed_decisions,
+    '',
+    '## 待确认问题',
+    '',
+    definition.open_questions,
+    '',
+    '## 实现方案',
+    '',
+    definition.implementation_plan,
+    '',
+    '## 传播治理记录',
+    '',
+    optionalSection(definition.propagation_governance),
+    '',
+    '## 实施步骤',
+    '',
+    definition.implementation_steps,
+    '',
+    '## 回归检查项',
+    '',
+    definition.regression_checks,
+    '',
+    '## 回滚点',
+    '',
+    definition.rollback_points,
+    '',
+    '## 设计约束',
+    '',
+    optionalSection(definition.design_constraints),
+    '',
+    '## 发布后验证',
+    '',
+    optionalSection(definition.post_release_validation),
+    '',
+    '## 执行记录',
+    '',
+    '- Draft created by prepare-task; execution is blocked until explicit confirm-draft.',
+    '',
+  ].join('\n');
+}
+
+function renderCanonicalCurrentTask(
+  frontmatter: AnyRecord,
+  body: string,
+  runtimeState: RuntimeState,
+  options: {
+    replacementDefinition?: ReplanReplacementDefinition;
+    draftDefinition?: DraftTaskDefinition;
+    draftIdentity?: DraftTaskIdentity;
+    draftDocumentId?: string;
+    taskBasisReference?: TaskBasisReference;
+    audit?: RuntimeAuditLogEntry;
+    compactTaskStore?: boolean;
+    taskStoreManifestPath?: string;
+  } = {},
+): PreparedTaskContent {
+  const existingBinding = frontmatter.task_store;
+  const compact = options.compactTaskStore === true || existingBinding !== undefined;
+  const compactBinding = compact
+    ? options.draftDocumentId !== undefined
+      ? {
+        schema_version: 1,
+        kind: 'vnext-current-task-store-binding',
+        format: 'compact-v2',
+        manifest_path: options.taskStoreManifestPath ?? fail('RUNTIME_STORAGE_COMPACT_INVALID', 'compact rendering needs a task-store manifest path.'),
+        history: { execution_log: 'task-store', applied_proposals: 'task-store' },
+      }
+      : existingBinding ?? {
+      schema_version: 1,
+      kind: 'vnext-current-task-store-binding',
+      format: 'compact-v2',
+      manifest_path: options.taskStoreManifestPath ?? fail('RUNTIME_STORAGE_COMPACT_INVALID', 'compact rendering needs a task-store manifest path.'),
+      history: { execution_log: 'task-store', applied_proposals: 'task-store' },
+      }
+    : undefined;
+  const { execution_log: _executionLog, applied_proposals: _appliedProposals, ...compactRuntimeState } = runtimeState;
+  const nextFrontmatter: AnyRecord = {
+    ...frontmatter,
+    ...(options.draftDocumentId === undefined ? {} : { document_id: options.draftDocumentId }),
+    ...(compactBinding === undefined ? {} : { task_store: compactBinding }),
+    runtime_state: compact ? compactRuntimeState : runtimeState,
+  };
+  // Authority is part of the canonical task definition, so ordinary runtime
+  // state transitions must carry it forward even when they do not replace the
+  // definition (preflight, review, retry, and step progress all take this
+  // path).
+  const definitionAuthority = options.draftDefinition?.mutation_authority
+    ?? options.replacementDefinition?.mutation_authority
+    ?? frontmatter.mutation_authority;
+  const definitionAuthorityVersion = options.draftDefinition?.mutation_authority_version
+    ?? options.replacementDefinition?.mutation_authority_version
+    ?? frontmatter.mutation_authority_version;
+  if (definitionAuthorityVersion === MUTATION_AUTHORITY_VERSION && definitionAuthority) {
+    nextFrontmatter.mutation_authority_version = MUTATION_AUTHORITY_VERSION;
+    nextFrontmatter.mutation_authority = definitionAuthority;
+  }
+  if (options.draftDefinition && options.draftIdentity && !options.taskBasisReference) {
+    fail('TASK_BASIS_MISSING', 'A new or refined draft must link its exact task basis.');
+  }
+  let nextBody = options.draftDefinition && options.draftIdentity && options.taskBasisReference
+    ? renderNewDraftBody(options.draftIdentity, options.draftDefinition, runtimeState, options.taskBasisReference)
+    : options.replacementDefinition
+      ? replaceReplanDefinitionSections(body, options.replacementDefinition)
+      : body;
+  if (options.taskBasisReference && !(options.draftDefinition && options.draftIdentity)) {
+    nextBody = replaceTaskBasisReference(nextBody, options.taskBasisReference);
+  }
+  if (options.draftIdentity && !(options.draftDefinition && options.draftIdentity)) {
+    nextBody = replaceTaskInfoField(nextBody, '任务 ID', options.draftIdentity.task_id);
+    nextBody = replaceTaskInfoField(nextBody, '任务标题', options.draftIdentity.task_title);
+    nextBody = replaceTaskInfoField(nextBody, '任务 slug', options.draftIdentity.task_slug);
+  }
+  nextBody = renderCurrentTaskLifecycleFields(nextBody, runtimeState);
+  if (compact) nextBody = compactHistoryPreview(nextBody, runtimeState, options.audit);
+  else if (options.audit) nextBody = appendExecutionAuditToBody(nextBody, options.audit);
+  const expandedContent = `---\n${stringify(nextFrontmatter).trimEnd()}\n---\n${nextBody}`;
+  return compact && (options.draftDocumentId !== undefined || (isRecord(existingBinding) && existingBinding.format === ACTIVE_TASK_FORMAT))
+    ? prepareTaskProjection(expandedContent)
+    : { content: expandedContent, expandedContent, objects: [] };
+}
+
+function currentTaskPathForRoot(root: string): { filePath: string; relativePath: string } {
+  const resolvedRoot = path.resolve(root);
+  const profilePath = getWorkflowProfilePath(resolvedRoot);
+  if (!fs.existsSync(profilePath)) fail('RUNTIME_SOURCE_MISSING', `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
+  const profile = loadProfile(profilePath);
+  const filePath = getWorkflowDocPath(resolvedRoot, profile, 'CURRENT_TASK.md');
+  const relativePath = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+  if (!relativePath || relativePath.startsWith('../') || path.isAbsolute(relativePath)) fail('RUNTIME_PATH_INVALID', 'CURRENT_TASK path escapes the target root.');
+  return { filePath, relativePath: relativePath || CURRENT_TASK_RELATIVE_FALLBACK };
+}
+
+function walkMarkdownFiles(directory: string): string[] {
+  if (!fs.existsSync(directory)) return [];
+  const files: string[] = [];
+  const visit = (currentDirectory: string): void => {
+    for (const entry of fs.readdirSync(currentDirectory, { withFileTypes: true })) {
+      const entryPath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) visit(entryPath);
+      else if (entry.isFile() && entry.name.endsWith('.md')) files.push(entryPath);
+    }
+  };
+  visit(directory);
+  return files;
+}
+
+export function allocateNextTaskId(root: string, currentTaskId: string): string {
+  try {
+    validateTaskId(currentTaskId);
+  } catch (error) {
+    fail('RUNTIME_IDENTITY_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const current = BigInt(currentTaskId);
+  const taskDirectory = path.join(path.resolve(root), 'TASKS');
+  const usedIds = new Set<bigint>([current]);
+  const taskFilePattern = /^TASK-([0-9]{3,})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
+  for (const taskFile of walkMarkdownFiles(taskDirectory)) {
+    const match = taskFilePattern.exec(path.basename(taskFile));
+    if (match) {
+      usedIds.add(BigInt(match[1]!));
+    }
+  }
+  let next = current + 1n;
+  while (usedIds.has(next)) {
+    next += 1n;
+  }
+  return next.toString().padStart(Math.max(3, currentTaskId.length), '0');
+}
+
+function collectTaskDocumentIds(root: string): Set<string> {
+  const { filePath } = currentTaskPathForRoot(root);
+  const documentIds = new Set<string>();
+  const allFiles = [filePath, ...walkMarkdownFiles(path.join(path.resolve(root), 'TASKS'))];
+  for (const file of allFiles) {
+    if (!fs.existsSync(file)) continue;
+    const content = fs.readFileSync(file, 'utf8');
+    for (const match of content.matchAll(/^\s*(?:-\s*)?document_id:\s*['"]?(doc-[a-f0-9]{24})['"]?\s*$/gim)) {
+      documentIds.add(match[1]!);
+    }
+  }
+  return documentIds;
+}
+
+function generatedDraftDocumentId(identity: Pick<DraftTaskIdentity, 'task_id' | 'task_slug'>, sourceRevision: string): string {
+  return `doc-${sha256(`${identity.task_id}:${identity.task_slug}:${sourceRevision}`).slice(0, 24)}`;
+}
+
+function validateCurrentTaskStoreBinding(value: unknown, documentId: string, location: string): CurrentTaskStoreBinding {
+  const binding = expectRecord(value, location);
+  expectExactKeys(binding, ['schema_version', 'kind', 'format', 'manifest_path', 'history', ...(binding.format === ACTIVE_TASK_FORMAT ? ['projection'] : [])], location);
+  if (binding.schema_version !== 1 || binding.kind !== 'vnext-current-task-store-binding' || !['compact-v2', ACTIVE_TASK_FORMAT].includes(binding.format as string)) {
+    fail('RUNTIME_STORAGE_COMPACT_INVALID', `${location} is not a supported compact task-store binding.`);
+  }
+  const manifestPath = expectString(binding.manifest_path, `${location}.manifest_path`);
+  if (manifestPath.startsWith('/') || /^[A-Za-z]:/u.test(manifestPath) || manifestPath.split('/').includes('..')
+    || !manifestPath.endsWith(`/task-data/${documentId}/manifest.json`)) {
+    fail('RUNTIME_STORAGE_COMPACT_INVALID', `${location}.manifest_path must point to this document's repository-relative task-data manifest.`);
+  }
+  const history = expectRecord(binding.history, `${location}.history`);
+  expectExactKeys(history, ['execution_log', 'applied_proposals'], `${location}.history`);
+  if (history.execution_log !== 'task-store' || history.applied_proposals !== 'task-store') {
+    fail('RUNTIME_STORAGE_COMPACT_INVALID', `${location}.history must bind both histories to task-store.`);
+  }
+  return {
+    schema_version: 1,
+    kind: 'vnext-current-task-store-binding',
+    format: binding.format as CurrentTaskStoreBinding['format'],
+    ...(binding.format === ACTIVE_TASK_FORMAT ? { projection: binding.projection as CurrentTaskStoreBinding['projection'] } : {}),
+    manifest_path: manifestPath,
+    history: { execution_log: 'task-store', applied_proposals: 'task-store' },
+  };
+}
+
+function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativePath: string, prepared?: PreparedTaskContent): CanonicalCurrentTask {
+  const { expandedContent } = expandTaskProjection(raw, filePath, relativePath, prepared);
+  const { frontmatter, body } = parseYamlFrontmatter(expandedContent, relativePath);
+  if (frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) {
+    fail('MIGRATION_REQUIRED', `${relativePath} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
+  }
+  const authorityVersionPresent = frontmatter.mutation_authority_version !== undefined;
+  const authorityValuePresent = frontmatter.mutation_authority !== undefined;
+  const authorityMarkerPresent = authorityVersionPresent || authorityValuePresent;
+  expectExactKeys(frontmatter, [
+    'schema_version',
+    'kind',
+    'document_id',
+    'runtime_state',
+    ...(frontmatter.task_store === undefined ? [] : ['task_store']),
+    ...(authorityVersionPresent ? ['mutation_authority_version'] : []),
+    ...(authorityValuePresent ? ['mutation_authority'] : []),
+  ], `${relativePath} frontmatter`);
+  if (frontmatter.schema_version !== 1) fail('RUNTIME_SCHEMA_INVALID', `${relativePath}.schema_version must be 1 for a vNext CURRENT_TASK document.`);
+  if (authorityMarkerPresent && authorityVersionPresent && ![1, MUTATION_AUTHORITY_VERSION].includes(frontmatter.mutation_authority_version as number)) {
+    fail('MUTATION_AUTHORITY_VERSION_UNSUPPORTED', `${relativePath}.mutation_authority_version must be 1 or 2.`);
+  }
+  let mutationAuthority: TaskMutationAuthority | null = null;
+  if (frontmatter.mutation_authority_version === MUTATION_AUTHORITY_VERSION) {
+    if (!authorityValuePresent) fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath}.mutation_authority is required when mutation_authority_version=2.`);
+    try { mutationAuthority = normalizeTaskMutationAuthority(frontmatter.mutation_authority); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_SCHEMA_INVALID', error instanceof Error ? error.message : String(error)); }
+  } else if (authorityValuePresent) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath}.mutation_authority is only valid when mutation_authority_version=2.`);
+  }
+  const documentId = expectString(frontmatter.document_id, `${relativePath}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `${relativePath}.document_id is invalid.`);
+  const storeBinding = frontmatter.task_store === undefined ? null : validateCurrentTaskStoreBinding(frontmatter.task_store, documentId, `${relativePath}.task_store`);
+  const runtimeState = validateVNextRuntimeState(frontmatter.runtime_state, { storeBackedHistory: storeBinding !== null });
+  try {
+    parseMutationScope(body, sha256(raw));
+  } catch (error) {
+    if (error instanceof MutationScopeError) fail(error.code, error.message);
+    fail('MUTATION_SCOPE_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const bodyAuthority = parseMutationAuthoritySection(body);
+  if ((mutationAuthority !== null) !== (bodyAuthority !== null)) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath} frontmatter and body must declare the same Mutation Authority v2 marker.`);
+  }
+  if (mutationAuthority && bodyAuthority && digest(mutationAuthority) !== digest(bodyAuthority.mutation_authority)) {
+    fail('MUTATION_AUTHORITY_SCHEMA_INVALID', `${relativePath} frontmatter and body Mutation Authority values conflict.`);
+  }
+  const identity = extractTaskIdentityFromCurrentTask(body);
+  const bodyState = extractCurrentTaskStateFromCurrentTask(body);
+  if (identity.id !== runtimeState.task_id || identity.slug !== runtimeState.task_slug) {
+    fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body identity conflicts with runtime_state.');
+  }
+  if (bodyState.workflowStatus !== runtimeState.workflow_status || bodyState.lifecycleState !== runtimeState.lifecycle_state) {
+    fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body lifecycle tuple conflicts with runtime_state.');
+  }
+  if (bodyState.resumeRequiresReview !== runtimeState.resume_requires_review) {
+    fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body resume gate conflicts with runtime_state.');
+  }
+  let bodyResumeReasons: ResumeReviewReason[];
+  try {
+    bodyResumeReasons = normalizeResumeReviewReasons(bodyState.resumeReviewReasons);
+  } catch (error) {
+    fail('RUNTIME_SOURCE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  if (bodyResumeReasons.join('|') !== runtimeState.resume_review_reasons.join('|')) {
+    fail('RUNTIME_SOURCE_CONFLICT', 'CURRENT_TASK body resume review reasons conflict with runtime_state.');
+  }
+  // Validate the active step against the same canonical implementation-step
+  // order used by task-state advancement. This keeps a forged or stale active
+  // step from becoming a second executable state source.
+  resolveTaskStepForState(body, runtimeState.active_step_id);
+  const sourceTuple: RuntimeSourceTuple = {
+    path: relativePath,
+    revision: sha256(raw),
+    document_id: documentId,
+    task_id: runtimeState.task_id,
+    task_slug: runtimeState.task_slug,
+    workflow_status: runtimeState.workflow_status,
+    lifecycle_state: runtimeState.lifecycle_state,
+    active_step_id: runtimeState.active_step_id,
+    active_step_status: runtimeState.active_step_status,
+    finding_queue_revision: runtimeState.finding_queue_revision,
+    resume_requires_review: runtimeState.resume_requires_review,
+    resume_review_reasons: [...runtimeState.resume_review_reasons],
+  };
+  return { filePath, relativePath, raw, frontmatter, body, runtimeState, mutationAuthority, sourceTuple };
+}
+
+/** Business receipt compatibility only. Paging and optimistic writes retain
+ * their exact physical revisions. Both ends use the canonical parser so legacy
+ * omitted defaults and normalized enums cannot accidentally revoke receipts.
+ * All state, authority, identity and definition fields must still agree; a
+ * matching definition alone is insufficient to bridge a migration.
+ */
+export function taskSourceRevisionMatches(root: string, current: CanonicalCurrentTask, sourceRevision: string): boolean {
+  if (sourceRevision === current.sourceTuple.revision) return true;
+  const preimages = readStorageMigrationLineage(root, current, sourceRevision);
+  if (!preimages) return false;
+  const expected = digest(migrationSemanticModel(current));
+  return preimages.every(raw => {
+    const previous = parseCanonicalCurrentTaskContent(raw, current.filePath, current.relativePath);
+    return digest(migrationSemanticModel(previous)) === expected;
+  });
+}
+
+function hydrateCompactRuntimeHistory(root: string, current: CanonicalCurrentTask): void {
+  const binding = current.frontmatter.task_store as CurrentTaskStoreBinding;
+  const store = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
+  let manifest;
+  try { manifest = store.manifest; } catch (error) {
+    fail('RUNTIME_STORAGE_RECOVERY_REQUIRED', error instanceof Error ? error.message : String(error));
+  }
+  if (!manifest) fail('RUNTIME_STORAGE_RECOVERY_REQUIRED', 'compact CURRENT_TASK has no committed task-store manifest; explicit storage recovery is required.');
+  if (store.hasPendingCommit) fail('RUNTIME_STORAGE_RECOVERY_REQUIRED', 'task-store has a pending commit; recover it before reading or executing the task.');
+  if (binding.manifest_path !== `${manifest.storage_root}/manifest.json`) {
+    fail('RUNTIME_STORAGE_COMPACT_INVALID', 'CURRENT_TASK task-store manifest path does not match the committed aggregate.');
+  }
+  if (!['compact-v2', ACTIVE_TASK_FORMAT].includes(manifest.current_representation) || manifest.storage_format !== 'vnext-task-store/v2') {
+    fail('RUNTIME_STORAGE_COMPACT_INVALID', 'compact CURRENT_TASK is bound to a non-compact task-store manifest.');
+  }
+  if (manifest.head.source_revision !== current.sourceTuple.revision) {
+    fail('RUNTIME_STORAGE_RECOVERY_REQUIRED', 'CURRENT_TASK and task-store manifest do not name the same committed source revision.');
+  }
+  const history = store.hydrateHistory(current as unknown as import('./task-store').TaskStoreCurrent);
+  const executionLog = history.execution_log.map((entry, index) => validateExecutionLogEntry(entry, `task-store.execution_log[${index}]`, current.runtimeState.task_id, current.runtimeState.task_slug));
+  const appliedProposals = history.applied_proposals.map((entry, index) => {
+    const item = expectRecord(entry, `task-store.applied_proposals[${index}]`);
+    expectExactKeys(item, ['idempotency_key', 'operation_kind', 'proposal_digest', 'source_revision'], `task-store.applied_proposals[${index}]`);
+    return {
+      idempotency_key: expectString(item.idempotency_key, `task-store.applied_proposals[${index}].idempotency_key`, SAFE_KEY_PATTERN),
+      operation_kind: expectEnum(item.operation_kind, RUNTIME_OPERATION_KINDS, `task-store.applied_proposals[${index}].operation_kind`),
+      proposal_digest: expectString(item.proposal_digest, `task-store.applied_proposals[${index}].proposal_digest`, SHA256_PATTERN),
+      source_revision: expectString(item.source_revision, `task-store.applied_proposals[${index}].source_revision`, SHA256_PATTERN),
+    };
+  });
+  current.runtimeState = { ...current.runtimeState, execution_log: executionLog, applied_proposals: appliedProposals };
+  Object.defineProperty(current.runtimeState, '__vnext_compact_history', { value: true, enumerable: false, configurable: true });
+  const validation = store.validateCurrentAggregate(current as unknown as import('./task-store').TaskStoreCurrent);
+  if (validation.status !== 'valid') fail('RUNTIME_STORAGE_RECOVERY_REQUIRED', `compact task-store validation failed: ${validation.errors.join(' | ')}`);
+}
+
+export function readCanonicalCurrentTask(root: string): CanonicalCurrentTask {
+  const { filePath, relativePath } = currentTaskPathForRoot(root);
+  assertGovernanceReadable(filePath);
+  assertNoArtifactPublication(filePath);
+  recoverTaskEvolution(filePath);
+  if (!fs.existsSync(filePath)) fail('RUNTIME_SOURCE_MISSING', `CURRENT_TASK.md is missing: ${relativePath}`);
+  const current = parseCanonicalCurrentTaskContent(fs.readFileSync(filePath, 'utf8'), filePath, relativePath);
+  if (current.mutationAuthority) {
+    current.mutationAuthority = validateTaskMutationAuthority(root, current.mutationAuthority);
+  }
+  if (current.frontmatter.task_store !== undefined) hydrateCompactRuntimeHistory(root, current);
+  else {
+    const legacyStore = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
+    if (legacyStore.hasPendingCommit && !governanceWriteLockIsHeld(root)) {
+      fail('RUNTIME_STORAGE_RECOVERY_REQUIRED', 'CURRENT_TASK has a pending task-store commit; recover it before reading or executing the task.');
+    }
+  }
+  assertRecoveryHistory(root, current);
+  if (current.runtimeState.preservation_source_revision) {
+    assertTaskHistoryForRevision(filePath, current.sourceTuple.document_id, current.runtimeState.task_id,
+      current.runtimeState.preservation_source_revision, 'initialize-preservation');
+  }
+  return current;
+}
+
+function recoveryCurrentFromRaw(
+  raw: string,
+  filePath: string,
+  relativePath: string,
+  runtimeState: unknown,
+): CanonicalCurrentTask {
+  const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath);
+  if (!isRecord(runtimeState)) throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'pending commit is missing its exact runtime after-image.');
+  parsed.runtimeState = runtimeState as RuntimeState;
+  if (parsed.frontmatter.task_store !== undefined) {
+    Object.defineProperty(parsed.runtimeState, '__vnext_compact_history', { value: true, enumerable: false, configurable: true });
+  }
+  return parsed;
+}
+
+/**
+ * Finish one exact task-store transaction after a process interruption.
+ * This function is intentionally called only by a governed write while the
+ * normal governance lock is held.  Read-only callers continue to fail closed
+ * on a pending marker and report recovery-required.
+ */
+export function recoverPendingTaskStoreCommit(root: string): void {
+  const { filePath, relativePath } = currentTaskPathForRoot(root);
+  if (!fs.existsSync(filePath)) return;
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath);
+  const store = TaskStore.forCurrent(root, parsed as unknown as import('./task-store').TaskStoreCurrent);
+  const pending = store.pendingCommit;
+  if (!isRecord(pending)) return;
+  const manifest = store.manifest;
+  if (!manifest) throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', 'pending task-store commit has no manifest to recover against.');
+  const sequence = pending.sequence;
+  const sourceRevision = pending.source_revision;
+  const resultingRevision = pending.resulting_source_revision;
+  if (typeof sequence !== 'number' || typeof sourceRevision !== 'string' || typeof resultingRevision !== 'string') {
+    throw new TaskStoreError('TASK_STORE_MANIFEST_INVALID', 'pending task-store commit has incomplete recovery coordinates.');
+  }
+  if (manifest.head.event_sequence > sequence || manifest.head.event_sequence === sequence) {
+    // A manifest that already advanced must prove the same resulting source
+    // before the marker can be discarded.  Never choose the newest file by
+    // timestamp or silently discard an ambiguous marker.
+    if (manifest.head.event_sequence !== sequence || manifest.head.source_revision !== resultingRevision) {
+      throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'pending task-store commit conflicts with the already-published aggregate head.');
+    }
+    if (parsed.sourceTuple.revision !== resultingRevision) {
+      throw new TaskStoreError('TASK_STORE_SOURCE_CONFLICT', 'CURRENT_TASK does not match the already-published pending task-store head.');
+    }
+    reconcilePendingWriteSet(root, parsed.sourceTuple.revision, pending);
+    store.clearPendingForNoCommit();
+    return;
+  }
+  if (manifest.head.event_sequence !== sequence - 1 || manifest.head.source_revision !== sourceRevision) {
+    throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'pending task-store commit is not directly after the committed aggregate head.');
+  }
+  if (parsed.sourceTuple.revision === sourceRevision) {
+    // The canonical file was not published.  The exact pending intent is not
+    // a business fact, so it can be discarded without changing task state.
+    reconcilePendingWriteSet(root, parsed.sourceTuple.revision, pending);
+    store.clearPendingForNoCommit();
+    return;
+  }
+  if (parsed.sourceTuple.revision !== resultingRevision
+    || typeof pending.before_raw !== 'string'
+    || typeof pending.after_raw !== 'string'
+    || pending.before_raw === undefined
+    || pending.after_raw === undefined
+    || !isRecord(pending.before_runtime_state)
+    || !isRecord(pending.after_runtime_state)
+    || !isRecord(pending.proposal)
+    || !isRecord(pending.result)) {
+    throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'CURRENT_TASK advanced during a pending commit but exact recovery material is unavailable.');
+  }
+  if (sha256(pending.before_raw) !== sourceRevision || sha256(pending.after_raw) !== resultingRevision) {
+    throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'pending task-store after-image bytes do not match their recorded revisions.');
+  }
+  let beforeRuntimeState = pending.before_runtime_state as Record<string, unknown>;
+  let afterRuntimeState = pending.after_runtime_state as Record<string, unknown>;
+  if (parsed.frontmatter.task_store !== undefined) {
+    const persistedExecutionLog = store.readExecutionLog();
+    const persistedAppliedProposals = store.readAppliedProposals();
+    if (!Array.isArray(beforeRuntimeState.execution_log)) beforeRuntimeState = { ...beforeRuntimeState, execution_log: persistedExecutionLog };
+    if (!Array.isArray(beforeRuntimeState.applied_proposals)) beforeRuntimeState = { ...beforeRuntimeState, applied_proposals: persistedAppliedProposals };
+    if (!Array.isArray(afterRuntimeState.execution_log)) {
+      const delta = Array.isArray(pending.execution_log_entries) ? pending.execution_log_entries : [];
+      afterRuntimeState = { ...afterRuntimeState, execution_log: [...persistedExecutionLog, ...delta] };
+    }
+    if (!Array.isArray(afterRuntimeState.applied_proposals)) {
+      const delta = Array.isArray(pending.applied_proposals) ? pending.applied_proposals : [];
+      afterRuntimeState = { ...afterRuntimeState, applied_proposals: [...persistedAppliedProposals, ...delta] };
+    }
+  }
+  const before = recoveryCurrentFromRaw(pending.before_raw, filePath, relativePath, beforeRuntimeState);
+  const after = recoveryCurrentFromRaw(pending.after_raw, filePath, relativePath, afterRuntimeState);
+  if (before.sourceTuple.revision !== sourceRevision || after.sourceTuple.revision !== resultingRevision
+    || before.sourceTuple.document_id !== parsed.sourceTuple.document_id
+    || after.sourceTuple.document_id !== parsed.sourceTuple.document_id) {
+    throw new TaskStoreError('TASK_STORE_IDENTITY_CONFLICT', 'pending task-store recovery images do not describe one task aggregate.');
+  }
+  reconcilePendingWriteSet(root, parsed.sourceTuple.revision, pending);
+  store.markCurrentPublished(resultingRevision);
+  const recovered = store.recordCommit({
+    before: before as unknown as import('./task-store').TaskStoreCurrent,
+    after: after as unknown as import('./task-store').TaskStoreCurrent,
+    proposal: pending.proposal,
+    result: pending.result as {
+      status: string;
+      committed: boolean;
+      operation_kind?: string;
+      idempotency_key?: string;
+      message?: string;
+      code?: string;
+    },
+  });
+  if (!recovered || recovered.head.source_revision !== resultingRevision || recovered.head.event_sequence !== sequence) {
+    throw new TaskStoreError('TASK_STORE_EVENT_CONFLICT', 'pending task-store recovery did not publish the expected aggregate head.');
+  }
+}
+
+export type CanonicalTaskBasis = TaskBasisArtifact & {
+  task_id: string;
+  document_id: string;
+};
+
+export function readCanonicalTaskBasis(root: string, current = readCanonicalCurrentTask(root)): CanonicalTaskBasis {
+  const reference = readTaskBasisReferenceFromBody(current.body);
+  if (!reference) fail('TASK_BASIS_MISSING', 'CURRENT_TASK does not link an exact task basis.');
+  const expectedPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
+  if (reference.path !== expectedPath) {
+    fail('TASK_BASIS_REFERENCE_INVALID', `CURRENT_TASK task basis path must be ${expectedPath}.`);
+  }
+  const filePath = taskBasisFilePath(root, reference.path);
+  if (!fs.existsSync(filePath)) fail('TASK_BASIS_MISSING', `Linked task basis is missing: ${reference.path}`);
+  const content = fs.readFileSync(filePath, 'utf8');
+  const revision = sha256(content);
+  if (revision !== reference.revision) fail('TASK_BASIS_REVISION_CONFLICT', 'Linked task basis revision does not match its file content.');
+  const { frontmatter, body } = parseYamlFrontmatter(content, reference.path);
+  expectExactKeys(frontmatter, ['schema_version', 'kind', 'task_id', 'document_id', 'original_request', 'user_decisions'], `${reference.path} frontmatter`);
+  if (frontmatter.schema_version !== 1 || frontmatter.kind !== VNEXT_TASK_BASIS_KIND) {
+    fail('TASK_BASIS_INVALID', `${reference.path} is not a supported vNext task basis.`);
+  }
+  const taskId = expectString(frontmatter.task_id, `${reference.path}.task_id`);
+  const documentId = expectString(frontmatter.document_id, `${reference.path}.document_id`);
+  if (taskId !== current.runtimeState.task_id || documentId !== current.sourceTuple.document_id) {
+    fail('TASK_BASIS_IDENTITY_CONFLICT', 'Linked task basis identity does not match CURRENT_TASK.');
+  }
+  if (!/^# vNext TASK_BASIS\s*$/mu.test(body)) fail('TASK_BASIS_INVALID', `${reference.path} is missing its canonical heading.`);
+  const basis = validateTaskBasis({
+    original_request: frontmatter.original_request,
+    user_decisions: frontmatter.user_decisions,
+  }, reference.path);
+  return {
+    ...reference,
+    filePath,
+    content,
+    basis,
+    task_id: taskId,
+    document_id: documentId,
+  };
+}
+
+type ArchiveReceipt = {
+  filePath: string;
+  relativePath: string;
+  raw: string;
+  revision: string;
+  taskId: string;
+  taskSlug: string;
+  taskTitle: string;
+  documentId: string;
+  sourceRevision: string;
+  archivePath: string;
+  idempotencyKey: string;
+  closureDeltaDigest: string;
+  lessonAdmission: LessonAdmission;
+  knowledgeAdmissions: KnowledgeAdmissionBundle;
+};
+
+type ArchiveTransactionPlan = {
+  next: RuntimeState;
+  nextContent: string;
+  prepared: PreparedTaskContent;
+  archiveFilePath: string;
+  archiveRelativePath: string;
+  nextArchiveContent: string;
+  originalArchiveContent?: string;
+  audit: ArchiveAuditLogEntry;
+  archiveRevision: string;
+};
+
+type ProjectStatusTransactionPlan = {
+  statusFilePath: string;
+  statusRelativePath: string;
+  nextStatusContent: string;
+  originalStatusContent: string;
+  statusRevision: string;
+  archive: ArchiveReceipt;
+};
+
+type LessonRecordTransactionPlan = {
+  lessonsFilePath: string;
+  lessonsRelativePath: string;
+  nextLessonsContent: string;
+  originalLessonsContent: string;
+  lessonsRevision: string;
+  archive: ArchiveReceipt;
+  candidateCount: number;
+};
+
+export type CloseTaskPreview = {
+  status: 'eligible' | 'blocked' | 'reconciliation';
+  task_identity: { task_id: string | null; task_slug: string | null; document_id: string };
+  source_tuple: RuntimeSourceTuple;
+  archive_path: string;
+  closure_eligibility: {
+    eligible: boolean;
+    blockers: string[];
+  };
+  delivery_summary: DeliverySummary | null;
+  lesson_admission: LessonAdmission | null;
+  knowledge_admissions: KnowledgeAdmissionBundle;
+  planned_operations: RuntimeOperationKind[];
+  governed_mutation_count: 0;
+};
+
+function workflowDocPathForRoot(root: string, file: string, missingCode = 'RUNTIME_SOURCE_MISSING'): { filePath: string; relativePath: string } {
+  const resolvedRoot = path.resolve(root);
+  const profilePath = getWorkflowProfilePath(resolvedRoot);
+  if (!fs.existsSync(profilePath)) fail(missingCode, `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
+  const profile = loadProfile(profilePath);
+  const filePath = getWorkflowDocPath(resolvedRoot, profile, file);
+  const relativePath = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+  if (!relativePath || relativePath.startsWith('../') || path.isAbsolute(relativePath)) {
+    fail('RUNTIME_PATH_INVALID', `${file} path escapes the target root.`);
+  }
+  return { filePath, relativePath };
+}
+
+function archivePathForTask(root: string, current: CanonicalCurrentTask): { filePath: string; relativePath: string } {
+  let relativePath: string;
+  try {
+    relativePath = getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, 'archive');
+  } catch (error) {
+    fail('RUNTIME_PATH_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const resolvedRoot = path.resolve(root);
+  const filePath = path.resolve(resolvedRoot, ...relativePath.split('/'));
+  const relativeCheck = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+  if (relativeCheck !== relativePath || relativeCheck.startsWith('../') || path.isAbsolute(relativeCheck)) {
+    fail('RUNTIME_PATH_INVALID', `archive path escapes the target root: ${relativePath}`);
+  }
+  return { filePath, relativePath };
+}
+
+type InboxRecordProvenance = {
+  idempotency_key: string;
+  proposal_digest: string;
+  source_revision: string;
+  source_task_id: string;
+  source_task_slug: string;
+  source_document_id: string;
+  relation_evidence_refs: string[];
+  duplicate_check: 'clear';
+  proposed_owner: InboxSuggestedNextAction;
+};
+
+type InboxRecordFile = {
+  filePath: string;
+  relativePath: string;
+  itemId: string | null;
+  provenance: InboxRecordProvenance[];
+};
+
+type InboxRecordTransactionPlan = {
+  filePath: string;
+  relativePath: string;
+  nextContent: string;
+  existing: boolean;
+};
+
+function canonicalInboxRecordTarget(root: string, delta: InboxRecordDelta): { filePath: string; relativePath: string } {
+  const itemId = validateInboxItemId(delta.record.item_id, 'semantic_delta.record.item_id');
+  const itemSlug = expectString(delta.item_slug, 'semantic_delta.item_slug');
+  try {
+    validateTaskSlug(itemSlug);
+  } catch (error) {
+    fail('RUNTIME_IDENTITY_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const relativePath = `TASKS/inbox/INBOX-${itemId}-${itemSlug}.md`;
+  if (delta.target_path !== relativePath) {
+    fail('RUNTIME_PATH_INVALID', 'inbox target_path is not the canonical identity-derived path.');
+  }
+  const resolvedRoot = path.resolve(root);
+  const filePath = path.resolve(resolvedRoot, ...relativePath.split('/'));
+  const relativeCheck = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+  if (relativeCheck !== relativePath || relativeCheck.startsWith('../') || path.isAbsolute(relativeCheck)) {
+    fail('RUNTIME_PATH_INVALID', `inbox path escapes the target root: ${relativePath}`);
+  }
+  return { filePath, relativePath };
+}
+
+function renderInboxTextBlock(value: string): string {
+  return value.replace(/\r\n?/g, '\n').split('\n').map(line => `    ${line}`).join('\n');
+}
+
+function inboxRecordProvenance(proposal: InboxRecordProposal): InboxRecordProvenance {
+  const delta = proposal.semantic_delta;
+  return {
+    idempotency_key: proposal.idempotency_key,
+    proposal_digest: digest(proposal),
+    source_revision: proposal.source_tuple.revision,
+    source_task_id: proposal.source_tuple.task_id,
+    source_task_slug: proposal.source_tuple.task_slug,
+    source_document_id: proposal.source_tuple.document_id,
+    relation_evidence_refs: [...delta.relation_evidence_refs],
+    duplicate_check: delta.duplicate_check,
+    proposed_owner: delta.proposed_owner,
+  };
+}
+
+function renderInboxRecord(proposal: InboxRecordProposal): string {
+  const delta = proposal.semantic_delta;
+  const record = delta.record;
+  const marker = `<!-- vNext inbox record: ${JSON.stringify(inboxRecordProvenance(proposal))} -->`;
+  return [
+    `# INBOX-${record.item_id}-${delta.item_slug}`,
+    '',
+    marker,
+    '',
+    `- artifact_kind: ${record.artifact_kind}`,
+    `- item_id: ${record.item_id}`,
+    `- title: ${record.title}`,
+    `- type: ${record.type}`,
+    `- source: ${record.source}`,
+    `- captured_at: ${record.captured_at}`,
+    `- relation_to_current_task: ${record.relation_to_current_task}`,
+    `- current_task_id: ${record.current_task_id}`,
+    '- description: |',
+    renderInboxTextBlock(record.description),
+    '- evidence: |',
+    renderInboxTextBlock(record.evidence),
+    `- suggested_next_action: ${record.suggested_next_action}`,
+    `- status: ${record.status}`,
+    '',
+  ].join('\n');
+}
+
+function validateInboxProvenance(value: unknown, location: string): InboxRecordProvenance {
+  const record = expectRecord(value, location);
+  expectExactKeys(
+    record,
+    ['idempotency_key', 'proposal_digest', 'source_revision', 'source_task_id', 'source_task_slug', 'source_document_id', 'relation_evidence_refs', 'duplicate_check', 'proposed_owner'],
+    location,
+  );
+  const proposalDigest = expectString(record.proposal_digest, `${location}.proposal_digest`);
+  const sourceRevision = expectString(record.source_revision, `${location}.source_revision`);
+  if (!SHA256_PATTERN.test(proposalDigest) || !SHA256_PATTERN.test(sourceRevision)) {
+    fail('INBOX_PROVENANCE_INVALID', `${location} contains an invalid proposal or source revision.`);
+  }
+  const sourceTaskId = expectString(record.source_task_id, `${location}.source_task_id`);
+  const sourceTaskSlug = expectString(record.source_task_slug, `${location}.source_task_slug`);
+  try {
+    validateTaskId(sourceTaskId);
+    validateTaskSlug(sourceTaskSlug);
+  } catch (error) {
+    fail('INBOX_PROVENANCE_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const sourceDocumentId = expectString(record.source_document_id, `${location}.source_document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(sourceDocumentId)) fail('INBOX_PROVENANCE_INVALID', `${location}.source_document_id is invalid.`);
+  return {
+    idempotency_key: expectString(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    proposal_digest: proposalDigest,
+    source_revision: sourceRevision,
+    source_task_id: sourceTaskId,
+    source_task_slug: sourceTaskSlug,
+    source_document_id: sourceDocumentId,
+    relation_evidence_refs: validateEvidenceRefs(record.relation_evidence_refs, `${location}.relation_evidence_refs`),
+    duplicate_check: expectEnum(record.duplicate_check, ['clear'], `${location}.duplicate_check`),
+    proposed_owner: expectEnum(record.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.proposed_owner`),
+  };
+}
+
+function readInboxProvenanceMarkers(content: string, location: string): InboxRecordProvenance[] {
+  if (!content.includes(INBOX_RECORD_PROVENANCE_MARKER)) return [];
+  const pattern = /<!-- vNext inbox record: (\{[^\r\n]+\}) -->/g;
+  const markers: InboxRecordProvenance[] = [];
+  for (const match of content.matchAll(pattern)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1]!);
+    } catch {
+      fail('INBOX_PROVENANCE_INVALID', `${location} contains an invalid vNext inbox provenance marker.`);
+    }
+    markers.push(validateInboxProvenance(parsed, `${location}.inbox_marker`));
+  }
+  if (countExactOccurrences(content, INBOX_RECORD_PROVENANCE_MARKER) !== markers.length) {
+    fail('INBOX_PROVENANCE_INVALID', `${location} contains a malformed vNext inbox provenance marker.`);
+  }
+  return markers;
+}
+
+function scanInboxRecordFiles(root: string): InboxRecordFile[] {
+  const resolvedRoot = path.resolve(root);
+  const inboxRoot = path.join(resolvedRoot, 'TASKS', 'inbox');
+  return walkMarkdownFiles(inboxRoot).map(filePath => {
+    const relativePath = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+    const pathMatch = INBOX_RECORD_PATH_PATTERN.exec(relativePath);
+    const content = fs.readFileSync(filePath, 'utf8');
+    const provenance = readInboxProvenanceMarkers(content, relativePath);
+    if (provenance.length > 0 && !pathMatch) {
+      fail('INBOX_PATH_INVALID', `${relativePath} contains vNext inbox provenance but is not a canonical inbox path.`);
+    }
+    if (!pathMatch) {
+      fail('INBOX_PATH_INVALID', `${relativePath} is not a canonical vNext inbox record path.`);
+    }
+    return {
+      filePath,
+      relativePath,
+      itemId: pathMatch ? `${pathMatch[1]}-${pathMatch[2]}` : null,
+      provenance,
+    };
+  });
+}
+
+function assertCanonicalInboxRecordContent(content: string, proposal: InboxRecordProposal, location: string): void {
+  const expected = renderInboxRecord(proposal);
+  if (content !== expected) {
+    fail('INBOX_PROVENANCE_MISMATCH', `${location} does not match the exact typed inbox record bytes.`);
+  }
+  const markers = readInboxProvenanceMarkers(content, location);
+  if (markers.length !== 1) fail('INBOX_PROVENANCE_INVALID', `${location} must contain exactly one vNext inbox provenance marker.`);
+  const expectedMarker = inboxRecordProvenance(proposal);
+  if (JSON.stringify(markers[0]) !== JSON.stringify(expectedMarker)) {
+    fail('INBOX_PROVENANCE_MISMATCH', `${location} provenance does not match the typed proposal.`);
+  }
+  validateInboxRecord(proposal.semantic_delta.record, `${location}.record`);
+}
+
+function inspectInboxRecordTransaction(root: string, proposal: InboxRecordProposal): InboxRecordTransactionPlan {
+  const delta = proposal.semantic_delta;
+  const target = canonicalInboxRecordTarget(root, delta);
+  if (fs.existsSync(target.filePath)) {
+    if (!fs.statSync(target.filePath).isFile()) {
+      fail('INBOX_IDENTITY_CONFLICT', `${target.relativePath} exists but is not a regular inbox record file.`);
+    }
+    const existingContent = fs.readFileSync(target.filePath, 'utf8');
+    try {
+      assertCanonicalInboxRecordContent(existingContent, proposal, target.relativePath);
+    } catch (error) {
+      if (error instanceof VNextRuntimeError) fail('INBOX_IDENTITY_CONFLICT', `${target.relativePath} already exists with different semantic or provenance content.`);
+      fail('INBOX_IDENTITY_CONFLICT', `${target.relativePath} could not be validated as the exact replay record.`);
+    }
+    return { ...target, nextContent: existingContent, existing: true };
+  }
+
+  const files = scanInboxRecordFiles(root);
+  for (const file of files) {
+    if (file.itemId === delta.record.item_id && file.relativePath !== target.relativePath) {
+      fail('INBOX_IDENTITY_CONFLICT', `inbox item identity ${delta.record.item_id} is already claimed by ${file.relativePath}.`);
+    }
+    if (file.provenance.some(marker => marker.idempotency_key === proposal.idempotency_key && file.relativePath !== target.relativePath)) {
+      fail('IDEMPOTENCY_CONFLICT', 'inbox idempotency key is already durably bound to another target.');
+    }
+  }
+  return { ...target, nextContent: renderInboxRecord(proposal), existing: false };
+}
+
+function prepareInboxRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: InboxRecordProposal): InboxRecordTransactionPlan {
+  ensureAuthorityKinds(proposal, ['evidence-admission']);
+  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+    fail('INBOX_CAPTURE_BLOCKED', 'inbox record capture requires an active + active current task.');
+  }
+  const delta = proposal.semantic_delta;
+  if (delta.record.current_task_id !== current.runtimeState.task_id) {
+    fail('INBOX_RELATION_INVALID', 'inbox record current_task_id does not match the canonical active task.');
+  }
+  return inspectInboxRecordTransaction(root, proposal);
+}
+
+function yamlScalar(value: string): string {
+  if (/^[A-Za-z0-9][A-Za-z0-9._:/+@ -]*$/.test(value) && !value.endsWith(' ') && !value.includes('  ')) return value;
+  return JSON.stringify(value);
+}
+
+function yamlStringArray(values: readonly string[]): string {
+  return JSON.stringify(values);
+}
+
+function readArchiveScalar(section: string, field: string, location: string): string {
+  const escaped = field.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+  const match = new RegExp(`^-\\s*${escaped}\\s*:\\s*(.*?)\\s*$`, 'm').exec(section);
+  if (!match) fail('ARCHIVE_INVALID', `${location} is missing ${field}.`);
+  const raw = match[1].trim();
+  if (raw.startsWith('"') || raw.startsWith("'")) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      fail('ARCHIVE_INVALID', `${location}.${field} is not a valid scalar.`);
+    }
+  }
+  return expectString(raw, `${location}.${field}`);
+}
+
+function readArchiveArray(raw: string, location: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    fail('ARCHIVE_INVALID', `${location} must be a JSON/YAML inline string array.`);
+  }
+  return expectStringArray(parsed, location, true, MAX_EVIDENCE_REFS);
+}
+
+function readArchiveLessonAdmission(section: string, location: string): LessonAdmission {
+  const match = /(?:^|\n)lesson_admission:\s*\n\s+decision:\s*(admit|defer|no-op)\s*\n\s+candidate_refs:\s*(\[[^\r\n]*\])\s*\n\s+evidence_refs:\s*(\[[^\r\n]*\])/m.exec(section);
+  if (!match) fail('ARCHIVE_INVALID', `${location} is missing the durable lesson_admission record.`);
+  return validateLessonAdmission({
+    decision: match[1],
+    candidate_refs: readArchiveArray(match[2], `${location}.candidate_refs`),
+    evidence_refs: readArchiveArray(match[3], `${location}.evidence_refs`),
+  }, location);
+}
+
+function readArchiveKnowledgeAdmissions(section: string, location: string): KnowledgeAdmissionBundle {
+  const match = /(?:^|\n)knowledge_admissions:\s*\n\s+contracts:\s*(\[[^\r\n]*\])\s*\n\s+decisions:\s*(\[[^\r\n]*\])/m.exec(section);
+  if (!match) fail('ARCHIVE_INVALID', `${location} is missing the durable knowledge_admissions record.`);
+  let contracts: unknown;
+  let decisions: unknown;
+  try {
+    contracts = JSON.parse(match[1]!);
+    decisions = JSON.parse(match[2]!);
+  } catch {
+    fail('ARCHIVE_INVALID', `${location}.knowledge_admissions must contain valid JSON arrays.`);
+  }
+  return validateKnowledgeAdmissionBundle({ contracts, decisions }, location);
+}
+
+function requiredArchiveSections(raw: string): Record<string, MarkdownSectionRange> {
+  const sections = scanMarkdownSections(raw);
+  const requiredHeadings = [
+    '任务元数据',
+    '原始任务包快照',
+    '实际改动摘要',
+    '契约与决策记录',
+    '验证与交付证据',
+    'Lessons 回写',
+    '后续关联',
+  ];
+  const result: Record<string, MarkdownSectionRange> = {};
+  for (const heading of requiredHeadings) {
+    const section = findUniqueMarkdownSection(sections, [heading], 2);
+    if (!section) fail('ARCHIVE_INVALID', `canonical task archive is missing ## ${heading}.`);
+    result[heading] = section;
+  }
+  return result;
+}
+
+function readCanonicalArchive(root: string, current: CanonicalCurrentTask, expectedPath?: string): ArchiveReceipt {
+  const expected = archivePathForTask(root, current);
+  if (expectedPath !== undefined && expectedPath !== expected.relativePath) {
+    fail('RUNTIME_PATH_INVALID', 'archive path is not the exact identity-derived path.');
+  }
+  if (!fs.existsSync(expected.filePath)) fail('ARCHIVE_MISSING', `canonical task archive is missing: ${expected.relativePath}`);
+  const raw = fs.readFileSync(expected.filePath, 'utf8');
+  const sections = requiredArchiveSections(raw);
+  const metadata = raw.slice(sections['任务元数据'].contentStart, sections['任务元数据'].contentEnd);
+  const lessonSection = raw.slice(sections['Lessons 回写'].contentStart, sections['Lessons 回写'].contentEnd);
+  const knowledgeSection = findUniqueMarkdownSection(scanMarkdownSections(raw), ['知识晋升', 'Knowledge Promotion'], 2);
+  const workflowStatus = readArchiveScalar(metadata, 'workflow_status', 'archive.任务元数据');
+  const lifecycleState = readArchiveScalar(metadata, 'lifecycle_state', 'archive.任务元数据');
+  const archiveOperation = readArchiveScalar(metadata, 'archive_operation', 'archive.任务元数据');
+  const archiveCaller = readArchiveScalar(metadata, 'archive_caller', 'archive.任务元数据');
+  const receipt: ArchiveReceipt = {
+    filePath: expected.filePath,
+    relativePath: expected.relativePath,
+    raw,
+    revision: sha256(raw),
+    taskId: readArchiveScalar(metadata, 'task_id', 'archive.任务元数据'),
+    taskSlug: readArchiveScalar(metadata, 'task_slug', 'archive.任务元数据'),
+    taskTitle: readArchiveScalar(metadata, 'task_title', 'archive.任务元数据'),
+    documentId: readArchiveScalar(metadata, 'document_id', 'archive.任务元数据'),
+    sourceRevision: readArchiveScalar(metadata, 'source_revision', 'archive.任务元数据'),
+    archivePath: readArchiveScalar(metadata, 'archive_path', 'archive.任务元数据'),
+    idempotencyKey: readArchiveScalar(metadata, 'proposal_idempotency_key', 'archive.任务元数据'),
+    closureDeltaDigest: readArchiveScalar(metadata, 'closure_delta_digest', 'archive.任务元数据'),
+    lessonAdmission: readArchiveLessonAdmission(lessonSection, 'archive.Lessons 回写.lesson_admission'),
+    knowledgeAdmissions: knowledgeSection
+      ? readArchiveKnowledgeAdmissions(raw.slice(knowledgeSection.contentStart, knowledgeSection.contentEnd), 'archive.知识晋升.knowledge_admissions')
+      : emptyKnowledgeAdmissionBundle(),
+  };
+  if (!/^[a-f0-9]{64}$/.test(receipt.revision) || !/^[a-f0-9]{64}$/.test(receipt.sourceRevision) || !/^[a-f0-9]{64}$/.test(receipt.closureDeltaDigest)) {
+    fail('ARCHIVE_INVALID', 'canonical task archive contains an invalid revision or digest.');
+  }
+  if (!SAFE_KEY_PATTERN.test(receipt.idempotencyKey) || !DOCUMENT_ID_PATTERN.test(receipt.documentId)) {
+    fail('ARCHIVE_INVALID', 'canonical task archive contains an invalid idempotency key or document_id.');
+  }
+  if (workflowStatus !== 'closed' || lifecycleState !== 'archived' || archiveOperation !== 'archive-transaction' || archiveCaller !== 'close-task') {
+    fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive metadata does not declare the frozen close-task terminal provenance.');
+  }
+  if (receipt.taskId !== current.runtimeState.task_id || receipt.taskSlug !== current.runtimeState.task_slug) {
+    fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive identity does not match CURRENT_TASK.');
+  }
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  if (identity.title === null || receipt.taskTitle !== identity.title) fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive task_title does not match CURRENT_TASK.');
+  if (receipt.documentId !== String(current.frontmatter.document_id)) fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive document_id does not match CURRENT_TASK.');
+  if (receipt.archivePath !== expected.relativePath) fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive metadata path does not match its canonical path.');
+  return receipt;
+}
+
+function archiveAudits(current: CanonicalCurrentTask): ArchiveAuditLogEntry[] {
+  return current.runtimeState.execution_log.filter((item): item is ArchiveAuditLogEntry => 'action' in item && item.action === 'archive');
+}
+
+function assertArchiveReceiptMatches(current: CanonicalCurrentTask, receipt: ArchiveReceipt, audit: ArchiveAuditLogEntry): void {
+  if (current.runtimeState.workflow_status !== 'closed' || current.runtimeState.lifecycle_state !== 'archived') {
+    fail('LIFECYCLE_REPLAY_INCOMPLETE', 'archive receipt requires the closed + archived CURRENT_TASK tuple.');
+  }
+  if (audit.task_id !== current.runtimeState.task_id || audit.task_slug !== current.runtimeState.task_slug || audit.document_id !== String(current.frontmatter.document_id)) {
+    fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive audit identity does not match CURRENT_TASK.');
+  }
+  if (audit.archive_path !== receipt.relativePath || audit.archive_revision !== receipt.revision || audit.source_revision !== receipt.sourceRevision || audit.idempotency_key !== receipt.idempotencyKey || audit.closure_delta_digest !== receipt.closureDeltaDigest) {
+    fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive receipt does not match the durable CURRENT_TASK archive audit.');
+  }
+  if (audit.lesson_admission.decision !== receipt.lessonAdmission.decision
+    || audit.lesson_admission.candidate_refs.join('|') !== receipt.lessonAdmission.candidate_refs.join('|')
+    || audit.lesson_admission.evidence_refs.join('|') !== receipt.lessonAdmission.evidence_refs.join('|')) {
+    fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive lesson admission does not match the durable CURRENT_TASK archive audit.');
+  }
+  if (digest(audit.knowledge_admissions) !== digest(receipt.knowledgeAdmissions)) {
+    fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive knowledge admission does not match the durable CURRENT_TASK archive audit.');
+  }
+}
+
+function matchingArchiveReceipt(root: string, current: CanonicalCurrentTask): { audit: ArchiveAuditLogEntry; receipt: ArchiveReceipt } {
+  const audits = archiveAudits(current);
+  if (audits.length !== 1) fail('LIFECYCLE_REPLAY_INCOMPLETE', 'CURRENT_TASK must contain exactly one durable archive audit for reconciliation.');
+  const audit = audits[0]!;
+  assertExecutionAudit(root, current, audit);
+  if (audit.from_workflow_status !== 'active' || audit.from_lifecycle_state !== 'active' || audit.to_workflow_status !== 'closed' || audit.to_lifecycle_state !== 'archived') {
+    fail('LIFECYCLE_REPLAY_INCOMPLETE', 'archive audit does not describe the frozen active + active to closed + archived transition.');
+  }
+  const receipt = readCanonicalArchive(root, current, audit.archive_path);
+  assertArchiveReceiptMatches(current, receipt, audit);
+  return { audit, receipt };
+}
+
+function closureEligibilityBlockers(root: string, current: CanonicalCurrentTask, delta: ArchiveDelta, archiveAlreadyExists: boolean): string[] {
+  const blockers: string[] = [];
+  try {
+    assertTestStrategySequenceReady(current);
+  } catch (error) {
+    blockers.push(error instanceof Error ? error.message : String(error));
+  }
+  const coverage = current.runtimeState.review_coverage;
+  if (coverage && (coverage.pending_paths.length || coverage.last_clean_revision !== coverage.target.revision || captureReviewTarget(root, coverage.target.entries.map(e => e.path)).revision !== coverage.target.revision)) blockers.push('cumulative review coverage is pending or stale.');
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  if (identity.id === null || identity.slug === null || identity.title === null) blockers.push('task identity is not fully materialized in CURRENT_TASK.');
+  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') blockers.push('first successful close requires active + active.');
+  if (current.runtimeState.resume_requires_review || current.runtimeState.resume_review_reasons.length > 0) blockers.push('resume review gate is not cleared.');
+  if (current.runtimeState.active_step_status !== 'completed') blockers.push('the admitted current step is not completed.');
+  if ((current.runtimeState.evidence_challenges ?? []).some(item => item.status !== 'resolved')) blockers.push('challenged evidence remains unresolved.');
+  try {
+    const stepResolution = resolveCanonicalTaskStep(current);
+    const checkpoint = effectiveCheckpointPolicy(stepResolution);
+    if (stepResolution.next !== null) {
+      blockers.push('remaining implementation steps have not been durably advanced to completion.');
+    }
+    if (stepResolution.steps.length > 1) {
+      const completedRecord = currentDefinitionExecutionLog(current).find((item): item is StepExecutionLogEntry =>
+        !('action' in item)
+        && item.step_id === stepResolution.current.id
+        && item.status === 'completed'
+        && item.advancement === 'task-complete',
+      );
+      if (!completedRecord) blockers.push('the final multi-step completion lacks a durable task-complete advancement record.');
+      if (checkpoint === 'required' && !completedRecord?.review_receipt) {
+        blockers.push('the final required review checkpoint has no durable clean receipt.');
+      }
+    }
+    const repairRecords = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
+      !('action' in item) && item.step_id === stepResolution.current.id && item.mode === 'repair',
+    );
+    if (repairRecords.length > 0) {
+      const repairFingerprints = [...new Set(repairRecords.flatMap(item => [
+        ...(item.repair_fingerprints ?? []),
+        ...(item.repair_fingerprint ? [item.repair_fingerprint] : []),
+      ]))];
+      const repairTargets = [...new Set(repairRecords.map(item => item.change_set_id).filter((value): value is string => Boolean(value)))];
+      const verified = currentDefinitionExecutionLog(current).some((item): item is StepExecutionLogEntry => {
+        if ('action' in item || item.step_id !== stepResolution.current.id || item.review_receipt?.cycle_phase !== 'verification') return false;
+        const receipt = item.review_receipt;
+        return receipt !== undefined
+          && receipt.admitted_fingerprints.length === repairFingerprints.length
+          && repairFingerprints.every(fingerprint => receipt.admitted_fingerprints.includes(fingerprint))
+          && (repairTargets.length === 0 || receipt.change_set_id === repairTargets[0]);
+      });
+      if (!verified) blockers.push('every repair route must have a durable same-diff verification receipt before closure.');
+      if (repairRecords.some(item => (!(item.repair_fingerprint || item.repair_fingerprints?.length)) || !item.change_set_id)) blockers.push('a repair execution record is missing its finding fingerprints or logical change-set identity.');
+    }
+  } catch (error) {
+    blockers.push(error instanceof Error ? error.message : String(error));
+  }
+  if (current.runtimeState.findings.some(item => item.status === 'admitted' || item.status === 'in-progress')) blockers.push('an admitted or in-progress finding remains unresolved.');
+  if (!claimEvidenceStateEnabled(current.runtimeState)) {
+    blockers.push('structured claim-bound evidence migration is required before terminal closure; legacy CURRENT_TASK completion evidence is not sufficient.');
+  } else {
+    const durableClaimEvidence = evaluateClaimEvidence(current.runtimeState.claim_evidence ?? [], { root, current });
+    if (delta.closure_evidence.acceptance_satisfied !== durableClaimEvidence.acceptance_satisfied) {
+      blockers.push('closure acceptance_satisfied does not match durable claim-bound evidence state.');
+    }
+    if (delta.closure_evidence.validation_complete !== durableClaimEvidence.validation_complete) {
+      blockers.push('closure validation_complete does not match durable claim-bound evidence state.');
+    }
+    if (!durableClaimEvidence.acceptance_satisfied) blockers.push('durable claim-bound acceptance evidence is incomplete.');
+    if (!durableClaimEvidence.validation_complete) blockers.push('durable claim-bound validation evidence is incomplete.');
+  }
+  if (!delta.closure_evidence.acceptance_satisfied) blockers.push('acceptance evidence is not satisfied.');
+  if (!delta.closure_evidence.validation_complete) blockers.push('required validation evidence is incomplete.');
+  if (!delta.closure_evidence.no_admitted_or_in_progress_findings) blockers.push('closure evidence does not prove the finding queue is clear.');
+  if (!delta.closure_evidence.no_unresolved_closure_blocker) blockers.push('an unresolved closure blocker remains.');
+  for (const [label, gate] of [
+    ['release', delta.closure_evidence.release_evidence],
+    ['rollback', delta.closure_evidence.rollback_evidence],
+    ['observation', delta.closure_evidence.observation_evidence],
+  ] as const) {
+    if (gate.triggered && !gate.complete) blockers.push(`${label} evidence is triggered but incomplete.`);
+  }
+  if (!delta.closure_evidence.remaining_risks_non_blocking) blockers.push('remaining risks are not explicitly non-blocking.');
+  if (!delta.closure_evidence.archive_path_verified) blockers.push('the archive path has not been uniquely verified.');
+  if (archiveAlreadyExists) blockers.push('the canonical archive path is already occupied before the first close.');
+  return blockers;
+}
+
+function assertArchiveReplay(root: string, current: CanonicalCurrentTask, proposal: ArchiveProposal): void {
+  const { audit, receipt } = matchingArchiveReceipt(root, current);
+  if (audit.idempotency_key !== proposal.idempotency_key
+    || audit.source_revision !== proposal.source_tuple.revision
+    || audit.task_id !== proposal.source_tuple.task_id
+    || audit.task_slug !== proposal.source_tuple.task_slug
+    || audit.document_id !== proposal.source_tuple.document_id
+    || audit.closure_delta_digest !== digest(proposal.semantic_delta)
+    || audit.evidence_refs.join('|') !== proposal.semantic_delta.evidence_refs.join('|')
+    || digest(audit.authority_evidence) !== digest(proposal.authority_evidence)
+    || digest(audit.knowledge_admissions) !== digest(proposal.semantic_delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle())
+    || receipt.revision !== audit.archive_revision) {
+    fail('LIFECYCLE_REPLAY_INCOMPLETE', 'archive replay identity, source revision, closure evidence, or archive revision does not match the committed receipt.');
+  }
+}
+
+function quotedSnapshot(raw: string): string {
+  return raw.replace(/\r\n?/g, '\n').split('\n').map(line => `> ${line}`).join('\n');
+}
+
+function renderArchiveList(label: string, values: readonly string[]): string[] {
+  return [
+    `- ${label}:`,
+    ...(values.length === 0 ? ['  - none'] : values.map(value => `  - ${yamlScalar(value)}`)),
+  ];
+}
+
+function renderArchiveDocument(
+  current: CanonicalCurrentTask,
+  proposal: ArchiveProposal,
+  delta: ArchiveDelta,
+  archiveRelativePath: string,
+  closureDeltaDigest: string,
+): string {
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  if (identity.id === null || identity.slug === null || identity.title === null) {
+    fail('RUNTIME_IDENTITY_INVALID', 'CURRENT_TASK task identity is incomplete for archive rendering.');
+  }
+  const closure = delta.closure_evidence;
+  const lines: string[] = [
+    '# TASK_ARCHIVE.md',
+    '',
+    '## 任务元数据',
+    '',
+    `- task_id: ${yamlScalar(identity.id)}`,
+    `- task_title: ${yamlScalar(identity.title)}`,
+    `- task_slug: ${yamlScalar(identity.slug)}`,
+    `- document_id: ${yamlScalar(current.sourceTuple.document_id)}`,
+    `- workflow_status: closed`,
+    `- lifecycle_state: archived`,
+    `- source_revision: ${current.sourceTuple.revision}`,
+    `- archive_path: ${archiveRelativePath}`,
+    `- archive_operation: archive-transaction`,
+    `- archive_caller: close-task`,
+    `- proposal_idempotency_key: ${yamlScalar(proposal.idempotency_key)}`,
+    `- closure_delta_digest: ${closureDeltaDigest}`,
+    '',
+    '## 原始任务包快照',
+    '',
+    `- source_document_revision: ${current.sourceTuple.revision}`,
+    '- CURRENT_TASK snapshot:',
+    quotedSnapshot(current.raw),
+    '',
+    '## 实际改动摘要',
+    '',
+    `- goal: ${yamlScalar(delta.delivery_summary.goal)}`,
+    ...renderArchiveList('actual_changes', delta.delivery_summary.actual_changes),
+    '',
+    '## 契约与决策记录',
+    '',
+    '- affected_contracts: preserved in the CURRENT_TASK snapshot; admitted Contract candidates are reconciled after archive through the typed Runtime operation.',
+    '- confirmed_decisions: preserved in the CURRENT_TASK snapshot; admitted Decision candidates are reconciled after archive through the typed Runtime operation.',
+    '',
+    '## 验证与交付证据',
+    '',
+    '- closure_evidence:',
+    `  - acceptance_satisfied: ${String(closure.acceptance_satisfied)}`,
+    `  - validation_complete: ${String(closure.validation_complete)}`,
+    `  - no_admitted_or_in_progress_findings: ${String(closure.no_admitted_or_in_progress_findings)}`,
+    `  - no_unresolved_closure_blocker: ${String(closure.no_unresolved_closure_blocker)}`,
+    '  - release_evidence:',
+    `    - triggered: ${String(closure.release_evidence.triggered)}`,
+    `    - complete: ${String(closure.release_evidence.complete)}`,
+    `    - evidence_refs: ${yamlStringArray(closure.release_evidence.evidence_refs)}`,
+    '  - rollback_evidence:',
+    `    - triggered: ${String(closure.rollback_evidence.triggered)}`,
+    `    - complete: ${String(closure.rollback_evidence.complete)}`,
+    `    - evidence_refs: ${yamlStringArray(closure.rollback_evidence.evidence_refs)}`,
+    '  - observation_evidence:',
+    `    - triggered: ${String(closure.observation_evidence.triggered)}`,
+    `    - complete: ${String(closure.observation_evidence.complete)}`,
+    `    - evidence_refs: ${yamlStringArray(closure.observation_evidence.evidence_refs)}`,
+    `  - remaining_risks_non_blocking: ${String(closure.remaining_risks_non_blocking)}`,
+    `  - archive_path_verified: ${String(closure.archive_path_verified)}`,
+    '',
+    `- acceptance_satisfied: ${String(closure.acceptance_satisfied)}`,
+    `- validation_complete: ${String(closure.validation_complete)}`,
+    ...renderArchiveList('verification', delta.delivery_summary.verification),
+    ...((current.runtimeState.claim_evidence ?? []).some(c => c.slots.some(s => s.user_decision)) ? renderArchiveList('explicit_user_evidence_decisions', (current.runtimeState.claim_evidence ?? []).flatMap(c => c.slots.filter(s => s.user_decision).map(s => `${c.claim_id}/${s.slot_id}: ${s.user_decision!.kind}; source=${s.user_decision!.decision_source}; caller-reported; waiver is not tested PASS`))) : []),
+    ...renderArchiveList('release_evidence', delta.delivery_summary.release_evidence),
+    ...renderArchiveList('rollback_evidence', delta.delivery_summary.rollback_evidence),
+    ...renderArchiveList('observation_evidence', delta.delivery_summary.observation_evidence),
+    `- next_action: ${yamlScalar(delta.delivery_summary.next_action)}`,
+    '',
+    '## 知识晋升',
+    '',
+    'knowledge_admissions:',
+    `  contracts: ${JSON.stringify(delta.knowledge_admissions?.contracts ?? [])}`,
+    `  decisions: ${JSON.stringify(delta.knowledge_admissions?.decisions ?? [])}`,
+    '',
+    '## Lessons 回写',
+    '',
+    'lesson_admission:',
+    `  decision: ${delta.lesson_admission.decision}`,
+    `  candidate_refs: ${yamlStringArray(delta.lesson_admission.candidate_refs)}`,
+    `  evidence_refs: ${yamlStringArray(delta.lesson_admission.evidence_refs)}`,
+    '',
+    '## 后续关联',
+    '',
+    ...renderArchiveList('remaining_risks', delta.remaining_risks),
+    `- remaining_risks_non_blocking: ${String(closure.remaining_risks_non_blocking)}`,
+    '- next_task: none created by close-task.',
+    '',
+  ];
+  return lines.join('\n');
+}
+
+function makeArchiveAudit(
+  current: CanonicalCurrentTask,
+  proposal: ArchiveProposal,
+  delta: ArchiveDelta,
+  archiveRelativePath: string,
+  archiveRevision: string,
+  closureDeltaDigest: string,
+  next: RuntimeState,
+  now: string,
+): ArchiveAuditLogEntry {
+  return {
+    action: 'archive',
+    idempotency_key: proposal.idempotency_key,
+    operation_kind: 'archive-transaction',
+    caller: 'close-task',
+    mode: 'default',
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    document_id: current.sourceTuple.document_id,
+    from_workflow_status: 'active',
+    from_lifecycle_state: 'active',
+    to_workflow_status: next.workflow_status as 'closed',
+    to_lifecycle_state: next.lifecycle_state as 'archived',
+    source_revision: current.sourceTuple.revision,
+    archive_path: archiveRelativePath,
+    archive_revision: archiveRevision,
+    closure_delta_digest: closureDeltaDigest,
+    authority_evidence: proposal.authority_evidence.map(item => ({ ...item })),
+    evidence_refs: [...delta.evidence_refs],
+    lesson_admission: {
+      decision: delta.lesson_admission.decision,
+      candidate_refs: [...delta.lesson_admission.candidate_refs],
+      evidence_refs: [...delta.lesson_admission.evidence_refs],
+    },
+    knowledge_admissions: {
+      contracts: (delta.knowledge_admissions?.contracts ?? []).map(item => ({
+        candidate: item.candidate,
+        disposition: item.disposition,
+        matched_knowledge_id: item.matched_knowledge_id,
+        reasons: [...item.reasons],
+      })),
+      decisions: (delta.knowledge_admissions?.decisions ?? []).map(item => ({
+        candidate: item.candidate,
+        disposition: item.disposition,
+        matched_knowledge_id: item.matched_knowledge_id,
+        reasons: [...item.reasons],
+      })),
+    },
+    recorded_at: now,
+  };
+}
+
+function prepareArchiveTransaction(root: string, current: CanonicalCurrentTask, proposal: ArchiveProposal, now: string): ArchiveTransactionPlan | null {
+  const delta = proposal.semantic_delta;
+  ensureAuthorityKinds(proposal, ['active-task-owner', 'evidence-admission']);
+  if (current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived') {
+    const { audit, receipt } = matchingArchiveReceipt(root, current);
+    if (digest(delta) !== audit.closure_delta_digest) {
+      fail('ARCHIVE_PROVENANCE_MISMATCH', 'reconciliation closure evidence does not match the committed archive receipt.');
+    }
+    if (delta.lesson_admission.decision !== audit.lesson_admission.decision
+      || delta.lesson_admission.candidate_refs.join('|') !== audit.lesson_admission.candidate_refs.join('|')
+      || delta.lesson_admission.evidence_refs.join('|') !== audit.lesson_admission.evidence_refs.join('|')) {
+      fail('ARCHIVE_PROVENANCE_MISMATCH', 'reconciliation lesson admission does not match the committed archive receipt.');
+    }
+    if (digest(delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle()) !== digest(audit.knowledge_admissions)) {
+      fail('ARCHIVE_PROVENANCE_MISMATCH', 'reconciliation knowledge admission does not match the committed archive receipt.');
+    }
+    if (receipt.sourceRevision !== audit.source_revision) fail('ARCHIVE_PROVENANCE_MISMATCH', 'archive source revision does not match the committed archive audit.');
+    return null;
+  }
+  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+    fail('CLOSURE_TUPLE_INVALID', 'first successful close requires active + active.');
+  }
+  const archiveTarget = archivePathForTask(root, current);
+  const blockers = closureEligibilityBlockers(root, current, delta, fs.existsSync(archiveTarget.filePath));
+  if (blockers.length > 0) fail('CLOSURE_NOT_ELIGIBLE', blockers.join(' '));
+  const closureDeltaDigest = digest(delta);
+  const nextWithoutAudit: RuntimeState = {
+    ...current.runtimeState,
+    workflow_status: 'closed',
+    lifecycle_state: 'archived',
+    resume_requires_review: false,
+    resume_review_reasons: [],
+    applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+  };
+  const nextArchiveContent = renderArchiveDocument(current, proposal, delta, archiveTarget.relativePath, closureDeltaDigest);
+  const archiveRevision = sha256(nextArchiveContent);
+  const audit = makeArchiveAudit(current, proposal, delta, archiveTarget.relativePath, archiveRevision, closureDeltaDigest, nextWithoutAudit, now);
+  const next: RuntimeState = {
+    ...nextWithoutAudit,
+    execution_log: appendExecutionLogEntry(current.runtimeState, audit),
+  };
+  const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { audit });
+  const nextContent = prepared.content;
+  return {
+    next,
+    nextContent,
+    prepared,
+    archiveFilePath: archiveTarget.filePath,
+    archiveRelativePath: archiveTarget.relativePath,
+    nextArchiveContent,
+    audit,
+    archiveRevision,
+  };
+}
+
+const STATUS_RECONCILIATION_BEGIN = '<!-- BEGIN vNext close-task STATUS reconciliation -->';
+const STATUS_RECONCILIATION_END = '<!-- END vNext close-task STATUS reconciliation -->';
+
+type StatusReceipt = {
+  taskId: string;
+  taskSlug: string;
+  documentId: string;
+  archivePath: string;
+  archiveRevision: string;
+  sourceRevision: string;
+  idempotencyKey: string;
+  deltaDigest: string;
+  status: ProjectStatusDelta['status'];
+  summary: string;
+  completedItems: string[];
+  remainingRisks: string[];
+  nextCheckpoint: string;
+  evidenceRefs: string[];
+};
+
+export type StatusReconciliationReceipt = StatusReceipt;
+
+function renderStatusReconciliation(proposal: ProjectStatusProposal, delta: ProjectStatusDelta, archive: ArchiveReceipt): string {
+  return [
+    STATUS_RECONCILIATION_BEGIN,
+    `- task_id: ${yamlScalar(archive.taskId)}`,
+    `- task_slug: ${yamlScalar(archive.taskSlug)}`,
+    `- document_id: ${yamlScalar(archive.documentId)}`,
+    `- archive_path: ${archive.relativePath}`,
+    `- archive_revision: ${archive.revision}`,
+    `- source_revision: ${archive.sourceRevision}`,
+    `- proposal_idempotency_key: ${yamlScalar(proposal.idempotency_key)}`,
+    `- delta_digest: ${digest(delta)}`,
+    `- status: ${delta.status}`,
+    `- summary: ${yamlScalar(delta.summary)}`,
+    `- completed_items: ${yamlStringArray(delta.completed_items)}`,
+    `- remaining_risks: ${yamlStringArray(delta.remaining_risks)}`,
+    `- next_checkpoint: ${yamlScalar(delta.next_checkpoint)}`,
+    `- evidence_refs: ${yamlStringArray(delta.evidence_refs)}`,
+    STATUS_RECONCILIATION_END,
+  ].join('\n');
+}
+
+function readStatusScalar(body: string, field: string, location: string): string {
+  const escaped = field.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+  const match = new RegExp(`^-\\s*${escaped}\\s*:\\s*(.*?)\\s*$`, 'm').exec(body);
+  if (!match) fail('STATUS_INVALID', `${location} reconciliation receipt is missing ${field}.`);
+  const raw = match[1].trim();
+  if (raw.startsWith('"') || raw.startsWith("'")) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      fail('STATUS_INVALID', `${location}.${field} is not a valid scalar.`);
+    }
+  }
+  return expectString(raw, `${location}.${field}`);
+}
+
+function readStatusArray(body: string, field: string, location: string): string[] {
+  const raw = readStatusScalar(body, field, location);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    fail('STATUS_INVALID', `${location}.${field} must be a JSON/YAML inline string array.`);
+  }
+  return expectStringArray(parsed, `${location}.${field}`, true, 64);
+}
+
+function statusDeltaFromReceipt(receipt: StatusReceipt): ProjectStatusDelta {
+  return {
+    kind: 'project-status',
+    action: 'sync',
+    status: receipt.status,
+    summary: receipt.summary,
+    completed_items: [...receipt.completedItems],
+    remaining_risks: [...receipt.remainingRisks],
+    next_checkpoint: receipt.nextCheckpoint,
+    evidence_refs: [...receipt.evidenceRefs],
+  };
+}
+
+function readStatusReceipts(content: string, location: string): StatusReceipt[] {
+  const pattern = new RegExp(`${STATUS_RECONCILIATION_BEGIN.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\r?\\n([\\s\\S]*?)\\r?\\n${STATUS_RECONCILIATION_END.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}`, 'g');
+  const receipts: StatusReceipt[] = [];
+  for (const match of content.matchAll(pattern)) {
+    const body = match[1] ?? '';
+    const archiveRevision = readStatusScalar(body, 'archive_revision', location);
+    const sourceRevision = readStatusScalar(body, 'source_revision', location);
+    const deltaDigest = readStatusScalar(body, 'delta_digest', location);
+    if (!/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(deltaDigest)) {
+      fail('STATUS_INVALID', `${location} reconciliation receipt has an invalid revision or digest.`);
+    }
+    const receipt: StatusReceipt = {
+      taskId: readStatusScalar(body, 'task_id', location),
+      taskSlug: readStatusScalar(body, 'task_slug', location),
+      documentId: readStatusScalar(body, 'document_id', location),
+      archivePath: normalizeRepoPath(readStatusScalar(body, 'archive_path', location), `${location}.archive_path`),
+      archiveRevision,
+      sourceRevision,
+      idempotencyKey: readStatusScalar(body, 'proposal_idempotency_key', location),
+      deltaDigest,
+      status: expectEnum(readStatusScalar(body, 'status', location), ['completed', 'observing'], `${location}.status`),
+      summary: readStatusScalar(body, 'summary', location),
+      completedItems: readStatusArray(body, 'completed_items', location),
+      remainingRisks: readStatusArray(body, 'remaining_risks', location),
+      nextCheckpoint: readStatusScalar(body, 'next_checkpoint', location),
+      evidenceRefs: readStatusArray(body, 'evidence_refs', location),
+    };
+    if (!SAFE_KEY_PATTERN.test(receipt.idempotencyKey)) fail('STATUS_INVALID', `${location}.proposal_idempotency_key is invalid.`);
+    if (!DOCUMENT_ID_PATTERN.test(receipt.documentId)) fail('STATUS_INVALID', `${location}.document_id is invalid.`);
+    try {
+      validateTaskId(receipt.taskId);
+      validateTaskSlug(receipt.taskSlug);
+    } catch (error) {
+      fail('STATUS_INVALID', error instanceof Error ? error.message : String(error));
+    }
+    if (digest(statusDeltaFromReceipt(receipt)) !== receipt.deltaDigest) {
+      fail('STATUS_INVALID', `${location} reconciliation receipt delta digest does not match its typed fields.`);
+    }
+    if (receipts.some(existing => existing.archivePath === receipt.archivePath)) {
+      fail('STATUS_INVALID', `${location} contains duplicate reconciliation receipts for ${receipt.archivePath}.`);
+    }
+    receipts.push(receipt);
+  }
+  return receipts;
+}
+
+function matchingStatusReceipt(content: string, location: string, archive: ArchiveReceipt): StatusReceipt | null {
+  const receipts = readStatusReceipts(content, location);
+  const matches = receipts.filter(receipt =>
+    receipt.archivePath === archive.relativePath
+    || (receipt.taskId === archive.taskId && receipt.taskSlug === archive.taskSlug && receipt.documentId === archive.documentId),
+  );
+  if (matches.length > 1) fail('STATUS_INVALID', `${location} contains multiple receipts for the same archived task.`);
+  return matches[0] ?? null;
+}
+
+const STATUS_PLACEHOLDER_VALUES = new Set(['none', 'n/a', '无', '暂无']);
+
+function statusItemText(line: string): string | null {
+  const match = /^-\s+(?:\[[ xX]\]\s*)?(.+?)\s*$/.exec(line);
+  if (!match) return null;
+  const value = match[1]!.trim();
+  if (value.length === 0 || STATUS_PLACEHOLDER_VALUES.has(value.toLowerCase())) return null;
+  return value;
+}
+
+function isStatusPlaceholderLine(line: string): boolean {
+  const match = /^-\s+(?:\[[ xX]\]\s*)?(.+?)\s*$/.exec(line);
+  return match !== null && STATUS_PLACEHOLDER_VALUES.has(match[1]!.trim().toLowerCase());
+}
+
+function validateStatusProjectionText(value: string, location: string): string {
+  if (value.includes('\n') || value.includes('\r')) {
+    fail('STATUS_RECONCILIATION_CONFLICT', `${location} cannot contain a line break.`);
+  }
+  return value.trim();
+}
+
+function requiredStatusSection(content: string, sectionKey: StatusSectionKey, location: string): MarkdownSectionRange {
+  const definition = STATUS_SECTIONS[sectionKey];
+  const title = definition.title;
+  const aliases = 'aliases' in definition ? definition.aliases : [title];
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), aliases, 2);
+  if (!section) fail('STATUS_INVALID', `${location} is missing the required ## ${title} section.`);
+  return section;
+}
+
+export function validateStatusDocument(content: string, location = 'STATUS.md'): void {
+  const sections = scanMarkdownSections(content);
+  for (const key of STATUS_SECTION_KEYS) {
+    const definition = STATUS_SECTIONS[key];
+    const title = definition.title;
+    const aliases = 'aliases' in definition ? definition.aliases : [title];
+    if (!findUniqueMarkdownSection(sections, aliases, 2)) fail('STATUS_INVALID', `${location} is missing the required ## ${title} section.`);
+  }
+}
+
+export function readStatusReconciliationReceipts(content: string, location = 'STATUS.md'): StatusReconciliationReceipt[] {
+  validateStatusDocument(content, location);
+  const beginCount = countExactOccurrences(content, STATUS_RECONCILIATION_BEGIN);
+  const endCount = countExactOccurrences(content, STATUS_RECONCILIATION_END);
+  if (beginCount !== endCount) fail('STATUS_INVALID', `${location} contains an incomplete reconciliation marker.`);
+  return readStatusReceipts(content, location).map(receipt => ({
+    ...receipt,
+    completedItems: [...receipt.completedItems],
+    remainingRisks: [...receipt.remainingRisks],
+    evidenceRefs: [...receipt.evidenceRefs],
+  }));
+}
+
+function assertStatusReceiptProjection(content: string, receipts: readonly StatusReceipt[], location: string): void {
+  if (receipts.length === 0) return;
+
+  const completedLines = readStatusSectionLines(content, 'completed', location);
+  const developmentLines = readStatusSectionLines(content, 'inProgress', location);
+  const riskLines = readStatusSectionLines(content, 'risks', location);
+  for (const receipt of receipts) {
+    for (const rawItem of receipt.completedItems) {
+      const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
+      if (statusItemMatchCount(completedLines, item) !== 1 || statusItemMatchCount(developmentLines, item) !== 0) {
+        fail('STATUS_PROVENANCE_MISMATCH', `${location} completed item projection no longer matches "${item}".`);
+      }
+    }
+    for (const rawItem of receipt.remainingRisks) {
+      const item = validateStatusProjectionText(rawItem, `${location}.remaining_risks`);
+      if (statusItemMatchCount(riskLines, item) !== 1) {
+        fail('STATUS_PROVENANCE_MISMATCH', `${location} remaining risk projection no longer matches "${item}".`);
+      }
+    }
+  }
+
+  // STATUS is cumulative: historical completed/risk projections remain, while
+  // the latest transaction owns the current overview and checkpoint projection.
+  assertStatusProjection(content, statusDeltaFromReceipt(receipts[receipts.length - 1]!), location);
+}
+
+/**
+ * Read STATUS for Bootstrap realignment through the Runtime-owned semantic
+ * boundary. In addition to structure and receipt provenance, this validates
+ * the cumulative visible projection against the receipt history.
+ */
+export function readCanonicalStatusDocumentForBootstrap(content: string, location = 'STATUS.md'): StatusReconciliationReceipt[] {
+  const receipts = readStatusReconciliationReceipts(content, location);
+  assertStatusReceiptProjection(content, receipts, location);
+  return receipts;
+}
+
+function canonicalizeStatusOverviewLines(
+  lines: readonly string[],
+  project: { name: string; slug: string },
+  mode: BootstrapMode,
+  location: string,
+): string[] {
+  const fields = [
+    { pattern: /^-\s*(?:项目|project)\s*[:：]\s*.*$/i, line: `- 项目：${project.name}` },
+    { pattern: /^-\s*(?:slug|project[_ ]slug)\s*[:：]\s*.*$/i, line: `- slug：${project.slug}` },
+    { pattern: /^-\s*(?:bootstrap[_ ]mode|bootstrap mode)\s*[:：]\s*.*$/i, line: `- bootstrap mode：${mode}` },
+  ] as const;
+  const next = [...lines];
+  for (const field of fields) {
+    const matches = next
+      .map((line, index) => ({ line, index }))
+      .filter(item => field.pattern.test(item.line));
+    if (matches.length > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains multiple Bootstrap overview fields.`);
+    if (matches.length === 1) next[matches[0]!.index] = field.line;
+    else next.push(field.line);
+  }
+  return next;
+}
+
+/**
+ * Canonicalize the Bootstrap-owned STATUS structure without re-projecting any
+ * Runtime-owned status section or reconciliation receipt. This is shared with
+ * Bootstrap so the Runtime remains the only STATUS semantic parser.
+ */
+export function canonicalizeStatusDocumentForBootstrap(
+  content: string,
+  project: { name: string; slug: string },
+  mode: BootstrapMode,
+  location = 'STATUS.md',
+): string {
+  readCanonicalStatusDocumentForBootstrap(content, location);
+  const sections = scanMarkdownSections(content);
+  const canonicalSections = new Set<number>();
+  const output: string[] = [];
+  const firstTopLevel = sections
+    .filter(section => section.level === 2)
+    .sort((left, right) => left.headingStart - right.headingStart)[0];
+  const prefix = firstTopLevel
+    ? content.slice(0, firstTopLevel.headingStart).replace(/\r\n?/g, '\n').trimEnd()
+    : '';
+  output.push(prefix || '# STATUS.md', '');
+
+  for (const key of STATUS_SECTION_KEYS) {
+    const definition = STATUS_SECTIONS[key];
+    const aliases = 'aliases' in definition ? definition.aliases : [definition.title];
+    const section = findUniqueMarkdownSection(sections, aliases, 2);
+    if (!section) fail('STATUS_INVALID', `${location} is missing the required ## ${definition.title} section.`);
+    canonicalSections.add(section.headingStart);
+    const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trim();
+    const bodyLines = body.length > 0 ? body.split('\n') : [];
+    output.push(
+      `## ${definition.title}`,
+      '',
+      ...(key === 'overview' ? canonicalizeStatusOverviewLines(bodyLines, project, mode, location) : bodyLines),
+      '',
+    );
+  }
+
+  for (const section of sections.filter(item => item.level === 2).sort((left, right) => left.headingStart - right.headingStart)) {
+    if (canonicalSections.has(section.headingStart)) continue;
+    const preserved = content.slice(section.headingStart, section.contentEnd).replace(/\r\n?/g, '\n').trimEnd();
+    if (preserved.trim().length > 0) output.push(preserved, '');
+  }
+
+  const next = output.join('\n');
+  readCanonicalStatusDocumentForBootstrap(next, location);
+  return next;
+}
+
+function readStatusSectionLines(content: string, sectionKey: StatusSectionKey, location: string): string[] {
+  const section = requiredStatusSection(content, sectionKey, location);
+  const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trim();
+  return body.length > 0 ? body.split('\n') : [];
+}
+
+function replaceStatusSectionBody(content: string, sectionKey: StatusSectionKey, lines: readonly string[], location: string): string {
+  const section = requiredStatusSection(content, sectionKey, location);
+  const body = lines.join('\n').trim();
+  return content.slice(0, section.contentStart) + `${body.length > 0 ? `\n${body}\n\n` : '\n'}` + content.slice(section.contentEnd);
+}
+
+function statusItemMatchCount(lines: readonly string[], item: string): number {
+  return lines.filter(line => statusItemText(line) === item).length;
+}
+
+function projectStatusOverview(content: string, delta: ProjectStatusDelta, location: string): string {
+  const lines = readStatusSectionLines(content, 'overview', location);
+  const statusFieldPattern = /^-\s*(?:当前状态|status)\s*[:：]\s*.*$/i;
+  const matches = lines
+    .map((line, index) => ({ line, index }))
+    .filter(item => statusFieldPattern.test(item.line));
+  if (matches.length > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains multiple project status fields.`);
+  const statusLine = `- 当前状态：${delta.status}`;
+  if (matches.length === 1) {
+    const next = [...lines];
+    next[matches[0]!.index] = statusLine;
+    return replaceStatusSectionBody(content, 'overview', next, location);
+  }
+  return replaceStatusSectionBody(content, 'overview', [...lines, statusLine], location);
+}
+
+function projectStatusCompletedItems(content: string, delta: ProjectStatusDelta, location: string): string {
+  const completedLines = readStatusSectionLines(content, 'completed', location);
+  const developmentLines = readStatusSectionLines(content, 'inProgress', location);
+  const removeDevelopmentIndexes = new Set<number>();
+  const appendCompleted: string[] = [];
+
+  for (const rawItem of delta.completed_items) {
+    const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
+    const completedMatches = statusItemMatchCount(completedLines, item);
+    if (completedMatches > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains duplicate completed item "${item}".`);
+    const developmentMatches = developmentLines
+      .map((line, index) => ({ line, index }))
+      .filter(entry => statusItemText(entry.line) === item);
+    if (developmentMatches.length > 1) {
+      fail('STATUS_RECONCILIATION_CONFLICT', `${location} cannot determine which in-progress record to remove for "${item}".`);
+    }
+    if (developmentMatches.length === 1) removeDevelopmentIndexes.add(developmentMatches[0]!.index);
+    if (completedMatches === 0) appendCompleted.push(item);
+  }
+
+  const nextDevelopmentLines = developmentLines.filter((_, index) => !removeDevelopmentIndexes.has(index));
+  let nextCompletedLines = [...completedLines];
+  if (appendCompleted.length > 0) {
+    nextCompletedLines = nextCompletedLines.filter(line => !isStatusPlaceholderLine(line));
+    while (nextCompletedLines.length > 0 && nextCompletedLines[nextCompletedLines.length - 1]!.trim() === '') nextCompletedLines.pop();
+    nextCompletedLines.push(...appendCompleted.map(item => `- ${item}`));
+  }
+  let next = replaceStatusSectionBody(content, 'inProgress', nextDevelopmentLines, location);
+  return replaceStatusSectionBody(next, 'completed', nextCompletedLines, location);
+}
+
+function projectStatusRemainingRisks(content: string, delta: ProjectStatusDelta, location: string): string {
+  const riskItems = delta.remaining_risks.map(item => validateStatusProjectionText(item, `${location}.remaining_risks`));
+  if (riskItems.length === 0) return content;
+  const lines = readStatusSectionLines(content, 'risks', location);
+  const appendItems = riskItems.filter(item => {
+    const matches = statusItemMatchCount(lines, item);
+    if (matches > 1) fail('STATUS_RECONCILIATION_CONFLICT', `${location} contains duplicate remaining risk "${item}".`);
+    return matches === 0;
+  });
+  if (appendItems.length === 0) return content;
+  const nextLines = lines.filter(line => !isStatusPlaceholderLine(line));
+  while (nextLines.length > 0 && nextLines[nextLines.length - 1]!.trim() === '') nextLines.pop();
+  nextLines.push(...appendItems.map(item => `- ${item}`));
+  return replaceStatusSectionBody(content, 'risks', nextLines, location);
+}
+
+function projectStatusCheckpoint(content: string, delta: ProjectStatusDelta, location: string): string {
+  const checkpoint = validateStatusProjectionText(delta.next_checkpoint, `${location}.next_checkpoint`);
+  const lines = readStatusSectionLines(content, 'nextCheckpoint', location);
+  const matchingIndexSet = new Set(lines
+    .map((line, index) => ({ line, index }))
+    .filter(entry => statusItemText(entry.line) === checkpoint)
+    .map(entry => entry.index));
+  if (matchingIndexSet.size === 1) return content;
+  const nextLines = lines.filter((_, index) => !matchingIndexSet.has(index));
+  nextLines.push(`- ${checkpoint}`);
+  return replaceStatusSectionBody(content, 'nextCheckpoint', nextLines, location);
+}
+
+function projectStatusDelta(content: string, delta: ProjectStatusDelta, location: string): string {
+  let next = projectStatusOverview(content, delta, location);
+  next = projectStatusCompletedItems(next, delta, location);
+  next = projectStatusRemainingRisks(next, delta, location);
+  return projectStatusCheckpoint(next, delta, location);
+}
+
+function assertStatusProjection(content: string, delta: ProjectStatusDelta, location: string): void {
+  const overviewLines = readStatusSectionLines(content, 'overview', location);
+  const statusLines = overviewLines.filter(line => /^-\s*(?:当前状态|status)\s*[:：]\s*.*$/i.test(line));
+  if (statusLines.length !== 1 || statusLines[0] !== `- 当前状态：${delta.status}`) {
+    fail('STATUS_PROVENANCE_MISMATCH', `${location} project status projection no longer matches the typed status delta.`);
+  }
+  const completedLines = readStatusSectionLines(content, 'completed', location);
+  const developmentLines = readStatusSectionLines(content, 'inProgress', location);
+  for (const rawItem of delta.completed_items) {
+    const item = validateStatusProjectionText(rawItem, `${location}.completed_items`);
+    if (statusItemMatchCount(completedLines, item) !== 1 || statusItemMatchCount(developmentLines, item) !== 0) {
+      fail('STATUS_PROVENANCE_MISMATCH', `${location} completed item projection no longer matches "${item}".`);
+    }
+  }
+  const riskLines = readStatusSectionLines(content, 'risks', location);
+  for (const rawItem of delta.remaining_risks) {
+    const item = validateStatusProjectionText(rawItem, `${location}.remaining_risks`);
+    if (statusItemMatchCount(riskLines, item) !== 1) {
+      fail('STATUS_PROVENANCE_MISMATCH', `${location} remaining risk projection no longer matches "${item}".`);
+    }
+  }
+  const checkpointLines = readStatusSectionLines(content, 'nextCheckpoint', location);
+  if (statusItemMatchCount(checkpointLines, delta.next_checkpoint) !== 1) {
+    fail('STATUS_PROVENANCE_MISMATCH', `${location} next checkpoint projection no longer matches the typed status delta.`);
+  }
+}
+
+function appendStatusReconciliation(content: string, marker: string, location: string): string {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), STATUS_SECTIONS.recentUpdates.aliases, 2);
+  if (!section) fail('STATUS_INVALID', `${location} is missing the required ## ${STATUS_SECTIONS.recentUpdates.title} section.`);
+  const existing = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trimEnd();
+  return content.slice(0, section.contentStart) + `\n${existing.trim().length > 0 ? `${existing}\n\n` : ''}${marker}\n` + content.slice(section.contentEnd);
+}
+
+function prepareProjectStatusTransaction(root: string, current: CanonicalCurrentTask, proposal: ProjectStatusProposal): ProjectStatusTransactionPlan | null {
+  ensureAuthorityKinds(proposal, ['evidence-admission']);
+  const { receipt } = matchingArchiveReceipt(root, current);
+  const target = workflowDocPathForRoot(root, 'STATUS.md');
+  if (!fs.existsSync(target.filePath)) fail('RUNTIME_SOURCE_MISSING', `STATUS.md is missing: ${target.relativePath}`);
+  const originalStatusContent = fs.readFileSync(target.filePath, 'utf8');
+  validateStatusDocument(originalStatusContent, target.relativePath);
+  const existingReceipt = matchingStatusReceipt(originalStatusContent, target.relativePath, receipt);
+  const deltaDigest = digest(proposal.semantic_delta);
+  if (existingReceipt) {
+    if (existingReceipt.taskId !== receipt.taskId || existingReceipt.taskSlug !== receipt.taskSlug || existingReceipt.documentId !== receipt.documentId || existingReceipt.archivePath !== receipt.relativePath || existingReceipt.archiveRevision !== receipt.revision || existingReceipt.sourceRevision !== receipt.sourceRevision) {
+      fail('STATUS_PROVENANCE_MISMATCH', 'STATUS reconciliation receipt does not match the canonical archive.');
+    }
+    if (existingReceipt.deltaDigest !== deltaDigest || existingReceipt.status !== proposal.semantic_delta.status) {
+      fail('STATUS_RECONCILIATION_CONFLICT', 'STATUS already contains a different reconciliation for this archived task.');
+    }
+    if (digest(statusDeltaFromReceipt(existingReceipt)) !== deltaDigest) {
+      fail('STATUS_RECONCILIATION_CONFLICT', 'STATUS reconciliation receipt no longer matches its typed status delta.');
+    }
+    try {
+      assertStatusProjection(originalStatusContent, proposal.semantic_delta, target.relativePath);
+      return null;
+    } catch (error) {
+      if (!(error instanceof VNextRuntimeError) || error.code !== 'STATUS_PROVENANCE_MISMATCH') throw error;
+    }
+    const nextStatusContent = projectStatusDelta(originalStatusContent, proposal.semantic_delta, target.relativePath);
+    assertStatusProjection(nextStatusContent, proposal.semantic_delta, target.relativePath);
+    return {
+      statusFilePath: target.filePath,
+      statusRelativePath: target.relativePath,
+      nextStatusContent,
+      originalStatusContent,
+      statusRevision: sha256(nextStatusContent),
+      archive: receipt,
+    };
+  }
+  const marker = renderStatusReconciliation(proposal, proposal.semantic_delta, receipt);
+  const projectedStatusContent = projectStatusDelta(originalStatusContent, proposal.semantic_delta, target.relativePath);
+  const nextStatusContent = appendStatusReconciliation(projectedStatusContent, marker, target.relativePath);
+  return {
+    statusFilePath: target.filePath,
+    statusRelativePath: target.relativePath,
+    nextStatusContent,
+    originalStatusContent,
+    statusRevision: sha256(nextStatusContent),
+    archive: receipt,
+  };
+}
+
+export type ReusedCandidateTarget = {
+  task_id: string;
+  document_id: string;
+  archive_revision: string;
+  candidate_ref: string;
+};
+
+type LessonMarker = {
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  archive_path: string;
+  archive_revision: string;
+  source_revision: string;
+  candidate_ref: string;
+  candidate_digest: string;
+  evidence_refs: string[];
+  disposition?: 'reused';
+  reused_candidate?: ReusedCandidateTarget;
+};
+
+function lessonCandidateDigest(candidate: LessonCandidate): string {
+  return digest({
+    category: candidate.category,
+    scene: candidate.scene,
+    conclusion: candidate.conclusion,
+    trigger: candidate.trigger,
+    cause: candidate.cause,
+    action: candidate.action,
+    consumer: candidate.consumer,
+  });
+}
+
+function renderLessonMarker(candidate: LessonCandidate, archive: ArchiveReceipt): string {
+  return `<!-- vNext lesson record: ${JSON.stringify({
+    task_id: archive.taskId,
+    task_slug: archive.taskSlug,
+    document_id: archive.documentId,
+    archive_path: archive.relativePath,
+    archive_revision: archive.revision,
+    source_revision: archive.sourceRevision,
+    candidate_ref: candidate.candidate_ref,
+    candidate_digest: lessonCandidateDigest(candidate),
+    evidence_refs: candidate.evidence_refs,
+  })} -->`;
+}
+
+function expectLessonRecord(value: unknown, location: string): AnyRecord {
+  if (!isRecord(value)) fail('LESSON_INVALID', `${location} is not a canonical Lesson marker mapping.`);
+  return value;
+}
+
+function expectLessonExactKeys(value: AnyRecord, expected: readonly string[], location: string): void {
+  const expectedSet = new Set(expected);
+  const missing = expected.filter(key => !(key in value));
+  const extra = Object.keys(value).filter(key => !expectedSet.has(key));
+  if (missing.length === 0 && extra.length === 0) return;
+  const details: string[] = [];
+  if (missing.length > 0) details.push(`missing=[${missing.join(', ')}]`);
+  if (extra.length > 0) details.push(`unsupported Lesson marker field(s)=[${extra.join(', ')}]`);
+  fail('LESSON_INVALID', `${location} is a non-canonical Lesson marker (${details.join('; ')}).`);
+}
+
+function expectLessonString(value: unknown, location: string, pattern?: RegExp): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    fail('LESSON_INVALID', `${location} must be a non-empty string.`);
+  }
+  const normalized = value.trim();
+  if (pattern && !pattern.test(normalized)) {
+    fail('LESSON_INVALID', `${location} has an invalid value.`);
+  }
+  return normalized;
+}
+
+function validateLessonTaskSlug(value: unknown, location: string): string {
+  const taskSlug = expectLessonString(value, location);
+  try {
+    validateTaskSlug(taskSlug);
+  } catch (error) {
+    fail('LESSON_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  return taskSlug;
+}
+
+function validateLessonCandidateKey(value: unknown, location: string): ReusedCandidateTarget {
+  if (!isRecord(value)) fail('LESSON_INVALID', `${location} must be a mapping.`);
+  const taskId = expectLessonString(value.task_id, `${location}.task_id`);
+  try {
+    validateTaskId(taskId);
+  } catch (error) {
+    fail('LESSON_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const documentId = expectLessonString(value.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(documentId)) {
+    fail('LESSON_INVALID', `${location}.document_id is invalid.`);
+  }
+  const archiveRevision = expectLessonString(value.archive_revision, `${location}.archive_revision`);
+  if (!SHA256_PATTERN.test(archiveRevision)) {
+    fail('LESSON_INVALID', `${location}.archive_revision must be an exact SHA-256.`);
+  }
+  const candidateRef = expectLessonString(value.candidate_ref, `${location}.candidate_ref`, SAFE_KEY_PATTERN);
+  return {
+    task_id: taskId,
+    document_id: documentId,
+    archive_revision: archiveRevision,
+    candidate_ref: candidateRef,
+  };
+}
+
+export function readLessonMarkers(content: string, location: string): LessonMarker[] {
+  const pattern = /<!-- vNext lesson record: (\{[^\r\n]+\}) -->/g;
+  const result: LessonMarker[] = [];
+  for (const match of content.matchAll(pattern)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1]);
+    } catch {
+      fail('LESSON_INVALID', `${location} contains an invalid vNext lesson provenance marker.`);
+    }
+    const record = expectLessonRecord(parsed, `${location}.lesson_marker`);
+    const hasDisposition = 'disposition' in record;
+    if (hasDisposition) {
+      if (record.disposition !== 'reused') {
+        fail('LESSON_INVALID', `${location}.lesson_marker has an invalid Lesson marker disposition: ${String(record.disposition)}.`);
+      }
+      expectLessonExactKeys(
+        record,
+        ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs', 'disposition', 'reused_candidate'],
+        `${location}.lesson_marker`,
+      );
+    } else {
+      expectLessonExactKeys(
+        record,
+        ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs'],
+        `${location}.lesson_marker`,
+      );
+    }
+    const archiveRevision = expectLessonString(record.archive_revision, `${location}.lesson_marker.archive_revision`);
+    const sourceRevision = expectLessonString(record.source_revision, `${location}.lesson_marker.source_revision`);
+    const candidateDigest = expectLessonString(record.candidate_digest, `${location}.lesson_marker.candidate_digest`);
+    if (!SHA256_PATTERN.test(archiveRevision) || !SHA256_PATTERN.test(sourceRevision) || !SHA256_PATTERN.test(candidateDigest)) {
+      fail('LESSON_INVALID', `${location} contains a non-canonical Lesson marker revision or digest.`);
+    }
+    const candidateIdentity = validateLessonCandidateKey(record, `${location}.lesson_marker`);
+    const taskSlug = validateLessonTaskSlug(record.task_slug, `${location}.lesson_marker.task_slug`);
+    const marker: LessonMarker = {
