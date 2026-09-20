@@ -1,0 +1,31 @@
+bun test v1.3.10 (30e609e0)
+
+::group::test/vnext-task-context.test.ts:
+(pass) vNext task context projection > keeps the default projection stable when unrelated persistent history grows [959.99ms]
+(pass) vNext task context projection > reuses a visible definition only for the exact definition revision [60.00ms]
+(pass) vNext task context projection > paginates required Unicode context without overlap or silent omission [92.00ms]
+(pass) vNext task context projection > migration preview is read-only and commit exposes current/full-history validation scopes [164.00ms]
+(pass) vNext task context projection > imports exact historical packages into the task store and pages explicit exports [107.00ms]
+(pass) vNext task context projection > rejects a stale context continuation after the current source changes [30.00ms]
+(pass) vNext task context projection > binds task-read and task-export continuations to source, definition, and state revisions [67.00ms]
+
+::endgroup::
+
+::group::test/vnext-task-store.test.ts:
+(pass) vNext task aggregate store > receipt lineage follows multiple committed storage edges but never a business or corrupt edge [176.00ms]
+(pass) vNext task aggregate store > deduplicates unchanged objects while retaining every event and old idempotency key [1052.99ms]
+(pass) vNext task aggregate store > keeps exact current/history reads bounded and fails clearly for missing history [58.00ms]
+(pass) vNext task aggregate store > references an unchanged evidence report only from its original event [14.00ms]
+(pass) vNext task aggregate store > stores one authoritative proposal/result payload and restores it through precise reads [40.00ms]
+(pass) vNext task aggregate store > keeps an exact old line locator when migration compacts CURRENT_TASK [80.00ms]
+(pass) vNext task aggregate store > rejects a task-data path that traverses a symbolic link when the host permits creating one [8.00ms]
+(pass) vNext task aggregate store > replays an in-flight marker and reads legacy JSON idempotency indexes [16.00ms]
+(pass) vNext task aggregate store > reports ambiguous duplicate keys and missing committed objects instead of guessing [28.00ms]
+(pass) vNext task aggregate store > does not expose valid orphan objects or events as committed facts [11.00ms]
+
+::endgroup::
+
+ 17 pass
+ 0 fail
+ 95 expect() calls
+Ran 17 tests across 2 files. [3.06s]

@@ -1,0 +1,14 @@
+bun test v1.3.10 (30e609e0)
+
+::group::test/workflow-vnext-source.test.ts:
+(pass) vNext Phase 2 source contract > keeps execute-step focused on one Runtime-admitted step [193.00ms]
+(pass) vNext Phase 2 source contract > preserves P-12 evidence-first and persistent-test admission boundaries [1.00ms]
+(pass) vNext Phase 2 source contract > requires prepare-task to map material draft gaps and preserve cross-step repairability [197.00ms]
+
+::endgroup::
+
+ 3 pass
+ 27 filtered out
+ 0 fail
+ 86 expect() calls
+Ran 3 tests across 1 file. [457.00ms]
