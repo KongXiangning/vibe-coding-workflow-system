@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: write
+      statuses: write
     env:
       BASE_SHA: 098710a2f91313450b0aeaf3f94b0136b56a3cf4
     steps:
@@ -81,6 +82,38 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "chore(dev): retain evidence amendment verification $GITHUB_RUN_ID"
           git push origin HEAD:codex/evidence-plan-amendment-work-20260920
+      - name: Publish verified clean candidate
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --short -- .github .amend-work VERSION package.json)"
+          git add -A
+          test -z "$(git diff --cached --name-only -- .github .amend-work VERSION package.json)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n' \
+            'feat(vnext): allow same-task evidence plan amendments' \
+            'Add an explicit user-authorized prepare/confirm/discard route for minimum-sufficient evidence selection changes without fabricating challenges or superseding the task. Preserve task identity, goal, acceptance, authority, findings, review/history and budgets; require fresh evidence for changed checks and exact selection-dependent validation descriptions.' \
+            | git commit-tree "$tree" -p "$BASE_SHA")
+          branch='codex/evidence-plan-amendment-vnext'
+          if git ls-remote --exit-code --heads origin "$branch" > "$RUNNER_TEMP/existing-candidate" 2>/dev/null; then
+            existing=$(cut -f1 "$RUNNER_TEMP/existing-candidate")
+            test "$existing" = "$commit"
+          else
+            git push origin "$commit:refs/heads/$branch"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" \
+            -f state=success \
+            -f context='evidence-plan-amendment/focused-verification' \
+            -f description='Same-task user-authorized evidence amendment and regression protections passed' \
+            -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf 'CANDIDATE_SHA=%s\nTREE_SHA=%s\nBRANCH=%s\n' "$commit" "$tree" "$branch" \
+            | tee "$RUNNER_TEMP/amend-logs/final-candidate.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
